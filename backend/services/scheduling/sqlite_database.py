@@ -1,4 +1,4 @@
-﻿"""
+"""
 SQLite Database Manager for Scheduling System
 
 Provides a lightweight SQLite-based database for scheduling data that:
@@ -113,6 +113,24 @@ class SQLiteSchedulingDatabase:
                     )
                 """)
 
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS JobExecutionsArchive (
+                        execution_id TEXT PRIMARY KEY,
+                        schedule_id TEXT NOT NULL,
+                        experiment_name_snapshot TEXT,
+                        experiment_path_snapshot TEXT,
+                        status TEXT NOT NULL DEFAULT 'pending',
+                        start_time TEXT,
+                        end_time TEXT,
+                        duration_minutes INTEGER,
+                        retry_count INTEGER NOT NULL DEFAULT 0,
+                        error_message TEXT,
+                        hamilton_command TEXT,
+                        created_at TEXT NOT NULL,
+                        archived_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+
                 # Scheduler state table for global recovery management
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS SchedulerState (
@@ -134,6 +152,8 @@ class SQLiteSchedulingDatabase:
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_scheduled_active ON ScheduledExperiments(is_active)")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_executions_status ON JobExecutions(status)")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_executions_schedule_id ON JobExecutions(schedule_id)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_exec_archive_schedule_id ON JobExecutionsArchive(schedule_id)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_exec_archive_created_at ON JobExecutionsArchive(created_at)")
                 
                 conn.commit()
 
@@ -493,6 +513,46 @@ class SQLiteSchedulingDatabase:
 
         return self.get_manual_recovery_state()
 
+    def _archive_job_executions(self, cursor: sqlite3.Cursor, schedule_id: str) -> None:
+        """Persist historical job executions before their schedule is removed."""
+        cursor.execute(
+            """
+            INSERT OR IGNORE INTO JobExecutionsArchive (
+                execution_id,
+                schedule_id,
+                experiment_name_snapshot,
+                experiment_path_snapshot,
+                status,
+                start_time,
+                end_time,
+                duration_minutes,
+                retry_count,
+                error_message,
+                hamilton_command,
+                created_at,
+                archived_at
+            )
+            SELECT
+                je.execution_id,
+                je.schedule_id,
+                se.experiment_name,
+                se.experiment_path,
+                je.status,
+                je.start_time,
+                je.end_time,
+                je.duration_minutes,
+                je.retry_count,
+                je.error_message,
+                je.hamilton_command,
+                je.created_at,
+                CURRENT_TIMESTAMP
+            FROM JobExecutions je
+            LEFT JOIN ScheduledExperiments se ON je.schedule_id = se.schedule_id
+            WHERE je.schedule_id = ?
+            """,
+            (schedule_id,)
+        )
+
     def delete_schedule(self, schedule_id: str) -> bool:
         """
         Delete a scheduled experiment
@@ -506,16 +566,37 @@ class SQLiteSchedulingDatabase:
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                
-                # Delete related job executions first (CASCADE should handle this, but being explicit)
-                cursor.execute("DELETE FROM JobExecutions WHERE schedule_id = ?", (schedule_id,))
-                
-                # Delete the schedule
-                cursor.execute("DELETE FROM ScheduledExperiments WHERE schedule_id = ?", (schedule_id,))
-                
+                cursor.execute(
+                    "SELECT experiment_name FROM ScheduledExperiments WHERE schedule_id = ?",
+                    (schedule_id,)
+                )
+                if not cursor.fetchone():
+                    logger.warning(f"No schedule found to delete: {schedule_id}")
+                    return False
+
+                cursor.execute(
+                    "SELECT COUNT(*) FROM JobExecutions WHERE schedule_id = ?",
+                    (schedule_id,)
+                )
+                execution_count = cursor.fetchone()[0]
+
+                if execution_count:
+                    self._archive_job_executions(cursor, schedule_id)
+
+                cursor.execute(
+                    "DELETE FROM ScheduledExperiments WHERE schedule_id = ?",
+                    (schedule_id,)
+                )
+
                 conn.commit()
                 
                 if cursor.rowcount > 0:
+                    if execution_count:
+                        logger.info(
+                            "Archived %d execution(s) before deleting schedule %s",
+                            execution_count,
+                            schedule_id
+                        )
                     logger.info(f"Deleted schedule from SQLite: {schedule_id}")
                     return True
                 else:
@@ -823,44 +904,83 @@ class SQLiteSchedulingDatabase:
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                
+                where_clause = ""
+                params: List[Any] = []
                 if schedule_id:
-                    cursor.execute("""
-                        SELECT je.*, se.experiment_name, se.experiment_path
-                        FROM JobExecutions je
-                        JOIN ScheduledExperiments se ON je.schedule_id = se.schedule_id
-                        WHERE je.schedule_id = ?
-                        ORDER BY je.created_at DESC
-                        LIMIT ?
-                    """, (schedule_id, limit))
-                else:
-                    cursor.execute("""
-                        SELECT je.*, se.experiment_name, se.experiment_path
-                        FROM JobExecutions je
-                        JOIN ScheduledExperiments se ON je.schedule_id = se.schedule_id
-                        ORDER BY je.created_at DESC
-                        LIMIT ?
-                    """, (limit,))
-                
-                columns = [col[0] for col in cursor.description]
-                
-                executions = []
-                for row in cursor.fetchall():
-                    execution = dict(zip(columns, row))
-                    
-                    # Calculate duration if end_time exists
-                    if execution.get('start_time') and execution.get('end_time'):
+                    where_clause = "WHERE je.schedule_id = ?"
+                    params.append(schedule_id)
+
+                cursor.execute(
+                    f"""
+                    SELECT
+                        je.execution_id,
+                        je.schedule_id,
+                        je.status,
+                        je.start_time,
+                        je.end_time,
+                        je.duration_minutes,
+                        je.retry_count,
+                        je.error_message,
+                        je.hamilton_command,
+                        je.created_at,
+                        se.experiment_name AS experiment_name,
+                        se.experiment_path AS experiment_path,
+                        NULL AS archived_at
+                    FROM JobExecutions je
+                    LEFT JOIN ScheduledExperiments se ON je.schedule_id = se.schedule_id
+                    {where_clause}
+                    """,
+                    params,
+                )
+                current_rows = [dict(row) for row in cursor.fetchall()]
+
+                archive_where = "WHERE schedule_id = ?" if schedule_id else ""
+                archive_params = [schedule_id] if schedule_id else []
+
+                cursor.execute(
+                    f"""
+                    SELECT
+                        execution_id,
+                        schedule_id,
+                        status,
+                        start_time,
+                        end_time,
+                        duration_minutes,
+                        retry_count,
+                        error_message,
+                        hamilton_command,
+                        created_at,
+                        experiment_name_snapshot AS experiment_name,
+                        experiment_path_snapshot AS experiment_path,
+                        archived_at
+                    FROM JobExecutionsArchive
+                    {archive_where}
+                    """,
+                    archive_params,
+                )
+                archived_rows = [dict(row) for row in cursor.fetchall()]
+
+                executions = current_rows + archived_rows
+                executions.sort(key=lambda item: item.get("created_at") or "", reverse=True)
+
+                if limit and len(executions) > limit:
+                    executions = executions[:limit]
+
+                for execution in executions:
+                    if execution.get("start_time") and execution.get("end_time"):
                         try:
-                            start = datetime.fromisoformat(execution['start_time'])
-                            end = datetime.fromisoformat(execution['end_time'])
-                            execution['calculated_duration_minutes'] = int((end - start).total_seconds() / 60)
-                        except:
-                            execution['calculated_duration_minutes'] = execution.get('duration_minutes')
-                    
-                    # Add status information
-                    execution['status_display'] = self._format_execution_status(execution['status'])
-                    
-                    executions.append(execution)
+                            start = datetime.fromisoformat(execution["start_time"])
+                            end = datetime.fromisoformat(execution["end_time"])
+                            execution["calculated_duration_minutes"] = int((end - start).total_seconds() / 60)
+                        except Exception:
+                            execution["calculated_duration_minutes"] = execution.get("duration_minutes")
+                    else:
+                        execution["calculated_duration_minutes"] = execution.get("duration_minutes")
+
+                    if not execution.get("experiment_name"):
+                        execution["experiment_name"] = "Archived Schedule"
+
+                    execution["status_display"] = self._format_execution_status(execution["status"])
                 
                 return executions
                 
@@ -882,21 +1002,44 @@ class SQLiteSchedulingDatabase:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 
-                # Get basic schedule info
-                cursor.execute("""
+                cursor.execute(
+                    """
                     SELECT experiment_name, experiment_path, created_at, is_active
                     FROM ScheduledExperiments 
                     WHERE schedule_id = ?
-                """, (schedule_id,))
-                
-                schedule_row = cursor.fetchone()
-                if not schedule_row:
-                    return {}
-                
-                schedule_info = dict(schedule_row)
-                
-                # Get execution statistics
-                cursor.execute("""
+                    """,
+                    (schedule_id,),
+                )
+
+                schedule_info_row = cursor.fetchone()
+                if schedule_info_row:
+                    schedule_info = dict(schedule_info_row)
+                else:
+                    cursor.execute(
+                        """
+                        SELECT 
+                            experiment_name_snapshot AS experiment_name,
+                            experiment_path_snapshot AS experiment_path,
+                            MIN(created_at) AS created_at
+                        FROM JobExecutionsArchive
+                        WHERE schedule_id = ?
+                        """,
+                        (schedule_id,),
+                    )
+                    archive_info = cursor.fetchone()
+                    if archive_info:
+                        schedule_info = dict(archive_info)
+                        schedule_info.setdefault("is_active", 0)
+                    else:
+                        schedule_info = {
+                            "experiment_name": "Archived Schedule",
+                            "experiment_path": None,
+                            "created_at": None,
+                            "is_active": 0,
+                        }
+
+                cursor.execute(
+                    """
                     SELECT 
                         COUNT(*) as total_runs,
                         SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as successful_runs,
@@ -905,35 +1048,66 @@ class SQLiteSchedulingDatabase:
                         MAX(CASE WHEN status = 'completed' THEN start_time END) as last_successful_run,
                         AVG(CASE WHEN duration_minutes IS NOT NULL THEN duration_minutes END) as avg_duration,
                         MIN(start_time) as first_run_time
-                    FROM JobExecutions 
-                    WHERE schedule_id = ?
-                """, (schedule_id,))
-                
+                    FROM (
+                        SELECT status, start_time, duration_minutes
+                        FROM JobExecutions WHERE schedule_id = ?
+                        UNION ALL
+                        SELECT status, start_time, duration_minutes
+                        FROM JobExecutionsArchive WHERE schedule_id = ?
+                    )
+                    """,
+                    (schedule_id, schedule_id),
+                )
+
                 stats_row = cursor.fetchone()
-                stats = dict(stats_row) if stats_row else {}
-                
-                # Get last execution details
-                cursor.execute("""
+                stats = (
+                    dict(stats_row)
+                    if stats_row
+                    else {
+                        "total_runs": 0,
+                        "successful_runs": 0,
+                        "failed_runs": 0,
+                        "last_run_time": None,
+                        "last_successful_run": None,
+                        "avg_duration": None,
+                        "first_run_time": None,
+                    }
+                )
+
+                cursor.execute(
+                    """
                     SELECT status, start_time, end_time, error_message, retry_count
-                    FROM JobExecutions 
-                    WHERE schedule_id = ?
+                    FROM (
+                        SELECT status, start_time, end_time, error_message, retry_count, created_at
+                        FROM JobExecutions WHERE schedule_id = ?
+                        UNION ALL
+                        SELECT status, start_time, end_time, error_message, retry_count, created_at
+                        FROM JobExecutionsArchive WHERE schedule_id = ?
+                    )
                     ORDER BY created_at DESC
                     LIMIT 1
-                """, (schedule_id,))
-                
+                    """,
+                    (schedule_id, schedule_id),
+                )
+
                 last_execution_row = cursor.fetchone()
                 last_execution = dict(last_execution_row) if last_execution_row else {}
-                
-                # Get next run time from schedule
-                cursor.execute("""
+
+                cursor.execute(
+                    """
                     SELECT start_time, schedule_type, interval_hours
                     FROM ScheduledExperiments 
                     WHERE schedule_id = ? AND is_active = 1
-                """, (schedule_id,))
-                
+                    """,
+                    (schedule_id,),
+                )
+
                 next_run_row = cursor.fetchone()
                 next_run_info = dict(next_run_row) if next_run_row else {}
-                
+
+                total_runs = stats.get("total_runs") or 0
+                successful_runs = stats.get("successful_runs") or 0
+
                 return {
                     **schedule_info,
                     **stats,
@@ -941,7 +1115,7 @@ class SQLiteSchedulingDatabase:
                     'next_run_time': next_run_info.get('start_time'),
                     'schedule_type': next_run_info.get('schedule_type'),
                     'interval_hours': next_run_info.get('interval_hours'),
-                    'success_rate': round((stats.get('successful_runs', 0) / stats.get('total_runs', 1)) * 100, 1) if stats.get('total_runs', 0) > 0 else 0
+                    'success_rate': round((successful_runs / total_runs) * 100, 1) if total_runs > 0 else 0
                 }
                 
         except Exception as e:
@@ -1021,3 +1195,5 @@ def get_sqlite_scheduling_database() -> SQLiteSchedulingDatabase:
             _sqlite_db_instance = SQLiteSchedulingDatabase()
             
     return _sqlite_db_instance
+
+

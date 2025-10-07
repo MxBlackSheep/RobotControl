@@ -11,7 +11,6 @@ import {
   ListItemText,
   ListItemButton,
   Button,
-  Chip,
   Stack,
   FormControlLabel,
   Switch,
@@ -20,6 +19,8 @@ import {
   Tab,
   Paper
 } from '@mui/material';
+import useTheme from '@mui/material/styles/useTheme';
+import useMediaQuery from '@mui/material/useMediaQuery';
 import { useNavigate } from 'react-router-dom';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import StorageIcon from '@mui/icons-material/Storage';
@@ -43,23 +44,17 @@ interface TableInfo {
   is_important?: boolean;
 }
 
-interface ConnectionStatus {
-  connected: boolean;
-  database: string;
-  server: string;
-  mode: string;
-}
-
 const DatabasePage: React.FC = () => {
   const navigate = useNavigate();
   const [tables, setTables] = useState<TableInfo[]>([]);
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showImportantOnly, setShowImportantOnly] = useState(true);
   const [tableStats, setTableStats] = useState({ importantCount: 0, allCount: 0 });
   const [activeTab, setActiveTab] = useState(0);
+  const theme = useTheme();
+  const isSmallScreen = useMediaQuery(theme.breakpoints.down('sm'));
 
   useEffect(() => {
     loadTablesAndStatus();
@@ -69,11 +64,8 @@ const DatabasePage: React.FC = () => {
     setLoading(true);
     setError(''); // Clear previous errors
     try {
-      // Load tables and connection status in parallel
-      const [tablesResponse, statusResponse] = await Promise.all([
-        databaseAPI.getTables(showImportantOnly),
-        databaseAPI.getStatus()
-      ]);
+      // Load tables
+      const tablesResponse = await databaseAPI.getTables(showImportantOnly);
       
       // Backend response structure for tables (axios wraps response in .data)
       const tableDetails = tablesResponse.data.data.table_details || [];
@@ -90,17 +82,6 @@ const DatabasePage: React.FC = () => {
         importantCount: tablesResponse.data.data.important_count || 0,
         allCount: tablesResponse.data.data.all_count || 0
       });
-      
-      // Backend response structure for status (direct response, no wrapping)
-      const statusData = statusResponse.data;
-      if (statusData) {
-        setConnectionStatus({
-          connected: Boolean(statusData.is_connected) === true,
-          database: statusData.database_name || 'Unknown',
-          server: statusData.server_name || 'Unknown', 
-          mode: statusData.mode || 'unknown'
-        });
-      }
     } catch (err) {
       console.error('Database loading error:', err);
       setError('Failed to load database information');
@@ -164,10 +145,10 @@ const DatabasePage: React.FC = () => {
           </Typography>
         </Box>
         
-        {/* Toggle and Connection Status */}
-        <Stack 
-          direction={{ xs: 'column', sm: 'row' }} 
-          spacing={{ xs: 1, sm: 2 }} 
+        {/* Important tables filter */}
+        <Stack
+          direction={{ xs: 'column', sm: 'row' }}
+          spacing={{ xs: 1, sm: 2 }}
           alignItems={{ xs: 'stretch', sm: 'center' }}
           sx={{ width: { xs: '100%', sm: 'auto' } }}
         >
@@ -190,26 +171,6 @@ const DatabasePage: React.FC = () => {
               }}
             />
           </Tooltip>
-          
-          {connectionStatus && (
-            <Stack 
-              direction="row" 
-              spacing={1}
-              sx={{ justifyContent: { xs: 'flex-start', sm: 'center' } }}
-            >
-              <Chip
-                label={connectionStatus.connected ? 'Connected' : 'Disconnected'}
-                color={connectionStatus.connected ? 'success' : 'error'}
-                size="small"
-              />
-              <Chip
-                label={connectionStatus.mode}
-                color="primary"
-                variant="outlined"
-                size="small"
-              />
-            </Stack>
-          )}
         </Stack>
       </Box>
 
@@ -224,12 +185,19 @@ const DatabasePage: React.FC = () => {
       )}
 
       {/* Tabs for different database features */}
-      <Paper sx={{ mb: 2 }}>
-        <Tabs value={activeTab} onChange={(_, v) => setActiveTab(v)} aria-label="database tabs">
+      <Paper sx={{ mb: 2, overflowX: 'auto' }}>
+        <Tabs
+          value={activeTab}
+          onChange={(_, v) => setActiveTab(v)}
+          aria-label="database tabs"
+          variant="scrollable"
+          scrollButtons="auto"
+          allowScrollButtonsMobile
+        >
           <Tab icon={<TableChartIcon />} label="Tables" iconPosition="start" />
-          <Tab icon={<CodeIcon />} label="Stored Procedures" iconPosition="start" />
+          <Tab icon={<CodeIcon />} label={isSmallScreen ? 'Procedures' : 'Stored Procedures'} iconPosition="start" />
           <Tab icon={<RestoreIcon />} label="Restore" iconPosition="start" />
-          <Tab icon={<SettingsIcon />} label="Operations" iconPosition="start" />
+          <Tab icon={<SettingsIcon />} label={isSmallScreen ? 'Ops' : 'Operations'} iconPosition="start" />
         </Tabs>
       </Paper>
 
@@ -256,17 +224,6 @@ const DatabasePage: React.FC = () => {
                   </Typography>
                 )}
               </Typography>
-              
-              {connectionStatus && (
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="body2" color="textSecondary">
-                    Database: {connectionStatus.database}
-                  </Typography>
-                  <Typography variant="body2" color="textSecondary">
-                    Server: {connectionStatus.server}
-                  </Typography>
-                </Box>
-              )}
               
               <List 
                 dense 

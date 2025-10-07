@@ -2,6 +2,13 @@
 
 Refer to `AGENTS.md` for the day-to-day runbook; this file captures development-facing context extracted from recent session notes.
 
+## 2025-10-07 Responsive Database & History Retention
+
+- Database page tabs now mirror the scheduling UX: scrollable with mobile labels, and legacy connection chips/metadata were removed so the header no longer shows “Disconnected / Unknown” placeholders (`frontend/src/pages/DatabasePage.tsx`).
+- Tight viewports get a more usable table pager—`TablePagination` wraps controls with larger touch targets when vertical space is constrained (`frontend/src/components/DatabaseTable.tsx`).
+- Job execution records survive schedule deletion by archiving into a new `JobExecutionsArchive` table; history/summary queries now union current and archived rows with schedule snapshots (`backend/services/scheduling/sqlite_database.py`).
+- Packaging workflow remains: `npm run build`, `python build_scripts/embed_resources.py`, `python build_scripts/pyinstaller_build.py` to refresh the single-file binary (`dist/PyRobot.exe`).
+
 ## 2025-10-07 Backup UX & Packaging
 
 - Database restore screen now lets admins capture a managed `.bak/.json` pair before restoring. Added a `Create JSON Backup` action and dialog that calls `/api/admin/backup/create`, refreshes the managed list, and auto-selects the new file (`frontend/src/components/DatabaseRestore.tsx`).

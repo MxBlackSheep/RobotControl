@@ -569,6 +569,27 @@ const DatabaseTable: React.FC<DatabaseTableProps> = ({ tableName, onError }) => 
               rowsPerPageOptions={[10, 25, 50, 100]}
               showFirstButton
               showLastButton
+              sx={{
+                '.MuiTablePagination-toolbar': {
+                  flexWrap: { xs: 'wrap', sm: 'nowrap' },
+                  rowGap: 1.5,
+                  justifyContent: { xs: 'center', sm: 'space-between' },
+                  px: { xs: 1, sm: 2 }
+                },
+                '.MuiTablePagination-selectLabel, .MuiTablePagination-displayedRows': {
+                  fontSize: { xs: '0.85rem', sm: '0.9rem' }
+                },
+                '.MuiTablePagination-selectRoot': {
+                  marginRight: { xs: 0, sm: 3 }
+                },
+                '.MuiInputBase-root': {
+                  minWidth: 120,
+                  fontSize: { xs: '0.9rem', sm: '1rem' }
+                },
+                '.MuiTablePagination-actions': {
+                  marginLeft: { xs: 0, sm: 1 }
+                }
+              }}
             />
           </>
         ) : (
