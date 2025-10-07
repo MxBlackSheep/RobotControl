@@ -1,0 +1,50 @@
+{
+  "name": "pyrobot-simplified-frontend",
+  "version": "2.0.0",
+  "description": "Simplified React frontend for PyRobot",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@emotion/react": "^11.11.1",
+    "@emotion/styled": "^11.11.0",
+    "@mui/icons-material": "^5.14.19",
+    "@mui/material": "^5.14.20",
+    "@mui/x-data-grid": "^6.18.3",
+    "@tanstack/react-query": "^5.8.4",
+    "axios": "^1.6.2",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-hot-toast": "^2.4.1",
+    "react-router-dom": "^6.20.1",
+    "react-window": "^2.0.0",
+    "react-window-infinite-loader": "^1.0.10"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.39",
+    "@types/react-dom": "^18.2.17",
+    "@types/react-window": "^1.8.8",
+    "@typescript-eslint/eslint-plugin": "^6.13.1",
+    "@typescript-eslint/parser": "^6.13.1",
+    "@vitejs/plugin-react": "^4.2.0",
+    "babel-plugin-import": "^1.13.8",
+    "eslint": "^8.54.0",
+    "eslint-plugin-react": "^7.33.2",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "rollup-plugin-visualizer": "^6.0.3",
+    "typescript": "^5.3.2",
+    "vite": "^5.0.5"
+  },
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 3005",
+    "build": "tsc && vite build",
+    "build:analyze": "npm run build && npx serve dist",
+    "preview": "vite preview",
+    "lint": "eslint . --ext ts,tsx",
+    "type-check": "tsc --noEmit",
+    "bundle-analyze": "npm run build && start dist/bundle-analysis.html"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  }
+}
