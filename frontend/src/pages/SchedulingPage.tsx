@@ -29,6 +29,8 @@ import {
   Tab,
   Tabs
 } from '@mui/material';
+import useTheme from '@mui/material/styles/useTheme';
+import useMediaQuery from '@mui/material/useMediaQuery';
 import {
   ArrowBack as ArrowBackIcon,
   Home as HomeIcon,
@@ -87,6 +89,8 @@ const SchedulingPage: React.FC = () => {
 
   // Initialize scheduling hook
   const { state, actions } = useScheduling();
+  const theme = useTheme();
+  const isSmallScreen = useMediaQuery(theme.breakpoints.down('sm'));
 
   const formatTimestamp = (value?: string | null): string => {
     if (!value) {
@@ -469,37 +473,52 @@ const SchedulingPage: React.FC = () => {
       {/* Main Content */}
       <Paper elevation={1}>
         {/* Navigation Tabs */}
-        <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-          <Tabs value={currentTab} onChange={handleTabChange}>
+        <Box sx={{ borderBottom: 1, borderColor: 'divider', overflowX: 'auto' }}>
+          <Tabs
+            value={currentTab}
+            onChange={handleTabChange}
+            variant="scrollable"
+            scrollButtons="auto"
+            allowScrollButtonsMobile
+            aria-label="scheduling tabs"
+          >
             <Tab 
               label={
-                <Stack direction="row" alignItems="center" spacing={1}>
+                <Stack direction="row" alignItems="center" spacing={isSmallScreen ? 0.75 : 1}>
                   <ScheduleIcon fontSize="small" />
-                  <span>Schedules</span>
+                  <Typography component="span" variant="body2">
+                    Schedules
+                  </Typography>
                 </Stack>
               } 
             />
             <Tab 
               label={
-                <Stack direction="row" alignItems="center" spacing={1}>
+                <Stack direction="row" alignItems="center" spacing={isSmallScreen ? 0.75 : 1}>
                   <WarningIcon fontSize="small" color={state.manualRecovery?.active ? 'error' : 'disabled'} />
-                  <span>Manual Recovery</span>
+                  <Typography component="span" variant="body2">
+                    {isSmallScreen ? 'Recovery' : 'Manual Recovery'}
+                  </Typography>
                 </Stack>
               } 
             />
             <Tab 
               label={
-                <Stack direction="row" alignItems="center" spacing={1}>
+                <Stack direction="row" alignItems="center" spacing={isSmallScreen ? 0.75 : 1}>
                   <CalendarIcon fontSize="small" />
-                  <span>Calendar View</span>
+                  <Typography component="span" variant="body2">
+                    {isSmallScreen ? 'Calendar' : 'Calendar View'}
+                  </Typography>
                 </Stack>
               } 
             />
             <Tab 
               label={
-                <Stack direction="row" alignItems="center" spacing={1}>
+                <Stack direction="row" alignItems="center" spacing={isSmallScreen ? 0.75 : 1}>
                   <HistoryIcon fontSize="small" />
-                  <span>Execution History</span>
+                  <Typography component="span" variant="body2">
+                    {isSmallScreen ? 'History' : 'Execution History'}
+                  </Typography>
                 </Stack>
               } 
             />

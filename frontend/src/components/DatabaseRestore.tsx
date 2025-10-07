@@ -32,6 +32,8 @@ import {
   Tooltip,
   Collapse
 } from '@mui/material';
+import useTheme from '@mui/material/styles/useTheme';
+import useMediaQuery from '@mui/material/useMediaQuery';
 import {
   Restore as RestoreIcon,
   Upload as UploadIcon,
@@ -88,6 +90,8 @@ const FileExplorer: React.FC<FileExplorerProps> = ({ open, onClose, onSelect }) 
   const [items, setItems] = useState<FileSystemItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<FileSystemItem | null>(null);
+  const theme = useTheme();
+  const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
 
   useEffect(() => {
     if (open) {
@@ -131,7 +135,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({ open, onClose, onSelect }) 
   };
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth fullScreen={fullScreen}>
       <DialogTitle>
         <Stack direction="row" alignItems="center" spacing={1}>
           <ComputerIcon />
@@ -206,7 +210,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({ open, onClose, onSelect }) 
                           secondary={
                             item.is_directory 
                               ? 'Directory' 
-                              : `${item.size_formatted || ''} ${item.modified_date ? `â€¢ ${item.modified_date}` : ''}`
+                              : `${item.size_formatted || ''} ${item.modified_date ? `â€?${item.modified_date}` : ''}`
                           }
                         />
                         {item.name.toLowerCase().endsWith('.bck') && (
@@ -230,13 +234,27 @@ const FileExplorer: React.FC<FileExplorerProps> = ({ open, onClose, onSelect }) 
           )}
         </Stack>
       </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
+      <DialogActions
+        sx={{
+          px: { xs: 2, sm: 3 },
+          py: { xs: 2, sm: 2 },
+          flexWrap: 'wrap',
+          gap: 1,
+          justifyContent: fullScreen ? 'flex-start' : 'flex-end'
+        }}
+      >
+        <Button
+          onClick={onClose}
+          sx={{ flex: { xs: '1 1 100%', sm: '0 0 auto' } }}
+        >
+          Cancel
+        </Button>
         <Button
           onClick={handleSelect}
           variant="contained"
           disabled={!selectedFile}
           startIcon={<FileIcon />}
+          sx={{ flex: { xs: '1 1 100%', sm: '0 0 auto' } }}
         >
           Select File
         </Button>
@@ -264,6 +282,8 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
   const [createDescription, setCreateDescription] = useState('');
   const [createDialogError, setCreateDialogError] = useState<string | null>(null);
   const [createFeedback, setCreateFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const theme = useTheme();
+  const isSmallScreen = useMediaQuery(theme.breakpoints.down('sm'));
 
   useEffect(() => {
     loadBackupFiles();
@@ -449,15 +469,22 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
 
           {/* Tab Navigation */}
           <Paper sx={{ borderBottom: 1, borderColor: 'divider' }}>
-            <Tabs value={activeTab} onChange={handleTabChange} aria-label="restore tabs">
+            <Tabs
+              value={activeTab}
+              onChange={handleTabChange}
+              aria-label="restore tabs"
+              variant={isSmallScreen ? 'scrollable' : 'standard'}
+              scrollButtons="auto"
+              allowScrollButtonsMobile
+            >
               <Tab 
                 icon={<StorageIcon />} 
-                label="Managed Backups (.bak)" 
+                label={isSmallScreen ? 'Managed (.bak)' : 'Managed Backups (.bak)'} 
                 iconPosition="start" 
               />
               <Tab 
                 icon={<ComputerIcon />} 
-                label="Browse Files (.bck)" 
+                label={isSmallScreen ? 'Browse (.bck)' : 'Browse Files (.bck)'} 
                 iconPosition="start" 
               />
             </Tabs>
@@ -490,7 +517,7 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
                             {backup.filename}
                           </Typography>
                           <Typography variant="caption" color="textSecondary">
-                            {backup.file_size_formatted} â€¢ {formatDate(backup.created_date)}
+                            {backup.file_size_formatted} â€?{formatDate(backup.created_date)}
                           </Typography>
                           {backup.description && (
                             <Typography variant="caption" display="block" sx={{ fontStyle: 'italic' }}>
@@ -514,7 +541,7 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
               {selectedBackup && (
                 <Card variant="outlined" sx={{ bgcolor: 'grey.50' }}>
                   <CardContent sx={{ pb: 1 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1, mb: 1 }}>
                       <Typography variant="subtitle2">
                         Backup Metadata
                       </Typography>
@@ -527,37 +554,42 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
                     </Box>
                     
                     <Stack spacing={1}>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Stack
+                        direction={{ xs: 'column', sm: 'row' }}
+                        spacing={0.5}
+                        justifyContent="space-between"
+                        alignItems={{ xs: 'flex-start', sm: 'center' }}
+                      >
                         <Typography variant="body2" color="textSecondary">Status:</Typography>
                         <Chip 
                           label={selectedBackup.is_valid ? 'Valid' : 'Invalid'}
                           size="small" 
                           color={selectedBackup.is_valid ? 'success' : 'error'}
                         />
-                      </Box>
+                      </Stack>
                       
                       {selectedBackup.description && (
-                        <Box>
+                        <Stack spacing={0.5}>
                           <Typography variant="body2" color="textSecondary" gutterBottom>Description:</Typography>
                           <Typography variant="body2" sx={{ fontStyle: 'italic', pl: 1, borderLeft: 2, borderColor: 'grey.300' }}>
                             {selectedBackup.description}
                           </Typography>
-                        </Box>
+                        </Stack>
                       )}
                     </Stack>
 
                     <Collapse in={expandedMetadata}>
                       <Divider sx={{ my: 1 }} />
                       <Stack spacing={1}>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 0.75 }}>
                           <Typography variant="body2" color="textSecondary">Database:</Typography>
                           <Typography variant="body2">{selectedBackup.database_name || 'Unknown'}</Typography>
                         </Box>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 0.75 }}>
                           <Typography variant="body2" color="textSecondary">Server:</Typography>
                           <Typography variant="body2">{selectedBackup.sql_server || 'Unknown'}</Typography>
                         </Box>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 0.75 }}>
                           <Typography variant="body2" color="textSecondary">Timestamp:</Typography>
                           <Typography variant="body2">{selectedBackup.timestamp || 'Unknown'}</Typography>
                         </Box>
@@ -623,46 +655,94 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
           {currentSelection && (
             <Card variant="outlined" sx={{ p: 2, bgcolor: 'blue.50' }}>
               <Typography variant="subtitle2" gutterBottom>Selected Backup:</Typography>
-              <Stack spacing={1}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <Typography variant="body2" color="textSecondary">File:</Typography>
-                  <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+              <Stack spacing={1.25}>
+                <Stack
+                  direction={{ xs: 'column', sm: 'row' }}
+                  spacing={0.5}
+                  justifyContent="space-between"
+                  alignItems={{ xs: 'flex-start', sm: 'center' }}
+                >
+                  <Typography variant="body2" color="textSecondary">
+                    File:
+                  </Typography>
+                  <Typography variant="body2" sx={{ fontFamily: 'monospace', wordBreak: 'break-word' }}>
                     {currentSelection.filename}
                   </Typography>
-                </Box>
+                </Stack>
+
                 {currentSelection.path && (
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <Typography variant="body2" color="textSecondary">Full Path:</Typography>
-                    <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                  <Stack
+                    direction={{ xs: 'column', sm: 'row' }}
+                    spacing={0.5}
+                    justifyContent="space-between"
+                    alignItems={{ xs: 'flex-start', sm: 'center' }}
+                  >
+                    <Typography variant="body2" color="textSecondary">
+                      Full Path:
+                    </Typography>
+                    <Typography
+                      variant="body2"
+                      sx={{ fontFamily: 'monospace', fontSize: '0.8rem', wordBreak: 'break-all' }}
+                    >
                       {currentSelection.path}
                     </Typography>
-                  </Box>
+                  </Stack>
                 )}
-                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <Typography variant="body2" color="textSecondary">Type:</Typography>
-                  <Chip 
-                    label={`${currentSelection.type.toUpperCase()} ${currentSelection.hasMetadata ? '(with metadata)' : '(no metadata)'}`} 
-                    size="small" 
+
+                <Stack
+                  direction={{ xs: 'column', sm: 'row' }}
+                  spacing={0.5}
+                  justifyContent="space-between"
+                  alignItems={{ xs: 'flex-start', sm: 'center' }}
+                >
+                  <Typography variant="body2" color="textSecondary">
+                    Type:
+                  </Typography>
+                  <Chip
+                    label={`${currentSelection.type.toUpperCase()} ${currentSelection.hasMetadata ? '(with metadata)' : '(no metadata)'}`}
+                    size="small"
                     color={currentSelection.type === 'bak' ? 'primary' : 'secondary'}
                   />
-                </Box>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <Typography variant="body2" color="textSecondary">Size:</Typography>
+                </Stack>
+
+                <Stack
+                  direction={{ xs: 'column', sm: 'row' }}
+                  spacing={0.5}
+                  justifyContent="space-between"
+                  alignItems={{ xs: 'flex-start', sm: 'center' }}
+                >
+                  <Typography variant="body2" color="textSecondary">
+                    Size:
+                  </Typography>
                   <Typography variant="body2">{currentSelection.size}</Typography>
-                </Box>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <Typography variant="body2" color="textSecondary">Created:</Typography>
-                  <Typography variant="body2">{currentSelection.created !== 'Unknown' ? formatDate(currentSelection.created) : 'Unknown'}</Typography>
-                </Box>
+                </Stack>
+
+                <Stack
+                  direction={{ xs: 'column', sm: 'row' }}
+                  spacing={0.5}
+                  justifyContent="space-between"
+                  alignItems={{ xs: 'flex-start', sm: 'center' }}
+                >
+                  <Typography variant="body2" color="textSecondary">
+                    Created:
+                  </Typography>
+                  <Typography variant="body2">
+                    {currentSelection.created !== 'Unknown' ? formatDate(currentSelection.created) : 'Unknown'}
+                  </Typography>
+                </Stack>
+
                 {currentSelection.description && (
-                  <>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <Typography variant="body2" color="textSecondary">Description:</Typography>
-                    </Box>
-                    <Typography variant="body2" sx={{ fontStyle: 'italic', pl: 2, borderLeft: 2, borderColor: 'primary.main' }}>
+                  <Stack spacing={0.5}>
+                    <Typography variant="body2" color="textSecondary">
+                      Description:
+                    </Typography>
+                    <Typography
+                      variant="body2"
+                      sx={{ fontStyle: 'italic', pl: { xs: 1, sm: 2 }, borderLeft: 2, borderColor: 'primary.main' }}
+                    >
                       {currentSelection.description}
                     </Typography>
-                  </>
+                  </Stack>
                 )}
               </Stack>
             </Card>
@@ -692,14 +772,20 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
       </CardContent>
 
       {/* Restore Confirmation Dialog */}
-      <Dialog open={restoreDialogOpen} onClose={() => !restoreProgress && setRestoreDialogOpen(false)} maxWidth="md" fullWidth>
+      <Dialog
+        open={restoreDialogOpen}
+        onClose={() => !restoreProgress && setRestoreDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+        fullScreen={isSmallScreen}
+      >
         <DialogTitle>
           <Stack direction="row" alignItems="center" spacing={1}>
             <WarningIcon color="warning" />
             <Typography variant="h6">Restore Database - Confirmation Required</Typography>
           </Stack>
         </DialogTitle>
-        <DialogContent>
+        <DialogContent sx={{ px: { xs: 2, sm: 3 } }}>
           <Stack spacing={3}>
             {restoreProgress && (
               <LoadingSpinner 
@@ -758,7 +844,7 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
             )}
 
             <ErrorAlert
-              message="During the restore process:\nâ€¢ Database will be temporarily unavailable (5-15 minutes)\nâ€¢ All active connections will be terminated\nâ€¢ Current experiments and monitoring will be interrupted\nâ€¢ Web application may show connection errors temporarily"
+              message="During the restore process:\nâ€?Database will be temporarily unavailable (5-15 minutes)\nâ€?All active connections will be terminated\nâ€?Current experiments and monitoring will be interrupted\nâ€?Web application may show connection errors temporarily"
               severity="info"
               category="server"
               title="Operation Impact"
@@ -804,10 +890,19 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
             </Stack>
           </Stack>
         </DialogContent>
-        <DialogActions>
+        <DialogActions
+          sx={{
+            px: { xs: 2, sm: 3 },
+            py: { xs: 2, sm: 2 },
+            flexWrap: 'wrap',
+            gap: 1,
+            justifyContent: isSmallScreen ? 'flex-start' : 'flex-end'
+          }}
+        >
           <Button 
             onClick={() => setRestoreDialogOpen(false)} 
             disabled={restoreProgress}
+            sx={{ flex: { xs: '1 1 100%', sm: '0 0 auto' } }}
           >
             Cancel
           </Button>
@@ -817,6 +912,7 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
             color="warning"
             disabled={restoreProgress || !canProceed}
             startIcon={restoreProgress ? <LoadingSpinner variant="inline" size="small" /> : <RestoreIcon />}
+            sx={{ flex: { xs: '1 1 100%', sm: '0 0 auto' } }}
           >
             {restoreProgress ? 'Restoring...' : 'Restore Database'}
           </Button>
@@ -829,12 +925,13 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
         onClose={() => !creatingBackup && setCreateDialogOpen(false)}
         maxWidth="sm"
         fullWidth
+        fullScreen={isSmallScreen}
       >
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <StorageIcon color="primary" />
           Create Managed Backup
         </DialogTitle>
-        <DialogContent dividers>
+        <DialogContent dividers sx={{ px: { xs: 2, sm: 3 } }}>
           <Stack spacing={2}>
             <Typography variant="body2" color="textSecondary">
               Capture a managed `.bak` file with JSON metadata before performing a restore. This gives you a rollback point if the restore introduces issues.
@@ -859,8 +956,20 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
             />
           </Stack>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setCreateDialogOpen(false)} disabled={creatingBackup}>
+        <DialogActions
+          sx={{
+            px: { xs: 2, sm: 3 },
+            py: { xs: 2, sm: 2 },
+            gap: 1,
+            flexWrap: 'wrap',
+            justifyContent: isSmallScreen ? 'flex-start' : 'flex-end'
+          }}
+        >
+          <Button
+            onClick={() => setCreateDialogOpen(false)}
+            disabled={creatingBackup}
+            sx={{ flex: { xs: '1 1 100%', sm: '0 0 auto' } }}
+          >
             Cancel
           </Button>
           <Button
@@ -868,6 +977,7 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
             variant="contained"
             startIcon={creatingBackup ? <LoadingSpinner variant="inline" size="small" /> : <StorageIcon />}
             disabled={creatingBackup}
+            sx={{ flex: { xs: '1 1 100%', sm: '0 0 auto' } }}
           >
             {creatingBackup ? 'Creating...' : 'Create Backup'}
           </Button>
@@ -885,3 +995,8 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
 };
 
 export default DatabaseRestore;
+
+
+
+
+

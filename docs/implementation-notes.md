@@ -2,6 +2,13 @@
 
 Refer to `AGENTS.md` for the day-to-day runbook; this file captures development-facing context extracted from recent session notes.
 
+## 2025-10-07 Backup UX & Packaging
+
+- Database restore screen now lets admins capture a managed `.bak/.json` pair before restoring. Added a `Create JSON Backup` action and dialog that calls `/api/admin/backup/create`, refreshes the managed list, and auto-selects the new file (`frontend/src/components/DatabaseRestore.tsx`).
+- The dashboard experiment status chip swaps patterned backgrounds for accessible solid colors, improving readability in compact mode (`frontend/src/components/ExperimentStatus.tsx`).
+- Removed the redundant queue-status tab from scheduling while keeping overview metrics in place (`frontend/src/pages/SchedulingPage.tsx`).
+- Post-change workflow: `npm run build`, `python build_scripts/embed_resources.py`, and `python build_scripts/pyinstaller_build.py` produce `dist/PyRobot.exe` with the refreshed embedded frontend (`backend/embedded_static.py` regenerated).
+
 ## 2025-09-26 Session
 
 ### Completed Work
