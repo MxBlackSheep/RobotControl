@@ -259,12 +259,17 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
     dataLoss: false,
     downtime: false
   });
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [creatingBackup, setCreatingBackup] = useState(false);
+  const [createDescription, setCreateDescription] = useState('');
+  const [createDialogError, setCreateDialogError] = useState<string | null>(null);
+  const [createFeedback, setCreateFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   useEffect(() => {
     loadBackupFiles();
   }, []);
 
-  const loadBackupFiles = async () => {
+  const loadBackupFiles = async (): Promise<BackupFile[]> => {
     setLoading(true);
     try {
       const response = await api.get('/api/admin/backup/list');
@@ -272,13 +277,16 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
       
       // Backend returns { success, data: [...backup files...], message }
       const files = response.data.data || [];
-      setBackupFiles(files.filter((f: any) => f.filename.endsWith('.bak')));
+      const managedBackups = files.filter((f: any) => f.filename.endsWith('.bak'));
+      setBackupFiles(managedBackups);
       console.log('Loaded backup files:', files);
+      return managedBackups;
     } catch (err: any) {
       console.error('Error loading backup files:', err);
       if (onError) {
         onError(err.response?.data?.detail || 'Failed to load backup files');
       }
+      return [];
     } finally {
       setLoading(false);
     }
@@ -376,6 +384,51 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
 
   const currentSelection = getCurrentSelection();
 
+  const handleOpenCreateDialog = () => {
+    setCreateDialogError(null);
+    setCreateDescription('');
+    setCreateDialogOpen(true);
+  };
+
+  const handleCreateBackup = async () => {
+    if (!createDescription.trim()) {
+      setCreateDialogError('Please provide a brief description for the backup.');
+      return;
+    }
+
+    setCreateDialogError(null);
+    setCreatingBackup(true);
+
+    try {
+      const response = await api.post('/api/admin/backup/create', {
+        description: createDescription.trim()
+      });
+
+      const message = response?.data?.message || 'Backup created successfully.';
+      const filename = response?.data?.data?.filename;
+
+      setCreateDialogError(null);
+      setCreateDialogOpen(false);
+      setCreateDescription('');
+      setCreateFeedback({ type: 'success', message });
+
+      const updatedBackups = await loadBackupFiles();
+      if (filename) {
+        const created = updatedBackups.find((backup) => backup.filename === filename);
+        if (created) {
+          setSelectedBackup(created);
+          setActiveTab(0);
+        }
+      }
+    } catch (err: any) {
+      const message = err?.response?.data?.detail || err?.message || 'Failed to create backup.';
+      setCreateDialogError(message);
+      setCreateFeedback({ type: 'error', message });
+    } finally {
+      setCreatingBackup(false);
+    }
+  };
+
   return (
     <Card>
       <CardContent>
@@ -383,6 +436,16 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
           <Typography variant="h6" gutterBottom>
             Database Restore
           </Typography>
+
+          {createFeedback && (
+            <ErrorAlert
+              message={createFeedback.message}
+              severity={createFeedback.type === 'success' ? 'success' : 'error'}
+              category="client"
+              closable
+              onClose={() => setCreateFeedback(null)}
+            />
+          )}
 
           {/* Tab Navigation */}
           <Paper sx={{ borderBottom: 1, borderColor: 'divider' }}>
@@ -605,8 +668,16 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
             </Card>
           )}
 
-          {/* Restore button */}
-          <Box sx={{ display: 'flex', gap: 2 }}>
+          {/* Restore & pre-backup actions */}
+          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+            <Button
+              variant="outlined"
+              startIcon={<UploadIcon />}
+              onClick={handleOpenCreateDialog}
+              disabled={loading || restoreProgress}
+            >
+              Create JSON Backup
+            </Button>
             <Button
               variant="contained"
               color="warning"
@@ -748,6 +819,57 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
             startIcon={restoreProgress ? <LoadingSpinner variant="inline" size="small" /> : <RestoreIcon />}
           >
             {restoreProgress ? 'Restoring...' : 'Restore Database'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Create Backup Dialog */}
+      <Dialog
+        open={createDialogOpen}
+        onClose={() => !creatingBackup && setCreateDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <StorageIcon color="primary" />
+          Create Managed Backup
+        </DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2}>
+            <Typography variant="body2" color="textSecondary">
+              Capture a managed `.bak` file with JSON metadata before performing a restore. This gives you a rollback point if the restore introduces issues.
+            </Typography>
+            {createDialogError && (
+              <ErrorAlert
+                message={createDialogError}
+                severity="error"
+                category="client"
+                compact
+              />
+            )}
+            <TextField
+              label="Backup Description"
+              value={createDescription}
+              onChange={(e) => setCreateDescription(e.target.value)}
+              placeholder="Describe why you're capturing this backup"
+              fullWidth
+              multiline
+              minRows={2}
+              disabled={creatingBackup}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCreateDialogOpen(false)} disabled={creatingBackup}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleCreateBackup}
+            variant="contained"
+            startIcon={creatingBackup ? <LoadingSpinner variant="inline" size="small" /> : <StorageIcon />}
+            disabled={creatingBackup}
+          >
+            {creatingBackup ? 'Creating...' : 'Create Backup'}
           </Button>
         </DialogActions>
       </Dialog>

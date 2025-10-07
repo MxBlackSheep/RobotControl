@@ -52,11 +52,12 @@ const getRunStateDisplay = (runState: string | number) => {
     case '2':
       return { 
         icon: <RunningIcon />, 
-        color: 'success' as const, 
         label: 'Running',
-        pattern: 'pulse',
-        bgPattern: 'linear-gradient(45deg, rgba(46, 125, 50, 0.1) 25%, transparent 25%)',
-        ariaLabel: 'Experiment is currently running'
+        backgroundColor: '#2e7d32',
+        borderColor: '#1b5e20',
+        textColor: '#ffffff',
+        ariaLabel: 'Experiment is currently running',
+        animate: true
       };
     case 'COMPLETED':
     case 'FINISHED':
@@ -64,10 +65,10 @@ const getRunStateDisplay = (runState: string | number) => {
     case '0':
       return { 
         icon: <CompletedIcon />, 
-        color: 'info' as const, 
         label: 'Completed',
-        pattern: 'solid',
-        bgPattern: 'none',
+        backgroundColor: '#1565c0',
+        borderColor: '#0d47a1',
+        textColor: '#ffffff',
         ariaLabel: 'Experiment completed successfully'
       };
     case 'FAILED':
@@ -76,39 +77,39 @@ const getRunStateDisplay = (runState: string | number) => {
     case '-1':
       return { 
         icon: <ErrorIcon />, 
-        color: 'error' as const, 
         label: 'Failed',
-        pattern: 'striped',
-        bgPattern: 'repeating-linear-gradient(45deg, rgba(198, 40, 40, 0.1), rgba(198, 40, 40, 0.1) 10px, transparent 10px, transparent 20px)',
+        backgroundColor: '#c62828',
+        borderColor: '#8e0000',
+        textColor: '#ffffff',
         ariaLabel: 'Experiment failed with errors'
       };
     case 'PAUSED':
     case 'STOPPED':
       return { 
         icon: <PausedIcon />, 
-        color: 'warning' as const, 
         label: 'Paused',
-        pattern: 'dotted',
-        bgPattern: 'radial-gradient(circle, rgba(239, 108, 0, 0.1) 2px, transparent 2px)',
+        backgroundColor: '#ff9800',
+        borderColor: '#ef6c00',
+        textColor: '#212121',
         ariaLabel: 'Experiment is paused or stopped'
       };
     case 'ABORTED':
     case '64':   // Hamilton aborted state
       return { 
         icon: <ErrorIcon />, 
-        color: 'warning' as const, 
         label: 'Aborted',
-        pattern: 'dashed',
-        bgPattern: 'repeating-linear-gradient(90deg, rgba(239, 108, 0, 0.1) 0px, rgba(239, 108, 0, 0.1) 8px, transparent 8px, transparent 16px)',
+        backgroundColor: '#fbc02d',
+        borderColor: '#f57f17',
+        textColor: '#212121',
         ariaLabel: 'Experiment was aborted or cancelled'
       };
     default:
       return { 
         icon: <ExperimentIcon />, 
-        color: 'default' as const, 
-        label: `State ${state}`,
-        pattern: 'none',
-        bgPattern: 'none',
+        label: state.replace(/_/g, ' '),
+        backgroundColor: '#5f6368',
+        borderColor: '#424242',
+        textColor: '#ffffff',
         ariaLabel: `Experiment status: ${state}`
       };
   }
@@ -333,17 +334,24 @@ const ExperimentStatus: React.FC<ExperimentStatusProps> = memo(({
           <Chip
             icon={stateDisplay.icon}
             label={stateDisplay.label}
-            color={stateDisplay.color}
             size="small"
-            sx={{ 
-              ml: 'auto', 
+            variant="filled"
+            sx={{
+              ml: 'auto',
               mr: 1,
-              background: stateDisplay.bgPattern,
-              // Add pulse animation for running experiments
-              animation: stateDisplay.pattern === 'pulse' ? 'pulse 2s infinite' : 'none',
+              px: 1.5,
+              fontWeight: 600,
+              textTransform: 'uppercase',
+              letterSpacing: 0.6,
+              color: stateDisplay.textColor || 'inherit',
+              backgroundColor: stateDisplay.backgroundColor || 'transparent',
+              border: stateDisplay.borderColor ? `1px solid ${stateDisplay.borderColor}` : undefined,
+              borderRadius: 16,
+              boxShadow: stateDisplay.backgroundColor ? '0 0 0 1px rgba(255,255,255,0.2)' : undefined,
+              animation: stateDisplay.animate ? 'pulse 1.6s ease-in-out infinite' : 'none',
               '@keyframes pulse': {
                 '0%': { opacity: 1 },
-                '50%': { opacity: 0.7 },
+                '50%': { opacity: 0.75 },
                 '100%': { opacity: 1 }
               }
             }}

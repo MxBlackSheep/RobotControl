@@ -27,8 +27,7 @@ import {
   Chip,
   Divider,
   Tab,
-  Tabs,
-  Badge
+  Tabs
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
@@ -55,7 +54,6 @@ import ScheduleActions from '../components/ScheduleActions';
 import ImprovedScheduleForm from '../components/scheduling/ImprovedScheduleForm';
 import FolderImportDialog from '../components/scheduling/FolderImportDialog';
 import ExecutionHistory from '../components/ExecutionHistory';
-import IntelligentStatusMonitor from '../components/IntelligentStatusMonitor';
 import useScheduling from '../hooks/useScheduling';
 import { formatDuration, formatExecutionStatus, ScheduledExperiment, CreateScheduleFormData } from '../types/scheduling';
 
@@ -410,89 +408,6 @@ const SchedulingPage: React.FC = () => {
     );
   };
 
-  // Queue status component
-  const QueueStatus: React.FC = () => {
-    const { queueStatus, hamiltonStatus } = state;
-
-    if (!queueStatus) {
-      return (
-        <Alert severity="info">
-          Queue status information is not available. The scheduler service may be stopped.
-        </Alert>
-      );
-    }
-
-    return (
-      <Grid container spacing={2}>
-        <Grid item xs={12} md={6}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                Queue Information
-              </Typography>
-              <Stack spacing={1}>
-                <Box display="flex" justifyContent="space-between">
-                  <Typography variant="body2">Queued Jobs:</Typography>
-                  <Typography variant="body2">{queueStatus.queue_size}</Typography>
-                </Box>
-                <Box display="flex" justifyContent="space-between">
-                  <Typography variant="body2">Running Jobs:</Typography>
-                  <Typography variant="body2">{queueStatus.running_jobs}</Typography>
-                </Box>
-                <Box display="flex" justifyContent="space-between">
-                  <Typography variant="body2">Max Parallel:</Typography>
-                  <Typography variant="body2">{queueStatus.max_parallel_jobs}</Typography>
-                </Box>
-                <Box display="flex" justifyContent="space-between">
-                  <Typography variant="body2">Capacity Available:</Typography>
-                  <Chip 
-                    label={queueStatus.capacity_available ? 'Yes' : 'No'} 
-                    color={queueStatus.capacity_available ? 'success' : 'warning'}
-                    size="small"
-                  />
-                </Box>
-              </Stack>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={12} md={6}>
-          {/* Intelligent Status Monitor with 5-second refresh */}
-          <IntelligentStatusMonitor 
-            refreshInterval={5000}
-            showLastUpdate={true}
-            compact={false}
-          />
-        </Grid>
-        {queueStatus.running_job_details.length > 0 && (
-          <Grid item xs={12}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>
-                  Currently Running Jobs
-                </Typography>
-                <Stack spacing={1}>
-                  {queueStatus.running_job_details.map((job, index) => (
-                    <Box key={index} sx={{ p: 1, border: 1, borderColor: 'divider', borderRadius: 1 }}>
-                      <Stack direction="row" justifyContent="space-between" alignItems="center">
-                        <Typography variant="body2" fontWeight="medium">
-                          {job.experiment_name}
-                        </Typography>
-                        <Chip label={job.priority} size="small" />
-                      </Stack>
-                      <Typography variant="caption" color="textSecondary">
-                        Queued: {new Date(job.queued_time).toLocaleString()} | Retries: {job.retry_count}
-                      </Typography>
-                    </Box>
-                  ))}
-                </Stack>
-              </CardContent>
-            </Card>
-          </Grid>
-        )}
-      </Grid>
-    );
-  };
-
   return (
     <Container maxWidth="xl" sx={{ mt: 2, mb: 4 }}>
       {/* Page Header with Navigation */}
@@ -569,20 +484,6 @@ const SchedulingPage: React.FC = () => {
                 <Stack direction="row" alignItems="center" spacing={1}>
                   <WarningIcon fontSize="small" color={state.manualRecovery?.active ? 'error' : 'disabled'} />
                   <span>Manual Recovery</span>
-                </Stack>
-              } 
-            />
-            <Tab 
-              label={
-                <Stack direction="row" alignItems="center" spacing={1}>
-                  <Badge 
-                    badgeContent={state.queueStatus?.queue_size || 0} 
-                    color={state.queueStatus?.queue_size > 0 ? "primary" : "default"}
-                    max={99}
-                  >
-                    <QueueIcon fontSize="small" />
-                  </Badge>
-                  <span>Queue Status</span>
                 </Stack>
               } 
             />
@@ -797,14 +698,10 @@ const SchedulingPage: React.FC = () => {
         </TabPanel>
 
         <TabPanel value={currentTab} index={2}>
-          <QueueStatus />
-        </TabPanel>
-
-        <TabPanel value={currentTab} index={3}>
           <CalendarView />
         </TabPanel>
 
-        <TabPanel value={currentTab} index={4}>
+        <TabPanel value={currentTab} index={3}>
           <ExecutionHistory 
             scheduleId={state.selectedSchedule?.schedule_id}
             maxHeight="700px" 
