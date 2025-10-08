@@ -81,9 +81,13 @@ interface TabPanelProps {
 const TabPanel: React.FC<TabPanelProps> = ({ children, value, index }) => {
   return (
     <div role="tabpanel" hidden={value !== index}>
-      {value === index && <Box sx={{ py: 3, px: { xs: 1, md: 0 } }}>{children}</Box>}
-    </div>
-  );
+        {value === index && (
+          <Box sx={{ py: { xs: 3, md: 4 }, px: { xs: 1.75, md: 3.75 } }}>
+            {children}
+          </Box>
+        )}
+      </div>
+    );
 };
 
 /**
@@ -107,6 +111,8 @@ const SchedulingPage: React.FC = () => {
   const { state, actions } = useScheduling();
   const theme = useTheme();
   const isSmallScreen = useMediaQuery(theme.breakpoints.down('sm'));
+  const cardPadding = { xs: 2.75, md: 4 };
+  const tabPadding = { xs: 1.75, md: 2.75 };
 
   const formatTimestamp = (value?: string | null): string => {
     if (!value) {
@@ -282,10 +288,10 @@ const SchedulingPage: React.FC = () => {
     // Use the existing state from parent component instead of creating new hook instance
 
     return (
-      <Grid container spacing={2} sx={{ mb: 3 }}>
+      <Grid container spacing={{ xs: 2, md: 2.5 }} sx={{ mb: { xs: 2.5, md: 3 } }}>
         <Grid item xs={12} md={3}>
-          <Card>
-            <CardContent>
+          <Card sx={{ borderRadius: 2, height: '100%' }}>
+            <CardContent sx={{ p: cardPadding }}>
               <Stack direction="row" alignItems="center" spacing={1}>
                 <ScheduleIcon color="primary" />
                 <Box>
@@ -299,8 +305,8 @@ const SchedulingPage: React.FC = () => {
           </Card>
         </Grid>
         <Grid item xs={12} md={3}>
-          <Card>
-            <CardContent>
+          <Card sx={{ borderRadius: 2, height: '100%' }}>
+            <CardContent sx={{ p: cardPadding }}>
               <Stack direction="row" alignItems="center" spacing={1}>
                 <PlayArrowIcon color={state.schedulerRunning ? 'success' : 'disabled'} />
                 <Box>
@@ -316,8 +322,8 @@ const SchedulingPage: React.FC = () => {
           </Card>
         </Grid>
         <Grid item xs={12} md={3}>
-          <Card>
-            <CardContent>
+          <Card sx={{ borderRadius: 2, height: '100%' }}>
+            <CardContent sx={{ p: cardPadding }}>
               <Stack direction="row" alignItems="center" spacing={1}>
                 <QueueIcon color={state.queueStatus ? 'info' : 'disabled'} />
                 <Box>
@@ -333,8 +339,8 @@ const SchedulingPage: React.FC = () => {
           </Card>
         </Grid>
         <Grid item xs={12} md={3}>
-          <Card>
-            <CardContent>
+          <Card sx={{ borderRadius: 2, height: '100%' }}>
+            <CardContent sx={{ p: cardPadding }}>
               <Stack direction="row" alignItems="center" spacing={1}>
                 <CalendarIcon color={state.calendarEvents.length > 0 ? 'secondary' : 'disabled'} />
                 <Box>
@@ -408,24 +414,31 @@ const SchedulingPage: React.FC = () => {
 
     return (
       <Box>
-        <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
-          <Typography variant="h6">
+        <Stack
+          direction={{ xs: 'column', sm: 'row' }}
+          justifyContent="space-between"
+          alignItems={{ xs: 'flex-start', sm: 'center' }}
+          spacing={1.5}
+          sx={{ mb: { xs: 2.5, md: 3 } }}
+        >
+          <Typography variant="h6" sx={{ fontWeight: 600 }}>
             Upcoming Schedule Calendar
           </Typography>
           <Button
             startIcon={<RefreshIcon />}
             onClick={loadCalendarData}
             size="small"
+            sx={{ alignSelf: { xs: 'flex-start', sm: 'center' } }}
           >
             Refresh
           </Button>
         </Stack>
         
-        <Grid container spacing={2}>
+        <Grid container spacing={{ xs: 2.5, md: 3 }}>
           {calendarData.map(([date, schedules]) => (
             <Grid item xs={12} md={6} key={date}>
-              <Card>
-                <CardContent>
+              <Card sx={{ borderRadius: 2, height: '100%' }}>
+                <CardContent sx={{ p: cardPadding }}>
                   <Typography variant="h6" color="primary" gutterBottom>
                     {new Date(date).toLocaleDateString('en-US', { 
                       weekday: 'long',
@@ -434,13 +447,13 @@ const SchedulingPage: React.FC = () => {
                       day: 'numeric'
                     })}
                   </Typography>
-                  
-                  <Stack spacing={1}>
+
+                  <Stack spacing={1.5}>
                     {schedules.map((schedule) => (
                       <Box
                         key={schedule.schedule_id}
                         sx={{
-                          p: 1.5,
+                          p: 1.75,
                           border: 1,
                           borderColor: 'divider',
                           borderRadius: 1,
@@ -491,7 +504,7 @@ const SchedulingPage: React.FC = () => {
           ))}
         </Grid>
         
-        <Alert severity="info" sx={{ mt: 2 }}>
+        <Alert severity="info" sx={{ mt: { xs: 2.5, md: 3 } }}>
           <Typography variant="body2">
             <strong>Calendar View:</strong> Showing {calendarData.reduce((total, [, schedules]) => total + schedules.length, 0)} 
             scheduled experiments across {calendarData.length} dates.
@@ -503,11 +516,24 @@ const SchedulingPage: React.FC = () => {
   };
 
   return (
-    <Container maxWidth="xl" sx={{ mt: 2, mb: 4 }}>
+    <Container
+      maxWidth="xl"
+      sx={{
+        mt: { xs: 1.5, md: 2 },
+        mb: { xs: 3.5, md: 5 },
+        px: { xs: 2.5, md: 4 },
+        py: { xs: 3, md: 4 }
+      }}
+    >
       {/* Page Header with Navigation */}
-      <Box sx={{ mb: 3 }}>
+      <Box sx={{ mb: { xs: 3, md: 4 } }}>
         {/* Navigation Controls */}
-        <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 2 }}>
+        <Stack
+          direction={{ xs: 'column', sm: 'row' }}
+          alignItems={{ xs: 'flex-start', sm: 'center' }}
+          spacing={2}
+          sx={{ mb: { xs: 2.5, md: 3 } }}
+        >
           <Button
             startIcon={<ArrowBackIcon />}
             onClick={() => navigate(-1)}
@@ -540,17 +566,18 @@ const SchedulingPage: React.FC = () => {
         </Stack>
 
         {/* Page Title */}
-        <Typography variant="h4" component="h1" sx={{ fontWeight: 700, mb: 1 }}>
+        <Typography variant="h4" component="h1" sx={{ fontWeight: 700 }}>
           Experiment Scheduling
         </Typography>
-        <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>
+        <Typography variant="body1" color="text.secondary" sx={{ mt: { xs: 1.5, md: 2 } }}>
           Schedule, manage, and monitor automated experiment execution.
           Replace legacy VBS scripts with modern scheduling capabilities.
         </Typography>
 
-        {/* Scheduler Control (Admin Only) */}
         {/* Status Summary */}
-        <SchedulingStatusSummary />
+        <Box sx={{ mt: { xs: 3, md: 4 } }}>
+          <SchedulingStatusSummary />
+        </Box>
 
         {/* Error Display */}
         {state.error && (
@@ -561,9 +588,18 @@ const SchedulingPage: React.FC = () => {
       </Box>
 
       {/* Main Content */}
-      <Paper elevation={1}>
+      <Paper elevation={1} sx={{ borderRadius: 2, overflow: 'hidden' }}>
         {/* Navigation Tabs */}
-        <Box sx={{ borderBottom: 1, borderColor: 'divider', overflowX: 'auto' }}>
+        <Box
+          sx={{
+            borderBottom: 1,
+            borderColor: 'divider',
+            overflowX: 'auto',
+            px: { xs: 1.5, md: 2.5 },
+            py: 1,
+            bgcolor: 'background.paper'
+          }}
+        >
           <Tabs
             value={currentTab}
             onChange={handleTabChange}
@@ -571,53 +607,83 @@ const SchedulingPage: React.FC = () => {
             scrollButtons="auto"
             allowScrollButtonsMobile
             aria-label="scheduling tabs"
+            sx={{
+              minHeight: { xs: 44, md: 48 },
+              '& .MuiTabs-flexContainer': {
+                columnGap: { xs: 0.5, md: 1 }
+              },
+              '& .MuiTabs-indicator': {
+                height: 3,
+                borderRadius: 2
+              }
+            }}
           >
             <Tab 
               label={
-                <Stack direction="row" alignItems="center" spacing={isSmallScreen ? 0.75 : 1}>
+                <Stack direction="row" alignItems="center" spacing={isSmallScreen ? 1 : 1.25}>
                   <ScheduleIcon fontSize="small" />
                   <Typography component="span" variant="body2">
                     Schedules
                   </Typography>
                 </Stack>
-              } 
+              }
+              sx={{
+                minHeight: 0,
+                py: { xs: 1, md: 1.25 },
+                px: tabPadding
+              }}
             />
             <Tab 
               label={
-                <Stack direction="row" alignItems="center" spacing={isSmallScreen ? 0.75 : 1}>
+                <Stack direction="row" alignItems="center" spacing={isSmallScreen ? 1 : 1.25}>
                   <WarningIcon fontSize="small" color={state.manualRecovery?.active ? 'error' : 'disabled'} />
                   <Typography component="span" variant="body2">
                     {isSmallScreen ? 'Recovery' : 'Manual Recovery'}
                   </Typography>
                 </Stack>
-              } 
+              }
+              sx={{
+                minHeight: 0,
+                py: { xs: 1, md: 1.25 },
+                px: tabPadding
+              }}
             />
             <Tab 
               label={
-                <Stack direction="row" alignItems="center" spacing={isSmallScreen ? 0.75 : 1}>
+                <Stack direction="row" alignItems="center" spacing={isSmallScreen ? 1 : 1.25}>
                   <CalendarIcon fontSize="small" />
                   <Typography component="span" variant="body2">
                     {isSmallScreen ? 'Calendar' : 'Calendar View'}
                   </Typography>
                 </Stack>
-              } 
+              }
+              sx={{
+                minHeight: 0,
+                py: { xs: 1, md: 1.25 },
+                px: tabPadding
+              }}
             />
             <Tab 
               label={
-                <Stack direction="row" alignItems="center" spacing={isSmallScreen ? 0.75 : 1}>
+                <Stack direction="row" alignItems="center" spacing={isSmallScreen ? 1 : 1.25}>
                   <HistoryIcon fontSize="small" />
                   <Typography component="span" variant="body2">
                     {isSmallScreen ? 'History' : 'Execution History'}
                   </Typography>
                 </Stack>
-              } 
+              }
+              sx={{
+                minHeight: 0,
+                py: { xs: 1, md: 1.25 },
+                px: tabPadding
+              }}
             />
           </Tabs>
         </Box>
 
         {/* Tab Panels */}
         <TabPanel value={currentTab} index={0}>
-          <Grid container spacing={3}>
+          <Grid container spacing={{ xs: 3, lg: 3.5 }}>
             <Grid item xs={12} lg={8}>
               <ScheduleList
                 schedules={state.schedules}
@@ -630,10 +696,10 @@ const SchedulingPage: React.FC = () => {
               />
             </Grid>
             <Grid item xs={12} lg={4}>
-              <Stack spacing={2}>
+              <Stack spacing={2.5}>
                 {/* Action Buttons */}
-                <Card>
-                  <CardContent>
+                <Card sx={{ borderRadius: 2 }}>
+                  <CardContent sx={{ p: cardPadding }}>
                     <Typography variant="h6" gutterBottom>
                       Actions
                     </Typography>
@@ -726,6 +792,7 @@ const SchedulingPage: React.FC = () => {
                 {state.operationStatus && (
                   <Alert 
                     severity={'info'}
+                    sx={{ borderRadius: 2 }}
                   >
                     {state.operationStatus}
                   </Alert>
@@ -736,16 +803,16 @@ const SchedulingPage: React.FC = () => {
         </TabPanel>
 
         <TabPanel value={currentTab} index={1}>
-          <Stack spacing={2}>
+          <Stack spacing={2.5}>
             <Alert severity={state.manualRecovery?.active ? 'warning' : 'info'}>
               {state.manualRecovery?.active
                 ? 'Manual recovery is required. Automatic scheduling is paused until it is resolved.'
                 : 'No manual recovery is currently required.'}
             </Alert>
             {state.manualRecovery && (
-              <Card>
-                <CardContent>
-                  <Stack spacing={1}>
+              <Card sx={{ borderRadius: 2 }}>
+                <CardContent sx={{ p: cardPadding }}>
+                  <Stack spacing={1.25}>
                     <Typography variant="subtitle1">
                       Status: {state.manualRecovery.active ? 'Requires recovery' : 'Cleared'}
                     </Typography>
@@ -816,13 +883,23 @@ const SchedulingPage: React.FC = () => {
       </Paper>
 
       {/* Footer Information */}
-      <Box sx={{ mt: 3, p: 2, borderTop: 1, borderColor: 'divider' }}>
-        <Typography variant="caption" color="text.secondary" component="div">
+      <Paper
+        elevation={0}
+        sx={{
+          mt: { xs: 3, md: 4 },
+          p: { xs: 2.5, md: 3 },
+          borderRadius: 2,
+          border: 1,
+          borderColor: 'divider',
+          bgcolor: 'background.paper'
+        }}
+      >
+        <Typography variant="body2" color="text.secondary" component="div">
           <strong>Scheduling System:</strong> Replaces legacy VBS scripts with modern Python-based scheduling.
           All scheduling operations are logged and support role-based access control.
           Hamilton robot integration supports both real and mock execution modes for development.
         </Typography>
-      </Box>
+      </Paper>
 
       {/* Improved Schedule Form Dialog */}
       <ImprovedScheduleForm

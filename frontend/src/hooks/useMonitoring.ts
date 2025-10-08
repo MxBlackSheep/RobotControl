@@ -37,12 +37,22 @@ export interface DatabaseStatus {
   error_message?: string;
 }
 
+export interface StreamingServiceStatus {
+  enabled: boolean;
+  active_session_count: number;
+  max_sessions: number;
+  total_bandwidth_mbps: number;
+  resource_usage_percent: number;
+  [key: string]: any;
+}
+
 export interface MonitoringData {
   experiments: ExperimentData[];
   system_health: SystemHealth;
   database_status: DatabaseStatus;
   websocket_connections: number;
   last_updated: string;
+  streaming_status?: StreamingServiceStatus | null;
 }
 
 export interface WebSocketMessage {
@@ -59,6 +69,7 @@ export interface MonitoringHookReturn {
   experiments: ExperimentData[];
   systemHealth: SystemHealth | null;
   databaseStatus: DatabaseStatus | null;
+  streamingStatus: StreamingServiceStatus | null;
   
   // State
   isConnected: boolean;
@@ -75,6 +86,7 @@ export interface MonitoringHookReturn {
 
 const getWebSocketUrl = () => buildWsUrl('/api/monitoring/ws/general');
 const getMonitoringApiUrl = (path: string) => buildApiUrl(`/api/monitoring${path}`);
+const getStreamingStatusUrl = () => buildApiUrl('/api/camera/streaming/status');
 const MAX_RETRIES = 5;
 const RETRY_DELAY = 2000;
 
@@ -106,11 +118,14 @@ export const useMonitoring = (): MonitoringHookReturn => {
     }
 
     try {
-      const [experimentsRes, systemHealthRes] = await Promise.all([
+      const [experimentsRes, systemHealthRes, streamingStatusRes] = await Promise.all([
         fetch(getMonitoringApiUrl('/experiments'), {
           headers: getAuthHeaders(),
         }),
         fetch(getMonitoringApiUrl('/system-health'), {
+          headers: getAuthHeaders(),
+        }),
+        fetch(getStreamingStatusUrl(), {
           headers: getAuthHeaders(),
         }),
       ]);
@@ -123,6 +138,19 @@ export const useMonitoring = (): MonitoringHookReturn => {
         experimentsRes.json(),
         systemHealthRes.json(),
       ]);
+
+      let streamingStatus: StreamingServiceStatus | null = null;
+      if (streamingStatusRes.ok) {
+        try {
+          const streamingStatusData = await streamingStatusRes.json();
+          streamingStatus =
+            streamingStatusData?.data?.status ??
+            streamingStatusData?.data ??
+            null;
+        } catch (streamingError) {
+          console.warn('Failed to parse streaming status response:', streamingError);
+        }
+      }
 
       const experimentsPayload = experimentsData?.data;
       const experimentsList = Array.isArray(experimentsPayload)
@@ -160,16 +188,24 @@ export const useMonitoring = (): MonitoringHookReturn => {
       });
 
       const systemPayload = systemHealthData?.data || {};
+      const systemTimestamp =
+        systemPayload?.timestamp
+        ?? systemHealthData?.metadata?.timestamp
+        ?? new Date().toISOString();
+      const systemMetrics = systemPayload.system
+        ? { ...systemPayload.system, timestamp: systemTimestamp }
+        : null;
 
       return {
         experiments: normalizedExperiments,
-        system_health: systemPayload.system || null,
+        system_health: systemMetrics,
         database_status: systemPayload.database || null,
         websocket_connections:
           systemPayload.connections?.active
           ?? systemPayload.websockets?.total_connections
           ?? 0,
         last_updated: systemHealthData?.metadata?.timestamp || new Date().toISOString(),
+        streaming_status: streamingStatus,
       };
     } catch (err) {
       console.error('Error fetching monitoring data:', err);
@@ -291,6 +327,7 @@ export const useMonitoring = (): MonitoringHookReturn => {
   const experiments = monitoringData?.experiments || [];
   const systemHealth = monitoringData?.system_health || null;
   const databaseStatus = monitoringData?.database_status || null;
+  const streamingStatus = monitoringData?.streaming_status || null;
 
   return {
     // Data
@@ -298,6 +335,7 @@ export const useMonitoring = (): MonitoringHookReturn => {
     experiments,
     systemHealth,
     databaseStatus,
+    streamingStatus,
     
     // State
     isConnected,

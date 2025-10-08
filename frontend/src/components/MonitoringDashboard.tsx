@@ -91,6 +91,7 @@ const ProgressCard: React.FC<ProgressCardProps> = memo(({
 
 const MonitoringDashboard: React.FC = memo(() => {
   const {
+    monitoringData,
     systemHealth,
     isConnected,
     isLoading,
@@ -107,10 +108,15 @@ const MonitoringDashboard: React.FC = memo(() => {
   useEffect(() => {
     if (systemHealth?.timestamp) {
       setLastUpdate(new Date(systemHealth.timestamp).toLocaleTimeString());
+      return;
+    }
+
+    if (monitoringData?.last_updated) {
+      setLastUpdate(new Date(monitoringData.last_updated).toLocaleTimeString());
     } else {
       setLastUpdate(null);
     }
-  }, [systemHealth]);
+  }, [systemHealth, monitoringData]);
 
   const handleRefresh = useCallback(async () => {
     resetError();
@@ -197,7 +203,7 @@ const MonitoringDashboard: React.FC = memo(() => {
             variant="outlined"
           />
           <Typography variant="body2" color="text.secondary">
-            Last update: {lastUpdate ?? '—'}
+            Last update: {lastUpdate ?? '--'}
           </Typography>
           <Tooltip title="Refresh data">
             <IconButton onClick={handleRefresh} disabled={isLoading}>

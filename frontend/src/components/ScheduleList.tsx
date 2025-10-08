@@ -629,7 +629,16 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
 
   if (schedules.length === 0) {
     return (
-      <Paper elevation={0} sx={{ p: 3, textAlign: 'center' }}>
+      <Paper
+        elevation={0}
+        sx={{
+          p: { xs: 3, md: 3.5 },
+          textAlign: 'center',
+          borderRadius: 2,
+          border: 1,
+          borderColor: 'divider'
+        }}
+      >
         <Typography variant="h6" gutterBottom>
           No scheduled experiments yet
         </Typography>
@@ -650,11 +659,22 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
         sx={{
           display: 'flex',
           flexDirection: 'column',
-          overflow: isMobile ? 'visible' : 'hidden'
+          overflow: isMobile ? 'visible' : 'hidden',
+          borderRadius: 2,
+          border: 1,
+          borderColor: 'divider',
+          bgcolor: 'background.paper'
         }}
       >
         {/* Header */}
-        <Box p={2} borderBottom={1} borderColor="divider">
+        <Box
+          sx={{
+            px: { xs: 2.25, md: 3 },
+            py: { xs: 1.75, md: 2 },
+            borderBottom: 1,
+            borderColor: 'divider'
+          }}
+        >
           <Stack
             direction="row"
             justifyContent="space-between"
@@ -671,7 +691,10 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
               onClick={onRefresh}
               variant="outlined"
               size="small"
-              sx={{ width: { xs: '100%', sm: 'auto' } }}
+              sx={{
+                width: { xs: '100%', sm: 'auto' },
+                mt: { xs: 1, sm: 0 }
+              }}
             >
               Refresh
             </Button>

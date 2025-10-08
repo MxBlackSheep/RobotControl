@@ -7,9 +7,10 @@ import asyncio
 import logging
 import threading
 import uuid
+from collections import deque
 from datetime import datetime, timedelta
 import psutil
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Deque
 from fastapi import WebSocket
 
 from backend.services.streaming_types import (
@@ -73,6 +74,15 @@ class LiveStreamingService:
         self.cpu_hard_limit = self.config.get("cpu_hard_limit_percent", 90)
         self._last_resource_check = datetime.now() - timedelta(seconds=1)
         self._last_cpu_percent = 0.0
+        self._process = psutil.Process()
+        # Prime cpu_percent to avoid the first-call zero artefact
+        try:
+            self._process.cpu_percent(interval=None)
+        except Exception:
+            psutil.cpu_percent(interval=None)
+        self._cpu_samples: Deque[float] = deque(maxlen=5)
+        self._consecutive_soft_limit_hits = 0
+        self._consecutive_hard_limit_hits = 0
         self._resource_state = "normal"
         self._recording_impact = "none"
 
@@ -467,8 +477,12 @@ class LiveStreamingService:
     
     def _sample_cpu(self) -> float:
         """Return a non-blocking CPU percentage sample."""
-        cpu_percent = psutil.cpu_percent(interval=0.0)
+        try:
+            cpu_percent = self._process.cpu_percent(interval=None)
+        except Exception:
+            cpu_percent = psutil.cpu_percent(interval=0.0)
         self._last_cpu_percent = cpu_percent
+        self._cpu_samples.append(cpu_percent)
         return cpu_percent
 
     async def _degrade_active_sessions(self) -> None:
@@ -489,25 +503,44 @@ class LiveStreamingService:
         if not self.sessions:
             self._resource_state = "normal"
             self._recording_impact = "none"
+            self._consecutive_soft_limit_hits = 0
+            self._consecutive_hard_limit_hits = 0
+            self._cpu_samples.clear()
             return
+
+        soft_limit = self.cpu_soft_limit
+        hard_limit = self.cpu_hard_limit
+
+        if cpu_percent >= hard_limit:
+            self._consecutive_hard_limit_hits += 1
+        else:
+            self._consecutive_hard_limit_hits = 0
+
+        if cpu_percent >= soft_limit:
+            self._consecutive_soft_limit_hits += 1
+        else:
+            self._consecutive_soft_limit_hits = 0
 
         if cpu_percent >= self.cpu_hard_limit:
-            if self._resource_state != "blocked":
-                logger.warning("Streaming | event=resource_guard_emergency | cpu=%.1f", cpu_percent)
-            self._resource_state = "emergency"
-            self._recording_impact = "degraded"
-            await self._terminate_all_sessions("CPU limit reached")
-            return
-
-        if cpu_percent >= self.cpu_soft_limit:
-            if self._resource_state != "protected":
-                logger.info("Streaming | event=resource_guard_protected | cpu=%.1f", cpu_percent)
-            self._resource_state = "protected"
-            self._recording_impact = "minimal"
-            await self._degrade_active_sessions()
+            if self._consecutive_hard_limit_hits >= 3:
+                if self._resource_state != "blocked":
+                    logger.warning("Streaming | event=resource_guard_emergency | cpu=%.1f", cpu_percent)
+                self._resource_state = "emergency"
+                self._recording_impact = "degraded"
+                await self._terminate_all_sessions("CPU limit reached")
+                return
+        elif cpu_percent >= self.cpu_soft_limit:
+            if self._consecutive_soft_limit_hits >= 2:
+                if self._resource_state != "protected":
+                    logger.info("Streaming | event=resource_guard_protected | cpu=%.1f", cpu_percent)
+                self._resource_state = "protected"
+                self._recording_impact = "minimal"
+                await self._degrade_active_sessions()
         else:
             self._resource_state = "normal"
             self._recording_impact = "none"
+            self._consecutive_soft_limit_hits = 0
+            self._consecutive_hard_limit_hits = 0
 
 
     def get_status(self) -> StreamingStatus:

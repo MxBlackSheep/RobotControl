@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Camera Management Page for PyRobot Simplified Architecture
  * 
  * Features:
@@ -125,11 +125,9 @@ const CameraPage: React.FC = () => {
   const [streamingStatus, setStreamingStatus] = useState<StreamingStatus | null>(null);
   const [mySession, setMySession] = useState<StreamingSession | null>(null);
   const [streamingLoading, setStreamingLoading] = useState(false);
-  
-  // Video streaming state
   const [currentFrame, setCurrentFrame] = useState<string | null>(null);
-  const [frameCount, setFrameCount] = useState(0);
-  const [lastFrameTime, setLastFrameTime] = useState<Date | null>(null);
+
+  // Video streaming state
   const [wsRef, setWsRef] = useState<WebSocket | null>(null);
 
   // API base URL
@@ -379,14 +377,10 @@ const CameraPage: React.FC = () => {
       try {
         const message = JSON.parse(event.data);
         console.log('Streaming WebSocket message type:', message.type);
-        
+
         if (message.type === 'frame' && message.data) {
-          // Update frame display with Base64 JPEG data
           const frameDataUrl = `data:image/jpeg;base64,${message.data}`;
           setCurrentFrame(frameDataUrl);
-          setFrameCount(prev => prev + 1);
-          setLastFrameTime(new Date());
-          console.log(`Frame ${message.frame_number} received (${message.data.length} chars)`);
         } else if (message.type === 'status') {
           console.log('Stream status:', message.status);
         } else if (message.type === 'error') {
@@ -402,12 +396,14 @@ const CameraPage: React.FC = () => {
     ws.onerror = (error) => {
       console.error('Streaming WebSocket error:', error);
       setError('WebSocket connection failed');
-    };
+      setCurrentFrame(null);
+      };
     
     ws.onclose = () => {
       console.log('Streaming WebSocket closed');
       setMySession(prev => prev ? { ...prev, websocket_state: 'disconnected' } : null);
-    };
+      setCurrentFrame(null);
+      };
     
     // Store WebSocket reference for cleanup
     setWsRef(ws);
@@ -416,30 +412,27 @@ const CameraPage: React.FC = () => {
 
   const stopStreamingSession = async () => {
     if (!mySession || streamingLoading) return;
-    
+
     // Close WebSocket connection
     if (wsRef) {
       wsRef.close();
       setWsRef(null);
     }
-    
-    // Clear video state
     setCurrentFrame(null);
-    setFrameCount(0);
-    setLastFrameTime(null);
-    
+
     setStreamingLoading(true);
     try {
       const token = localStorage.getItem('access_token');
-      
+
       const response = await fetch(buildApiUrl(`/api/camera/streaming/session/${mySession.session_id}`), {
         method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
       });
-      
+
       if (response.ok) {
         setMySession(null);
         await loadStreamingStatus();
+        setCurrentFrame(null);
       } else {
         setError('Failed to stop streaming session');
       }
@@ -640,7 +633,7 @@ const CameraPage: React.FC = () => {
                           variant="body1"
                           sx={{ fontSize: { xs: '0.875rem', sm: '1rem' } }}
                         >
-                          {camera.width} × {camera.height}
+                          {camera.width} 脳 {camera.height}
                         </Typography>
                       </Box>
                       
@@ -798,344 +791,199 @@ const CameraPage: React.FC = () => {
 
       {/* Live Streaming Tab */}
       <TabPanel value={currentTab} index={2}>
-        <Grid container spacing={{ xs: 2, md: 3 }}>
-          {/* Streaming Status Card */}
-          <Grid item xs={12} lg={6}>
-            <Card>
-              <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
-                <Typography 
-                  variant="h6" 
-                  gutterBottom
-                >
-                  <Box sx={{ 
-                    display: 'flex', 
-                    alignItems: 'center',
-                    flexWrap: 'wrap',
-                    gap: 1
-                  }}>
-                    <StreamIcon sx={{ 
-                      mr: 1,
-                      fontSize: { xs: 20, sm: 24 }
-                    }} />
-                    <Typography 
-                      variant="h6"
-                      sx={{ flexGrow: 1 }}
-                    >
-                      Streaming Status
-                    </Typography>
-                    <Button
-                      size="small"
-                      startIcon={<RefreshIcon />}
-                      onClick={loadStreamingStatus}
-                      sx={{ 
-                        minHeight: { xs: 36, sm: 32 },
-                        fontSize: { xs: '0.75rem', sm: '0.875rem' }
-                      }}
-                    >
-                      Refresh
-                    </Button>
-                  </Box>
-                </Typography>
-                
-                {streamingStatus ? (
-                  <Stack spacing={2}>
-                    <Box>
-                      <Typography variant="body2" color="textSecondary">
-                        Service Status
-                      </Typography>
-                      <Chip
-                        label={streamingStatus.enabled ? 'Enabled' : 'Disabled'}
-                        color={streamingStatus.enabled ? 'success' : 'default'}
-                        size="small"
-                      />
-                    </Box>
-                    
-                    <Box>
-                      <Typography variant="body2" color="textSecondary">
-                        Active Sessions
-                      </Typography>
-                      <Typography variant="body1">
-                        {streamingStatus.active_session_count} / {streamingStatus.max_sessions}
-                      </Typography>
-                    </Box>
-                    
-                    <Box>
-                      <Typography variant="body2" color="textSecondary">
-                        Bandwidth Usage
-                      </Typography>
-                      <Typography variant="body1">
-                        {streamingStatus.total_bandwidth_mbps.toFixed(1)} MB/s
-                      </Typography>
-                    </Box>
-                    
-                    <Box>
-                      <Typography variant="body2" color="textSecondary">
-                        System Resources
-                      </Typography>
-                      <Typography variant="body1">
-                        {streamingStatus.resource_usage_percent.toFixed(1)}%
-                      </Typography>
-                    </Box>
-                    
-                    <Box>
-                      <Typography variant="body2" color="textSecondary">
-                        Priority Mode
-                      </Typography>
-                      <Chip
-                        label={streamingStatus.priority_mode}
-                        color={streamingStatus.priority_mode === 'normal' ? 'primary' : 'warning'}
-                        size="small"
-                      />
-                    </Box>
-                    
-                    <Box>
-                      <Typography variant="body2" color="textSecondary">
-                        Recording Impact
-                      </Typography>
-                      <Chip
-                        label={streamingStatus.recording_impact}
-                        color={streamingStatus.recording_impact === 'none' ? 'success' : 'warning'}
-                        size="small"
-                      />
-                    </Box>
-                  </Stack>
-                ) : (
-                  <Typography color="textSecondary">
-                    Loading streaming status...
+        <Card>
+          <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
+            <Stack spacing={2.5}>
+              <Box
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  rowGap: 1.5
+                }}
+              >
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <StreamIcon sx={{ fontSize: { xs: 20, sm: 24 } }} />
+                  <Typography variant="h6">
+                    Streaming Session
                   </Typography>
-                )}
-              </CardContent>
-            </Card>
-          </Grid>
-
-          {/* My Session Control Card */}
-          <Grid item xs={12} lg={6}>
-            <Card>
-              <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
-                <Typography 
-                  variant="h6" 
-                  gutterBottom
+                  <Chip
+                    label={streamingStatus?.enabled ? 'Service Enabled' : 'Service Disabled'}
+                    color={streamingStatus?.enabled ? 'success' : 'default'}
+                    size="small"
+                  />
+                </Stack>
+                <Button
+                  size="small"
+                  startIcon={<RefreshIcon />}
+                  onClick={loadStreamingStatus}
                 >
-                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                    <SettingsIcon sx={{ 
-                      mr: 1,
-                      fontSize: { xs: 20, sm: 24 }
-                    }} />
-                    <Typography variant="h6">
-                      My Streaming Session
+                  Refresh Status
+                </Button>
+              </Box>
+
+              {mySession ? (
+                <Stack spacing={2}>
+                  <Box>
+                    <Typography variant="body2" color="textSecondary">
+                      Session ID
+                    </Typography>
+                    <Typography variant="body1" sx={{ fontFamily: 'monospace' }}>
+                      {mySession.session_id.substring(0, 8)}...
                     </Typography>
                   </Box>
-                </Typography>
-                
-                {mySession ? (
-                  <Stack spacing={2}>
-                    <Box>
-                      <Typography variant="body2" color="textSecondary">
-                        Session ID
-                      </Typography>
-                      <Typography variant="body1" sx={{ fontFamily: 'monospace' }}>
-                        {mySession.session_id.substring(0, 8)}...
-                      </Typography>
-                    </Box>
-                    
-                    <Box>
-                      <Typography variant="body2" color="textSecondary">
-                        Quality Level
-                      </Typography>
-                      <Chip
-                        label={mySession.quality_level}
-                        color="primary"
-                        size="small"
-                      />
-                    </Box>
-                    
-                    <Box>
-                      <Typography variant="body2" color="textSecondary">
-                        Bandwidth
-                      </Typography>
-                      <Typography variant="body1">
-                        {mySession.bandwidth_usage_mbps.toFixed(1)} MB/s
-                      </Typography>
-                    </Box>
-                    
-                    <Box>
-                      <Typography variant="body2" color="textSecondary">
-                        FPS
-                      </Typography>
-                      <Typography variant="body1">
-                        {mySession.actual_fps.toFixed(1)} fps
-                      </Typography>
-                    </Box>
-                    
-                    <Box>
-                      <Typography variant="body2" color="textSecondary">
-                        Connection
-                      </Typography>
-                      <Chip
-                        label={mySession.websocket_state}
-                        color={mySession.websocket_state === 'connected' ? 'success' : 'warning'}
-                        size="small"
-                      />
-                    </Box>
-                    
-                    <Button
-                      variant="contained"
-                      color="error"
-                      startIcon={<StopIcon />}
-                      onClick={stopStreamingSession}
-                      disabled={streamingLoading}
-                      fullWidth
-                      sx={{ 
-                        minHeight: { xs: 44, sm: 36 },
-                        fontSize: { xs: '0.875rem', sm: '0.875rem' }
-                      }}
-                    >
-                      {streamingLoading ? <ButtonLoading message="" /> : 'Stop My Stream'}
-                    </Button>
-                  </Stack>
-                ) : (
-                  <Stack spacing={2}>
-                    <Typography 
-                      color="textSecondary"
-                      sx={{ fontSize: { xs: '0.875rem', sm: '1rem' } }}
-                    >
-                      No active streaming session
-                    </Typography>
-                    
-                    <Button
-                      variant="contained"
-                      startIcon={<PlayArrowIcon />}
-                      onClick={() => createStreamingSession()}
-                      disabled={streamingLoading || !streamingStatus?.enabled}
-                      fullWidth
-                      sx={{ 
-                        minHeight: { xs: 44, sm: 36 },
-                        fontSize: { xs: '0.875rem', sm: '0.875rem' }
-                      }}
-                    >
-                      {streamingLoading ? <ButtonLoading message="" /> : 'Start Streaming'}
-                    </Button>
-                    
-                    {streamingStatus && !streamingStatus.enabled && (
-                      <Typography variant="body2" color="error" sx={{ textAlign: 'center' }}>
-                        Streaming service is currently disabled
-                      </Typography>
-                    )}
-                  </Stack>
-                )}
-              </CardContent>
-            </Card>
-          </Grid>
 
-          {/* Video Stream Display (Future Enhancement) */}
-          <Grid item xs={12}>
-            <Card>
-              <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
-                <Typography 
-                  variant="h6" 
-                  gutterBottom
-                >
-                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                    <VideocamIcon sx={{ 
-                      mr: 1,
-                      fontSize: { xs: 20, sm: 24 }
-                    }} />
-                    <Typography variant="h6">
-                      Live Stream Preview
+                  <Box>
+                    <Typography variant="body2" color="textSecondary">
+                      Quality Level
+                    </Typography>
+                    <Chip
+                      label={mySession.quality_level}
+                      color="primary"
+                      size="small"
+                    />
+                  </Box>
+
+                  <Box>
+                    <Typography variant="body2" color="textSecondary">
+                      Bandwidth
+                    </Typography>
+                    <Typography variant="body1">
+                      {mySession.bandwidth_usage_mbps.toFixed(1)} MB/s
                     </Typography>
                   </Box>
-                </Typography>
-                
-                {mySession && mySession.websocket_state === 'connected' ? (
-                  <Box
+
+                  <Box>
+                    <Typography variant="body2" color="textSecondary">
+                      FPS
+                    </Typography>
+                    <Typography variant="body1">
+                      {mySession.actual_fps.toFixed(1)} fps
+                    </Typography>
+                  </Box>
+
+                  <Box>
+                    <Typography variant="body2" color="textSecondary">
+                      Connection
+                    </Typography>
+                    <Chip
+                      label={mySession.websocket_state}
+                      color={mySession.websocket_state === 'connected' ? 'success' : 'warning'}
+                      size="small"
+                    />
+                  </Box>
+
+                  <Button
+                    variant="contained"
+                    color="error"
+                    startIcon={<StopIcon />}
+                    onClick={stopStreamingSession}
+                    disabled={streamingLoading}
+                    fullWidth
                     sx={{
-                      width: '100%',
-                      height: { xs: 250, sm: 300, md: 400 },
-                      backgroundColor: 'black',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      border: 1,
-                      borderColor: 'grey.300',
-                      borderRadius: 1,
-                      position: 'relative'
+                      minHeight: { xs: 44, sm: 36 },
+                      fontSize: { xs: '0.875rem', sm: '0.875rem' }
                     }}
                   >
-                    {currentFrame ? (
-                      <Box sx={{ position: 'relative', width: '100%', height: '100%' }}>
-                        <img
-                          src={currentFrame}
-                          alt="Live camera stream"
-                          style={{
-                            width: '100%',
-                            height: '100%',
-                            objectFit: 'contain'
-                          }}
-                        />
-                        {/* Stream info overlay */}
-                        <Box
-                          sx={{
-                            position: 'absolute',
-                            top: 8,
-                            left: 8,
-                            backgroundColor: 'rgba(0, 0, 0, 0.7)',
-                            color: 'white',
-                            padding: '4px 8px',
-                            borderRadius: 1,
-                            fontSize: '0.75rem'
-                          }}
-                        >
-                          <Typography variant="caption" color="inherit">
-                            Live • Frame {frameCount} • {lastFrameTime?.toLocaleTimeString()}
-                          </Typography>
-                        </Box>
+                    {streamingLoading ? <ButtonLoading message="" /> : 'Stop My Stream'}
+                  </Button>
+
+                  <Divider />
+
+                  <Box>
+                    <Typography variant="subtitle2" gutterBottom>
+                      Live Stream
+                    </Typography>
+
+                    {mySession.websocket_state === 'connected' ? (
+                      <Box
+                        sx={{
+                          width: '100%',
+                          height: { xs: 240, sm: 300, md: 360 },
+                          bgcolor: 'black',
+                          borderRadius: 1,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          overflow: 'hidden'
+                        }}
+                      >
+                        {currentFrame ? (
+                          <img
+                            src={currentFrame}
+                            alt="Live camera stream"
+                            style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                          />
+                        ) : (
+                          <Stack spacing={2} alignItems="center">
+                            <LoadingSpinner
+                              variant="spinner"
+                              size="large"
+                              color="primary"
+                              message="Waiting for frames..."
+                            />
+                            <Typography variant="body2" color="grey.400">
+                              Session {mySession.session_id.substring(0, 8)}鈥?                            </Typography>
+                          </Stack>
+                        )}
                       </Box>
                     ) : (
-                      <Stack alignItems="center" spacing={2}>
-                        <LoadingSpinner
-                          variant="spinner"
-                          size="large"
-                          color="primary"
-                          message="WebSocket Connected - Waiting for frames..."
-                        />
-                        <Typography variant="body2" color="grey.300">
-                          Session: {mySession.session_id.substring(0, 8)}...
-                        </Typography>
-                        <Typography variant="body2" color="success.main">
-                          {mySession.websocket_state === 'connected' ? 'Connected' : 'Connecting...'}
-                        </Typography>
-                      </Stack>
+                      <Box
+                        sx={{
+                          width: '100%',
+                          height: { xs: 240, sm: 300, md: 360 },
+                          bgcolor: 'grey.50',
+                          border: 1,
+                          borderColor: 'grey.200',
+                          borderRadius: 1,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}
+                      >
+                        <Stack spacing={2} alignItems="center">
+                          <StreamIcon sx={{ fontSize: 48, color: 'grey.400' }} />
+                          <Typography variant="body2" color="textSecondary">
+                            Connecting to stream鈥?                          </Typography>
+                        </Stack>
+                      </Box>
                     )}
                   </Box>
-                ) : (
-                  <Box
+                </Stack>
+              ) : (
+                <Stack spacing={2}>
+                  <Typography
+                    color="textSecondary"
+                    sx={{ fontSize: { xs: '0.875rem', sm: '1rem' } }}
+                  >
+                    No active streaming session
+                  </Typography>
+
+                  <Button
+                    variant="contained"
+                    startIcon={<PlayArrowIcon />}
+                    onClick={() => createStreamingSession()}
+                    disabled={streamingLoading || !streamingStatus?.enabled}
+                    fullWidth
                     sx={{
-                      width: '100%',
-                      height: 400,
-                      backgroundColor: 'grey.50',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      border: 1,
-                      borderColor: 'grey.200',
-                      borderRadius: 1
+                      minHeight: { xs: 44, sm: 36 },
+                      fontSize: { xs: '0.875rem', sm: '0.875rem' }
                     }}
                   >
-                    <Stack alignItems="center" spacing={2}>
-                      <StreamIcon sx={{ fontSize: 64, color: 'grey.400' }} />
-                      <Typography variant="h6" color="textSecondary">
-                        No Active Stream
-                      </Typography>
-                      <Typography variant="body2" color="textSecondary">
-                        Start a streaming session to view live video
-                      </Typography>
-                    </Stack>
-                  </Box>
-                )}
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
+                    {streamingLoading ? <ButtonLoading message="" /> : 'Start Streaming'}
+                  </Button>
+
+                  {streamingStatus && !streamingStatus.enabled && (
+                    <Typography variant="body2" color="error" sx={{ textAlign: 'center' }}>
+                      Streaming service is currently disabled
+                    </Typography>
+                  )}
+                </Stack>
+              )}
+            </Stack>
+          </CardContent>
+        </Card>
       </TabPanel>
 
       {/* System Status Dialog */}
@@ -1283,3 +1131,6 @@ const CameraPage: React.FC = () => {
 };
 
 export default CameraPage;
+
+
+

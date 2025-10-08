@@ -93,6 +93,12 @@ const MobileDrawer: React.FC<MobileDrawerProps> = ({
       icon: <DatabaseIcon />,
     },
     {
+      label: 'Scheduling',
+      path: '/scheduling',
+      icon: <SchedulingIcon />,
+      roles: ['admin', 'user'], // Only visible to admin and user roles
+    },
+    {
       label: 'Camera',
       path: '/camera',
       icon: <CameraIcon />,
@@ -101,12 +107,6 @@ const MobileDrawer: React.FC<MobileDrawerProps> = ({
       label: 'System Status',
       path: '/system-status',
       icon: <MonitoringIcon />,
-    },
-    {
-      label: 'Scheduling',
-      path: '/scheduling',
-      icon: <SchedulingIcon />,
-      roles: ['admin', 'user'], // Only visible to admin and user roles
     },
     {
       label: 'About',

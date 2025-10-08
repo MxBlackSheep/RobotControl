@@ -1,3 +1,14 @@
+﻿## 2025-10-08 Streaming Guard & Scheduling Polish
+
+- Reworked the streaming CPU guard to sample the PyRobot process, smooth spikes, and require consecutive hits before terminating sessions (ackend/services/live_streaming.py).
+- Widened scheduling tab padding and card content so laptop layouts breathe instead of hugging the edges (rontend/src/pages/SchedulingPage.tsx).
+- Execution history’s experiment filter now shows each schedule’s short id alongside the name to avoid duplicate labels (rontend/src/components/ExecutionHistory.tsx).
+## 2025-10-08 Scheduling Layout & Streaming Consolidation
+
+- Reordered top-level navigation so System Status sits beside About, updating both the desktop tabs and mobile drawer (`frontend/src/App.tsx`, `frontend/src/components/MobileDrawer.tsx`).
+- Relaxed the scheduling page spacing with wider gutters, roomier tabs, and padded cards while keeping manual recovery and calendar content consistent (`frontend/src/pages/SchedulingPage.tsx`, `frontend/src/components/ScheduleList.tsx`).
+- Extended monitoring data to carry streaming status and reliable timestamps, then surfaced the service metrics on the System Status dashboard (`frontend/src/hooks/useMonitoring.ts`, `frontend/src/components/SystemStatus.tsx`, `frontend/src/components/MonitoringDashboard.tsx`).
+- Streamlined the Camera streaming tab to just session controls, removing the metrics card and video preview while keeping start/stop flows intact (`frontend/src/pages/CameraPage.tsx`).
 ## 2025-10-08 Monitoring & Scheduling Tweaks
 
 - Refined the scheduling form so the improved modal now powers both create and edit flows, requires an explicit experiment prep option, and removes the unused Hamilton tables flag (frontend/src/components/scheduling/ImprovedScheduleForm.tsx, frontend/src/pages/SchedulingPage.tsx, frontend/src/hooks/useScheduling.ts).
@@ -20,8 +31,8 @@ Refer to `AGENTS.md` for the day-to-day runbook; this file captures development-
 
 ## 2025-10-07 Responsive Database & History Retention
 
-- Database page tabs now mirror the scheduling UX: scrollable with mobile labels, and legacy connection chips/metadata were removed so the header no longer shows “Disconnected / Unknown�?placeholders (`frontend/src/pages/DatabasePage.tsx`).
-- Tight viewports get a more usable table pager—`TablePagination` wraps controls with larger touch targets when vertical space is constrained (`frontend/src/components/DatabaseTable.tsx`).
+- Database page tabs now mirror the scheduling UX: scrollable with mobile labels, and legacy connection chips/metadata were removed so the header no longer shows 鈥淒isconnected / Unknown鈥?placeholders (`frontend/src/pages/DatabasePage.tsx`).
+- Tight viewports get a more usable table pager鈥擿TablePagination` wraps controls with larger touch targets when vertical space is constrained (`frontend/src/components/DatabaseTable.tsx`).
 - Job execution records survive schedule deletion by archiving into a new `JobExecutionsArchive` table; history/summary queries now union current and archived rows with schedule snapshots (`backend/services/scheduling/sqlite_database.py`).
 - Packaging workflow remains: `npm run build`, `python build_scripts/embed_resources.py`, `python build_scripts/pyinstaller_build.py` to refresh the single-file binary (`dist/PyRobot.exe`).
 
@@ -87,3 +98,6 @@ Refer to `AGENTS.md` for the day-to-day runbook; this file captures development-
 - Enabled the `@/*` TypeScript alias in `frontend/tsconfig.json` so the helper can be imported consistently.
 - Build workflow: run `npm.cmd run build`, `python build_scripts/embed_resources.py`, then `python -m PyInstaller PyRobot.spec` to refresh the embedded bundle.
 - Deployment note: leave `VITE_API_BASE_URL` empty (or set to the backend origin) before building so mobile Safari/Chrome point at the correct server automatically.
+
+
+

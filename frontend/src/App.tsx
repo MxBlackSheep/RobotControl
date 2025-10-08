@@ -47,15 +47,17 @@ const AppContent: React.FC = () => {
     const items = [
       { label: 'Dashboard', path: '/' },
       { label: 'Database', path: '/database' },
-      { label: 'Camera', path: '/camera' },
-      { label: 'System Status', path: '/system-status' },
     ];
 
     if (['admin', 'user'].includes(user?.role || '')) {
       items.push({ label: 'Scheduling', path: '/scheduling' });
     }
 
-    items.push({ label: 'About', path: '/about' });
+    items.push(
+      { label: 'Camera', path: '/camera' },
+      { label: 'System Status', path: '/system-status' },
+      { label: 'About', path: '/about' },
+    );
 
     return items;
   }, [user?.role]);

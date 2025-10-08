@@ -217,18 +217,26 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
   }, [autoRefresh, scheduleId, limit]);
 
   const experimentOptions: FilterOption[] = useMemo(() => {
-    const unique = new Map<string, string>();
+    const unique = new Map<string, { name: string }>();
     executions.forEach((execution) => {
+      if (!execution.schedule_id) {
+        return;
+      }
       if (!unique.has(execution.schedule_id)) {
-        unique.set(execution.schedule_id, execution.experiment_name);
+        unique.set(execution.schedule_id, { name: execution.experiment_name });
       }
     });
+
     return [
       { label: 'All experiments', value: 'all' },
-      ...Array.from(unique.entries()).map(([value, label]) => ({
-        value,
-        label: label || value,
-      })),
+      ...Array.from(unique.entries()).map(([scheduleId, meta]) => {
+        const safeName = (meta.name || 'Untitled').trim();
+        const shortId = scheduleId ? scheduleId.substring(0, 8) : 'unknown';
+        return {
+          value: scheduleId,
+          label: `${safeName} · ${shortId}`,
+        };
+      }),
     ];
   }, [executions]);
 

@@ -34,8 +34,9 @@ import {
   CheckCircle as CheckIcon,
   Error as ErrorIcon,
   Warning as WarningIcon,
+  Stream as StreamIcon,
 } from '@mui/icons-material';
-import useMonitoring, { ExperimentData, SystemHealth, DatabaseStatus } from '../hooks/useMonitoring';
+import useMonitoring, { ExperimentData, SystemHealth, DatabaseStatus, StreamingServiceStatus } from '../hooks/useMonitoring';
 
 // Component props
 interface SystemStatusProps {
@@ -288,6 +289,109 @@ const DatabaseStatusCard: React.FC<DatabaseStatusCardProps> = memo(({ databaseSt
   );
 });
 
+// Streaming Status Card
+interface StreamingStatusCardProps {
+  streamingStatus: StreamingServiceStatus | null;
+  compact?: boolean;
+}
+
+const StreamingStatusCard: React.FC<StreamingStatusCardProps> = memo(({ streamingStatus, compact = false }) => {
+  const enabled = streamingStatus?.enabled ?? false;
+  const activeSessions = streamingStatus
+    ? `${streamingStatus.active_session_count ?? 0}/${streamingStatus.max_sessions ?? 0}`
+    : '--';
+  const totalBandwidth = streamingStatus?.total_bandwidth_mbps;
+  const availableBandwidth = streamingStatus?.available_bandwidth_mbps;
+  const utilization = streamingStatus?.resource_usage_percent;
+
+  return (
+    <Card>
+      <CardContent>
+        <Stack
+          direction="row"
+          alignItems="center"
+          justifyContent="space-between"
+          sx={{ mb: compact ? 1.5 : 2 }}
+        >
+          <Stack direction="row" spacing={1} alignItems="center">
+            <StreamIcon color={enabled ? 'primary' : 'disabled'} />
+            <Typography variant={compact ? 'subtitle1' : 'h6'}>
+              Streaming Service
+            </Typography>
+          </Stack>
+          <Chip
+            label={streamingStatus ? (enabled ? 'Enabled' : 'Disabled') : 'Unavailable'}
+            color={streamingStatus ? (enabled ? 'success' : 'default') : 'default'}
+            size="small"
+          />
+        </Stack>
+
+        {!streamingStatus ? (
+          <Typography variant="body2" color="text.secondary">
+            Streaming metrics are unavailable. Start a session to populate this section.
+          </Typography>
+        ) : (
+          <Stack spacing={1.25}>
+            <Stack direction="row" justifyContent="space-between">
+              <Typography variant="body2" color="text.secondary">
+                Active Sessions
+              </Typography>
+              <Typography variant="body2" fontWeight={600}>
+                {activeSessions}
+              </Typography>
+            </Stack>
+
+            <Stack direction="row" justifyContent="space-between">
+              <Typography variant="body2" color="text.secondary">
+                Bandwidth
+              </Typography>
+              <Typography variant="body2" fontWeight={600}>
+                {totalBandwidth != null ? `${totalBandwidth.toFixed(1)} Mb/s` : '--'}
+              </Typography>
+            </Stack>
+
+            {availableBandwidth != null && (
+              <Stack direction="row" justifyContent="space-between">
+                <Typography variant="body2" color="text.secondary">
+                  Available Bandwidth
+                </Typography>
+                <Typography variant="body2" fontWeight={600}>
+                  {`${availableBandwidth.toFixed(1)} Mb/s`}
+                </Typography>
+              </Stack>
+            )}
+
+            <Box>
+              <Stack direction="row" justifyContent="space-between" alignItems="center">
+                <Typography variant="body2" color="text.secondary">
+                  Utilization
+                </Typography>
+                <Typography variant="body2" fontWeight={600}>
+                  {utilization != null ? `${Math.round(utilization)}%` : '--'}
+                </Typography>
+              </Stack>
+              {utilization != null && (
+                <LinearProgress
+                  variant="determinate"
+                  value={Math.max(0, Math.min(100, utilization))}
+                  sx={{ mt: 1 }}
+                  color={
+                    utilization > 80
+                      ? 'error'
+                      : utilization > 60
+                        ? 'warning'
+                        : 'success'
+                  }
+                />
+              )}
+            </Box>
+          </Stack>
+        )}
+      </CardContent>
+    </Card>
+  );
+});
+
 // Main SystemStatus Component
 const SystemStatus: React.FC<SystemStatusProps> = memo(({ 
   compact = false,
@@ -295,9 +399,11 @@ const SystemStatus: React.FC<SystemStatusProps> = memo(({
   refreshInterval = 30,
 }) => {
   const {
+    monitoringData,
     experiments,
     systemHealth,
     databaseStatus,
+    streamingStatus,
     isConnected,
     isLoading,
     error,
@@ -328,7 +434,8 @@ const SystemStatus: React.FC<SystemStatusProps> = memo(({
     connect();
   };
 
-  const lastUpdatedLabel = systemHealth?.timestamp ? `Updated ${formatRelativeTime(systemHealth.timestamp)}` : 'No recent metrics';
+  const primaryTimestamp = systemHealth?.timestamp ?? monitoringData?.last_updated ?? null;
+  const lastUpdatedLabel = primaryTimestamp ? `Updated ${formatRelativeTime(primaryTimestamp)}` : 'No recent metrics';
 
   // Memoized values for performance metrics
   return (
@@ -404,6 +511,11 @@ const SystemStatus: React.FC<SystemStatusProps> = memo(({
         <Grid item xs={12} lg={compact ? 12 : 6}>
           <DatabaseStatusCard databaseStatus={databaseStatus} compact={compact} />
         </Grid>
+
+        {/* Streaming Status */}
+        <Grid item xs={12}>
+          <StreamingStatusCard streamingStatus={streamingStatus} compact={compact} />
+        </Grid>
       </Grid>
 
 
@@ -415,5 +527,6 @@ const SystemStatus: React.FC<SystemStatusProps> = memo(({
 SystemStatus.displayName = 'SystemStatus';
 ExperimentStatusCard.displayName = 'ExperimentStatusCard';
 DatabaseStatusCard.displayName = 'DatabaseStatusCard';
+StreamingStatusCard.displayName = 'StreamingStatusCard';
 
 export default SystemStatus;
