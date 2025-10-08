@@ -43,11 +43,6 @@ const AppContent: React.FC = () => {
   useKeyboardNavigation({ enabled: isAuthenticated });
   const { open: shortcutsHelpOpen, showHelp: showShortcutsHelp, hideHelp: hideShortcutsHelp } = useKeyboardShortcutsHelp();
 
-
-  if (!isAuthenticated) {
-    return <LoginPage />;
-  }
-
   const tabItems = React.useMemo(() => {
     const items = [
       { label: 'Dashboard', path: '/' },
@@ -82,6 +77,10 @@ const AppContent: React.FC = () => {
       navigate(target.path);
     }
   };
+
+  if (!isAuthenticated) {
+    return <LoginPage />;
+  }
 
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }}>
