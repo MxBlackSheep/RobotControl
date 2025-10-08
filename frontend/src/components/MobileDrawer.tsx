@@ -35,9 +35,9 @@ import {
   Videocam as CameraIcon,
   MonitorHeart as MonitoringIcon,
   Schedule as SchedulingIcon,
-  AdminPanelSettings as AdminIcon,
   Logout as LogoutIcon,
   Person as UserIcon,
+  Info as InfoIcon,
 } from '@mui/icons-material';
 
 import { useAuth } from '../context/AuthContext';
@@ -98,8 +98,8 @@ const MobileDrawer: React.FC<MobileDrawerProps> = ({
       icon: <CameraIcon />,
     },
     {
-      label: 'Monitoring',
-      path: '/monitoring',
+      label: 'System Status',
+      path: '/system-status',
       icon: <MonitoringIcon />,
     },
     {
@@ -109,10 +109,9 @@ const MobileDrawer: React.FC<MobileDrawerProps> = ({
       roles: ['admin', 'user'], // Only visible to admin and user roles
     },
     {
-      label: 'Admin',
-      path: '/admin',
-      icon: <AdminIcon />,
-      roles: ['admin'], // Only visible to admin role
+      label: 'About',
+      path: '/about',
+      icon: <InfoIcon />,
     },
   ];
 

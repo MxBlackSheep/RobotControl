@@ -8,7 +8,6 @@ import Grid from '@mui/material/Grid';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import Button from '@mui/material/Button';
-import Chip from '@mui/material/Chip';
 import Alert from '@mui/material/Alert';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -91,8 +90,12 @@ const Dashboard: React.FC = memo(() => {
     }
   }, [navigate, user?.role]);
   
-  const handleNavigateToMonitoring = useCallback(() => {
-    navigate('/monitoring');
+  const handleNavigateToSystemStatus = useCallback(() => {
+    navigate('/system-status');
+  }, [navigate]);
+
+  const handleNavigateToAbout = useCallback(() => {
+    navigate('/about');
   }, [navigate]);
 
   return (
@@ -174,7 +177,7 @@ const Dashboard: React.FC = memo(() => {
                 )}
                 <Button
                   variant="contained"
-                  onClick={handleNavigateToMonitoring}
+                  onClick={handleNavigateToSystemStatus}
                   fullWidth
                   color="success"
                   sx={{ 
@@ -182,45 +185,19 @@ const Dashboard: React.FC = memo(() => {
                     fontSize: { xs: '0.875rem', sm: '0.875rem' }
                   }}
                 >
-                  Real-time Monitoring
+                  System Status
                 </Button>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        {/* Recent Activity */}
-        <Grid item xs={12}>
-          <Card>
-            <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
-              <Typography variant="h6" gutterBottom>
-                System Information
-              </Typography>
-              <Typography variant="body2" color="textSecondary">
-                This is the simplified PyRobot interface. The system has been consolidated 
-                from the complex multi-architecture setup into a clean, unified React + FastAPI application.
-              </Typography>
-              <Box sx={{ 
-                mt: 2,
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: { xs: 0.5, sm: 1 }
-              }}>
-                <Chip 
-                  label="Simplified Architecture" 
-                  color="primary" 
-                  size="small" 
-                />
-                <Chip 
-                  label="React Frontend" 
-                  color="secondary" 
-                  size="small" 
-                />
-                <Chip 
-                  label="FastAPI Backend" 
-                  color="info" 
-                  size="small" 
-                />
+                <Button
+                  variant="outlined"
+                  onClick={handleNavigateToAbout}
+                  fullWidth
+                  sx={{ 
+                    minHeight: { xs: 44, sm: 36 },
+                    fontSize: { xs: '0.875rem', sm: '0.875rem' }
+                  }}
+                >
+                  About PyRobot
+                </Button>
               </Box>
             </CardContent>
           </Card>

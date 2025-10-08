@@ -304,8 +304,8 @@ const DatabasePage: React.FC = () => {
           <Grid item xs={12} md={9} lg={10}>
             {selectedTable ? (
               <Card sx={{ 
-                height: { xs: '600px', md: 'calc(100vh - 240px)' }, 
-                minHeight: { xs: '400px', md: '500px' }, 
+                height: { xs: 'auto', md: 'calc(100vh - 240px)' }, 
+                minHeight: { xs: 'auto', md: '500px' }, 
                 overflow: 'hidden' 
               }}>
                 <CardContent sx={{ height: '100%', p: { xs: 1, sm: 2 }, display: 'flex', flexDirection: 'column' }}>

@@ -22,6 +22,7 @@
 ## Configuration Checklist
 - SMTP (optional): provide `PYROBOT_SMTP_HOST`, `PYROBOT_SMTP_PORT` (default 587), credentials, `PYROBOT_SMTP_FROM`, and comma-separated `PYROBOT_ALERT_RECIPIENTS`. TLS defaults to on; override with `PYROBOT_SMTP_USE_TLS` or `PYROBOT_SMTP_USE_SSL`.
 - Before packaging PyInstaller builds, run `python backend/services/embed_resources.py` to embed the latest frontend and restart the backend with `PYROBOT_SERVE_FRONTEND=1` when validating the embedded bundle.
+- PyInstaller builds load `build_scripts/runtime_hooks/silence_pkg_resources_warning.py` via `PyRobot.spec` to filter the deprecated `pkg_resources` warning—leave the runtime hook in place (or update it) when modifying the spec.
 
 ## Implementation Note
 - Add implementation to docs/implementation-notes.md with newest note coming on top. 

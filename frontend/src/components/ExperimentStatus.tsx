@@ -328,40 +328,65 @@ const ExperimentStatus: React.FC<ExperimentStatusProps> = memo(({
   return (
     <Card>
       <CardContent>
-        <Box display="flex" alignItems="center" mb={2}>
-          <ExperimentIcon color="primary" sx={{ mr: 1 }} />
-          <Typography variant="h6">Latest Experiment</Typography>
-          <Chip
-            icon={stateDisplay.icon}
-            label={stateDisplay.label}
-            size="small"
-            variant="filled"
+        <Box
+          sx={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: { xs: 'flex-start', sm: 'center' },
+            gap: { xs: 1, sm: 1.5 },
+            mb: 2,
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <ExperimentIcon color="primary" />
+            <Typography
+              variant="h6"
+              sx={{ fontSize: { xs: '1rem', sm: '1.1rem' }, fontWeight: 600 }}
+            >
+              Latest Experiment
+            </Typography>
+          </Box>
+          <Box
             sx={{
-              ml: 'auto',
-              mr: 1,
-              px: 1.5,
-              fontWeight: 600,
-              textTransform: 'uppercase',
-              letterSpacing: 0.6,
-              color: stateDisplay.textColor || 'inherit',
-              backgroundColor: stateDisplay.backgroundColor || 'transparent',
-              border: stateDisplay.borderColor ? `1px solid ${stateDisplay.borderColor}` : undefined,
-              borderRadius: 16,
-              boxShadow: stateDisplay.backgroundColor ? '0 0 0 1px rgba(255,255,255,0.2)' : undefined,
-              animation: stateDisplay.animate ? 'pulse 1.6s ease-in-out infinite' : 'none',
-              '@keyframes pulse': {
-                '0%': { opacity: 1 },
-                '50%': { opacity: 0.75 },
-                '100%': { opacity: 1 }
-              }
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1,
+              ml: { xs: 0, sm: 'auto' },
+              width: { xs: '100%', sm: 'auto' },
+              justifyContent: { xs: 'space-between', sm: 'flex-end' },
             }}
-            aria-label={stateDisplay.ariaLabel}
-          />
-          <Tooltip title="Refresh">
-            <IconButton onClick={handleRefresh} size="small">
-              <RefreshIcon />
-            </IconButton>
-          </Tooltip>
+          >
+            <Chip
+              icon={stateDisplay.icon}
+              label={stateDisplay.label}
+              size="small"
+              variant="filled"
+              sx={{
+                px: 1.5,
+                fontWeight: 600,
+                textTransform: 'uppercase',
+                letterSpacing: 0.6,
+                color: stateDisplay.textColor || 'inherit',
+                backgroundColor: stateDisplay.backgroundColor || 'transparent',
+                border: stateDisplay.borderColor ? `1px solid ${stateDisplay.borderColor}` : undefined,
+                borderRadius: 16,
+                boxShadow: stateDisplay.backgroundColor ? '0 0 0 1px rgba(255,255,255,0.2)' : undefined,
+                animation: stateDisplay.animate ? 'pulse 1.6s ease-in-out infinite' : 'none',
+                minHeight: 28,
+                '@keyframes pulse': {
+                  '0%': { opacity: 1 },
+                  '50%': { opacity: 0.75 },
+                  '100%': { opacity: 1 }
+                }
+              }}
+              aria-label={stateDisplay.ariaLabel}
+            />
+            <Tooltip title="Refresh">
+              <IconButton onClick={handleRefresh} size="small" sx={{ flexShrink: 0 }}>
+                <RefreshIcon />
+              </IconButton>
+            </Tooltip>
+          </Box>
         </Box>
 
         <Stack spacing={compact ? 1 : 2}>
@@ -377,7 +402,15 @@ const ExperimentStatus: React.FC<ExperimentStatusProps> = memo(({
             </Typography>
           </Box>
 
-          <Box display="flex" justifyContent="space-between" flexWrap="wrap" gap={1}>
+          <Box
+            sx={{
+              display: 'flex',
+              flexDirection: { xs: 'column', sm: 'row' },
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: { xs: 1, sm: 1.5 },
+            }}
+          >
             <Box>
               <Typography variant="body2" color="text.secondary">
                 Started

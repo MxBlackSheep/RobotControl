@@ -52,8 +52,8 @@ export const useKeyboardNavigation = ({
     {
       key: '4',
       altKey: true,
-      action: () => navigate('/monitoring'),
-      description: 'Go to Monitoring (Alt+4)'
+      action: () => navigate('/system-status'),
+      description: 'Go to System Status (Alt+4)'
     },
     {
       key: '5',
@@ -64,8 +64,8 @@ export const useKeyboardNavigation = ({
     {
       key: '6',
       altKey: true,
-      action: () => navigate('/admin'),
-      description: 'Go to Admin (Alt+6)'
+      action: () => navigate('/about'),
+      description: 'Go to About (Alt+6)'
     },
     {
       key: 'h',

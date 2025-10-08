@@ -25,11 +25,9 @@ import Dashboard from './pages/Dashboard';
 // Lazy load non-critical pages for better initial load performance
 const DatabasePage = loadComponent(() => import('./pages/DatabasePage'));
 const CameraPage = loadComponent(() => import('./pages/CameraPage'));
-const MonitoringPage = loadComponent(() => import('./pages/MonitoringPage'));
-const AdminPage = loadComponent(() => import('./pages/AdminPage'));
-const BackupPage = loadComponent(() => import('./pages/BackupPage'));
-const SystemConfigPage = loadComponent(() => import('./pages/SystemConfigPage'));
+const SystemStatusPage = loadComponent(() => import('./pages/MonitoringPage'));
 const SchedulingPage = loadComponent(() => import('./pages/SchedulingPage'));
+const AboutPage = loadComponent(() => import('./pages/AboutPage'));
 
 const AppContent: React.FC = () => {
   const { isAuthenticated, user, logout } = useAuth();
@@ -50,20 +48,39 @@ const AppContent: React.FC = () => {
     return <LoginPage />;
   }
 
-  const getTabValue = () => {
-    const path = location.pathname;
-    if (path === '/') return 0;
-    if (path === '/database') return 1;
-    if (path === '/camera') return 2;
-    if (path === '/monitoring') return 3;
-    if (path === '/scheduling') return 4;
-    if (path === '/admin' || path.startsWith('/admin/')) return 5;
-    return 0;
-  };
+  const tabItems = React.useMemo(() => {
+    const items = [
+      { label: 'Dashboard', path: '/' },
+      { label: 'Database', path: '/database' },
+      { label: 'Camera', path: '/camera' },
+      { label: 'System Status', path: '/system-status' },
+    ];
+
+    if (['admin', 'user'].includes(user?.role || '')) {
+      items.push({ label: 'Scheduling', path: '/scheduling' });
+    }
+
+    items.push({ label: 'About', path: '/about' });
+
+    return items;
+  }, [user?.role]);
+
+  const tabValue = React.useMemo(() => {
+    const index = tabItems.findIndex(item => location.pathname === item.path);
+    if (index !== -1) {
+      return index;
+    }
+
+    // Fallback for nested routes or unknown paths
+    const fallback = tabItems.findIndex(item => location.pathname.startsWith(item.path) && item.path !== '/');
+    return fallback !== -1 ? fallback : 0;
+  }, [location.pathname, tabItems]);
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
-    const routes = ['/', '/database', '/camera', '/monitoring', '/scheduling', '/admin'];
-    navigate(routes[newValue]);
+    const target = tabItems[newValue];
+    if (target) {
+      navigate(target.path);
+    }
   };
 
   return (
@@ -126,17 +143,14 @@ const AppContent: React.FC = () => {
         }}
       >
         <Tabs 
-          value={getTabValue()} 
+          value={tabValue} 
           onChange={handleTabChange}
           aria-label="navigation tabs"
           sx={{ px: 2 }}
         >
-          <Tab label="Dashboard" />
-          <Tab label="Database" />
-          <Tab label="Camera" />
-          <Tab label="Monitoring" />
-          {(['admin', 'user'].includes(user?.role || '')) && <Tab label="Scheduling" />}
-          {user?.role === 'admin' && <Tab label="Admin" />}
+          {tabItems.map(item => (
+            <Tab key={item.path} label={item.label} />
+          ))}
         </Tabs>
       </Box>
       
@@ -172,17 +186,12 @@ const AppContent: React.FC = () => {
             <Route path="/" element={<Dashboard />} />
             <Route path="/database" element={<DatabasePage />} />
             <Route path="/camera" element={<CameraPage />} />
-            <Route path="/monitoring" element={<MonitoringPage />} />
+            <Route path="/system-status" element={<SystemStatusPage />} />
+            <Route path="/monitoring" element={<Navigate to="/system-status" replace />} />
             {(['admin', 'user'].includes(user?.role || '')) && (
               <Route path="/scheduling" element={<SchedulingPage />} />
             )}
-            {user?.role === 'admin' && (
-              <>
-                <Route path="/admin" element={<AdminPage />} />
-                <Route path="/admin/backup" element={<BackupPage />} />
-                <Route path="/admin/system-config" element={<SystemConfigPage />} />
-              </>
-            )}
+            <Route path="/about" element={<AboutPage />} />
             <Route path="/login" element={<Navigate to="/" replace />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

@@ -20,9 +20,7 @@ import {
   Videocam as CameraIcon,
   MonitorHeart as MonitoringIcon,
   Schedule as ScheduleIcon,
-  AdminPanelSettings as AdminIcon,
-  Backup as BackupIcon,
-  Settings as SystemConfigIcon,
+  Info as InfoIcon,
   NavigateNext as NavigateNextIcon,
 } from '@mui/icons-material';
 
@@ -68,8 +66,8 @@ const routeConfigs: BreadcrumbConfig[] = [
     icon: <CameraIcon fontSize="small" />,
   },
   {
-    path: '/monitoring',
-    label: 'Monitoring',
+    path: '/system-status',
+    label: 'System Status',
     icon: <MonitoringIcon fontSize="small" />,
   },
   {
@@ -79,24 +77,9 @@ const routeConfigs: BreadcrumbConfig[] = [
     requiresRole: ['admin', 'user'],
   },
   {
-    path: '/admin',
-    label: 'Administration',
-    icon: <AdminIcon fontSize="small" />,
-    requiresRole: ['admin'],
-  },
-  {
-    path: '/admin/backup',
-    label: 'System Backup',
-    icon: <BackupIcon fontSize="small" />,
-    parent: '/admin',
-    requiresRole: ['admin'],
-  },
-  {
-    path: '/admin/system-config',
-    label: 'System Configuration',
-    icon: <SystemConfigIcon fontSize="small" />,
-    parent: '/admin',
-    requiresRole: ['admin'],
+    path: '/about',
+    label: 'About',
+    icon: <InfoIcon fontSize="small" />,
   },
 ];
 

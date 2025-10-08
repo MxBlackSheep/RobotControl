@@ -1,7 +1,7 @@
 /**
- * MonitoringPage - Dedicated real-time monitoring page
+ * MonitoringPage - Dedicated real-time system status page
  * 
- * Provides full-screen real-time system monitoring without admin overhead
+ * Provides full-screen telemetry without admin overhead
  * Available to both admin and user roles for system observation
  */
 
@@ -48,7 +48,7 @@ const MonitoringPage: React.FC = memo(() => {
               flexGrow: 1
             }}
           >
-            System Monitoring
+            System Status
           </Typography>
           <Chip
             label={`${user?.role || 'Unknown'} Access`}
@@ -62,7 +62,7 @@ const MonitoringPage: React.FC = memo(() => {
           color="text.secondary"
           sx={{ fontSize: { xs: '0.875rem', sm: '1rem' } }}
         >
-          Real-time system health, performance metrics, and monitoring dashboard
+          Real-time system health, performance metrics, and telemetry dashboard
         </Typography>
       </Box>
 
@@ -84,6 +84,6 @@ const MonitoringPage: React.FC = memo(() => {
 });
 
 // Add display name for debugging
-MonitoringPage.displayName = 'MonitoringPage';
+MonitoringPage.displayName = 'SystemStatusPage';
 
 export default MonitoringPage;

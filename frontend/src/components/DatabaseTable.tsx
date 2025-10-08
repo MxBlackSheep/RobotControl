@@ -487,7 +487,13 @@ const DatabaseTable: React.FC<DatabaseTableProps> = ({ tableName, onError }) => 
         ) : data ? (
           <>
             <TableContainer 
-              sx={{ flex: 1, minHeight: '300px', maxHeight: 'calc(100vh - 380px)', overflowY: 'auto', overflowX: 'auto' }}
+              sx={{ 
+                flex: 1, 
+                minHeight: 300,
+                maxHeight: { xs: 'none', md: 'calc(100vh - 380px)' },
+                overflowY: { xs: 'visible', md: 'auto' },
+                overflowX: 'auto'
+              }}
               role="region"
               aria-label={`Database table for ${tableName}`}
             >
