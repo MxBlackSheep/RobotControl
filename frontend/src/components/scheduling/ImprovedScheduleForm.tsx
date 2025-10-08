@@ -29,10 +29,7 @@ import {
   MenuItem,
   Typography,
   Chip,
-  Divider,
-  FormGroup,
   FormControlLabel,
-  Checkbox,
   CircularProgress,
   Stack,
   Accordion,
@@ -42,7 +39,11 @@ import {
   InputAdornment,
   Tooltip,
   IconButton,
-  ListSubheader
+  ListSubheader,
+  Radio,
+  RadioGroup,
+  FormLabel,
+  Switch
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -50,7 +51,6 @@ import {
   Schedule as ScheduleIcon,
   Settings as SettingsIcon,
   ExpandMore as ExpandMoreIcon,
-  Info as InfoIcon,
   Refresh as RefreshIcon,
   FolderOpen as FolderIcon
 } from '@mui/icons-material';
@@ -64,12 +64,6 @@ interface ExperimentFile {
   description: string;
   last_modified: string | null;
   file_size: number;
-}
-
-interface Prerequisite {
-  flag: string;
-  description: string;
-  table: string;
 }
 
 interface ScheduleFormData {
@@ -109,7 +103,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
     interval_hours: 6,
     start_time: null,
     estimated_duration: 55,
-    prerequisites: ['ScheduledToRun'], // Default prerequisite
+    prerequisites: initialData?.prerequisites ?? [],
     is_active: true,
     max_retries: 3,
     retry_delay_minutes: 2,
@@ -193,28 +187,15 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
   const [scanning, setScanning] = useState(false);
   const [experiments, setExperiments] = useState<ExperimentFile[]>([]);
   const [categorizedExperiments, setCategorizedExperiments] = useState<Record<string, ExperimentFile[]>>({});
-  const [prerequisites, setPrerequisites] = useState<Prerequisite[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
   const [evoExperiments, setEvoExperiments] = useState<EvoYeastExperimentOption[]>([]);
   const [evoLoading, setEvoLoading] = useState(false);
   const [selectedExperimentId, setSelectedExperimentId] = useState<string>('');
-  const [experimentAction, setExperimentAction] = useState<'none' | 'set_flag'>('none');
-  const [basePrereqFlags, setBasePrereqFlags] = useState<string[]>(() =>
-    (initialData?.prerequisites || []).filter((entry) => typeof entry === 'string' && !entry.startsWith('EvoYeastExperiment:'))
-  );
-  const buildPrerequisitePayload = useCallback((baseFlags: string[], experimentId: string, action: 'none' | 'set_flag') => {
-    const payload = [...baseFlags];
-    if (experimentId) {
-      const actionToken = action === 'set_flag' ? 'set' : 'none';
-      payload.push(`EvoYeastExperiment:${experimentId}|${actionToken}`);
-    }
-    return payload;
-  }, []);
+  const [experimentPrepOption, setExperimentPrepOption] = useState<'none' | 'schedule'>('none');
   const [expandedSections, setExpandedSections] = useState({
     experiment: true,
     schedule: true,
-    prerequisites: false,
-    advanced: false
+    preparation: false
   });
 
   // Add modal focus management
@@ -227,16 +208,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
     closeOnEscape: !loading // Don't close on escape when loading
   });
 
-  // Load available experiments and prerequisites on mount
-  useEffect(() => {
-    if (open) {
-      loadExperiments();
-      loadPrerequisites();
-      loadEvoExperiments();
-    }
-  }, [open]);
-
-  const loadExperiments = async (rescan: boolean = false) => {
+  const loadExperiments = useCallback(async (rescan: boolean = false) => {
     try {
       setScanning(true);
       const response = await schedulingAPI.getAvailableExperiments(rescan);
@@ -251,21 +223,9 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
     } finally {
       setScanning(false);
     }
-  };
+  }, []);
 
-  const loadPrerequisites = async () => {
-    try {
-      const response = await schedulingAPI.getAvailablePrerequisites();
-      
-      if (response.data.success) {
-        setPrerequisites(response.data.data.prerequisites);
-      }
-    } catch (error) {
-      console.error('Failed to load prerequisites:', error);
-    }
-  };
-
-  const loadEvoExperiments = async (limit: number = 100) => {
+  const loadEvoExperiments = useCallback(async (limit: number = 100) => {
     try {
       setEvoLoading(true);
       const result = await schedulingService.getEvoYeastExperiments(limit);
@@ -279,18 +239,106 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
     } finally {
       setEvoLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     if (!open) {
       return;
     }
 
-    setFormData(prev => ({
-      ...prev,
-      prerequisites: buildPrerequisitePayload(basePrereqFlags, selectedExperimentId, experimentAction),
-    }));
-  }, [open, basePrereqFlags, selectedExperimentId, experimentAction, buildPrerequisitePayload]);
+    const defaultFormData: ScheduleFormData = {
+      experiment_name: '',
+      experiment_path: '',
+      schedule_type: 'once',
+      interval_hours: 6,
+      start_time: null,
+      estimated_duration: 55,
+      prerequisites: [],
+      is_active: true,
+      max_retries: 3,
+      retry_delay_minutes: 2,
+      backoff_strategy: 'linear',
+    };
+
+    const initialPrereqs = initialData?.prerequisites ?? [];
+    const mergedData: ScheduleFormData = {
+      ...defaultFormData,
+      ...initialData,
+      start_time: initialData?.start_time ?? null,
+      prerequisites: initialPrereqs,
+      max_retries: initialData?.max_retries ?? defaultFormData.max_retries,
+      retry_delay_minutes: initialData?.retry_delay_minutes ?? defaultFormData.retry_delay_minutes,
+      backoff_strategy: initialData?.backoff_strategy ?? defaultFormData.backoff_strategy,
+    };
+
+    setFormData(mergedData);
+
+    const hasScheduledFlag = initialPrereqs.includes('ScheduledToRun');
+    setExperimentPrepOption(hasScheduledFlag ? 'schedule' : 'none');
+
+    if (hasScheduledFlag) {
+      const evoEntry = initialPrereqs.find((entry) => entry.startsWith('EvoYeastExperiment:'));
+      if (evoEntry) {
+        const payload = evoEntry.split(':')[1] ?? '';
+        const [experimentId] = payload.split('|');
+        setSelectedExperimentId(experimentId || '');
+      } else {
+        setSelectedExperimentId('');
+      }
+    } else {
+      setSelectedExperimentId('');
+    }
+
+    const intervalHours =
+      typeof mergedData.interval_hours === 'number' && !Number.isNaN(mergedData.interval_hours)
+        ? mergedData.interval_hours
+        : defaultFormData.interval_hours;
+
+    if (mergedData.schedule_type === 'interval') {
+      const preset = intervalPresets.find((preset) => preset.hours === intervalHours);
+      setIntervalSelection(preset ? preset.value : 'custom');
+      setCustomInterval(computeCustomInterval(intervalHours));
+    } else {
+      setIntervalSelection('custom');
+      setCustomInterval({ hours: 1, minutes: 0 });
+    }
+
+    loadExperiments();
+    loadEvoExperiments();
+  }, [open, initialData, loadExperiments, loadEvoExperiments]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    setFormData((prev) => {
+      const nextPrereqs =
+        experimentPrepOption === 'schedule'
+          ? [
+              'ScheduledToRun',
+              ...(selectedExperimentId ? [`EvoYeastExperiment:${selectedExperimentId}|set`] : []),
+            ]
+          : [];
+
+      const isSame =
+        prev.prerequisites.length === nextPrereqs.length &&
+        prev.prerequisites.every((value, index) => value === nextPrereqs[index]);
+
+      if (isSame) {
+        return prev;
+      }
+
+      return { ...prev, prerequisites: nextPrereqs };
+    });
+  }, [experimentPrepOption, selectedExperimentId, open]);
+
+  const handleExperimentPrepChange = (value: 'none' | 'schedule') => {
+    setExperimentPrepOption(value);
+    if (value === 'none') {
+      setSelectedExperimentId('');
+    }
+  };
 
   const handleExperimentSelect = (experimentPath: string) => {
     const selectedExperiment = experiments.find(exp => exp.path === experimentPath);
@@ -302,10 +350,6 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
         experiment_name: selectedExperiment.name
       }));
     }
-  };
-
-  const handlePrerequisiteToggle = (flag: string) => {
-    setBasePrereqFlags(prev => (prev.includes(flag) ? prev.filter(item => item !== flag) : [...prev, flag]));
   };
 
   const validateForm = (): boolean => {
@@ -325,6 +369,10 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
 
     if (formData.schedule_type === 'interval' && formData.interval_hours <= 0) {
       newErrors.push('Interval must be greater than 0 minutes');
+    }
+
+    if (experimentPrepOption === 'schedule' && !selectedExperimentId) {
+      newErrors.push('Select an experiment to prepare before execution');
     }
 
     setErrors(newErrors);
@@ -353,8 +401,6 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
       [section]: !prev[section]
     }));
   };
-
-  const totalPrerequisiteCount = basePrereqFlags.length + (selectedExperimentId ? 1 : 0);
 
   return (
     <Dialog 
@@ -562,172 +608,119 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                     helperText="When should this schedule start?"
                   />
                 </Grid>
+
+                <Grid item xs={12}>
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={formData.is_active}
+                        onChange={(event) =>
+                          setFormData((prev) => ({ ...prev, is_active: event.target.checked }))
+                        }
+                      />
+                    }
+                    label="Schedule is active"
+                  />
+                </Grid>
               </Grid>
             </AccordionDetails>
           </Accordion>
 
-          {/* Prerequisites Section */}
+          {/* Experiment Preparation Section */}
           <Accordion
-            expanded={expandedSections.prerequisites}
-            onChange={() => toggleSection('prerequisites')}
+            expanded={expandedSections.preparation}
+            onChange={() => toggleSection('preparation')}
           >
             <AccordionSummary expandIcon={<ExpandMoreIcon />}>
               <Stack direction="row" alignItems="center" spacing={1}>
                 <SettingsIcon color="primary" />
                 <Typography variant="subtitle1">
-                  Prerequisites 
-                  {totalPrerequisiteCount > 0 && (
-                    <Chip 
-                      label={totalPrerequisiteCount} 
-                      size="small" 
-                      sx={{ ml: 1 }}
-                    />
-                  )}
+                  Experiment Preparation
                 </Typography>
               </Stack>
             </AccordionSummary>
             <AccordionDetails>
               <Stack spacing={2}>
-                <Typography variant="body2" color="text.secondary">
-                  Select database flags to set before running this experiment
-                </Typography>
-                <FormGroup>
-                  {prerequisites.map(prereq => (
+                <FormControl component="fieldset">
+                  <FormLabel id="experiment-prep-options">Before running</FormLabel>
+                  <RadioGroup
+                    aria-labelledby="experiment-prep-options"
+                    value={experimentPrepOption}
+                    onChange={(event) => handleExperimentPrepChange(event.target.value as 'none' | 'schedule')}
+                  >
                     <FormControlLabel
-                      key={prereq.flag}
-                      control={
-                        <Checkbox
-                          checked={basePrereqFlags.includes(prereq.flag)}
-                          onChange={() => handlePrerequisiteToggle(prereq.flag)}
-                        />
-                      }
-                      label={
-                        <Box>
-                          <Typography variant="body2">{prereq.flag}</Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {prereq.description} (Table: {prereq.table})
-                          </Typography>
-                        </Box>
-                      }
+                      value="none"
+                      control={<Radio />}
+                      label="Do nothing"
                     />
-                  ))}
-                </FormGroup>
+                    <FormControlLabel
+                      value="schedule"
+                      control={<Radio />}
+                      label="Mark an EvoYeast experiment as ScheduledToRun"
+                    />
+                  </RadioGroup>
+                </FormControl>
 
-                <Divider />
+                {experimentPrepOption === 'schedule' && (
+                  <Stack spacing={1}>
+                    <Stack direction="row" alignItems="center" justifyContent="space-between">
+                      <Typography variant="body2" color="text.secondary">
+                        Choose the experiment to activate before execution
+                      </Typography>
+                      <IconButton size="small" onClick={() => loadEvoExperiments()} disabled={evoLoading}>
+                        {evoLoading ? <CircularProgress size={16} /> : <RefreshIcon fontSize="small" />}
+                      </IconButton>
+                    </Stack>
 
-                <Stack spacing={1}>
-                  <Stack direction="row" alignItems="center" justifyContent="space-between">
-                    <Typography variant="body2" color="text.secondary">
-                      Link an EvoYeast experiment (updates ScheduledToRun prior to execution)
-                    </Typography>
-                    <IconButton size="small" onClick={() => loadEvoExperiments()} disabled={evoLoading}>
-                      {evoLoading ? <CircularProgress size={16} /> : <RefreshIcon fontSize="small" />}
-                    </IconButton>
-                  </Stack>
-
-                  <FormControl fullWidth size="small">
-                    <InputLabel id="evoyeast-experiment-select">Experiment ID</InputLabel>
-                    <Select
-                      labelId="evoyeast-experiment-select"
-                      label="Experiment ID"
-                      value={selectedExperimentId}
-                      onChange={(event) => {
-                        const value = event.target.value as string;
-                        setSelectedExperimentId(value);
-                        if (!value) {
-                          setExperimentAction('none');
-                        }
-                      }}
-                      displayEmpty
-                    >
-                      <MenuItem value="">None</MenuItem>
-                      {evoExperiments.map((option) => (
-                        <MenuItem key={option.experiment_id} value={option.experiment_id}>
-                          <Stack direction="row" alignItems="center" spacing={1} justifyContent="space-between" sx={{ width: '100%' }}>
-                            <Box>
-                              <Typography variant="body2">{option.user_defined_id ?? option.experiment_id}</Typography>
-                              {option.note && (
-                                <Typography variant="caption" color="text.secondary">
-                                  {option.note}
-                                </Typography>
+                    <FormControl fullWidth size="small">
+                      <InputLabel id="evoyeast-experiment-select">Experiment ID</InputLabel>
+                      <Select
+                        labelId="evoyeast-experiment-select"
+                        label="Experiment ID"
+                        value={selectedExperimentId}
+                        onChange={(event) => setSelectedExperimentId(event.target.value as string)}
+                        displayEmpty
+                      >
+                        <MenuItem value="">Select experiment</MenuItem>
+                        {evoExperiments.map((option) => (
+                          <MenuItem key={option.experiment_id} value={option.experiment_id}>
+                            <Stack direction="row" alignItems="center" spacing={1} justifyContent="space-between" sx={{ width: '100%' }}>
+                              <Box>
+                                <Typography variant="body2">{option.user_defined_id ?? option.experiment_id}</Typography>
+                                {option.note && (
+                                  <Typography variant="caption" color="text.secondary">
+                                    {option.note}
+                                  </Typography>
+                                )}
+                                {option.experiment_name &&
+                                  option.experiment_name !== (option.user_defined_id ?? option.experiment_id) && (
+                                    <Typography variant="caption" color="text.secondary">
+                                      {option.experiment_name}
+                                    </Typography>
+                                  )}
+                                {option.user_defined_id &&
+                                  option.user_defined_id !== option.experiment_id && (
+                                    <Typography variant="caption" color="text.secondary">
+                                      ID: {option.experiment_id}
+                                    </Typography>
+                                  )}
+                              </Box>
+                              {option.scheduled_to_run && (
+                                <Chip label="Scheduled" color="success" size="small" />
                               )}
-                              {option.experiment_name &&
-                                option.experiment_name !== (option.user_defined_id ?? option.experiment_id) && (
-                                  <Typography variant="caption" color="text.secondary">
-                                    {option.experiment_name}
-                                  </Typography>
-                                )}
-                              {option.user_defined_id &&
-                                option.user_defined_id !== option.experiment_id && (
-                                  <Typography variant="caption" color="text.secondary">
-                                    ID: {option.experiment_id}
-                                  </Typography>
-                                )}
-                            </Box>
-                            {option.scheduled_to_run && (
-                              <Chip label="Scheduled" color="success" size="small" />
-                            )}
-                          </Stack>
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
+                            </Stack>
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
 
-                  <FormControl fullWidth size="small" disabled={!selectedExperimentId}>
-                    <InputLabel id="evoyeast-action-select">Pre-run Action</InputLabel>
-                    <Select
-                      labelId="evoyeast-action-select"
-                      label="Pre-run Action"
-                      value={experimentAction}
-                      onChange={(event) => setExperimentAction(event.target.value as 'none' | 'set_flag')}
-                    >
-                      <MenuItem value="none">Do nothing</MenuItem>
-                      <MenuItem value="set_flag">Reset all flags, then activate selected experiment</MenuItem>
-                    </Select>
-                  </FormControl>
-
-                  {selectedExperimentId && (
-                    <Typography variant="caption" color="text.secondary">
-                      Choosing "Reset all flags" sets ScheduledToRun = 0 for other experiments before activating the selected ID.
-                    </Typography>
-                  )}
-
-                  {!selectedExperimentId && !evoLoading && evoExperiments.length === 0 && (
-                    <Typography variant="caption" color="text.secondary">
-                      No EvoYeast experiments available. Refresh after the database is populated.
-                    </Typography>
-                  )}
-                </Stack>
-              </Stack>
-            </AccordionDetails>
-          </Accordion>
-
-          {/* Advanced Settings Section */}
-          <Accordion
-            expanded={expandedSections.advanced}
-            onChange={() => toggleSection('advanced')}
-          >
-            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-              <Typography variant="subtitle1">Advanced Settings</Typography>
-            </AccordionSummary>
-            <AccordionDetails>
-              <Stack spacing={2}>
-                <Alert
-                  severity="info"
-                  icon={<InfoIcon fontSize="small" />}
-                >
-                  Conflict retries are managed automatically (up to 3 attempts with a 2-minute delay).
-                  Backend configuration controls these thresholds if they need adjustment.
-                </Alert>
-                <FormControlLabel
-                  control={
-                    <Checkbox
-                      checked={formData.is_active}
-                      onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
-                    />
-                  }
-                  label="Schedule is active"
-                />
+                    {!evoLoading && evoExperiments.length === 0 && (
+                      <Typography variant="caption" color="text.secondary">
+                        No EvoYeast experiments available. Refresh after the database is populated.
+                      </Typography>
+                    )}
+                  </Stack>
+                )}
               </Stack>
             </AccordionDetails>
           </Accordion>

@@ -81,6 +81,23 @@ const useScheduling = () => {
 
         const fetchedSchedules = result.schedules;
         setSchedules(fetchedSchedules);
+        setCalendarEvents(
+          fetchedSchedules
+            .filter((schedule) => Boolean(schedule.next_run))
+            .map((schedule) => ({
+              event_id: `${schedule.schedule_id}-${schedule.next_run}`,
+              schedule_id: schedule.schedule_id,
+              title: schedule.experiment_name,
+              description: schedule.experiment_path,
+              start_time: schedule.next_run as string,
+              end_time: schedule.next_run as string,
+              event_type: 'scheduled',
+              experiment_name: schedule.experiment_name,
+              estimated_duration: schedule.estimated_duration,
+              status: schedule.is_active ? 'scheduled' : 'inactive',
+              created_by: schedule.created_by,
+            })),
+        );
         setLastRefresh(new Date());
         setSelectedSchedule((previous) => {
           if (focusScheduleId === null) {
@@ -244,7 +261,12 @@ const useScheduling = () => {
         setError(payload.message || 'Failed to load scheduler status');
         return;
       }
-      setSchedulerRunning((payload.data?.status || '').toLowerCase() === 'running');
+      const statusPayload = (payload.data ?? {}) as { is_running?: boolean; status?: string };
+      const derivedStatus =
+        typeof statusPayload.is_running === 'boolean'
+          ? statusPayload.is_running
+          : (statusPayload.status ?? '').toLowerCase() === 'running';
+      setSchedulerRunning(derivedStatus);
       if (Object.prototype.hasOwnProperty.call(payload.data ?? {}, 'manual_recovery')) {
         setManualRecovery(normalizeManualRecovery(payload.data?.manual_recovery));
       }
@@ -317,7 +339,8 @@ const useScheduling = () => {
     loadSchedules(true);
     getQueueStatus();
     getSchedulerStatus();
-  }, [loadSchedules, getQueueStatus, getSchedulerStatus]);
+    getCalendarData();
+  }, [loadSchedules, getQueueStatus, getSchedulerStatus, getCalendarData]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {

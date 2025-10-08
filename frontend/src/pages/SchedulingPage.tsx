@@ -52,12 +52,25 @@ import { useAuth } from '../context/AuthContext';
 
 // Import scheduling components
 import ScheduleList from '../components/ScheduleList';
-import ScheduleActions from '../components/ScheduleActions';
 import ImprovedScheduleForm from '../components/scheduling/ImprovedScheduleForm';
 import FolderImportDialog from '../components/scheduling/FolderImportDialog';
 import ExecutionHistory from '../components/ExecutionHistory';
 import useScheduling from '../hooks/useScheduling';
-import { formatDuration, formatExecutionStatus, ScheduledExperiment, CreateScheduleFormData } from '../types/scheduling';
+import { formatDuration, formatExecutionStatus, ScheduledExperiment, CreateScheduleFormData, UpdateScheduleRequest } from '../types/scheduling';
+
+type ScheduleFormValues = Partial<{
+  experiment_name: string;
+  experiment_path: string;
+  schedule_type: 'once' | 'interval' | 'daily' | 'weekly';
+  interval_hours: number;
+  start_time: string | null;
+  estimated_duration: number;
+  prerequisites: string[];
+  is_active: boolean;
+  max_retries: number;
+  retry_delay_minutes: number;
+  backoff_strategy: 'linear' | 'exponential';
+}>;
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -68,7 +81,7 @@ interface TabPanelProps {
 const TabPanel: React.FC<TabPanelProps> = ({ children, value, index }) => {
   return (
     <div role="tabpanel" hidden={value !== index}>
-      {value === index && <Box sx={{ py: 3 }}>{children}</Box>}
+      {value === index && <Box sx={{ py: 3, px: { xs: 1, md: 0 } }}>{children}</Box>}
     </div>
   );
 };
@@ -86,6 +99,9 @@ const SchedulingPage: React.FC = () => {
   const [improvedFormOpen, setImprovedFormOpen] = useState(false);
   const [folderImportOpen, setFolderImportOpen] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [scheduleFormMode, setScheduleFormMode] = useState<'create' | 'edit'>('create');
+  const [scheduleFormInitialData, setScheduleFormInitialData] = useState<ScheduleFormValues>({});
+  const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
 
   // Initialize scheduling hook
   const { state, actions } = useScheduling();
@@ -100,22 +116,96 @@ const SchedulingPage: React.FC = () => {
     return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
   };
 
-  const handleImprovedFormSubmit = async (data: any) => {
-    const payload: CreateScheduleFormData = {
-      experiment_name: data.experiment_name,
-      experiment_path: data.experiment_path,
-      schedule_type: data.schedule_type,
-      interval_hours: data.schedule_type === 'interval' ? Number(data.interval_hours) : undefined,
-      start_time: data.start_time ? new Date(data.start_time) : null,
-      estimated_duration: Number(data.estimated_duration),
-      is_active: data.is_active ?? true,
-      max_retries: Number(data.max_retries ?? 0),
-      retry_delay_minutes: Number(data.retry_delay_minutes ?? 0),
-      backoff_strategy: data.backoff_strategy || 'linear',
-      prerequisites: Array.isArray(data.prerequisites) ? data.prerequisites : [],
-    };
-    await actions.createSchedule(payload);
-    await actions.loadSchedules(true);
+  const formatStartTimeForInput = (iso?: string | null): string => {
+    if (!iso) {
+      return '';
+    }
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) {
+      return '';
+    }
+    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(0, 16);
+  };
+
+  const handleScheduleFormSubmit = async (data: any) => {
+    if (scheduleFormMode === 'edit' && editingScheduleId) {
+      const updatePayload: UpdateScheduleRequest = {
+        experiment_name: data.experiment_name,
+        experiment_path: data.experiment_path,
+        schedule_type: data.schedule_type,
+        interval_hours: data.schedule_type === 'interval' ? Number(data.interval_hours) : undefined,
+        start_time: data.start_time ? new Date(data.start_time).toISOString() : undefined,
+        estimated_duration: Number(data.estimated_duration),
+        is_active: data.is_active ?? true,
+        retry_config: {
+          max_retries: Number(data.max_retries ?? 0),
+          retry_delay_minutes: Number(data.retry_delay_minutes ?? 0),
+          backoff_strategy: data.backoff_strategy || 'linear',
+        },
+        prerequisites: Array.isArray(data.prerequisites) ? data.prerequisites : [],
+      };
+      await actions.updateSchedule(editingScheduleId, updatePayload);
+      await actions.loadSchedules(true, editingScheduleId);
+    } else {
+      const createPayload: CreateScheduleFormData = {
+        experiment_name: data.experiment_name,
+        experiment_path: data.experiment_path,
+        schedule_type: data.schedule_type,
+        interval_hours: data.schedule_type === 'interval' ? Number(data.interval_hours) : undefined,
+        start_time: data.start_time ? new Date(data.start_time) : null,
+        estimated_duration: Number(data.estimated_duration),
+        is_active: data.is_active ?? true,
+        max_retries: Number(data.max_retries ?? 0),
+        retry_delay_minutes: Number(data.retry_delay_minutes ?? 0),
+        backoff_strategy: data.backoff_strategy || 'linear',
+        prerequisites: Array.isArray(data.prerequisites) ? data.prerequisites : [],
+      };
+      await actions.createSchedule(createPayload);
+      await actions.loadSchedules(true);
+    }
+  };
+
+  const handleScheduleFormClose = () => {
+    setImprovedFormOpen(false);
+    setScheduleFormMode('create');
+    setScheduleFormInitialData({});
+    setEditingScheduleId(null);
+  };
+
+  const handleOpenCreateForm = () => {
+    setScheduleFormMode('create');
+    setScheduleFormInitialData({});
+    setEditingScheduleId(null);
+    setImprovedFormOpen(true);
+  };
+
+  const handleOpenEditForm = () => {
+    const selected = state.selectedSchedule;
+    if (!selected) {
+      return;
+    }
+
+    setScheduleFormMode('edit');
+    setEditingScheduleId(selected.schedule_id);
+    const allowedTypes: Array<'once' | 'interval' | 'daily' | 'weekly'> = ['once', 'interval', 'daily', 'weekly'];
+    const scheduleType = allowedTypes.includes(selected.schedule_type as any)
+      ? (selected.schedule_type as 'once' | 'interval' | 'daily' | 'weekly')
+      : 'once';
+    setScheduleFormInitialData({
+      experiment_name: selected.experiment_name,
+      experiment_path: selected.experiment_path,
+      schedule_type: scheduleType,
+      interval_hours: selected.interval_hours ?? undefined,
+      start_time: selected.start_time ? formatStartTimeForInput(selected.start_time) : null,
+      estimated_duration: selected.estimated_duration,
+      is_active: selected.is_active,
+      max_retries: selected.retry_config?.max_retries ?? 3,
+      retry_delay_minutes: selected.retry_config?.retry_delay_minutes ?? 2,
+      backoff_strategy: selected.retry_config?.backoff_strategy ?? 'linear',
+      prerequisites: selected.prerequisites ?? [],
+    });
+    setImprovedFormOpen(true);
   };
 
   const handleViewRecoverySchedule = async () => {
@@ -553,7 +643,7 @@ const SchedulingPage: React.FC = () => {
                         variant="contained"
                         fullWidth
                         startIcon={<AddIcon />}
-                        onClick={() => setImprovedFormOpen(true)}
+                        onClick={handleOpenCreateForm}
                         disabled={state.loading}
                       >
                         Create New Schedule
@@ -581,10 +671,7 @@ const SchedulingPage: React.FC = () => {
                             variant="outlined"
                             fullWidth
                             startIcon={<EditIcon />}
-                            onClick={() => {
-                              // TODO: Open edit dialog with selected schedule
-                              setImprovedFormOpen(true);
-                            }}
+                            onClick={handleOpenEditForm}
                             disabled={state.loading}
                           >
                             Edit Schedule
@@ -740,9 +827,10 @@ const SchedulingPage: React.FC = () => {
       {/* Improved Schedule Form Dialog */}
       <ImprovedScheduleForm
         open={improvedFormOpen}
-        onClose={() => setImprovedFormOpen(false)}
-        onSubmit={handleImprovedFormSubmit}
-        mode="create"
+        onClose={handleScheduleFormClose}
+        onSubmit={handleScheduleFormSubmit}
+        initialData={scheduleFormInitialData}
+        mode={scheduleFormMode}
       />
 
       {/* Folder Import Dialog */}

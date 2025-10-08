@@ -102,11 +102,13 @@ const MonitoringDashboard: React.FC = memo(() => {
     resetError
   } = useMonitoring();
 
-  const [lastUpdate, setLastUpdate] = useState<string>('Never');
+  const [lastUpdate, setLastUpdate] = useState<string | null>(null);
 
   useEffect(() => {
     if (systemHealth?.timestamp) {
       setLastUpdate(new Date(systemHealth.timestamp).toLocaleTimeString());
+    } else {
+      setLastUpdate(null);
     }
   }, [systemHealth]);
 
@@ -167,21 +169,37 @@ const MonitoringDashboard: React.FC = memo(() => {
   return (
     <Box>
       {/* Header */}
-      <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+      <Box
+        sx={{
+          mb: { xs: 2, md: 3 },
+          display: 'flex',
+          flexDirection: { xs: 'column', md: 'row' },
+          alignItems: { xs: 'flex-start', md: 'center' },
+          justifyContent: 'space-between',
+          gap: { xs: 2, md: 0 }
+        }}
+      >
         <Typography variant="h5">
           Real-time System Monitoring
         </Typography>
-        <Box display="flex" alignItems="center" gap={1}>
+        <Box
+          sx={{
+            display: 'flex',
+            flexDirection: { xs: 'column', sm: 'row' },
+            alignItems: { xs: 'flex-start', sm: 'center' },
+            gap: { xs: 1, sm: 2 }
+          }}
+        >
           <Chip
             icon={isConnected ? <ConnectedIcon /> : <DisconnectedIcon />}
-            label={isConnected ? 'Active (60s polling)' : 'Inactive'}
+            label={isConnected ? 'Active' : 'Inactive'}
             color={isConnected ? 'success' : 'error'}
             variant="outlined"
           />
           <Typography variant="body2" color="text.secondary">
-            Last update: {lastUpdate}
+            Last update: {lastUpdate ?? '—'}
           </Typography>
-          <Tooltip title="Refresh Data">
+          <Tooltip title="Refresh data">
             <IconButton onClick={handleRefresh} disabled={isLoading}>
               <RefreshIcon />
             </IconButton>
@@ -219,12 +237,19 @@ const MonitoringDashboard: React.FC = memo(() => {
                 </Typography>
               </div>
             </Box>
-            <Box display="flex" alignItems="center">
-              <Typography variant="body2" color="text.secondary" sx={{ mr: 2 }}>
-                Polling: {isConnected ? 'Every 60 seconds' : 'Stopped'}
-              </Typography>
-              {isLoading && <LoadingSpinner variant="inline" size="small" />}
-            </Box>
+          <Box
+            sx={{
+              display: 'flex',
+              flexDirection: { xs: 'column', sm: 'row' },
+              alignItems: { xs: 'flex-start', sm: 'center' },
+              gap: { xs: 1, sm: 2 }
+            }}
+          >
+            <Typography variant="body2" color="text.secondary">
+              Polling status: {isConnected ? 'Active' : 'Stopped'}
+            </Typography>
+            {isLoading && <LoadingSpinner variant="inline" size="small" />}
+          </Box>
           </Box>
         </CardContent>
       </Card>

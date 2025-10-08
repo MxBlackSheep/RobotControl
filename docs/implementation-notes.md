@@ -1,3 +1,9 @@
+## 2025-10-08 Monitoring & Scheduling Tweaks
+
+- Refined the scheduling form so the improved modal now powers both create and edit flows, requires an explicit experiment prep option, and removes the unused Hamilton tables flag (frontend/src/components/scheduling/ImprovedScheduleForm.tsx, frontend/src/pages/SchedulingPage.tsx, frontend/src/hooks/useScheduling.ts).
+- Mobile monitoring header now wraps cleanly, simplifies the status chip, and keeps last-update info readable at small widths (frontend/src/components/MonitoringDashboard.tsx).
+- Latest bundle embedded and PyInstaller binary refreshed after UI fixes (backend/embedded_static.py).
+
 # Implementation Notes
 
 Refer to `AGENTS.md` for the day-to-day runbook; this file captures development-facing context extracted from recent session notes.
@@ -9,10 +15,12 @@ Refer to `AGENTS.md` for the day-to-day runbook; this file captures development-
 - Compact experiment summaries now wrap their header/status controls and stack timestamps on narrow widths, avoiding truncated chips and timestamps (`frontend/src/components/ExperimentStatus.tsx`).
 - Dashboard quick actions point at the new System Status route and expose a shortcut to the About page while retiring the redundant system info card (`frontend/src/pages/Dashboard.tsx`).
 - Added a PyInstaller runtime hook that filters the deprecated `pkg_resources` warning so packaged binaries start cleanly, and wired it into the spec (`build_scripts/runtime_hooks/silence_pkg_resources_warning.py`, `PyRobot.spec`).
+- Scheduling history now loads globally with per-experiment filters, improved status chips, and reliable durations, while the status summary reflects live engine state and derived upcoming events (`frontend/src/components/ExecutionHistory.tsx`, `frontend/src/hooks/useScheduling.ts`, `frontend/src/pages/SchedulingPage.tsx`).
+- Monitoring dashboard header is now mobile-friendly with cleaner status copy, and the scheduling form drives both create/edit flows with required experiment prep options while retiring unused Hamilton flags (`frontend/src/components/MonitoringDashboard.tsx`, `frontend/src/components/scheduling/ImprovedScheduleForm.tsx`, `frontend/src/pages/SchedulingPage.tsx`).
 
 ## 2025-10-07 Responsive Database & History Retention
 
-- Database page tabs now mirror the scheduling UX: scrollable with mobile labels, and legacy connection chips/metadata were removed so the header no longer shows “Disconnected / Unknown” placeholders (`frontend/src/pages/DatabasePage.tsx`).
+- Database page tabs now mirror the scheduling UX: scrollable with mobile labels, and legacy connection chips/metadata were removed so the header no longer shows “Disconnected / Unknown�?placeholders (`frontend/src/pages/DatabasePage.tsx`).
 - Tight viewports get a more usable table pager—`TablePagination` wraps controls with larger touch targets when vertical space is constrained (`frontend/src/components/DatabaseTable.tsx`).
 - Job execution records survive schedule deletion by archiving into a new `JobExecutionsArchive` table; history/summary queries now union current and archived rows with schedule snapshots (`backend/services/scheduling/sqlite_database.py`).
 - Packaging workflow remains: `npm run build`, `python build_scripts/embed_resources.py`, `python build_scripts/pyinstaller_build.py` to refresh the single-file binary (`dist/PyRobot.exe`).
