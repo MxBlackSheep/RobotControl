@@ -1,8 +1,18 @@
-﻿## 2025-10-08 Streaming Guard & Scheduling Polish
+﻿## 2025-10-09 Camera Resolution ASCII Fix
 
-- Reworked the streaming CPU guard to sample the PyRobot process, smooth spikes, and require consecutive hits before terminating sessions (ackend/services/live_streaming.py).
-- Widened scheduling tab padding and card content so laptop layouts breathe instead of hugging the edges (rontend/src/pages/SchedulingPage.tsx).
-- Execution history’s experiment filter now shows each schedule’s short id alongside the name to avoid duplicate labels (rontend/src/components/ExecutionHistory.tsx).
+- Replaced the multiplication symbol in camera resolution displays and fullscreen hint with ASCII `x` so Windows clients no longer see kanji U+8133 (Japanese "brain") in place of the separator (`frontend/src/pages/CameraPage.tsx`, `frontend/src/components/CameraViewer.tsx`).
+## 2025-10-08 Streaming Guard & UI Polish (Binary Refresh)
+
+- Refined the streaming CPU guard to sample the PyRobot process with a rolling window, preventing false "CPU limit reached" shutdowns while keeping the soft/hard protections (`backend/services/live_streaming.py`).
+- Widened scheduling layout padding so desktop cards and calendars no longer hug the container edges (`frontend/src/pages/SchedulingPage.tsx`).
+- Execution history's experiment filter now includes a short schedule-id suffix to distinguish duplicate method names (`frontend/src/components/ExecutionHistory.tsx`).
+- Restored the lightweight camera live-stream view without frame counters while retaining start/stop controls (`frontend/src/pages/CameraPage.tsx`).
+- Rebuilt the frontend, re-embedded static assets, and produced a fresh PyInstaller binary with the updated bundle (`build_scripts/embed_resources.py`, `build_scripts/pyinstaller_build.py`, `dist/PyRobot.exe`).
+## 2025-10-08 Streaming Guard & Scheduling Polish
+
+- Reworked the streaming CPU guard to sample the PyRobot process, smooth spikes, and require consecutive hits before terminating sessions (backend/services/live_streaming.py).
+- Widened scheduling tab padding and card content so laptop layouts breathe instead of hugging the edges (frontend/src/pages/SchedulingPage.tsx).
+- Execution history's experiment filter now shows each schedule's short id alongside the name to avoid duplicate labels (frontend/src/components/ExecutionHistory.tsx).
 ## 2025-10-08 Scheduling Layout & Streaming Consolidation
 
 - Reordered top-level navigation so System Status sits beside About, updating both the desktop tabs and mobile drawer (`frontend/src/App.tsx`, `frontend/src/components/MobileDrawer.tsx`).
@@ -64,7 +74,7 @@ Refer to `AGENTS.md` for the day-to-day runbook; this file captures development-
 - Surface the new `job_delayed` retry state in the scheduling UI (status chip, calendar notes, related affordances).
 - Define and implement manual-recovery flows for aborted experiments, including UI messaging and notifications.
 - Evaluate email/alert hooks once manual recovery semantics are locked down.
-- Verify end-to-end that the PyInstaller build serves the embedded frontend with `PYROBOT_SERVE_FRONTEND=1` and that scheduling executes correctly.
+- Verify end-to-end that the PyInstaller build serves the embedded frontend with `PYROBOT_SERVE_frontend=1` and that scheduling executes correctly.
 
 ### Configuration Notes
 - SMTP (optional): expected env vars `PYROBOT_SMTP_HOST`, optional `PYROBOT_SMTP_PORT` (default 587), `PYROBOT_SMTP_USERNAME`, `PYROBOT_SMTP_PASSWORD`, sender via `PYROBOT_SMTP_FROM`, and comma-separated recipients via `PYROBOT_ALERT_RECIPIENTS`. TLS defaults to enabled; override with `PYROBOT_SMTP_USE_TLS` / `PYROBOT_SMTP_USE_SSL`.
@@ -79,7 +89,7 @@ Refer to `AGENTS.md` for the day-to-day runbook; this file captures development-
 5. Plan UI polish for execution history now that typed accessors are available (success/failure chips, auto-refresh toggles, etc.).
 
 ## 2025-09-23 Snapshot
-- Frontend TypeScript build fixed by excluding tests, aligning `import.meta.env.DEV`, and updating validation typings.
+- frontend TypeScript build fixed by excluding tests, aligning `import.meta.env.DEV`, and updating validation typings.
 - Backend launched in a dedicated PowerShell window (`Start-Process powershell -NoExit`) with `python main.py --port 8005`; `backend/logs/` generated as part of the run.
 
 ## Developer Tips
@@ -98,6 +108,16 @@ Refer to `AGENTS.md` for the day-to-day runbook; this file captures development-
 - Enabled the `@/*` TypeScript alias in `frontend/tsconfig.json` so the helper can be imported consistently.
 - Build workflow: run `npm.cmd run build`, `python build_scripts/embed_resources.py`, then `python -m PyInstaller PyRobot.spec` to refresh the embedded bundle.
 - Deployment note: leave `VITE_API_BASE_URL` empty (or set to the backend origin) before building so mobile Safari/Chrome point at the correct server automatically.
+
+
+
+
+
+
+
+
+
+
 
 
 

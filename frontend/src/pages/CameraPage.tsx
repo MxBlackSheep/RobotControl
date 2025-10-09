@@ -633,7 +633,7 @@ const CameraPage: React.FC = () => {
                           variant="body1"
                           sx={{ fontSize: { xs: '0.875rem', sm: '1rem' } }}
                         >
-                          {camera.width} 脳 {camera.height}
+                          {camera.width} x {camera.height}
                         </Typography>
                       </Box>
                       

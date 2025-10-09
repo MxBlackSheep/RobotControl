@@ -653,7 +653,7 @@ const CameraViewer: React.FC<CameraViewerProps> = ({
                 textAlign: 'center'
               }}
             >
-              Double tap or tap × to exit fullscreen
+              Double tap or tap x to exit fullscreen
             </Box>
           )}
         </Box>
