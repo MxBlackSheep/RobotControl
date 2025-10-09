@@ -19,6 +19,11 @@ from backend.services.automatic_recording_types import (
 )
 from backend.constants import HAMILTON_STATE_MAPPING
 
+try:
+    from backend.utils.datetime import parse_iso_datetime_to_local
+except ImportError:  # pragma: no cover - fallback
+    from utils.datetime import parse_iso_datetime_to_local  # type: ignore
+
 # Configure logging
 logger = logging.getLogger(__name__)
 
@@ -376,19 +381,13 @@ class ExperimentMonitor:
         
         try:
             if experiment_data.get("start_time"):
-                if isinstance(experiment_data["start_time"], str):
-                    start_time = datetime.fromisoformat(experiment_data["start_time"].replace('Z', '+00:00'))
-                else:
-                    start_time = experiment_data["start_time"]  # Already datetime object
+                start_time = parse_iso_datetime_to_local(experiment_data["start_time"])
         except (ValueError, TypeError) as e:
             logger.debug(f"Could not parse start_time: {e}")
         
         try:
             if experiment_data.get("end_time"):
-                if isinstance(experiment_data["end_time"], str):
-                    end_time = datetime.fromisoformat(experiment_data["end_time"].replace('Z', '+00:00'))
-                else:
-                    end_time = experiment_data["end_time"]  # Already datetime object
+                end_time = parse_iso_datetime_to_local(experiment_data["end_time"])
         except (ValueError, TypeError) as e:
             logger.debug(f"Could not parse end_time: {e}")
         

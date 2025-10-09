@@ -8,6 +8,17 @@ from dataclasses import dataclass
 from datetime import datetime
 import uuid
 
+try:
+    from backend.utils.datetime import (
+        ensure_local_naive,
+        parse_iso_datetime_to_local,
+    )
+except ImportError:  # pragma: no cover - fallback for legacy packaging
+    from utils.datetime import (  # type: ignore
+        ensure_local_naive,
+        parse_iso_datetime_to_local,
+    )
+
 
 @dataclass
 class UserModel:
@@ -158,31 +169,12 @@ class ScheduledExperiment:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'ScheduledExperiment':
         """Create ScheduledExperiment from dictionary data"""
-        # Parse datetime fields (ensure timezone-naive for consistent comparison)
-        start_time = None
-        if data.get("start_time"):
-            start_time_str = data["start_time"].replace('Z', '').replace('+00:00', '')
-            start_time = datetime.fromisoformat(start_time_str)
-        
-        created_at = None
-        if data.get("created_at"):
-            created_at_str = data["created_at"].replace('Z', '').replace('+00:00', '')
-            created_at = datetime.fromisoformat(created_at_str)
-            
-        updated_at = None
-        if data.get("updated_at"):
-            updated_at_str = data["updated_at"].replace('Z', '').replace('+00:00', '')
-            updated_at = datetime.fromisoformat(updated_at_str)
-        
-        recovery_marked_at = None
-        if data.get("recovery_marked_at"):
-            marked_str = data["recovery_marked_at"].replace('Z', '').replace('+00:00', '')
-            recovery_marked_at = datetime.fromisoformat(marked_str)
-
-        recovery_resolved_at = None
-        if data.get("recovery_resolved_at"):
-            resolved_str = data["recovery_resolved_at"].replace('Z', '').replace('+00:00', '')
-            recovery_resolved_at = datetime.fromisoformat(resolved_str)
+        # Parse datetime fields, preserving local wall-clock time
+        start_time = parse_iso_datetime_to_local(data.get("start_time"))
+        created_at = parse_iso_datetime_to_local(data.get("created_at"))
+        updated_at = parse_iso_datetime_to_local(data.get("updated_at"))
+        recovery_marked_at = parse_iso_datetime_to_local(data.get("recovery_marked_at"))
+        recovery_resolved_at = parse_iso_datetime_to_local(data.get("recovery_resolved_at"))
 
         # Parse retry config
         retry_config = None
@@ -239,25 +231,15 @@ class ManualRecoveryState:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ManualRecoveryState":
-        def parse_ts(value):
-            if not value:
-                return None
-            if isinstance(value, datetime):
-                return value
-            value = str(value).replace('Z', '').replace('+00:00', '')
-            try:
-                return datetime.fromisoformat(value)
-            except ValueError:
-                return None
         return cls(
             active=bool(data.get("active", False)),
             note=data.get("note"),
             schedule_id=data.get("schedule_id"),
             experiment_name=data.get("experiment_name"),
             triggered_by=data.get("triggered_by"),
-            triggered_at=parse_ts(data.get("triggered_at")),
+            triggered_at=parse_iso_datetime_to_local(data.get("triggered_at")),
             resolved_by=data.get("resolved_by"),
-            resolved_at=parse_ts(data.get("resolved_at")),
+            resolved_at=parse_iso_datetime_to_local(data.get("resolved_at")),
         )
 
 
@@ -299,33 +281,17 @@ class JobExecution:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'JobExecution':
         """Create JobExecution from dictionary data"""
-        # Parse datetime fields (ensure timezone-naive)
-        start_time = None
-        if data.get("start_time"):
-            start_time_str = data["start_time"].replace('Z', '').replace('+00:00', '')
-            start_time = datetime.fromisoformat(start_time_str)
-        
-        end_time = None
-        if data.get("end_time"):
-            end_time_str = data["end_time"].replace('Z', '').replace('+00:00', '')
-            end_time = datetime.fromisoformat(end_time_str)
-            
-        created_at = None
-        if data.get("created_at"):
-            created_at_str = data["created_at"].replace('Z', '').replace('+00:00', '')
-            created_at = datetime.fromisoformat(created_at_str)
-        
         return cls(
             execution_id=data.get("execution_id", str(uuid.uuid4())),
             schedule_id=data["schedule_id"],
             status=data["status"],
-            start_time=start_time,
-            end_time=end_time,
+            start_time=parse_iso_datetime_to_local(data.get("start_time")),
+            end_time=parse_iso_datetime_to_local(data.get("end_time")),
             duration_minutes=data.get("duration_minutes"),
             retry_count=data.get("retry_count", 0),
             error_message=data.get("error_message"),
             hamilton_command=data.get("hamilton_command"),
-            created_at=created_at
+            created_at=parse_iso_datetime_to_local(data.get("created_at"))
         )
 
 

@@ -25,6 +25,11 @@ from backend.services.scheduling.database_manager import get_scheduling_database
 from backend.services.scheduling.process_monitor import get_hamilton_process_monitor
 from backend.services.notifications import get_notification_service
 
+try:
+    from backend.utils.datetime import ensure_local_naive
+except ImportError:  # pragma: no cover - fallback
+    from utils.datetime import ensure_local_naive  # type: ignore
+
 logger = logging.getLogger(__name__)
 
 
@@ -82,11 +87,9 @@ class SchedulerEngine:
         
         logger.info("Scheduler engine initialized")
     
-    def _ensure_naive_datetime(self, dt: datetime) -> datetime:
-        """Ensure datetime is timezone-naive for consistent comparison"""
-        if dt and dt.tzinfo is not None:
-            return dt.replace(tzinfo=None)
-        return dt
+    def _ensure_naive_datetime(self, dt: Optional[datetime]) -> Optional[datetime]:
+        """Ensure datetime reflects local wall-clock time without timezone info."""
+        return ensure_local_naive(dt)
     
     def start(self) -> bool:
         """

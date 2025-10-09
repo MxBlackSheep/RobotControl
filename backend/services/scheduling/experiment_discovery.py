@@ -13,6 +13,11 @@ from pathlib import Path
 import json
 from backend.services.scheduling.sqlite_database import get_sqlite_scheduling_database
 
+try:
+    from backend.utils.datetime import parse_iso_datetime_to_local
+except ImportError:  # pragma: no cover - fallback
+    from utils.datetime import parse_iso_datetime_to_local  # type: ignore
+
 logger = logging.getLogger(__name__)
 
 
@@ -390,8 +395,9 @@ class ExperimentDiscoveryService:
                 cache_data = json.load(f)
                 
             # Check cache age (refresh if older than 1 hour)
+            last_scan = None
             if cache_data.get("last_scan"):
-                last_scan = datetime.fromisoformat(cache_data["last_scan"])
+                last_scan = parse_iso_datetime_to_local(cache_data["last_scan"])
                 if (datetime.now() - last_scan).total_seconds() > 3600:
                     logger.debug("Cache is older than 1 hour, refreshing")
                     return False
@@ -404,8 +410,7 @@ class ExperimentDiscoveryService:
                     path=exp_data["path"],
                     category=exp_data.get("category", "Custom"),
                     description=exp_data.get("description", ""),
-                    last_modified=datetime.fromisoformat(exp_data["last_modified"]) 
-                                 if exp_data.get("last_modified") else None
+                    last_modified=parse_iso_datetime_to_local(exp_data.get("last_modified"))
                 )
                 experiment.file_size = exp_data.get("file_size", 0)
                 self.discovered_experiments.append(experiment)

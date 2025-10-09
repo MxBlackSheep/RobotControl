@@ -160,6 +160,9 @@ class CameraService:
         
         # Thread pool for async operations
         self.executor = ThreadPoolExecutor(max_workers=4)
+
+        # Lazy-loaded storage manager for experiment archiving
+        self._storage_manager = None
         
         logger.info("CameraService initialized")
     
@@ -190,6 +193,18 @@ class CameraService:
         self.streaming_integration_enabled = False
         self.shared_frame_buffer = None
         logger.info("Streaming integration disabled")
+
+    def _get_storage_manager(self):
+        """Lazily load the storage manager used for archiving experiment clips."""
+        if self._storage_manager is None:
+            try:
+                from backend.services.storage_manager import get_storage_manager
+            except ImportError:  # pragma: no cover - fallback
+                from backend.services.storage_manager import get_storage_manager as legacy_get_storage_manager  # type: ignore
+                self._storage_manager = legacy_get_storage_manager()
+            else:
+                self._storage_manager = get_storage_manager()
+        return self._storage_manager
     
     def _create_directories(self):
         """Create necessary directories for video storage"""
@@ -749,268 +764,47 @@ class CameraService:
     
     def archive_experiment_videos(self, experiment_id: int, method_name: str) -> str:
         """
-        Archive the last N minutes of video clips for an experiment
-        Joins all clips into a single compressed MP4 file
-        
-        Args:
-            experiment_id: ID of the experiment
-            method_name: Name of the experimental method
-            
-        Returns:
-            Path to the archive file
+        Archive recent rolling clips for an experiment without re-encoding.
+
+        Copies clips into an experiment-specific directory and returns that path.
         """
         try:
-            # Create experiment archive directory
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            # Extract just the filename from the full method path for directory name
-            clean_method_name = Path(method_name).stem  # Gets filename without extension
-            archive_dir = self.experiments_path / f"{clean_method_name}_{timestamp}"
-            archive_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Get clips from the last archive_duration minutes, or all available clips if less than requested
-            cutoff_time = datetime.now() - timedelta(seconds=self.archive_duration)
-            
-            archived_count = 0
-            total_clips = len(self.rolling_clips)
-            
-            with self.clips_lock:
-                clips_to_archive = []
-                
-                # First try to get clips from the last 15 minutes
-                for clip in list(self.rolling_clips):
-                    if clip["timestamp"] >= cutoff_time:
-                        clips_to_archive.append(clip)
-                
-                # If we have fewer than expected clips (less than 15 minutes worth), get the most recent clips up to the limit
-                expected_clips = self.archive_duration // self.recording_duration  # 15 * 60 / 60 = 15 clips
-                max_clips_to_archive = 15  # Hard limit to keep file size manageable
-                
-                if len(clips_to_archive) < expected_clips and total_clips > 0:
-                    logger.warning(f"Only {len(clips_to_archive)} clips available from last 15 minutes, getting most recent clips up to {max_clips_to_archive}")
-                    # Get the most recent clips, but respect the maximum limit
-                    all_clips_by_time = sorted(list(self.rolling_clips), key=lambda x: x["timestamp"], reverse=True)
-                    clips_to_archive = all_clips_by_time[:max_clips_to_archive]
-                    # Re-sort chronologically for proper video ordering
-                    clips_to_archive.sort(key=lambda x: x["timestamp"])
-                elif len(clips_to_archive) > max_clips_to_archive:
-                    # If we have more than the limit from the time window, take the most recent ones
-                    logger.info(f"Found {len(clips_to_archive)} clips in time window, limiting to {max_clips_to_archive} most recent")
-                    clips_to_archive.sort(key=lambda x: x["timestamp"], reverse=True)
-                    clips_to_archive = clips_to_archive[:max_clips_to_archive]
-                    # Re-sort chronologically for proper video ordering
-                    clips_to_archive.sort(key=lambda x: x["timestamp"])
-                
-                # Copy clips to temporary location for processing
-                temp_clips = []
-                for clip in clips_to_archive:
-                    try:
-                        source_path = Path(clip["path"])
-                        if source_path.exists():
-                            temp_path = archive_dir / source_path.name
-                            shutil.copy2(source_path, temp_path)
-                            temp_clips.append(str(temp_path))
-                            archived_count += 1
-                            
-                    except Exception as e:
-                        logger.warning(f"Failed to copy clip {clip['path']}: {e}")
-            
-            if archived_count == 0:
-                logger.warning(f"No clips available to archive for experiment {experiment_id}")
-                return str(archive_dir)
-            
-            # Join and compress clips into single MP4 file
-            # Use clean method name for filename (already extracted as clean_method_name)
-            output_filename = f"{clean_method_name}_{timestamp}_experiment_{experiment_id}.mp4"
-            output_path = archive_dir / output_filename
-            
-            if self._join_and_compress_videos(temp_clips, str(output_path)):
-                # Delete individual AVI clips after successful join
-                for clip_path in temp_clips:
-                    try:
-                        os.remove(clip_path)
-                    except Exception as e:
-                        logger.warning(f"Failed to delete temporary clip {clip_path}: {e}")
-                
-                # Get final file size
-                if output_path.exists():
-                    file_size_mb = output_path.stat().st_size / (1024 * 1024)
-                    logger.info(f"Created compressed archive: {output_filename} ({file_size_mb:.1f} MB)")
-                    logger.info(f"Archived {archived_count} clips for experiment {experiment_id} into {output_path}")
-                    return str(output_path)
+            storage_manager = self._get_storage_manager()
+            if not storage_manager:
+                logger.error("Storage manager unavailable; cannot archive experiment videos")
+                return ""
+
+            result = storage_manager.archive_experiment_videos(
+                experiment_id=str(experiment_id),
+                method_name=method_name,
+                rolling_clips=self.rolling_clips,
+                clips_lock=self.clips_lock,
+            )
+
+            if result.success:
+                size_mb = result.archive_size_bytes / (1024 * 1024) if result.archive_size_bytes else 0.0
+                logger.info(
+                    "Archived %s clips for experiment %s into %s (%.1f MB)",
+                    result.clips_archived,
+                    method_name,
+                    result.archive_path,
+                    size_mb,
+                )
             else:
-                logger.warning(f"Failed to join videos, keeping individual clips in {archive_dir}")
-                return str(archive_dir)
-            
+                logger.warning(
+                    "Archive operation incomplete for experiment %s: %s",
+                    method_name,
+                    result.error_message or "unknown error",
+                )
+                if result.warnings:
+                    for warning in result.warnings:
+                        logger.debug("Archive warning: %s", warning)
+
+            return result.archive_path or ""
+
         except Exception as e:
             logger.error(f"Failed to archive experiment videos: {e}")
             return ""
-    
-    def _join_and_compress_videos(self, input_files: List[str], output_path: str) -> bool:
-        """
-        Join multiple video files into a single compressed MP4 using OpenCV
-        
-        Args:
-            input_files: List of input video file paths
-            output_path: Output MP4 file path
-            
-        Returns:
-            True if successful, False otherwise
-        """
-        try:
-            if not input_files:
-                logger.warning("No input files to join")
-                return False
-            
-            logger.info(f"Joining {len(input_files)} videos using OpenCV...")
-            
-            # Sort files to maintain chronological order
-            sorted_files = sorted(input_files)
-            
-            # Read first video to get properties
-            first_cap = cv2.VideoCapture(sorted_files[0])
-            if not first_cap.isOpened():
-                logger.error(f"Failed to open first video: {sorted_files[0]}")
-                return False
-            
-            # Get video properties from first clip
-            original_fps = first_cap.get(cv2.CAP_PROP_FPS)
-            original_width = int(first_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            original_height = int(first_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            first_cap.release()
-            
-            # Apply compression settings to reduce file size to under 100MB
-            # Strategy: Skip every other frame and reduce output FPS accordingly
-            # This maintains proper timing while reducing file size by ~50%
-            
-            frame_skip_ratio = 2  # Skip every other frame
-            fps = (original_fps / frame_skip_ratio) if original_fps > 0 else (26.7 / frame_skip_ratio)
-            
-            # Optionally reduce resolution if very large (keep reasonable quality)  
-            if original_width > 640 or original_height > 480:
-                # Scale down maintaining aspect ratio
-                aspect_ratio = original_width / original_height
-                if aspect_ratio > 1:  # Landscape
-                    width = min(640, original_width)
-                    height = int(width / aspect_ratio)
-                else:  # Portrait or square
-                    height = min(480, original_height)
-                    width = int(height * aspect_ratio)
-                logger.info(f"Scaling video from {original_width}x{original_height} to {width}x{height} for compression")
-            else:
-                width = original_width
-                height = original_height
-            
-            logger.info(f"Compression settings: {width}x{height} @ {fps:.1f}fps (skip ratio: {frame_skip_ratio}, original: {original_fps:.1f}fps)")
-            
-            # Use H.264 codec if available, otherwise fall back to XVID
-            # Try multiple codec options for better compatibility
-            codecs_to_try = [
-                ('mp4v', 'MP4V'),  # MPEG-4 codec (widely supported)
-                ('XVID', 'XVID'),  # Xvid codec (good compression)
-                ('MJPG', 'MJPG'),  # Motion JPEG (larger but reliable)
-            ]
-            
-            out = None
-            used_codec = None
-            
-            # Try different codecs until one works
-            for codec_name, fourcc_str in codecs_to_try:
-                try:
-                    fourcc = cv2.VideoWriter_fourcc(*fourcc_str)
-                    # For MP4 format, ensure output path has .mp4 extension
-                    if not output_path.endswith('.mp4'):
-                        output_path = output_path.rsplit('.', 1)[0] + '.mp4'
-                    
-                    out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-                    if out.isOpened():
-                        used_codec = codec_name
-                        logger.info(f"Using {codec_name} codec for compression")
-                        break
-                    else:
-                        out.release()
-                        out = None
-                except Exception as e:
-                    logger.debug(f"Codec {codec_name} not available: {e}")
-                    if out:
-                        out.release()
-                        out = None
-            
-            if not out or not out.isOpened():
-                logger.error("Failed to create video writer with any available codec")
-                return False
-            
-            try:
-                total_frames = 0
-                
-                # Process each input video
-                for i, input_file in enumerate(sorted_files):
-                    logger.info(f"Processing clip {i+1}/{len(sorted_files)}: {Path(input_file).name}")
-                    
-                    cap = cv2.VideoCapture(input_file)
-                    if not cap.isOpened():
-                        logger.warning(f"Failed to open video: {input_file}")
-                        continue
-                    
-                    # Use the global frame skip ratio for compression
-                    # This was set earlier based on target compression
-                    
-                    frame_count = 0
-                    frames_written = 0
-                    while True:
-                        ret, frame = cap.read()
-                        if not ret:
-                            break
-                        
-                        # Skip frames to reduce file size (every other frame)
-                        if frame_count % frame_skip_ratio == 0:
-                            # Resize frame if needed for compression
-                            if frame.shape[1] != width or frame.shape[0] != height:
-                                frame = cv2.resize(frame, (width, height), interpolation=cv2.INTER_AREA)
-                            
-                            out.write(frame)
-                            frames_written += 1
-                            total_frames += 1
-                        
-                        frame_count += 1
-                    
-                    cap.release()
-                    logger.debug(f"Processed clip {i+1}: {frame_count} frames read, {frames_written} frames written (skip ratio: {frame_skip_ratio})")
-                
-                # Release the output video
-                out.release()
-                
-                # Verify output file was created
-                output_path_obj = Path(output_path)
-                if output_path_obj.exists() and output_path_obj.stat().st_size > 0:
-                    # Calculate compression statistics
-                    original_size = sum(Path(f).stat().st_size for f in sorted_files if Path(f).exists())
-                    compressed_size = output_path_obj.stat().st_size
-                    compression_ratio = (1 - compressed_size/original_size) * 100 if original_size > 0 else 0
-                    
-                    logger.info(f"Successfully joined {len(sorted_files)} videos into {output_path}")
-                    logger.info(f"Total frames: {total_frames}, Codec: {used_codec}")
-                    logger.info(f"Original size: {original_size/(1024*1024):.1f} MB")
-                    logger.info(f"Compressed size: {compressed_size/(1024*1024):.1f} MB")
-                    logger.info(f"Compression ratio: {compression_ratio:.1f}% reduction")
-                    
-                    return True
-                else:
-                    logger.error("Output file was not created or is empty")
-                    return False
-                    
-            finally:
-                if out:
-                    out.release()
-                    
-        except Exception as e:
-            logger.error(f"Error joining videos with OpenCV: {e}")
-            # Try simpler approach: just copy files without compression
-            try:
-                logger.info("Falling back to simple concatenation without compression")
-                # At least keep them organized in the archive directory
-                return False  # Signal that compression failed but files are preserved
-            except:
-                return False
     
     def get_camera_status(self) -> Dict[str, Any]:
         """

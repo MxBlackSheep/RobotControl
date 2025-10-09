@@ -19,6 +19,11 @@ from contextlib import contextmanager
 from backend.utils.data_paths import get_data_path
 from backend.models import ScheduledExperiment, JobExecution, RetryConfig, ManualRecoveryState
 
+try:
+    from backend.utils.datetime import parse_iso_datetime_to_local
+except ImportError:  # pragma: no cover - fallback
+    from utils.datetime import parse_iso_datetime_to_local  # type: ignore
+
 logger = logging.getLogger(__name__)
 
 
@@ -203,12 +208,9 @@ class SQLiteSchedulingDatabase:
     def _parse_timestamp(value: Optional[str]) -> Optional[datetime]:
         if not value:
             return None
-        if isinstance(value, datetime):
-            return value
-        value_str = str(value).replace('Z', '').replace('+00:00', '')
         try:
-            return datetime.fromisoformat(value_str)
-        except ValueError:
+            return parse_iso_datetime_to_local(value)
+        except (ValueError, TypeError):
             return None
 
     def create_schedule(self, schedule: ScheduledExperiment) -> bool:
@@ -837,12 +839,8 @@ class SQLiteSchedulingDatabase:
     def _row_to_scheduled_experiment(self, row: sqlite3.Row) -> Optional[ScheduledExperiment]:
         """Convert database row to ScheduledExperiment object"""
         try:
-            # Parse datetime (ensure timezone-naive)
-            start_time = None
-            if row['start_time']:
-                # Remove timezone info to ensure naive datetime for consistent comparison
-                start_time_str = row['start_time'].replace('Z', '').replace('+00:00', '')
-                start_time = datetime.fromisoformat(start_time_str)
+            # Parse datetime fields preserving local wall-clock semantics
+            start_time = self._parse_timestamp(row['start_time'])
             
             # Parse retry config
             retry_config = None
@@ -854,15 +852,16 @@ class SQLiteSchedulingDatabase:
             if row['prerequisites']:
                 prerequisites = json.loads(row['prerequisites'])
 
-            recovery_marked_at = None
-            if 'recovery_marked_at' in row.keys() and row['recovery_marked_at']:
-                marked_str = row['recovery_marked_at'].replace('Z', '').replace('+00:00', '')
-                recovery_marked_at = datetime.fromisoformat(marked_str)
-
-            recovery_resolved_at = None
-            if 'recovery_resolved_at' in row.keys() and row['recovery_resolved_at']:
-                resolved_str = row['recovery_resolved_at'].replace('Z', '').replace('+00:00', '')
-                recovery_resolved_at = datetime.fromisoformat(resolved_str)
+            recovery_marked_at = (
+                self._parse_timestamp(row['recovery_marked_at'])
+                if 'recovery_marked_at' in row.keys()
+                else None
+            )
+            recovery_resolved_at = (
+                self._parse_timestamp(row['recovery_resolved_at'])
+                if 'recovery_resolved_at' in row.keys()
+                else None
+            )
 
             return ScheduledExperiment(
                 schedule_id=row['schedule_id'],
@@ -969,9 +968,12 @@ class SQLiteSchedulingDatabase:
                 for execution in executions:
                     if execution.get("start_time") and execution.get("end_time"):
                         try:
-                            start = datetime.fromisoformat(execution["start_time"])
-                            end = datetime.fromisoformat(execution["end_time"])
-                            execution["calculated_duration_minutes"] = int((end - start).total_seconds() / 60)
+                            start = parse_iso_datetime_to_local(execution["start_time"])
+                            end = parse_iso_datetime_to_local(execution["end_time"])
+                            if start and end:
+                                execution["calculated_duration_minutes"] = int((end - start).total_seconds() / 60)
+                            else:
+                                execution["calculated_duration_minutes"] = execution.get("duration_minutes")
                         except Exception:
                             execution["calculated_duration_minutes"] = execution.get("duration_minutes")
                     else:

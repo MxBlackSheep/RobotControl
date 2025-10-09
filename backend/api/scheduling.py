@@ -32,6 +32,15 @@ from backend.models import (
 )
 import logging
 
+try:
+    from backend.utils.datetime import (
+        parse_iso_datetime_to_local,
+    )
+except ImportError:  # pragma: no cover - fallback
+    from utils.datetime import (  # type: ignore
+        parse_iso_datetime_to_local,
+    )
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/scheduling", tags=["scheduling"])
@@ -85,11 +94,11 @@ async def create_schedule(
                 logger.error(f"Missing required field: {field}. Received data: {schedule_data}")
                 raise HTTPException(status_code=400, detail=f"Missing required field: {field}")
         
-        # Parse datetime fields
+        # Parse datetime fields (preserve local wall-clock time)
         start_time = None
         if schedule_data.get("start_time"):
             try:
-                start_time = datetime.fromisoformat(schedule_data["start_time"].replace('Z', '+00:00'))
+                start_time = parse_iso_datetime_to_local(schedule_data["start_time"])
             except ValueError:
                 raise HTTPException(status_code=400, detail="Invalid start_time format")
         
@@ -251,10 +260,10 @@ async def get_calendar_data(
     Requires: any authenticated user
     """
     try:
-        # Parse date range (keep timezone-naive for consistent comparison)
+        # Parse date range (ensure values reflect local wall-clock time)
         if start_date:
             try:
-                start_dt = datetime.fromisoformat(start_date.replace('Z', '').replace('+00:00', ''))
+                start_dt = parse_iso_datetime_to_local(start_date) or datetime.now()
             except ValueError:
                 raise HTTPException(status_code=400, detail="Invalid start_date format")
         else:
@@ -262,7 +271,7 @@ async def get_calendar_data(
         
         if end_date:
             try:
-                end_dt = datetime.fromisoformat(end_date.replace('Z', '').replace('+00:00', ''))
+                end_dt = parse_iso_datetime_to_local(end_date) or (start_dt + timedelta(hours=48))
             except ValueError:
                 raise HTTPException(status_code=400, detail="Invalid end_date format")
         else:
@@ -373,9 +382,7 @@ async def update_schedule(
             existing_schedule.interval_hours = update_data["interval_hours"]
         if "start_time" in update_data:
             try:
-                existing_schedule.start_time = datetime.fromisoformat(
-                    update_data["start_time"].replace('Z', '+00:00')
-                )
+                existing_schedule.start_time = parse_iso_datetime_to_local(update_data["start_time"])
             except ValueError:
                 raise HTTPException(status_code=400, detail="Invalid start_time format")
         if "estimated_duration" in update_data:
@@ -611,7 +618,7 @@ async def check_conflicts(
             start_time = None
             if exp_data.get("start_time"):
                 try:
-                    start_time = datetime.fromisoformat(exp_data["start_time"].replace('Z', '+00:00'))
+                    start_time = parse_iso_datetime_to_local(exp_data["start_time"])
                 except ValueError:
                     continue  # Skip invalid entries
             

@@ -1,4 +1,10 @@
-﻿## 2025-10-09 Camera Resolution ASCII Fix
+﻿## 2025-10-09 Scheduling TZ & Video Archive Adjustments
+
+- Normalized scheduling ISO timestamps to local naive datetimes so non-UTC systems no longer see start-time drift (backend/utils/datetime.py, backend/api/scheduling.py, backend/models.py, backend/services/scheduling/*, backend/services/experiment_monitor.py).
+- Routed experiment archiving through StorageManager to keep original one-minute clips and surface richer metadata to automation (backend/services/camera.py, backend/services/automatic_recording.py, backend/tests/test_camera.py).
+- Resolved PyInstaller data paths so packaged builds read/write the real data/videos directory beside the executable (backend/config.py).
+
+## 2025-10-09 Camera Resolution ASCII Fix
 
 - Replaced the multiplication symbol in camera resolution displays and fullscreen hint with ASCII `x` so Windows clients no longer see kanji U+8133 (Japanese "brain") in place of the separator (`frontend/src/pages/CameraPage.tsx`, `frontend/src/components/CameraViewer.tsx`).
 ## 2025-10-08 Streaming Guard & UI Polish (Binary Refresh)

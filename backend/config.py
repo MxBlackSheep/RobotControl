@@ -3,8 +3,18 @@ Simplified Configuration Management for PyRobot Backend
 """
 
 import os
+import sys
 from typing import Dict, Any
 from pathlib import Path
+
+try:
+    from backend.utils.data_paths import get_path_manager
+except ImportError:
+    try:
+        from utils.data_paths import get_path_manager  # type: ignore
+    except ImportError:
+        get_path_manager = None
+
 
 # Load environment variables from .env file
 try:
@@ -66,10 +76,17 @@ class Settings:
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     
     # File paths
-    PROJECT_ROOT: Path = Path(__file__).parent.parent
-    DATA_PATH: Path = PROJECT_ROOT / "data"
-    VIDEO_PATH: Path = DATA_PATH / "videos"
-    BACKUP_PATH: Path = DATA_PATH / "backups"
+    _path_manager = get_path_manager() if 'get_path_manager' in globals() and callable(get_path_manager) else None
+    if _path_manager:
+        PROJECT_ROOT: Path = _path_manager.base_path
+        DATA_PATH: Path = _path_manager.data_path
+        VIDEO_PATH: Path = _path_manager.videos_path
+        BACKUP_PATH: Path = _path_manager.backups_path
+    else:
+        PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent
+        DATA_PATH: Path = PROJECT_ROOT / "data"
+        VIDEO_PATH: Path = DATA_PATH / "videos"
+        BACKUP_PATH: Path = DATA_PATH / "backups"
 
 # Camera system configuration
 CAMERA_CONFIG = {

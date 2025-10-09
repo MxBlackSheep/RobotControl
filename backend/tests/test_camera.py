@@ -26,6 +26,7 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from backend.services.camera import CameraService
+from backend.services.storage_manager import StorageManager
 from shared.config import CAMERA_CONFIG
 
 
@@ -42,18 +43,31 @@ class TestCameraService:
     @pytest.fixture
     def camera_service(self, temp_video_path):
         """Create camera service instance with mocked video path"""
-        with patch('backend.services.camera.VIDEO_PATH', str(temp_video_path)):
-            # Reset singleton
+        with patch('backend.services.camera.VIDEO_PATH', str(temp_video_path)), \
+             patch('backend.services.storage_manager.VIDEO_PATH', str(temp_video_path)):
+            import backend.services.storage_manager as storage_manager_module
+            storage_manager_module._storage_manager_instance = None
             CameraService._instance = None
+
             service = CameraService()
             service.video_path = temp_video_path
             service.rolling_clips_path = temp_video_path / "rolling_clips"
             service.experiments_path = temp_video_path / "experiments"
             service._create_directories()
-            yield service
-            # Cleanup
-            service.shutdown()
-            CameraService._instance = None
+
+            storage_manager = StorageManager()
+            storage_manager.video_path = temp_video_path
+            storage_manager.rolling_clips_path = service.rolling_clips_path
+            storage_manager.experiments_path = service.experiments_path
+            storage_manager._ensure_directories_exist()
+            service._storage_manager = storage_manager
+
+            try:
+                yield service
+            finally:
+                service.shutdown()
+                CameraService._instance = None
+                storage_manager_module._storage_manager_instance = None
     
     @pytest.fixture
     def mock_cv2(self):

@@ -16,7 +16,7 @@ from pathlib import Path
 
 from backend.config import AUTO_RECORDING_CONFIG
 from backend.services.automatic_recording_types import (
-    AutomationStatus, AutomationState, ExperimentState, ArchiveResult
+    AutomationStatus, AutomationState, ExperimentState
 )
 from backend.services.storage_manager import get_storage_manager
 from backend.services.experiment_monitor import get_experiment_monitor
@@ -475,46 +475,48 @@ class AutomaticRecordingService:
         try:
             logger.info("AutoRecording | event=experiment_complete | method=%s", completed_experiment.method_name)
             
-            # Get rolling clips from camera service for archiving
             if not self.camera_service:
                 logger.error("Cannot archive videos - camera service not available")
                 return
             
-            # Use camera service's archive method for compression
-            # Extract experiment ID as integer if possible
+            storage_manager = self.storage_manager
+            if not storage_manager:
+                logger.error("Cannot archive videos - storage manager unavailable")
+                return
+
+            # Derive a stable experiment identifier usable in folder names
             try:
-                exp_id = int(completed_experiment.run_guid[:8], 16) % 1000000  # Use first 8 chars as ID
-            except:
+                exp_id = int(completed_experiment.run_guid[:8], 16) % 1000000
+            except Exception:
                 exp_id = hash(completed_experiment.run_guid) % 1000000
-                
-            archive_path = self.camera_service.archive_experiment_videos(
-                experiment_id=exp_id,
-                method_name=completed_experiment.method_name
-            )
+            experiment_identifier = str(exp_id)
             
-            # Create result object for compatibility
-            from backend.services.automatic_recording_types import ArchiveResult
-            archive_result = ArchiveResult(
-                success=bool(archive_path),
-                archive_path=archive_path,
-                archive_start_time=datetime.now()
+            archive_result = storage_manager.archive_experiment_videos(
+                experiment_id=experiment_identifier,
+                method_name=completed_experiment.method_name,
+                rolling_clips=self.camera_service.rolling_clips,
+                clips_lock=self.camera_service.clips_lock
             )
-            
-            if archive_path:
-                # Get archive statistics
-                archive_file = Path(archive_path)
-                if archive_file.exists():
-                    archive_result.archive_size_bytes = archive_file.stat().st_size
-                    archive_result.clips_archived = 15  # Approximate based on 15 minutes
-                    archive_result.success = True
             
             if archive_result.success:
                 with self.state_lock:
                     self.total_experiments_archived += 1
-                    
-                logger.info("AutoRecording | event=archive_success | clips=%s | method=%s | size_mb=%.1f", archive_result.clips_archived, completed_experiment.method_name, archive_result.archive_size_mb)
+                
+                logger.info(
+                    "AutoRecording | event=archive_success | clips=%s | method=%s | size_mb=%.1f | path=%s",
+                    archive_result.clips_archived,
+                    completed_experiment.method_name,
+                    archive_result.archive_size_mb,
+                    archive_result.archive_path,
+                )
             else:
-                logger.error("AutoRecording | event=archive_failed | method=%s | error=%s", completed_experiment.method_name, archive_result.error_message)
+                logger.error(
+                    "AutoRecording | event=archive_failed | method=%s | error=%s",
+                    completed_experiment.method_name,
+                    archive_result.error_message or "unknown error",
+                )
+                for warning in archive_result.warnings:
+                    logger.debug("AutoRecording | archive_warning | detail=%s", warning)
             
             # Trigger storage cleanup to maintain limits
             self._schedule_storage_cleanup()
