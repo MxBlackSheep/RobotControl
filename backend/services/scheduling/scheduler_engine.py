@@ -48,8 +48,6 @@ class SchedulerConfig:
     startup_delay_seconds: float = 10.0  # Delay before first check
     enable_persistence: bool = True
     enable_notifications: bool = True
-    long_running_multiplier: float = 2.0  # Multiplier applied to estimated duration
-    long_running_min_minutes: float = 30.0  # Minimum minutes before long-running alert fires
 
 
 @dataclass
@@ -961,10 +959,7 @@ class SchedulerEngine:
                 continue
 
             elapsed_minutes = (current_time - watch.started_at).total_seconds() / 60
-            threshold = max(
-                watch.expected_minutes * self.config.long_running_multiplier,
-                self.config.long_running_min_minutes,
-            )
+            threshold = watch.expected_minutes * 2
             if elapsed_minutes < threshold:
                 continue
 
@@ -986,6 +981,7 @@ class SchedulerEngine:
             context = {
                 "elapsed_minutes": round(elapsed_minutes, 1),
                 "threshold_minutes": round(threshold, 1),
+                "expected_minutes": watch.expected_minutes,
             }
             self._dispatch_execution_notification(
                 schedule,

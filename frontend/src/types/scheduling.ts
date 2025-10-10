@@ -130,6 +130,10 @@ export interface NotificationSettingsUpdatePayload {
   use_ssl: boolean;
   password?: string | null;
 }
+
+export interface NotificationTestEmailResponse {
+  recipient: string;
+}
 export interface NotificationLogEntry {
   log_id: string;
   schedule_id?: string | null;

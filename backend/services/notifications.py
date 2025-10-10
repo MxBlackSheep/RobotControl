@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from email.message import EmailMessage
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from backend.config import VIDEO_PATH
 from backend.models import (
@@ -70,6 +70,7 @@ class EmailNotificationService:
     """Minimal SMTP client used for manual recovery alerts."""
 
     def __init__(self) -> None:
+        self.last_error: Optional[str] = None
         recipients_raw = _env("PYROBOT_ALERT_RECIPIENTS") or _env("PYROBOT_SMTP_TO") or ""
         recipients = [addr.strip() for addr in recipients_raw.split(",") if addr.strip()]
 
@@ -90,10 +91,11 @@ class EmailNotificationService:
                 self._settings_error = str(exc)
                 logger.error("Failed to decrypt SMTP password: %s", exc)
 
+        username = self._settings.username or self._settings.sender
         self.config = EmailConfig(
             host=self._settings.host,
             port=self._settings.port,
-            username=self._settings.username,
+            username=username,
             password=password_plain,
             sender=self._settings.sender,
             recipients=recipients,
@@ -103,6 +105,14 @@ class EmailNotificationService:
 
         if not self.config.is_enabled:
             logger.info("Email notifications disabled: SMTP host/sender not configured")
+        elif not self.config.password:
+            fallback_password = _env("PYROBOT_SMTP_PASSWORD")
+            if fallback_password:
+                self.config.password = fallback_password
+                logger.info("SMTP password resolved from PYROBOT_SMTP_PASSWORD environment variable")
+            else:
+                self._settings_error = self._settings_error or "SMTP password is not configured"
+                logger.warning("SMTP password missing for host %s; authentication will be skipped", self.config.host)
 
     def send(
         self,
@@ -112,13 +122,21 @@ class EmailNotificationService:
         to: Optional[List[str]] = None,
         attachments: Optional[List[Path]] = None,
     ) -> bool:
+        self.last_error = None
         if not self.config.is_enabled:
             detail = self._settings_error or "missing SMTP host or sender configuration"
+            self.last_error = detail
             logger.warning("Skipping email '%s' because SMTP is not configured: %s", subject, detail)
+            return False
+        if not self.config.password:
+            detail = self._settings_error or "SMTP password is not configured"
+            self.last_error = detail
+            logger.warning("Skipping email '%s' because no SMTP password is available", subject)
             return False
 
         recipients = [addr for addr in (to or self.config.recipients) if addr]
         if not recipients:
+            self.last_error = "No recipients were provided"
             logger.warning("Skipping email '%s' because no recipients were provided", subject)
             return False
 
@@ -163,6 +181,7 @@ class EmailNotificationService:
             logger.info("Sent email notification to %s", message["To"])
             return True
         except Exception as exc:  # pragma: no cover - network dependent
+            self.last_error = str(exc)
             logger.warning("Failed to send email notification: %s", exc)
             return False
 
@@ -185,8 +204,10 @@ class SchedulingNotificationService:
 
     def __init__(self) -> None:
         self.email = EmailNotificationService()
+        self._video_root_dir = self._resolve_video_root()
         self._hamilton_log_dir = self._resolve_trc_directory()
-        self._video_archive_dir = self._resolve_video_directory()
+        self._video_archive_dir = self._video_root_dir / "experiments"
+        self._rolling_clips_dir = self._video_root_dir / "rolling_clips"
 
     def _format_timestamp(self, value: Optional[object]) -> Optional[str]:
         if not value:
@@ -280,6 +301,15 @@ class SchedulingNotificationService:
                 attachment_notes.append(f"Failed to zip archive folder {archive}.")
         else:
             attachment_notes.append("No video archive folder located.")
+            if trigger == "long_running":
+                fallback_clips = self._collect_recent_rolling_clips(limit=5)
+                if fallback_clips:
+                    attachments.extend(fallback_clips)
+                    attachment_notes.append(
+                        f"Attached {len(fallback_clips)} rolling clip(s) from {self._rolling_clips_dir}."
+                    )
+                else:
+                    attachment_notes.append("Rolling clip fallback unavailable (no recent clips).")
 
         if attachment_notes:
             body_lines.extend(["", "Attachment notes:"])
@@ -328,14 +358,13 @@ class SchedulingNotificationService:
     # Helpers
     # ------------------------------------------------------------------
 
+    def _resolve_video_root(self) -> Path:
+        override = _env("PYROBOT_VIDEO_ARCHIVE_PATH")
+        return Path(override) if override else Path(VIDEO_PATH)
+
     def _resolve_trc_directory(self) -> Path:
         raw_path = _env("PYROBOT_HAMILTON_LOG_PATH", r"C:\Program Files\HAMILTON\LogFiles")
         return Path(raw_path)
-
-    def _resolve_video_directory(self) -> Path:
-        override = _env("PYROBOT_VIDEO_ARCHIVE_PATH")
-        base = Path(override) if override else Path(VIDEO_PATH)
-        return base / "experiments"
 
     def _render_alert_subject(self, schedule: ScheduledExperiment, trigger: str) -> str:
         trigger_label = {
@@ -475,6 +504,33 @@ class SchedulingNotificationService:
         except Exception as exc:  # pragma: no cover - filesystem dependent
             logger.debug("Failed to zip archive folder %s: %s", folder, exc)
             return None
+
+    def _collect_recent_rolling_clips(self, limit: int = 5) -> List[Path]:
+        """Collect the most recent rolling clips to attach as fallback."""
+        directory = self._rolling_clips_dir
+        if not directory.exists():
+            return []
+
+        candidates: List[Tuple[float, Path]] = []
+        try:
+            for candidate in directory.iterdir():
+                if not candidate.is_file():
+                    continue
+                if candidate.suffix.lower() not in {".avi", ".mp4", ".mov"}:
+                    continue
+                try:
+                    stat_result = candidate.stat()
+                except OSError:
+                    continue
+                if stat_result.st_size <= 0:
+                    continue
+                candidates.append((stat_result.st_mtime, candidate))
+        except Exception as exc:  # pragma: no cover - filesystem dependent
+            logger.debug("Failed to enumerate rolling clips: %s", exc)
+            return []
+
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        return [path for _, path in candidates[:limit]]
 
 
 _notification_service: Optional[SchedulingNotificationService] = None

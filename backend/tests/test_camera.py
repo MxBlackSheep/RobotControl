@@ -239,6 +239,11 @@ class TestRecordingWorker(TestCameraService):
         
         # Stop recording
         camera_service.stop_recording(0)
+
+        # Verify the video writer was configured for 7.5fps rolling clips
+        assert mock_writer_class.call_args is not None
+        fps_arg = mock_writer_class.call_args[0][2]
+        assert pytest.approx(fps_arg, rel=0.01) == 7.5
         
         # Verify video writer was called
         assert mock_writer.write.called

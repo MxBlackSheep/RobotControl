@@ -26,6 +26,7 @@ import {
   NotificationLogQuery,
   NotificationSettings,
   NotificationSettingsUpdatePayload,
+  NotificationTestEmailResponse,
 } from '../types/scheduling';
 
 const coerceNumber = (value: unknown, fallback = 0): number => {
@@ -315,6 +316,9 @@ export const schedulingAPI = {
   updateNotificationSettings: (payload: Record<string, unknown>) =>
     api.put('/api/scheduling/notifications/settings', payload),
 
+  sendNotificationTestEmail: (recipient: string) =>
+    api.post('/api/scheduling/notifications/settings/test', { recipient }),
+
   getNotificationContacts: (includeInactive = true) =>
     api.get('/api/scheduling/contacts', { params: { include_inactive: includeInactive } }),
 
@@ -438,6 +442,24 @@ export const schedulingService = {
       return { settings: normalizeNotificationSettings(data.data) };
     } catch (error) {
       return { error: parseAPIError(error) };
+    }
+  },
+
+  async sendNotificationTestEmail(
+    recipient: string,
+  ): Promise<{ success: boolean; recipient?: string; error?: string }> {
+    try {
+      const { data } = await schedulingAPI.sendNotificationTestEmail(recipient);
+      if (!data.success) {
+        return { success: false, error: data.message || 'Failed to send test email' };
+      }
+      const payload: NotificationTestEmailResponse | undefined = data.data;
+      return {
+        success: true,
+        recipient: coerceString(payload?.recipient, recipient),
+      };
+    } catch (error) {
+      return { success: false, error: parseAPIError(error) };
     }
   },
 

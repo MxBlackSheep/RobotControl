@@ -1,10 +1,16 @@
 import os
 import smtplib
+from pathlib import Path
 
 import pytest
 
-from backend.models import ScheduledExperiment, NotificationSettings
-from backend.services.notifications import EmailNotificationService
+from backend.models import (
+    ScheduledExperiment,
+    NotificationSettings,
+    NotificationContact,
+    JobExecution,
+)
+from backend.services.notifications import EmailNotificationService, SchedulingNotificationService
 from backend.services.scheduling.database_manager import SchedulingDatabaseManager
 
 
@@ -32,6 +38,24 @@ class DummySMTP:
         self.sent_messages.append(message)
 
 
+class StubEmailService:
+    def __init__(self):
+        self.calls = []
+        self.config = type("Cfg", (), {"is_enabled": True, "recipients": []})()
+        self.last_error = None
+
+    def send(self, subject, body, *, to=None, attachments=None):
+        self.calls.append(
+            {
+                "subject": subject,
+                "body": body,
+                "recipients": list(to or []),
+                "attachments": list(attachments or []),
+            }
+        )
+        return True
+
+
 @pytest.fixture(autouse=True)
 def clear_smtp_env(monkeypatch):
     for key in [
@@ -57,6 +81,7 @@ def test_email_service_disabled_returns_false(monkeypatch):
 
     service = EmailNotificationService()
     assert service.send("subject", "body") is False
+    assert service.last_error is not None
 
 
 def test_email_service_sends_when_configured(monkeypatch):
@@ -81,6 +106,64 @@ def test_email_service_sends_when_configured(monkeypatch):
     sent = service.send("subject", "body")
     assert sent is True
 
+
+def test_schedule_alert_uses_rolling_clip_fallback(monkeypatch, tmp_path):
+    video_root = tmp_path / "videos"
+    rolling_dir = video_root / "rolling_clips"
+    experiments_dir = video_root / "experiments"
+    rolling_dir.mkdir(parents=True, exist_ok=True)
+    experiments_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create six clips with increasing modification times.
+    for idx in range(6):
+        clip = rolling_dir / f"clip_{idx}.avi"
+        clip.write_text("clip")
+        os.utime(clip, (idx + 1, idx + 1))
+
+    logs_dir = tmp_path / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr("backend.services.notifications.VIDEO_PATH", str(video_root))
+    monkeypatch.setenv("PYROBOT_HAMILTON_LOG_PATH", str(logs_dir))
+
+    service = SchedulingNotificationService()
+    stub_email = StubEmailService()
+    service.email = stub_email  # type: ignore[assignment]
+
+    schedule = ScheduledExperiment(
+        schedule_id="sched-1",
+        experiment_name="Demo",
+        experiment_path="C:/Methods/demo.med",
+        schedule_type="once",
+        estimated_duration=10,
+        notification_contacts=["contact-1"],
+    )
+    execution = JobExecution(
+        execution_id="exec-1",
+        schedule_id="sched-1",
+        status="running",
+    )
+    contact = NotificationContact(
+        contact_id="contact-1",
+        display_name="Ops",
+        email_address="ops@test",
+        is_active=True,
+    )
+
+    result = service.schedule_alert(
+        schedule,
+        execution,
+        contacts=[contact],
+        trigger="long_running",
+        context={},
+    )
+
+    assert stub_email.calls, "Expected email send to be invoked"
+    attachments = stub_email.calls[0]["attachments"]
+    assert len(attachments) == 5
+    attachment_names = [Path(item).name for item in attachments]
+    assert attachment_names == [f"clip_{idx}.avi" for idx in range(5, 0, -1)]
+    assert any("rolling clip" in note.lower() for note in result.attachment_notes)
 
 def test_should_block_due_to_abort_detects_abort(monkeypatch):
     from backend.services import scheduling as scheduling_services

@@ -1249,11 +1249,12 @@ const SchedulingPage: React.FC = () => {
               )}
 
               {notificationsTab === 2 && (
-                <NotificationEmailSettingsPanel
+              <NotificationEmailSettingsPanel
                   settings={state.notificationSettings}
                   loading={state.notificationSettingsLoading}
                   onRefresh={actions.loadNotificationSettings}
                   onSave={actions.updateNotificationSettings}
+                  onSendTest={actions.sendNotificationTestEmail}
                 />
               )}
             </Stack>

@@ -24,6 +24,7 @@ from backend.services.scheduling import (
     get_job_queue_manager,
     get_hamilton_process_monitor
 )
+from backend.services.notifications import EmailNotificationService
 from backend.services.scheduling.experiment_discovery import get_experiment_discovery_service
 from backend.models import (
     ScheduledExperiment,
@@ -207,6 +208,46 @@ async def update_notification_settings_endpoint(
         success=True,
         message="Notification settings updated",
         data=data,
+    ).to_dict()
+
+
+@router.post("/notifications/settings/test")
+async def test_notification_settings_endpoint(
+    payload: Dict[str, Any],
+    current_user: dict = Depends(get_current_user),
+):
+    """Send a test email using the stored SMTP settings (admin only)."""
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin role required to manage notification settings")
+
+    recipient_value = payload.get("recipient")
+    recipient = _validate_email_address(recipient_value)
+
+    email_service = EmailNotificationService()
+    if not email_service.config.is_enabled:
+        detail = email_service.last_error or "SMTP configuration is incomplete"
+        raise HTTPException(status_code=400, detail=detail)
+
+    subject = "PyRobot SMTP test message"
+    body_lines = [
+        "This is a test email sent from the PyRobot scheduling service.",
+        "",
+        f"Recipient: {recipient}",
+        f"Requested by: {current_user.get('username', 'unknown')}",
+        f"Timestamp: {datetime.utcnow().isoformat()}Z",
+        "",
+        "If you received this message, the configured SMTP settings are working.",
+    ]
+    body = "\n".join(body_lines)
+
+    if not email_service.send(subject, body, to=[recipient]):
+        detail = email_service.last_error or "Failed to deliver test email; see backend logs for details."
+        raise HTTPException(status_code=502, detail=detail)
+
+    return ApiResponse(
+        success=True,
+        message=f"Test email sent to {recipient}",
+        data={"recipient": recipient},
     ).to_dict()
 
 

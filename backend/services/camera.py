@@ -443,8 +443,16 @@ class CameraService:
             
             fps_test_duration = time.time() - fps_test_start
             actual_fps = fps_test_frames / fps_test_duration if fps_test_duration > 0 else 20
-            actual_fps = min(30.0, max(15.0, actual_fps))  # Clamp between 15-30 FPS for stability
-            logger.info(f"Camera {camera_id} actual FPS detected: {actual_fps:.1f} (tested {fps_test_frames} frames in {fps_test_duration:.1f}s)")
+            actual_fps = max(1.0, min(30.0, actual_fps))  # Clamp between 1-30 FPS for stability
+            target_fps = min(7.5, actual_fps)
+            logger.info(
+                "Camera %s FPS detected: actual=%.1f (tested %s frames in %.1fs) | target rolling clip fps=%.1f",
+                camera_id,
+                actual_fps,
+                fps_test_frames,
+                fps_test_duration,
+                target_fps,
+            )
             
             # Recording loop with scheduled timing for consistent 60-second clips
             next_clip_time = time.time()  # Initialize first clip time
@@ -469,7 +477,7 @@ class CameraService:
                 
                 # Initialize video writer with MJPEG codec (more robust for interruptions)
                 fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-                out = cv2.VideoWriter(str(clip_path), fourcc, actual_fps, (640, 480))
+                out = cv2.VideoWriter(str(clip_path), fourcc, target_fps, (640, 480))
                 
                 if not out.isOpened():
                     logger.error(f"Failed to create video writer for {clip_path}")
@@ -478,6 +486,8 @@ class CameraService:
                     continue
                 
                 frame_count = 0
+                frame_interval = 1.0 / target_fps if target_fps > 0 else (1.0 / 7.5)
+                next_frame_write_time = time.time()
                 
                 # Record for specified duration
                 logger.info(f"Starting to record clip: {clip_filename}")
@@ -490,8 +500,16 @@ class CameraService:
                         continue
                     
                     # Write frame to file
-                    out.write(frame)
-                    frame_count += 1
+                    now = time.time()
+                    if now >= next_frame_write_time or frame_count == 0:
+                        out.write(frame)
+                        frame_count += 1
+                        while next_frame_write_time <= now:
+                            next_frame_write_time += frame_interval
+                    else:
+                        sleep_time = min(0.005, next_frame_write_time - now)
+                        if sleep_time > 0:
+                            time.sleep(sleep_time)
                     
                     # Update shared frame for streaming (legacy system)
                     try:
@@ -524,18 +542,18 @@ class CameraService:
                         except Exception as e:
                             logger.debug(f"Error updating priority manager: {e}")
                     
-                    # Precise frame rate control - only sleep if we're ahead of schedule
-                    expected_frame_time = clip_start_time + (frame_count / actual_fps)
-                    current_time = time.time()
-                    if current_time < expected_frame_time:
-                        time.sleep(expected_frame_time - current_time)
-                
                 # Finalize clip immediately (minimize processing delay for next clip)
                 actual_duration = time.time() - clip_start_time
                 if out:
                     # Force flush any remaining frames to disk
                     try:
-                        logger.info(f"Finalizing video clip: {clip_filename} ({frame_count} frames, {actual_duration:.1f}s, {actual_fps:.1f}fps)")
+                        logger.info(
+                            "Finalizing video clip: %s (%s frames, %.1fs, target %.1ffps)",
+                            clip_filename,
+                            frame_count,
+                            actual_duration,
+                            target_fps,
+                        )
                         # Release video writer quickly - AVI format doesn't need moov atom processing
                         out.release()
                         out = None

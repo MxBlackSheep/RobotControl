@@ -269,6 +269,11 @@ const useScheduling = () => {
     [],
   );
 
+  const sendNotificationTestEmail = useCallback(
+    (recipient: string) => schedulingService.sendNotificationTestEmail(recipient),
+    [],
+  );
+
   const createContact = useCallback(
     async (payload: NotificationContactPayload): Promise<{ contact?: NotificationContact; error?: string }> => {
       const result = await schedulingService.createNotificationContact(payload);
@@ -547,6 +552,7 @@ const useScheduling = () => {
       deleteContact,
       loadNotificationSettings,
       updateNotificationSettings,
+      sendNotificationTestEmail,
       loadNotificationLogs,
       requireRecovery,
       resolveRecovery,
@@ -570,6 +576,7 @@ const useScheduling = () => {
       deleteContact,
       loadNotificationSettings,
       updateNotificationSettings,
+      sendNotificationTestEmail,
       loadNotificationLogs,
       requireRecovery,
       resolveRecovery,
