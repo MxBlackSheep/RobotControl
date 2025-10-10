@@ -1,10 +1,9 @@
 import os
 import smtplib
-from types import SimpleNamespace
 
 import pytest
 
-from backend.models import ScheduledExperiment
+from backend.models import ScheduledExperiment, NotificationSettings
 from backend.services.notifications import EmailNotificationService
 from backend.services.scheduling.database_manager import SchedulingDatabaseManager
 
@@ -51,17 +50,29 @@ def clear_smtp_env(monkeypatch):
 
 
 def test_email_service_disabled_returns_false(monkeypatch):
+    monkeypatch.setattr(
+        "backend.services.notifications._load_notification_settings",
+        lambda: NotificationSettings(),
+    )
+
     service = EmailNotificationService()
     assert service.send("subject", "body") is False
 
 
 def test_email_service_sends_when_configured(monkeypatch):
-    monkeypatch.setenv("PYROBOT_SMTP_HOST", "smtp.test")
-    monkeypatch.setenv("PYROBOT_SMTP_PORT", "1025")
-    monkeypatch.setenv("PYROBOT_SMTP_FROM", "noreply@test")
+    stub_settings = NotificationSettings(
+        host="smtp.test",
+        port=1025,
+        sender="noreply@test",
+        use_tls=False,
+        use_ssl=False,
+    )
+    monkeypatch.setattr(
+        "backend.services.notifications._load_notification_settings",
+        lambda: stub_settings,
+    )
+
     monkeypatch.setenv("PYROBOT_ALERT_RECIPIENTS", "ops@test")
-    monkeypatch.setenv("PYROBOT_SMTP_USE_TLS", "0")
-    monkeypatch.setenv("PYROBOT_SMTP_USE_SSL", "0")
 
     dummy = DummySMTP("smtp.test", 1025)
     monkeypatch.setattr(smtplib, "SMTP", lambda host, port, timeout=None: DummySMTP(host, port, timeout))

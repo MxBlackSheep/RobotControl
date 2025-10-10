@@ -24,6 +24,7 @@ from backend.models import (
     ManualRecoveryState,
     NotificationContact,
     NotificationLogEntry,
+    NotificationSettings,
 )
 from backend.constants import HAMILTON_STATE_MAPPING
 
@@ -188,6 +189,34 @@ class SchedulingDatabaseManager:
         except Exception as exc:  # pragma: no cover - log only
             logger.error("Error deleting scheduled experiment: %s", exc)
             return False
+
+    # ------------------------------------------------------------------
+    # Notification settings
+    # ------------------------------------------------------------------
+
+    def get_notification_settings(self) -> NotificationSettings:
+        try:
+            return self.sqlite_db.get_notification_settings()
+        except Exception as exc:  # pragma: no cover - log only
+            logger.error("Failed to load notification settings: %s", exc)
+            return NotificationSettings()
+
+    def update_notification_settings(
+        self,
+        settings: NotificationSettings,
+        *,
+        password_encrypted: Optional[str],
+        update_password: bool,
+    ) -> NotificationSettings:
+        try:
+            return self.sqlite_db.update_notification_settings(
+                settings,
+                update_password=update_password,
+                password_encrypted=password_encrypted,
+            )
+        except Exception as exc:  # pragma: no cover - log only
+            logger.error("Failed to update notification settings: %s", exc)
+            return self.sqlite_db.get_notification_settings()
 
     # ------------------------------------------------------------------
     # Notification contacts

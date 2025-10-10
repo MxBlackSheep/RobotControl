@@ -1,3 +1,8 @@
+## 2025-10-10 SMTP Config Panel
+
+- Added encrypted NotificationSettings storage and admin API so the scheduler reads SMTP host/sender/password from SQLite instead of environment variables (ackend/services/scheduling/sqlite_database.py, ackend/api/scheduling.py, ackend/services/notifications.py).
+- Extended the scheduling admin UI with an Email Settings tab that encrypts passwords via Fernet and guides operators through key setup (rontend/src/components/scheduling/NotificationEmailSettingsPanel.tsx, rontend/src/pages/SchedulingPage.tsx, rontend/src/hooks/useScheduling.ts).
+
 ## 2025-10-10 Scheduler SQLite Def Fix
 
 - Removed the duplicated, truncated `_row_to_scheduled_experiment` helper that left a dangling try block and broke PyInstaller execution (`backend/services/scheduling/sqlite_database.py`).

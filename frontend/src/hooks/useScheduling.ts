@@ -17,6 +17,8 @@ import {
   NotificationContactPayload,
   NotificationLogEntry,
   NotificationLogQuery,
+  NotificationSettings,
+  NotificationSettingsUpdatePayload,
 } from '../types/scheduling';
 
 const normalizeManualRecovery = (payload: unknown): ManualRecoveryState | null => {
@@ -70,6 +72,8 @@ const useScheduling = () => {
   const [initialized, setInitialized] = useState<boolean>(false);
   const [contacts, setContacts] = useState<NotificationContact[]>([]);
   const [notificationLogs, setNotificationLogs] = useState<NotificationLogEntry[]>([]);
+  const [notificationSettings, setNotificationSettings] = useState<NotificationSettings | null>(null);
+  const [notificationSettingsLoading, setNotificationSettingsLoading] = useState<boolean>(false);
 
   const sortContactsList = useCallback(
     (list: NotificationContact[]) =>
@@ -222,6 +226,47 @@ const useScheduling = () => {
       }
     },
     [sortContactsList],
+  );
+
+  const loadNotificationSettings = useCallback(
+    async (): Promise<{ settings?: NotificationSettings | null; error?: string }> => {
+      setNotificationSettingsLoading(true);
+      try {
+        const result = await schedulingService.getNotificationSettings();
+        if (result.error) {
+          setError(result.error);
+          return { error: result.error };
+        }
+        const settings = result.settings ?? null;
+        setNotificationSettings(settings);
+        return { settings };
+      } finally {
+        setNotificationSettingsLoading(false);
+      }
+    },
+    [],
+  );
+
+  const updateNotificationSettings = useCallback(
+    async (
+      payload: NotificationSettingsUpdatePayload,
+    ): Promise<{ settings?: NotificationSettings; error?: string }> => {
+      setNotificationSettingsLoading(true);
+      try {
+        const result = await schedulingService.updateNotificationSettings(payload);
+        if (result.error) {
+          setError(result.error);
+          return { error: result.error };
+        }
+        if (result.settings) {
+          setNotificationSettings(result.settings);
+        }
+        return { settings: result.settings };
+      } finally {
+        setNotificationSettingsLoading(false);
+      }
+    },
+    [],
   );
 
   const createContact = useCallback(
@@ -467,6 +512,8 @@ const useScheduling = () => {
       initialized,
       contacts,
       notificationLogs,
+      notificationSettings,
+      notificationSettingsLoading,
     }),
     [
       schedules,
@@ -483,6 +530,8 @@ const useScheduling = () => {
       initialized,
       contacts,
       notificationLogs,
+      notificationSettings,
+      notificationSettingsLoading,
     ],
   );
 
@@ -496,6 +545,8 @@ const useScheduling = () => {
       createContact,
       updateContact,
       deleteContact,
+      loadNotificationSettings,
+      updateNotificationSettings,
       loadNotificationLogs,
       requireRecovery,
       resolveRecovery,
@@ -517,6 +568,8 @@ const useScheduling = () => {
       createContact,
       updateContact,
       deleteContact,
+      loadNotificationSettings,
+      updateNotificationSettings,
       loadNotificationLogs,
       requireRecovery,
       resolveRecovery,

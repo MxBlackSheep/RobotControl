@@ -32,8 +32,10 @@ from backend.models import (
     CalendarEvent,
     ApiResponse,
     NotificationContact,
+    NotificationSettings,
 )
 import logging
+from backend.utils.secret_cipher import encrypt_secret, SecretCipherError
 
 try:
     from backend.utils.datetime import (
@@ -112,6 +114,110 @@ def _validate_email_address(value: Any) -> str:
     if not EMAIL_REGEX.fullmatch(email):
         raise HTTPException(status_code=400, detail="Invalid email address format")
     return email
+
+
+def _encryption_is_ready() -> bool:
+    try:
+        encrypt_secret("probe-value")  # Discarded; validates key presence
+        return True
+    except SecretCipherError:
+        return False
+
+
+@router.get("/notifications/settings")
+async def get_notification_settings_endpoint(
+    current_user: dict = Depends(get_current_user),
+):
+    """Return the global SMTP settings (admin only)."""
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin role required to manage notification settings")
+
+    _, db_mgr, _, _ = get_services()
+    settings = db_mgr.get_notification_settings()
+    data = settings.to_public_dict()
+    data["encryption_ready"] = _encryption_is_ready()
+
+    return ApiResponse(
+        success=True,
+        message="Notification settings retrieved",
+        data=data,
+    ).to_dict()
+
+
+@router.put("/notifications/settings")
+async def update_notification_settings_endpoint(
+    payload: Dict[str, Any],
+    current_user: dict = Depends(get_current_user),
+):
+    """Update the global SMTP configuration (admin only)."""
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin role required to manage notification settings")
+
+    host_value = payload.get("host")
+    if not isinstance(host_value, str) or not host_value.strip():
+        raise HTTPException(status_code=400, detail="host is required")
+    host = host_value.strip()
+
+    port_value = payload.get("port", 587)
+    try:
+        port = int(port_value)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="port must be an integer")
+    if port < 1 or port > 65535:
+        raise HTTPException(status_code=400, detail="port must be between 1 and 65535")
+
+    username_value = payload.get("username")
+    if username_value is not None and not isinstance(username_value, str):
+        raise HTTPException(status_code=400, detail="username must be a string if provided")
+    username = username_value.strip() if isinstance(username_value, str) and username_value.strip() else None
+
+    sender_value = payload.get("sender")
+    sender = _validate_email_address(sender_value)
+
+    use_tls = bool(payload.get("use_tls", True))
+    use_ssl = bool(payload.get("use_ssl", False))
+    if use_ssl and use_tls:
+        # If SSL is requested, disable STARTTLS to avoid conflicting settings.
+        use_tls = False
+
+    update_password = "password" in payload
+    encrypted_password: Optional[str] = None
+    if update_password:
+        raw_password = payload.get("password")
+        if raw_password is None or raw_password == "":
+            encrypted_password = None  # Explicit clear
+        else:
+            if not isinstance(raw_password, str):
+                raise HTTPException(status_code=400, detail="password must be a string")
+            try:
+                encrypted_password = encrypt_secret(raw_password)
+            except SecretCipherError as exc:
+                raise HTTPException(status_code=500, detail=str(exc))
+
+    settings = NotificationSettings(
+        host=host,
+        port=port,
+        username=username,
+        sender=sender,
+        use_tls=use_tls,
+        use_ssl=use_ssl,
+        updated_by=current_user.get("username"),
+    )
+
+    _, db_mgr, _, _ = get_services()
+    updated = db_mgr.update_notification_settings(
+        settings,
+        password_encrypted=encrypted_password,
+        update_password=update_password,
+    )
+    data = updated.to_public_dict()
+    data["encryption_ready"] = _encryption_is_ready()
+
+    return ApiResponse(
+        success=True,
+        message="Notification settings updated",
+        data=data,
+    ).to_dict()
 
 
 @router.get("/contacts")

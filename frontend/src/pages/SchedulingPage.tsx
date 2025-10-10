@@ -66,6 +66,7 @@ import { useAuth } from '../context/AuthContext';
 import ScheduleList from '../components/ScheduleList';
 import ImprovedScheduleForm from '../components/scheduling/ImprovedScheduleForm';
 import NotificationContactsPanel from '../components/scheduling/NotificationContactsPanel';
+import NotificationEmailSettingsPanel from '../components/scheduling/NotificationEmailSettingsPanel';
 import FolderImportDialog from '../components/scheduling/FolderImportDialog';
 import ExecutionHistory from '../components/ExecutionHistory';
 import useScheduling from '../hooks/useScheduling';
@@ -125,6 +126,9 @@ const SchedulingPage: React.FC = () => {
   const [logsLoaded, setLogsLoaded] = useState(false);
   const [logScheduleFilter, setLogScheduleFilter] = useState('');
   const [logStatusFilter, setLogStatusFilter] = useState<'all' | 'sent' | 'pending' | 'error'>('all');
+  const [notificationsTab, setNotificationsTab] = useState(0);
+  const [contactsRequested, setContactsRequested] = useState(false);
+  const [emailSettingsRequested, setEmailSettingsRequested] = useState(false);
 
   // Initialize scheduling hook
   const { state, actions } = useScheduling();
@@ -279,10 +283,39 @@ const SchedulingPage: React.FC = () => {
     if (user?.role !== 'admin') {
       return;
     }
+    if (currentTab !== 4 || notificationsTab !== 0) {
+      return;
+    }
+    if (!contactsRequested) {
+      setContactsRequested(true);
+      actions.loadContacts(true);
+    }
+  }, [user?.role, currentTab, notificationsTab, contactsRequested, actions]);
+
+  useEffect(() => {
+    if (user?.role !== 'admin') {
+      return;
+    }
+    if (currentTab !== 4 || notificationsTab !== 1) {
+      return;
+    }
     if (!logsLoaded && !logsLoading) {
       handleLogsRefresh();
     }
-  }, [user?.role, logsLoaded, logsLoading, handleLogsRefresh]);
+  }, [user?.role, currentTab, notificationsTab, logsLoaded, logsLoading, handleLogsRefresh]);
+
+  useEffect(() => {
+    if (user?.role !== 'admin') {
+      return;
+    }
+    if (currentTab !== 4 || notificationsTab !== 2) {
+      return;
+    }
+    if (!emailSettingsRequested) {
+      setEmailSettingsRequested(true);
+      actions.loadNotificationSettings();
+    }
+  }, [user?.role, currentTab, notificationsTab, emailSettingsRequested, actions]);
 
   const latestNotificationForSelectedSchedule = useMemo(() => {
     if (!state.selectedSchedule || !state.notificationLogs.length) {
@@ -387,6 +420,10 @@ const SchedulingPage: React.FC = () => {
 
   const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
     setCurrentTab(newValue);
+  };
+
+  const handleNotificationsTabChange = (_event: React.SyntheticEvent, newValue: number) => {
+    setNotificationsTab(newValue);
   };
 
   // Status summary component
@@ -1057,136 +1094,168 @@ const SchedulingPage: React.FC = () => {
         {user?.role === 'admin' && (
           <TabPanel value={currentTab} index={4}>
             <Stack spacing={3}>
-              <NotificationContactsPanel
-                contacts={state.contacts}
-                onRefresh={(includeInactive) => actions.loadContacts(includeInactive)}
-                onCreate={actions.createContact}
-                onUpdate={actions.updateContact}
-                onDelete={actions.deleteContact}
-              />
+              <Box sx={{ borderBottom: 1, borderColor: 'divider', px: { xs: 0.5, md: 1 } }}>
+                <Tabs
+                  value={notificationsTab}
+                  onChange={handleNotificationsTabChange}
+                  variant="scrollable"
+                  scrollButtons="auto"
+                  allowScrollButtonsMobile
+                  aria-label="notification configuration tabs"
+                  sx={{
+                    minHeight: { xs: 42, md: 46 },
+                    '& .MuiTabs-indicator': {
+                      height: 3,
+                      borderRadius: 2,
+                    },
+                  }}
+                >
+                  <Tab label="Contacts" sx={{ minHeight: 0 }} />
+                  <Tab label="Delivery Logs" sx={{ minHeight: 0 }} />
+                  <Tab label="Email Settings" sx={{ minHeight: 0 }} />
+                </Tabs>
+              </Box>
 
-              <Card sx={{ borderRadius: 2 }}>
-                <CardContent sx={{ p: cardPadding }}>
-                  <Stack
-                    direction={{ xs: 'column', md: 'row' }}
-                    spacing={2}
-                    alignItems={{ xs: 'stretch', md: 'flex-end' }}
-                    sx={{ mb: 2 }}
-                  >
-                    <TextField
-                      label="Schedule filter"
-                      value={logScheduleFilter}
-                      onChange={(event) => setLogScheduleFilter(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter') {
-                          event.preventDefault();
-                          applyLogFilters();
-                        }
-                      }}
-                      size="small"
-                      sx={{ minWidth: { xs: '100%', md: 220 } }}
-                      placeholder="Schedule ID"
-                    />
-                    <FormControl size="small" sx={{ minWidth: 160 }}>
-                      <InputLabel id="log-status-label">Status</InputLabel>
-                      <Select
-                        labelId="log-status-label"
-                        label="Status"
-                        value={logStatusFilter}
-                        onChange={(event) => setLogStatusFilter(event.target.value as typeof logStatusFilter)}
-                      >
-                        <MenuItem value="all">All statuses</MenuItem>
-                        <MenuItem value="sent">Sent</MenuItem>
-                        <MenuItem value="pending">Pending</MenuItem>
-                        <MenuItem value="error">Error</MenuItem>
-                      </Select>
-                    </FormControl>
-                    <Stack direction="row" spacing={1}>
-                      <Button
-                        variant="contained"
+              {notificationsTab === 0 && (
+                <NotificationContactsPanel
+                  contacts={state.contacts}
+                  onRefresh={(includeInactive) => actions.loadContacts(includeInactive)}
+                  onCreate={actions.createContact}
+                  onUpdate={actions.updateContact}
+                  onDelete={actions.deleteContact}
+                />
+              )}
+
+              {notificationsTab === 1 && (
+                <Card sx={{ borderRadius: 2 }}>
+                  <CardContent sx={{ p: cardPadding }}>
+                    <Stack
+                      direction={{ xs: 'column', md: 'row' }}
+                      spacing={2}
+                      alignItems={{ xs: 'stretch', md: 'flex-end' }}
+                      sx={{ mb: 2 }}
+                    >
+                      <TextField
+                        label="Schedule filter"
+                        value={logScheduleFilter}
+                        onChange={(event) => setLogScheduleFilter(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            applyLogFilters();
+                          }
+                        }}
                         size="small"
-                        onClick={applyLogFilters}
+                        sx={{ minWidth: { xs: '100%', md: 220 } }}
+                        placeholder="Schedule ID"
+                      />
+                      <FormControl size="small" sx={{ minWidth: 160 }}>
+                        <InputLabel id="log-status-label">Status</InputLabel>
+                        <Select
+                          labelId="log-status-label"
+                          label="Status"
+                          value={logStatusFilter}
+                          onChange={(event) => setLogStatusFilter(event.target.value as typeof logStatusFilter)}
+                        >
+                          <MenuItem value="all">All statuses</MenuItem>
+                          <MenuItem value="sent">Sent</MenuItem>
+                          <MenuItem value="pending">Pending</MenuItem>
+                          <MenuItem value="error">Error</MenuItem>
+                        </Select>
+                      </FormControl>
+                      <Stack direction="row" spacing={1}>
+                        <Button variant="contained" size="small" onClick={applyLogFilters} disabled={logsLoading}>
+                          Apply
+                        </Button>
+                        <Button
+                          variant="text"
+                          size="small"
+                          onClick={resetLogFilters}
+                          disabled={logsLoading || (logScheduleFilter === '' && logStatusFilter === 'all')}
+                        >
+                          Reset
+                        </Button>
+                      </Stack>
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        startIcon={<RefreshIcon />}
+                        onClick={handleLogsRefresh}
                         disabled={logsLoading}
                       >
-                        Apply
-                      </Button>
-                      <Button
-                        variant="text"
-                        size="small"
-                        onClick={resetLogFilters}
-                        disabled={logsLoading || (logScheduleFilter === '' && logStatusFilter === 'all')}
-                      >
-                        Reset
+                        Refresh
                       </Button>
                     </Stack>
-                    <Button
-                      variant="outlined"
-                      size="small"
-                      startIcon={<RefreshIcon />}
-                      onClick={handleLogsRefresh}
-                      disabled={logsLoading}
-                    >
-                      Refresh
-                    </Button>
-                  </Stack>
 
-                  {logsError && (
-                    <Alert severity="error" sx={{ mb: 2 }}>
-                      {logsError}
-                    </Alert>
-                  )}
+                    {logsError && (
+                      <Alert severity="error" sx={{ mb: 2 }}>
+                        {logsError}
+                      </Alert>
+                    )}
 
-                  {logsLoading && state.notificationLogs.length === 0 ? (
-                    <Box display="flex" justifyContent="center" py={4}>
-                      <CircularProgress size={32} />
-                    </Box>
-                  ) : state.notificationLogs.length === 0 ? (
-                    <Typography variant="body2" color="text.secondary">
-                      No notification events recorded yet.
-                    </Typography>
-                  ) : (
-                    <Table size="small">
-                      <TableHead>
-                        <TableRow>
-                          <TableCell>Timestamp</TableCell>
-                          <TableCell>Schedule</TableCell>
-                          <TableCell>Event</TableCell>
-                          <TableCell>Status</TableCell>
-                          <TableCell>Recipients</TableCell>
-                          <TableCell>Attachments</TableCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {state.notificationLogs.map((log) => (
-                          <TableRow key={log.log_id} hover>
-                            <TableCell>{formatTimestamp(log.triggered_at)}</TableCell>
-                            <TableCell>{log.schedule_id || 'N/A'}</TableCell>
-                            <TableCell>{(log.event_type || 'event').replace(/_/g, ' ')}</TableCell>
-                            <TableCell>
-                              <Chip
-                                label={log.status || 'unknown'}
-                                color={getLogStatusColor(log.status)}
-                                size="small"
-                              />
-                            </TableCell>
-                            <TableCell>
-                              {log.recipients.length ? log.recipients.join(', ') : 'N/A'}
-                              {log.error_message && (
-                                <Typography variant="caption" color="error" display="block">
-                                  {log.error_message}
-                                </Typography>
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              {log.attachments.length ? `${log.attachments.length} file${log.attachments.length > 1 ? 's' : ''}` : 'N/A'}
-                            </TableCell>
+                    {logsLoading && state.notificationLogs.length === 0 ? (
+                      <Box display="flex" justifyContent="center" py={4}>
+                        <CircularProgress size={32} />
+                      </Box>
+                    ) : state.notificationLogs.length === 0 ? (
+                      <Typography variant="body2" color="text.secondary">
+                        No notification events recorded yet.
+                      </Typography>
+                    ) : (
+                      <Table size="small">
+                        <TableHead>
+                          <TableRow>
+                            <TableCell>Timestamp</TableCell>
+                            <TableCell>Schedule</TableCell>
+                            <TableCell>Event</TableCell>
+                            <TableCell>Status</TableCell>
+                            <TableCell>Recipients</TableCell>
+                            <TableCell>Attachments</TableCell>
                           </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  )}
-                </CardContent>
-              </Card>
+                        </TableHead>
+                        <TableBody>
+                          {state.notificationLogs.map((log) => (
+                            <TableRow key={log.log_id} hover>
+                              <TableCell>{formatTimestamp(log.triggered_at)}</TableCell>
+                              <TableCell>{log.schedule_id || 'N/A'}</TableCell>
+                              <TableCell>{(log.event_type || 'event').replace(/_/g, ' ')}</TableCell>
+                              <TableCell>
+                                <Chip
+                                  label={log.status || 'unknown'}
+                                  color={getLogStatusColor(log.status)}
+                                  size="small"
+                                />
+                              </TableCell>
+                              <TableCell>
+                                {log.recipients.length ? log.recipients.join(', ') : 'N/A'}
+                                {log.error_message && (
+                                  <Typography variant="caption" color="error" display="block">
+                                    {log.error_message}
+                                  </Typography>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                {log.attachments.length
+                                  ? `${log.attachments.length} file${log.attachments.length > 1 ? 's' : ''}`
+                                  : 'N/A'}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+
+              {notificationsTab === 2 && (
+                <NotificationEmailSettingsPanel
+                  settings={state.notificationSettings}
+                  loading={state.notificationSettingsLoading}
+                  onRefresh={actions.loadNotificationSettings}
+                  onSave={actions.updateNotificationSettings}
+                />
+              )}
             </Stack>
           </TabPanel>
         )}

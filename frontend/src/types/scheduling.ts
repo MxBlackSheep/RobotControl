@@ -109,6 +109,29 @@ export interface NotificationContact {
   updated_at?: string | null;
 }
 
+export interface NotificationSettings {
+  host: string | null;
+  port: number;
+  username: string | null;
+  sender: string | null;
+  use_tls: boolean;
+  use_ssl: boolean;
+  has_password: boolean;
+  updated_at?: string | null;
+  updated_by?: string | null;
+  encryption_ready?: boolean;
+}
+
+
+export interface NotificationSettingsUpdatePayload {
+  host: string;
+  port: number;
+  username?: string | null;
+  sender: string;
+  use_tls: boolean;
+  use_ssl: boolean;
+  password?: string | null;
+}
 export interface NotificationLogEntry {
   log_id: string;
   schedule_id?: string | null;

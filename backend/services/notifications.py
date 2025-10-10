@@ -15,7 +15,13 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 from backend.config import VIDEO_PATH
-from backend.models import JobExecution, NotificationContact, ScheduledExperiment
+from backend.models import (
+    JobExecution,
+    NotificationContact,
+    ScheduledExperiment,
+    NotificationSettings,
+)
+from backend.utils.secret_cipher import decrypt_secret, SecretCipherError
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +38,12 @@ def _env_bool(name: str, default: bool = True) -> bool:
     if raw is None:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _load_notification_settings() -> NotificationSettings:
+    from backend.services.scheduling.sqlite_database import get_sqlite_scheduling_database
+
+    return get_sqlite_scheduling_database().get_notification_settings()
 
 
 @dataclass
@@ -61,21 +73,36 @@ class EmailNotificationService:
         recipients_raw = _env("PYROBOT_ALERT_RECIPIENTS") or _env("PYROBOT_SMTP_TO") or ""
         recipients = [addr.strip() for addr in recipients_raw.split(",") if addr.strip()]
 
-        sender = _env("PYROBOT_SMTP_FROM") or _env("PYROBOT_SMTP_USERNAME")
+        self._settings_error: Optional[str] = None
+        self._settings = NotificationSettings()
+
+        try:
+            self._settings = _load_notification_settings()
+        except Exception as exc:  # pragma: no cover - initialization guard
+            self._settings_error = str(exc)
+            logger.warning("Failed to load notification settings: %s", exc)
+
+        password_plain: Optional[str] = None
+        if self._settings.password_encrypted:
+            try:
+                password_plain = decrypt_secret(self._settings.password_encrypted)
+            except SecretCipherError as exc:
+                self._settings_error = str(exc)
+                logger.error("Failed to decrypt SMTP password: %s", exc)
 
         self.config = EmailConfig(
-            host=_env("PYROBOT_SMTP_HOST"),
-            port=int(_env("PYROBOT_SMTP_PORT", "587")),
-            username=_env("PYROBOT_SMTP_USERNAME"),
-            password=_env("PYROBOT_SMTP_PASSWORD"),
-            sender=sender,
+            host=self._settings.host,
+            port=self._settings.port,
+            username=self._settings.username,
+            password=password_plain,
+            sender=self._settings.sender,
             recipients=recipients,
-            use_tls=_env_bool("PYROBOT_SMTP_USE_TLS", True),
-            use_ssl=_env_bool("PYROBOT_SMTP_USE_SSL", False),
+            use_tls=self._settings.use_tls,
+            use_ssl=self._settings.use_ssl,
         )
 
         if not self.config.is_enabled:
-            logger.info("Email notifications disabled: missing SMTP configuration")
+            logger.info("Email notifications disabled: SMTP host/sender not configured")
 
     def send(
         self,
@@ -86,7 +113,8 @@ class EmailNotificationService:
         attachments: Optional[List[Path]] = None,
     ) -> bool:
         if not self.config.is_enabled:
-            logger.debug("Skipping email '%s' because SMTP is not configured", subject)
+            detail = self._settings_error or "missing SMTP host or sender configuration"
+            logger.warning("Skipping email '%s' because SMTP is not configured: %s", subject, detail)
             return False
 
         recipients = [addr for addr in (to or self.config.recipients) if addr]

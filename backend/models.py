@@ -314,6 +314,50 @@ class NotificationLogEntry:
 
 
 @dataclass
+class NotificationSettings:
+    """Global SMTP configuration for scheduling alerts."""
+
+    host: Optional[str] = None
+    port: int = 587
+    username: Optional[str] = None
+    sender: Optional[str] = None
+    password_encrypted: Optional[str] = None
+    use_tls: bool = True
+    use_ssl: bool = False
+    updated_at: Optional[datetime] = None
+    updated_by: Optional[str] = None
+
+    def to_public_dict(self) -> Dict[str, Any]:
+        """Serialize without exposing the encrypted password."""
+        return {
+            "host": self.host,
+            "port": self.port,
+            "username": self.username,
+            "sender": self.sender,
+            "use_tls": self.use_tls,
+            "use_ssl": self.use_ssl,
+            "has_password": bool(self.password_encrypted),
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "updated_by": self.updated_by,
+        }
+
+    @classmethod
+    def from_row(cls, row: Any) -> "NotificationSettings":
+        data = dict(row)
+        return cls(
+            host=data.get("smtp_host"),
+            port=data.get("smtp_port", 587),
+            username=data.get("smtp_username"),
+            sender=data.get("smtp_sender"),
+            password_encrypted=data.get("smtp_password_encrypted"),
+            use_tls=bool(data.get("use_tls", 1)),
+            use_ssl=bool(data.get("use_ssl", 0)),
+            updated_at=parse_iso_datetime_to_local(data.get("updated_at")),
+            updated_by=data.get("updated_by"),
+        )
+
+
+@dataclass
 class ManualRecoveryState:
     """Global manual recovery state for the scheduler."""
     active: bool = False

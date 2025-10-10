@@ -24,6 +24,8 @@ import {
   NotificationContactPayload,
   NotificationLogEntry,
   NotificationLogQuery,
+  NotificationSettings,
+  NotificationSettingsUpdatePayload,
 } from '../types/scheduling';
 
 const coerceNumber = (value: unknown, fallback = 0): number => {
@@ -119,6 +121,20 @@ const normalizeNotificationContact = (payload: any): NotificationContact => ({
   is_active: Boolean(payload?.is_active ?? true),
   created_at: coerceOptionalString(payload?.created_at),
   updated_at: coerceOptionalString(payload?.updated_at),
+});
+
+
+const normalizeNotificationSettings = (payload: any): NotificationSettings => ({
+  host: coerceOptionalString(payload?.host),
+  port: coerceNumber(payload?.port, 587),
+  username: coerceOptionalString(payload?.username),
+  sender: coerceOptionalString(payload?.sender),
+  use_tls: payload?.use_tls === undefined ? true : Boolean(payload.use_tls),
+  use_ssl: payload?.use_ssl === undefined ? false : Boolean(payload.use_ssl),
+  has_password: Boolean(payload?.has_password),
+  updated_at: coerceOptionalString(payload?.updated_at),
+  updated_by: coerceOptionalString(payload?.updated_by),
+  encryption_ready: payload?.encryption_ready === undefined ? undefined : Boolean(payload?.encryption_ready),
 });
 
 const normalizeNotificationLog = (payload: any): NotificationLogEntry => ({
@@ -294,6 +310,12 @@ export const schedulingAPI = {
   getRecentExecutions: (hours = 24) =>
     api.get('/api/scheduling/executions/recent', { params: { hours } }),
 
+  getNotificationSettings: () =>
+    api.get('/api/scheduling/notifications/settings'),
+
+  updateNotificationSettings: (payload: Record<string, unknown>) =>
+    api.put('/api/scheduling/notifications/settings', payload),
+
   getNotificationContacts: (includeInactive = true) =>
     api.get('/api/scheduling/contacts', { params: { include_inactive: includeInactive } }),
 
@@ -378,6 +400,45 @@ export const schedulingService = {
       return { success: true };
     } catch (error) {
       return { success: false, error: parseAPIError(error) };
+    }
+  },
+
+  async getNotificationSettings(): Promise<{ settings?: NotificationSettings; error?: string }> {
+    try {
+      const { data } = await schedulingAPI.getNotificationSettings();
+      if (!data.success) {
+        return { error: data.message || 'Failed to load notification settings' };
+      }
+      return { settings: normalizeNotificationSettings(data.data) };
+    } catch (error) {
+      return { error: parseAPIError(error) };
+    }
+  },
+
+  async updateNotificationSettings(
+    payload: NotificationSettingsUpdatePayload,
+  ): Promise<{ settings?: NotificationSettings; error?: string }> {
+    try {
+      const request: Record<string, unknown> = {
+        host: payload.host,
+        port: payload.port,
+        sender: payload.sender,
+        use_tls: payload.use_tls,
+        use_ssl: payload.use_ssl,
+      };
+      if (payload.username !== undefined) {
+        request.username = payload.username;
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'password')) {
+        request.password = payload.password;
+      }
+      const { data } = await schedulingAPI.updateNotificationSettings(request);
+      if (!data.success) {
+        return { error: data.message || 'Failed to update notification settings' };
+      }
+      return { settings: normalizeNotificationSettings(data.data) };
+    } catch (error) {
+      return { error: parseAPIError(error) };
     }
   },
 
