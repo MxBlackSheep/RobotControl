@@ -18,7 +18,13 @@ from datetime import datetime, timedelta
 
 from backend.services.database import get_database_service
 from backend.services.scheduling.sqlite_database import get_sqlite_scheduling_database
-from backend.models import ScheduledExperiment, JobExecution, ManualRecoveryState
+from backend.models import (
+    ScheduledExperiment,
+    JobExecution,
+    ManualRecoveryState,
+    NotificationContact,
+    NotificationLogEntry,
+)
 from backend.constants import HAMILTON_STATE_MAPPING
 
 
@@ -182,6 +188,138 @@ class SchedulingDatabaseManager:
         except Exception as exc:  # pragma: no cover - log only
             logger.error("Error deleting scheduled experiment: %s", exc)
             return False
+
+    # ------------------------------------------------------------------
+    # Notification contacts
+    # ------------------------------------------------------------------
+
+    def get_notification_contacts(self, include_inactive: bool = False) -> List[NotificationContact]:
+        """Return notification contacts from the scheduling database."""
+        try:
+            return self.sqlite_db.get_notification_contacts(include_inactive=include_inactive)
+        except Exception as exc:  # pragma: no cover - log only
+            logger.error("Failed to load notification contacts: %s", exc)
+            return []
+
+    def get_notification_contact(self, contact_id: str) -> Optional[NotificationContact]:
+        """Return a single notification contact by ID."""
+        if not contact_id:
+            return None
+        contacts = self.get_notification_contacts(include_inactive=True)
+        for contact in contacts:
+            if contact.contact_id == contact_id:
+                return contact
+        return None
+
+    def create_notification_contact(self, contact: NotificationContact) -> Optional[NotificationContact]:
+        """Persist a new notification contact."""
+        try:
+            created = self.sqlite_db.create_notification_contact(contact)
+            if created is None:
+                return None
+            # Reload so timestamps mirror the database defaults
+            created = self.get_notification_contact(created.contact_id) or created
+            return created
+        except Exception as exc:  # pragma: no cover - log only
+            logger.error("Failed to create notification contact %s: %s", contact.contact_id, exc)
+            return None
+
+    def update_notification_contact(self, contact: NotificationContact) -> bool:
+        """Update an existing notification contact."""
+        try:
+            updated = self.sqlite_db.update_notification_contact(contact)
+            if not updated:
+                return False
+            # Refresh caller copy so downstream code sees database timestamps
+            refreshed = self.get_notification_contact(contact.contact_id)
+            if refreshed:
+                contact.display_name = refreshed.display_name
+                contact.email_address = refreshed.email_address
+                contact.is_active = refreshed.is_active
+                contact.created_at = refreshed.created_at
+                contact.updated_at = refreshed.updated_at
+            return True
+        except Exception as exc:  # pragma: no cover - log only
+            logger.error("Failed to update notification contact %s: %s", contact.contact_id, exc)
+            return False
+
+    def delete_notification_contact(self, contact_id: str) -> bool:
+        """Delete a notification contact."""
+        try:
+            return self.sqlite_db.delete_notification_contact(contact_id)
+        except Exception as exc:  # pragma: no cover - log only
+            logger.error("Failed to delete notification contact %s: %s", contact_id, exc)
+            return False
+
+    # ------------------------------------------------------------------
+    # Notification logs
+    # ------------------------------------------------------------------
+
+    def create_notification_log(self, entry: NotificationLogEntry) -> Optional[NotificationLogEntry]:
+        """Create a notification log entry."""
+        try:
+            return self.sqlite_db.create_notification_log(entry)
+        except Exception as exc:  # pragma: no cover - log only
+            logger.error("Failed to create notification log %s: %s", entry.log_id, exc)
+            return None
+
+    def update_notification_log(
+        self,
+        log_id: str,
+        *,
+        status: Optional[str] = None,
+        error_message: Optional[str] = None,
+        processed_at: Optional[datetime] = None,
+        recipients: Optional[List[str]] = None,
+        attachments: Optional[List[str]] = None,
+        subject: Optional[str] = None,
+        message: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """Update a notification log entry."""
+        try:
+            return self.sqlite_db.update_notification_log(
+                log_id,
+                status=status,
+                error_message=error_message,
+                processed_at=processed_at,
+                recipients=recipients,
+                attachments=attachments,
+                subject=subject,
+                message=message,
+                metadata=metadata,
+            )
+        except Exception as exc:  # pragma: no cover - log only
+            logger.error("Failed to update notification log %s: %s", log_id, exc)
+            return False
+
+    def notification_log_exists(self, execution_id: str, event_type: str) -> bool:
+        """Return True if a log already exists for the execution/event pair."""
+        try:
+            return self.sqlite_db.notification_log_exists(execution_id, event_type)
+        except Exception as exc:  # pragma: no cover - log only
+            logger.error("Failed to check notification log existence for %s/%s: %s", execution_id, event_type, exc)
+            return False
+
+    def get_notification_logs(
+        self,
+        limit: int = 50,
+        *,
+        schedule_id: Optional[str] = None,
+        event_type: Optional[str] = None,
+        status: Optional[str] = None,
+    ) -> List[NotificationLogEntry]:
+        """Fetch notification log entries."""
+        try:
+            return self.sqlite_db.get_notification_logs(
+                limit,
+                schedule_id=schedule_id,
+                event_type=event_type,
+                status=status,
+            )
+        except Exception as exc:  # pragma: no cover - log only
+            logger.error("Failed to fetch notification logs: %s", exc)
+            return []
 
     def store_job_execution(self, execution: JobExecution) -> bool:
         """Store a job execution record in SQLite."""

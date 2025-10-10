@@ -10,7 +10,7 @@
  * - Integration with main application navigation
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Box,
   Container,
@@ -27,7 +27,18 @@ import {
   Chip,
   Divider,
   Tab,
-  Tabs
+  Tabs,
+  TextField,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  CircularProgress
 } from '@mui/material';
 import useTheme from '@mui/material/styles/useTheme';
 import useMediaQuery from '@mui/material/useMediaQuery';
@@ -45,7 +56,8 @@ import {
   FolderOpen as FolderIcon,
   Refresh as RefreshIcon,
   History as HistoryIcon,
-  WarningAmber as WarningIcon
+  WarningAmber as WarningIcon,
+  Email as EmailIcon
 } from '@mui/icons-material';
 import { useNavigate, Link as RouterLink } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -53,6 +65,7 @@ import { useAuth } from '../context/AuthContext';
 // Import scheduling components
 import ScheduleList from '../components/ScheduleList';
 import ImprovedScheduleForm from '../components/scheduling/ImprovedScheduleForm';
+import NotificationContactsPanel from '../components/scheduling/NotificationContactsPanel';
 import FolderImportDialog from '../components/scheduling/FolderImportDialog';
 import ExecutionHistory from '../components/ExecutionHistory';
 import useScheduling from '../hooks/useScheduling';
@@ -70,6 +83,7 @@ type ScheduleFormValues = Partial<{
   max_retries: number;
   retry_delay_minutes: number;
   backoff_strategy: 'linear' | 'exponential';
+  notification_contacts: string[];
 }>;
 
 interface TabPanelProps {
@@ -106,6 +120,11 @@ const SchedulingPage: React.FC = () => {
   const [scheduleFormMode, setScheduleFormMode] = useState<'create' | 'edit'>('create');
   const [scheduleFormInitialData, setScheduleFormInitialData] = useState<ScheduleFormValues>({});
   const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [logsError, setLogsError] = useState<string | null>(null);
+  const [logsLoaded, setLogsLoaded] = useState(false);
+  const [logScheduleFilter, setLogScheduleFilter] = useState('');
+  const [logStatusFilter, setLogStatusFilter] = useState<'all' | 'sent' | 'pending' | 'error'>('all');
 
   // Initialize scheduling hook
   const { state, actions } = useScheduling();
@@ -150,6 +169,7 @@ const SchedulingPage: React.FC = () => {
           backoff_strategy: data.backoff_strategy || 'linear',
         },
         prerequisites: Array.isArray(data.prerequisites) ? data.prerequisites : [],
+        notification_contacts: Array.isArray(data.notification_contacts) ? data.notification_contacts : [],
       };
       await actions.updateSchedule(editingScheduleId, updatePayload);
       await actions.loadSchedules(true, editingScheduleId);
@@ -166,6 +186,7 @@ const SchedulingPage: React.FC = () => {
         retry_delay_minutes: Number(data.retry_delay_minutes ?? 0),
         backoff_strategy: data.backoff_strategy || 'linear',
         prerequisites: Array.isArray(data.prerequisites) ? data.prerequisites : [],
+        notification_contacts: Array.isArray(data.notification_contacts) ? data.notification_contacts : [],
       };
       await actions.createSchedule(createPayload);
       await actions.loadSchedules(true);
@@ -175,13 +196,13 @@ const SchedulingPage: React.FC = () => {
   const handleScheduleFormClose = () => {
     setImprovedFormOpen(false);
     setScheduleFormMode('create');
-    setScheduleFormInitialData({});
+    setScheduleFormInitialData({ notification_contacts: [] });
     setEditingScheduleId(null);
   };
 
   const handleOpenCreateForm = () => {
     setScheduleFormMode('create');
-    setScheduleFormInitialData({});
+    setScheduleFormInitialData({ notification_contacts: [] });
     setEditingScheduleId(null);
     setImprovedFormOpen(true);
   };
@@ -208,11 +229,96 @@ const SchedulingPage: React.FC = () => {
       is_active: selected.is_active,
       max_retries: selected.retry_config?.max_retries ?? 3,
       retry_delay_minutes: selected.retry_config?.retry_delay_minutes ?? 2,
-      backoff_strategy: selected.retry_config?.backoff_strategy ?? 'linear',
-      prerequisites: selected.prerequisites ?? [],
-    });
-    setImprovedFormOpen(true);
-  };
+    backoff_strategy: selected.retry_config?.backoff_strategy ?? 'linear',
+    prerequisites: selected.prerequisites ?? [],
+    notification_contacts: selected.notification_contacts ?? [],
+  });
+  setImprovedFormOpen(true);
+};
+
+  const handleLogsRefresh = useCallback(async () => {
+    if (user?.role !== 'admin') {
+      return;
+    }
+    setLogsLoading(true);
+    setLogsError(null);
+
+    const params: Record<string, string | number> = { limit: 50 };
+    const trimmedSchedule = logScheduleFilter.trim();
+    if (trimmedSchedule) {
+      params.schedule_id = trimmedSchedule;
+    }
+    if (logStatusFilter !== 'all') {
+      params.status = logStatusFilter;
+    }
+
+    const result = await actions.loadNotificationLogs(params);
+    if (result?.error) {
+      setLogsError(result.error);
+    }
+    setLogsLoading(false);
+    setLogsLoaded(true);
+  }, [actions.loadNotificationLogs, logScheduleFilter, logStatusFilter, user?.role]);
+
+  const applyLogFilters = useCallback(() => {
+    setLogsLoaded(false);
+    handleLogsRefresh();
+  }, [handleLogsRefresh]);
+
+  const resetLogFilters = useCallback(() => {
+    setLogScheduleFilter('');
+    setLogStatusFilter('all');
+    setLogsLoaded(false);
+  }, []);
+
+  const openNotificationsTab = useCallback(() => {
+    setCurrentTab(4);
+  }, []);
+
+  useEffect(() => {
+    if (user?.role !== 'admin') {
+      return;
+    }
+    if (!logsLoaded && !logsLoading) {
+      handleLogsRefresh();
+    }
+  }, [user?.role, logsLoaded, logsLoading, handleLogsRefresh]);
+
+  const latestNotificationForSelectedSchedule = useMemo(() => {
+    if (!state.selectedSchedule || !state.notificationLogs.length) {
+      return null;
+    }
+    const scheduleId = state.selectedSchedule.schedule_id;
+    let latest = null;
+    let latestTime = -Infinity;
+    for (const log of state.notificationLogs) {
+      if (log.schedule_id !== scheduleId) {
+        continue;
+      }
+      const timestamp = log.triggered_at ? new Date(log.triggered_at).getTime() : -Infinity;
+      if (!Number.isNaN(timestamp) && timestamp > latestTime) {
+        latest = log;
+        latestTime = timestamp;
+      }
+    }
+    return latest;
+  }, [state.selectedSchedule, state.notificationLogs]);
+
+  const getLogStatusColor = useCallback(
+    (status?: string): 'default' | 'success' | 'warning' | 'error' | 'info' => {
+      switch ((status || '').toLowerCase()) {
+        case 'sent':
+          return 'success';
+        case 'pending':
+          return 'warning';
+        case 'error':
+          return 'error';
+        default:
+          return 'default';
+      }
+    },
+    [],
+  );
 
   const handleViewRecoverySchedule = async () => {
     const scheduleId = state.manualRecovery?.schedule_id;
@@ -678,6 +784,23 @@ const SchedulingPage: React.FC = () => {
                 px: tabPadding
               }}
             />
+            {user?.role === 'admin' && (
+              <Tab 
+                label={
+                  <Stack direction="row" alignItems="center" spacing={isSmallScreen ? 1 : 1.25}>
+                    <EmailIcon fontSize="small" />
+                    <Typography component="span" variant="body2">
+                      Notifications
+                    </Typography>
+                  </Stack>
+                }
+                sx={{
+                  minHeight: 0,
+                  py: { xs: 1, md: 1.25 },
+                  px: tabPadding
+                }}
+              />
+            )}
           </Tabs>
         </Box>
 
@@ -788,6 +911,56 @@ const SchedulingPage: React.FC = () => {
                   </CardContent>
                 </Card>
 
+                {user?.role === 'admin' && state.selectedSchedule && (
+                  <Card sx={{ borderRadius: 2 }}>
+                    <CardContent sx={{ p: cardPadding }}>
+                      <Typography variant="h6" gutterBottom>
+                        Latest Notification
+                      </Typography>
+                      {latestNotificationForSelectedSchedule ? (
+                        <Stack spacing={1.5}>
+                          <Stack direction="row" spacing={1} alignItems="center">
+                            <Chip
+                              label={latestNotificationForSelectedSchedule.status || 'unknown'}
+                              color={getLogStatusColor(latestNotificationForSelectedSchedule.status)}
+                              size="small"
+                            />
+                            <Typography variant="body2" sx={{ textTransform: 'capitalize' }}>
+                              {latestNotificationForSelectedSchedule.event_type?.replace(/_/g, ' ') || 'event'}
+                            </Typography>
+                          </Stack>
+                          <Typography variant="body2" color="text.secondary">
+                            Sent: {formatTimestamp(latestNotificationForSelectedSchedule.triggered_at)}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            Recipients: {latestNotificationForSelectedSchedule.recipients.length ? latestNotificationForSelectedSchedule.recipients.join(', ') : 'N/A'}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            Attachments: {latestNotificationForSelectedSchedule.attachments.length ? `${latestNotificationForSelectedSchedule.attachments.length} file${latestNotificationForSelectedSchedule.attachments.length > 1 ? 's' : ''}` : 'N/A'}
+                          </Typography>
+                          {latestNotificationForSelectedSchedule.error_message && (
+                            <Alert severity="error" variant="outlined">
+                              {latestNotificationForSelectedSchedule.error_message}
+                            </Alert>
+                          )}
+                          <Button onClick={openNotificationsTab} size="small">
+                            View notification history
+                          </Button>
+                        </Stack>
+                      ) : (
+                        <Stack spacing={1.5}>
+                          <Typography variant="body2" color="text.secondary">
+                            No notifications recorded for this schedule yet.
+                          </Typography>
+                          <Button onClick={openNotificationsTab} size="small">
+                            Configure notifications
+                          </Button>
+                        </Stack>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
+
                 {/* Operation Status */}
                 {state.operationStatus && (
                   <Alert 
@@ -880,6 +1053,143 @@ const SchedulingPage: React.FC = () => {
             maxHeight="700px" 
           />
         </TabPanel>
+
+        {user?.role === 'admin' && (
+          <TabPanel value={currentTab} index={4}>
+            <Stack spacing={3}>
+              <NotificationContactsPanel
+                contacts={state.contacts}
+                onRefresh={(includeInactive) => actions.loadContacts(includeInactive)}
+                onCreate={actions.createContact}
+                onUpdate={actions.updateContact}
+                onDelete={actions.deleteContact}
+              />
+
+              <Card sx={{ borderRadius: 2 }}>
+                <CardContent sx={{ p: cardPadding }}>
+                  <Stack
+                    direction={{ xs: 'column', md: 'row' }}
+                    spacing={2}
+                    alignItems={{ xs: 'stretch', md: 'flex-end' }}
+                    sx={{ mb: 2 }}
+                  >
+                    <TextField
+                      label="Schedule filter"
+                      value={logScheduleFilter}
+                      onChange={(event) => setLogScheduleFilter(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault();
+                          applyLogFilters();
+                        }
+                      }}
+                      size="small"
+                      sx={{ minWidth: { xs: '100%', md: 220 } }}
+                      placeholder="Schedule ID"
+                    />
+                    <FormControl size="small" sx={{ minWidth: 160 }}>
+                      <InputLabel id="log-status-label">Status</InputLabel>
+                      <Select
+                        labelId="log-status-label"
+                        label="Status"
+                        value={logStatusFilter}
+                        onChange={(event) => setLogStatusFilter(event.target.value as typeof logStatusFilter)}
+                      >
+                        <MenuItem value="all">All statuses</MenuItem>
+                        <MenuItem value="sent">Sent</MenuItem>
+                        <MenuItem value="pending">Pending</MenuItem>
+                        <MenuItem value="error">Error</MenuItem>
+                      </Select>
+                    </FormControl>
+                    <Stack direction="row" spacing={1}>
+                      <Button
+                        variant="contained"
+                        size="small"
+                        onClick={applyLogFilters}
+                        disabled={logsLoading}
+                      >
+                        Apply
+                      </Button>
+                      <Button
+                        variant="text"
+                        size="small"
+                        onClick={resetLogFilters}
+                        disabled={logsLoading || (logScheduleFilter === '' && logStatusFilter === 'all')}
+                      >
+                        Reset
+                      </Button>
+                    </Stack>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      startIcon={<RefreshIcon />}
+                      onClick={handleLogsRefresh}
+                      disabled={logsLoading}
+                    >
+                      Refresh
+                    </Button>
+                  </Stack>
+
+                  {logsError && (
+                    <Alert severity="error" sx={{ mb: 2 }}>
+                      {logsError}
+                    </Alert>
+                  )}
+
+                  {logsLoading && state.notificationLogs.length === 0 ? (
+                    <Box display="flex" justifyContent="center" py={4}>
+                      <CircularProgress size={32} />
+                    </Box>
+                  ) : state.notificationLogs.length === 0 ? (
+                    <Typography variant="body2" color="text.secondary">
+                      No notification events recorded yet.
+                    </Typography>
+                  ) : (
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Timestamp</TableCell>
+                          <TableCell>Schedule</TableCell>
+                          <TableCell>Event</TableCell>
+                          <TableCell>Status</TableCell>
+                          <TableCell>Recipients</TableCell>
+                          <TableCell>Attachments</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {state.notificationLogs.map((log) => (
+                          <TableRow key={log.log_id} hover>
+                            <TableCell>{formatTimestamp(log.triggered_at)}</TableCell>
+                            <TableCell>{log.schedule_id || 'N/A'}</TableCell>
+                            <TableCell>{(log.event_type || 'event').replace(/_/g, ' ')}</TableCell>
+                            <TableCell>
+                              <Chip
+                                label={log.status || 'unknown'}
+                                color={getLogStatusColor(log.status)}
+                                size="small"
+                              />
+                            </TableCell>
+                            <TableCell>
+                              {log.recipients.length ? log.recipients.join(', ') : 'N/A'}
+                              {log.error_message && (
+                                <Typography variant="caption" color="error" display="block">
+                                  {log.error_message}
+                                </Typography>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              {log.attachments.length ? `${log.attachments.length} file${log.attachments.length > 1 ? 's' : ''}` : 'N/A'}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </CardContent>
+              </Card>
+            </Stack>
+          </TabPanel>
+        )}
       </Paper>
 
       {/* Footer Information */}
@@ -908,6 +1218,7 @@ const SchedulingPage: React.FC = () => {
         onSubmit={handleScheduleFormSubmit}
         initialData={scheduleFormInitialData}
         mode={scheduleFormMode}
+        contacts={state.contacts}
       />
 
       {/* Folder Import Dialog */}

@@ -13,6 +13,10 @@ import {
   ScheduledExperiment,
   SchedulingOperationStatus,
   ManualRecoveryState,
+  NotificationContact,
+  NotificationContactPayload,
+  NotificationLogEntry,
+  NotificationLogQuery,
 } from '../types/scheduling';
 
 const normalizeManualRecovery = (payload: unknown): ManualRecoveryState | null => {
@@ -64,6 +68,19 @@ const useScheduling = () => {
   const [schedulerRunning, setSchedulerRunning] = useState<boolean>(false);
   const [manualRecovery, setManualRecovery] = useState<ManualRecoveryState | null>(null);
   const [initialized, setInitialized] = useState<boolean>(false);
+  const [contacts, setContacts] = useState<NotificationContact[]>([]);
+  const [notificationLogs, setNotificationLogs] = useState<NotificationLogEntry[]>([]);
+
+  const sortContactsList = useCallback(
+    (list: NotificationContact[]) =>
+      [...list].sort((a, b) => {
+        if (a.is_active !== b.is_active) {
+          return a.is_active ? -1 : 1;
+        }
+        return a.display_name.localeCompare(b.display_name);
+      }),
+    [],
+  );
 
 
   const loadSchedules = useCallback(
@@ -187,6 +204,91 @@ const useScheduling = () => {
     },
     [loadSchedules],
   );
+
+  const loadContacts = useCallback(
+    async (includeInactive = true): Promise<{ contacts?: NotificationContact[]; error?: string }> => {
+      try {
+        const result = await schedulingService.getNotificationContacts(includeInactive);
+        if (result.error) {
+          setError(result.error);
+          return { error: result.error };
+        }
+        setContacts(sortContactsList(result.contacts));
+        return { contacts: result.contacts };
+      } catch (err) {
+        const message = extractErrorMessage(err);
+        setError(message);
+        return { error: message };
+      }
+    },
+    [sortContactsList],
+  );
+
+  const createContact = useCallback(
+    async (payload: NotificationContactPayload): Promise<{ contact?: NotificationContact; error?: string }> => {
+      const result = await schedulingService.createNotificationContact(payload);
+      if (!result.contact || result.error) {
+        const message = result.error || 'Failed to create contact';
+        setError(message);
+        return { error: message };
+      }
+      setContacts((prev) => sortContactsList([...prev, result.contact!]));
+      return { contact: result.contact };
+    },
+    [sortContactsList],
+  );
+
+  const updateContact = useCallback(
+    async (
+      contactId: string,
+      payload: NotificationContactPayload,
+    ): Promise<{ contact?: NotificationContact; error?: string }> => {
+      const result = await schedulingService.updateNotificationContact(contactId, payload);
+      if (!result.contact || result.error) {
+        const message = result.error || 'Failed to update contact';
+        setError(message);
+        return { error: message };
+      }
+      setContacts((prev) =>
+        sortContactsList(prev.map((contact) => (contact.contact_id === contactId ? result.contact! : contact))),
+      );
+      return { contact: result.contact };
+    },
+    [sortContactsList],
+  );
+
+  const deleteContact = useCallback(
+    async (contactId: string): Promise<{ success: boolean; error?: string }> => {
+      const result = await schedulingService.deleteNotificationContact(contactId);
+      if (!result.success) {
+        const message = result.error || 'Failed to delete contact';
+        setError(message);
+        return { success: false, error: message };
+      }
+      setContacts((prev) => prev.filter((contact) => contact.contact_id !== contactId));
+      return { success: true };
+    },
+    [],
+  );
+
+  const loadNotificationLogs = useCallback(
+    async (
+      params?: NotificationLogQuery & { limit?: number },
+    ): Promise<{ logs?: NotificationLogEntry[]; error?: string }> => {
+      const result = await schedulingService.getNotificationLogs(params);
+      if (result.error) {
+        setError(result.error);
+        return { error: result.error };
+      }
+      setNotificationLogs(result.logs);
+      return { logs: result.logs };
+    },
+    [],
+  );
+
+  useEffect(() => {
+    loadContacts(false);
+  }, [loadContacts]);
 
   const requireRecovery = useCallback(
     async (scheduleId: string, note?: string): Promise<void> => {
@@ -363,6 +465,8 @@ const useScheduling = () => {
       schedulerRunning,
       manualRecovery,
       initialized,
+      contacts,
+      notificationLogs,
     }),
     [
       schedules,
@@ -377,6 +481,8 @@ const useScheduling = () => {
       schedulerRunning,
       manualRecovery,
       initialized,
+      contacts,
+      notificationLogs,
     ],
   );
 
@@ -386,6 +492,11 @@ const useScheduling = () => {
       createSchedule,
       updateSchedule,
       deleteSchedule,
+      loadContacts,
+      createContact,
+      updateContact,
+      deleteContact,
+      loadNotificationLogs,
       requireRecovery,
       resolveRecovery,
       getQueueStatus,
@@ -402,6 +513,11 @@ const useScheduling = () => {
       createSchedule,
       updateSchedule,
       deleteSchedule,
+      loadContacts,
+      createContact,
+      updateContact,
+      deleteContact,
+      loadNotificationLogs,
       requireRecovery,
       resolveRecovery,
       getQueueStatus,
@@ -420,3 +536,4 @@ const useScheduling = () => {
 
 export { useScheduling };
 export default useScheduling;
+

@@ -1,4 +1,15 @@
-﻿## 2025-10-09 Scheduling TZ & Video Archive Adjustments
+## 2025-10-09 Scheduler Watchdog & Admin Notifications
+
+- Implemented long-running and abort alert dispatch with notification logging, attachment bundling, and contact cache refresh (`backend/services/scheduling/scheduler_engine.py`, `backend/services/notifications.py`, `backend/services/scheduling/sqlite_database.py`).
+- Added admin-facing notifications tab with contact CRUD, filterable delivery history, and surfaced latest alert status on schedule detail cards (`frontend/src/pages/SchedulingPage.tsx`, `frontend/src/components/scheduling/NotificationContactsPanel.tsx`, `frontend/src/hooks/useScheduling.ts`).
+- Extended schedule form to select contacts and wired notification log API plus persistence helpers; added backend tests covering notification logging CRUD (`frontend/src/components/scheduling/ImprovedScheduleForm.tsx`, `backend/api/scheduling.py`, `backend/tests/test_notification_logging.py`).
+## 2025-10-09 Notification Contact Cache Bridge
+
+- Added scheduling database-manager wrappers for contact CRUD so API and future services reuse the same SQLite helpers and keep timestamps aligned (`backend/services/scheduling/database_manager.py`).
+- Scheduler now caches notification contacts and refreshes them on demand for upcoming alert logic (`backend/services/scheduling/scheduler_engine.py`).
+- Contact management API endpoints trigger a cache refresh after create/update/delete operations to keep the engine in sync (`backend/api/scheduling.py`).
+
+## 2025-10-09 Scheduling TZ & Video Archive Adjustments
 
 - Normalized scheduling ISO timestamps to local naive datetimes so non-UTC systems no longer see start-time drift (backend/utils/datetime.py, backend/api/scheduling.py, backend/models.py, backend/services/scheduling/*, backend/services/experiment_monitor.py).
 - Routed experiment archiving through StorageManager to keep original one-minute clips and surface richer metadata to automation (backend/services/camera.py, backend/services/automatic_recording.py, backend/tests/test_camera.py).
@@ -47,8 +58,8 @@ Refer to `AGENTS.md` for the day-to-day runbook; this file captures development-
 
 ## 2025-10-07 Responsive Database & History Retention
 
-- Database page tabs now mirror the scheduling UX: scrollable with mobile labels, and legacy connection chips/metadata were removed so the header no longer shows 鈥淒isconnected / Unknown鈥?placeholders (`frontend/src/pages/DatabasePage.tsx`).
-- Tight viewports get a more usable table pager鈥擿TablePagination` wraps controls with larger touch targets when vertical space is constrained (`frontend/src/components/DatabaseTable.tsx`).
+- Database page tabs now mirror the scheduling UX: scrollable with mobile labels, and legacy connection chips/metadata were removed so the header no longer shows “Disconnected / Unknown�?placeholders (`frontend/src/pages/DatabasePage.tsx`).
+- Tight viewports get a more usable table pager—`TablePagination` wraps controls with larger touch targets when vertical space is constrained (`frontend/src/components/DatabaseTable.tsx`).
 - Job execution records survive schedule deletion by archiving into a new `JobExecutionsArchive` table; history/summary queries now union current and archived rows with schedule snapshots (`backend/services/scheduling/sqlite_database.py`).
 - Packaging workflow remains: `npm run build`, `python build_scripts/embed_resources.py`, `python build_scripts/pyinstaller_build.py` to refresh the single-file binary (`dist/PyRobot.exe`).
 
@@ -114,6 +125,8 @@ Refer to `AGENTS.md` for the day-to-day runbook; this file captures development-
 - Enabled the `@/*` TypeScript alias in `frontend/tsconfig.json` so the helper can be imported consistently.
 - Build workflow: run `npm.cmd run build`, `python build_scripts/embed_resources.py`, then `python -m PyInstaller PyRobot.spec` to refresh the embedded bundle.
 - Deployment note: leave `VITE_API_BASE_URL` empty (or set to the backend origin) before building so mobile Safari/Chrome point at the correct server automatically.
+
+
 
 
 

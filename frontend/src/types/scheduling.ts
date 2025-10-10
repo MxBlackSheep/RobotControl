@@ -20,6 +20,7 @@ export interface ScheduledExperiment {
   is_active: boolean;
   retry_config: RetryConfig;
   prerequisites: string[];
+  notification_contacts: string[];
   failed_execution_count?: number;
   recovery_required: boolean;
   recovery_note?: string | null;
@@ -99,6 +100,43 @@ export interface ManualRecoveryState {
   resolved_at?: string | null;
 }
 
+export interface NotificationContact {
+  contact_id: string;
+  display_name: string;
+  email_address: string;
+  is_active: boolean;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface NotificationLogEntry {
+  log_id: string;
+  schedule_id?: string | null;
+  execution_id?: string | null;
+  event_type: string;
+  status: string;
+  subject?: string | null;
+  message?: string | null;
+  recipients: string[];
+  attachments: string[];
+  error_message?: string | null;
+  triggered_at?: string | null;
+  processed_at?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface NotificationContactPayload {
+  display_name: string;
+  email_address: string;
+  is_active?: boolean;
+}
+
+export interface NotificationLogQuery {
+  schedule_id?: string;
+  event_type?: string;
+  status?: string;
+}
+
 // Queue management interfaces
 export interface QueueStatus {
   queue_size: number;
@@ -157,6 +195,7 @@ export interface CreateScheduleRequest {
     backoff_strategy?: 'linear' | 'exponential';
   };
   prerequisites?: string[];
+  notification_contacts?: string[];
 }
 
 export interface UpdateScheduleRequest {
@@ -173,6 +212,7 @@ export interface UpdateScheduleRequest {
     backoff_strategy?: 'linear' | 'exponential';
   };
   prerequisites?: string[];
+  notification_contacts?: string[];
 }
 
 // API Response types using standardized wrapper
@@ -270,6 +310,7 @@ export interface CreateScheduleFormData {
   retry_delay_minutes: number;
   backoff_strategy: 'linear' | 'exponential';
   prerequisites: string[];
+  notification_contacts: string[];
 }
 
 export interface EditScheduleFormData extends CreateScheduleFormData {

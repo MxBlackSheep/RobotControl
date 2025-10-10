@@ -18,9 +18,16 @@ import time
 import asyncio
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional, Set, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from queue import Queue, Empty
-from backend.models import ScheduledExperiment, JobExecution, RetryConfig, ManualRecoveryState
+from backend.models import (
+    ScheduledExperiment,
+    JobExecution,
+    RetryConfig,
+    ManualRecoveryState,
+    NotificationContact,
+    NotificationLogEntry,
+)
 from backend.services.scheduling.database_manager import get_scheduling_database_manager
 from backend.services.scheduling.process_monitor import get_hamilton_process_monitor
 from backend.services.notifications import get_notification_service
@@ -41,6 +48,8 @@ class SchedulerConfig:
     startup_delay_seconds: float = 10.0  # Delay before first check
     enable_persistence: bool = True
     enable_notifications: bool = True
+    long_running_multiplier: float = 2.0  # Multiplier applied to estimated duration
+    long_running_min_minutes: float = 30.0  # Minimum minutes before long-running alert fires
 
 
 @dataclass
@@ -52,6 +61,24 @@ class SchedulingEvent:
     timestamp: datetime
     message: str
     data: Optional[Dict[str, Any]] = None
+
+
+@dataclass
+class ExecutionWatch:
+    """Track active execution metadata for watchdog alerts."""
+    execution_id: str
+    schedule_id: str
+    experiment_name: str
+    started_at: datetime
+    expected_minutes: int
+    contact_ids: Set[str] = field(default_factory=set)
+    notified_events: Set[str] = field(default_factory=set)
+
+    def mark_notified(self, event_type: str) -> None:
+        self.notified_events.add(event_type)
+
+    def was_notified(self, event_type: str) -> bool:
+        return event_type in self.notified_events
 
 
 class SchedulerEngine:
@@ -84,6 +111,10 @@ class SchedulerEngine:
         # Threading synchronization
         self._schedules_lock = threading.RLock()
         self._jobs_lock = threading.RLock()
+        self._contacts_lock = threading.RLock()
+        self._notification_contacts: Dict[str, NotificationContact] = {}
+        self._execution_watch_lock = threading.RLock()
+        self._execution_watches: Dict[str, ExecutionWatch] = {}
         
         logger.info("Scheduler engine initialized")
     
@@ -111,6 +142,7 @@ class SchedulerEngine:
             # Load existing schedules from database
             self._load_schedules_from_database()
             self._refresh_manual_recovery_state(force=True)
+            self.refresh_notification_contacts(include_inactive=True)
             
             # Start process monitoring
             if not self.process_monitor.start_monitoring():
@@ -491,6 +523,9 @@ class SchedulerEngine:
                 
                 # Update next execution times for interval schedules
                 self._update_interval_schedules(current_time)
+
+                # Watchdog: evaluate running executions for alerts
+                self._evaluate_active_executions(current_time)
                 
                 # Clean up completed jobs
                 self._cleanup_completed_jobs()
@@ -650,6 +685,7 @@ class SchedulerEngine:
             execution.status = "running"
             execution.start_time = current_time
             self.db_manager.store_job_execution(execution)
+            self._register_execution_watch(experiment, execution)
             
             # Execute the experiment
             success = executor.execute_experiment(experiment, execution)
@@ -714,6 +750,7 @@ class SchedulerEngine:
                            experiment.experiment_name, f"Job failed: {str(e)} (attempt {experiment.failed_execution_count})")
         
         finally:
+            self._clear_execution_watch(execution.execution_id)
             # Remove from running jobs
             with self._jobs_lock:
                 self._running_jobs.discard(experiment.schedule_id)
@@ -731,6 +768,21 @@ class SchedulerEngine:
                 "hamilton reported last run" in message or
                 "manual abort" in message):
                 note = execution.error_message or "Hamilton reported last run as aborted"
+
+        aborted = bool(note) or self._message_indicates_abort(execution.error_message)
+        if aborted:
+            context: Dict[str, Any] = {
+                "error_message": execution.error_message or "Unknown error",
+                "retry_count": execution.retry_count,
+            }
+            if note:
+                context["note"] = note
+            if execution.start_time and execution.end_time:
+                context["runtime_minutes"] = round(
+                    (execution.end_time - execution.start_time).total_seconds() / 60, 1
+                )
+            self._notify_execution_event(experiment, execution, "aborted", context)
+
         if note:
             self._apply_manual_recovery(experiment, note, actor="scheduler")
 
@@ -823,6 +875,263 @@ class SchedulerEngine:
             
         except Exception as e:
             logger.error(f"Error loading schedules from database: {e}")
+
+    def refresh_notification_contacts(self, include_inactive: bool = False) -> List[NotificationContact]:
+        """Refresh cached notification contact list from the database."""
+        try:
+            contacts = self.db_manager.get_notification_contacts(include_inactive=include_inactive)
+            with self._contacts_lock:
+                self._notification_contacts = {contact.contact_id: contact for contact in contacts}
+            logger.debug("Loaded %s notification contacts", len(contacts))
+            return contacts
+        except Exception as exc:
+            logger.error("Failed to refresh notification contacts: %s", exc)
+            return []
+
+    def get_notification_contact(self, contact_id: str) -> Optional[NotificationContact]:
+        """Return cached notification contact if available."""
+        if not contact_id:
+            return None
+        with self._contacts_lock:
+            return self._notification_contacts.get(contact_id)
+
+    def iter_notification_contacts(self) -> List[NotificationContact]:
+        """Return a snapshot list of cached notification contacts."""
+        with self._contacts_lock:
+            return list(self._notification_contacts.values())
+
+    # ------------------------------------------------------------------
+    # Execution watchdog helpers
+    # ------------------------------------------------------------------
+
+    def _register_execution_watch(self, experiment: ScheduledExperiment, execution: JobExecution) -> None:
+        """Start tracking a running execution for watchdog monitoring."""
+        start_time = execution.start_time or datetime.now()
+        contact_ids = set(experiment.notification_contacts or [])
+        watch = ExecutionWatch(
+            execution_id=execution.execution_id,
+            schedule_id=experiment.schedule_id,
+            experiment_name=experiment.experiment_name,
+            started_at=start_time,
+            expected_minutes=max(1, experiment.estimated_duration or 1),
+            contact_ids=contact_ids,
+        )
+        with self._execution_watch_lock:
+            self._execution_watches[execution.execution_id] = watch
+        logger.debug(
+            "Registered execution watch for %s (%s) with %s contact(s)",
+            execution.execution_id,
+            experiment.experiment_name,
+            len(contact_ids),
+        )
+
+    def _clear_execution_watch(self, execution_id: str) -> None:
+        """Remove execution watch tracking when execution completes."""
+        with self._execution_watch_lock:
+            self._execution_watches.pop(execution_id, None)
+
+    def _get_execution_watch(self, execution_id: str) -> Optional[ExecutionWatch]:
+        with self._execution_watch_lock:
+            return self._execution_watches.get(execution_id)
+
+    def _mark_execution_event(self, execution_id: str, event_type: str) -> None:
+        with self._execution_watch_lock:
+            watch = self._execution_watches.get(execution_id)
+            if watch:
+                watch.mark_notified(event_type)
+
+    def _was_execution_event_notified(self, execution_id: str, event_type: str) -> bool:
+        with self._execution_watch_lock:
+            watch = self._execution_watches.get(execution_id)
+            return watch.was_notified(event_type) if watch else False
+
+    def _snapshot_execution_watches(self) -> List[ExecutionWatch]:
+        with self._execution_watch_lock:
+            return list(self._execution_watches.values())
+
+    def _evaluate_active_executions(self, current_time: datetime) -> None:
+        """Check running jobs for watchdog conditions."""
+        watches = self._snapshot_execution_watches()
+        if not watches:
+            return
+
+        for watch in watches:
+            # Skip if already notified or no contacts configured
+            if watch.was_notified("long_running"):
+                continue
+
+            elapsed_minutes = (current_time - watch.started_at).total_seconds() / 60
+            threshold = max(
+                watch.expected_minutes * self.config.long_running_multiplier,
+                self.config.long_running_min_minutes,
+            )
+            if elapsed_minutes < threshold:
+                continue
+
+            schedule = self._get_schedule_snapshot(watch.schedule_id)
+            if not schedule or not (schedule.notification_contacts or watch.contact_ids):
+                logger.debug(
+                    "Skipping long-running alert for %s - no contacts configured",
+                    watch.execution_id,
+                )
+                self._mark_execution_event(watch.execution_id, "long_running")
+                continue
+
+            execution = JobExecution(
+                execution_id=watch.execution_id,
+                schedule_id=watch.schedule_id,
+                status="running",
+                start_time=watch.started_at,
+            )
+            context = {
+                "elapsed_minutes": round(elapsed_minutes, 1),
+                "threshold_minutes": round(threshold, 1),
+            }
+            self._dispatch_execution_notification(
+                schedule,
+                execution,
+                event_type="long_running",
+                context=context,
+                contact_ids=watch.contact_ids,
+            )
+            self._mark_execution_event(watch.execution_id, "long_running")
+
+    def _get_schedule_snapshot(self, schedule_id: str) -> Optional[ScheduledExperiment]:
+        with self._schedules_lock:
+            schedule = self._active_schedules.get(schedule_id)
+        if schedule:
+            return schedule
+        try:
+            return self.db_manager.get_scheduled_experiment(schedule_id)
+        except Exception as exc:  # pragma: no cover - best effort
+            logger.error("Failed to load schedule snapshot for %s: %s", schedule_id, exc)
+            return None
+
+    def _notify_execution_event(
+        self,
+        experiment: ScheduledExperiment,
+        execution: JobExecution,
+        event_type: str,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        contact_ids = set(experiment.notification_contacts or [])
+        watch = self._get_execution_watch(execution.execution_id)
+        if watch:
+            contact_ids = watch.contact_ids or contact_ids
+            self._mark_execution_event(execution.execution_id, event_type)
+        self._dispatch_execution_notification(
+            experiment,
+            execution,
+            event_type=event_type,
+            context=context or {},
+            contact_ids=contact_ids,
+        )
+
+    def _dispatch_execution_notification(
+        self,
+        experiment: ScheduledExperiment,
+        execution: JobExecution,
+        *,
+        event_type: str,
+        context: Dict[str, Any],
+        contact_ids: Set[str],
+    ) -> None:
+        if not self.config.enable_notifications or not self._notification_service:
+            logger.debug("Notifications disabled; skipping %s alert", event_type)
+            return
+        if not contact_ids and not experiment.notification_contacts:
+            logger.debug("No notification contacts for schedule %s", experiment.schedule_id)
+            return
+
+        if self.db_manager.notification_log_exists(execution.execution_id, event_type):
+            logger.debug(
+                "Notification already logged for execution %s (%s)",
+                execution.execution_id,
+                event_type,
+            )
+            return
+
+        contacts: List[NotificationContact] = []
+        missing: List[str] = []
+        for contact_id in contact_ids or experiment.notification_contacts or []:
+            contact = self.get_notification_contact(contact_id)
+            if contact and contact.is_active:
+                contacts.append(contact)
+            else:
+                missing.append(contact_id)
+
+        if not contacts:
+            logger.info(
+                "Skipping notification %s for %s - no active contacts (missing=%s)",
+                event_type,
+                experiment.schedule_id,
+                missing,
+            )
+            return
+
+        log_entry = NotificationLogEntry(
+            log_id="",
+            schedule_id=experiment.schedule_id,
+            execution_id=execution.execution_id,
+            event_type=event_type,
+            status="pending",
+            recipients=[contact.email_address for contact in contacts if contact.email_address],
+            metadata={"context": context, "missing_contacts": missing},
+        )
+
+        stored_entry = self.db_manager.create_notification_log(log_entry) or log_entry
+
+        try:
+            result = self._notification_service.schedule_alert(
+                experiment,
+                execution,
+                contacts=contacts,
+                trigger=event_type,
+                context=context,
+            )
+            status = "sent" if result.sent else "error"
+            self.db_manager.update_notification_log(
+                stored_entry.log_id,
+                status=status,
+                error_message=result.error,
+                processed_at=datetime.now(),
+                recipients=result.recipients,
+                attachments=result.attachments,
+                subject=result.subject,
+                message=result.body,
+                metadata={
+                    "context": context,
+                    "missing_contacts": missing,
+                    "attachment_notes": result.attachment_notes,
+                },
+            )
+        except Exception as exc:  # pragma: no cover - best effort logging
+            logger.error(
+                "Failed to dispatch notification for %s (%s): %s",
+                execution.execution_id,
+                event_type,
+                exc,
+            )
+            self.db_manager.update_notification_log(
+                stored_entry.log_id,
+                status="error",
+                error_message=str(exc),
+                processed_at=datetime.now(),
+                metadata={"context": context, "missing_contacts": missing},
+            )
+
+    def _message_indicates_abort(self, message: Optional[str]) -> bool:
+        if not message:
+            return False
+        lowered = message.lower()
+        abort_keywords = (
+            "abort",
+            "aborted",
+            "manual abort",
+            "stopped by user",
+            "user stopped",
+        )
+        return any(keyword in lowered for keyword in abort_keywords)
     
     def _cleanup_completed_jobs(self):
         """Clean up old completed job records"""

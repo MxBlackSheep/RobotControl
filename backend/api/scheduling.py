@@ -15,6 +15,8 @@ Features:
 from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import Dict, Any, List, Optional, Union
 from datetime import datetime, timedelta
+import re
+
 from backend.services.auth import get_current_user
 from backend.services.scheduling import (
     get_scheduler_engine,
@@ -28,7 +30,8 @@ from backend.models import (
     JobExecution,
     RetryConfig,
     CalendarEvent,
-    ApiResponse
+    ApiResponse,
+    NotificationContact,
 )
 import logging
 
@@ -51,6 +54,8 @@ db_manager = None
 queue_manager = None
 process_monitor = None
 
+EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
 
 def get_services():
     """Get lazy-loaded service instances"""
@@ -66,6 +71,205 @@ def get_services():
         process_monitor = get_hamilton_process_monitor()
     
     return scheduler_engine, db_manager, queue_manager, process_monitor
+
+
+def _normalize_contact_ids(contact_ids: Optional[Any], db_mgr) -> List[str]:
+    """Validate and normalize notification contact IDs."""
+    if contact_ids is None:
+        return []
+    if not isinstance(contact_ids, list):
+        raise HTTPException(status_code=400, detail="notification_contacts must be a list of contact IDs")
+    cleaned: List[str] = []
+    seen = set()
+    for value in contact_ids:
+        if not isinstance(value, str):
+            raise HTTPException(status_code=400, detail="notification_contacts must contain contact ID strings")
+        contact_id = value.strip()
+        if not contact_id or contact_id in seen:
+            continue
+        cleaned.append(contact_id)
+        seen.add(contact_id)
+    if not cleaned:
+        return []
+
+    available_ids = {
+        contact.contact_id for contact in db_mgr.get_notification_contacts(include_inactive=True)
+    }
+    missing = [contact_id for contact_id in cleaned if contact_id not in available_ids]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown notification contact(s): {', '.join(missing)}"
+        )
+    return cleaned
+
+
+def _validate_email_address(value: Any) -> str:
+    """Simple email validation."""
+    if not isinstance(value, str):
+        raise HTTPException(status_code=400, detail="Email address must be a string")
+    email = value.strip()
+    if not EMAIL_REGEX.fullmatch(email):
+        raise HTTPException(status_code=400, detail="Invalid email address format")
+    return email
+
+
+@router.get("/contacts")
+async def list_notification_contacts(
+    include_inactive: bool = Query(False, description="Include inactive contacts"),
+    current_user: dict = Depends(get_current_user)
+):
+    """List notification contacts for scheduling."""
+    try:
+        scheduler, db_mgr, queue_mgr, proc_mon = get_services()
+        contacts = db_mgr.get_notification_contacts(include_inactive=include_inactive)
+        response = ApiResponse(
+            success=True,
+            message="Notification contacts retrieved",
+            data=[contact.to_dict() for contact in contacts]
+        )
+        return response.to_dict()
+    except Exception as exc:
+        logger.error(f"Error listing notification contacts: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to load contacts")
+
+
+@router.post("/contacts")
+async def create_notification_contact_endpoint(
+    contact_data: Dict[str, Any],
+    current_user: dict = Depends(get_current_user)
+):
+    """Create a new notification contact (admin only)."""
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin role required to manage contacts")
+
+    display_name = contact_data.get("display_name")
+    if not isinstance(display_name, str) or not display_name.strip():
+        raise HTTPException(status_code=400, detail="display_name is required")
+    email_address = _validate_email_address(contact_data.get("email_address"))
+    is_active = bool(contact_data.get("is_active", True))
+
+    scheduler, db_mgr, _, _ = get_services()
+
+    contact = NotificationContact(
+        contact_id="",
+        display_name=display_name.strip(),
+        email_address=email_address,
+        is_active=is_active,
+    )
+    created = db_mgr.create_notification_contact(contact)
+    if not created:
+        raise HTTPException(status_code=500, detail="Failed to create contact")
+    
+    # Keep scheduler cache aligned with persistent state
+    scheduler.refresh_notification_contacts(include_inactive=True)
+
+    logger.info("Notification contact created: %s", created.contact_id)
+    return ApiResponse(
+        success=True,
+        message="Notification contact created",
+        data=created.to_dict()
+    ).to_dict()
+
+
+@router.put("/contacts/{contact_id}")
+async def update_notification_contact_endpoint(
+    contact_id: str,
+    contact_data: Dict[str, Any],
+    current_user: dict = Depends(get_current_user)
+):
+    """Update an existing notification contact (admin only)."""
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin role required to manage contacts")
+
+    display_name = contact_data.get("display_name")
+    if not isinstance(display_name, str) or not display_name.strip():
+        raise HTTPException(status_code=400, detail="display_name is required")
+    email_address = _validate_email_address(contact_data.get("email_address"))
+    is_active = bool(contact_data.get("is_active", True))
+
+    scheduler, db_mgr, _, _ = get_services()
+    contact = NotificationContact(
+        contact_id=contact_id,
+        display_name=display_name.strip(),
+        email_address=email_address,
+        is_active=is_active,
+    )
+    updated = db_mgr.update_notification_contact(contact)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Contact not found")
+    
+    scheduler.refresh_notification_contacts(include_inactive=True)
+
+    logger.info("Notification contact updated: %s", contact_id)
+    return ApiResponse(
+        success=True,
+        message="Notification contact updated",
+        data=contact.to_dict()
+    ).to_dict()
+
+
+@router.delete("/contacts/{contact_id}")
+async def delete_notification_contact_endpoint(
+    contact_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Delete a notification contact (admin only)."""
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin role required to manage contacts")
+
+    scheduler, db_mgr, _, _ = get_services()
+    deleted = db_mgr.delete_notification_contact(contact_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Contact not found")
+    
+    scheduler.refresh_notification_contacts(include_inactive=True)
+
+    logger.info("Notification contact deleted: %s", contact_id)
+    return ApiResponse(
+        success=True,
+        message="Notification contact deleted",
+        data={"contact_id": contact_id}
+    ).to_dict()
+
+
+@router.get("/notifications/logs")
+async def list_notification_logs(
+    limit: int = Query(50, description="Maximum number of notification entries to return"),
+    schedule_id: Optional[str] = Query(None, description="Filter by schedule ID"),
+    event_type: Optional[str] = Query(None, description="Filter by event type"),
+    status_filter: Optional[str] = Query(None, alias="status", description="Filter by status"),
+    current_user: dict = Depends(get_current_user)
+):
+    """Return recent notification delivery attempts (admin only)."""
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin role required to review notification logs")
+
+    if limit < 1 or limit > 200:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 200")
+
+    try:
+        scheduler, db_mgr, _, _ = get_services()
+        logs = db_mgr.get_notification_logs(
+            limit,
+            schedule_id=schedule_id,
+            event_type=event_type,
+            status=status_filter,
+        )
+        return ApiResponse(
+            success=True,
+            message=f"Retrieved {len(logs)} notification log entries",
+            data=[log.to_dict() for log in logs],
+            metadata={
+                "limit": limit,
+                "schedule_id": schedule_id,
+                "event_type": event_type,
+                "status": status_filter,
+            },
+        ).to_dict()
+    except Exception as exc:
+        logger.error("Error retrieving notification logs: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to load notification logs")
 
 
 @router.post("/create")
@@ -94,6 +298,11 @@ async def create_schedule(
                 logger.error(f"Missing required field: {field}. Received data: {schedule_data}")
                 raise HTTPException(status_code=400, detail=f"Missing required field: {field}")
         
+        notification_contact_ids = _normalize_contact_ids(
+            schedule_data.get("notification_contacts"),
+            db_mgr
+        )
+        
         # Parse datetime fields (preserve local wall-clock time)
         start_time = None
         if schedule_data.get("start_time"):
@@ -120,6 +329,7 @@ async def create_schedule(
             is_active=schedule_data.get("is_active", True),
             retry_config=retry_config,
             prerequisites=schedule_data.get("prerequisites", []),
+            notification_contacts=notification_contact_ids,
             failed_execution_count=0,  # Initialize to 0 for new schedules
             created_at=None,  # Will be set in __post_init__
             updated_at=None   # Will be set in __post_init__
@@ -393,7 +603,12 @@ async def update_schedule(
             existing_schedule.prerequisites = update_data["prerequisites"]
         if "retry_config" in update_data:
             existing_schedule.retry_config = RetryConfig.from_dict(update_data["retry_config"])
-        
+        if "notification_contacts" in update_data:
+            existing_schedule.notification_contacts = _normalize_contact_ids(
+                update_data["notification_contacts"],
+                db_mgr
+            )
+
         existing_schedule.updated_at = datetime.now()
         
         # Update in scheduler

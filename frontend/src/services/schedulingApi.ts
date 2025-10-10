@@ -20,6 +20,10 @@ import {
   CreateScheduleFormData,
   RecoveryActionResponse,
   EvoYeastExperimentOption,
+  NotificationContact,
+  NotificationContactPayload,
+  NotificationLogEntry,
+  NotificationLogQuery,
 } from '../types/scheduling';
 
 const coerceNumber = (value: unknown, fallback = 0): number => {
@@ -71,6 +75,7 @@ export const normalizeSchedule = (raw: any): ScheduledExperiment => {
       backoff_strategy: (retryConfig.backoff_strategy || 'linear') as 'linear' | 'exponential',
     },
     prerequisites: Array.isArray(raw?.prerequisites) ? raw.prerequisites : [],
+    notification_contacts: Array.isArray(raw?.notification_contacts) ? raw.notification_contacts : [],
     failed_execution_count: coerceNumber(raw?.failed_execution_count, 0),
     recovery_required: Boolean(raw?.recovery_required),
     recovery_note: coerceOptionalString(raw?.recovery_note),
@@ -106,6 +111,34 @@ const normalizeManualRecovery = (payload: unknown): ManualRecoveryState | null =
     resolved_at: coerceOptionalString(data.resolved_at),
   };
 };
+
+const normalizeNotificationContact = (payload: any): NotificationContact => ({
+  contact_id: coerceString(payload?.contact_id),
+  display_name: coerceString(payload?.display_name),
+  email_address: coerceString(payload?.email_address),
+  is_active: Boolean(payload?.is_active ?? true),
+  created_at: coerceOptionalString(payload?.created_at),
+  updated_at: coerceOptionalString(payload?.updated_at),
+});
+
+const normalizeNotificationLog = (payload: any): NotificationLogEntry => ({
+  log_id: coerceString(payload?.log_id),
+  schedule_id: coerceOptionalString(payload?.schedule_id),
+  execution_id: coerceOptionalString(payload?.execution_id),
+  event_type: coerceString(payload?.event_type),
+  status: coerceString(payload?.status),
+  subject: coerceOptionalString(payload?.subject),
+  message: coerceOptionalString(payload?.message),
+  recipients: Array.isArray(payload?.recipients) ? payload.recipients.map((value: unknown) => coerceString(value)) : [],
+  attachments: Array.isArray(payload?.attachments) ? payload.attachments.map((value: unknown) => coerceString(value)) : [],
+  error_message: coerceOptionalString(payload?.error_message),
+  triggered_at: coerceOptionalString(payload?.triggered_at),
+  processed_at: coerceOptionalString(payload?.processed_at),
+  metadata:
+    payload?.metadata && typeof payload.metadata === 'object'
+      ? (payload.metadata as Record<string, unknown>)
+      : null,
+});
 
 const normalizeCalendarEvents = (payload: unknown): CalendarEvent[] => {
   if (!Array.isArray(payload)) {
@@ -260,6 +293,21 @@ export const schedulingAPI = {
 
   getRecentExecutions: (hours = 24) =>
     api.get('/api/scheduling/executions/recent', { params: { hours } }),
+
+  getNotificationContacts: (includeInactive = true) =>
+    api.get('/api/scheduling/contacts', { params: { include_inactive: includeInactive } }),
+
+  createNotificationContact: (payload: NotificationContactPayload) =>
+    api.post('/api/scheduling/contacts', payload),
+
+  updateNotificationContact: (contactId: string, payload: NotificationContactPayload) =>
+    api.put(`/api/scheduling/contacts/${contactId}`, payload),
+
+  deleteNotificationContact: (contactId: string) =>
+    api.delete(`/api/scheduling/contacts/${contactId}`),
+
+  getNotificationLogs: (params?: NotificationLogQuery & { limit?: number }) =>
+    api.get('/api/scheduling/notifications/logs', { params }),
 };
 
 const buildScheduleRequest = (data: CreateScheduleFormData): CreateScheduleRequest => ({
@@ -276,6 +324,7 @@ const buildScheduleRequest = (data: CreateScheduleFormData): CreateScheduleReque
     backoff_strategy: data.backoff_strategy,
   },
   prerequisites: data.prerequisites,
+  notification_contacts: data.notification_contacts,
 });
 
 export const schedulingService = {
@@ -329,6 +378,75 @@ export const schedulingService = {
       return { success: true };
     } catch (error) {
       return { success: false, error: parseAPIError(error) };
+    }
+  },
+
+  async getNotificationContacts(includeInactive = true): Promise<{ contacts: NotificationContact[]; error?: string }> {
+    try {
+      const { data } = await schedulingAPI.getNotificationContacts(includeInactive);
+      if (!data.success) {
+        return { contacts: [], error: data.message || 'Failed to load contacts' };
+      }
+      const contacts = Array.isArray(data.data) ? data.data.map(normalizeNotificationContact) : [];
+      return { contacts };
+    } catch (error) {
+      return { contacts: [], error: parseAPIError(error) };
+    }
+  },
+
+  async createNotificationContact(
+    payload: NotificationContactPayload,
+  ): Promise<{ contact?: NotificationContact; error?: string }> {
+    try {
+      const { data } = await schedulingAPI.createNotificationContact(payload);
+      if (!data.success || !data.data) {
+        return { error: data.message || 'Failed to create contact' };
+      }
+      return { contact: normalizeNotificationContact(data.data) };
+    } catch (error) {
+      return { error: parseAPIError(error) };
+    }
+  },
+
+  async updateNotificationContact(
+    contactId: string,
+    payload: NotificationContactPayload,
+  ): Promise<{ contact?: NotificationContact; error?: string }> {
+    try {
+      const { data } = await schedulingAPI.updateNotificationContact(contactId, payload);
+      if (!data.success || !data.data) {
+        return { error: data.message || 'Failed to update contact' };
+      }
+      return { contact: normalizeNotificationContact(data.data) };
+    } catch (error) {
+      return { error: parseAPIError(error) };
+    }
+  },
+
+  async deleteNotificationContact(contactId: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const { data } = await schedulingAPI.deleteNotificationContact(contactId);
+      if (!data.success) {
+        return { success: false, error: data.message || 'Failed to delete contact' };
+      }
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: parseAPIError(error) };
+    }
+  },
+
+  async getNotificationLogs(
+    params?: NotificationLogQuery & { limit?: number },
+  ): Promise<{ logs: NotificationLogEntry[]; error?: string }> {
+    try {
+      const { data } = await schedulingAPI.getNotificationLogs(params);
+      if (!data.success) {
+        return { logs: [], error: data.message || 'Failed to load notification logs' };
+      }
+      const logs = Array.isArray(data.data) ? data.data.map(normalizeNotificationLog) : [];
+      return { logs };
+    } catch (error) {
+      return { logs: [], error: parseAPIError(error) };
     }
   },
 

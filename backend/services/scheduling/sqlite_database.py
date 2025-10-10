@@ -17,7 +17,14 @@ from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime, timedelta
 from contextlib import contextmanager
 from backend.utils.data_paths import get_data_path
-from backend.models import ScheduledExperiment, JobExecution, RetryConfig, ManualRecoveryState
+from backend.models import (
+    ScheduledExperiment,
+    JobExecution,
+    RetryConfig,
+    ManualRecoveryState,
+    NotificationContact,
+    NotificationLogEntry,
+)
 
 try:
     from backend.utils.datetime import parse_iso_datetime_to_local
@@ -159,6 +166,53 @@ class SQLiteSchedulingDatabase:
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_executions_schedule_id ON JobExecutions(schedule_id)")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_exec_archive_schedule_id ON JobExecutionsArchive(schedule_id)")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_exec_archive_created_at ON JobExecutionsArchive(created_at)")
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS NotificationContacts (
+                        contact_id TEXT PRIMARY KEY,
+                        display_name TEXT NOT NULL,
+                        email_address TEXT NOT NULL,
+                        is_active INTEGER NOT NULL DEFAULT 1,
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS ScheduleNotificationContacts (
+                        schedule_id TEXT NOT NULL,
+                        contact_id TEXT NOT NULL,
+                        added_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        PRIMARY KEY (schedule_id, contact_id),
+                        FOREIGN KEY (schedule_id) REFERENCES ScheduledExperiments(schedule_id) ON DELETE CASCADE,
+                        FOREIGN KEY (contact_id) REFERENCES NotificationContacts(contact_id) ON DELETE CASCADE
+                    )
+                """)
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_notification_contacts_active ON NotificationContacts(is_active)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_schedule_contacts_schedule ON ScheduleNotificationContacts(schedule_id)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_schedule_contacts_contact ON ScheduleNotificationContacts(contact_id)")
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS NotificationLog (
+                        log_id TEXT PRIMARY KEY,
+                        schedule_id TEXT,
+                        execution_id TEXT,
+                        event_type TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        subject TEXT,
+                        message TEXT,
+                        recipients TEXT NOT NULL,
+                        attachments TEXT,
+                        error_message TEXT,
+                        triggered_at TEXT NOT NULL,
+                        processed_at TEXT,
+                        metadata TEXT,
+                        FOREIGN KEY (schedule_id) REFERENCES ScheduledExperiments(schedule_id) ON DELETE SET NULL
+                    )
+                    """
+                )
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_notification_log_schedule ON NotificationLog(schedule_id)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_notification_log_execution ON NotificationLog(execution_id)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_notification_log_event ON NotificationLog(event_type)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_notification_log_status ON NotificationLog(status)")
                 
                 conn.commit()
 
@@ -255,7 +309,7 @@ class SQLiteSchedulingDatabase:
                     schedule.recovery_resolved_at.isoformat() if schedule.recovery_resolved_at else None,
                     schedule.recovery_resolved_by
                 ))
-                
+                self._replace_schedule_contacts(conn, schedule.schedule_id, schedule.notification_contacts or [])
                 conn.commit()
                 logger.info(f"Created schedule in SQLite: {schedule.experiment_name}")
                 return True
@@ -286,7 +340,7 @@ class SQLiteSchedulingDatabase:
                 rows = cursor.fetchall()
                 
                 for row in rows:
-                    schedule = self._row_to_scheduled_experiment(row)
+                    schedule = self._row_to_scheduled_experiment(row, conn)
                     if schedule:
                         schedules.append(schedule)
                         
@@ -313,7 +367,7 @@ class SQLiteSchedulingDatabase:
                 row = cursor.fetchone()
                 
                 if row:
-                    return self._row_to_scheduled_experiment(row)
+                    return self._row_to_scheduled_experiment(row, conn)
                     
         except Exception as e:
             logger.error(f"Failed to get schedule {schedule_id} from SQLite: {e}")
@@ -365,6 +419,7 @@ class SQLiteSchedulingDatabase:
                     schedule.schedule_id
                 ))
                 
+                self._replace_schedule_contacts(conn, schedule.schedule_id, schedule.notification_contacts or [])
                 conn.commit()
                 
                 if cursor.rowcount > 0:
@@ -377,6 +432,264 @@ class SQLiteSchedulingDatabase:
         except Exception as e:
             logger.error(f"Failed to update schedule in SQLite: {e}")
             return False
+
+    # ------------------------------------------------------------------
+    # Notification contacts
+    # ------------------------------------------------------------------
+
+    def get_notification_contacts(self, include_inactive: bool = False) -> List[NotificationContact]:
+        contacts: List[NotificationContact] = []
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                if include_inactive:
+                    cursor.execute(
+                        "SELECT * FROM NotificationContacts ORDER BY is_active DESC, display_name ASC"
+                    )
+                else:
+                    cursor.execute(
+                        "SELECT * FROM NotificationContacts WHERE is_active = 1 ORDER BY display_name ASC"
+                    )
+                rows = cursor.fetchall()
+                for row in rows:
+                    contacts.append(
+                        NotificationContact.from_dict(
+                            {
+                                "contact_id": row["contact_id"],
+                                "display_name": row["display_name"],
+                                "email_address": row["email_address"],
+                                "is_active": bool(row["is_active"]),
+                                "created_at": row["created_at"],
+                                "updated_at": row["updated_at"],
+                            }
+                        )
+                    )
+        except Exception as exc:
+            logger.error(f"Failed to load notification contacts: {exc}")
+        return contacts
+
+    def create_notification_contact(self, contact: NotificationContact) -> Optional[NotificationContact]:
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    INSERT INTO NotificationContacts (
+                        contact_id, display_name, email_address, is_active, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        contact.contact_id,
+                        contact.display_name,
+                        contact.email_address,
+                        1 if contact.is_active else 0,
+                        contact.created_at.isoformat() if contact.created_at else datetime.now().isoformat(),
+                        contact.updated_at.isoformat() if contact.updated_at else datetime.now().isoformat(),
+                    ),
+                )
+                conn.commit()
+                return contact
+        except Exception as exc:
+            logger.error(f"Failed to create notification contact: {exc}")
+            return None
+
+    def update_notification_contact(self, contact: NotificationContact) -> bool:
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    UPDATE NotificationContacts
+                    SET display_name = ?, email_address = ?, is_active = ?, updated_at = ?
+                    WHERE contact_id = ?
+                    """,
+                    (
+                        contact.display_name,
+                        contact.email_address,
+                        1 if contact.is_active else 0,
+                        datetime.now().isoformat(),
+                        contact.contact_id,
+                    ),
+                )
+                conn.commit()
+                return cursor.rowcount > 0
+        except Exception as exc:
+            logger.error(f"Failed to update notification contact {contact.contact_id}: {exc}")
+            return False
+
+    def delete_notification_contact(self, contact_id: str) -> bool:
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                # Remove schedule associations first (cascade should handle, but ensure manual fallback)
+                cursor.execute(
+                    "DELETE FROM ScheduleNotificationContacts WHERE contact_id = ?", (contact_id,)
+                )
+                cursor.execute(
+                    "DELETE FROM NotificationContacts WHERE contact_id = ?", (contact_id,)
+                )
+                conn.commit()
+                return cursor.rowcount > 0
+        except Exception as exc:
+            logger.error(f"Failed to delete notification contact {contact_id}: {exc}")
+            return False
+
+    # ------------------------------------------------------------------
+    # Notification logging
+    # ------------------------------------------------------------------
+
+    def create_notification_log(self, entry: NotificationLogEntry) -> Optional[NotificationLogEntry]:
+        """Persist a new notification log entry."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    INSERT INTO NotificationLog (
+                        log_id, schedule_id, execution_id, event_type, status,
+                        subject, message, recipients, attachments, error_message,
+                        triggered_at, processed_at, metadata
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        entry.log_id,
+                        entry.schedule_id,
+                        entry.execution_id,
+                        entry.event_type,
+                        entry.status,
+                        entry.subject,
+                        entry.message,
+                        json.dumps(entry.recipients or []),
+                        json.dumps(entry.attachments or []),
+                        entry.error_message,
+                        entry.triggered_at.isoformat() if entry.triggered_at else datetime.now().isoformat(),
+                        entry.processed_at.isoformat() if entry.processed_at else None,
+                        json.dumps(entry.metadata or {}),
+                    ),
+                )
+                conn.commit()
+                return entry
+        except Exception as exc:
+            logger.error("Failed to create notification log %s: %s", entry.log_id, exc)
+            return None
+
+    def update_notification_log(
+        self,
+        log_id: str,
+        *,
+        status: Optional[str] = None,
+        error_message: Optional[str] = None,
+        processed_at: Optional[datetime] = None,
+        recipients: Optional[List[str]] = None,
+        attachments: Optional[List[str]] = None,
+        subject: Optional[str] = None,
+        message: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """Update fields of a notification log entry."""
+        fields: List[str] = []
+        params: List[Any] = []
+        if status is not None:
+            fields.append("status = ?")
+            params.append(status)
+        if error_message is not None:
+            fields.append("error_message = ?")
+            params.append(error_message)
+        if processed_at is not None:
+            fields.append("processed_at = ?")
+            params.append(processed_at.isoformat())
+        if recipients is not None:
+            fields.append("recipients = ?")
+            params.append(json.dumps(recipients))
+        if attachments is not None:
+            fields.append("attachments = ?")
+            params.append(json.dumps(attachments))
+        if subject is not None:
+            fields.append("subject = ?")
+            params.append(subject)
+        if message is not None:
+            fields.append("message = ?")
+            params.append(message)
+        if metadata is not None:
+            fields.append("metadata = ?")
+            params.append(json.dumps(metadata))
+
+        if not fields:
+            return True
+
+        params.append(log_id)
+        query = f"UPDATE NotificationLog SET {', '.join(fields)} WHERE log_id = ?"
+
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(query, params)
+                conn.commit()
+                return cursor.rowcount > 0
+        except Exception as exc:
+            logger.error("Failed to update notification log %s: %s", log_id, exc)
+            return False
+
+    def notification_log_exists(self, execution_id: str, event_type: str) -> bool:
+        """Check if a notification log already exists for an execution/event pair."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT 1 FROM NotificationLog
+                    WHERE execution_id = ? AND event_type = ?
+                    LIMIT 1
+                    """,
+                    (execution_id, event_type),
+                )
+                return cursor.fetchone() is not None
+        except Exception as exc:
+            logger.error("Failed to query notification log existence for %s/%s: %s", execution_id, event_type, exc)
+            return False
+
+    def get_notification_logs(
+        self,
+        limit: int = 50,
+        *,
+        schedule_id: Optional[str] = None,
+        event_type: Optional[str] = None,
+        status: Optional[str] = None,
+    ) -> List[NotificationLogEntry]:
+        """Return notification log entries ordered by trigger time descending."""
+        logs: List[NotificationLogEntry] = []
+        clauses: List[str] = []
+        params: List[Any] = []
+        if schedule_id:
+            clauses.append("schedule_id = ?")
+            params.append(schedule_id)
+        if event_type:
+            clauses.append("event_type = ?")
+            params.append(event_type)
+        if status:
+            clauses.append("status = ?")
+            params.append(status)
+
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        query = f"""
+            SELECT *
+            FROM NotificationLog
+            {where}
+            ORDER BY datetime(triggered_at) DESC
+            LIMIT ?
+        """
+        params.append(max(1, limit))
+
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(query, params)
+                rows = cursor.fetchall()
+                for row in rows:
+                    logs.append(self._row_to_notification_log(row))
+        except Exception as exc:
+            logger.error("Failed to load notification logs: %s", exc)
+        return logs
     
     def set_recovery_required(
         self, schedule_id: str, note: Optional[str], user: str
@@ -836,57 +1149,113 @@ class SQLiteSchedulingDatabase:
             logger.error(f"Failed to get database info: {e}")
             return {"error": str(e)}
     
-    def _row_to_scheduled_experiment(self, row: sqlite3.Row) -> Optional[ScheduledExperiment]:
+    def _row_to_scheduled_experiment(self, row: sqlite3.Row, conn: Optional[sqlite3.Connection] = None) -> Optional[ScheduledExperiment]:
         """Convert database row to ScheduledExperiment object"""
         try:
             # Parse datetime fields preserving local wall-clock semantics
-            start_time = self._parse_timestamp(row['start_time'])
-            
+            start_time = self._parse_timestamp(row["start_time"])
+
+    def _get_schedule_contact_ids(self, schedule_id: str, conn: Optional[sqlite3.Connection] = None) -> List[str]:
+        if not schedule_id:
+            return []
+        if conn is None:
+            with self._get_connection() as temp_conn:
+                return self._get_schedule_contact_ids(schedule_id, temp_conn)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT contact_id FROM ScheduleNotificationContacts WHERE schedule_id = ?",
+            (schedule_id,)
+        )
+        rows = cursor.fetchall()
+        return [row["contact_id"] for row in rows]
+
+    def _replace_schedule_contacts(self, conn: sqlite3.Connection, schedule_id: str, contact_ids: List[str]) -> None:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM ScheduleNotificationContacts WHERE schedule_id = ?", (schedule_id,))
+        if contact_ids:
+            timestamp = datetime.now().isoformat()
+            cursor.executemany(
+                "INSERT OR IGNORE INTO ScheduleNotificationContacts (schedule_id, contact_id, added_at) VALUES (?, ?, ?)",
+                [(schedule_id, contact_id, timestamp) for contact_id in contact_ids]
+            )
+
             # Parse retry config
             retry_config = None
-            if row['retry_config']:
-                retry_config = RetryConfig.from_dict(json.loads(row['retry_config']))
+            if row["retry_config"]:
+                retry_config = RetryConfig.from_dict(json.loads(row["retry_config"]))
 
             # Parse prerequisites
             prerequisites = []
-            if row['prerequisites']:
-                prerequisites = json.loads(row['prerequisites'])
+            if row["prerequisites"]:
+                prerequisites = json.loads(row["prerequisites"])
 
             recovery_marked_at = (
-                self._parse_timestamp(row['recovery_marked_at'])
-                if 'recovery_marked_at' in row.keys()
+                self._parse_timestamp(row["recovery_marked_at"])
+                if "recovery_marked_at" in row.keys()
                 else None
             )
             recovery_resolved_at = (
-                self._parse_timestamp(row['recovery_resolved_at'])
-                if 'recovery_resolved_at' in row.keys()
+                self._parse_timestamp(row["recovery_resolved_at"])
+                if "recovery_resolved_at" in row.keys()
                 else None
             )
 
-            return ScheduledExperiment(
-                schedule_id=row['schedule_id'],
-                experiment_name=row['experiment_name'],
-                experiment_path=row['experiment_path'],
-                schedule_type=row['schedule_type'],
-                interval_hours=row['interval_hours'],
+            schedule = ScheduledExperiment(
+                schedule_id=row["schedule_id"],
+                experiment_name=row["experiment_name"],
+                experiment_path=row["experiment_path"],
+                schedule_type=row["schedule_type"],
+                interval_hours=row["interval_hours"],
                 start_time=start_time,
-                estimated_duration=row['estimated_duration'],
-                created_by=row['created_by'],
-                is_active=bool(row['is_active']),
+                estimated_duration=row["estimated_duration"],
+                created_by=row["created_by"],
+                is_active=bool(row["is_active"]),
                 retry_config=retry_config,
                 prerequisites=prerequisites,
-                failed_execution_count=row['failed_execution_count'] if 'failed_execution_count' in row.keys() else 0,
-                recovery_required=bool(row['recovery_required']) if 'recovery_required' in row.keys() else False,
-                recovery_note=row['recovery_note'] if 'recovery_note' in row.keys() else None,
+                failed_execution_count=row["failed_execution_count"] if "failed_execution_count" in row.keys() else 0,
+                recovery_required=bool(row["recovery_required"]) if "recovery_required" in row.keys() else False,
+                recovery_note=row["recovery_note"] if "recovery_note" in row.keys() else None,
                 recovery_marked_at=recovery_marked_at,
-                recovery_marked_by=row['recovery_marked_by'] if 'recovery_marked_by' in row.keys() else None,
+                recovery_marked_by=row["recovery_marked_by"] if "recovery_marked_by" in row.keys() else None,
                 recovery_resolved_at=recovery_resolved_at,
-                recovery_resolved_by=row['recovery_resolved_by'] if 'recovery_resolved_by' in row.keys() else None
+                recovery_resolved_by=row["recovery_resolved_by"] if "recovery_resolved_by" in row.keys() else None
             )
+
+            schedule.notification_contacts = self._get_schedule_contact_ids(schedule.schedule_id, conn)
+
+            return schedule
 
         except Exception as e:
             logger.error(f"Failed to convert row to ScheduledExperiment: {e}")
             return None
+
+    def _row_to_notification_log(self, row: sqlite3.Row) -> NotificationLogEntry:
+        """Convert database row to NotificationLogEntry."""
+        try:
+            recipients = json.loads(row["recipients"]) if row["recipients"] else []
+            attachments = json.loads(row["attachments"]) if row["attachments"] else []
+            metadata = json.loads(row["metadata"]) if row["metadata"] else {}
+        except Exception as exc:
+            logger.debug("Failed to parse notification log json payloads: %s", exc)
+            recipients = []
+            attachments = []
+            metadata = {}
+
+        return NotificationLogEntry(
+            log_id=row["log_id"],
+            schedule_id=row["schedule_id"],
+            execution_id=row["execution_id"],
+            event_type=row["event_type"],
+            status=row["status"],
+            subject=row["subject"],
+            message=row["message"],
+            recipients=recipients,
+            attachments=attachments,
+            error_message=row["error_message"],
+            triggered_at=parse_iso_datetime_to_local(row["triggered_at"]),
+            processed_at=parse_iso_datetime_to_local(row["processed_at"]),
+            metadata=metadata,
+        )
 
 
     def get_execution_history(self, schedule_id: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:

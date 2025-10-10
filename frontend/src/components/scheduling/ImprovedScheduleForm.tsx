@@ -12,7 +12,7 @@
  * - Responsive layout
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useModalFocus } from '../../hooks/useModalFocus';
 import {
   Dialog,
@@ -43,7 +43,9 @@ import {
   Radio,
   RadioGroup,
   FormLabel,
-  Switch
+  Switch,
+  Autocomplete,
+  Checkbox
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -52,10 +54,12 @@ import {
   Settings as SettingsIcon,
   ExpandMore as ExpandMoreIcon,
   Refresh as RefreshIcon,
-  FolderOpen as FolderIcon
+  FolderOpen as FolderIcon,
+  CheckBoxOutlineBlank as CheckBoxOutlineBlankIcon,
+  CheckBox as CheckBoxIcon
 } from '@mui/icons-material';
 import { schedulingAPI, schedulingService } from '../../services/schedulingApi';
-import { EvoYeastExperimentOption } from '../../types/scheduling';
+import { EvoYeastExperimentOption, NotificationContact } from '../../types/scheduling';
 
 interface ExperimentFile {
   name: string;
@@ -74,6 +78,7 @@ interface ScheduleFormData {
   start_time: string | null;
   estimated_duration: number;
   prerequisites: string[];
+  notification_contacts: string[];
   is_active: boolean;
   max_retries: number;
   retry_delay_minutes: number;
@@ -86,6 +91,7 @@ interface ImprovedScheduleFormProps {
   onSubmit: (data: ScheduleFormData) => Promise<void>;
   initialData?: Partial<ScheduleFormData>;
   mode?: 'create' | 'edit';
+  contacts: NotificationContact[];
 }
 
 const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
@@ -93,7 +99,8 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
   onClose,
   onSubmit,
   initialData,
-  mode = 'create'
+  mode = 'create',
+  contacts,
 }) => {
   // Form state
   const [formData, setFormData] = useState<ScheduleFormData>({
@@ -104,6 +111,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
     start_time: null,
     estimated_duration: 55,
     prerequisites: initialData?.prerequisites ?? [],
+    notification_contacts: initialData?.notification_contacts ?? [],
     is_active: true,
     max_retries: 3,
     retry_delay_minutes: 2,
@@ -138,6 +146,13 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
     }
     return { hours: 1, minutes: 0 };
   });
+
+  const checkboxIcon = <CheckBoxOutlineBlankIcon fontSize="small" />;
+  const checkboxCheckedIcon = <CheckBoxIcon fontSize="small" />;
+  const selectedContacts = useMemo(
+    () => contacts.filter((contact) => formData.notification_contacts.includes(contact.contact_id)),
+    [contacts, formData.notification_contacts],
+  );
 
 
   useEffect(() => {
@@ -254,6 +269,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
       start_time: null,
       estimated_duration: 55,
       prerequisites: [],
+      notification_contacts: [],
       is_active: true,
       max_retries: 3,
       retry_delay_minutes: 2,
@@ -266,6 +282,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
       ...initialData,
       start_time: initialData?.start_time ?? null,
       prerequisites: initialPrereqs,
+      notification_contacts: initialData?.notification_contacts ?? defaultFormData.notification_contacts,
       max_retries: initialData?.max_retries ?? defaultFormData.max_retries,
       retry_delay_minutes: initialData?.retry_delay_minutes ?? defaultFormData.retry_delay_minutes,
       backoff_strategy: initialData?.backoff_strategy ?? defaultFormData.backoff_strategy,
@@ -606,6 +623,48 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                     fullWidth
                     InputLabelProps={{ shrink: true }}
                     helperText="When should this schedule start?"
+                  />
+                </Grid>
+
+                <Grid item xs={12} md={6}>
+                  <Autocomplete
+                    multiple
+                    disableCloseOnSelect
+                    options={contacts}
+                    value={selectedContacts}
+                    isOptionEqualToValue={(option, value) => option.contact_id === value.contact_id}
+                    getOptionLabel={(option) => option.display_name}
+                    onChange={(_, selected) =>
+                      setFormData({
+                        ...formData,
+                        notification_contacts: selected.map((contact) => contact.contact_id),
+                      })
+                    }
+                    renderOption={(props, option, { selected }) => (
+                      <li {...props}>
+                        <Checkbox
+                          icon={checkboxIcon}
+                          checkedIcon={checkboxCheckedIcon}
+                          style={{ marginRight: 8 }}
+                          checked={selected}
+                        />
+                        <Box>
+                          <Typography variant="body2">{option.display_name}</Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {option.email_address}
+                          </Typography>
+                        </Box>
+                      </li>
+                    )}
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        label="Notification Contacts"
+                        placeholder={contacts.length ? 'Select contacts' : 'No contacts available'}
+                        helperText="Contacts receive alerts for long-running or aborted runs"
+                      />
+                    )}
+                    disabled={!contacts.length}
                   />
                 </Grid>
 

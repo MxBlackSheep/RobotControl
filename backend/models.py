@@ -4,7 +4,7 @@ Consolidated type definitions for camera service and API responses
 """
 
 from typing import Optional, Any, Dict, List, Union
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 import uuid
 
@@ -119,6 +119,7 @@ class ScheduledExperiment:
     is_active: bool = True
     retry_config: Optional[RetryConfig] = None
     prerequisites: List[str] = None  # Database flags to set before execution
+    notification_contacts: List[str] = None  # Contact IDs to notify on issues
     failed_execution_count: int = 0  # Track failed executions for retry limits
     recovery_required: bool = False
     recovery_note: Optional[str] = None
@@ -133,6 +134,8 @@ class ScheduledExperiment:
         """Initialize default values after creation"""
         if self.prerequisites is None:
             self.prerequisites = []
+        if self.notification_contacts is None:
+            self.notification_contacts = []
         if self.retry_config is None:
             self.retry_config = RetryConfig()
         if not self.schedule_id:
@@ -155,6 +158,7 @@ class ScheduledExperiment:
             "is_active": self.is_active,
             "retry_config": self.retry_config.to_dict() if self.retry_config else None,
             "prerequisites": self.prerequisites,
+            "notification_contacts": self.notification_contacts,
             "failed_execution_count": self.failed_execution_count,
             "recovery_required": self.recovery_required,
             "recovery_note": self.recovery_note,
@@ -193,6 +197,7 @@ class ScheduledExperiment:
             is_active=data.get("is_active", True),
             retry_config=retry_config,
             prerequisites=data.get("prerequisites", []),
+            notification_contacts=data.get("notification_contacts", []),
             failed_execution_count=data.get("failed_execution_count", 0),
             recovery_required=data.get("recovery_required", False),
             recovery_note=data.get("recovery_note"),
@@ -202,6 +207,109 @@ class ScheduledExperiment:
             recovery_resolved_by=data.get("recovery_resolved_by"),
             created_at=created_at,
             updated_at=updated_at
+        )
+
+
+@dataclass
+class NotificationContact:
+    """Contact to notify about scheduling events."""
+    contact_id: str
+    display_name: str
+    email_address: str
+    is_active: bool = True
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    def __post_init__(self):
+        if not self.contact_id:
+            self.contact_id = str(uuid.uuid4())
+        if self.created_at is None:
+            self.created_at = datetime.now()
+        if self.updated_at is None:
+            self.updated_at = datetime.now()
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "contact_id": self.contact_id,
+            "display_name": self.display_name,
+            "email_address": self.email_address,
+            "is_active": self.is_active,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "NotificationContact":
+        return cls(
+            contact_id=data.get("contact_id", str(uuid.uuid4())),
+            display_name=data["display_name"],
+            email_address=data["email_address"],
+            is_active=bool(data.get("is_active", True)),
+            created_at=parse_iso_datetime_to_local(data.get("created_at")),
+            updated_at=parse_iso_datetime_to_local(data.get("updated_at")),
+        )
+
+
+@dataclass
+class NotificationLogEntry:
+    """Notification attempt record for auditing purposes."""
+    log_id: str
+    schedule_id: Optional[str]
+    execution_id: Optional[str]
+    event_type: str
+    status: str  # 'pending', 'sent', 'error'
+    recipients: List[str] = field(default_factory=list)
+    subject: Optional[str] = None
+    message: Optional[str] = None
+    attachments: List[str] = field(default_factory=list)
+    error_message: Optional[str] = None
+    triggered_at: Optional[datetime] = None
+    processed_at: Optional[datetime] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+    def __post_init__(self) -> None:
+        if not self.log_id:
+            self.log_id = str(uuid.uuid4())
+        if self.triggered_at is None:
+            self.triggered_at = datetime.now()
+        if self.recipients is None:
+            self.recipients = []
+        if self.attachments is None:
+            self.attachments = []
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "log_id": self.log_id,
+            "schedule_id": self.schedule_id,
+            "execution_id": self.execution_id,
+            "event_type": self.event_type,
+            "status": self.status,
+            "subject": self.subject,
+            "message": self.message,
+            "recipients": list(self.recipients),
+            "attachments": list(self.attachments),
+            "error_message": self.error_message,
+            "triggered_at": self.triggered_at.isoformat() if self.triggered_at else None,
+            "processed_at": self.processed_at.isoformat() if self.processed_at else None,
+            "metadata": self.metadata or {},
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "NotificationLogEntry":
+        return cls(
+            log_id=data.get("log_id", str(uuid.uuid4())),
+            schedule_id=data.get("schedule_id"),
+            execution_id=data.get("execution_id"),
+            event_type=data.get("event_type", "unknown"),
+            status=data.get("status", "pending"),
+            subject=data.get("subject"),
+            message=data.get("message"),
+            recipients=list(data.get("recipients", []) or []),
+            attachments=list(data.get("attachments", []) or []),
+            error_message=data.get("error_message"),
+            triggered_at=parse_iso_datetime_to_local(data.get("triggered_at")),
+            processed_at=parse_iso_datetime_to_local(data.get("processed_at")),
+            metadata=data.get("metadata"),
         )
 
 
