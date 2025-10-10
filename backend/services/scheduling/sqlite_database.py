@@ -1149,12 +1149,6 @@ class SQLiteSchedulingDatabase:
             logger.error(f"Failed to get database info: {e}")
             return {"error": str(e)}
     
-    def _row_to_scheduled_experiment(self, row: sqlite3.Row, conn: Optional[sqlite3.Connection] = None) -> Optional[ScheduledExperiment]:
-        """Convert database row to ScheduledExperiment object"""
-        try:
-            # Parse datetime fields preserving local wall-clock semantics
-            start_time = self._parse_timestamp(row["start_time"])
-
     def _get_schedule_contact_ids(self, schedule_id: str, conn: Optional[sqlite3.Connection] = None) -> List[str]:
         if not schedule_id:
             return []
@@ -1179,26 +1173,32 @@ class SQLiteSchedulingDatabase:
                 [(schedule_id, contact_id, timestamp) for contact_id in contact_ids]
             )
 
-            # Parse retry config
+    def _row_to_scheduled_experiment(self, row: sqlite3.Row, conn: Optional[sqlite3.Connection] = None) -> Optional[ScheduledExperiment]:
+        """Convert database row to ScheduledExperiment object"""
+        try:
+            start_time = self._parse_timestamp(row["start_time"])
+            row_keys = set(row.keys()) if hasattr(row, "keys") else set()
+            created_at = self._parse_timestamp(row["created_at"]) if "created_at" in row_keys else None
+            updated_at = self._parse_timestamp(row["updated_at"]) if "updated_at" in row_keys else None
+
             retry_config = None
-            if row["retry_config"]:
-                retry_config = RetryConfig.from_dict(json.loads(row["retry_config"]))
+            raw_retry = row["retry_config"] if "retry_config" in row_keys else None
+            if raw_retry:
+                try:
+                    retry_config = RetryConfig.from_dict(json.loads(raw_retry))
+                except Exception as exc:  # pragma: no cover - defensive
+                    logger.debug("Failed to parse retry_config: %s", exc)
 
-            # Parse prerequisites
-            prerequisites = []
-            if row["prerequisites"]:
-                prerequisites = json.loads(row["prerequisites"])
+            prerequisites: List[str] = []
+            raw_prereqs = row["prerequisites"] if "prerequisites" in row_keys else None
+            if raw_prereqs:
+                try:
+                    prerequisites = json.loads(raw_prereqs)
+                except Exception as exc:  # pragma: no cover
+                    logger.debug("Failed to parse prerequisites: %s", exc)
 
-            recovery_marked_at = (
-                self._parse_timestamp(row["recovery_marked_at"])
-                if "recovery_marked_at" in row.keys()
-                else None
-            )
-            recovery_resolved_at = (
-                self._parse_timestamp(row["recovery_resolved_at"])
-                if "recovery_resolved_at" in row.keys()
-                else None
-            )
+            recovery_marked_at = self._parse_timestamp(row["recovery_marked_at"]) if "recovery_marked_at" in row_keys else None
+            recovery_resolved_at = self._parse_timestamp(row["recovery_resolved_at"]) if "recovery_resolved_at" in row_keys else None
 
             schedule = ScheduledExperiment(
                 schedule_id=row["schedule_id"],
@@ -1212,21 +1212,27 @@ class SQLiteSchedulingDatabase:
                 is_active=bool(row["is_active"]),
                 retry_config=retry_config,
                 prerequisites=prerequisites,
-                failed_execution_count=row["failed_execution_count"] if "failed_execution_count" in row.keys() else 0,
-                recovery_required=bool(row["recovery_required"]) if "recovery_required" in row.keys() else False,
-                recovery_note=row["recovery_note"] if "recovery_note" in row.keys() else None,
+                notification_contacts=[],
+                failed_execution_count=row["failed_execution_count"] if "failed_execution_count" in row_keys else 0,
+                recovery_required=bool(row["recovery_required"]) if "recovery_required" in row_keys else False,
+                recovery_note=row["recovery_note"] if "recovery_note" in row_keys else None,
                 recovery_marked_at=recovery_marked_at,
-                recovery_marked_by=row["recovery_marked_by"] if "recovery_marked_by" in row.keys() else None,
+                recovery_marked_by=row["recovery_marked_by"] if "recovery_marked_by" in row_keys else None,
                 recovery_resolved_at=recovery_resolved_at,
-                recovery_resolved_by=row["recovery_resolved_by"] if "recovery_resolved_by" in row.keys() else None
+                recovery_resolved_by=row["recovery_resolved_by"] if "recovery_resolved_by" in row_keys else None,
+                created_at=created_at,
+                updated_at=updated_at,
             )
 
-            schedule.notification_contacts = self._get_schedule_contact_ids(schedule.schedule_id, conn)
+            schedule.notification_contacts = self._get_schedule_contact_ids(
+                schedule.schedule_id,
+                conn,
+            )
 
             return schedule
 
-        except Exception as e:
-            logger.error(f"Failed to convert row to ScheduledExperiment: {e}")
+        except Exception as exc:
+            logger.error("Failed to convert row to ScheduledExperiment: %s", exc)
             return None
 
     def _row_to_notification_log(self, row: sqlite3.Row) -> NotificationLogEntry:

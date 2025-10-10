@@ -105,7 +105,8 @@ const CreateScheduleDialog: React.FC<CreateScheduleDialogProps> = ({
     max_retries: 3,
     retry_delay_minutes: 2,
     backoff_strategy: 'linear',
-    prerequisites: []
+    prerequisites: [],
+    notification_contacts: []
   });
   
   // Helper for date/time conversion
@@ -151,7 +152,8 @@ const CreateScheduleDialog: React.FC<CreateScheduleDialogProps> = ({
       max_retries: 3,
       retry_delay_minutes: 2,
       backoff_strategy: 'linear',
-      prerequisites: []
+      prerequisites: [],
+      notification_contacts: []
     });
     setErrors([]);
     setPrerequisiteInput('');
@@ -417,7 +419,8 @@ const EditScheduleDialog: React.FC<EditScheduleDialogProps> = ({
         estimated_duration: schedule.estimated_duration,
         is_active: schedule.is_active,
         retry_config: schedule.retry_config,
-        prerequisites: schedule.prerequisites
+        prerequisites: schedule.prerequisites,
+        notification_contacts: schedule.notification_contacts ?? []
       });
     }
   }, [schedule]);
