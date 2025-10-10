@@ -125,7 +125,7 @@ async def get_notification_settings_endpoint(
     if current_user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin role required to manage notification settings")
 
-    _, db_mgr, _, _ = get_services()
+    scheduler, db_mgr, _, _ = get_services()()
     settings = db_mgr.get_notification_settings()
     data = settings.to_public_dict()
 
@@ -196,13 +196,19 @@ async def update_notification_settings_endpoint(
         updated_by=current_user.get("username"),
     )
 
-    _, db_mgr, _, _ = get_services()
+    scheduler, db_mgr, _, _ = get_services()()
     updated = db_mgr.update_notification_settings(
         settings,
         password_encrypted=encrypted_password,
         update_password=update_password,
     )
     data = updated.to_public_dict()
+
+    if scheduler:
+        try:
+            scheduler.refresh_notification_service()
+        except Exception as exc:
+            logger.warning("Failed to refresh notification service after SMTP update: %s", exc)
 
     return ApiResponse(
         success=True,
@@ -1188,7 +1194,7 @@ async def get_evo_yeast_experiments(
 ):
     """Return EvoYeast experiments with their ScheduledToRun flag states."""
     try:
-        _, db_mgr, _, _ = get_services()
+        scheduler, db_mgr, _, _ = get_services()()
         experiments = db_mgr.get_evo_yeast_experiments(limit)
 
         response = ApiResponse(

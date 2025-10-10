@@ -886,6 +886,21 @@ class SchedulerEngine:
             logger.error("Failed to refresh notification contacts: %s", exc)
             return []
 
+    def refresh_notification_service(self) -> None:
+        """Reload the global notification service to pick up new SMTP settings."""
+        if not self.config.enable_notifications:
+            return
+        try:
+            from backend.services.notifications import (
+                get_notification_service,
+                reset_notification_service,
+            )
+            reset_notification_service()
+            self._notification_service = get_notification_service()
+            logger.info("Notification service reloaded with latest SMTP settings")
+        except Exception as exc:
+            logger.error("Failed to refresh notification service: %s", exc)
+
     def get_notification_contact(self, contact_id: str) -> Optional[NotificationContact]:
         """Return cached notification contact if available."""
         if not contact_id:

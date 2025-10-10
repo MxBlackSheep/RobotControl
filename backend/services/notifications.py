@@ -541,3 +541,9 @@ def get_notification_service() -> SchedulingNotificationService:
     if _notification_service is None:
         _notification_service = SchedulingNotificationService()
     return _notification_service
+
+
+def reset_notification_service() -> None:
+    """Force recreation of the global scheduling notification service."""
+    global _notification_service
+    _notification_service = None
