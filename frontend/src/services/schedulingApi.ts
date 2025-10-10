@@ -134,7 +134,6 @@ const normalizeNotificationSettings = (payload: any): NotificationSettings => ({
   has_password: Boolean(payload?.has_password),
   updated_at: coerceOptionalString(payload?.updated_at),
   updated_by: coerceOptionalString(payload?.updated_by),
-  encryption_ready: payload?.encryption_ready === undefined ? undefined : Boolean(payload?.encryption_ready),
 });
 
 const normalizeNotificationLog = (payload: any): NotificationLogEntry => ({

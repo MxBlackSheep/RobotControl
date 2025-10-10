@@ -116,14 +116,6 @@ def _validate_email_address(value: Any) -> str:
     return email
 
 
-def _encryption_is_ready() -> bool:
-    try:
-        encrypt_secret("probe-value")  # Discarded; validates key presence
-        return True
-    except SecretCipherError:
-        return False
-
-
 @router.get("/notifications/settings")
 async def get_notification_settings_endpoint(
     current_user: dict = Depends(get_current_user),
@@ -135,7 +127,6 @@ async def get_notification_settings_endpoint(
     _, db_mgr, _, _ = get_services()
     settings = db_mgr.get_notification_settings()
     data = settings.to_public_dict()
-    data["encryption_ready"] = _encryption_is_ready()
 
     return ApiResponse(
         success=True,
@@ -211,7 +202,6 @@ async def update_notification_settings_endpoint(
         update_password=update_password,
     )
     data = updated.to_public_dict()
-    data["encryption_ready"] = _encryption_is_ready()
 
     return ApiResponse(
         success=True,

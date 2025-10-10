@@ -35,4 +35,3 @@ pywin32>=306; sys_platform == "win32"
 # System tray icon support (optional)
 pystray==0.19.5
 Pillow==10.1.0
-cryptography==46.0.2

@@ -119,9 +119,7 @@ export interface NotificationSettings {
   has_password: boolean;
   updated_at?: string | null;
   updated_by?: string | null;
-  encryption_ready?: boolean;
 }
-
 
 export interface NotificationSettingsUpdatePayload {
   host: string;
