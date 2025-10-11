@@ -226,16 +226,27 @@ class SQLiteSchedulingDatabase:
                         smtp_password_encrypted TEXT,
                         use_tls INTEGER NOT NULL DEFAULT 1,
                         use_ssl INTEGER NOT NULL DEFAULT 0,
+                        manual_recovery_recipients TEXT,
                         updated_at TEXT,
                         updated_by TEXT
                     )
                     """
                 )
+                # Ensure manual_recovery_recipients column exists for legacy databases
+                settings_columns = {
+                    column["name"]
+                    for column in cursor.execute("PRAGMA table_info(NotificationSettings)")
+                }
+                if "manual_recovery_recipients" not in settings_columns:
+                    cursor.execute(
+                        "ALTER TABLE NotificationSettings ADD COLUMN manual_recovery_recipients TEXT DEFAULT ''"
+                    )
+                    logger.info("SQLite scheduling database: added manual_recovery_recipients column to NotificationSettings")
                 cursor.execute(
                     """
                     INSERT OR IGNORE INTO NotificationSettings (
-                        id, smtp_port, use_tls, use_ssl
-                    ) VALUES (1, 587, 1, 0)
+                        id, smtp_port, use_tls, use_ssl, manual_recovery_recipients
+                    ) VALUES (1, 587, 1, 0, '')
                     """
                 )
                 
@@ -492,6 +503,7 @@ class SQLiteSchedulingDatabase:
                     "smtp_sender = :smtp_sender",
                     "use_tls = :use_tls",
                     "use_ssl = :use_ssl",
+                    "manual_recovery_recipients = :manual_recovery_recipients",
                     "updated_at = :updated_at",
                     "updated_by = :updated_by",
                 ]
@@ -502,13 +514,13 @@ class SQLiteSchedulingDatabase:
                     "smtp_sender": settings.sender,
                     "use_tls": 1 if settings.use_tls else 0,
                     "use_ssl": 1 if settings.use_ssl else 0,
+                    "manual_recovery_recipients": ",".join(settings.manual_recovery_recipients or []),
                     "updated_at": timestamp,
                     "updated_by": settings.updated_by,
                 }
                 if update_password:
                     set_clauses.append("smtp_password_encrypted = :smtp_password_encrypted")
                     params["smtp_password_encrypted"] = password_encrypted
-
                 query = f"""
                     UPDATE NotificationSettings
                     SET {", ".join(set_clauses)}
@@ -521,10 +533,10 @@ class SQLiteSchedulingDatabase:
                         """
                         INSERT OR IGNORE INTO NotificationSettings (
                             id, smtp_host, smtp_port, smtp_username, smtp_sender,
-                            smtp_password_encrypted, use_tls, use_ssl, updated_at, updated_by
+                            smtp_password_encrypted, use_tls, use_ssl, manual_recovery_recipients, updated_at, updated_by
                         ) VALUES (
                             1, :smtp_host, :smtp_port, :smtp_username, :smtp_sender,
-                            :smtp_password_encrypted, :use_tls, :use_ssl, :updated_at, :updated_by
+                            :smtp_password_encrypted, :use_tls, :use_ssl, :manual_recovery_recipients, :updated_at, :updated_by
                         )
                         """,
                         {

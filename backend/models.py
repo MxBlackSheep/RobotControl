@@ -326,6 +326,7 @@ class NotificationSettings:
     use_ssl: bool = False
     updated_at: Optional[datetime] = None
     updated_by: Optional[str] = None
+    manual_recovery_recipients: Optional[List[str]] = None
 
     def to_public_dict(self) -> Dict[str, Any]:
         """Serialize without exposing the encrypted password."""
@@ -339,11 +340,14 @@ class NotificationSettings:
             "has_password": bool(self.password_encrypted),
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             "updated_by": self.updated_by,
+            "manual_recovery_recipients": self.manual_recovery_recipients or [],
         }
 
     @classmethod
     def from_row(cls, row: Any) -> "NotificationSettings":
         data = dict(row)
+        recipients_raw = data.get("manual_recovery_recipients") or ""
+        recipients = [email.strip() for email in recipients_raw.split(",") if email and email.strip()]
         return cls(
             host=data.get("smtp_host"),
             port=data.get("smtp_port", 587),
@@ -354,6 +358,7 @@ class NotificationSettings:
             use_ssl=bool(data.get("use_ssl", 0)),
             updated_at=parse_iso_datetime_to_local(data.get("updated_at")),
             updated_by=data.get("updated_by"),
+            manual_recovery_recipients=recipients or None,
         )
 
 

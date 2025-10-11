@@ -41,7 +41,11 @@ class DummySMTP:
 class StubEmailService:
     def __init__(self):
         self.calls = []
-        self.config = type("Cfg", (), {"is_enabled": True, "recipients": []})()
+        self.config = type(
+            "Cfg",
+            (),
+            {"is_enabled": True, "recipients": [], "manual_recovery_recipients": []},
+        )()
         self.last_error = None
 
     def send(self, subject, body, *, to=None, attachments=None):
@@ -50,10 +54,13 @@ class StubEmailService:
                 "subject": subject,
                 "body": body,
                 "recipients": list(to or []),
-                "attachments": list(attachments or []),
+                "attachments": [str(path) for path in (attachments or [])],
             }
         )
         return True
+
+    def get_manual_recovery_recipients(self):
+        return list(self.config.manual_recovery_recipients)
 
 
 @pytest.fixture(autouse=True)
@@ -91,13 +98,17 @@ def test_email_service_sends_when_configured(monkeypatch):
         sender="noreply@test",
         use_tls=False,
         use_ssl=False,
+        manual_recovery_recipients=["ops@test"],
+        password_encrypted="token",
     )
     monkeypatch.setattr(
         "backend.services.notifications._load_notification_settings",
         lambda: stub_settings,
     )
-
-    monkeypatch.setenv("PYROBOT_ALERT_RECIPIENTS", "ops@test")
+    monkeypatch.setattr(
+        "backend.services.notifications.decrypt_secret",
+        lambda token: "secret" if token else None,
+    )
 
     dummy = DummySMTP("smtp.test", 1025)
     monkeypatch.setattr(smtplib, "SMTP", lambda host, port, timeout=None: DummySMTP(host, port, timeout))
@@ -171,6 +182,28 @@ def test_schedule_alert_uses_rolling_clip_fallback(monkeypatch, tmp_path):
     attachments = stub_email.calls[0]["attachments"]
     assert attachments == [str(summary_clip)]
     assert any("summary" in note.lower() for note in result.attachment_notes)
+
+
+def test_manual_recovery_prefers_configured_recipients():
+    service = SchedulingNotificationService()
+    stub_email = StubEmailService()
+    stub_email.config.manual_recovery_recipients = ["manual@test"]
+    service.email = stub_email  # type: ignore[assignment]
+
+    schedule = ScheduledExperiment(
+        schedule_id="sched-1",
+        experiment_name="Demo Recovery",
+        experiment_path="C:/Methods/demo.med",
+        schedule_type="once",
+        estimated_duration=30,
+        notification_contacts=[],
+    )
+
+    service.manual_recovery_required(schedule, note=None, actor="ops")
+
+    assert stub_email.calls, "Expected manual recovery email to be sent"
+    assert stub_email.calls[0]["recipients"] == ["manual@test"]
+
 
 def test_should_block_due_to_abort_detects_abort(monkeypatch):
     from backend.services import scheduling as scheduling_services

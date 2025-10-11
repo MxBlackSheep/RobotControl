@@ -771,7 +771,7 @@ class SchedulerEngine:
         if aborted:
             context: Dict[str, Any] = {
                 "error_message": execution.error_message or "Unknown error",
-                "retry_count": execution.retry_count,
+                "failure_count": experiment.failed_execution_count,
             }
             if note:
                 context["note"] = note

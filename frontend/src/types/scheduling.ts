@@ -119,6 +119,7 @@ export interface NotificationSettings {
   has_password: boolean;
   updated_at?: string | null;
   updated_by?: string | null;
+  manual_recovery_recipients: string[];
 }
 
 export interface NotificationSettingsUpdatePayload {
@@ -129,6 +130,7 @@ export interface NotificationSettingsUpdatePayload {
   use_tls: boolean;
   use_ssl: boolean;
   password?: string | null;
+  manual_recovery_recipients: string[];
 }
 
 export interface NotificationTestEmailResponse {

@@ -135,6 +135,9 @@ const normalizeNotificationSettings = (payload: any): NotificationSettings => ({
   has_password: Boolean(payload?.has_password),
   updated_at: coerceOptionalString(payload?.updated_at),
   updated_by: coerceOptionalString(payload?.updated_by),
+  manual_recovery_recipients: Array.isArray(payload?.manual_recovery_recipients)
+    ? payload.manual_recovery_recipients.map((value: unknown) => coerceString(value))
+    : [],
 });
 
 const normalizeNotificationLog = (payload: any): NotificationLogEntry => ({
@@ -419,16 +422,17 @@ export const schedulingService = {
   },
 
   async updateNotificationSettings(
-    payload: NotificationSettingsUpdatePayload,
-  ): Promise<{ settings?: NotificationSettings; error?: string }> {
-    try {
-      const request: Record<string, unknown> = {
-        host: payload.host,
-        port: payload.port,
-        sender: payload.sender,
-        use_tls: payload.use_tls,
-        use_ssl: payload.use_ssl,
-      };
+      payload: NotificationSettingsUpdatePayload,
+    ): Promise<{ settings?: NotificationSettings; error?: string }> {
+      try {
+        const request: Record<string, unknown> = {
+          host: payload.host,
+          port: payload.port,
+          sender: payload.sender,
+          use_tls: payload.use_tls,
+          use_ssl: payload.use_ssl,
+          manual_recovery_recipients: payload.manual_recovery_recipients,
+        };
       if (payload.username !== undefined) {
         request.username = payload.username;
       }

@@ -42,13 +42,6 @@ def _env(name: str, default: Optional[str] = None) -> Optional[str]:
     return value.strip()
 
 
-def _env_bool(name: str, default: bool = True) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
-
-
 def _load_notification_settings() -> NotificationSettings:
     from backend.services.scheduling.sqlite_database import get_sqlite_scheduling_database
 
@@ -63,6 +56,7 @@ class EmailConfig:
     password: Optional[str]
     sender: Optional[str]
     recipients: List[str]
+    manual_recovery_recipients: List[str]
     use_tls: bool
     use_ssl: bool
 
@@ -78,11 +72,18 @@ class EmailConfig:
 class EmailNotificationService:
     """Minimal SMTP client used for manual recovery alerts."""
 
+    @staticmethod
+    def _normalize_csv(values: Optional[Union[str, List[str]]]) -> List[str]:
+        if not values:
+            return []
+        if isinstance(values, str):
+            parts = values.split(",")
+        else:
+            parts = values
+        return [part.strip() for part in parts if part and part.strip()]
+
     def __init__(self) -> None:
         self.last_error: Optional[str] = None
-        recipients_raw = _env("PYROBOT_ALERT_RECIPIENTS") or _env("PYROBOT_SMTP_TO") or ""
-        recipients = [addr.strip() for addr in recipients_raw.split(",") if addr.strip()]
-
         self._settings_error: Optional[str] = None
         self._settings = NotificationSettings()
 
@@ -91,6 +92,8 @@ class EmailNotificationService:
         except Exception as exc:  # pragma: no cover - initialization guard
             self._settings_error = str(exc)
             logger.warning("Failed to load notification settings: %s", exc)
+
+        manual_recipients = self._normalize_csv(self._settings.manual_recovery_recipients)
 
         password_plain: Optional[str] = None
         if self._settings.password_encrypted:
@@ -107,7 +110,8 @@ class EmailNotificationService:
             username=username,
             password=password_plain,
             sender=self._settings.sender,
-            recipients=recipients,
+            recipients=manual_recipients,
+            manual_recovery_recipients=manual_recipients,
             use_tls=self._settings.use_tls,
             use_ssl=self._settings.use_ssl,
         )
@@ -115,17 +119,16 @@ class EmailNotificationService:
         if not self.config.is_enabled:
             logger.info("Email notifications disabled: SMTP host/sender not configured")
         elif not self.config.password:
-            fallback_password = _env("PYROBOT_SMTP_PASSWORD")
-            if fallback_password:
-                self.config.password = fallback_password
-                logger.info("SMTP password resolved from PYROBOT_SMTP_PASSWORD environment variable")
-            else:
-                self._settings_error = self._settings_error or "SMTP password is not configured"
-                logger.warning("SMTP password missing for host %s; authentication will be skipped", self.config.host)
+            self._settings_error = self._settings_error or "SMTP password is not configured"
+            logger.warning("SMTP password missing for host %s; email delivery will be blocked until configured", self.config.host)
 
-        self._smtp_timeout = _env_int("PYROBOT_SMTP_TIMEOUT", 60)
-        self._smtp_retries = _env_int("PYROBOT_SMTP_RETRIES", 3)
-        self._smtp_retry_delay = _env_int("PYROBOT_SMTP_RETRY_DELAY", 5)
+        # Default delivery tuning (overridable via NotificationSettings in future revisions)
+        self._smtp_timeout = 90
+        self._smtp_retries = 3
+        self._smtp_retry_delay = 8
+
+    def get_manual_recovery_recipients(self) -> List[str]:
+        return list(self.config.manual_recovery_recipients)
 
     def send(
         self,
@@ -243,9 +246,17 @@ class SchedulingNotificationService:
         note: Optional[str],
         actor: str,
     ) -> None:
+        recipients = self._manual_recovery_recipients(schedule)
+        if not recipients:
+            logger.warning(
+                "Skipping manual recovery notification for %s - no recipients configured",
+                schedule.schedule_id,
+            )
+            return
+
         subject = f"PyRobot manual recovery required: {schedule.experiment_name}"
         lines = [
-            "A scheduled experiment requires manual recovery before it can run again.",
+            "Status: Manual Recovery Required",
             "",
             f"Experiment: {schedule.experiment_name}",
             f"Schedule ID: {schedule.schedule_id}",
@@ -253,12 +264,12 @@ class SchedulingNotificationService:
         ]
         marked = self._format_timestamp(getattr(schedule, "recovery_marked_at", None))
         if marked:
-            lines.append(f"Marked at: {marked}")
+            lines.append(f"Flagged at: {marked}")
         if note:
-            lines.extend(["", "Notes:", note])
+            lines.extend(["", "Reason:", note])
 
         body = "\n".join(lines)
-        self.email.send(subject, body)
+        self.email.send(subject, body, to=recipients)
 
     def manual_recovery_cleared(
         self,
@@ -267,9 +278,17 @@ class SchedulingNotificationService:
         note: Optional[str],
         actor: str,
     ) -> None:
+        recipients = self._manual_recovery_recipients(schedule)
+        if not recipients:
+            logger.warning(
+                "Skipping manual recovery clearance notification for %s - no recipients configured",
+                schedule.schedule_id,
+            )
+            return
+
         subject = f"PyRobot manual recovery cleared: {schedule.experiment_name}"
         lines = [
-            "Manual recovery has been cleared for a scheduled experiment.",
+            "Status: Manual Recovery Cleared",
             "",
             f"Experiment: {schedule.experiment_name}",
             f"Schedule ID: {schedule.schedule_id}",
@@ -282,7 +301,25 @@ class SchedulingNotificationService:
             lines.extend(["", "Resolution notes:", note])
 
         body = "\n".join(lines)
-        self.email.send(subject, body)
+        self.email.send(subject, body, to=recipients)
+
+    def _manual_recovery_recipients(self, schedule: ScheduledExperiment) -> List[str]:
+        recipients = self.email.get_manual_recovery_recipients()
+        if recipients:
+            return recipients
+        return self._collect_contact_emails(schedule)
+
+    def _collect_contact_emails(self, schedule: ScheduledExperiment) -> List[str]:
+        emails: List[str] = []
+        seen = set()
+        for contact_id in schedule.notification_contacts or []:
+            contact = self.get_notification_contact(contact_id)
+            if contact and contact.is_active and contact.email_address:
+                email = contact.email_address.strip()
+                if email and email not in seen:
+                    emails.append(email)
+                    seen.add(email)
+        return emails
 
     # ------------------------------------------------------------------
     # Schedule execution alerts
@@ -308,7 +345,14 @@ class SchedulingNotificationService:
         # Collect TRC file
         trc_file = self._locate_trc_file(schedule, execution)
         if trc_file:
-            attachments.append(trc_file)
+            converted = self._convert_trc_to_log(trc_file)
+            if converted and converted.exists():
+                attachments.append(converted)
+                cleanup.append(converted)
+                attachment_notes.append(f"Hamilton TRC log attached as {converted.name}.")
+            else:
+                attachments.append(trc_file)
+                attachment_notes.append("Hamilton TRC log attached in original .trc format.")
         else:
             attachment_notes.append("TRC log not found or unreadable.")
 
@@ -403,42 +447,105 @@ class SchedulingNotificationService:
         trigger: str,
         context: Dict[str, Any],
     ) -> Tuple[List[str], List[str]]:
-        lines = [
-            "PyRobot detected an execution event that requires attention.",
+        trigger_label = {
+            "long_running": "Long-running Execution",
+            "aborted": "Aborted Execution",
+        }.get(trigger, trigger.replace("_", " ").title())
+
+        lines: List[str] = [
+            f"Status: {trigger_label}",
             "",
             f"Experiment: {schedule.experiment_name}",
             f"Schedule ID: {schedule.schedule_id}",
-            f"Trigger: {trigger}",
-            f"Execution ID: {execution.execution_id}",
         ]
+        if execution.execution_id:
+            lines.append(f"Execution ID: {execution.execution_id}")
         if execution.start_time:
             lines.append(f"Started at: {self._format_timestamp(execution.start_time)}")
         if execution.end_time:
-            lines.append(f"Completed at: {self._format_timestamp(execution.end_time)}")
+            lines.append(f"Ended at: {self._format_timestamp(execution.end_time)}")
         if schedule.estimated_duration:
             lines.append(f"Expected duration: {schedule.estimated_duration} minutes")
-        if execution.duration_minutes:
+        if execution.duration_minutes is not None:
             lines.append(f"Recorded duration: {execution.duration_minutes} minutes")
-        if execution.error_message:
-            lines.extend(["", "Last error message:", execution.error_message])
 
-        if context:
-            lines.extend(["", "Context:"])
-            for key, value in context.items():
-                lines.append(f"  - {key}: {value}")
+        context_lines = self._format_context_lines(context)
+        if context_lines:
+            lines.extend(["", "Details:"])
+            lines.extend(f"  - {line}" for line in context_lines)
 
         lines.extend(
             [
-                "",
-                "Attachments:",
-                "  - Hamilton TRC log (if available)",
-                "  - Experiment video archive (if available)",
                 "",
                 "You are receiving this message because you are listed as a notification contact for this schedule.",
             ]
         )
 
         return lines, []
+    def _format_context_lines(self, context: Dict[str, Any]) -> List[str]:
+        if not context:
+            return []
+        formatted: List[str] = []
+        mapping = [
+            ("elapsed_minutes", "Elapsed runtime (minutes)", True),
+            ("threshold_minutes", "Alert threshold (minutes)", True),
+            ("expected_minutes", "Expected duration (minutes)", True),
+            ("runtime_minutes", "Recorded runtime (minutes)", True),
+            ("failure_count", "Failure count", False),
+            ("error_message", "Error", False),
+            ("note", "Note", False),
+        ]
+        seen = set()
+        for key, label, is_numeric in mapping:
+            if key in context and context[key] is not None:
+                value = context[key]
+                seen.add(key)
+                if is_numeric and isinstance(value, (int, float)):
+                    formatted.append(f"{label}: {float(value):.1f}")
+                else:
+                    formatted.append(f"{label}: {value}")
+        for key, value in context.items():
+            if key in seen or value is None:
+                continue
+            formatted.append(f"{key}: {value}")
+        return formatted
+
+    def _convert_trc_to_log(self, trc_file: Path) -> Optional[Path]:
+        try:
+            try:
+                content = trc_file.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                content = trc_file.read_text(encoding="latin-1")
+        except Exception as exc:
+            try:
+                data = trc_file.read_bytes()
+                content = data.decode("utf-8", errors="replace")
+            except Exception as inner_exc:
+                logger.debug("Failed to read TRC file %s: %s / %s", trc_file, exc, inner_exc)
+                return None
+        try:
+            with tempfile.NamedTemporaryFile(
+                prefix="pyrobot_trc_",
+                suffix=".log",
+                delete=False,
+                mode="w",
+                encoding="utf-8",
+            ) as temp:
+                temp.write(content)
+                temp_path = Path(temp.name)
+            safe_stem = trc_file.stem or "hamilton_log"
+            candidate = temp_path.with_name(f"{safe_stem}.log")
+            if candidate.exists():
+                candidate = temp_path.with_name(f"{safe_stem}_{int(time.time())}.log")
+            try:
+                temp_path.rename(candidate)
+                temp_path = candidate
+            except OSError as rename_exc:
+                logger.debug("Unable to rename TRC conversion output %s: %s", temp_path, rename_exc)
+            return temp_path
+        except Exception as exc:
+            logger.debug("Failed to convert TRC to log: %s", exc)
+            return None
 
     def _locate_trc_file(self, schedule: ScheduledExperiment, execution: JobExecution) -> Optional[Path]:
         """Find the most relevant TRC file for the execution."""
@@ -622,12 +729,3 @@ def reset_notification_service() -> None:
     """Force recreation of the global scheduling notification service."""
     global _notification_service
     _notification_service = None
-def _env_int(name: str, default: int) -> int:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    try:
-        value = int(raw.strip())
-        return value if value > 0 else default
-    except ValueError:
-        return default

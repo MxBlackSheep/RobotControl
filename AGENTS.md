@@ -20,7 +20,7 @@
 - Manual recovery actions trigger SMTP email alerts when configured so operators get notified as soon as intervention is required or resolved.
 
 ## Configuration Checklist
-- SMTP (optional): provide `PYROBOT_SMTP_HOST`, `PYROBOT_SMTP_PORT` (default 587), credentials, `PYROBOT_SMTP_FROM`, and comma-separated `PYROBOT_ALERT_RECIPIENTS`. TLS defaults to on; override with `PYROBOT_SMTP_USE_TLS` or `PYROBOT_SMTP_USE_SSL`.
+- SMTP (optional): configure host/port/sender/password and the manual recovery distribution list via the Scheduling → Email Settings admin tab; the scheduler now reads exclusively from the persisted NotificationSettings row.
 - Before packaging PyInstaller builds, run `python backend/services/embed_resources.py` to embed the latest frontend and restart the backend with `PYROBOT_SERVE_FRONTEND=1` when validating the embedded bundle.
 - PyInstaller builds load `build_scripts/runtime_hooks/silence_pkg_resources_warning.py` via `PyRobot.spec` to filter the deprecated `pkg_resources` warning—leave the runtime hook in place (or update it) when modifying the spec.
 

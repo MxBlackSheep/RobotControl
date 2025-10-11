@@ -1,28 +1,16 @@
-"""
-Scheduling API Router
-
-RESTful API endpoints for experiment scheduling management.
-Provides CRUD operations for scheduled experiments with role-based access control.
-
-Features:
-- Schedule creation, modification, and deletion
-- Calendar data endpoints for frontend visualization
-- Conflict detection and resolution
-- Real-time status updates
-- Role-based access control
-"""
-
-from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import Dict, Any, List, Optional, Union
 from datetime import datetime, timedelta
 import re
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from backend.services.auth import get_current_user
 from backend.services.scheduling import (
     get_scheduler_engine,
     get_scheduling_database_manager,
     get_job_queue_manager,
-    get_hamilton_process_monitor
+    get_hamilton_process_monitor,
 )
 from backend.services.notifications import EmailNotificationService
 from backend.services.scheduling.experiment_discovery import get_experiment_discovery_service
@@ -35,7 +23,6 @@ from backend.models import (
     NotificationContact,
     NotificationSettings,
 )
-import logging
 from backend.utils.secret_cipher import encrypt_secret, SecretCipherError
 
 try:
@@ -172,6 +159,21 @@ async def update_notification_settings_endpoint(
         # If SSL is requested, disable STARTTLS to avoid conflicting settings.
         use_tls = False
 
+    manual_recipients_input = payload.get("manual_recovery_recipients", [])
+    manual_recipients: List[str] = []
+    if isinstance(manual_recipients_input, str):
+        for value in manual_recipients_input.split(","):
+            if value.strip():
+                manual_recipients.append(_validate_email_address(value))
+    elif isinstance(manual_recipients_input, list):
+        for value in manual_recipients_input:
+            if not isinstance(value, str):
+                raise HTTPException(status_code=400, detail="manual_recovery_recipients must contain strings")
+            trimmed = value.strip()
+            if trimmed:
+                manual_recipients.append(_validate_email_address(trimmed))
+    elif manual_recipients_input not in (None, []):
+        raise HTTPException(status_code=400, detail="manual_recovery_recipients must be a string or list of strings")
     update_password = "password" in payload
     encrypted_password: Optional[str] = None
     if update_password:
@@ -185,6 +187,7 @@ async def update_notification_settings_endpoint(
                 encrypted_password = encrypt_secret(raw_password)
             except SecretCipherError as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
+    manual_recipients = list(dict.fromkeys(manual_recipients))
 
     settings = NotificationSettings(
         host=host,
@@ -194,6 +197,7 @@ async def update_notification_settings_endpoint(
         use_tls=use_tls,
         use_ssl=use_ssl,
         updated_by=current_user.get("username"),
+        manual_recovery_recipients=manual_recipients or None,
     )
 
     scheduler, db_mgr, _, _ = get_services()
@@ -1538,3 +1542,4 @@ async def get_recent_executions(
     except Exception as e:
         logger.error(f"Error getting recent executions: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
+

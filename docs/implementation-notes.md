@@ -1,3 +1,9 @@
+## 2025-10-11 Manual Recovery Distribution
+
+- Manual recovery recipient lists persist in NotificationSettings and flow through the admin API/UI; legacy `PYROBOT_*` email fallbacks were removed so delivery now depends on stored configuration (backend/api/scheduling.py, backend/services/scheduling/sqlite_database.py, backend/services/notifications.py, backend/tests/test_notifications.py).
+- Hamilton TRC attachments convert to `.log` files with predictable names before mailing, and scheduler alerts prefer the configured distribution list when present (backend/services/notifications.py, backend/tests/test_notifications.py).
+- Restored missing FastAPI imports so the scheduling router initializes correctly in packaged builds (backend/api/scheduling.py); rebuilt frontend assets, refreshed embedded resources, and regenerated the PyInstaller executable to capture all changes (frontend build output, backend/embedded_static.py, dist/PyRobot.exe via build_scripts/pyinstaller_build.py).
+
 ## 2025-10-10 Long-Run Alerts & SMTP Test Harness
 
 - Scheduler watchdog now fires long-running alerts strictly at 2x the estimated duration and falls back to a stitched MP4 summary built from the latest three rolling clips (recorded at 7.5 fps) when no experiment archive exists (backend/services/notifications.py, backend/services/scheduling/scheduler_engine.py, backend/tests/test_notifications.py).
