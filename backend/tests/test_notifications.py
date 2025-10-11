@@ -150,6 +150,15 @@ def test_schedule_alert_uses_rolling_clip_fallback(monkeypatch, tmp_path):
         is_active=True,
     )
 
+    summary_clip = tmp_path / "summary.mp4"
+    summary_clip.write_text("summary")
+
+    monkeypatch.setattr(
+        SchedulingNotificationService,
+        "_transcode_clips_to_mp4",
+        lambda self, clips: summary_clip,
+    )
+
     result = service.schedule_alert(
         schedule,
         execution,
@@ -160,10 +169,8 @@ def test_schedule_alert_uses_rolling_clip_fallback(monkeypatch, tmp_path):
 
     assert stub_email.calls, "Expected email send to be invoked"
     attachments = stub_email.calls[0]["attachments"]
-    assert len(attachments) == 5
-    attachment_names = [Path(item).name for item in attachments]
-    assert attachment_names == [f"clip_{idx}.avi" for idx in range(5, 0, -1)]
-    assert any("rolling clip" in note.lower() for note in result.attachment_notes)
+    assert attachments == [str(summary_clip)]
+    assert any("summary" in note.lower() for note in result.attachment_notes)
 
 def test_should_block_due_to_abort_detects_abort(monkeypatch):
     from backend.services import scheduling as scheduling_services

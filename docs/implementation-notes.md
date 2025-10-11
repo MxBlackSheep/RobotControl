@@ -1,6 +1,6 @@
 ## 2025-10-10 Long-Run Alerts & SMTP Test Harness
 
-- Scheduler watchdog now fires long-running alerts strictly at 2x the estimated duration and falls back to the latest five rolling clips (recorded at 7.5 fps) when no experiment archive exists (backend/services/notifications.py, backend/services/scheduling/scheduler_engine.py, backend/tests/test_notifications.py).
+- Scheduler watchdog now fires long-running alerts strictly at 2x the estimated duration and falls back to a stitched MP4 summary built from the latest three rolling clips (recorded at 7.5 fps) when no experiment archive exists (backend/services/notifications.py, backend/services/scheduling/scheduler_engine.py, backend/tests/test_notifications.py).
 - Camera recorder targets 7.5 fps for rolling clips and the unit suite asserts the new writer configuration (backend/services/camera.py, backend/tests/test_camera.py).
 - Added /api/scheduling/notifications/settings/test, UI wiring, and build safeguards: Send Test Email button, hook integration, and preserved dist/data/backups during PyInstaller rebuilds (backend/api/scheduling.py, frontend/src/components/scheduling/NotificationEmailSettingsPanel.tsx, frontend/src/services/schedulingApi.ts, frontend/src/hooks/useScheduling.ts, frontend/src/pages/SchedulingPage.tsx, build_scripts/pyinstaller_build.py).
 

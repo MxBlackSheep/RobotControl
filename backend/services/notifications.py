@@ -8,11 +8,18 @@ import os
 import shutil
 import smtplib
 import tempfile
+import time
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
+
+try:
+    import cv2  # type: ignore
+except Exception:  # pragma: no cover - optional dependency
+    cv2 = None  # type: ignore
 
 from backend.config import VIDEO_PATH
 from backend.models import (
@@ -24,6 +31,8 @@ from backend.models import (
 from backend.utils.secret_cipher import decrypt_secret, SecretCipherError
 
 logger = logging.getLogger(__name__)
+
+GMAIL_MESSAGE_SIZE_LIMIT = 24 * 1024 * 1024  # 24 MB safeguard below ESP limit
 
 
 def _env(name: str, default: Optional[str] = None) -> Optional[str]:
@@ -114,6 +123,10 @@ class EmailNotificationService:
                 self._settings_error = self._settings_error or "SMTP password is not configured"
                 logger.warning("SMTP password missing for host %s; authentication will be skipped", self.config.host)
 
+        self._smtp_timeout = _env_int("PYROBOT_SMTP_TIMEOUT", 60)
+        self._smtp_retries = _env_int("PYROBOT_SMTP_RETRIES", 3)
+        self._smtp_retry_delay = _env_int("PYROBOT_SMTP_RETRY_DELAY", 5)
+
     def send(
         self,
         subject: str,
@@ -164,26 +177,36 @@ class EmailNotificationService:
             except Exception as exc:  # pragma: no cover - I/O best effort
                 logger.warning("Failed to attach %s: %s", attachment, exc)
 
-        try:
-            if self.config.use_ssl:
-                smtp: Union[smtplib.SMTP, smtplib.SMTP_SSL]
-                smtp = smtplib.SMTP_SSL(self.config.host, self.config.port, timeout=15)
-            else:
-                smtp = smtplib.SMTP(self.config.host, self.config.port, timeout=15)
+        attempts = max(1, self._smtp_retries)
+        for attempt in range(1, attempts + 1):
+            try:
+                if self.config.use_ssl:
+                    smtp: Union[smtplib.SMTP, smtplib.SMTP_SSL]
+                    smtp = smtplib.SMTP_SSL(self.config.host, self.config.port, timeout=self._smtp_timeout)
+                else:
+                    smtp = smtplib.SMTP(self.config.host, self.config.port, timeout=self._smtp_timeout)
 
-            with smtp as client:
-                if self.config.use_tls and not self.config.use_ssl:
-                    client.starttls()
-                if self.config.username and self.config.password:
-                    client.login(self.config.username, self.config.password)
-                client.send_message(message)
+                with smtp as client:
+                    if self.config.use_tls and not self.config.use_ssl:
+                        client.starttls()
+                    if self.config.username and self.config.password:
+                        client.login(self.config.username, self.config.password)
+                    client.send_message(message)
 
-            logger.info("Sent email notification to %s", message["To"])
-            return True
-        except Exception as exc:  # pragma: no cover - network dependent
-            self.last_error = str(exc)
-            logger.warning("Failed to send email notification: %s", exc)
-            return False
+                logger.info("Sent email notification to %s (attempt %s/%s)", message["To"], attempt, attempts)
+                return True
+            except Exception as exc:  # pragma: no cover - network dependent
+                self.last_error = str(exc)
+                logger.warning(
+                    "Failed to send email notification (attempt %s/%s): %s",
+                    attempt,
+                    attempts,
+                    exc,
+                )
+                if attempt < attempts:
+                    time.sleep(self._smtp_retry_delay)
+
+        return False
 
 
 @dataclass
@@ -206,7 +229,6 @@ class SchedulingNotificationService:
         self.email = EmailNotificationService()
         self._video_root_dir = self._resolve_video_root()
         self._hamilton_log_dir = self._resolve_trc_directory()
-        self._video_archive_dir = self._video_root_dir / "experiments"
         self._rolling_clips_dir = self._video_root_dir / "rolling_clips"
 
     def _format_timestamp(self, value: Optional[object]) -> Optional[str]:
@@ -290,26 +312,27 @@ class SchedulingNotificationService:
         else:
             attachment_notes.append("TRC log not found or unreadable.")
 
-        # Collect video archive
-        archive = self._locate_video_archive(schedule, execution)
-        if archive:
-            zipped = self._zip_archive_folder(archive)
-            if zipped:
-                attachments.append(zipped)
-                cleanup.append(zipped)
-            else:
-                attachment_notes.append(f"Failed to zip archive folder {archive}.")
-        else:
-            attachment_notes.append("No video archive folder located.")
-            if trigger == "long_running":
-                fallback_clips = self._collect_recent_rolling_clips(limit=5)
-                if fallback_clips:
-                    attachments.extend(fallback_clips)
+        # Rolling clip summary (always attempt for operator context)
+        fallback_clips = self._collect_recent_rolling_clips(limit=3)
+        if fallback_clips:
+            summary_clip = self._transcode_clips_to_mp4(fallback_clips)
+            if summary_clip and summary_clip.exists():
+                size_bytes = summary_clip.stat().st_size
+                if size_bytes <= GMAIL_MESSAGE_SIZE_LIMIT:
+                    attachments.append(summary_clip)
+                    cleanup.append(summary_clip)
                     attachment_notes.append(
-                        f"Attached {len(fallback_clips)} rolling clip(s) from {self._rolling_clips_dir}."
+                        f"Attached rolling clip summary ({self._format_size(size_bytes)})."
                     )
                 else:
-                    attachment_notes.append("Rolling clip fallback unavailable (no recent clips).")
+                    summary_clip.unlink(missing_ok=True)
+                    attachment_notes.append(
+                        f"Rolling clip summary skipped (size {self._format_size(size_bytes)} exceeds limit)."
+                    )
+            else:
+                attachment_notes.append("Rolling clip summary unavailable (transcode failed).")
+        else:
+            attachment_notes.append("Rolling clip summary unavailable (no recent clips).")
 
         if attachment_notes:
             body_lines.extend(["", "Attachment notes:"])
@@ -458,39 +481,91 @@ class SchedulingNotificationService:
 
         return newest_match or newest_any
 
-    def _locate_video_archive(self, schedule: ScheduledExperiment, execution: JobExecution) -> Optional[Path]:
-        """Return the most recent video archive directory for the execution."""
-        base = self._video_archive_dir
-        if not base.exists():
+    def _transcode_clips_to_mp4(self, clips: List[Path]) -> Optional[Path]:
+        """Stitch rolling clips into a single MP4 attachment."""
+        if cv2 is None:  # pragma: no cover - optional dependency
+            logger.debug("OpenCV unavailable; skipping rolling clip transcode")
             return None
 
-        tokens = {
-            schedule.schedule_id.lower(),
-            (schedule.experiment_name or "").lower(),
-            Path(schedule.experiment_path or "").stem.lower(),
-            (execution.execution_id or "").lower(),
-        }
+        valid_clips = [clip for clip in clips if clip.exists() and clip.stat().st_size > 0]
+        if not valid_clips:
+            return None
 
-        latest_path: Optional[Path] = None
-        latest_mtime = float("-inf")
+        output_path = Path(tempfile.gettempdir()) / f"pyrobot_rolling_summary_{uuid.uuid4().hex}.mp4"
+        writer: Optional["cv2.VideoWriter"] = None
+        frame_size: Optional[Tuple[int, int]] = None
+        target_fps = 7.5
+        wrote_frames = False
+
         try:
-            for directory in base.iterdir():
-                if not directory.is_dir():
+            for clip in valid_clips:
+                cap = cv2.VideoCapture(str(clip))
+                if not cap.isOpened():
+                    logger.debug("Skipping rolling clip %s (unable to open)", clip)
                     continue
-                try:
-                    stat = directory.stat()
-                except OSError:
-                    continue
-                name_lower = directory.name.lower()
-                if any(token and token in name_lower for token in tokens):
-                    if stat.st_mtime > latest_mtime:
-                        latest_path = directory
-                        latest_mtime = stat.st_mtime
-        except Exception as exc:  # pragma: no cover
-            logger.debug("Failed to locate video archive: %s", exc)
+
+                clip_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 640)
+                clip_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 480)
+                clip_fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
+
+                if writer is None:
+                    frame_size = (clip_width, clip_height)
+                    target_fps = float(max(1.0, min(30.0, clip_fps if clip_fps and clip_fps > 0.5 else 7.5)))
+                    writer = self._create_video_writer(str(output_path), frame_size, target_fps)
+                    if writer is None:
+                        cap.release()
+                        return None
+
+                while True:
+                    ret, frame = cap.read()
+                    if not ret:
+                        break
+                    if frame_size and (frame.shape[1], frame.shape[0]) != frame_size:
+                        frame = cv2.resize(frame, frame_size)
+                    writer.write(frame)
+                    wrote_frames = True
+
+                cap.release()
+        finally:
+            if writer is not None:
+                writer.release()
+
+        if not wrote_frames:
+            logger.debug("No frames written during rolling clip transcode; removing output")
+            output_path.unlink(missing_ok=True)
             return None
 
-        return latest_path
+        return output_path
+
+    def _create_video_writer(
+        self,
+        file_path: str,
+        frame_size: Tuple[int, int],
+        fps: float,
+    ) -> Optional["cv2.VideoWriter"]:
+        """Initialise a video writer with preferred codecs."""
+        if cv2 is None:  # pragma: no cover - optional dependency
+            return None
+
+        codecs = ("mp4v", "XVID", "avc1", "H264")
+        for codec in codecs:
+            fourcc = cv2.VideoWriter_fourcc(*codec)
+            writer = cv2.VideoWriter(file_path, fourcc, fps, frame_size)
+            if writer.isOpened():
+                logger.debug("Using %s codec for rolling clip summary (fps=%.2f, size=%s)", codec, fps, frame_size)
+                return writer
+            writer.release()
+
+        logger.warning("Failed to initialise MP4 writer for rolling clip summary (tried %s)", codecs)
+        return None
+
+    def _format_size(self, size_bytes: int) -> str:
+        """Human-friendly byte formatter for attachment notes."""
+        if size_bytes < 1024:
+            return f"{size_bytes} B"
+        if size_bytes < 1024 * 1024:
+            return f"{size_bytes / 1024:.1f} KB"
+        return f"{size_bytes / (1024 * 1024):.1f} MB"
 
     def _zip_archive_folder(self, folder: Path) -> Optional[Path]:
         """Zip the archive folder and return the zip path."""
@@ -547,3 +622,12 @@ def reset_notification_service() -> None:
     """Force recreation of the global scheduling notification service."""
     global _notification_service
     _notification_service = None
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw.strip())
+        return value if value > 0 else default
+    except ValueError:
+        return default

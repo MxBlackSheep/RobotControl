@@ -27,3 +27,4 @@
 ## Implementation Note
 - Add implementation to docs/implementation-notes.md with newest note coming on top. 
 - The note should aim for clarity and preciseness, while try to be as brief as possible. The note aims to keep tracks of the development process and guide future codex sessions. 
+- For any requests proposed by the user: As always, review the relevant code, come up with ideas on how to fix them, then let the user know (before implementing). 
