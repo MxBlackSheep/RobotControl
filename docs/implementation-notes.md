@@ -1,3 +1,8 @@
+## 2025-10-11 Manual Recovery Dropdown
+
+- Swapped the manual recovery recipient text area for a multi-select fed by Notification Contacts, keeping custom addresses visible and clarifying the helper copy (frontend/src/components/scheduling/NotificationEmailSettingsPanel.tsx).
+- Passed the contact list through to the email settings panel so selections stay synchronized with the scheduler contact management view (frontend/src/pages/SchedulingPage.tsx).
+
 ## 2025-10-11 Manual Recovery Distribution
 
 - Manual recovery recipient lists persist in NotificationSettings and flow through the admin API/UI; legacy `PYROBOT_*` email fallbacks were removed so delivery now depends on stored configuration (backend/api/scheduling.py, backend/services/scheduling/sqlite_database.py, backend/services/notifications.py, backend/tests/test_notifications.py).

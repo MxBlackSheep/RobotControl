@@ -1255,6 +1255,7 @@ const SchedulingPage: React.FC = () => {
                   onRefresh={actions.loadNotificationSettings}
                   onSave={actions.updateNotificationSettings}
                   onSendTest={actions.sendNotificationTestEmail}
+                  contacts={state.contacts}
                 />
               )}
             </Stack>
