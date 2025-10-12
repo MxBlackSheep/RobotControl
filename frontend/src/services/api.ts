@@ -50,6 +50,9 @@ export const authAPI = {
   register: (username: string, email: string, password: string) =>
     api.post('/api/auth/register', { username, email, password }),
 
+  requestPasswordReset: (payload: { username?: string; email?: string; note?: string }) =>
+    api.post('/api/auth/password-reset/request', payload),
+
   refresh: (refreshToken: string) =>
     api.post('/api/auth/refresh', { refresh_token: refreshToken }),
 
@@ -104,5 +107,15 @@ export const systemAPI = {
 export const adminAPI = {
   getSystemStatus: () => api.get('/api/admin/system/status'),
   getUsers: () => api.get('/api/admin/users'),
+  getPasswordResetRequests: () => api.get('/api/admin/password-reset/requests'),
+  resolvePasswordResetRequest: (requestId: number, resolutionNote?: string) =>
+    api.post(`/api/admin/password-reset/requests/${requestId}/resolve`, {
+      resolution_note: resolutionNote,
+    }),
+  resetUserPassword: (username: string, newPassword: string, mustReset = true) =>
+    api.post(`/api/admin/users/${username}/reset-password`, {
+      new_password: newPassword,
+      must_reset: mustReset,
+    }),
   getDatabasePerformance: () => api.get('/api/admin/database/performance'),
 };

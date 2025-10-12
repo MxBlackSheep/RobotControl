@@ -197,6 +197,21 @@ class ResponseFormatter:
             status_code=400,
             metadata=metadata
         )
+
+    @staticmethod
+    def bad_request(
+        message: str = "Bad request",
+        details: Any = None,
+        metadata: Optional[ResponseMetadata] = None
+    ) -> JSONResponse:
+        """Format a generic bad request response (400)."""
+        return ResponseFormatter.error(
+            message=message,
+            error_code="BAD_REQUEST",
+            details=details,
+            status_code=400,
+            metadata=metadata
+        )
     
     @staticmethod
     def not_found(

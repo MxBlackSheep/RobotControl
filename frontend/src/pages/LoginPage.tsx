@@ -8,19 +8,23 @@ import {
   Typography,
   Container,
   Stack,
+  Alert,
 } from '@mui/material';
 import { isAxiosError } from 'axios';
 import { useAuth } from '../context/AuthContext';
 import ErrorAlert from '../components/ErrorAlert';
+import { authAPI } from '../services/api';
 
-type AuthMode = 'login' | 'register';
+type AuthMode = 'login' | 'register' | 'forgot';
 
 const LoginPage: React.FC = () => {
   const [mode, setMode] = useState<AuthMode>('login');
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [note, setNote] = useState('');
   const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const { login, register } = useAuth();
 
@@ -31,42 +35,86 @@ const LoginPage: React.FC = () => {
     }
   }, [mode]);
 
-  const headerText = useMemo(
-    () => (mode === 'login' ? 'Sign in to PyRobot' : 'Create a PyRobot Account'),
-    [mode],
-  );
+  const headerText = useMemo(() => {
+    switch (mode) {
+      case 'register':
+        return 'Create a PyRobot Account';
+      case 'forgot':
+        return 'Request a Password Reset';
+      case 'login':
+      default:
+        return 'Sign in to PyRobot';
+    }
+  }, [mode]);
 
-  const submitLabel = mode === 'login' ? 'Sign In' : 'Register & Sign In';
+  const submitLabel = useMemo(() => {
+    switch (mode) {
+      case 'register':
+        return 'Register & Sign In';
+      case 'forgot':
+        return 'Send Reset Request';
+      case 'login':
+      default:
+        return 'Sign In';
+    }
+  }, [mode]);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setLoading(true);
     setError('');
+     setSuccessMessage('');
 
     try {
       if (mode === 'login') {
         await login(username.trim(), password);
-      } else {
+      } else if (mode === 'register') {
         await register(username.trim(), email.trim(), password);
+      } else {
+        if (!username.trim() && !email.trim()) {
+          setError('Provide a username or email so we can locate your account');
+          return;
+        }
+        await authAPI.requestPasswordReset({
+          username: username.trim() || undefined,
+          email: email.trim() || undefined,
+          note: note.trim() || undefined,
+        });
+        setSuccessMessage('Request submitted. An administrator will follow up soon.');
+        setUsername('');
+        setEmail('');
+        setPassword('');
+        setNote('');
       }
     } catch (err) {
       if (isAxiosError(err)) {
         const message =
           err.response?.data?.error?.message ||
           err.response?.data?.message ||
-          (mode === 'login' ? 'Invalid username or password' : 'Registration failed');
+          (mode === 'login'
+            ? 'Invalid username or password'
+            : mode === 'register'
+              ? 'Registration failed'
+              : 'Unable to submit reset request');
         setError(message);
       } else {
-        setError(mode === 'login' ? 'Invalid username or password' : 'Registration failed');
+        setError(
+          mode === 'login'
+            ? 'Invalid username or password'
+            : mode === 'register'
+              ? 'Registration failed'
+              : 'Unable to submit reset request'
+        );
       }
     } finally {
       setLoading(false);
     }
   };
 
-  const toggleMode = () => {
-    setMode((prev) => (prev === 'login' ? 'register' : 'login'));
+  const switchToMode = (nextMode: AuthMode) => {
+    setMode(nextMode);
     setError('');
+    setSuccessMessage('');
   };
 
   return (
@@ -117,11 +165,25 @@ const LoginPage: React.FC = () => {
                 />
               )}
 
+              {successMessage && (
+                <Alert
+                  severity="success"
+                  onClose={() => setSuccessMessage('')}
+                  sx={{ mb: 1 }}
+                >
+                  {successMessage}
+                </Alert>
+              )}
+
               <Box
                 component="form"
                 onSubmit={handleSubmit}
                 role="form"
-                aria-label={mode === 'login' ? 'Login form' : 'Registration form'}
+                aria-label={mode === 'login'
+                  ? 'Login form'
+                  : mode === 'register'
+                    ? 'Registration form'
+                    : 'Password reset request form'}
               >
                 <TextField
                   fullWidth
@@ -130,11 +192,14 @@ const LoginPage: React.FC = () => {
                   value={username}
                   onChange={(event) => setUsername(event.target.value)}
                   margin="normal"
-                  required
+                  required={mode !== 'forgot'}
                   autoComplete="username"
                   inputProps={{
                     'aria-label': 'Username',
                   }}
+                  helperText={
+                    mode === 'forgot' ? 'Provide either your username or email' : undefined
+                  }
                   sx={{
                     '& .MuiInputBase-root': {
                       minHeight: { xs: 56, sm: 56 },
@@ -142,7 +207,7 @@ const LoginPage: React.FC = () => {
                   }}
                 />
 
-                {mode === 'register' && (
+                {(mode === 'register' || mode === 'forgot') && (
                   <TextField
                     fullWidth
                     label="Email"
@@ -151,7 +216,7 @@ const LoginPage: React.FC = () => {
                     value={email}
                     onChange={(event) => setEmail(event.target.value)}
                     margin="normal"
-                    required
+                    required={mode === 'register'}
                     autoComplete="email"
                     inputProps={{
                       'aria-label': 'Email address',
@@ -164,30 +229,52 @@ const LoginPage: React.FC = () => {
                   />
                 )}
 
-                <TextField
-                  fullWidth
-                  label="Password"
-                  name="password"
-                  type="password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  margin="normal"
-                  required
-                  autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-                  inputProps={{
-                    'aria-label': 'Password',
-                  }}
-                  helperText={
-                    mode === 'register'
-                      ? 'Use at least 8 characters. Strong passwords mix numbers, symbols, and case.'
-                      : undefined
-                  }
-                  sx={{
-                    '& .MuiInputBase-root': {
-                      minHeight: { xs: 56, sm: 56 },
-                    },
-                  }}
-                />
+                {mode !== 'forgot' ? (
+                  <TextField
+                    fullWidth
+                    label="Password"
+                    name="password"
+                    type="password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    margin="normal"
+                    required
+                    autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                    inputProps={{
+                      'aria-label': 'Password',
+                    }}
+                    helperText={
+                      mode === 'register'
+                        ? 'Use at least 8 characters. Strong passwords mix numbers, symbols, and case.'
+                        : undefined
+                    }
+                    sx={{
+                      '& .MuiInputBase-root': {
+                        minHeight: { xs: 56, sm: 56 },
+                      },
+                    }}
+                  />
+                ) : (
+                  <TextField
+                    fullWidth
+                    label="Additional details (optional)"
+                    name="note"
+                    value={note}
+                    onChange={(event) => setNote(event.target.value)}
+                    margin="normal"
+                    multiline
+                    minRows={2}
+                    inputProps={{
+                      'aria-label': 'Additional details for administrators',
+                    }}
+                    helperText="Include context to help admins verify your request"
+                    sx={{
+                      '& .MuiInputBase-root': {
+                        minHeight: { xs: 56, sm: 56 },
+                      },
+                    }}
+                  />
+                )}
 
                 <Button
                   type="submit"
@@ -209,21 +296,46 @@ const LoginPage: React.FC = () => {
                 <Typography variant="caption" color="textSecondary">
                   Default admin: admin / ShouGroupAdmin
                 </Typography>
-                <Typography variant="caption" color="textSecondary">
-                  Forgot your password? Contact a lab admin to reset it.
-                </Typography>
+                {mode === 'forgot' ? (
+                  <Typography variant="caption" color="textSecondary">
+                    Submit the form and our admins will follow up with next steps.
+                  </Typography>
+                ) : (
+                  <Typography variant="caption" color="textSecondary">
+                    Forgot your password? Submit a reset request or contact a lab admin.
+                  </Typography>
+                )}
               </Stack>
 
-              <Button
-                variant="text"
-                color="primary"
-                onClick={toggleMode}
-                sx={{ mt: 1 }}
-              >
-                {mode === 'login'
-                  ? "Don't have an account? Register now"
-                  : 'Have an account? Back to sign in'}
-              </Button>
+              <Stack spacing={1} sx={{ mt: 1 }}>
+                {mode !== 'login' && (
+                  <Button
+                    variant="text"
+                    color="primary"
+                    onClick={() => switchToMode('login')}
+                  >
+                    Back to sign in
+                  </Button>
+                )}
+                {mode !== 'register' && (
+                  <Button
+                    variant="text"
+                    color="primary"
+                    onClick={() => switchToMode('register')}
+                  >
+                    Need an account? Register now
+                  </Button>
+                )}
+                {mode !== 'forgot' && (
+                  <Button
+                    variant="text"
+                    color="primary"
+                    onClick={() => switchToMode('forgot')}
+                  >
+                    Forgot your password?
+                  </Button>
+                )}
+              </Stack>
             </Stack>
           </CardContent>
         </Card>

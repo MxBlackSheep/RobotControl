@@ -38,6 +38,7 @@ import {
   Logout as LogoutIcon,
   Person as UserIcon,
   Info as InfoIcon,
+  AdminPanelSettings as AdminSettingsIcon,
 } from '@mui/icons-material';
 
 import { useAuth } from '../context/AuthContext';
@@ -107,6 +108,12 @@ const MobileDrawer: React.FC<MobileDrawerProps> = ({
       label: 'System Status',
       path: '/system-status',
       icon: <MonitoringIcon />,
+    },
+    {
+      label: 'Admin',
+      path: '/admin',
+      icon: <AdminSettingsIcon />,
+      roles: ['admin'],
     },
     {
       label: 'About',

@@ -43,6 +43,8 @@ interface SystemStatusProps {
   compact?: boolean; // For use in smaller spaces like dashboard widgets
   autoRefresh?: boolean; // Enable automatic refresh
   refreshInterval?: number; // Refresh interval in seconds
+  showHeader?: boolean;
+  showExperiments?: boolean;
 }
 
 // Enhanced status mapping with accessibility features
@@ -397,6 +399,8 @@ const SystemStatus: React.FC<SystemStatusProps> = memo(({
   compact = false,
   autoRefresh = true,
   refreshInterval = 30,
+  showHeader = true,
+  showExperiments = true,
 }) => {
   const {
     monitoringData,
@@ -441,52 +445,54 @@ const SystemStatus: React.FC<SystemStatusProps> = memo(({
   return (
     <Box>
       {/* Header with connection status and refresh button */}
-      <Box display="flex" alignItems="center" mb={2}>
-        <Typography variant={compact ? "h6" : "h5"} component="h2" sx={{ flexGrow: 1 }}>
-          System Status
-        </Typography>
-        
-        <Box display="flex" alignItems="center" gap={1}>
-          {/* Connection Status */}
-          <Tooltip title={`WebSocket ${isConnected ? 'Connected' : 'Disconnected'}`}>
-            {isConnected ? (
-              <ConnectionIcon color="success" />
-            ) : (
-              <ConnectionOffIcon color="error" />
-            )}
-          </Tooltip>
-
-          {/* Connection retries indicator */}
-          {connectionRetries > 0 && (
-            <Chip 
-              label={`Retry ${connectionRetries}`}
-              size="small"
-              color="warning"
-            />
-          )}
-
-          <Chip
-            label={lastUpdatedLabel}
-            size="small"
-            variant="outlined"
-          />
-
-          {/* Refresh button */}
-          <Tooltip title="Refresh Data">
-            <IconButton 
-              onClick={handleRefresh}
-              disabled={isLoading}
-              size="small"
-            >
-              {isLoading ? (
-                <LoadingSpinner variant="inline" size="small" />
+      {showHeader && (
+        <Box display="flex" alignItems="center" mb={2}>
+          <Typography variant={compact ? "h6" : "h5"} component="h2" sx={{ flexGrow: 1 }}>
+            System Status
+          </Typography>
+          
+          <Box display="flex" alignItems="center" gap={1}>
+            {/* Connection Status */}
+            <Tooltip title={`WebSocket ${isConnected ? 'Connected' : 'Disconnected'}`}>
+              {isConnected ? (
+                <ConnectionIcon color="success" />
               ) : (
-                <RefreshIcon />
+                <ConnectionOffIcon color="error" />
               )}
-            </IconButton>
-          </Tooltip>
+            </Tooltip>
+
+            {/* Connection retries indicator */}
+            {connectionRetries > 0 && (
+              <Chip 
+                label={`Retry ${connectionRetries}`}
+                size="small"
+                color="warning"
+              />
+            )}
+
+            <Chip
+              label={lastUpdatedLabel}
+              size="small"
+              variant="outlined"
+            />
+
+            {/* Refresh button */}
+            <Tooltip title="Refresh Data">
+              <IconButton 
+                onClick={handleRefresh}
+                disabled={isLoading}
+                size="small"
+              >
+                {isLoading ? (
+                  <LoadingSpinner variant="inline" size="small" />
+                ) : (
+                  <RefreshIcon />
+                )}
+              </IconButton>
+            </Tooltip>
+          </Box>
         </Box>
-      </Box>
+      )}
 
       {/* Error Alert */}
       {error && (
@@ -502,17 +508,16 @@ const SystemStatus: React.FC<SystemStatusProps> = memo(({
 
       {/* Status Cards */}
       <Grid container spacing={compact ? 2 : 3}>
-        {/* Experiments */}
-        <Grid item xs={12} lg={compact ? 12 : 6}>
-          <ExperimentStatusCard experiments={experiments} compact={compact} />
-        </Grid>
+        {showExperiments && (
+          <Grid item xs={12} lg={compact ? 12 : 6}>
+            <ExperimentStatusCard experiments={experiments} compact={compact} />
+          </Grid>
+        )}
 
-        {/* Database Status */}
-        <Grid item xs={12} lg={compact ? 12 : 6}>
+        <Grid item xs={12} lg={showExperiments && !compact ? 6 : 12}>
           <DatabaseStatusCard databaseStatus={databaseStatus} compact={compact} />
         </Grid>
 
-        {/* Streaming Status */}
         <Grid item xs={12}>
           <StreamingStatusCard streamingStatus={streamingStatus} compact={compact} />
         </Grid>

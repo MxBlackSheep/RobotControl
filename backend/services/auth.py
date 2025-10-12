@@ -202,6 +202,52 @@ class AuthService:
         logger.info("User '%s' changed password", user.username)
         return True
 
+    def request_password_reset(
+        self,
+        username: Optional[str],
+        email: Optional[str],
+        note: Optional[str],
+        client_info: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        if not username and not email:
+            raise ValueError("Username or email is required")
+
+        user_row = None
+        if username:
+            user_row = self.db.get_user_by_username(username)
+        if not user_row and email:
+            user_row = self.db.get_user_by_email(email)
+
+        if user_row:
+            if username and user_row["username"] != username:
+                raise ValueError("Username and email do not match")
+            if email and user_row["email"].lower() != email.lower():
+                raise ValueError("Username and email do not match")
+
+            client_ip = client_info.get("ip") if client_info else None
+            user_agent = client_info.get("user_agent") if client_info else None
+            request_row = self.db.create_password_reset_request(
+                user_id=user_row["id"],
+                username=user_row["username"],
+                email=user_row["email"],
+                note=note,
+                client_ip=client_ip,
+                user_agent=user_agent,
+            )
+            logger.info(
+                "Password reset request logged for user '%s' (ip=%s)",
+                user_row["username"],
+                client_ip,
+            )
+            return request_row
+
+        logger.warning(
+            "Password reset request for unknown account (username=%s, email=%s)",
+            username,
+            email,
+        )
+        return None
+
     def get_user_by_username(self, username: str) -> Optional[Dict[str, Any]]:
         """Compatibility helper returning raw database row."""
         return self.db.get_user_by_username(username)
@@ -236,6 +282,27 @@ class AuthService:
     def get_all_users(self) -> List[Dict[str, Any]]:
         """Backward-compatible alias for admin API."""
         return self.get_user_list()
+
+    def get_password_reset_requests(
+        self,
+        status: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        return self.db.list_password_reset_requests(status=status)
+
+    def resolve_password_reset_request(
+        self,
+        request_id: int,
+        resolved_by: str,
+        resolution_note: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        return self.db.resolve_password_reset_request(
+            request_id=request_id,
+            resolved_by=resolved_by,
+            resolution_note=resolution_note,
+        )
+
+    def delete_password_reset_request(self, request_id: int) -> None:
+        self.db.delete_password_reset_request(request_id)
 
     def toggle_user_active(self, username: str) -> bool:
         success = self.db.toggle_user_active(username)

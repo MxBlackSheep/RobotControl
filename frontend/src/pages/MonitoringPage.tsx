@@ -77,6 +77,8 @@ const MonitoringPage: React.FC = memo(() => {
           compact={false}
           autoRefresh={true}
           refreshInterval={30}
+          showHeader={false}
+          showExperiments={false}
         />
       </Box>
     </Container>

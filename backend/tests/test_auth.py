@@ -9,7 +9,7 @@ os.environ["PYROBOT_AUTH_DB_FILENAME"] = TEST_DB_NAME
 
 from backend.utils.data_paths import get_data_path
 from backend.services import auth as auth_module
-from backend.services.auth import AuthService
+from backend.services.auth import AuthService, DEFAULT_ADMIN_PASSWORD
 from backend.main import app
 
 
@@ -129,3 +129,45 @@ def test_api_change_password_and_refresh():
         json={"username": "frank", "password": "NewPass!2"},
     )
     assert login_response.status_code == 200
+
+
+def test_password_reset_request_flow():
+    service = get_service()
+    service.register_user("gina", "gina@example.com", "SecurePass!1")
+
+    request_response = client.post(
+        "/api/auth/password-reset/request",
+        json={"username": "gina", "note": "forgot password"},
+    )
+    assert request_response.status_code == 202
+    payload = request_response.json()
+    assert payload["success"] is True
+
+    # Authenticate as admin to inspect and resolve the request
+    admin_login = client.post(
+        "/api/auth/login",
+        json={"username": "admin", "password": DEFAULT_ADMIN_PASSWORD},
+    )
+    assert admin_login.status_code == 200
+    admin_token = admin_login.json()["data"]["access_token"]
+    admin_headers = {"Authorization": f"Bearer {admin_token}"}
+
+    list_response = client.get(
+        "/api/admin/password-reset/requests",
+        headers=admin_headers,
+    )
+    assert list_response.status_code == 200
+    request_list = list_response.json()["data"]
+    assert len(request_list) == 1
+    request_entry = request_list[0]
+    assert request_entry["username"] == "gina"
+    assert request_entry["status"] == "pending"
+
+    resolve_response = client.post(
+        f"/api/admin/password-reset/requests/{request_entry['id']}/resolve",
+        json={"resolution_note": "Reset completed"},
+        headers=admin_headers,
+    )
+    assert resolve_response.status_code == 200
+    resolved_payload = resolve_response.json()["data"]
+    assert resolved_payload["status"] == "resolved"

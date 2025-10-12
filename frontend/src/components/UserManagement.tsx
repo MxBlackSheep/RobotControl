@@ -18,7 +18,9 @@ import {
   Alert,
   Divider,
   LinearProgress,
-  Tooltip
+  Tooltip,
+  TextField,
+  Stack,
 } from '@mui/material';
 import {
   PersonAdd as AddUserIcon,
@@ -31,7 +33,7 @@ import {
   AdminPanelSettings as AdminIcon,
   Person as PersonIcon
 } from '@mui/icons-material';
-import { api } from '../services/api';
+import { api, adminAPI } from '../services/api';
 
 interface User {
   username: string;
@@ -45,6 +47,21 @@ interface User {
   last_login_ip_type?: string | null;
 }
 
+interface PasswordResetRequest {
+  id: number;
+  user_id?: number | null;
+  username: string;
+  email: string;
+  status: 'pending' | 'resolved' | string;
+  note?: string | null;
+  client_ip?: string | null;
+  user_agent?: string | null;
+  requested_at?: string | null;
+  resolved_at?: string | null;
+  resolved_by?: string | null;
+  resolution_note?: string | null;
+}
+
 interface UserManagementProps {
   onError?: (error: string) => void;
 }
@@ -52,7 +69,13 @@ interface UserManagementProps {
 export default function UserManagement({ onError }: UserManagementProps) {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(false);
-  const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [resetRequests, setResetRequests] = useState<PasswordResetRequest[]>([]);
+  const [requestsLoading, setRequestsLoading] = useState(false);
+  const [activeRequest, setActiveRequest] = useState<PasswordResetRequest | null>(null);
+  const [tempPassword, setTempPassword] = useState('');
+  const [resolutionNote, setResolutionNote] = useState('');
+  const [dialogSubmitting, setDialogSubmitting] = useState(false);
+  const [dialogError, setDialogError] = useState('');
   const [confirmDialog, setConfirmDialog] = useState<{
     open: boolean;
     title: string;
@@ -65,17 +88,105 @@ export default function UserManagement({ onError }: UserManagementProps) {
     action: () => {}
   });
 
+  const extractArray = (raw: any): any[] => {
+    if (Array.isArray(raw)) {
+      return raw;
+    }
+    if (Array.isArray(raw?.data)) {
+      return raw.data;
+    }
+    return [];
+  };
+
   const loadUsers = async () => {
     try {
       setLoading(true);
-      const response = await api.get('/admin/users');
-      const payload = response.data?.data || response.data;
+      const response = await adminAPI.getUsers();
+      const payload = extractArray(response.data);
       setUsers(payload);
     } catch (err: any) {
       const errorMessage = err.response?.data?.detail || 'Failed to load users';
       if (onError) onError(errorMessage);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadPasswordResetRequests = async () => {
+    try {
+      setRequestsLoading(true);
+      const response = await adminAPI.getPasswordResetRequests();
+      const payload = extractArray(response.data);
+      setResetRequests(payload);
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.detail || 'Failed to load password reset requests';
+      if (onError) onError(errorMessage);
+    } finally {
+      setRequestsLoading(false);
+    }
+  };
+
+  const formatDateTime = (value?: string | null) => {
+    if (!value) return '—';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return value;
+    }
+    return date.toLocaleString();
+  };
+
+  const handleResolveRequest = async (requestId: number, note?: string) => {
+    try {
+      await adminAPI.resolvePasswordResetRequest(requestId, note);
+      await loadPasswordResetRequests();
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.detail || 'Failed to resolve request';
+      if (onError) onError(errorMessage);
+    }
+  };
+
+  const openResetDialog = (request: PasswordResetRequest) => {
+    setActiveRequest(request);
+    setTempPassword('');
+    setResolutionNote('');
+    setDialogError('');
+    setDialogSubmitting(false);
+  };
+
+  const closeResetDialog = () => {
+    setActiveRequest(null);
+    setTempPassword('');
+    setResolutionNote('');
+    setDialogError('');
+    setDialogSubmitting(false);
+  };
+
+  const submitResetDialog = async () => {
+    if (!activeRequest) {
+      return;
+    }
+
+    if (!tempPassword.trim()) {
+      setDialogError('Provide a temporary password before resetting');
+      return;
+    }
+
+    try {
+      setDialogSubmitting(true);
+      setDialogError('');
+      await adminAPI.resetUserPassword(activeRequest.username, tempPassword.trim(), true);
+      await adminAPI.resolvePasswordResetRequest(
+        activeRequest.id,
+        resolutionNote.trim() || 'Password reset by administrator',
+      );
+      await Promise.all([loadPasswordResetRequests(), loadUsers()]);
+      closeResetDialog();
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.detail || 'Failed to reset password';
+      setDialogError(errorMessage);
+      if (onError) onError(errorMessage);
+    } finally {
+      setDialogSubmitting(false);
     }
   };
 
@@ -131,6 +242,7 @@ export default function UserManagement({ onError }: UserManagementProps) {
 
   useEffect(() => {
     loadUsers();
+    loadPasswordResetRequests();
   }, []);
 
   return (
@@ -278,6 +390,127 @@ export default function UserManagement({ onError }: UserManagementProps) {
         </CardContent>
       </Card>
 
+      <Card sx={{ mt: 2 }}>
+        <CardContent>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+            <Box>
+              <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                Password Reset Requests ({resetRequests.length})
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Review pending requests and respond with reset actions
+              </Typography>
+            </Box>
+            <Button
+              startIcon={<RefreshIcon />}
+              onClick={loadPasswordResetRequests}
+              disabled={requestsLoading}
+            >
+              Refresh
+            </Button>
+          </Box>
+
+          {requestsLoading && <LinearProgress sx={{ mb: 2 }} />}
+
+          {!requestsLoading && resetRequests.length === 0 ? (
+            <Alert severity="success">
+              No pending reset requests. Users can submit new requests from the login page.
+            </Alert>
+          ) : (
+            <List>
+              {resetRequests.map((request, index) => (
+                <React.Fragment key={request.id}>
+                  <ListItem alignItems="flex-start" sx={{ px: 0 }}>
+                    <ListItemText
+                      primary={
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                          <Typography variant="subtitle1" sx={{ fontWeight: 500 }}>
+                            {request.username}
+                          </Typography>
+                          <Chip
+                            label={request.status === 'pending' ? 'Pending' : 'Resolved'}
+                            color={request.status === 'pending' ? 'warning' : 'success'}
+                            size="small"
+                          />
+                          <Chip
+                            label={request.email}
+                            size="small"
+                            variant="outlined"
+                          />
+                        </Box>
+                      }
+                      secondary={
+                        <Stack spacing={0.5} sx={{ mt: 1 }}>
+                          {request.note && (
+                            <Typography variant="body2" color="text.secondary">
+                              Note: {request.note}
+                            </Typography>
+                          )}
+                          {request.client_ip && (
+                            <Typography variant="body2" color="text.secondary">
+                              IP: {request.client_ip}
+                            </Typography>
+                          )}
+                          <Typography variant="body2" color="text.secondary">
+                            Requested: {formatDateTime(request.requested_at)}
+                          </Typography>
+                          {request.resolved_at && (
+                            <Typography variant="body2" color="text.secondary">
+                              Resolved: {formatDateTime(request.resolved_at)} by {request.resolved_by || '—'}
+                            </Typography>
+                          )}
+                          {request.resolution_note && (
+                            <Typography variant="body2" color="text.secondary">
+                              Resolution note: {request.resolution_note}
+                            </Typography>
+                          )}
+                        </Stack>
+                      }
+                    />
+                    <ListItemSecondaryAction>
+                      <Stack direction="column" spacing={1}>
+                        {request.status === 'pending' && (
+                          <>
+                            <Button
+                              variant="contained"
+                              size="small"
+                              onClick={() => openResetDialog(request)}
+                            >
+                              Reset Password
+                            </Button>
+                            <Button
+                              variant="text"
+                              size="small"
+                              onClick={() =>
+                                setConfirmDialog({
+                                  open: true,
+                                  title: 'Resolve password reset request',
+                                  message: `Mark the request from "${request.username}" as resolved?`,
+                                  action: () => {
+                                    void handleResolveRequest(request.id);
+                                    setConfirmDialog(prev => ({ ...prev, open: false }));
+                                  },
+                                })
+                              }
+                            >
+                              Mark Resolved
+                            </Button>
+                          </>
+                        )}
+                        {request.status !== 'pending' && (
+                          <Chip label="Completed" color="success" size="small" />
+                        )}
+                      </Stack>
+                    </ListItemSecondaryAction>
+                  </ListItem>
+                  {index < resetRequests.length - 1 && <Divider />}
+                </React.Fragment>
+              ))}
+            </List>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Security Information */}
       <Card sx={{ mt: 2 }}>
         <CardContent>
@@ -350,6 +583,55 @@ export default function UserManagement({ onError }: UserManagementProps) {
             color="primary"
           >
             Confirm
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(activeRequest)}
+        onClose={dialogSubmitting ? undefined : closeResetDialog}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Reset password for {activeRequest?.username}</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2}>
+            <Typography variant="body2" color="text.secondary">
+              Enter a temporary password to share with the user. They will be required to set a new password on next login.
+            </Typography>
+            <TextField
+              label="Temporary password"
+              value={tempPassword}
+              onChange={(event) => setTempPassword(event.target.value)}
+              type="text"
+              required
+              autoFocus
+            />
+            <TextField
+              label="Resolution note (optional)"
+              value={resolutionNote}
+              onChange={(event) => setResolutionNote(event.target.value)}
+              multiline
+              minRows={2}
+              placeholder="Example: Reset to temporary lab password over phone"
+            />
+            {dialogError && (
+              <Alert severity="error" onClose={() => setDialogError('')}>
+                {dialogError}
+              </Alert>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeResetDialog} disabled={dialogSubmitting}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={submitResetDialog}
+            disabled={dialogSubmitting}
+          >
+            {dialogSubmitting ? 'Saving…' : 'Reset & Resolve'}
           </Button>
         </DialogActions>
       </Dialog>

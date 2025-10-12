@@ -18,10 +18,8 @@ from backend.services.auth import AuthService, User, get_auth_service
 
 # Import standardized response formatter
 from backend.api.response_formatter import (
-    ResponseFormatter, 
-    ResponseMetadata, 
-    format_success, 
-    format_error
+    ResponseFormatter,
+    ResponseMetadata,
 )
 
 logger = logging.getLogger(__name__)
@@ -50,6 +48,11 @@ class RegisterResponse(BaseModel):
 class ChangePasswordRequest(BaseModel):
     current_password: str = Field(..., min_length=1, max_length=256)
     new_password: str = Field(..., min_length=8, max_length=256)
+
+class PasswordResetRequestBody(BaseModel):
+    username: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    email: Optional[EmailStr] = None
+    note: Optional[str] = Field(default=None, max_length=500)
 
 class LoginResponse(BaseModel):
     access_token: str
@@ -230,6 +233,68 @@ async def register(
         return ResponseFormatter.server_error(
             message="Registration failed due to server error",
             details=str(exc)
+        )
+
+@router.post("/password-reset/request")
+async def password_reset_request(
+    request: PasswordResetRequestBody,
+    http_request: Request,
+    auth_service: AuthService = Depends(get_auth_service_dep)
+):
+    """
+    Allow a user to request an administrator-assisted password reset.
+    """
+    start_time = time.time()
+
+    try:
+        if not request.username and not request.email:
+            return ResponseFormatter.validation_error(
+                message="Username or email must be provided"
+            )
+
+        client_info = {
+            "ip": http_request.client.host if http_request.client else None,
+            "user_agent": http_request.headers.get("user-agent"),
+        }
+
+        result = auth_service.request_password_reset(
+            username=request.username.strip() if request.username else None,
+            email=request.email.lower() if request.email else None,
+            note=request.note,
+            client_info=client_info,
+        )
+
+        metadata = ResponseMetadata()
+        metadata.set_execution_time(start_time)
+        metadata.add_metadata("operation", "password_reset_request")
+        if request.username:
+            metadata.add_metadata("username", request.username)
+
+        response_payload: Dict[str, Any] = {"status": "queued"}
+        if result:
+            response_payload.update(
+                {
+                    "request_id": result.get("id"),
+                    "requested_at": result.get("requested_at"),
+                }
+            )
+
+        message = "If the account exists, an administrator has been notified."
+        return ResponseFormatter.success(
+            data=response_payload,
+            metadata=metadata,
+            status_code=202,
+            message=message,
+        )
+
+    except ValueError as exc:
+        logger.warning("Password reset request rejected: %s", exc)
+        return ResponseFormatter.validation_error(message=str(exc))
+    except Exception as exc:
+        logger.error("Password reset request error: %s", exc)
+        return ResponseFormatter.server_error(
+            message="Unable to submit password reset request",
+            details=str(exc),
         )
 
 @router.post("/change-password")

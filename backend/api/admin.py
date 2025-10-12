@@ -5,7 +5,7 @@ Basic admin endpoints for user management and system monitoring
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from datetime import datetime, timedelta
 import logging
 import os
@@ -25,6 +25,9 @@ logger = logging.getLogger(__name__)
 class ResetPasswordRequest(BaseModel):
     new_password: str = Field(..., min_length=8, max_length=256)
     must_reset: bool = Field(default=True)
+
+class ResolveResetRequestBody(BaseModel):
+    resolution_note: Optional[str] = Field(default=None, max_length=500)
 
 @router.get("/system/status")
 async def get_system_status(current_user: dict = Depends(get_current_admin_user)):
@@ -132,6 +135,53 @@ async def get_users(current_user: dict = Depends(get_current_admin_user)):
             details=str(e)
         )
 
+@router.get("/password-reset/requests")
+async def get_password_reset_requests(current_user: dict = Depends(get_current_admin_user)):
+    """Retrieve pending and resolved password reset requests."""
+    start_time = time.time()
+
+    try:
+        auth_service = AuthService()
+        requests = auth_service.get_password_reset_requests()
+
+        safe_requests = []
+        for entry in requests:
+            safe_requests.append(
+                {
+                    "id": entry.get("id"),
+                    "user_id": entry.get("user_id"),
+                    "username": entry.get("username"),
+                    "email": entry.get("email"),
+                    "status": entry.get("status"),
+                    "note": entry.get("note"),
+                    "client_ip": entry.get("client_ip"),
+                    "user_agent": entry.get("user_agent"),
+                    "requested_at": entry.get("requested_at"),
+                    "resolved_at": entry.get("resolved_at"),
+                    "resolved_by": entry.get("resolved_by"),
+                    "resolution_note": entry.get("resolution_note"),
+                }
+            )
+
+        metadata = ResponseMetadata()
+        metadata.set_execution_time(start_time)
+        metadata.add_metadata("operation", "get_password_reset_requests")
+        metadata.add_metadata("admin_user", current_user.get("username"))
+        metadata.add_metadata("request_count", len(safe_requests))
+
+        return ResponseFormatter.success(
+            data=safe_requests,
+            metadata=metadata,
+            message="Password reset requests retrieved successfully",
+        )
+
+    except Exception as exc:
+        logger.error(f"Error retrieving password reset requests: {exc}")
+        return ResponseFormatter.server_error(
+            message="Error retrieving password reset requests",
+            details=str(exc),
+        )
+
 @router.post("/users/{username}/toggle-active")
 async def toggle_user_active(
     username: str, 
@@ -175,6 +225,54 @@ async def toggle_user_active(
         return ResponseFormatter.server_error(
             message="Error updating user status",
             details=str(e)
+        )
+
+@router.post("/password-reset/requests/{request_id}/resolve")
+async def resolve_password_reset_request(
+    request_id: int,
+    request: ResolveResetRequestBody,
+    current_user: dict = Depends(get_current_admin_user),
+):
+    """Mark a password reset request as resolved."""
+    start_time = time.time()
+
+    try:
+        auth_service = AuthService()
+        resolved = auth_service.resolve_password_reset_request(
+            request_id=request_id,
+            resolved_by=current_user.get("username"),
+            resolution_note=request.resolution_note,
+        )
+
+        if not resolved:
+            return ResponseFormatter.not_found(
+                message="Password reset request not found",
+                details={"request_id": request_id},
+            )
+
+        metadata = ResponseMetadata()
+        metadata.set_execution_time(start_time)
+        metadata.add_metadata("operation", "resolve_password_reset_request")
+        metadata.add_metadata("admin_user", current_user.get("username"))
+        metadata.add_metadata("request_id", request_id)
+
+        return ResponseFormatter.success(
+            data={
+                "id": resolved.get("id"),
+                "status": resolved.get("status"),
+                "resolved_at": resolved.get("resolved_at"),
+                "resolved_by": resolved.get("resolved_by"),
+                "resolution_note": resolved.get("resolution_note"),
+            },
+            metadata=metadata,
+            message="Password reset request resolved",
+        )
+
+    except Exception as exc:
+        logger.error(f"Error resolving password reset request {request_id}: {exc}")
+        return ResponseFormatter.server_error(
+            message="Error resolving password reset request",
+            details=str(exc),
         )
 
 @router.post("/users/{username}/reset-password")

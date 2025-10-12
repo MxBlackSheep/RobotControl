@@ -12,7 +12,7 @@ import Tab from '@mui/material/Tab';
 import useTheme from '@mui/material/styles/useTheme';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { loadComponent, DefaultLoadingFallback } from './utils/BundleOptimizer';
+import { loadComponent } from './utils/BundleOptimizer';
 import NavigationBreadcrumbs from './components/NavigationBreadcrumbs';
 import { PageLoading } from './components/LoadingSpinner';
 import MobileDrawer, { MobileMenuButton } from './components/MobileDrawer';
@@ -29,6 +29,7 @@ const CameraPage = loadComponent(() => import('./pages/CameraPage'));
 const SystemStatusPage = loadComponent(() => import('./pages/MonitoringPage'));
 const SchedulingPage = loadComponent(() => import('./pages/SchedulingPage'));
 const AboutPage = loadComponent(() => import('./pages/AboutPage'));
+const AdminPage = loadComponent(() => import('./pages/AdminPage'));
 
 const AppContent: React.FC = () => {
   const { isAuthenticated, user, logout } = useAuth();
@@ -64,8 +65,13 @@ const AppContent: React.FC = () => {
     items.push(
       { label: 'Camera', path: '/camera' },
       { label: 'System Status', path: '/system-status' },
-      { label: 'About', path: '/about' },
     );
+
+    if (user?.role === 'admin') {
+      items.push({ label: 'Admin', path: '/admin' });
+    }
+
+    items.push({ label: 'About', path: '/about' });
 
     return items;
   }, [user?.role]);
@@ -210,6 +216,10 @@ const AppContent: React.FC = () => {
             {(['admin', 'user'].includes(user?.role || '')) && (
               <Route path="/scheduling" element={<SchedulingPage />} />
             )}
+            <Route
+              path="/admin"
+              element={user?.role === 'admin' ? <AdminPage /> : <Navigate to="/" replace />}
+            />
             <Route path="/about" element={<AboutPage />} />
             <Route path="/login" element={<Navigate to="/" replace />} />
             <Route path="*" element={<Navigate to="/" replace />} />

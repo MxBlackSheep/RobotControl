@@ -51,6 +51,7 @@ class LiveStreamingService:
         
         # Session management
         self.sessions: Dict[str, StreamingSessionHandler] = {}
+        self.sessions_by_user: Dict[str, str] = {}
         self.session_lock = asyncio.Lock()
         self._service_lock = asyncio.Lock()
         
@@ -183,11 +184,20 @@ class LiveStreamingService:
                 logger.warning("Streaming | event=session_rejected | reason=capacity | user=%s", user_id)
                 return None
 
-            # Check if user already has a session
-            for session_handler in self.sessions.values():
-                if session_handler.session.user_id == user_id:
-                    logger.warning("Streaming | event=session_rejected | reason=duplicate_user | user=%s", user_id)
+            # Check for existing session mapping for this user
+            existing_session_id = self.sessions_by_user.get(user_id)
+            if existing_session_id:
+                existing_handler = self.sessions.get(existing_session_id)
+                if existing_handler and existing_handler.session.websocket_state == "connected":
+                    logger.warning(
+                        "Streaming | event=session_rejected | reason=duplicate_user | user=%s",
+                        user_id,
+                    )
                     return None
+
+                # Stale session placeholder; remove it so the user can reconnect
+                self.sessions.pop(existing_session_id, None)
+                self.sessions_by_user.pop(user_id, None)
 
             # Create new session
             session_id = str(uuid.uuid4())
@@ -209,6 +219,7 @@ class LiveStreamingService:
                 websocket=None  # Will be set when WebSocket connects
             )
             self.sessions[session_id] = session_handler
+            self.sessions_by_user[user_id] = session_id
 
             self.total_sessions_created += 1
             logger.info("Streaming | event=session_created | session=%s | user=%s", session_id, user_name)
@@ -262,6 +273,7 @@ class LiveStreamingService:
 
             # Replace the existing handler
             self.sessions[session_id] = handler
+            self.sessions_by_user[session.user_id] = session_id
             session.websocket_state = "connected"
             session.is_active = True
 
@@ -327,6 +339,8 @@ class LiveStreamingService:
                 
                 await handler.stop()
                 del self.sessions[session_id]
+                if self.sessions_by_user.get(user_id) == session_id:
+                    del self.sessions_by_user[user_id]
                 logger.info("Streaming | event=session_stopped | session=%s | user=%s", session_id, user_id)
                 return True
             logger.warning("Streaming | event=session_missing | session=%s | user=%s", session_id, user_id)
@@ -346,7 +360,10 @@ class LiveStreamingService:
             if session_id in self.sessions:
                 handler = self.sessions[session_id]
                 await handler.stop()
+                user_id = handler.session.user_id
                 del self.sessions[session_id]
+                if self.sessions_by_user.get(user_id) == session_id:
+                    del self.sessions_by_user[user_id]
                 logger.info("Streaming | event=session_terminated | session=%s", session_id)
                 return True
             return False
@@ -470,10 +487,12 @@ class LiveStreamingService:
             reason: Reason for termination
         """
         async with self.session_lock:
-            for session_id, handler in list(self.sessions.items()):
-                logger.info("Streaming | event=session_terminated | session=%s | reason=%s", session_id, reason)
-                await handler.stop()
+            session_items = list(self.sessions.items())
             self.sessions.clear()
+            self.sessions_by_user.clear()
+        for session_id, handler in session_items:
+            logger.info("Streaming | event=session_terminated | session=%s | reason=%s", session_id, reason)
+            await handler.stop()
     
     def _sample_cpu(self) -> float:
         """Return a non-blocking CPU percentage sample."""
