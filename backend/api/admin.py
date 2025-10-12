@@ -4,7 +4,8 @@ Basic admin endpoints for user management and system monitoring
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from typing import List, Dict, Any, Optional
+from pydantic import BaseModel, Field
+from typing import Dict, Any
 from datetime import datetime, timedelta
 import logging
 import os
@@ -15,15 +16,15 @@ from backend.services.auth import get_current_admin_user, AuthService
 from backend.services.database import get_database_service
 
 # Import standardized response formatter
-from backend.api.response_formatter import (
-    ResponseFormatter, 
-    ResponseMetadata, 
-    format_success, 
-    format_error
-)
+from backend.api.response_formatter import ResponseFormatter, ResponseMetadata
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+class ResetPasswordRequest(BaseModel):
+    new_password: str = Field(..., min_length=8, max_length=256)
+    must_reset: bool = Field(default=True)
 
 @router.get("/system/status")
 async def get_system_status(current_user: dict = Depends(get_current_admin_user)):
@@ -97,14 +98,17 @@ async def get_users(current_user: dict = Depends(get_current_admin_user)):
         auth_service = AuthService()
         users = auth_service.get_all_users()
         
-        # Remove sensitive information
         safe_users = []
         for user in users:
             safe_users.append({
-                "username": user["username"],
-                "role": user["role"],
+                "username": user.get("username"),
+                "email": user.get("email"),
+                "role": user.get("role"),
                 "is_active": user.get("is_active", True),
-                "last_login": user.get("last_login"),
+                "must_reset": user.get("must_reset", False),
+                "last_login": user.get("last_login_at"),
+                "last_login_ip": user.get("last_login_ip"),
+                "last_login_ip_type": user.get("last_login_ip_type"),
                 "created_at": user.get("created_at")
             })
         
@@ -170,6 +174,49 @@ async def toggle_user_active(
         logger.error(f"Error toggling user active status: {e}")
         return ResponseFormatter.server_error(
             message="Error updating user status",
+            details=str(e)
+        )
+
+@router.post("/users/{username}/reset-password")
+async def reset_user_password(
+    username: str,
+    request: ResetPasswordRequest,
+    current_user: dict = Depends(get_current_admin_user)
+):
+    """Reset a user's password and optionally force a change on next login."""
+    start_time = time.time()
+
+    try:
+        auth_service = AuthService()
+        success = auth_service.reset_password(
+            username=username,
+            new_password=request.new_password,
+            must_reset=request.must_reset,
+        )
+
+        if not success:
+            return ResponseFormatter.not_found(
+                message="User not found",
+                details=f"No user found with username '{username}'"
+            )
+
+        metadata = ResponseMetadata()
+        metadata.set_execution_time(start_time)
+        metadata.add_metadata("operation", "reset_password")
+        metadata.add_metadata("admin_user", current_user.get("username"))
+        metadata.add_metadata("target_user", username)
+        metadata.add_metadata("must_reset", request.must_reset)
+
+        return ResponseFormatter.success(
+            data={"username": username, "must_reset": request.must_reset},
+            metadata=metadata,
+            message="Password reset successfully"
+        )
+
+    except Exception as e:
+        logger.error(f"Error resetting password for '{username}': {e}")
+        return ResponseFormatter.server_error(
+            message="Error resetting password",
             details=str(e)
         )
 

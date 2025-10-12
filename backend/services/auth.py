@@ -1,438 +1,441 @@
 """
-PyRobot Simplified Authentication Service
+PyRobot Authentication Service (persistent edition).
 
-Clean and simple JWT-based authentication service.
-Consolidates functionality from web_app/core/auth.py into a simplified interface.
+Replaces the in-memory user store with a SQLite-backed implementation so that:
+- Users, hashed passwords, and refresh tokens persist across restarts
+- New lab members can self-register with email tracking
+- Admins can reset passwords without exposing credentials in source control
 """
 
-import jwt
-import logging
-from datetime import datetime, timedelta
-from typing import Optional, Dict, Any, List
-from passlib.context import CryptContext
 from dataclasses import dataclass
+from datetime import datetime, timedelta
+import hashlib
+import ipaddress
+import logging
 import os
-import sys
+import secrets
+from typing import Any, Dict, List, Optional
+
+import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from passlib.context import CryptContext
 
-# Import configuration from project root
-project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, project_root)
+from backend.services.auth_database import get_auth_database, AuthDatabase
 
 logger = logging.getLogger(__name__)
-
-# Authentication Configuration
-SECRET_KEY = "PyRobot_JWT_Secret_Key_2025_Hamilton_VENUS"
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 240  # 4 hours for scientific workflows
-REFRESH_TOKEN_EXPIRE_HOURS = 168  # 7 days
 
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
+# Configuration (environment overrides supported for deployments)
+DEFAULT_ADMIN_USERNAME = os.getenv("PYROBOT_ADMIN_USERNAME", "admin")
+DEFAULT_ADMIN_PASSWORD = os.getenv("PYROBOT_ADMIN_PASSWORD", "ShouGroupAdmin")
+DEFAULT_ADMIN_EMAIL = os.getenv("PYROBOT_ADMIN_EMAIL", "admin@localhost")
+
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("PYROBOT_ACCESS_TOKEN_MINUTES", "240"))
+REFRESH_TOKEN_EXPIRE_HOURS = int(os.getenv("PYROBOT_REFRESH_TOKEN_HOURS", "168"))
+
+ACCESS_TOKEN_SECRET = os.getenv(
+    "PYROBOT_ACCESS_TOKEN_SECRET", "PyRobot_Access_Secret_2025"
+)
+REFRESH_TOKEN_SECRET = os.getenv(
+    "PYROBOT_REFRESH_TOKEN_SECRET", "PyRobot_Refresh_Secret_2025"
+)
+ALGORITHM = "HS256"
+
+
 @dataclass
 class User:
-    """Simple user model"""
-    user_id: str
+    """Persisted user model returned by the auth service."""
+
+    id: int
     username: str
-    role: str  # "admin" or "user"
+    email: str
+    role: str
     is_active: bool = True
-    
+    must_reset: bool = False
+    last_login_ip: Optional[str] = None
+    last_login_ip_type: Optional[str] = None
+
     def to_dict(self) -> Dict[str, Any]:
-        """Convert user to dictionary for JWT payload"""
         return {
-            "user_id": self.user_id,
+            "user_id": str(self.id),
             "username": self.username,
+            "email": self.email,
             "role": self.role,
-            "is_active": self.is_active
+            "is_active": self.is_active,
+            "must_reset": self.must_reset,
+            "last_login_ip": self.last_login_ip,
+            "last_login_ip_type": self.last_login_ip_type,
         }
-    
+
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'User':
-        """Create user from dictionary (JWT payload)"""
+    def from_payload(cls, payload: Dict[str, Any]) -> "User":
         return cls(
-            user_id=data["user_id"],
-            username=data["username"],
-            role=data["role"],
-            is_active=data.get("is_active", True)
+            id=int(payload["user_id"]),
+            username=payload["username"],
+            email=payload.get("email", ""),
+            role=payload["role"],
+            is_active=payload.get("is_active", True),
+            must_reset=payload.get("must_reset", False),
+            last_login_ip=payload.get("last_login_ip"),
+            last_login_ip_type=payload.get("last_login_ip_type"),
         )
 
 
 class AuthService:
     """
-    Simplified authentication service that consolidates all authentication operations.
-    
-    Provides:
-    - User authentication with JWT tokens
-    - Simple admin/user role system
-    - Token validation and refresh
-    - Clean API for authentication operations
+    Authentication facade consumed by the FastAPI routers and other services.
+
+    Responsibilities:
+    - User authentication and registration
+    - Access and refresh token lifecycle (creation / verification / rotation)
+    - Password reset support for administrators
+    - Basic user queries for admin dashboards
     """
-    
-    def __init__(self):
-        """Initialize the authentication service"""
-        # Simple in-memory user store (in production, this could be database-backed)
-        self.users_db = {
-            "admin": {
-                "user_id": "admin_001",
-                "username": "admin",
-                "role": "admin",
-                "password_hash": pwd_context.hash("PyRobot_Admin_2025!"),
-                "is_active": True
-            },
-            "hamilton": {
-                "user_id": "hamilton_001", 
-                "username": "hamilton",
-                "role": "admin",
-                "password_hash": pwd_context.hash("mkdpw:V43"),  # Use existing database password
-                "is_active": True
-            },
-            "user": {
-                "user_id": "user_001",
-                "username": "user",
-                "role": "user",
-                "password_hash": pwd_context.hash("PyRobot_User_2025!"),
-                "is_active": True
-            }
-        }
-        logger.info("AuthService initialized with simplified user management")
-    
+
+    def __init__(self) -> None:
+        self.db: AuthDatabase = get_auth_database()
+
+        # One-time bootstrap for the default admin account
+        self.db.ensure_admin(
+            username=DEFAULT_ADMIN_USERNAME,
+            email=DEFAULT_ADMIN_EMAIL,
+            password_hash=pwd_context.hash(DEFAULT_ADMIN_PASSWORD),
+        )
+
+        # Cache configuration values locally for quick access
+        self.access_token_expiry = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        self.refresh_token_expiry = timedelta(hours=REFRESH_TOKEN_EXPIRE_HOURS)
+
+        # Purge stale refresh tokens opportunistically
+        removed = self.db.purge_expired_tokens()
+        if removed:
+            logger.info("Purged %s expired refresh tokens", removed)
+
+    # ------------------------------------------------------------------
+    # Password helpers
+    # ------------------------------------------------------------------
+    def get_password_hash(self, password: str) -> str:
+        return pwd_context.hash(password)
+
     def verify_password(self, plain_password: str, hashed_password: str) -> bool:
-        """Verify a plain password against its hash"""
         try:
             return pwd_context.verify(plain_password, hashed_password)
-        except Exception as e:
-            logger.error(f"Password verification error: {e}")
+        except Exception as exc:
+            logger.error("Password verification error: %s", exc)
             return False
-    
-    def authenticate_user(self, username: str, password: str) -> Optional[User]:
-        """
-        Authenticate user with username and password
-        
-        Args:
-            username: Username to authenticate
-            password: Plain text password
-            
-        Returns:
-            User object if authentication successful, None otherwise
-        """
-        try:
-            user_data = self.users_db.get(username)
-            if not user_data:
-                logger.warning(f"Authentication failed: User '{username}' not found")
-                return None
-            
-            if not self.verify_password(password, user_data["password_hash"]):
-                logger.warning(f"Authentication failed: Invalid password for user '{username}'")
-                return None
-            
-            if not user_data["is_active"]:
-                logger.warning(f"Authentication failed: User '{username}' is inactive")
-                return None
-            
-            logger.info(f"User '{username}' authenticated successfully with role '{user_data['role']}'")
-            return User(
-                user_id=user_data["user_id"],
-                username=user_data["username"],
-                role=user_data["role"],
-                is_active=user_data["is_active"]
-            )
-        except Exception as e:
-            logger.error(f"Authentication error for user '{username}': {e}")
+
+    # ------------------------------------------------------------------
+    # User operations
+    # ------------------------------------------------------------------
+    def register_user(self, username: str, email: str, password: str) -> User:
+        if self.db.get_user_by_username(username):
+            raise ValueError("Username already taken")
+
+        if self.db.get_user_by_email(email):
+            raise ValueError("Email already registered")
+
+        password_hash = self.get_password_hash(password)
+        user_row = self.db.create_user(
+            username=username,
+            email=email,
+            password_hash=password_hash,
+            role="user",
+        )
+        logger.info("User '%s' registered successfully", username)
+        return self._row_to_user(user_row)
+
+    def authenticate_user(
+        self,
+        username: str,
+        password: str,
+        client_info: Optional[Dict[str, Any]] = None,
+    ) -> Optional[User]:
+        user_row = self.db.get_user_by_username(username)
+        if not user_row:
+            logger.warning("Authentication failed: user '%s' not found", username)
             return None
-    
-    def create_access_token(self, user: User, expires_delta: Optional[timedelta] = None) -> str:
-        """
-        Create JWT access token
-        
-        Args:
-            user: User object
-            expires_delta: Optional custom expiration time
-            
-        Returns:
-            JWT access token string
-        """
-        try:
-            if expires_delta:
-                expire = datetime.utcnow() + expires_delta
-            else:
-                expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-            
-            to_encode = user.to_dict().copy()
-            to_encode.update({
-                "exp": expire,
-                "iat": datetime.utcnow(),
-                "type": "access"
-            })
-            
-            encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-            logger.info(f"Access token created for user '{user.username}' (expires: {expire})")
-            return encoded_jwt
-        except Exception as e:
-            logger.error(f"Error creating access token for user '{user.username}': {e}")
-            raise
-    
+
+        if not user_row["is_active"]:
+            logger.warning("Authentication failed: user '%s' inactive", username)
+            return None
+
+        if not self.verify_password(password, user_row["password_hash"]):
+            logger.warning("Authentication failed: invalid password for '%s'", username)
+            return None
+
+        user = self._row_to_user(user_row)
+
+        if client_info:
+            self._record_successful_login(user, client_info)
+            # Refresh the row with last_login metadata
+            user_row = self.db.get_user_by_id(user.id)
+            user = self._row_to_user(user_row)
+
+        logger.info("User '%s' authenticated (role=%s)", username, user.role)
+        return user
+
+    def reset_password(self, username: str, new_password: str, must_reset: bool) -> bool:
+        user_row = self.db.get_user_by_username(username)
+        if not user_row:
+            return False
+        password_hash = self.get_password_hash(new_password)
+        self.db.update_password(user_row["id"], password_hash, must_reset=must_reset)
+        self.db.revoke_tokens_for_user(user_row["id"])
+        logger.info("Password reset for user '%s'", username)
+        return True
+
+    def change_password(self, user: User, current_password: str, new_password: str) -> bool:
+        row = self.db.get_user_by_id(user.id)
+        if not row:
+            return False
+        if not self.verify_password(current_password, row["password_hash"]):
+            return False
+
+        password_hash = self.get_password_hash(new_password)
+        self.db.update_password(user.id, password_hash, must_reset=False)
+        self.db.revoke_tokens_for_user(user.id)
+        self.db.clear_must_reset(user.id)
+        logger.info("User '%s' changed password", user.username)
+        return True
+
+    def get_user_by_username(self, username: str) -> Optional[Dict[str, Any]]:
+        """Compatibility helper returning raw database row."""
+        return self.db.get_user_by_username(username)
+
+    def clear_must_reset(self, user_id: int) -> None:
+        self.db.clear_must_reset(user_id)
+
+    def get_user_by_id(self, user_id: str) -> Optional[User]:
+        row = self.db.get_user_by_id(int(user_id))
+        return self._row_to_user(row) if row else None
+
+    def get_user_list(self) -> List[Dict[str, Any]]:
+        users = []
+        for row in self.db.list_users():
+            user = self._row_to_user(row)
+            users.append(
+                {
+                    "user_id": user.to_dict()["user_id"],
+                    "username": user.username,
+                    "email": user.email,
+                    "role": user.role,
+                    "is_active": user.is_active,
+                    "must_reset": user.must_reset,
+                    "last_login_at": row.get("last_login_at"),
+                    "last_login_ip": user.last_login_ip,
+                    "last_login_ip_type": user.last_login_ip_type,
+                    "created_at": row.get("created_at"),
+                }
+        )
+        return users
+
+    def get_all_users(self) -> List[Dict[str, Any]]:
+        """Backward-compatible alias for admin API."""
+        return self.get_user_list()
+
+    def toggle_user_active(self, username: str) -> bool:
+        success = self.db.toggle_user_active(username)
+        if success:
+            logger.info("Toggled active state for user '%s'", username)
+        return success
+
+    def is_admin(self, user: User) -> bool:
+        return user.role == "admin"
+
+    # ------------------------------------------------------------------
+    # Token operations
+    # ------------------------------------------------------------------
+    def create_access_token(
+        self,
+        user: User,
+        expires_delta: Optional[timedelta] = None,
+    ) -> str:
+        expire = datetime.utcnow() + (expires_delta or self.access_token_expiry)
+        payload = {
+            "user_id": user.to_dict()["user_id"],
+            "username": user.username,
+            "email": user.email,
+            "role": user.role,
+            "is_active": user.is_active,
+            "must_reset": user.must_reset,
+            "last_login_ip": user.last_login_ip,
+            "last_login_ip_type": user.last_login_ip_type,
+            "exp": expire,
+            "iat": datetime.utcnow(),
+            "type": "access",
+        }
+        token = jwt.encode(payload, ACCESS_TOKEN_SECRET, algorithm=ALGORITHM)
+        logger.debug("Access token issued for %s (expires %s)", user.username, expire)
+        return token
+
     def create_refresh_token(self, user: User) -> str:
-        """
-        Create JWT refresh token
-        
-        Args:
-            user: User object
-            
-        Returns:
-            JWT refresh token string
-        """
-        try:
-            expire = datetime.utcnow() + timedelta(hours=REFRESH_TOKEN_EXPIRE_HOURS)
-            
-            to_encode = {
-                "user_id": user.user_id,
-                "username": user.username,
-                "exp": expire,
-                "iat": datetime.utcnow(),
-                "type": "refresh"
-            }
-            
-            encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-            logger.info(f"Refresh token created for user '{user.username}' (expires: {expire})")
-            return encoded_jwt
-        except Exception as e:
-            logger.error(f"Error creating refresh token for user '{user.username}': {e}")
-            raise
-    
+        expire = datetime.utcnow() + self.refresh_token_expiry
+        jti = secrets.token_hex(16)
+        payload = {
+            "user_id": user.to_dict()["user_id"],
+            "username": user.username,
+            "role": user.role,
+            "jti": jti,
+            "type": "refresh",
+            "exp": expire,
+            "iat": datetime.utcnow(),
+        }
+        token = jwt.encode(payload, REFRESH_TOKEN_SECRET, algorithm=ALGORITHM)
+        token_hash = self._hash_token(token)
+        self.db.store_refresh_token(user.id, token_hash, expire)
+        # Keep only the most recent token active
+        self.db.revoke_tokens_for_user(user.id, except_hash=token_hash)
+        logger.debug("Refresh token stored for %s (expires %s)", user.username, expire)
+        return token
+
     def verify_token(self, token: str) -> Optional[User]:
-        """
-        Verify and decode JWT token
-        
-        Args:
-            token: JWT token string
-            
-        Returns:
-            User object if token is valid, None otherwise
-        """
         try:
-            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-            
-            # Check token type
+            payload = jwt.decode(token, ACCESS_TOKEN_SECRET, algorithms=[ALGORITHM])
             if payload.get("type") != "access":
-                logger.warning("Invalid token type")
+                logger.warning("Invalid token type encountered during verification")
                 return None
-            
-            # Check expiration
-            exp = payload.get("exp")
-            if exp and datetime.utcnow() > datetime.fromtimestamp(exp):
-                logger.warning("Token has expired")
+
+            user = User.from_payload(payload)
+            row = self.db.get_user_by_id(user.id)
+            if not row or not row["is_active"]:
+                logger.warning("Token verification failed: user inactive or missing")
                 return None
-            
-            # Create user from payload
-            user = User.from_dict(payload)
-            
-            # Verify user still exists and is active
-            user_data = self.users_db.get(user.username)
-            if not user_data or not user_data["is_active"]:
-                logger.warning(f"User '{user.username}' no longer active")
-                return None
-            
-            return user
-            
+
+            return self._row_to_user(row)
+
         except jwt.ExpiredSignatureError:
-            logger.warning("Token has expired")
+            logger.warning("Access token expired")
             return None
-        except jwt.InvalidTokenError as e:
-            logger.warning(f"Invalid token: {e}")
+        except jwt.InvalidTokenError as exc:
+            logger.warning("Invalid access token: %s", exc)
             return None
-        except Exception as e:
-            logger.error(f"Token verification error: {e}")
+        except Exception as exc:
+            logger.error("Token verification error: %s", exc)
             return None
-    
+
     def refresh_access_token(self, refresh_token: str) -> Optional[str]:
-        """
-        Create new access token from refresh token
-        
-        Args:
-            refresh_token: JWT refresh token string
-            
-        Returns:
-            New access token string if refresh successful, None otherwise
-        """
         try:
-            payload = jwt.decode(refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
-            
-            # Check token type
-            if payload.get("type") != "refresh":
-                logger.warning("Invalid refresh token type")
-                return None
-            
-            # Check expiration
-            exp = payload.get("exp")
-            if exp and datetime.utcnow() > datetime.fromtimestamp(exp):
-                logger.warning("Refresh token has expired")
-                return None
-            
-            # Get user info
-            username = payload.get("username")
-            user_data = self.users_db.get(username)
-            if not user_data or not user_data["is_active"]:
-                logger.warning(f"User '{username}' no longer active")
-                return None
-            
-            # Create new user object and access token
-            user = User(
-                user_id=user_data["user_id"],
-                username=user_data["username"],
-                role=user_data["role"],
-                is_active=user_data["is_active"]
+            payload = jwt.decode(
+                refresh_token, REFRESH_TOKEN_SECRET, algorithms=[ALGORITHM]
             )
-            
-            new_access_token = self.create_access_token(user)
-            logger.info(f"Access token refreshed for user '{username}'")
-            return new_access_token
-            
+            if payload.get("type") != "refresh":
+                logger.warning("Refresh attempt with incorrect token type")
+                return None
+
+            token_hash = self._hash_token(refresh_token)
+            stored = self.db.get_refresh_token(token_hash)
+            if not stored or stored.get("revoked_at"):
+                logger.warning("Refresh attempt with revoked token")
+                return None
+
+            expires_at = datetime.fromisoformat(stored["expires_at"])
+            if datetime.utcnow() > expires_at:
+                logger.warning("Refresh attempt with expired token")
+                self.db.revoke_refresh_token(token_hash)
+                return None
+
+            user = self.get_user_by_id(payload["user_id"])
+            if not user or not user.is_active:
+                logger.warning("Refresh attempt for inactive user")
+                return None
+
+            return self.create_access_token(user)
+
         except jwt.ExpiredSignatureError:
-            logger.warning("Refresh token has expired")
+            logger.warning("Refresh token expired")
             return None
-        except jwt.InvalidTokenError as e:
-            logger.warning(f"Invalid refresh token: {e}")
+        except jwt.InvalidTokenError as exc:
+            logger.warning("Invalid refresh token: %s", exc)
             return None
-        except Exception as e:
-            logger.error(f"Token refresh error: {e}")
+        except Exception as exc:
+            logger.error("Refresh token processing error: %s", exc)
             return None
-    
-    def login(self, username: str, password: str) -> Optional[Dict[str, Any]]:
-        """
-        Complete login process with token generation
-        
-        Args:
-            username: Username
-            password: Password
-            
-        Returns:
-            Dictionary with tokens and user info if successful, None otherwise
-        """
-        # Authenticate user
-        user = self.authenticate_user(username, password)
+
+    def login(
+        self,
+        username: str,
+        password: str,
+        client_info: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        user = self.authenticate_user(username, password, client_info=client_info)
         if not user:
             return None
-        
-        # Create tokens
+
         access_token = self.create_access_token(user)
         refresh_token = self.create_refresh_token(user)
-        
+
         return {
             "access_token": access_token,
             "refresh_token": refresh_token,
             "token_type": "bearer",
-            "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60,  # seconds
-            "user": user.to_dict()
+            "expires_in": int(self.access_token_expiry.total_seconds()),
+            "user": user.to_dict(),
         }
-    
-    def get_user_list(self) -> List[Dict[str, Any]]:
-        """
-        Get list of all users (admin only function)
-        
-        Returns:
-            List of user information dictionaries
-        """
-        return [
-            {
-                "user_id": user_data["user_id"],
-                "username": user_data["username"],
-                "role": user_data["role"],
-                "is_active": user_data["is_active"]
-            }
-            for user_data in self.users_db.values()
-        ]
-    
-    def get_user_by_id(self, user_id: str) -> Optional[User]:
-        """
-        Get user by user ID
-        
-        Args:
-            user_id: User ID to lookup
-            
-        Returns:
-            User object if found, None otherwise
-        """
-        for user_data in self.users_db.values():
-            if user_data["user_id"] == user_id:
-                return User(
-                    user_id=user_data["user_id"],
-                    username=user_data["username"],
-                    role=user_data["role"],
-                    is_active=user_data["is_active"]
-                )
-        return None
-    
-    def is_admin(self, user: User) -> bool:
-        """
-        Check if user has admin role
-        
-        Args:
-            user: User object
-            
-        Returns:
-            True if user is admin, False otherwise
-        """
-        return user.role == "admin"
-    
+
+    def revoke_refresh_token(self, refresh_token: str) -> None:
+        token_hash = self._hash_token(refresh_token)
+        self.db.revoke_refresh_token(token_hash)
+
     def get_auth_stats(self) -> Dict[str, Any]:
-        """
-        Get authentication service statistics
-        
-        Returns:
-            Dictionary with authentication statistics
-        """
+        users = self.db.list_users()
+        active_users = [u for u in users if u["is_active"]]
+        admin_users = [u for u in users if u["role"] == "admin"]
         return {
-            "total_users": len(self.users_db),
-            "active_users": sum(1 for user in self.users_db.values() if user["is_active"]),
-            "admin_users": sum(1 for user in self.users_db.values() if user["role"] == "admin"),
-            "user_list": [user["username"] for user in self.users_db.values() if user["is_active"]]
+            "total_users": len(users),
+            "active_users": len(active_users),
+            "admin_users": len(admin_users),
+            "user_list": [u["username"] for u in active_users],
         }
-    
-    def get_all_users(self) -> List[Dict[str, Any]]:
-        """
-        Get all users with detailed information (admin only)
-        
-        Returns:
-            List of user dictionaries with full details
-        """
-        return [
-            {
-                "username": user_data["username"],
-                "role": user_data["role"],
-                "is_active": user_data["is_active"],
-                "last_login": None,  # Could be implemented with login tracking
-                "created_at": None   # Could be implemented with user creation tracking
-            }
-            for user_data in self.users_db.values()
-        ]
-    
-    def toggle_user_active(self, username: str) -> bool:
-        """
-        Toggle user active status (admin only)
-        
-        Args:
-            username: Username to toggle
-            
-        Returns:
-            True if user was found and toggled, False otherwise
-        """
-        if username in self.users_db:
-            self.users_db[username]["is_active"] = not self.users_db[username]["is_active"]
-            new_status = "activated" if self.users_db[username]["is_active"] else "deactivated"
-            logger.info(f"User '{username}' {new_status}")
-            return True
-        return False
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+    def _row_to_user(self, row: Dict[str, Any]) -> User:
+        return User(
+            id=row["id"],
+            username=row["username"],
+            email=row["email"],
+            role=row["role"],
+            is_active=bool(row["is_active"]),
+            must_reset=bool(row.get("must_reset", 0)),
+            last_login_ip=row.get("last_login_ip"),
+            last_login_ip_type=row.get("last_login_ip_type"),
+        )
+
+    def _hash_token(self, token: str) -> str:
+        return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+    def _record_successful_login(
+        self,
+        user: User,
+        client_info: Dict[str, Any],
+    ) -> None:
+        ip_address = client_info.get("ip")
+        ip_type = self._classify_ip(ip_address)
+        self.db.update_last_login(user.id, ip_address, ip_type)
+
+    def _classify_ip(self, ip_address: Optional[str]) -> Optional[str]:
+        if not ip_address:
+            return None
+        try:
+            ip_obj = ipaddress.ip_address(ip_address)
+            if ip_obj.is_loopback or ip_obj.is_private:
+                return "local"
+            return "remote"
+        except ValueError:
+            return "unknown"
 
 
 # Global service instance
-_auth_service = None
+_auth_service: Optional[AuthService] = None
+security = HTTPBearer()
 
 
 def get_auth_service() -> AuthService:
-    """Get singleton authentication service instance"""
     global _auth_service
     if _auth_service is None:
         _auth_service = AuthService()
@@ -440,94 +443,60 @@ def get_auth_service() -> AuthService:
     return _auth_service
 
 
-# Create security scheme
-security = HTTPBearer()
-
-def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
-    """
-    FastAPI dependency to get current authenticated user from JWT token
-    
-    Args:
-        credentials: JWT token from Authorization header
-        
-    Returns:
-        User dictionary
-        
-    Raises:
-        HTTPException: If token is invalid or user not found
-    """
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> Dict[str, Any]:
     service = get_auth_service()
     user = service.verify_token(credentials.credentials)
-    
+
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
+
     return user.to_dict()
 
-def get_current_admin_user(current_user: dict = Depends(get_current_user)) -> dict:
-    """
-    FastAPI dependency to get current authenticated admin user
-    
-    Args:
-        current_user: Current user from get_current_user dependency
-        
-    Returns:
-        Admin user dictionary
-        
-    Raises:
-        HTTPException: If user is not an admin
-    """
-    if current_user["role"] != "admin":
+
+def get_current_admin_user(
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    service = get_auth_service()
+    user = service.get_user_by_id(current_user["user_id"])
+    if not user or not service.is_admin(user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required"
+            detail="Admin access required",
         )
-    
     return current_user
 
-# Convenience functions for backward compatibility
+
+# Convenience wrappers for legacy imports
 def authenticate_user(username: str, password: str) -> Optional[User]:
-    """Authenticate user (backward compatibility)"""
     service = get_auth_service()
     return service.authenticate_user(username, password)
 
 
 def create_access_token(user: User, expires_delta: Optional[timedelta] = None) -> str:
-    """Create access token (backward compatibility)"""
     service = get_auth_service()
     return service.create_access_token(user, expires_delta)
 
 
 def verify_token(token: str) -> Optional[User]:
-    """Verify token (backward compatibility)"""
     service = get_auth_service()
     return service.verify_token(token)
 
 
 if __name__ == "__main__":
-    # Example usage
     service = get_auth_service()
-    
-    print("=== PyRobot Simplified Authentication Service ===")
-    
-    # Test authentication
-    result = service.login("admin", "PyRobot_Admin_2025!")
-    if result:
-        print(f"Login successful for user: {result['user']['username']}")
-        print(f"Token type: {result['token_type']}")
-        print(f"Expires in: {result['expires_in']} seconds")
-        
-        # Test token verification
-        user = service.verify_token(result["access_token"])
-        if user:
-            print(f"Token verified for user: {user.username} (role: {user.role})")
-    
-    # Get stats
+    print("=== PyRobot Authentication Service ===")
+
+    demo_user = service.authenticate_user("admin", DEFAULT_ADMIN_PASSWORD)
+    if demo_user:
+        login_payload = service.login("admin", DEFAULT_ADMIN_PASSWORD)
+        print(f"Login successful: {login_payload['user']['username']}")
+        print(f"Access token: {login_payload['access_token'][:32]}…")
+
     stats = service.get_auth_stats()
-    print(f"Auth Stats: {stats['total_users']} users, {stats['admin_users']} admins")
-    
-    print("=== Authentication Service Example Complete ===")
+    print(f"Users: total={stats['total_users']} active={stats['active_users']}")

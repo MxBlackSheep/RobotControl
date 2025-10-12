@@ -35,10 +35,14 @@ import { api } from '../services/api';
 
 interface User {
   username: string;
+  email?: string;
   role: string;
   is_active: boolean;
   last_login?: string;
   created_at?: string;
+  must_reset?: boolean;
+  last_login_ip?: string | null;
+  last_login_ip_type?: string | null;
 }
 
 interface UserManagementProps {
@@ -65,7 +69,8 @@ export default function UserManagement({ onError }: UserManagementProps) {
     try {
       setLoading(true);
       const response = await api.get('/admin/users');
-      setUsers(response.data);
+      const payload = response.data?.data || response.data;
+      setUsers(payload);
     } catch (err: any) {
       const errorMessage = err.response?.data?.detail || 'Failed to load users';
       if (onError) onError(errorMessage);

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Box,
   Card,
@@ -6,39 +6,67 @@ import {
   TextField,
   Button,
   Typography,
-  Container
+  Container,
+  Stack,
 } from '@mui/material';
+import { isAxiosError } from 'axios';
 import { useAuth } from '../context/AuthContext';
 import ErrorAlert from '../components/ErrorAlert';
 
+type AuthMode = 'login' | 'register';
+
 const LoginPage: React.FC = () => {
+  const [mode, setMode] = useState<AuthMode>('login');
   const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
+  const { login, register } = useAuth();
 
-  // Focus management for login page
   React.useEffect(() => {
-    // Focus the first input when page loads
-    const usernameInput = document.querySelector('input[name="username"]') as HTMLInputElement;
+    const usernameInput = document.querySelector('input[name="username"]') as HTMLInputElement | null;
     if (usernameInput) {
       setTimeout(() => usernameInput.focus(), 100);
     }
-  }, []);
+  }, [mode]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const headerText = useMemo(
+    () => (mode === 'login' ? 'Sign in to PyRobot' : 'Create a PyRobot Account'),
+    [mode],
+  );
+
+  const submitLabel = mode === 'login' ? 'Sign In' : 'Register & Sign In';
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
     setLoading(true);
     setError('');
 
     try {
-      await login(username, password);
+      if (mode === 'login') {
+        await login(username.trim(), password);
+      } else {
+        await register(username.trim(), email.trim(), password);
+      }
     } catch (err) {
-      setError('Invalid username or password');
+      if (isAxiosError(err)) {
+        const message =
+          err.response?.data?.error?.message ||
+          err.response?.data?.message ||
+          (mode === 'login' ? 'Invalid username or password' : 'Registration failed');
+        setError(message);
+      } else {
+        setError(mode === 'login' ? 'Invalid username or password' : 'Registration failed');
+      }
     } finally {
       setLoading(false);
     }
+  };
+
+  const toggleMode = () => {
+    setMode((prev) => (prev === 'login' ? 'register' : 'login'));
+    setError('');
   };
 
   return (
@@ -49,114 +77,154 @@ const LoginPage: React.FC = () => {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          py: { xs: 2, sm: 4 }
+          py: { xs: 2, sm: 4 },
         }}
       >
-        <Card sx={{ 
-          width: '100%', 
-          maxWidth: { xs: '100%', sm: 400 },
-          mx: { xs: 1, sm: 0 }
-        }}>
+        <Card
+          sx={{
+            width: '100%',
+            maxWidth: { xs: '100%', sm: 420 },
+            mx: { xs: 1, sm: 0 },
+          }}
+        >
           <CardContent sx={{ p: { xs: 3, sm: 4 } }}>
-            <Typography 
-              variant="h4" 
-              align="center" 
-              gutterBottom
-              sx={{ fontSize: { xs: '1.5rem', sm: '2.125rem' } }}
-            >
-              PyRobot Simplified
-            </Typography>
-            <Typography 
-              variant="body2" 
-              align="center" 
-              color="textSecondary" 
-              mb={3}
-              sx={{ fontSize: { xs: '0.875rem', sm: '0.875rem' } }}
-            >
-              Hamilton VENUS Robot Management
-            </Typography>
+            <Stack spacing={2}>
+              <Box textAlign="center">
+                <Typography
+                  variant="h4"
+                  gutterBottom
+                  sx={{ fontSize: { xs: '1.5rem', sm: '2.125rem' } }}
+                >
+                  {headerText}
+                </Typography>
+                <Typography
+                  variant="body2"
+                  color="textSecondary"
+                  sx={{ fontSize: { xs: '0.9rem', sm: '0.95rem' } }}
+                >
+                  Hamilton VENUS Robot Management Console
+                </Typography>
+              </Box>
 
-            {error && (
-              <ErrorAlert
-                message={error}
-                severity="error"
-                category="authentication"
-                sx={{ mb: 2 }}
-                closable={true}
-                onClose={() => setError('')}
-              />
-            )}
+              {error && (
+                <ErrorAlert
+                  message={error}
+                  severity="error"
+                  category="authentication"
+                  sx={{ mb: 1 }}
+                  closable
+                  onClose={() => setError('')}
+                />
+              )}
 
-            <form onSubmit={handleSubmit} role="form" aria-label="Login form">
-              <TextField
-                fullWidth
-                label="Username"
-                name="username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                margin="normal"
-                required
-                autoFocus
-                autoComplete="username"
-                inputProps={{
-                  'aria-label': 'Username',
-                  'aria-describedby': 'username-help'
-                }}
-                sx={{
-                  '& .MuiInputBase-root': {
-                    minHeight: { xs: 56, sm: 56 }
+              <Box
+                component="form"
+                onSubmit={handleSubmit}
+                role="form"
+                aria-label={mode === 'login' ? 'Login form' : 'Registration form'}
+              >
+                <TextField
+                  fullWidth
+                  label="Username"
+                  name="username"
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
+                  margin="normal"
+                  required
+                  autoComplete="username"
+                  inputProps={{
+                    'aria-label': 'Username',
+                  }}
+                  sx={{
+                    '& .MuiInputBase-root': {
+                      minHeight: { xs: 56, sm: 56 },
+                    },
+                  }}
+                />
+
+                {mode === 'register' && (
+                  <TextField
+                    fullWidth
+                    label="Email"
+                    name="email"
+                    type="email"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    margin="normal"
+                    required
+                    autoComplete="email"
+                    inputProps={{
+                      'aria-label': 'Email address',
+                    }}
+                    sx={{
+                      '& .MuiInputBase-root': {
+                        minHeight: { xs: 56, sm: 56 },
+                      },
+                    }}
+                  />
+                )}
+
+                <TextField
+                  fullWidth
+                  label="Password"
+                  name="password"
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  margin="normal"
+                  required
+                  autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                  inputProps={{
+                    'aria-label': 'Password',
+                  }}
+                  helperText={
+                    mode === 'register'
+                      ? 'Use at least 8 characters. Strong passwords mix numbers, symbols, and case.'
+                      : undefined
                   }
-                }}
-              />
-              <TextField
-                fullWidth
-                label="Password"
-                name="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                margin="normal"
-                required
-                autoComplete="current-password"
-                inputProps={{
-                  'aria-label': 'Password',
-                  'aria-describedby': 'password-help'
-                }}
-                sx={{
-                  '& .MuiInputBase-root': {
-                    minHeight: { xs: 56, sm: 56 }
-                  }
-                }}
-              />
+                  sx={{
+                    '& .MuiInputBase-root': {
+                      minHeight: { xs: 56, sm: 56 },
+                    },
+                  }}
+                />
+
+                <Button
+                  type="submit"
+                  fullWidth
+                  variant="contained"
+                  size="large"
+                  disabled={loading}
+                  sx={{
+                    mt: 3,
+                    minHeight: { xs: 48, sm: 42 },
+                    fontSize: { xs: '1rem', sm: '0.875rem' },
+                  }}
+                >
+                  {loading ? 'Please wait…' : submitLabel}
+                </Button>
+              </Box>
+
+              <Stack spacing={1} textAlign="center">
+                <Typography variant="caption" color="textSecondary">
+                  Default admin: admin / ShouGroupAdmin
+                </Typography>
+                <Typography variant="caption" color="textSecondary">
+                  Forgot your password? Contact a lab admin to reset it.
+                </Typography>
+              </Stack>
+
               <Button
-                type="submit"
-                fullWidth
-                variant="contained"
-                size="large"
-                disabled={loading}
-                sx={{ 
-                  mt: 3,
-                  minHeight: { xs: 48, sm: 42 },
-                  fontSize: { xs: '1rem', sm: '0.875rem' }
-                }}
+                variant="text"
+                color="primary"
+                onClick={toggleMode}
+                sx={{ mt: 1 }}
               >
-                {loading ? 'Signing In...' : 'Sign In'}
+                {mode === 'login'
+                  ? "Don't have an account? Register now"
+                  : 'Have an account? Back to sign in'}
               </Button>
-            </form>
-
-            <Box sx={{ mt: 2, textAlign: 'center' }}>
-              <Typography 
-                id="username-help"
-                variant="caption" 
-                color="textSecondary"
-                aria-label="Login help information"
-              >
-                Default login: admin / PyRobot_Admin_2025!
-              </Typography>
-              <div id="password-help" style={{ display: 'none' }}>
-                Enter your password to access the PyRobot system
-              </div>
-            </Box>
+            </Stack>
           </CardContent>
         </Card>
       </Box>

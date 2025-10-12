@@ -21,6 +21,7 @@ import KeyboardShortcutsHelp, { useKeyboardShortcutsHelp } from './components/Ke
 import { useKeyboardNavigation } from './hooks/useKeyboardNavigation';
 import LoginPage from './pages/LoginPage';
 import Dashboard from './pages/Dashboard';
+import ChangePasswordDialog from './components/ChangePasswordDialog';
 
 // Lazy load non-critical pages for better initial load performance
 const DatabasePage = loadComponent(() => import('./pages/DatabasePage'));
@@ -37,11 +38,18 @@ const AppContent: React.FC = () => {
   
   // Mobile drawer state
   const [mobileDrawerOpen, setMobileDrawerOpen] = React.useState(false);
+  const [passwordDialogOpen, setPasswordDialogOpen] = React.useState(false);
   const isMobile = useMediaQuery(theme.breakpoints.down('md')); // < 768px
 
   // Keyboard navigation and shortcuts
   useKeyboardNavigation({ enabled: isAuthenticated });
   const { open: shortcutsHelpOpen, showHelp: showShortcutsHelp, hideHelp: hideShortcutsHelp } = useKeyboardShortcutsHelp();
+
+  React.useEffect(() => {
+    if (user?.must_reset) {
+      setPasswordDialogOpen(true);
+    }
+  }, [user?.must_reset]);
 
   const tabItems = React.useMemo(() => {
     const items = [
@@ -124,6 +132,16 @@ const AppContent: React.FC = () => {
           
           <Button 
             color="inherit" 
+            onClick={() => setPasswordDialogOpen(true)}
+            sx={{
+              minHeight: { xs: 44, sm: 36 },
+              mr: 1
+            }}
+          >
+            Change Password
+          </Button>
+          <Button 
+            color="inherit" 
             onClick={logout}
             sx={{
               minHeight: { xs: 44, sm: 36 } // Touch-friendly height
@@ -203,6 +221,12 @@ const AppContent: React.FC = () => {
       <KeyboardShortcutsHelp
         open={shortcutsHelpOpen}
         onClose={hideShortcutsHelp}
+      />
+
+      <ChangePasswordDialog
+        open={passwordDialogOpen}
+        onClose={() => setPasswordDialogOpen(false)}
+        requireChange={Boolean(user?.must_reset)}
       />
     </Box>
   );

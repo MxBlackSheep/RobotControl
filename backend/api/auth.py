@@ -5,16 +5,16 @@ Clean and simple REST API endpoints for authentication operations.
 Consolidates functionality from web_app/api/v1/auth.py into a simplified interface.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 from typing import Optional, Dict, Any
 import logging
 import time
 from datetime import datetime
 
 # Import our simplified authentication service
-from backend.services.auth import get_auth_service, AuthService, User
+from backend.services.auth import AuthService, User, get_auth_service
 
 # Import standardized response formatter
 from backend.api.response_formatter import (
@@ -35,6 +35,21 @@ class LoginRequest(BaseModel):
     username: str = Field(..., min_length=1, max_length=100)
     password: str = Field(..., min_length=1)
 
+class RegisterRequest(BaseModel):
+    username: str = Field(..., min_length=3, max_length=100)
+    email: EmailStr
+    password: str = Field(..., min_length=8, max_length=256)
+
+class RegisterResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    expires_in: int
+    user: Dict[str, Any]
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(..., min_length=1, max_length=256)
+    new_password: str = Field(..., min_length=8, max_length=256)
 
 class LoginResponse(BaseModel):
     access_token: str
@@ -133,6 +148,7 @@ async def require_admin(
 @router.post("/login")
 async def login(
     request: LoginRequest,
+    http_request: Request,
     auth_service: AuthService = Depends(get_auth_service_dep)
 ):
     """
@@ -149,7 +165,11 @@ async def login(
     
     try:
         # Attempt login
-        result = auth_service.login(request.username, request.password)
+        client_info = {
+            "ip": http_request.client.host if http_request.client else None,
+            "user_agent": http_request.headers.get("user-agent"),
+        }
+        result = auth_service.login(request.username, request.password, client_info=client_info)
         
         if not result:
             logger.warning(f"Failed login attempt for username: {request.username}")
@@ -172,6 +192,86 @@ async def login(
         return ResponseFormatter.server_error(
             message="Login failed due to server error",
             details=str(e)
+        )
+
+@router.post("/register")
+async def register(
+    request: RegisterRequest,
+    http_request: Request,
+    auth_service: AuthService = Depends(get_auth_service_dep)
+):
+    """
+    Register a new user account and issue tokens.
+    """
+    start_time = time.time()
+    try:
+        auth_service.register_user(request.username.strip(), request.email.lower(), request.password)
+        client_info = {
+            "ip": http_request.client.host if http_request.client else None,
+            "user_agent": http_request.headers.get("user-agent"),
+        }
+        result = auth_service.login(request.username, request.password, client_info=client_info)
+
+        metadata = ResponseMetadata()
+        metadata.set_execution_time(start_time)
+        metadata.add_metadata("operation", "register")
+        metadata.add_metadata("username", request.username)
+
+        return ResponseFormatter.success(data=result, metadata=metadata, status_code=201, message="Registration successful")
+
+    except ValueError as exc:
+        logger.warning(f"Registration failed for '{request.username}': {exc}")
+        return ResponseFormatter.bad_request(
+            message=str(exc),
+            details={"username": request.username, "email": request.email}
+        )
+    except Exception as exc:
+        logger.error(f"Registration error for '{request.username}': {exc}")
+        return ResponseFormatter.server_error(
+            message="Registration failed due to server error",
+            details=str(exc)
+        )
+
+@router.post("/change-password")
+async def change_password(
+    request: ChangePasswordRequest,
+    current_user: User = Depends(get_current_user),
+    auth_service: AuthService = Depends(get_auth_service_dep)
+):
+    """
+    Allow an authenticated user to change their password.
+    """
+    start_time = time.time()
+
+    try:
+        success = auth_service.change_password(
+            current_user,
+            request.current_password,
+            request.new_password,
+        )
+
+        if not success:
+            return ResponseFormatter.unauthorized(
+                message="Current password is incorrect",
+                details={"username": current_user.username}
+            )
+
+        metadata = ResponseMetadata()
+        metadata.set_execution_time(start_time)
+        metadata.add_metadata("operation", "change_password")
+        metadata.add_metadata("username", current_user.username)
+
+        return ResponseFormatter.success(
+            data={"message": "Password changed successfully"},
+            metadata=metadata,
+            message="Password changed successfully"
+        )
+
+    except Exception as exc:
+        logger.error(f"Password change error for '{current_user.username}': {exc}")
+        return ResponseFormatter.server_error(
+            message="Password change failed due to server error",
+            details=str(exc)
         )
 
 

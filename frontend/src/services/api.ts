@@ -47,10 +47,19 @@ export const authAPI = {
   login: (username: string, password: string) =>
     api.post('/api/auth/login', { username, password }),
 
+  register: (username: string, email: string, password: string) =>
+    api.post('/api/auth/register', { username, email, password }),
+
   refresh: (refreshToken: string) =>
     api.post('/api/auth/refresh', { refresh_token: refreshToken }),
 
   me: () => api.get('/api/auth/me'),
+
+  changePassword: (currentPassword: string, newPassword: string) =>
+    api.post('/api/auth/change-password', {
+      current_password: currentPassword,
+      new_password: newPassword,
+    }),
 };
 
 export const databaseAPI = {
