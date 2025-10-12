@@ -1,3 +1,7 @@
+## 2025-10-12 Performance Logging Cleanup
+
+- Removed the unused performance logging subsystem (router, middleware, utilities) so the backend stops emitting empty `performance_*.log` files (`backend/api/performance.py`, `backend/middleware/performance.py`, `backend/utils/logger.py`, `backend/main.py`).
+
 ## 2025-10-12 Backup Path Persistence
 
 - Pointed the backup service at the managed data directory so PyInstaller builds persist backups beside `PyRobot.exe` rather than the temp `_MEI` unpack location (backend/services/backup.py).

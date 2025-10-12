@@ -18,9 +18,8 @@
 - Auto-reload is disabled (`uvicorn.run(..., reload=False)`) to keep session logs clean.
 - Uvicorn access logging is off; only warnings/errors surface through the shared handlers.
 
-## Structured & Performance Logging
-- Performance subsystems continue to write to rotating `performance_<YYYYMMDD>.log` files. Use `backend/utils/logger.setup_performance_logging` if you need additional subsystem loggers.
-- When JSON logging is enabled, both the main and error files emit structured records ready for ingestion (Elastic/OpenSearch, etc.).
+## Structured Logging
+- JSON logging can be enabled via `PYROBOT_LOG_JSON=1`; both the main and error files emit structured records ready for ingestion (Elastic/OpenSearch, etc.).
 
 ## Troubleshooting Notes
 - On platforms that cannot create hard links for the daily alias, the handler drops a stub file noting the limitation and continues using the primary path.

@@ -21,7 +21,7 @@
 - Draft migration timeline and owner assignments before beginning refactor.
 ## Logging Improvements for Continuous Operation
 - Current backend logger writes a single session file (`pyrobot_backend_<timestamp>.log`) with no rotation; multi-day runs will create huge files that are hard to search.
-- Only the performance logger uses rotation (10MB/5 files). We need a rotation/retention strategy for the primary logs (e.g., daily `TimedRotatingFileHandler` plus severity-specific files and gzip after rotation).
+- Confirm the daily alias + gzip rotation on the main/error logs is sufficient now that the legacy performance logger is gone; if not, revisit retention strategy for long-running sessions.
 - Consider structured logging (JSON) or at minimum ship logs to an index (Elastic/OpenSearch) so prolonged runs remain searchable.
 - Define high-severity alert path (e.g., emit to separate `error.log` + optional email/Slack hook) so multi-day review surfaces critical failures quickly.
 

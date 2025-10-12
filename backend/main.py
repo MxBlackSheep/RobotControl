@@ -67,7 +67,6 @@ from backend.api.system_config import router as system_config_router
 from backend.api.camera import router as camera_router
 from backend.api.scheduling import router as scheduling_router
 from backend.api.system import router as system_router
-from backend.api.performance import router as performance_router
 
 # Import services for initialization
 from backend.services.database import get_database_service
@@ -311,14 +310,6 @@ async def lifespan(app: FastAPI):
 
     logger.info("Starting PyRobot Simplified Backend...")
 
-    logger.info("Initializing performance logging system...")
-    try:
-        from backend.utils.logger import setup_performance_logging
-        performance_loggers = setup_performance_logging()
-        logger.info("Performance logging initialized with %s subsystem loggers", len(performance_loggers))
-    except Exception as exc:
-        logger.error("Failed to initialize performance logging: %s", exc)
-
     logger.info("All services configured for lazy loading")
     logger.info("Authentication: ready (will initialize on first login)")
     logger.info("Database: ready (will connect on first query)")
@@ -509,7 +500,6 @@ app.include_router(camera_router, prefix="/api", tags=["camera"])
 app.include_router(admin_router, prefix="/api/admin", tags=["admin"])
 app.include_router(backup_router, prefix="/api/admin/backup", tags=["backup", "admin"])
 app.include_router(monitoring_router, prefix="/api/monitoring", tags=["monitoring"])
-app.include_router(performance_router, prefix="/api", tags=["performance"])
 app.include_router(system_config_router, prefix="/api/admin/system", tags=["admin", "system"])
 app.include_router(system_router, tags=["system"])
 app.include_router(scheduling_router, tags=["scheduling"])
