@@ -1,3 +1,7 @@
+## 2025-10-12 Backup Path Persistence
+
+- Pointed the backup service at the managed data directory so PyInstaller builds persist backups beside `PyRobot.exe` rather than the temp `_MEI` unpack location (backend/services/backup.py).
+
 ## 2025-10-11 Manual Recovery Dropdown
 
 - Swapped the manual recovery recipient text area for a multi-select fed by Notification Contacts, keeping custom addresses visible and clarifying the helper copy (frontend/src/components/scheduling/NotificationEmailSettingsPanel.tsx).

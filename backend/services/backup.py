@@ -30,6 +30,8 @@ from pathlib import Path
 import hashlib
 from contextlib import contextmanager
 
+from backend.utils.data_paths import get_path_manager, get_backups_path
+
 # Import configuration from project root
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, project_root)
@@ -318,21 +320,26 @@ def get_available_disk_space(path: str) -> int:
 # Use relative path approach for both development and compiled modes
 try:
     from backend.config import settings
-    # Resolve relative to project root directory
-    if os.path.isabs(settings.LOCAL_BACKUP_PATH):
+    path_manager = get_path_manager()
+    base_path = path_manager.base_path
+
+    configured_backup_path = str(settings.LOCAL_BACKUP_PATH)
+
+    # Resolve relative to executable/project root directory
+    if os.path.isabs(configured_backup_path):
         # Already absolute path
-        BACKUP_DIR = settings.LOCAL_BACKUP_PATH
+        BACKUP_DIR = configured_backup_path
     else:
-        # Relative path - resolve from project root
-        BACKUP_DIR = os.path.join(project_root, settings.LOCAL_BACKUP_PATH)
-    
-    SQL_BACKUP_DIR = settings.SQL_BACKUP_PATH
+        # Relative path - resolve from compiled/dev base directory
+        BACKUP_DIR = str((base_path / configured_backup_path).resolve())
+
+    SQL_BACKUP_DIR = str(settings.SQL_BACKUP_PATH)
     logger.debug(f"Backup directory resolved to: {BACKUP_DIR}")
     logger.debug(f"SQL backup directory: {SQL_BACKUP_DIR}")
-    
+
 except ImportError:
-    # Fallback to relative path from project root
-    BACKUP_DIR = os.path.join(project_root, "data", "backups")
+    # Fallback to the managed data/backups directory
+    BACKUP_DIR = str(get_backups_path())
     SQL_BACKUP_DIR = BACKUP_DIR
     logger.warning(f"Config import failed, using fallback directory: {BACKUP_DIR}")
 SQL_SERVER = getattr(config, 'SQL_SERVER', "LOCALHOST\\HAMILTON")
