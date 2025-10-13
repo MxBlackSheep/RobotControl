@@ -44,7 +44,9 @@ import {
   Stream as StreamIcon,
   PlayArrow as PlayArrowIcon,
   Stop as StopIcon,
-  Settings as SettingsIcon
+  Settings as SettingsIcon,
+  Fullscreen as FullscreenIcon,
+  Close as CloseIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import LoadingSpinner, { PageLoading, ButtonLoading } from '../components/LoadingSpinner';
@@ -126,6 +128,7 @@ const CameraPage: React.FC = () => {
   const [mySession, setMySession] = useState<StreamingSession | null>(null);
   const [streamingLoading, setStreamingLoading] = useState(false);
   const [currentFrame, setCurrentFrame] = useState<string | null>(null);
+  const [fullscreenDialogOpen, setFullscreenDialogOpen] = useState(false);
 
   // Video streaming state
   const [wsRef, setWsRef] = useState<WebSocket | null>(null);
@@ -170,6 +173,15 @@ const CameraPage: React.FC = () => {
       loadStreamingStatus();
     }
   }, [currentTab]);
+
+  useEffect(() => {
+    if (
+      fullscreenDialogOpen &&
+      (!mySession || mySession.websocket_state !== 'connected')
+    ) {
+      setFullscreenDialogOpen(false);
+    }
+  }, [fullscreenDialogOpen, mySession]);
 
   const loadCameraData = async () => {
     try {
@@ -449,14 +461,15 @@ const CameraPage: React.FC = () => {
   }
 
   return (
-    <Container 
-      maxWidth="xl" 
-      sx={{ 
-        mt: { xs: 2, md: 4 }, 
-        mb: { xs: 2, md: 4 },
-        px: { xs: 1, sm: 2 }
-      }}
-    >
+    <>
+      <Container 
+        maxWidth="xl" 
+        sx={{ 
+          mt: { xs: 2, md: 4 }, 
+          mb: { xs: 2, md: 4 },
+          px: { xs: 1, sm: 2 }
+        }}
+      >
       {/* Header */}
       <Box sx={{ 
         display: 'flex', 
@@ -817,6 +830,7 @@ const CameraPage: React.FC = () => {
                     {mySession.websocket_state === 'connected' ? (
                       <Box
                         sx={{
+                          position: 'relative',
                           width: '100%',
                           height: { xs: 240, sm: 300, md: 360 },
                           bgcolor: 'black',
@@ -827,6 +841,20 @@ const CameraPage: React.FC = () => {
                           overflow: 'hidden'
                         }}
                       >
+                        <IconButton
+                          size="small"
+                          onClick={() => setFullscreenDialogOpen(true)}
+                          sx={{
+                            position: 'absolute',
+                            top: 8,
+                            right: 8,
+                            bgcolor: 'rgba(0,0,0,0.5)',
+                            color: 'common.white',
+                            '&:hover': { bgcolor: 'rgba(0,0,0,0.7)' }
+                          }}
+                        >
+                          <FullscreenIcon fontSize="small" />
+                        </IconButton>
                         {currentFrame ? (
                           <img
                             src={currentFrame}
@@ -842,7 +870,8 @@ const CameraPage: React.FC = () => {
                               message="Waiting for frames..."
                             />
                             <Typography variant="body2" color="grey.400">
-                              Session {mySession.session_id.substring(0, 8)}鈥?                            </Typography>
+                              Session {mySession.session_id.substring(0, 8)}…
+                            </Typography>
                           </Stack>
                         )}
                       </Box>
@@ -1043,12 +1072,88 @@ const CameraPage: React.FC = () => {
         <DialogActions>
           <Button onClick={() => setStatusDialogOpen(false)}>Close</Button>
         </DialogActions>
-      </Dialog>
-    </Container>
+        </Dialog>
+      </Container>
+
+      <Dialog
+      fullScreen
+      open={fullscreenDialogOpen}
+      onClose={() => setFullscreenDialogOpen(false)}
+      PaperProps={{ sx: { bgcolor: 'black' } }}
+    >
+      <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: { xs: 'flex-start', sm: 'center' },
+            justifyContent: 'space-between',
+            gap: 2,
+            flexWrap: 'wrap',
+            p: { xs: 2, md: 3 },
+            bgcolor: 'rgba(0,0,0,0.6)'
+          }}
+        >
+          <Stack spacing={0.5}>
+            <Typography variant="h6" color="common.white">
+              Live Stream
+            </Typography>
+            {mySession && (
+              <Typography variant="body2" color="grey.300">
+                Session {mySession.session_id.substring(0, 8)} • Quality {mySession.quality_level}
+              </Typography>
+            )}
+          </Stack>
+          <IconButton
+            onClick={() => setFullscreenDialogOpen(false)}
+            sx={{ color: 'common.white', alignSelf: { xs: 'flex-end', sm: 'center' } }}
+            aria-label="Exit fullscreen"
+          >
+            <CloseIcon />
+          </IconButton>
+        </Box>
+
+        <Box
+          sx={{
+            flex: 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            p: { xs: 2, md: 4 },
+            bgcolor: 'black'
+          }}
+        >
+          {currentFrame ? (
+            <img
+              src={currentFrame}
+              alt="Live camera stream fullscreen"
+              style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+            />
+          ) : mySession?.websocket_state === 'connected' ? (
+            <Stack spacing={2} alignItems="center">
+              <LoadingSpinner
+                variant="spinner"
+                size="large"
+                color="primary"
+                message="Waiting for frames..."
+              />
+              <Typography variant="body2" color="grey.400">
+                Stream is active, awaiting next frame…
+              </Typography>
+            </Stack>
+          ) : (
+            <Typography variant="body1" color="grey.400">
+              Stream not connected.
+            </Typography>
+          )}
+        </Box>
+      </Box>
+    </Dialog>
+    </>
   );
 };
 
 export default CameraPage;
+
 
 
 

@@ -2,6 +2,7 @@
 
 - Replaced the archive card-grid with a collapsible tree that virtualizes video rows via `react-window`; per-folder state now lives inside `VideoArchiveTab` and supports optional lazy loading (`frontend/src/components/camera/VideoArchiveTab.tsx`, `frontend/src/types/components.ts`).
 - Updated both camera pages to consume the shared archive component so the optimized UI appears regardless of route (`frontend/src/pages/CameraPage.tsx`, `frontend/src/pages/CameraPageRefactored.tsx`).
+- Added a full-screen dialog for the live streaming preview triggered from the inline player, closing automatically if the session drops (`frontend/src/pages/CameraPage.tsx`).
 
 ## 2025-10-15 Admin User Controls
 
@@ -369,7 +370,6 @@ Refer to `AGENTS.md` for the day-to-day runbook; this file captures development-
 - Build workflow: run `npm.cmd run build`, `python build_scripts/embed_resources.py`, then `python -m PyInstaller PyRobot.spec` to refresh the embedded bundle.
 
 - Deployment note: leave `VITE_API_BASE_URL` empty (or set to the backend origin) before building so mobile Safari/Chrome point at the correct server automatically.
-
 
 
 
