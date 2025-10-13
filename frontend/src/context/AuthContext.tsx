@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react';
-import { authAPI } from '../services/api';
+import { authAPI, ACCESS_TOKEN_UPDATED_EVENT } from '../services/api';
 
 interface User {
   user_id: string;
@@ -79,6 +79,22 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     checkAuth();
   }, [normalizeUser]); // Empty dependency - run once
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ accessToken?: string }>).detail;
+      if (detail?.accessToken) {
+        setToken(detail.accessToken);
+      }
+    };
+    window.addEventListener(ACCESS_TOKEN_UPDATED_EVENT, handler as EventListener);
+    return () => {
+      window.removeEventListener(ACCESS_TOKEN_UPDATED_EVENT, handler as EventListener);
+    };
+  }, []);
 
   const login = useCallback(async (username: string, password: string) => {
     try {

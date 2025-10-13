@@ -251,16 +251,49 @@ export const schedulingAPI = {
 
   getSchedule: (scheduleId: string) => api.get<ScheduleResponse>(`/api/scheduling/${scheduleId}`),
 
-  updateSchedule: (scheduleId: string, data: UpdateScheduleRequest) =>
-    api.put<ScheduleResponse>(`/api/scheduling/${scheduleId}`, data),
+  updateSchedule: (
+    scheduleId: string,
+    data: UpdateScheduleRequest,
+    options?: { expectedUpdatedAt?: string | null },
+  ) => {
+    const payload: UpdateScheduleRequest = { ...data };
+    const expected = options?.expectedUpdatedAt ?? undefined;
+    if (expected) {
+      payload.expected_updated_at = expected;
+    }
+    const config = expected ? { headers: { 'If-Unmodified-Since': expected } } : undefined;
+    return api.put<ScheduleResponse>(`/api/scheduling/${scheduleId}`, payload, config);
+  },
 
-  deleteSchedule: (scheduleId: string) => api.delete<ScheduleResponse>(`/api/scheduling/${scheduleId}`),
+  deleteSchedule: (scheduleId: string, options?: { expectedUpdatedAt?: string | null }) => {
+    const expected = options?.expectedUpdatedAt ?? undefined;
+    const config = expected ? { headers: { 'If-Unmodified-Since': expected } } : undefined;
+    return api.delete<ScheduleResponse>(`/api/scheduling/${scheduleId}`, config);
+  },
 
-  requireRecovery: (scheduleId: string, note?: string) =>
-    api.post<RecoveryActionResponse>(`/api/scheduling/${scheduleId}/recovery/require`, note ? { note } : {}),
+  requireRecovery: (scheduleId: string, note?: string, options?: { expectedUpdatedAt?: string | null }) => {
+    const expected = options?.expectedUpdatedAt ?? undefined;
+    const payload =
+      note != null
+        ? { note, ...(expected ? { expected_updated_at: expected } : {}) }
+        : expected
+        ? { expected_updated_at: expected }
+        : {};
+    const config = expected ? { headers: { 'If-Unmodified-Since': expected } } : undefined;
+    return api.post<RecoveryActionResponse>(`/api/scheduling/${scheduleId}/recovery/require`, payload, config);
+  },
 
-  resolveRecovery: (scheduleId: string, note?: string) =>
-    api.post<RecoveryActionResponse>(`/api/scheduling/${scheduleId}/recovery/resolve`, note ? { note } : {}),
+  resolveRecovery: (scheduleId: string, note?: string, options?: { expectedUpdatedAt?: string | null }) => {
+    const expected = options?.expectedUpdatedAt ?? undefined;
+    const payload =
+      note != null
+        ? { note, ...(expected ? { expected_updated_at: expected } : {}) }
+        : expected
+        ? { expected_updated_at: expected }
+        : {};
+    const config = expected ? { headers: { 'If-Unmodified-Since': expected } } : undefined;
+    return api.post<RecoveryActionResponse>(`/api/scheduling/${scheduleId}/recovery/resolve`, payload, config);
+  },
 
   getUpcomingSchedules: (hoursAhead = 48) =>
     api.get<ScheduleListResponse>('/api/scheduling/upcoming', { params: { hours_ahead: hoursAhead } }),
@@ -384,10 +417,13 @@ export const schedulingService = {
   async updateSchedule(
     scheduleId: string,
     data: CreateScheduleFormData,
+    expectedUpdatedAt?: string,
   ): Promise<{ schedule?: ScheduledExperiment; error?: string }> {
     try {
       const payload: UpdateScheduleRequest = buildScheduleRequest(data);
-      const { data: response } = await schedulingAPI.updateSchedule(scheduleId, payload);
+      const { data: response } = await schedulingAPI.updateSchedule(scheduleId, payload, {
+        expectedUpdatedAt,
+      });
       if (!response.success || !response.data) {
         return { error: response.message || 'Failed to update schedule' };
       }
@@ -397,9 +433,12 @@ export const schedulingService = {
     }
   },
 
-  async deleteSchedule(scheduleId: string): Promise<{ success: boolean; error?: string }> {
+  async deleteSchedule(
+    scheduleId: string,
+    expectedUpdatedAt?: string,
+  ): Promise<{ success: boolean; error?: string }> {
     try {
-      const { data } = await schedulingAPI.deleteSchedule(scheduleId);
+      const { data } = await schedulingAPI.deleteSchedule(scheduleId, { expectedUpdatedAt });
       if (!data.success) {
         return { success: false, error: data.message || 'Failed to delete schedule' };
       }
@@ -539,9 +578,10 @@ export const schedulingService = {
   async requireRecovery(
     scheduleId: string,
     note?: string,
+    expectedUpdatedAt?: string,
   ): Promise<{ schedule?: ScheduledExperiment; manualRecovery?: ManualRecoveryState | null; error?: string }> {
     try {
-      const { data } = await schedulingAPI.requireRecovery(scheduleId, note);
+      const { data } = await schedulingAPI.requireRecovery(scheduleId, note, { expectedUpdatedAt });
       if (!data.success || !data.data) {
         return { error: data.message || 'Failed to mark recovery requirement' };
       }
@@ -559,9 +599,10 @@ export const schedulingService = {
   async resolveRecovery(
     scheduleId: string,
     note?: string,
+    expectedUpdatedAt?: string,
   ): Promise<{ schedule?: ScheduledExperiment; manualRecovery?: ManualRecoveryState | null; error?: string }> {
     try {
-      const { data } = await schedulingAPI.resolveRecovery(scheduleId, note);
+      const { data } = await schedulingAPI.resolveRecovery(scheduleId, note, { expectedUpdatedAt });
       if (!data.success || !data.data) {
         return { error: data.message || 'Failed to resolve recovery' };
       }

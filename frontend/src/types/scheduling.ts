@@ -240,6 +240,7 @@ export interface UpdateScheduleRequest {
   };
   prerequisites?: string[];
   notification_contacts?: string[];
+  expected_updated_at?: string;
 }
 
 // API Response types using standardized wrapper
@@ -402,7 +403,7 @@ export interface UseSchedulingReturn {
     loadSchedules: (activeOnly?: boolean, focusScheduleId?: string | null) => Promise<void>;
     createSchedule: (data: CreateScheduleFormData) => Promise<void>;
     updateSchedule: (scheduleId: string, data: UpdateScheduleRequest) => Promise<void>;
-    deleteSchedule: (scheduleId: string) => Promise<void>;
+    deleteSchedule: (schedule: ScheduledExperiment) => Promise<void>;
     requireRecovery: (scheduleId: string, note?: string) => Promise<void>;
     resolveRecovery: (scheduleId: string, note?: string) => Promise<void>;
     getQueueStatus: () => Promise<void>;

@@ -174,6 +174,7 @@ const SchedulingPage: React.FC = () => {
         },
         prerequisites: Array.isArray(data.prerequisites) ? data.prerequisites : [],
         notification_contacts: Array.isArray(data.notification_contacts) ? data.notification_contacts : [],
+        expected_updated_at: state.selectedSchedule?.updated_at || undefined,
       };
       await actions.updateSchedule(editingScheduleId, updatePayload);
       await actions.loadSchedules(true, editingScheduleId);
@@ -909,7 +910,7 @@ const SchedulingPage: React.FC = () => {
                             startIcon={<DeleteIcon />}
                             onClick={() => {
                               if (window.confirm(`Delete schedule for ${state.selectedSchedule.experiment_name}?`)) {
-                                actions.deleteSchedule(state.selectedSchedule.schedule_id);
+                                actions.deleteSchedule(state.selectedSchedule);
                               }
                             }}
                             disabled={state.loading}

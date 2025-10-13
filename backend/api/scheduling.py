@@ -1,9 +1,9 @@
 from typing import Dict, Any, List, Optional, Union
-from datetime import datetime, timedelta
-import re
 import logging
+import re
+from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Header
 
 from backend.services.auth import get_current_user
 from backend.services.scheduling import (
@@ -104,6 +104,35 @@ def _validate_email_address(value: Any) -> str:
     if not EMAIL_REGEX.fullmatch(email):
         raise HTTPException(status_code=400, detail="Invalid email address format")
     return email
+
+
+def _timestamps_match(expected: Optional[str], actual: Optional[datetime]) -> bool:
+    """Return True when the expected timestamp matches the actual value."""
+    if not expected or actual is None:
+        return True
+    if not isinstance(expected, str):
+        return False
+    candidate = expected.strip()
+    if not candidate:
+        return True
+    try:
+        expected_dt = parse_iso_datetime_to_local(candidate)
+    except Exception:  # pragma: no cover - defensive
+        return False
+    return expected_dt == actual
+
+
+def _load_current_schedule(schedule_id: str, db_mgr, expected_timestamp: Optional[str]) -> ScheduledExperiment:
+    """Fetch the authoritative schedule record and enforce optimistic concurrency."""
+    schedule = db_mgr.get_schedule_by_id(schedule_id)
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    if not _timestamps_match(expected_timestamp, schedule.updated_at):
+        raise HTTPException(
+            status_code=409,
+            detail="Schedule was modified by another user. Refresh and try again.",
+        )
+    return schedule
 
 
 @router.get("/notifications/settings")
@@ -816,6 +845,7 @@ async def update_schedule(
     update_data: Dict[str, Any],
     current_user: dict = Depends(get_current_user),
     connection: ConnectionContext = Depends(require_local_access),
+    if_unmodified_since: Optional[str] = Header(None, alias="If-Unmodified-Since"),
 ):
     """
     Update a scheduled experiment
@@ -824,57 +854,62 @@ async def update_schedule(
     """
     actor = current_user.get("username", "unknown")
     try:
-        # Check user permissions
         if current_user.get("role") not in ["admin", "user"]:
             raise HTTPException(status_code=403, detail="Insufficient permissions")
         
-        scheduler, db_mgr, queue_mgr, proc_mon = get_services()
-        
-        # Get existing schedule
-        existing_schedule = scheduler.get_schedule(schedule_id)
-        if not existing_schedule:
-            raise HTTPException(status_code=404, detail="Schedule not found")
-        
-        # Update fields
+        scheduler, db_mgr, _, _ = get_services()
+
+        expected_token = update_data.pop("expected_updated_at", None) or if_unmodified_since
+        base_schedule = _load_current_schedule(schedule_id, db_mgr, expected_token)
+
+        # Work on a fresh copy so we don't mutate cached instances prematurely
+        updated_schedule = ScheduledExperiment.from_dict(base_schedule.to_dict())
+
         if "experiment_name" in update_data:
-            existing_schedule.experiment_name = update_data["experiment_name"]
+            updated_schedule.experiment_name = update_data["experiment_name"]
         if "experiment_path" in update_data:
-            existing_schedule.experiment_path = update_data["experiment_path"]
+            updated_schedule.experiment_path = update_data["experiment_path"]
         if "schedule_type" in update_data:
-            existing_schedule.schedule_type = update_data["schedule_type"]
+            updated_schedule.schedule_type = update_data["schedule_type"]
         if "interval_hours" in update_data:
-            existing_schedule.interval_hours = update_data["interval_hours"]
+            updated_schedule.interval_hours = update_data["interval_hours"]
         if "start_time" in update_data:
             try:
-                existing_schedule.start_time = parse_iso_datetime_to_local(update_data["start_time"])
+                updated_schedule.start_time = parse_iso_datetime_to_local(update_data["start_time"])
             except ValueError:
                 raise HTTPException(status_code=400, detail="Invalid start_time format")
         if "estimated_duration" in update_data:
-            existing_schedule.estimated_duration = update_data["estimated_duration"]
+            updated_schedule.estimated_duration = update_data["estimated_duration"]
         if "is_active" in update_data:
-            existing_schedule.is_active = update_data["is_active"]
+            updated_schedule.is_active = update_data["is_active"]
         if "prerequisites" in update_data:
-            existing_schedule.prerequisites = update_data["prerequisites"]
+            updated_schedule.prerequisites = update_data["prerequisites"] or []
         if "retry_config" in update_data:
-            existing_schedule.retry_config = RetryConfig.from_dict(update_data["retry_config"])
+            retry_payload = update_data["retry_config"]
+            updated_schedule.retry_config = (
+                RetryConfig.from_dict(retry_payload) if isinstance(retry_payload, dict) else None
+            )
         if "notification_contacts" in update_data:
-            existing_schedule.notification_contacts = _normalize_contact_ids(
+            updated_schedule.notification_contacts = _normalize_contact_ids(
                 update_data["notification_contacts"],
                 db_mgr
             )
 
-        existing_schedule.updated_at = datetime.now()
-        
-        # Update in scheduler
-        success = scheduler.update_schedule(existing_schedule)
-        
+        updated_schedule.updated_at = datetime.now()
+
+        success = scheduler.update_schedule(updated_schedule)
         if not success:
-            raise HTTPException(status_code=400, detail="Failed to update schedule")
-        
+            # Scheduler offline or cache missing; persist directly then clear cache.
+            if not db_mgr.update_scheduled_experiment(updated_schedule):
+                raise HTTPException(status_code=400, detail="Failed to update schedule")
+            scheduler.invalidate_schedule(schedule_id)
+
+        refreshed = db_mgr.get_schedule_by_id(schedule_id) or updated_schedule
+
         response = ApiResponse(
             success=True,
             message="Schedule updated successfully",
-            data=existing_schedule.to_dict()
+            data=refreshed.to_dict()
         )
         
         log_action(
@@ -916,6 +951,7 @@ async def require_schedule_recovery(
     payload: Dict[str, Any] = None,
     current_user: dict = Depends(get_current_user),
     connection: ConnectionContext = Depends(require_local_access),
+    if_unmodified_since: Optional[str] = Header(None, alias="If-Unmodified-Since"),
 ):
     # Mark a schedule as requiring manual recovery and halt automated dispatch.
     if current_user.get('role') not in ['admin', 'user']:
@@ -923,8 +959,10 @@ async def require_schedule_recovery(
 
     scheduler, db_mgr, _, _ = get_services()
     note = (payload or {}).get('note') if payload else None
+    expected_token = (payload or {}).get('expected_updated_at') or if_unmodified_since
     actor = current_user.get('username') or current_user.get('user_id', 'system')
 
+    _load_current_schedule(schedule_id, db_mgr, expected_token)
     updated = scheduler.require_manual_recovery(schedule_id, note, actor)
     if not updated:
         existing = db_mgr.get_schedule_by_id(schedule_id)
@@ -976,6 +1014,7 @@ async def resolve_schedule_recovery(
     payload: Dict[str, Any] = None,
     current_user: dict = Depends(get_current_user),
     connection: ConnectionContext = Depends(require_local_access),
+    if_unmodified_since: Optional[str] = Header(None, alias="If-Unmodified-Since"),
 ):
     # Clear manual recovery requirement and resume scheduling.
     if current_user.get('role') not in ['admin', 'user']:
@@ -983,8 +1022,10 @@ async def resolve_schedule_recovery(
 
     scheduler, db_mgr, _, _ = get_services()
     note = (payload or {}).get('note') if payload else None
+    expected_token = (payload or {}).get('expected_updated_at') or if_unmodified_since
     actor = current_user.get('username') or current_user.get('user_id', 'system')
 
+    _load_current_schedule(schedule_id, db_mgr, expected_token)
     updated = scheduler.resolve_manual_recovery(schedule_id, note, actor)
     if not updated:
         existing = db_mgr.get_schedule_by_id(schedule_id)
@@ -1035,6 +1076,7 @@ async def delete_schedule(
     schedule_id: str,
     current_user: dict = Depends(get_current_user),
     connection: ConnectionContext = Depends(require_local_access),
+    if_unmodified_since: Optional[str] = Header(None, alias="If-Unmodified-Since"),
 ):
     """
     Delete a scheduled experiment
@@ -1049,13 +1091,13 @@ async def delete_schedule(
         
         scheduler, db_mgr, queue_mgr, proc_mon = get_services()
         
-        # Attempt to fetch schedule from in-memory scheduler first, fall back to the database
-        schedule = scheduler.get_schedule(schedule_id)
-        schedule_from_engine = schedule is not None
-        if not schedule:
-            schedule = db_mgr.get_scheduled_experiment(schedule_id)
-            if not schedule:
-                raise HTTPException(status_code=404, detail="Schedule not found")
+        # Check concurrency against authoritative record
+        expected_token = if_unmodified_since
+        authoritative_schedule = _load_current_schedule(schedule_id, db_mgr, expected_token)
+
+        scheduler_schedule = scheduler.get_schedule(schedule_id)
+        schedule_from_engine = scheduler_schedule is not None
+        schedule = scheduler_schedule or authoritative_schedule
         
         fallback_used = False
         success = False
@@ -1069,17 +1111,12 @@ async def delete_schedule(
             if not fallback_deleted:
                 raise HTTPException(status_code=400, detail="Failed to delete schedule")
             fallback_used = True
-            # Ensure the scheduler cache is cleared if it was loaded but failed to remove originally
-            if schedule_from_engine:
-                try:
-                    scheduler._active_schedules.pop(schedule_id, None)  # type: ignore[attr-defined]
-                except AttributeError:
-                    pass
+            scheduler.invalidate_schedule(schedule_id)
             success = True
 
         response = ApiResponse(
             success=True,
-            message=f"Schedule deleted: {schedule.experiment_name}",
+            message=f"Schedule deleted: {authoritative_schedule.experiment_name}",
             data={
                 "schedule_id": schedule_id,
                 "deleted_via": "database_fallback" if fallback_used else "scheduler",

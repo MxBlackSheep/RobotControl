@@ -365,15 +365,18 @@ class SchedulerEngine:
             Dict with scheduler status information
         """
         with self._schedules_lock, self._jobs_lock:
-            return {
+            status: Dict[str, Any] = {
                 "is_running": self._running,
                 "active_schedules_count": len(self._active_schedules),
                 "running_jobs_count": len(self._running_jobs),
                 "max_concurrent_jobs": self.config.max_concurrent_jobs,
                 "check_interval_seconds": self.config.check_interval_seconds,
                 "thread_alive": self._scheduler_thread.is_alive() if self._scheduler_thread else False,
-                "uptime_seconds": time.time() - self._start_time if hasattr(self, '_start_time') else 0
+                "uptime_seconds": time.time() - self._start_time if hasattr(self, '_start_time') else 0,
             }
+        manual_state = self.get_manual_recovery_state()
+        status["manual_recovery"] = manual_state.to_dict() if manual_state else None
+        return status
     
     def add_event_callback(self, callback: Callable[[SchedulingEvent], None]):
         """
@@ -393,6 +396,11 @@ class SchedulerEngine:
         """
         if callback in self._event_callbacks:
             self._event_callbacks.remove(callback)
+
+    def invalidate_schedule(self, schedule_id: str) -> None:
+        """Remove a schedule from the in-memory cache without touching persistence."""
+        with self._schedules_lock:
+            self._active_schedules.pop(schedule_id, None)
     
     def _refresh_manual_recovery_state(self, force: bool = False) -> ManualRecoveryState:
         """Refresh and return the cached manual recovery state."""

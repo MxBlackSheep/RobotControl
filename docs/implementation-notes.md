@@ -1,3 +1,9 @@
+## 2025-10-15 Multi-User Concurrency & Token Refresh
+
+- Added optimistic concurrency to schedule update/delete/manual-recovery routes using `If-Unmodified-Since` tokens from the UI; stale submissions now raise HTTP 409 and trigger an automatic reload (`backend/api/scheduling.py`, `frontend/src/hooks/useScheduling.ts`, `frontend/src/pages/SchedulingPage.tsx`, `frontend/src/services/schedulingApi.ts`, `frontend/src/types/scheduling.ts`).
+- Scheduler now exposes `invalidate_schedule` and returns the manual-recovery snapshot as part of `/status/scheduler`, keeping the cache encapsulated and the recovery banner in sync with the 30 s poll (`backend/services/scheduling/scheduler_engine.py`, `frontend/src/hooks/useScheduling.ts`).
+- Axios interceptors retry once with the stored refresh token before logging out, and a custom event keeps `AuthContext` aligned when a new access token is issued (`frontend/src/services/api.ts`, `frontend/src/context/AuthContext.tsx`).
+
 ## 2025-10-14 Multiline Alert Rendering & Status Dialogs
 
 - Normalized newline handling so backend strings containing `\n` render as real line breaks in shared alerts and restore status dialogs via the new `normalizeMultilineText` helper (`frontend/src/components/ErrorAlert.tsx`, `frontend/src/components/DatabaseRestore.tsx`, `frontend/src/utils/text.ts`).
@@ -347,8 +353,6 @@ Refer to `AGENTS.md` for the day-to-day runbook; this file captures development-
 - Build workflow: run `npm.cmd run build`, `python build_scripts/embed_resources.py`, then `python -m PyInstaller PyRobot.spec` to refresh the embedded bundle.
 
 - Deployment note: leave `VITE_API_BASE_URL` empty (or set to the backend origin) before building so mobile Safari/Chrome point at the correct server automatically.
-
-
 
 
 

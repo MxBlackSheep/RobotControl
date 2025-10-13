@@ -5,6 +5,8 @@ import { isMaintenanceActive, getMaintenanceRemainingMs, activateMaintenance } f
 // Derive API base dynamically so phone/tablet clients proxy to the correct backend
 const API_BASE_URL = getApiBase();
 
+export const ACCESS_TOKEN_UPDATED_EVENT = 'pyrobot:access-token-updated';
+
 export const api = axios.create({
   baseURL: API_BASE_URL || undefined,
   headers: {
@@ -12,6 +14,65 @@ export const api = axios.create({
   },
   timeout: 10000, // 10 second timeout for API calls
 });
+
+const refreshClient = axios.create({
+  baseURL: API_BASE_URL || undefined,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  timeout: 10000,
+});
+
+let refreshPromise: Promise<string | null> | null = null;
+
+const dispatchTokenUpdate = (accessToken: string, refreshToken?: string | null) => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  window.dispatchEvent(
+    new CustomEvent(ACCESS_TOKEN_UPDATED_EVENT, {
+      detail: {
+        accessToken,
+        refreshToken: refreshToken ?? null,
+      },
+    }),
+  );
+};
+
+const attemptTokenRefresh = async (): Promise<string | null> => {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  const storedRefreshToken = localStorage.getItem('refresh_token');
+  if (!storedRefreshToken) {
+    return null;
+  }
+  if (!refreshPromise) {
+    refreshPromise = refreshClient
+      .post('/api/auth/refresh', { refresh_token: storedRefreshToken })
+      .then((response) => {
+        const newToken =
+          response.data?.data?.access_token ??
+          response.data?.access_token ??
+          null;
+        if (newToken) {
+          localStorage.setItem('access_token', newToken);
+          dispatchTokenUpdate(newToken, storedRefreshToken);
+        }
+        return newToken;
+      })
+      .catch((err) => {
+        console.warn('Refresh token attempt failed', err);
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('refresh_token');
+        return null;
+      })
+      .finally(() => {
+        refreshPromise = null;
+      });
+  }
+  return refreshPromise;
+};
 
 // Add auth token to requests and respect maintenance windows
 api.interceptors.request.use((config) => {
@@ -39,13 +100,39 @@ api.interceptors.request.use((config) => {
 // Handle auth errors and timeouts
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('access_token');
-      window.location.href = '/login';
+  async (error) => {
+    const status = error.response?.status;
+    const originalRequest = error.config as Record<string, any> | undefined;
+    const requestUrl = originalRequest?.url ?? '';
+
+    const isAuthEndpoint = (url?: string) =>
+      !!url &&
+      (/\/api\/auth\/login/i.test(url) ||
+        /\/api\/auth\/register/i.test(url) ||
+        /\/api\/auth\/refresh/i.test(url));
+
+    if (status === 401 && originalRequest && !originalRequest._retry && !isAuthEndpoint(requestUrl)) {
+      originalRequest._retry = true;
+      const refreshedToken = await attemptTokenRefresh();
+      if (refreshedToken) {
+        const headers = AxiosHeaders.from(originalRequest.headers || {});
+        headers.set('Authorization', `Bearer ${refreshedToken}`);
+        originalRequest.headers = headers;
+        return api(originalRequest);
+      }
     }
 
-    if (error.response?.status === 503) {
+    if (status === 401) {
+      if (typeof window !== 'undefined') {
+        window.localStorage.removeItem('access_token');
+        window.localStorage.removeItem('refresh_token');
+        if (!isAuthEndpoint(requestUrl)) {
+          window.location.href = '/login';
+        }
+      }
+    }
+
+    if (status === 503) {
       activateMaintenance(60000, 'Database is restarting. Please wait.');
     }
 

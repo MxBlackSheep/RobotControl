@@ -173,8 +173,15 @@ const useScheduling = () => {
     async (scheduleId: string, request: UpdateScheduleRequest): Promise<void> => {
       setOperationStatus(SchedulingOperationStatus.Updating);
       setError(null);
+      const scheduleFromState = schedules.find((schedule) => schedule.schedule_id === scheduleId);
+      const expected = request.expected_updated_at ?? scheduleFromState?.updated_at;
+      const payload: UpdateScheduleRequest = expected
+        ? { ...request, expected_updated_at: expected }
+        : { ...request };
       try {
-        const { data } = await schedulingAPI.updateSchedule(scheduleId, request);
+        const { data } = await schedulingAPI.updateSchedule(scheduleId, payload, {
+          expectedUpdatedAt: expected,
+        });
         if (!data.success) {
           setError(data.message || 'Failed to update schedule');
           setOperationStatus(SchedulingOperationStatus.Error);
@@ -183,18 +190,22 @@ const useScheduling = () => {
         await loadSchedules(true, scheduleId);
       } catch (err) {
         setError(extractErrorMessage(err));
+        if (isAxiosError(err) && err.response?.status === 409) {
+          await loadSchedules(true, scheduleId);
+        }
         setOperationStatus(SchedulingOperationStatus.Error);
       }
     },
-    [loadSchedules],
+    [loadSchedules, schedules],
   );
 
   const deleteSchedule = useCallback(
-    async (scheduleId: string): Promise<void> => {
+    async (schedule: ScheduledExperiment): Promise<void> => {
       setOperationStatus(SchedulingOperationStatus.Deleting);
       setError(null);
+      const expected = schedule.updated_at || null;
       try {
-        const result = await schedulingService.deleteSchedule(scheduleId);
+        const result = await schedulingService.deleteSchedule(schedule.schedule_id, expected || undefined);
         if (!result.success) {
           setError(result.error || 'Failed to delete schedule');
           setOperationStatus(SchedulingOperationStatus.Error);
@@ -203,6 +214,9 @@ const useScheduling = () => {
         await loadSchedules(true, null);
       } catch (err) {
         setError(extractErrorMessage(err));
+        if (isAxiosError(err) && err.response?.status === 409) {
+          await loadSchedules(true, null);
+        }
         setOperationStatus(SchedulingOperationStatus.Error);
       }
     },
@@ -344,8 +358,10 @@ const useScheduling = () => {
     async (scheduleId: string, note?: string): Promise<void> => {
       setOperationStatus(SchedulingOperationStatus.Updating);
       setError(null);
+      const scheduleFromState = schedules.find((schedule) => schedule.schedule_id === scheduleId);
+      const expected = scheduleFromState?.updated_at;
       try {
-        const result = await schedulingService.requireRecovery(scheduleId, note);
+        const result = await schedulingService.requireRecovery(scheduleId, note, expected);
         if (result.error) {
           setError(result.error);
           setOperationStatus(SchedulingOperationStatus.Error);
@@ -358,18 +374,23 @@ const useScheduling = () => {
         await loadSchedules(true, focusId);
       } catch (err) {
         setError(extractErrorMessage(err));
+        if (isAxiosError(err) && err.response?.status === 409) {
+          await loadSchedules(true, scheduleId);
+        }
         setOperationStatus(SchedulingOperationStatus.Error);
       }
     },
-    [loadSchedules],
+    [loadSchedules, schedules],
   );
 
   const resolveRecovery = useCallback(
     async (scheduleId: string, note?: string): Promise<void> => {
       setOperationStatus(SchedulingOperationStatus.Updating);
       setError(null);
+      const scheduleFromState = schedules.find((schedule) => schedule.schedule_id === scheduleId);
+      const expected = scheduleFromState?.updated_at;
       try {
-        const result = await schedulingService.resolveRecovery(scheduleId, note);
+        const result = await schedulingService.resolveRecovery(scheduleId, note, expected);
         if (result.error) {
           setError(result.error);
           setOperationStatus(SchedulingOperationStatus.Error);
@@ -382,10 +403,13 @@ const useScheduling = () => {
         await loadSchedules(true, focusId);
       } catch (err) {
         setError(extractErrorMessage(err));
+        if (isAxiosError(err) && err.response?.status === 409) {
+          await loadSchedules(true, scheduleId);
+        }
         setOperationStatus(SchedulingOperationStatus.Error);
       }
     },
-    [loadSchedules],
+    [loadSchedules, schedules],
   );
 
   const getQueueStatus = useCallback(async (): Promise<void> => {
