@@ -1,3 +1,8 @@
+## 2025-10-13 Camera Archive Virtualization
+
+- Replaced the archive card-grid with a collapsible tree that virtualizes video rows via `react-window`; per-folder state now lives inside `VideoArchiveTab` and supports optional lazy loading (`frontend/src/components/camera/VideoArchiveTab.tsx`, `frontend/src/types/components.ts`).
+- Updated both camera pages to consume the shared archive component so the optimized UI appears regardless of route (`frontend/src/pages/CameraPage.tsx`, `frontend/src/pages/CameraPageRefactored.tsx`).
+
 ## 2025-10-15 Admin User Controls
 
 - Limited the admin API to user email updates and account deletion, adding dedicated endpoints while preventing self-deletion and duplicate email assignment (`backend/api/admin.py`, `backend/services/auth.py`, `backend/services/auth_database.py`).
@@ -364,7 +369,6 @@ Refer to `AGENTS.md` for the day-to-day runbook; this file captures development-
 - Build workflow: run `npm.cmd run build`, `python build_scripts/embed_resources.py`, then `python -m PyInstaller PyRobot.spec` to refresh the embedded bundle.
 
 - Deployment note: leave `VITE_API_BASE_URL` empty (or set to the backend origin) before building so mobile Safari/Chrome point at the correct server automatically.
-
 
 
 

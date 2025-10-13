@@ -24,7 +24,6 @@ import {
   List,
   ListItem,
   ListItemText,
-  ListItemSecondaryAction,
   IconButton,
   Chip,
   Paper,
@@ -39,8 +38,6 @@ import {
   ArrowBack as ArrowBackIcon,
   Videocam as VideocamIcon,
   VideoLibrary as VideoLibraryIcon,
-  Download as DownloadIcon,
-  Delete as DeleteIcon,
   Refresh as RefreshIcon,
   Info as InfoIcon,
   Storage as StorageIcon,
@@ -53,6 +50,9 @@ import { useNavigate } from 'react-router-dom';
 import LoadingSpinner, { PageLoading, ButtonLoading } from '../components/LoadingSpinner';
 import ErrorAlert, { ServerError } from '../components/ErrorAlert';
 import { buildApiUrl, buildWsUrl } from '@/utils/apiBase';
+import VideoArchiveTab, {
+  type ExperimentFolder
+} from '../components/camera/VideoArchiveTab';
 
 interface CameraInfo {
   id: number;
@@ -114,7 +114,7 @@ const CameraPage: React.FC = () => {
   
   // State management
   const [cameras, setCameras] = useState<CameraInfo[]>([]);
-  const [experimentFolders, setExperimentFolders] = useState<any[]>([]);
+  const [experimentFolders, setExperimentFolders] = useState<ExperimentFolder[]>([]);
   const [systemStatus, setSystemStatus] = useState<CameraSystemStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -444,17 +444,6 @@ const CameraPage: React.FC = () => {
     }
   };
 
-  const formatFileSize = (bytes: number) => {
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    if (bytes === 0) return '0 Bytes';
-    const i = Math.floor(Math.log(bytes) / Math.log(1024));
-    return Math.round(bytes / Math.pow(1024, i) * 100) / 100 + ' ' + sizes[i];
-  };
-
-  const formatTimestamp = (timestamp: string) => {
-    return new Date(timestamp).toLocaleString();
-  };
-
   if (loading) {
     return <PageLoading message="Loading camera system..." />;
   }
@@ -709,84 +698,13 @@ const CameraPage: React.FC = () => {
 
       {/* Video Archive Tab */}
       <TabPanel value={currentTab} index={1}>
-        <Card>
-          <CardContent>
-            <Typography variant="h6" gutterBottom>
-              Video Archive ({experimentFolders.length} experiment folders)
-            </Typography>
-            
-            {/* Experiment Folders Section */}
-            {experimentFolders.length > 0 ? (
-              <Box>
-                <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 'bold' }}>
-                  Experiment Folders
-                </Typography>
-                {experimentFolders.map((folder, index) => (
-                  <Card key={folder.folder_name} variant="outlined" sx={{ mb: 2 }}>
-                    <CardContent>
-                      <Typography variant="h6" gutterBottom>
-                        {folder.folder_name}
-                      </Typography>
-                      <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
-                        <Chip
-                          label={`${folder.video_count} videos`}
-                          size="small"
-                          color="primary"
-                        />
-                        <Typography variant="body2" color="textSecondary">
-                          {formatFileSize(folder.total_size_bytes)}
-                        </Typography>
-                        <Typography variant="body2" color="textSecondary">
-                          {formatTimestamp(folder.creation_time)}
-                        </Typography>
-                      </Stack>
-                      
-                      {/* Videos in folder */}
-                      <List dense>
-                        {folder.videos.map((video: any) => (
-                          <ListItem key={video.filename}>
-                            <ListItemText
-                              primary={video.filename}
-                              secondary={
-                                <Stack direction="row" spacing={1} alignItems="center">
-                                  <Typography variant="body2" color="textSecondary">
-                                    {formatTimestamp(video.timestamp)}
-                                  </Typography>
-                                  <Typography variant="body2" color="textSecondary">
-                                    {formatFileSize(video.size_bytes)}
-                                  </Typography>
-                                </Stack>
-                              }
-                            />
-                            <ListItemSecondaryAction>
-                              <IconButton
-                                edge="end"
-                                onClick={() => downloadRecording(video.filename)}
-                                size="small"
-                              >
-                                <DownloadIcon />
-                              </IconButton>
-                            </ListItemSecondaryAction>
-                          </ListItem>
-                        ))}
-                      </List>
-                    </CardContent>
-                  </Card>
-                ))}
-              </Box>
-            ) : (
-              <Box sx={{ textAlign: 'center', py: 8 }}>
-                <VideoLibraryIcon sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
-                <Typography variant="h6" color="textSecondary" gutterBottom>
-                  No experiment recordings found
-                </Typography>
-                <Typography variant="body2" color="textSecondary">
-                  Experiment videos will appear here when experiments complete.
-                </Typography>
-              </Box>
-            )}
-          </CardContent>
-        </Card>
+        <VideoArchiveTab
+          experimentFolders={experimentFolders}
+          loading={loading}
+          error={error}
+          onRefresh={loadRecordings}
+          onDownloadVideo={downloadRecording}
+        />
       </TabPanel>
 
       {/* Live Streaming Tab */}

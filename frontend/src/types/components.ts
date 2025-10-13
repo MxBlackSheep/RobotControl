@@ -109,7 +109,7 @@ export namespace Camera {
     video_count: number;
     total_size_bytes: number;
     creation_time: string;
-    videos: VideoFile[];
+    videos?: VideoFile[];
   }
 
   export interface StreamingSession {
@@ -287,6 +287,7 @@ export namespace CameraComponents {
     onRefresh: () => void;
     onDownloadVideo: (filename: string) => void;
     onDeleteVideo?: (filename: string) => void;
+    onLoadFolderVideos?: (folderName: string) => Promise<Camera.VideoFile[]>;
   }
 
   export interface LiveStreamingTabProps extends AsyncComponentProps {
