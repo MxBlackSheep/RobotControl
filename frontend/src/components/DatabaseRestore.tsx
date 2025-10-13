@@ -51,6 +51,8 @@ import {
 import LoadingSpinner from './LoadingSpinner';
 import ErrorAlert from './ErrorAlert';
 import { api } from '../services/api';
+import { activateMaintenance } from '@/utils/MaintenanceManager';
+import StatusDialog, { StatusSeverity } from './StatusDialog';
 
 interface BackupFile {
   filename: string;
@@ -210,7 +212,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({ open, onClose, onSelect }) 
                           secondary={
                             item.is_directory 
                               ? 'Directory' 
-                              : `${item.size_formatted || ''} ${item.modified_date ? `â€?${item.modified_date}` : ''}`
+                              : `${item.size_formatted || ''} ${item.modified_date ? `â€¢${item.modified_date}` : ''}`
                           }
                         />
                         {item.name.toLowerCase().endsWith('.bck') && (
@@ -282,12 +284,32 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
   const [createDescription, setCreateDescription] = useState('');
   const [createDialogError, setCreateDialogError] = useState<string | null>(null);
   const [createFeedback, setCreateFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [statusDialog, setStatusDialog] = useState<{
+    open: boolean;
+    title: string;
+    message: string;
+    severity: StatusSeverity;
+    autoCloseMs?: number;
+  }>({ open: false, title: '', message: '', severity: 'info' });
   const theme = useTheme();
   const isSmallScreen = useMediaQuery(theme.breakpoints.down('sm'));
 
   useEffect(() => {
     loadBackupFiles();
   }, []);
+
+  const showStatusDialog = (
+    title: string,
+    message: string,
+    severity: StatusSeverity,
+    autoCloseMs?: number
+  ) => {
+    setStatusDialog({ open: true, title, message, severity, autoCloseMs });
+  };
+
+  const closeStatusDialog = () => {
+    setStatusDialog(prev => ({ ...prev, open: false }));
+  };
 
   const loadBackupFiles = async (): Promise<BackupFile[]> => {
     setLoading(true);
@@ -353,21 +375,26 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
     setRestoreProgress(true);
     try {
       await api.post('/api/admin/backup/restore', restoreRequest);
-      
+
+      activateMaintenance(60000, 'Database restore is finishing.');
+      showStatusDialog(
+        'Restore Started',
+        'Database restore has begun. The system may be unavailable for several minutes while services restart. Background updates are paused briefly.',
+        'success'
+      );
+
       // Success - close dialog and refresh
       setRestoreDialogOpen(false);
       setSelectedBackup(null);
       setSelectedBckPath('');
       setConfirmationChecks({ dataLoss: false, downtime: false });
-      
-      if (activeTab === 0) {
-        await loadBackupFiles();
-      }
-      
+
     } catch (err: any) {
       console.error('Error restoring backup:', err);
+      const message = err.response?.data?.detail || err.message || 'Failed to restore backup';
+      showStatusDialog('Restore Failed', message, 'error');
       if (onError) {
-        onError(err.response?.data?.detail || 'Failed to restore backup');
+        onError(message);
       }
     } finally {
       setRestoreProgress(false);
@@ -431,6 +458,7 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
       setCreateDialogOpen(false);
       setCreateDescription('');
       setCreateFeedback({ type: 'success', message });
+      showStatusDialog('Backup Created', message, 'success');
 
       const updatedBackups = await loadBackupFiles();
       if (filename) {
@@ -444,6 +472,7 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
       const message = err?.response?.data?.detail || err?.message || 'Failed to create backup.';
       setCreateDialogError(message);
       setCreateFeedback({ type: 'error', message });
+      showStatusDialog('Backup Creation Failed', message, 'error');
     } finally {
       setCreatingBackup(false);
     }
@@ -517,7 +546,7 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
                             {backup.filename}
                           </Typography>
                           <Typography variant="caption" color="textSecondary">
-                            {backup.file_size_formatted} â€?{formatDate(backup.created_date)}
+                            {backup.file_size_formatted} â€¢{formatDate(backup.created_date)}
                           </Typography>
                           {backup.description && (
                             <Typography variant="caption" display="block" sx={{ fontStyle: 'italic' }}>
@@ -844,7 +873,7 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
             )}
 
             <ErrorAlert
-              message="During the restore process:\nâ€?Database will be temporarily unavailable (5-15 minutes)\nâ€?All active connections will be terminated\nâ€?Current experiments and monitoring will be interrupted\nâ€?Web application may show connection errors temporarily"
+              message="During the restore process:\nâ€¢ Database will be temporarily unavailable (5-15 minutes)\nâ€¢ All active connections will be terminated\nâ€¢ Current experiments and monitoring will be interrupted\nâ€¢ Web application may show connection errors temporarily"
               severity="info"
               category="server"
               title="Operation Impact"
@@ -984,6 +1013,15 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
         </DialogActions>
       </Dialog>
 
+      <StatusDialog
+        open={statusDialog.open}
+        onClose={closeStatusDialog}
+        title={statusDialog.title}
+        message={statusDialog.message}
+        severity={statusDialog.severity}
+        autoCloseMs={statusDialog.autoCloseMs}
+      />
+
       {/* File Explorer Dialog */}
       <FileExplorer
         open={fileExplorerOpen}
@@ -995,8 +1033,3 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
 };
 
 export default DatabaseRestore;
-
-
-
-
-

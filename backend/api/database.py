@@ -15,7 +15,10 @@ import json
 from datetime import datetime
 
 # Import our simplified database service
+from backend.services.auth import get_current_user
 from backend.services.database import get_database_service, DatabaseService
+from backend.api.dependencies import ConnectionContext, require_local_access
+from backend.utils.audit import log_action
 
 # Import standardized response formatter
 from backend.api.response_formatter import ResponseFormatter, ResponseMetadata, format_success, format_error
@@ -338,7 +341,9 @@ async def execute_query(
 @router.post("/execute-procedure")
 async def execute_stored_procedure(
     request: ProcedureExecuteRequest,
-    db_service: DatabaseService = Depends(get_db_service)
+    db_service: DatabaseService = Depends(get_db_service),
+    connection: ConnectionContext = Depends(require_local_access),
+    current_user: Dict[str, Any] = Depends(get_current_user),
 ):
     """
     Execute a stored procedure with parameters
@@ -350,6 +355,7 @@ async def execute_stored_procedure(
         Procedure execution results
     """
     start_time = time.time()
+    actor = current_user.get("username", "unknown")
     
     try:
         # Execute procedure through our service
@@ -368,10 +374,35 @@ async def execute_stored_procedure(
         metadata.add_metadata("operation", "execute_procedure")
         metadata.add_metadata("procedure_name", request.procedure_name)
         
+        log_action(
+            actor=actor,
+            action="execute_procedure",
+            scope="database",
+            client_ip=connection.client_ip,
+            success=True,
+            details={
+                "procedure": request.procedure_name,
+                "parameters": request.parameters or {},
+            },
+        )
         return ResponseFormatter.success(data=data, metadata=metadata)
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error executing stored procedure '{request.procedure_name}': {e}")
+        log_action(
+            actor=actor,
+            action="execute_procedure",
+            scope="database",
+            client_ip=connection.client_ip,
+            success=False,
+            details={
+                "procedure": request.procedure_name,
+                "parameters": request.parameters or {},
+                "error": str(e),
+            },
+        )
         return ResponseFormatter.server_error(
             message=f"Failed to execute stored procedure '{request.procedure_name}'",
             details=str(e)
@@ -456,7 +487,9 @@ async def get_stored_procedures(
 @router.post("/cache/clear")
 async def clear_cache(
     pattern: Optional[str] = None,
-    db_service: DatabaseService = Depends(get_db_service)
+    db_service: DatabaseService = Depends(get_db_service),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    connection: ConnectionContext = Depends(require_local_access),
 ):
     """
     Clear database cache entries
@@ -469,6 +502,7 @@ async def clear_cache(
     """
     start_time = time.time()
     
+    actor = current_user.get("username", "unknown")
     try:
         cleared_count = db_service.clear_cache(pattern)
         
@@ -484,10 +518,26 @@ async def clear_cache(
         metadata.add_metadata("operation", "clear_cache")
         metadata.add_metadata("entries_cleared", cleared_count)
         
+        log_action(
+            actor=actor,
+            action="clear_database_cache",
+            scope="database",
+            client_ip=connection.client_ip,
+            success=True,
+            details={"pattern": pattern or "all", "entries_cleared": cleared_count},
+        )
         return ResponseFormatter.success(data=data, metadata=metadata)
         
     except Exception as e:
         logger.error(f"Error clearing cache: {e}")
+        log_action(
+            actor=actor,
+            action="clear_database_cache",
+            scope="database",
+            client_ip=connection.client_ip,
+            success=False,
+            details={"pattern": pattern or "all", "error": str(e)},
+        )
         return ResponseFormatter.server_error(
             message="Failed to clear cache",
             details=str(e)

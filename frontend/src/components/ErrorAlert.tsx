@@ -10,7 +10,7 @@
  * - Error categorization and user-friendly messages
  */
 
-import React, { memo, useCallback, useEffect, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
 
 // Optimized Material-UI imports for better tree-shaking
 import Alert from '@mui/material/Alert';
@@ -31,6 +31,7 @@ import {
   Error as ErrorIcon,
   CheckCircle as SuccessIcon,
 } from '@mui/icons-material';
+import { normalizeMultilineText } from '@/utils/text';
 
 // Error severity types
 export type ErrorSeverity = 'error' | 'warning' | 'info' | 'success';
@@ -157,6 +158,11 @@ const ErrorAlert: React.FC<ErrorAlertProps> = memo(({
   // Get category configuration
   const categoryConfig = errorCategoryConfig[category];
   const alertTitle = title || categoryConfig.defaultTitle;
+  const normalizedMessage = useMemo(() => normalizeMultilineText(message), [message]);
+  const normalizedDetails = useMemo(
+    () => (details ? normalizeMultilineText(details) : undefined),
+    [details]
+  );
 
   // Handle auto dismiss
   useEffect(() => {
@@ -274,8 +280,8 @@ const ErrorAlert: React.FC<ErrorAlertProps> = memo(({
       )}
 
       {/* Main message */}
-      <Typography variant="body2" component="div">
-        {message}
+      <Typography variant="body2" component="div" sx={{ whiteSpace: 'pre-line' }}>
+        {normalizedMessage}
       </Typography>
 
       {/* Detailed error information */}
@@ -294,17 +300,17 @@ const ErrorAlert: React.FC<ErrorAlertProps> = memo(({
             <Typography variant="caption" color="text.secondary" display="block" gutterBottom>
               Technical Details:
             </Typography>
-            <Typography 
-              variant="body2" 
+            <Typography
+              variant="body2"
               component="pre"
-              sx={{ 
+              sx={{
                 fontFamily: 'monospace',
                 fontSize: '0.75rem',
                 whiteSpace: 'pre-wrap',
                 wordBreak: 'break-word'
               }}
             >
-              {details}
+              {normalizedDetails}
             </Typography>
           </Box>
         </Collapse>

@@ -21,6 +21,7 @@ from backend.api.response_formatter import (
     ResponseFormatter,
     ResponseMetadata,
 )
+from backend.api.dependencies import ConnectionContext, get_connection_context
 
 logger = logging.getLogger(__name__)
 
@@ -152,7 +153,8 @@ async def require_admin(
 async def login(
     request: LoginRequest,
     http_request: Request,
-    auth_service: AuthService = Depends(get_auth_service_dep)
+    auth_service: AuthService = Depends(get_auth_service_dep),
+    connection: ConnectionContext = Depends(get_connection_context),
 ):
     """
     Authenticate user and return JWT tokens
@@ -169,7 +171,7 @@ async def login(
     try:
         # Attempt login
         client_info = {
-            "ip": http_request.client.host if http_request.client else None,
+            "ip": connection.client_ip,
             "user_agent": http_request.headers.get("user-agent"),
         }
         result = auth_service.login(request.username, request.password, client_info=client_info)
@@ -187,7 +189,17 @@ async def login(
         metadata.add_metadata("operation", "login")
         metadata.add_metadata("username", request.username)
         
-        logger.info(f"Successful login for user: {request.username}")
+        if result:
+            result["session"] = {
+                "is_local": connection.is_local,
+                "ip_classification": connection.ip_classification,
+            }
+
+        logger.info(
+            "Successful login for user: %s (connection=%s)",
+            request.username,
+            connection.ip_classification,
+        )
         return ResponseFormatter.success(data=result, metadata=metadata)
         
     except Exception as e:
@@ -201,7 +213,8 @@ async def login(
 async def register(
     request: RegisterRequest,
     http_request: Request,
-    auth_service: AuthService = Depends(get_auth_service_dep)
+    auth_service: AuthService = Depends(get_auth_service_dep),
+    connection: ConnectionContext = Depends(get_connection_context),
 ):
     """
     Register a new user account and issue tokens.
@@ -210,10 +223,15 @@ async def register(
     try:
         auth_service.register_user(request.username.strip(), request.email.lower(), request.password)
         client_info = {
-            "ip": http_request.client.host if http_request.client else None,
+            "ip": connection.client_ip,
             "user_agent": http_request.headers.get("user-agent"),
         }
         result = auth_service.login(request.username, request.password, client_info=client_info)
+        if result:
+            result["session"] = {
+                "is_local": connection.is_local,
+                "ip_classification": connection.ip_classification,
+            }
 
         metadata = ResponseMetadata()
         metadata.set_execution_time(start_time)
@@ -239,7 +257,8 @@ async def register(
 async def password_reset_request(
     request: PasswordResetRequestBody,
     http_request: Request,
-    auth_service: AuthService = Depends(get_auth_service_dep)
+    auth_service: AuthService = Depends(get_auth_service_dep),
+    connection: ConnectionContext = Depends(get_connection_context),
 ):
     """
     Allow a user to request an administrator-assisted password reset.
@@ -253,7 +272,7 @@ async def password_reset_request(
             )
 
         client_info = {
-            "ip": http_request.client.host if http_request.client else None,
+            "ip": connection.client_ip,
             "user_agent": http_request.headers.get("user-agent"),
         }
 
@@ -430,7 +449,8 @@ async def logout(
 
 @router.get("/me")
 async def get_current_user_info(
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    connection: ConnectionContext = Depends(get_connection_context),
 ):
     """
     Get current user information
@@ -448,7 +468,12 @@ async def get_current_user_info(
             "user_id": current_user.user_id,
             "username": current_user.username,
             "role": current_user.role,
-            "is_active": current_user.is_active
+            "is_active": current_user.is_active,
+            "session": {
+                "is_local": connection.is_local,
+                "ip_classification": connection.ip_classification,
+                "client_ip": connection.client_ip,
+            },
         }
         
         # Create metadata
@@ -456,6 +481,7 @@ async def get_current_user_info(
         metadata.set_execution_time(start_time)
         metadata.add_metadata("operation", "get_user_info")
         metadata.add_metadata("user_id", current_user.user_id)
+        metadata.add_metadata("connection", connection.ip_classification)
         
         return ResponseFormatter.success(data=user_data, metadata=metadata)
         

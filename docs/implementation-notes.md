@@ -1,3 +1,34 @@
+## 2025-10-14 Multiline Alert Rendering & Status Dialogs
+
+- Normalized newline handling so backend strings containing `\n` render as real line breaks in shared alerts and restore status dialogs via the new `normalizeMultilineText` helper (`frontend/src/components/ErrorAlert.tsx`, `frontend/src/components/DatabaseRestore.tsx`, `frontend/src/utils/text.ts`).
+- Added a reusable `StatusDialog` wrapper to keep success/error feedback consistent on mobile and migrated the scheduling admin panels (`NotificationEmailSettingsPanel`, `NotificationContactsPanel`, `ImprovedScheduleForm`, and `DatabaseRestore`) to use it (`frontend/src/components/StatusDialog.tsx`, `frontend/src/components/DatabaseRestore.tsx`, `frontend/src/components/scheduling/NotificationEmailSettingsPanel.tsx`, `frontend/src/components/scheduling/NotificationContactsPanel.tsx`, `frontend/src/components/scheduling/ImprovedScheduleForm.tsx`).
+
+## 2025-10-12 Maintenance UX & Modal Alerts
+
+- Added centralized maintenance tracking so destructive workflows (e.g. database restore) trigger a short-lived maintenance window that pauses API polling, surfaces a countdown dialog, and resumes once the backend is reachable (`frontend/src/utils/MaintenanceManager.ts`, `frontend/src/hooks/useMaintenanceMode.ts`, `frontend/src/services/api.ts`).
+- Refresh Flow: Database restore confirmations now show a dedicated modal summarizing the operation impact and, on success/failure, follow-up pop-up dialogs ensure mobile users see status immediately (`frontend/src/components/DatabaseRestore.tsx`, `frontend/src/components/MaintenanceDialog.tsx`).
+- Next session: migrate other admin/scheduling pages to reuse the shared pop-up dialog pattern so error/success feedback is consistent across desktop and mobile.
+
+## 2025-10-13 Persistent Auth Rework
+
+- Replaced the in-memory AuthService with a SQLite-backed store (`backend/services/auth.py`, `backend/services/auth_database.py`) seeded with `admin / ShouGroupAdmin`, introduced hashed refresh-token tracking, registration, change-password, and admin reset flows (`backend/api/auth.py`, `backend/api/admin.py`, `backend/scripts/auth_cli.py`).
+- Added regression tests for the new flows (`backend/tests/test_auth.py`) and CLI helpers for operators; note pytest is required to run the suite.
+- Updated the React client with self-serve registration, change-password dialog, and refreshed auth context (`frontend/src/context/AuthContext.tsx`, `frontend/src/pages/LoginPage.tsx`, `frontend/src/components/ChangePasswordDialog.tsx`, `frontend/src/App.tsx`, `frontend/src/services/api.ts`).
+- Introduced password reset request queue + admin tooling and forgot-password UI (`backend/api/auth.py`, `backend/api/admin.py`, `frontend/src/components/UserManagement.tsx`, `frontend/src/pages/LoginPage.tsx`).
+- Hardened live streaming session tracking so stale sessions no longer block new users (`backend/services/live_streaming.py`).
+- Tweaked Monitoring page to avoid duplicate headings and hide experiment card in the detail view (`frontend/src/pages/MonitoringPage.tsx`, `frontend/src/components/SystemStatus.tsx`).
+- Restored a lightweight `/admin` console that surfaces the new user management tooling and hides non-admin routes (`frontend/src/App.tsx`, `frontend/src/components/MobileDrawer.tsx`, `frontend/src/pages/AdminPage.tsx`).
+
+## 2025-10-12 Connection Locality Detection
+
+- Added `backend/utils/network_utils.py` and `backend/api/dependencies.py` so endpoints can classify requests as local vs remote using IP heuristics. Auth endpoints now attach session locality metadata to login and `/api/auth/me` responses for the frontend to consume.
+- Locked down `/api/backup/restore` to local callers via the new dependency and emit structured audit events for restore attempts (`backend/api/backup.py`, `backend/utils/audit.py`). Locality now means loopback-only (127.0.0.1/::1).
+- Restricted `/api/database/execute-procedure` to loopback connections, logging every invocation (or error) with the initiating user for audit purposes (`backend/api/database.py`). Deferred: extend checks to additional write endpoints, bubble locality flags into the frontend to hide destructive UI, and surface audit history.
+- Scheduling mutations are now loopback-only: create, update, delete, manual recovery, and notification management endpoints depend on the locality guard and emit audit entries (`backend/api/scheduling.py`). Remaining UI work: hide restricted controls when the session is remote.
+- Backup creation/deletion and database cache clearing require a loopback connection and log every attempt (`backend/api/backup.py`, `backend/api/database.py`).
+- Added modal status dialogs for backup create/restore flows and introduced a maintenance window gate that pauses background API calls and surfaces a countdown dialog after restores (`frontend/src/components/DatabaseRestore.tsx`, `frontend/src/utils/MaintenanceManager.ts`, `frontend/src/components/MaintenanceDialog.tsx`, `frontend/src/services/api.ts`).
+- Corrected the restore warning copy so bullet points render properly in the confirmation banner (`frontend/src/components/DatabaseRestore.tsx`).
+
 ## 2025-10-12 Performance Logging Cleanup
 
 - Removed the unused performance logging subsystem (router, middleware, utilities) so the backend stops emitting empty `performance_*.log` files (`backend/api/performance.py`, `backend/middleware/performance.py`, `backend/utils/logger.py`, `backend/main.py`).
@@ -342,15 +373,3 @@ Refer to `AGENTS.md` for the day-to-day runbook; this file captures development-
 
 
 
-
-
-
-## 2025-10-13 Persistent Auth Rework
-
-- Replaced the in-memory AuthService with a SQLite-backed store (`backend/services/auth.py`, `backend/services/auth_database.py`) seeded with `admin / ShouGroupAdmin`, introduced hashed refresh-token tracking, registration, change-password, and admin reset flows (`backend/api/auth.py`, `backend/api/admin.py`, `backend/scripts/auth_cli.py`).
-- Added regression tests for the new flows (`backend/tests/test_auth.py`) and CLI helpers for operators; note pytest is required to run the suite.
-- Updated the React client with self-serve registration, change-password dialog, and refreshed auth context (`frontend/src/context/AuthContext.tsx`, `frontend/src/pages/LoginPage.tsx`, `frontend/src/components/ChangePasswordDialog.tsx`, `frontend/src/App.tsx`, `frontend/src/services/api.ts`).
-- Introduced password reset request queue + admin tooling and forgot-password UI (`backend/api/auth.py`, `backend/api/admin.py`, `frontend/src/components/UserManagement.tsx`, `frontend/src/pages/LoginPage.tsx`).
-- Hardened live streaming session tracking so stale sessions no longer block new users (`backend/services/live_streaming.py`).
-- Tweaked Monitoring page to avoid duplicate headings and hide experiment card in the detail view (`frontend/src/pages/MonitoringPage.tsx`, `frontend/src/components/SystemStatus.tsx`).
-- Restored a lightweight `/admin` console that surfaces the new user management tooling and hides non-admin routes (`frontend/src/App.tsx`, `frontend/src/components/MobileDrawer.tsx`, `frontend/src/pages/AdminPage.tsx`).

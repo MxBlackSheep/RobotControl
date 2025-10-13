@@ -22,6 +22,7 @@ import { useKeyboardNavigation } from './hooks/useKeyboardNavigation';
 import LoginPage from './pages/LoginPage';
 import Dashboard from './pages/Dashboard';
 import ChangePasswordDialog from './components/ChangePasswordDialog';
+import MaintenanceDialog from './components/MaintenanceDialog';
 
 // Lazy load non-critical pages for better initial load performance
 const DatabasePage = loadComponent(() => import('./pages/DatabasePage'));
@@ -102,6 +103,7 @@ const AppContent: React.FC = () => {
     <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }}>
       {/* Skip Link for Accessibility */}
       <SkipLink />
+      <MaintenanceDialog />
       
       <AppBar position="static">
         <Toolbar>

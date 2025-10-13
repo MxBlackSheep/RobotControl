@@ -14,6 +14,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useModalFocus } from '../../hooks/useModalFocus';
+import StatusDialog, { StatusSeverity } from '../StatusDialog';
 import {
   Dialog,
   DialogTitle,
@@ -202,7 +203,6 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
   const [scanning, setScanning] = useState(false);
   const [experiments, setExperiments] = useState<ExperimentFile[]>([]);
   const [categorizedExperiments, setCategorizedExperiments] = useState<Record<string, ExperimentFile[]>>({});
-  const [errors, setErrors] = useState<string[]>([]);
   const [evoExperiments, setEvoExperiments] = useState<EvoYeastExperimentOption[]>([]);
   const [evoLoading, setEvoLoading] = useState(false);
   const [selectedExperimentId, setSelectedExperimentId] = useState<string>('');
@@ -212,6 +212,31 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
     schedule: true,
     preparation: false
   });
+  const [statusDialog, setStatusDialog] = useState<{
+    open: boolean;
+    title: string;
+    message: string;
+    severity: StatusSeverity;
+    autoCloseMs?: number;
+  }>({ open: false, title: '', message: '', severity: 'info' });
+
+  const showStatusDialog = ({
+    title = '',
+    message,
+    severity = 'info',
+    autoCloseMs,
+  }: {
+    title?: string;
+    message: string;
+    severity?: StatusSeverity;
+    autoCloseMs?: number;
+  }) => {
+    setStatusDialog({ open: true, title, message, severity, autoCloseMs });
+  };
+
+  const closeStatusDialog = () => {
+    setStatusDialog((prev) => ({ ...prev, open: false }));
+  };
 
   // Add modal focus management
   const { modalRef } = useModalFocus({
@@ -234,7 +259,14 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
       }
     } catch (error) {
       console.error('Failed to load experiments:', error);
-      setErrors(['Failed to load available experiments']);
+      const detail = error instanceof Error ? error.message : undefined;
+      showStatusDialog({
+        title: 'Failed to load experiments',
+        message: detail
+          ? `Unable to load available experiments.\n${detail}`
+          : 'Unable to load available experiments. Please try again.',
+        severity: 'error',
+      });
     } finally {
       setScanning(false);
     }
@@ -392,8 +424,16 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
       newErrors.push('Select an experiment to prepare before execution');
     }
 
-    setErrors(newErrors);
-    return newErrors.length === 0;
+    if (newErrors.length > 0) {
+      showStatusDialog({
+        title: 'Check schedule details',
+        message: newErrors.join('\n'),
+        severity: 'warning',
+      });
+      return false;
+    }
+
+    return true;
   };
 
   const handleSubmit = async () => {
@@ -406,7 +446,11 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
       await onSubmit(formData);
       onClose();
     } catch (error) {
-      setErrors([error instanceof Error ? error.message : 'Failed to save schedule']);
+      showStatusDialog({
+        title: 'Save failed',
+        message: error instanceof Error ? error.message : 'Failed to save schedule',
+        severity: 'error',
+      });
     } finally {
       setLoading(false);
     }
@@ -420,7 +464,8 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
   };
 
   return (
-    <Dialog 
+    <>
+      <Dialog
       ref={modalRef}
       open={open} 
       onClose={!loading ? onClose : undefined}
@@ -442,21 +487,6 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
 
       <DialogContent dividers id="schedule-dialog-description">
         <Stack spacing={2}>
-          {errors.length > 0 && (
-            <Alert 
-              severity="error" 
-              onClose={() => setErrors([])}
-              role="alert"
-              aria-live="assertive"
-            >
-              <ul style={{ margin: 0, paddingLeft: 20 }}>
-                {errors.map((error, index) => (
-                  <li key={index}>{error}</li>
-                ))}
-              </ul>
-            </Alert>
-          )}
-
           {/* Experiment Selection Section */}
           <Accordion 
             expanded={expandedSections.experiment}
@@ -799,7 +829,16 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
           {mode === 'create' ? 'Create Schedule' : 'Update Schedule'}
         </Button>
       </DialogActions>
-    </Dialog>
+      </Dialog>
+      <StatusDialog
+        open={statusDialog.open}
+        onClose={closeStatusDialog}
+        title={statusDialog.title}
+        message={statusDialog.message}
+        severity={statusDialog.severity}
+        autoCloseMs={statusDialog.autoCloseMs}
+      />
+    </>
   );
 };
 

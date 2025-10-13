@@ -23,6 +23,8 @@ from backend.models import (
     NotificationContact,
     NotificationSettings,
 )
+from backend.api.dependencies import ConnectionContext, require_local_access
+from backend.utils.audit import log_action
 from backend.utils.secret_cipher import encrypt_secret, SecretCipherError
 
 try:
@@ -127,10 +129,12 @@ async def get_notification_settings_endpoint(
 async def update_notification_settings_endpoint(
     payload: Dict[str, Any],
     current_user: dict = Depends(get_current_user),
+    connection: ConnectionContext = Depends(require_local_access),
 ):
     """Update the global SMTP configuration (admin only)."""
     if current_user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin role required to manage notification settings")
+    actor = current_user.get("username", "unknown")
 
     host_value = payload.get("host")
     if not isinstance(host_value, str) or not host_value.strip():
@@ -214,6 +218,14 @@ async def update_notification_settings_endpoint(
         except Exception as exc:
             logger.warning("Failed to refresh notification service after SMTP update: %s", exc)
 
+    log_action(
+        actor=actor,
+        action="update_notification_settings",
+        scope="scheduling",
+        client_ip=connection.client_ip,
+        success=True,
+    )
+
     return ApiResponse(
         success=True,
         message="Notification settings updated",
@@ -225,6 +237,7 @@ async def update_notification_settings_endpoint(
 async def test_notification_settings_endpoint(
     payload: Dict[str, Any],
     current_user: dict = Depends(get_current_user),
+    connection: ConnectionContext = Depends(require_local_access),
 ):
     """Send a test email using the stored SMTP settings (admin only)."""
     if current_user.get("role") != "admin":
@@ -252,7 +265,24 @@ async def test_notification_settings_endpoint(
 
     if not email_service.send(subject, body, to=[recipient]):
         detail = email_service.last_error or "Failed to deliver test email; see backend logs for details."
+        log_action(
+            actor=current_user.get("username", "unknown"),
+            action="test_notification_settings",
+            scope="scheduling",
+            client_ip=connection.client_ip,
+            success=False,
+            details={"recipient": recipient, "error": detail},
+        )
         raise HTTPException(status_code=502, detail=detail)
+
+    log_action(
+        actor=current_user.get("username", "unknown"),
+        action="test_notification_settings",
+        scope="scheduling",
+        client_ip=connection.client_ip,
+        success=True,
+        details={"recipient": recipient},
+    )
 
     return ApiResponse(
         success=True,
@@ -284,7 +314,8 @@ async def list_notification_contacts(
 @router.post("/contacts")
 async def create_notification_contact_endpoint(
     contact_data: Dict[str, Any],
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    connection: ConnectionContext = Depends(require_local_access),
 ):
     """Create a new notification contact (admin only)."""
     if current_user.get("role") != "admin":
@@ -295,6 +326,8 @@ async def create_notification_contact_endpoint(
         raise HTTPException(status_code=400, detail="display_name is required")
     email_address = _validate_email_address(contact_data.get("email_address"))
     is_active = bool(contact_data.get("is_active", True))
+
+    actor = current_user.get("username", "unknown")
 
     scheduler, db_mgr, _, _ = get_services()
 
@@ -312,6 +345,14 @@ async def create_notification_contact_endpoint(
     scheduler.refresh_notification_contacts(include_inactive=True)
 
     logger.info("Notification contact created: %s", created.contact_id)
+    log_action(
+        actor=actor,
+        action="create_notification_contact",
+        scope="scheduling",
+        client_ip=connection.client_ip,
+        success=True,
+        details={"contact_id": created.contact_id},
+    )
     return ApiResponse(
         success=True,
         message="Notification contact created",
@@ -323,7 +364,8 @@ async def create_notification_contact_endpoint(
 async def update_notification_contact_endpoint(
     contact_id: str,
     contact_data: Dict[str, Any],
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    connection: ConnectionContext = Depends(require_local_access),
 ):
     """Update an existing notification contact (admin only)."""
     if current_user.get("role") != "admin":
@@ -335,6 +377,8 @@ async def update_notification_contact_endpoint(
     email_address = _validate_email_address(contact_data.get("email_address"))
     is_active = bool(contact_data.get("is_active", True))
 
+    actor = current_user.get("username", "unknown")
+
     scheduler, db_mgr, _, _ = get_services()
     contact = NotificationContact(
         contact_id=contact_id,
@@ -344,11 +388,27 @@ async def update_notification_contact_endpoint(
     )
     updated = db_mgr.update_notification_contact(contact)
     if not updated:
+        log_action(
+            actor=actor,
+            action="update_notification_contact",
+            scope="scheduling",
+            client_ip=connection.client_ip,
+            success=False,
+            details={"contact_id": contact_id, "error": "not_found"},
+        )
         raise HTTPException(status_code=404, detail="Contact not found")
     
     scheduler.refresh_notification_contacts(include_inactive=True)
 
     logger.info("Notification contact updated: %s", contact_id)
+    log_action(
+        actor=actor,
+        action="update_notification_contact",
+        scope="scheduling",
+        client_ip=connection.client_ip,
+        success=True,
+        details={"contact_id": contact_id},
+    )
     return ApiResponse(
         success=True,
         message="Notification contact updated",
@@ -359,20 +419,39 @@ async def update_notification_contact_endpoint(
 @router.delete("/contacts/{contact_id}")
 async def delete_notification_contact_endpoint(
     contact_id: str,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    connection: ConnectionContext = Depends(require_local_access),
 ):
     """Delete a notification contact (admin only)."""
     if current_user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin role required to manage contacts")
 
+    actor = current_user.get("username", "unknown")
+
     scheduler, db_mgr, _, _ = get_services()
     deleted = db_mgr.delete_notification_contact(contact_id)
     if not deleted:
+        log_action(
+            actor=actor,
+            action="delete_notification_contact",
+            scope="scheduling",
+            client_ip=connection.client_ip,
+            success=False,
+            details={"contact_id": contact_id, "error": "not_found"},
+        )
         raise HTTPException(status_code=404, detail="Contact not found")
     
     scheduler.refresh_notification_contacts(include_inactive=True)
 
     logger.info("Notification contact deleted: %s", contact_id)
+    log_action(
+        actor=actor,
+        action="delete_notification_contact",
+        scope="scheduling",
+        client_ip=connection.client_ip,
+        success=True,
+        details={"contact_id": contact_id},
+    )
     return ApiResponse(
         success=True,
         message="Notification contact deleted",
@@ -422,13 +501,15 @@ async def list_notification_logs(
 @router.post("/create")
 async def create_schedule(
     schedule_data: Dict[str, Any],
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    connection: ConnectionContext = Depends(require_local_access),
 ):
     """
     Create a new scheduled experiment
     
     Requires: admin or user role
     """
+    actor = current_user.get("username", "unknown")
     try:
         logger.info(f"Create schedule request received: {schedule_data}")
         
@@ -498,12 +579,36 @@ async def create_schedule(
             }
         )
         
+        log_action(
+            actor=actor,
+            action="create_schedule",
+            scope="scheduling",
+            client_ip=connection.client_ip,
+            success=True,
+            details={"schedule_id": experiment.schedule_id, "experiment_name": experiment.experiment_name},
+        )
         return response.to_dict()
         
     except HTTPException:
+        log_action(
+            actor=actor,
+            action="create_schedule",
+            scope="scheduling",
+            client_ip=connection.client_ip,
+            success=False,
+            details={"error": "http_exception", "data": schedule_data},
+        )
         raise
     except Exception as e:
         logger.error(f"Error creating schedule: {e}")
+        log_action(
+            actor=actor,
+            action="create_schedule",
+            scope="scheduling",
+            client_ip=connection.client_ip,
+            success=False,
+            details={"error": str(e), "data": schedule_data},
+        )
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -709,13 +814,15 @@ async def get_schedule(
 async def update_schedule(
     schedule_id: str,
     update_data: Dict[str, Any],
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    connection: ConnectionContext = Depends(require_local_access),
 ):
     """
     Update a scheduled experiment
     
     Requires: admin or user role
     """
+    actor = current_user.get("username", "unknown")
     try:
         # Check user permissions
         if current_user.get("role") not in ["admin", "user"]:
@@ -770,12 +877,36 @@ async def update_schedule(
             data=existing_schedule.to_dict()
         )
         
+        log_action(
+            actor=actor,
+            action="update_schedule",
+            scope="scheduling",
+            client_ip=connection.client_ip,
+            success=True,
+            details={"schedule_id": schedule_id},
+        )
         return response.to_dict()
         
     except HTTPException:
+        log_action(
+            actor=actor,
+            action="update_schedule",
+            scope="scheduling",
+            client_ip=connection.client_ip,
+            success=False,
+            details={"schedule_id": schedule_id, "error": "http_exception"},
+        )
         raise
     except Exception as e:
         logger.error(f"Error updating schedule {schedule_id}: {e}")
+        log_action(
+            actor=actor,
+            action="update_schedule",
+            scope="scheduling",
+            client_ip=connection.client_ip,
+            success=False,
+            details={"schedule_id": schedule_id, "error": str(e)},
+        )
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -784,6 +915,7 @@ async def require_schedule_recovery(
     schedule_id: str,
     payload: Dict[str, Any] = None,
     current_user: dict = Depends(get_current_user),
+    connection: ConnectionContext = Depends(require_local_access),
 ):
     # Mark a schedule as requiring manual recovery and halt automated dispatch.
     if current_user.get('role') not in ['admin', 'user']:
@@ -797,10 +929,35 @@ async def require_schedule_recovery(
     if not updated:
         existing = db_mgr.get_schedule_by_id(schedule_id)
         if not existing:
+            log_action(
+                actor=actor,
+                action="require_schedule_recovery",
+                scope="scheduling",
+                client_ip=connection.client_ip,
+                success=False,
+                details={"schedule_id": schedule_id, "error": "not_found"},
+            )
             raise HTTPException(status_code=404, detail='Schedule not found')
+        log_action(
+            actor=actor,
+            action="require_schedule_recovery",
+            scope="scheduling",
+            client_ip=connection.client_ip,
+            success=False,
+            details={"schedule_id": schedule_id, "error": "transition_failed"},
+        )
         raise HTTPException(status_code=500, detail='Failed to mark schedule for recovery')
 
     manual_state = scheduler.get_manual_recovery_state()
+
+    log_action(
+        actor=actor,
+        action="require_schedule_recovery",
+        scope="scheduling",
+        client_ip=connection.client_ip,
+        success=True,
+        details={"schedule_id": schedule_id},
+    )
 
     response = ApiResponse(
         success=True,
@@ -818,6 +975,7 @@ async def resolve_schedule_recovery(
     schedule_id: str,
     payload: Dict[str, Any] = None,
     current_user: dict = Depends(get_current_user),
+    connection: ConnectionContext = Depends(require_local_access),
 ):
     # Clear manual recovery requirement and resume scheduling.
     if current_user.get('role') not in ['admin', 'user']:
@@ -831,10 +989,35 @@ async def resolve_schedule_recovery(
     if not updated:
         existing = db_mgr.get_schedule_by_id(schedule_id)
         if not existing:
+            log_action(
+                actor=actor,
+                action="resolve_schedule_recovery",
+                scope="scheduling",
+                client_ip=connection.client_ip,
+                success=False,
+                details={"schedule_id": schedule_id, "error": "not_found"},
+            )
             raise HTTPException(status_code=404, detail='Schedule not found')
+        log_action(
+            actor=actor,
+            action="resolve_schedule_recovery",
+            scope="scheduling",
+            client_ip=connection.client_ip,
+            success=False,
+            details={"schedule_id": schedule_id, "error": "transition_failed"},
+        )
         raise HTTPException(status_code=500, detail='Failed to resolve manual recovery state')
 
     manual_state = scheduler.get_manual_recovery_state()
+
+    log_action(
+        actor=actor,
+        action="resolve_schedule_recovery",
+        scope="scheduling",
+        client_ip=connection.client_ip,
+        success=True,
+        details={"schedule_id": schedule_id},
+    )
 
     response = ApiResponse(
         success=True,
@@ -850,13 +1033,15 @@ async def resolve_schedule_recovery(
 @router.delete("/{schedule_id}")
 async def delete_schedule(
     schedule_id: str,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    connection: ConnectionContext = Depends(require_local_access),
 ):
     """
     Delete a scheduled experiment
     
     Requires: admin role
     """
+    actor = current_user.get("username", "unknown")
     try:
         # Check user permissions
         if current_user.get("role") != "admin":
@@ -881,12 +1066,36 @@ async def delete_schedule(
             data={"schedule_id": schedule_id}
         )
         
+        log_action(
+            actor=actor,
+            action="delete_schedule",
+            scope="scheduling",
+            client_ip=connection.client_ip,
+            success=True,
+            details={"schedule_id": schedule_id},
+        )
         return response.to_dict()
         
     except HTTPException:
+        log_action(
+            actor=actor,
+            action="delete_schedule",
+            scope="scheduling",
+            client_ip=connection.client_ip,
+            success=False,
+            details={"schedule_id": schedule_id, "error": "http_exception"},
+        )
         raise
     except Exception as e:
         logger.error(f"Error deleting schedule {schedule_id}: {e}")
+        log_action(
+            actor=actor,
+            action="delete_schedule",
+            scope="scheduling",
+            client_ip=connection.client_ip,
+            success=False,
+            details={"schedule_id": schedule_id, "error": str(e)},
+        )
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

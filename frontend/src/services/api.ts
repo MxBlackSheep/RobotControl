@@ -1,5 +1,6 @@
-import axios from 'axios';
+import axios, { AxiosHeaders } from 'axios';
 import { getApiBase } from '@/utils/apiBase';
+import { isMaintenanceActive, getMaintenanceRemainingMs, activateMaintenance } from '@/utils/MaintenanceManager';
 
 // Derive API base dynamically so phone/tablet clients proxy to the correct backend
 const API_BASE_URL = getApiBase();
@@ -12,12 +13,26 @@ export const api = axios.create({
   timeout: 10000, // 10 second timeout for API calls
 });
 
-// Add auth token to requests
+// Add auth token to requests and respect maintenance windows
 api.interceptors.request.use((config) => {
+  const headers = AxiosHeaders.from(config.headers || {});
+  config.headers = headers;
+
+  const bypassMaintenance = headers.get('X-Allow-Maintenance') === 'true';
+
+  if (!bypassMaintenance && isMaintenanceActive()) {
+    const maintenanceError: any = new Error('Database maintenance in progress. Please wait a moment.');
+    maintenanceError.name = 'MaintenanceError';
+    maintenanceError.isMaintenance = true;
+    maintenanceError.remainingMs = getMaintenanceRemainingMs();
+    return Promise.reject(maintenanceError);
+  }
+
   const token = localStorage.getItem('access_token');
   if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+    headers.set('Authorization', `Bearer ${token}`);
   }
+
   return config;
 });
 
@@ -28,6 +43,10 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       localStorage.removeItem('access_token');
       window.location.href = '/login';
+    }
+
+    if (error.response?.status === 503) {
+      activateMaintenance(60000, 'Database is restarting. Please wait.');
     }
 
     // Handle timeout errors specifically

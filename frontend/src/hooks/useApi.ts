@@ -112,6 +112,16 @@ export const useApi = <T = any>(options: UseApiOptions = {}): UseApiReturn<T> =>
       retryCountRef.current = 0;
       return result;
     } catch (err: any) {
+      if (err?.isMaintenance) {
+        const remainingSeconds = err.remainingMs ? Math.ceil(err.remainingMs / 1000) : undefined;
+        const maintenanceMessage = remainingSeconds
+          ? `Database maintenance in progress. Pausing requests for approximately ${remainingSeconds}s.`
+          : 'Database maintenance in progress. Please retry shortly.';
+        setState(prev => ({ ...prev, loading: false, error: maintenanceMessage, success: false }));
+        retryCountRef.current = 0;
+        return null;
+      }
+
       const errorMessage = err.response?.data?.detail || err.message || 'An error occurred';
       
       // Retry logic

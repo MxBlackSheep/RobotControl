@@ -21,6 +21,8 @@ import time
 
 from backend.services.auth import get_current_admin_user
 from backend.services.backup import get_backup_service, BackupInfo, BackupResult, RestoreResult, BackupDetails
+from backend.api.dependencies import ConnectionContext, require_local_access
+from backend.utils.audit import log_action
 
 # Import standardized response formatter
 from backend.api.response_formatter import (
@@ -118,7 +120,8 @@ def create_api_response(success: bool, data: Any = None, message: str = "", meta
 @router.post("/create", response_model=Dict[str, Any])
 async def create_backup(
     request: CreateBackupRequest,
-    current_user: dict = Depends(get_current_admin_user)
+    current_user: dict = Depends(get_current_admin_user),
+    connection: ConnectionContext = Depends(require_local_access),
 ):
     """
     Create a new database backup
@@ -132,6 +135,7 @@ async def create_backup(
     """
     start_time = time.time()
     
+    actor = current_user.get("username", "unknown")
     try:
         logger.info(f"Creating backup requested by user: {current_user['username']}")
         
@@ -149,6 +153,14 @@ async def create_backup(
             logger.info(f"Backup created successfully: {result.filename}")
             metadata.add_metadata("filename", result.filename)
             metadata.add_metadata("backup_successful", True)
+            log_action(
+                actor=actor,
+                action="create_backup",
+                scope="database",
+                client_ip=connection.client_ip,
+                success=True,
+                details={"filename": result.filename},
+            )
             
             return ResponseFormatter.success(
                 data=result.to_dict(),
@@ -158,6 +170,14 @@ async def create_backup(
         else:
             logger.warning(f"Backup creation failed: {result.message}")
             metadata.add_metadata("backup_successful", False)
+            log_action(
+                actor=actor,
+                action="create_backup",
+                scope="database",
+                client_ip=connection.client_ip,
+                success=False,
+                details={"description": request.description, "error": result.message},
+            )
             
             return ResponseFormatter.bad_request(
                 message=result.message,
@@ -168,6 +188,14 @@ async def create_backup(
             
     except Exception as e:
         logger.error(f"Unexpected error creating backup: {e}")
+        log_action(
+            actor=actor,
+            action="create_backup",
+            scope="database",
+            client_ip=connection.client_ip,
+            success=False,
+            details={"description": request.description, "error": str(e)},
+        )
         return ResponseFormatter.server_error(
             message="An unexpected error occurred while creating backup",
             details=str(e)
@@ -285,7 +313,8 @@ class RestoreBackupRequest(BaseModel):
 @router.post("/restore", response_model=Dict[str, Any])
 async def restore_backup(
     request: RestoreBackupRequest,
-    current_user: dict = Depends(get_current_admin_user)
+    current_user: dict = Depends(get_current_admin_user),
+    connection: ConnectionContext = Depends(require_local_access),
 ):
     """
     Restore database from backup file
@@ -299,6 +328,7 @@ async def restore_backup(
     Returns:
         Standardized API response with restore operation result
     """
+    restore_source: Optional[str] = None
     try:
         # Validate request - must have either filename or file_path, but not both
         if not request.filename and not request.file_path:
@@ -312,7 +342,6 @@ async def restore_backup(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Provide either filename or file_path, not both"
             )
-        
         restore_source = request.filename or request.file_path
         logger.warning(f"Database restore from {restore_source} requested by user: {current_user['username']}")
         
@@ -327,6 +356,14 @@ async def restore_backup(
         
         if result.success:
             logger.info(f"Database restored successfully from: {restore_source}")
+            log_action(
+                actor=current_user["username"],
+                action="database_restore",
+                scope="database",
+                client_ip=connection.client_ip,
+                success=True,
+                details={"source": restore_source},
+            )
             return create_api_response(
                 success=True,
                 data=result.to_dict(),
@@ -334,14 +371,40 @@ async def restore_backup(
             )
         else:
             logger.error(f"Database restore failed: {result.message}")
+            log_action(
+                actor=current_user["username"],
+                action="database_restore",
+                scope="database",
+                client_ip=connection.client_ip,
+                success=False,
+                details={"source": restore_source, "message": result.message},
+            )
             return create_api_response(
                 success=False,
                 data=result.to_dict(),
                 message=result.message
             )
             
+    except HTTPException as exc:
+        log_action(
+            actor=current_user["username"],
+            action="database_restore",
+            scope="database",
+            client_ip=connection.client_ip,
+            success=False,
+            details={"source": restore_source, "error": exc.detail},
+        )
+        raise
     except Exception as e:
         logger.error(f"Unexpected error during restore: {e}")
+        log_action(
+            actor=current_user["username"],
+            action="database_restore",
+            scope="database",
+            client_ip=connection.client_ip,
+            success=False,
+            details={"source": restore_source, "error": str(e)},
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred during database restore"
@@ -351,7 +414,8 @@ async def restore_backup(
 @router.delete("/{filename}", response_model=Dict[str, Any])
 async def delete_backup(
     filename: str,
-    current_user: dict = Depends(get_current_admin_user)
+    current_user: dict = Depends(get_current_admin_user),
+    connection: ConnectionContext = Depends(require_local_access),
 ):
     """
     Delete backup file and associated metadata
@@ -363,14 +427,23 @@ async def delete_backup(
     Returns:
         Standardized API response with delete operation result
     """
+    actor = current_user.get("username", "unknown")
     try:
-        logger.info(f"Deleting backup {filename} requested by user: {current_user['username']}")
+        logger.info(f"Deleting backup {filename} requested by user: {actor}")
         
         backup_service = get_backup_service()
         result = backup_service.delete_backup(filename)
         
         if result["success"]:
             logger.info(f"Backup deleted successfully: {filename}")
+            log_action(
+                actor=actor,
+                action="delete_backup",
+                scope="database",
+                client_ip=connection.client_ip,
+                success=True,
+                details={"filename": filename},
+            )
             return create_api_response(
                 success=True,
                 data=result,
@@ -378,6 +451,14 @@ async def delete_backup(
             )
         else:
             logger.warning(f"Backup deletion failed: {result['message']}")
+            log_action(
+                actor=actor,
+                action="delete_backup",
+                scope="database",
+                client_ip=connection.client_ip,
+                success=False,
+                details={"filename": filename, "error": result['message']},
+            )
             return create_api_response(
                 success=False,
                 data=result,
@@ -386,6 +467,14 @@ async def delete_backup(
             
     except Exception as e:
         logger.error(f"Unexpected error deleting backup: {e}")
+        log_action(
+            actor=actor,
+            action="delete_backup",
+            scope="database",
+            client_ip=connection.client_ip,
+            success=False,
+            details={"filename": filename, "error": str(e)},
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred while deleting backup"
@@ -463,5 +552,3 @@ async def get_backup_health(current_user: dict = Depends(get_current_admin_user)
             message="Error checking backup service health",
             details=str(e)
         )
-
-
