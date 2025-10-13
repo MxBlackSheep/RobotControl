@@ -333,7 +333,13 @@ try:
         # Relative path - resolve from compiled/dev base directory
         BACKUP_DIR = str((base_path / configured_backup_path).resolve())
 
-    SQL_BACKUP_DIR = str(settings.SQL_BACKUP_PATH)
+    sql_backup_path = str(settings.SQL_BACKUP_PATH).strip()
+    if not sql_backup_path:
+        SQL_BACKUP_DIR = BACKUP_DIR
+    elif os.path.isabs(sql_backup_path) or sql_backup_path.startswith(r"\\"):
+        SQL_BACKUP_DIR = sql_backup_path
+    else:
+        SQL_BACKUP_DIR = str((base_path / sql_backup_path).resolve())
     logger.debug(f"Backup directory resolved to: {BACKUP_DIR}")
     logger.debug(f"SQL backup directory: {SQL_BACKUP_DIR}")
 
@@ -356,12 +362,6 @@ MAX_DESCRIPTION_LENGTH = 1000
 MAX_FILENAME_LENGTH = 255
 
 # SQL Commands
-SQL_BACKUP_TEMPLATE = """
-BACKUP DATABASE [{database}] 
-TO DISK = N'{backup_path}' 
-WITH FORMAT, INIT, NAME = 'Full Backup', COMPRESSION;
-"""
-
 SQL_RESTORE_TEMPLATE = """
 ALTER DATABASE [{database}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; 
 RESTORE DATABASE [{database}] 
@@ -922,26 +922,15 @@ class BackupService:
                     except Exception as e:
                         logger.warning(f"WARNING: Could not check disk space: {e}")
                     
-                    # Execute SQL Server backup command using VM path
-                    escaped_sql_path = escape_sql_path(sql_backup_path)
-                    sql_command = SQL_BACKUP_TEMPLATE.format(
-                        database=self.database_name,
-                        backup_path=escaped_sql_path
-                    )
-                    
-                    # Execute backup with sqlcmd/pyodbc fallback
-                    success, message = self._execute_sql_command(sql_command)
-                    
+                    # Execute backup using streamlined sqlcmd command (compatible with Express)
+                    success, message = self._simple_backup_fallback(sql_backup_path, description)
                     if not success:
-                        # Try simple PyQt5-style approach as fallback
-                        logger.info("Trying simple backup approach as fallback...")
-                        success, message = self._simple_backup_fallback(sql_backup_path, description)
-                        
-                        if not success:
-                            raise BackupOperationError(f"SQL Server backup failed: {message}", "SQL_BACKUP_FAILED")
+                        raise BackupOperationError(
+                            f"SQL Server backup failed: {message}",
+                            "SQL_BACKUP_FAILED"
+                        )
                     
-                    # Log successful execution
-                    logger.debug(f"Backup command executed successfully: {message}")
+                    logger.debug(f"Backup command executed successfully via simple sqlcmd: {message}")
                     
                     # Verify backup file was created and get size
                     if not os.path.exists(backup_file_path):

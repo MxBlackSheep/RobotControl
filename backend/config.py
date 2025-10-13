@@ -45,8 +45,8 @@ class Settings:
     # Override via .env when using a network share.
     LOCAL_BACKUP_PATH: str = os.getenv("LOCAL_BACKUP_PATH", "data/backups")
     # SQL_BACKUP_PATH: Path SQL Server (on the VM) writes .bak files to.
-    # Keep default minimal; override in .env (e.g., "Z:\\backups").
-    SQL_BACKUP_PATH: str = os.getenv("SQL_BACKUP_PATH", r"Z:")
+    # Keep default aligned with LOCAL_BACKUP_PATH so host/SQL share the same folder.
+    SQL_BACKUP_PATH: str = os.getenv("SQL_BACKUP_PATH", "data/backups")
     
     DB_CONFIG_PRIMARY = {
         "driver": "{ODBC Driver 11 for SQL Server}",
