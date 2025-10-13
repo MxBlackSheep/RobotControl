@@ -223,5 +223,7 @@ export const adminAPI = {
       new_password: newPassword,
       must_reset: mustReset,
     }),
-  getDatabasePerformance: () => api.get('/api/admin/database/performance'),
+  updateUserEmail: (username: string, email: string) =>
+    api.put(`/api/admin/users/${username}/email`, { email }),
+  deleteUser: (username: string) => api.delete(`/api/admin/users/${username}`),
 };

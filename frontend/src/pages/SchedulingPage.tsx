@@ -1264,25 +1264,6 @@ const SchedulingPage: React.FC = () => {
         )}
       </Paper>
 
-      {/* Footer Information */}
-      <Paper
-        elevation={0}
-        sx={{
-          mt: { xs: 3, md: 4 },
-          p: { xs: 2.5, md: 3 },
-          borderRadius: 2,
-          border: 1,
-          borderColor: 'divider',
-          bgcolor: 'background.paper'
-        }}
-      >
-        <Typography variant="body2" color="text.secondary" component="div">
-          <strong>Scheduling System:</strong> Replaces legacy VBS scripts with modern Python-based scheduling.
-          All scheduling operations are logged and support role-based access control.
-          Hamilton robot integration supports both real and mock execution modes for development.
-        </Typography>
-      </Paper>
-
       {/* Improved Schedule Form Dialog */}
       <ImprovedScheduleForm
         open={improvedFormOpen}

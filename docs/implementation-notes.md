@@ -1,3 +1,14 @@
+## 2025-10-15 Admin User Controls
+
+- Limited the admin API to user email updates and account deletion, adding dedicated endpoints while preventing self-deletion and duplicate email assignment (`backend/api/admin.py`, `backend/services/auth.py`, `backend/services/auth_database.py`).
+- Simplified the admin UI to match: user management now supports only editing email addresses or removing accounts, with refreshed UX feedback (`frontend/src/components/UserManagement.tsx`, `frontend/src/pages/AdminPage.tsx`, `frontend/src/services/api.ts`).
+
+## 2025-10-15 Dashboard & Layout Cleanup
+
+- Removed descriptive footer panels from Scheduling and Backup pages to keep the UI focused on actionable controls (`frontend/src/pages/SchedulingPage.tsx`, `frontend/src/pages/BackupPage.tsx`).
+- Centered About page cards and ensured they stretch evenly by flexing grid items, eliminating the right-leaning layout (`frontend/src/pages/AboutPage.tsx`).
+- Streamlined the Dashboard by dropping the Quick Actions card and centering the experiment widget; the latest experiment panel now loads after a 1 s handshake instead of 3 s (`frontend/src/pages/Dashboard.tsx`, `frontend/src/components/ExperimentStatus.tsx`).
+
 ## 2025-10-15 Multi-User Concurrency & Token Refresh
 
 - Added optimistic concurrency to schedule update/delete/manual-recovery routes using `If-Unmodified-Since` tokens from the UI; stale submissions now raise HTTP 409 and trigger an automatic reload (`backend/api/scheduling.py`, `frontend/src/hooks/useScheduling.ts`, `frontend/src/pages/SchedulingPage.tsx`, `frontend/src/services/schedulingApi.ts`, `frontend/src/types/scheduling.ts`).
@@ -353,8 +364,6 @@ Refer to `AGENTS.md` for the day-to-day runbook; this file captures development-
 - Build workflow: run `npm.cmd run build`, `python build_scripts/embed_resources.py`, then `python -m PyInstaller PyRobot.spec` to refresh the embedded bundle.
 
 - Deployment note: leave `VITE_API_BASE_URL` empty (or set to the backend origin) before building so mobile Safari/Chrome point at the correct server automatically.
-
-
 
 
 

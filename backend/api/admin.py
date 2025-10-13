@@ -3,8 +3,8 @@ PyRobot Simplified Admin API
 Basic admin endpoints for user management and system monitoring
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, status
+from pydantic import BaseModel, EmailStr, Field
 from typing import Dict, Any, Optional
 from datetime import datetime, timedelta
 import logging
@@ -22,9 +22,14 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+class UpdateUserEmailRequest(BaseModel):
+    email: EmailStr
+
+
 class ResetPasswordRequest(BaseModel):
     new_password: str = Field(..., min_length=8, max_length=256)
     must_reset: bool = Field(default=True)
+
 
 class ResolveResetRequestBody(BaseModel):
     resolution_note: Optional[str] = Field(default=None, max_length=500)
@@ -135,6 +140,7 @@ async def get_users(current_user: dict = Depends(get_current_admin_user)):
             details=str(e)
         )
 
+
 @router.get("/password-reset/requests")
 async def get_password_reset_requests(current_user: dict = Depends(get_current_admin_user)):
     """Retrieve pending and resolved password reset requests."""
@@ -176,56 +182,12 @@ async def get_password_reset_requests(current_user: dict = Depends(get_current_a
         )
 
     except Exception as exc:
-        logger.error(f"Error retrieving password reset requests: {exc}")
+        logger.error("Error retrieving password reset requests: %s", exc)
         return ResponseFormatter.server_error(
             message="Error retrieving password reset requests",
             details=str(exc),
         )
 
-@router.post("/users/{username}/toggle-active")
-async def toggle_user_active(
-    username: str, 
-    current_user: dict = Depends(get_current_admin_user)
-):
-    """Toggle user active status"""
-    start_time = time.time()
-    
-    try:
-        # Prevent admin from deactivating themselves
-        if username == current_user["username"]:
-            return ResponseFormatter.bad_request(
-                message="Cannot deactivate your own account",
-                details="Self-deactivation is not allowed for security reasons"
-            )
-        
-        auth_service = AuthService()
-        success = auth_service.toggle_user_active(username)
-        
-        if not success:
-            return ResponseFormatter.not_found(
-                message="User not found",
-                details=f"No user found with username '{username}'"
-            )
-        
-        # Create metadata
-        metadata = ResponseMetadata()
-        metadata.set_execution_time(start_time)
-        metadata.add_metadata("operation", "toggle_user_active")
-        metadata.add_metadata("admin_user", current_user.get("username"))
-        metadata.add_metadata("target_user", username)
-        
-        return ResponseFormatter.success(
-            data={"username": username, "action": "status_toggled"},
-            metadata=metadata,
-            message=f"User {username} status updated successfully"
-        )
-        
-    except Exception as e:
-        logger.error(f"Error toggling user active status: {e}")
-        return ResponseFormatter.server_error(
-            message="Error updating user status",
-            details=str(e)
-        )
 
 @router.post("/password-reset/requests/{request_id}/resolve")
 async def resolve_password_reset_request(
@@ -269,11 +231,12 @@ async def resolve_password_reset_request(
         )
 
     except Exception as exc:
-        logger.error(f"Error resolving password reset request {request_id}: {exc}")
+        logger.error("Error resolving password reset request %s: %s", request_id, exc)
         return ResponseFormatter.server_error(
             message="Error resolving password reset request",
             details=str(exc),
         )
+
 
 @router.post("/users/{username}/reset-password")
 async def reset_user_password(
@@ -295,7 +258,7 @@ async def reset_user_password(
         if not success:
             return ResponseFormatter.not_found(
                 message="User not found",
-                details=f"No user found with username '{username}'"
+                details={"username": username}
             )
 
         metadata = ResponseMetadata()
@@ -311,11 +274,113 @@ async def reset_user_password(
             message="Password reset successfully"
         )
 
-    except Exception as e:
-        logger.error(f"Error resetting password for '{username}': {e}")
+    except Exception as exc:
+        logger.error("Error resetting password for '%s': %s", username, exc)
         return ResponseFormatter.server_error(
             message="Error resetting password",
-            details=str(e)
+            details=str(exc)
+        )
+
+@router.put("/users/{username}/email")
+async def update_user_email(
+    username: str,
+    request: UpdateUserEmailRequest,
+    current_user: dict = Depends(get_current_admin_user),
+):
+    """Update a user's email address."""
+    start_time = time.time()
+
+    try:
+        auth_service = AuthService()
+        existing = auth_service.get_user_by_username(username)
+        if not existing:
+            return ResponseFormatter.not_found(
+                message="User not found",
+                details={"username": username},
+            )
+
+        try:
+            success = auth_service.update_user_email(username, request.email)
+        except ValueError as exc:
+            return ResponseFormatter.validation_error(
+                message=str(exc),
+                details={"email": request.email},
+            )
+
+        if not success:
+            return ResponseFormatter.error(
+                message="Email address already in use",
+                error_code="EMAIL_IN_USE",
+                details={"email": request.email},
+                status_code=status.HTTP_409_CONFLICT,
+            )
+
+        metadata = ResponseMetadata()
+        metadata.set_execution_time(start_time)
+        metadata.add_metadata("operation", "update_user_email")
+        metadata.add_metadata("admin_user", current_user.get("username"))
+        metadata.add_metadata("target_user", username)
+
+        return ResponseFormatter.success(
+            data={"username": username, "email": request.email},
+            metadata=metadata,
+            message="User email updated successfully",
+        )
+
+    except Exception as exc:
+        logger.error("Error updating email for '%s': %s", username, exc)
+        return ResponseFormatter.server_error(
+            message="Error updating user email",
+            details=str(exc),
+        )
+
+@router.delete("/users/{username}")
+async def delete_user(
+    username: str,
+    current_user: dict = Depends(get_current_admin_user),
+):
+    """Delete a user account."""
+    start_time = time.time()
+
+    try:
+        if username == current_user.get("username"):
+            return ResponseFormatter.bad_request(
+                message="Cannot delete the currently authenticated administrator",
+                details={"username": username},
+            )
+
+        auth_service = AuthService()
+        existing = auth_service.get_user_by_username(username)
+        if not existing:
+            return ResponseFormatter.not_found(
+                message="User not found",
+                details={"username": username},
+            )
+
+        success = auth_service.delete_user(username)
+        if not success:
+            return ResponseFormatter.server_error(
+                message="Failed to delete user",
+                details={"username": username},
+            )
+
+        metadata = ResponseMetadata()
+        metadata.set_execution_time(start_time)
+        metadata.add_metadata("operation", "delete_user")
+        metadata.add_metadata("admin_user", current_user.get("username"))
+        metadata.add_metadata("target_user", username)
+
+        return ResponseFormatter.success(
+            data={"username": username},
+            metadata=metadata,
+            message="User deleted successfully",
+        )
+
+    except Exception as exc:
+        logger.error("Error deleting user '%s': %s", username, exc)
+        return ResponseFormatter.server_error(
+            message="Error deleting user",
+            details=str(exc),
         )
 
 @router.get("/database/performance")

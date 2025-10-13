@@ -221,11 +221,11 @@ const ExperimentStatus: React.FC<ExperimentStatusProps> = memo(({
     }
   }, []);
 
-  // Initial load with delay (non-blocking for dashboard)
+  // Initial load with short delay (non-blocking for dashboard)
   useEffect(() => {
     const timer = setTimeout(() => {
       loadExperiment();
-    }, 3000); // 3 second delay to let authentication complete first
+    }, 1000); // brief delay to let authentication complete first
 
     return () => clearTimeout(timer);
   }, []);

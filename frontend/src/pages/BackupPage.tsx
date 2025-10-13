@@ -227,15 +227,6 @@ const BackupPage: React.FC = () => {
           </Box>
         </BackupErrorBoundary>
       </Paper>
-
-      {/* Footer Information */}
-      <Box sx={{ mt: 3, p: 2, borderTop: 1, borderColor: 'divider' }}>
-        <Typography variant="caption" color="text.secondary" component="div">
-          <strong>Security Notice:</strong> All backup operations are logged and require administrator authentication.
-          Backup files are stored locally and contain sensitive laboratory data.
-          Ensure proper security measures are in place for backup file access and storage.
-        </Typography>
-      </Box>
     </Container>
   );
 };

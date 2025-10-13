@@ -310,6 +310,21 @@ class AuthService:
             logger.info("Toggled active state for user '%s'", username)
         return success
 
+    def update_user_email(self, username: str, email: str) -> bool:
+        normalized_email = (email or "").strip()
+        if not normalized_email:
+            raise ValueError("Email address is required")
+        success = self.db.update_user_email(username, normalized_email)
+        if success:
+            logger.info("Updated email for user '%s'", username)
+        return success
+
+    def delete_user(self, username: str) -> bool:
+        success = self.db.delete_user(username)
+        if success:
+            logger.info("Deleted user '%s'", username)
+        return success
+
     def is_admin(self, user: User) -> bool:
         return user.role == "admin"
 

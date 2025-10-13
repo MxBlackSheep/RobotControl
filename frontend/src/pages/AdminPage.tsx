@@ -27,7 +27,7 @@ const AdminPage: React.FC = () => {
         Administration
       </Typography>
       <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
-        Manage user accounts, handle password reset requests, and review access status.
+        Update user email addresses or remove accounts that should no longer have access.
       </Typography>
 
       {error && (
