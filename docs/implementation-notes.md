@@ -2,6 +2,8 @@
 
 - Normalized newline handling so backend strings containing `\n` render as real line breaks in shared alerts and restore status dialogs via the new `normalizeMultilineText` helper (`frontend/src/components/ErrorAlert.tsx`, `frontend/src/components/DatabaseRestore.tsx`, `frontend/src/utils/text.ts`).
 - Added a reusable `StatusDialog` wrapper to keep success/error feedback consistent on mobile and migrated the scheduling admin panels (`NotificationEmailSettingsPanel`, `NotificationContactsPanel`, `ImprovedScheduleForm`, and `DatabaseRestore`) to use it (`frontend/src/components/StatusDialog.tsx`, `frontend/src/components/DatabaseRestore.tsx`, `frontend/src/components/scheduling/NotificationEmailSettingsPanel.tsx`, `frontend/src/components/scheduling/NotificationContactsPanel.tsx`, `frontend/src/components/scheduling/ImprovedScheduleForm.tsx`).
+- Scheduler delete now falls back to the SQLite manager when the in-memory engine isn't loaded, so admins can remove schedules even if the scheduler service is offline (`backend/api/scheduling.py`).
+- Database restore kicks off a health-check watcher that clears maintenance mode as soon as the backend responds again instead of waiting the full sixty-second timeout (`frontend/src/components/DatabaseRestore.tsx`).
 
 ## 2025-10-12 Maintenance UX & Modal Alerts
 
@@ -345,8 +347,6 @@ Refer to `AGENTS.md` for the day-to-day runbook; this file captures development-
 - Build workflow: run `npm.cmd run build`, `python build_scripts/embed_resources.py`, then `python -m PyInstaller PyRobot.spec` to refresh the embedded bundle.
 
 - Deployment note: leave `VITE_API_BASE_URL` empty (or set to the backend origin) before building so mobile Safari/Chrome point at the correct server automatically.
-
-
 
 
 

@@ -1049,21 +1049,41 @@ async def delete_schedule(
         
         scheduler, db_mgr, queue_mgr, proc_mon = get_services()
         
-        # Get schedule for logging
+        # Attempt to fetch schedule from in-memory scheduler first, fall back to the database
         schedule = scheduler.get_schedule(schedule_id)
+        schedule_from_engine = schedule is not None
         if not schedule:
-            raise HTTPException(status_code=404, detail="Schedule not found")
+            schedule = db_mgr.get_scheduled_experiment(schedule_id)
+            if not schedule:
+                raise HTTPException(status_code=404, detail="Schedule not found")
         
-        # Remove from scheduler
-        success = scheduler.remove_schedule(schedule_id)
-        
+        fallback_used = False
+        success = False
+
+        if schedule_from_engine:
+            success = scheduler.remove_schedule(schedule_id)
+
         if not success:
-            raise HTTPException(status_code=400, detail="Failed to delete schedule")
-        
+            # Either the scheduler is not running or removal failed; fall back to direct DB removal
+            fallback_deleted = db_mgr.delete_scheduled_experiment(schedule_id)
+            if not fallback_deleted:
+                raise HTTPException(status_code=400, detail="Failed to delete schedule")
+            fallback_used = True
+            # Ensure the scheduler cache is cleared if it was loaded but failed to remove originally
+            if schedule_from_engine:
+                try:
+                    scheduler._active_schedules.pop(schedule_id, None)  # type: ignore[attr-defined]
+                except AttributeError:
+                    pass
+            success = True
+
         response = ApiResponse(
             success=True,
             message=f"Schedule deleted: {schedule.experiment_name}",
-            data={"schedule_id": schedule_id}
+            data={
+                "schedule_id": schedule_id,
+                "deleted_via": "database_fallback" if fallback_used else "scheduler",
+            }
         )
         
         log_action(
@@ -1072,7 +1092,10 @@ async def delete_schedule(
             scope="scheduling",
             client_ip=connection.client_ip,
             success=True,
-            details={"schedule_id": schedule_id},
+            details={
+                "schedule_id": schedule_id,
+                "deleted_via": "database_fallback" if fallback_used else "scheduler",
+            },
         )
         return response.to_dict()
         

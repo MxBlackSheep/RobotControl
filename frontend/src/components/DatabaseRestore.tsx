@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Box,
   Card,
@@ -51,7 +51,7 @@ import {
 import LoadingSpinner from './LoadingSpinner';
 import ErrorAlert from './ErrorAlert';
 import { api } from '../services/api';
-import { activateMaintenance } from '@/utils/MaintenanceManager';
+import { activateMaintenance, clearMaintenance } from '@/utils/MaintenanceManager';
 import StatusDialog, { StatusSeverity } from './StatusDialog';
 
 interface BackupFile {
@@ -294,8 +294,51 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
   const theme = useTheme();
   const isSmallScreen = useMediaQuery(theme.breakpoints.down('sm'));
 
+  const maintenancePollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const maintenancePollAttemptsRef = useRef(0);
+
+  const clearMaintenancePoll = () => {
+    if (maintenancePollRef.current) {
+      clearTimeout(maintenancePollRef.current);
+      maintenancePollRef.current = null;
+    }
+  };
+
+  const scheduleMaintenanceRecoveryCheck = (delayMs = 5000) => {
+    clearMaintenancePoll();
+    maintenancePollRef.current = setTimeout(async () => {
+      maintenancePollAttemptsRef.current += 1;
+      try {
+        await api.get('/health', {
+          headers: { 'X-Allow-Maintenance': 'true' },
+        });
+        clearMaintenance();
+        maintenancePollAttemptsRef.current = 0;
+        clearMaintenancePoll();
+      } catch {
+        if (maintenancePollAttemptsRef.current < 12) {
+          scheduleMaintenanceRecoveryCheck(5000);
+        } else {
+          maintenancePollAttemptsRef.current = 0;
+          clearMaintenancePoll();
+        }
+      }
+    }, delayMs);
+  };
+
+  const startMaintenanceRecoveryWatcher = () => {
+    maintenancePollAttemptsRef.current = 0;
+    scheduleMaintenanceRecoveryCheck(5000);
+  };
+
   useEffect(() => {
     loadBackupFiles();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      clearMaintenancePoll();
+    };
   }, []);
 
   const showStatusDialog = (
@@ -377,6 +420,7 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
       await api.post('/api/admin/backup/restore', restoreRequest);
 
       activateMaintenance(60000, 'Database restore is finishing.');
+      startMaintenanceRecoveryWatcher();
       showStatusDialog(
         'Restore Started',
         'Database restore has begun. The system may be unavailable for several minutes while services restart. Background updates are paused briefly.',
