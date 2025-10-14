@@ -223,6 +223,7 @@ const CameraPage: React.FC = () => {
         const data = await response.json();
         const session = data.data;
         setMySession(session);
+        setError('');
         
         // Connect to WebSocket for live streaming
         connectToStreamingWebSocket(session.session_id);
@@ -312,6 +313,7 @@ const CameraPage: React.FC = () => {
         setMySession(null);
         await loadStreamingStatus();
         setCurrentFrame(null);
+        setError('');
       } else {
         setError('Failed to stop streaming session');
       }
@@ -556,7 +558,7 @@ const CameraPage: React.FC = () => {
                               message="Waiting for frames..."
                             />
                             <Typography variant="body2" color="grey.400">
-                              Session {mySession.session_id.substring(0, 8)}…
+                              Session {mySession.session_id.substring(0, 8)}...
                             </Typography>
                           </Stack>
                         )}
@@ -578,7 +580,7 @@ const CameraPage: React.FC = () => {
                         <Stack spacing={2} alignItems="center">
                           <StreamIcon sx={{ fontSize: 48, color: 'grey.400' }} />
                           <Typography variant="body2" color="textSecondary">
-                            Connecting to stream…
+                            Connecting to stream...
                           </Typography>
                         </Stack>
                       </Box>
@@ -684,7 +686,7 @@ const CameraPage: React.FC = () => {
                 message="Waiting for frames..."
               />
               <Typography variant="body2" color="grey.400">
-                Stream is active, awaiting next frame…
+                Stream is active, awaiting next frame...
               </Typography>
             </Stack>
           ) : (
