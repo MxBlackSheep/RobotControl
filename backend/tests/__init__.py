@@ -1,1 +1,1 @@
-# Tests package for RobotControl Simplified Backend
+# Tests package for RobotControl Backend

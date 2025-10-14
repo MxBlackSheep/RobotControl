@@ -7,6 +7,8 @@
 - Renamed all user-facing strings, documentation, environment defaults, and packaging assets from “PyRobot” to “RobotControl” (`README.md`, `backend/main.py`, `frontend/src/**/*`, `build_scripts/*`, `RobotControl.spec`, etc.).
 - Updated environment variable prefixes to `ROBOTCONTROL_` and adjusted default credentials/subjects accordingly (`backend/services/auth.py`, `.env.example`, `backend/services/notifications.py`).
 - Regenerated packaging spec as `RobotControl.spec` with relative project paths so branding stays consistent without hard-coded directories.
+- Cleaned up scheduling/monitoring UI copy, removed the discovery auto-scan, limited folder imports to localhost, trimmed summary cards, and simplified system-status widgets (`frontend/src/pages/SchedulingPage.tsx`, `frontend/src/components/scheduling/FolderImportDialog.tsx`, `frontend/src/pages/MonitoringPage.tsx`, `frontend/src/components/MonitoringDashboard.tsx`, `frontend/src/App.tsx`).
+- Formatted archive video labels to display friendly timestamps while keeping actions accessible on mobile (`frontend/src/components/camera/VideoArchiveTab.tsx`).
 
 ## 2025-10-14 Camera Page Streamlining
 

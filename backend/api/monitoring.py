@@ -1,5 +1,5 @@
 """
-RobotControl Simplified Monitoring API
+RobotControl Monitoring API
 Real-time monitoring endpoints for system status, experiments, and WebSocket connections
 """
 

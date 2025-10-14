@@ -1,5 +1,5 @@
 """
-RobotControl Simplified Monitoring Service
+RobotControl Monitoring Service
 
 Real-time monitoring service that provides WebSocket-based updates for:
 - Experiment status changes
@@ -456,7 +456,7 @@ if __name__ == "__main__":
     # Example usage
     monitoring = get_monitoring_service()
     
-    print("=== RobotControl Simplified Monitoring Service ===")
+    print("=== RobotControl Monitoring Service ===")
     
     # Start monitoring
     monitoring.start_monitoring()

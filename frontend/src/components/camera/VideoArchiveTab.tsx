@@ -72,6 +72,35 @@ interface FolderState {
 const ITEM_HEIGHT = 128;
 const MAX_LIST_HEIGHT = 320;
 
+const formatVideoDisplayName = (filename: string): string => {
+  const withoutExtension = filename.replace(/\.[^/.]+$/, '');
+  const [primary] = withoutExtension.split('_clip_');
+
+  if (primary && /^\d{8}_\d{6}$/.test(primary)) {
+    const year = Number(primary.slice(0, 4));
+    const month = Number(primary.slice(4, 6)) - 1;
+    const day = Number(primary.slice(6, 8));
+    const hour = Number(primary.slice(9, 11));
+    const minute = Number(primary.slice(11, 13));
+    const second = Number(primary.slice(13, 15));
+
+    const date = new Date(year, month, day, hour, minute, second);
+    if (!Number.isNaN(date.getTime())) {
+      const intl = new Intl.DateTimeFormat(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      });
+      return intl.format(date);
+    }
+  }
+
+  return filename;
+};
+
 // Utility functions
 const formatFileSize = (bytes: number): string => {
   const units = ['B', 'KB', 'MB', 'GB'];
@@ -426,9 +455,10 @@ const VideoListRow: React.FC<
       >
         <Typography
           variant="body2"
-          sx={{ fontWeight: 500, overflowWrap: 'anywhere' }}
+          sx={{ fontWeight: 600, overflowWrap: 'anywhere' }}
+          title={video.filename}
         >
-          {video.filename}
+          {formatVideoDisplayName(video.filename)}
         </Typography>
         <Stack
           direction="row"
@@ -451,11 +481,12 @@ const VideoListRow: React.FC<
         </Stack>
       </Box>
       <Stack
+        direction="row"
+        spacing={1}
         sx={{
           flexShrink: 0,
-          gap: 1,
           alignItems: 'center',
-          alignSelf: { xs: 'stretch', sm: 'center' },
+          alignSelf: { xs: 'flex-end', sm: 'center' },
           width: { xs: '100%', sm: 'auto' },
           justifyContent: { xs: 'flex-end', sm: 'flex-start' }
         }}

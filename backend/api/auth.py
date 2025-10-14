@@ -1,5 +1,5 @@
 """
-RobotControl Simplified Authentication API
+RobotControl Authentication API
 
 Clean and simple REST API endpoints for authentication operations.
 Consolidates functionality from web_app/api/v1/auth.py into a simplified interface.

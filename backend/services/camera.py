@@ -1,5 +1,5 @@
 """
-RobotControl Simplified Camera Service
+RobotControl Camera Service
 
 Consolidated camera management service that combines functionality from:
 - SimpleCameraRecorder: Recording and streaming

@@ -113,7 +113,7 @@ const AppContent: React.FC = () => {
           />
           
           <Typography variant="h6" sx={{ flexGrow: 1 }}>
-            LHR Manager
+            RobotControl
           </Typography>
           
           {/* User info - hide username on mobile to save space */}

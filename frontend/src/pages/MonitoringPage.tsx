@@ -57,13 +57,6 @@ const MonitoringPage: React.FC = memo(() => {
             size="small"
           />
         </Box>
-        <Typography 
-          variant="body1" 
-          color="text.secondary"
-          sx={{ fontSize: { xs: '0.875rem', sm: '1rem' } }}
-        >
-          Real-time system health, performance metrics, and telemetry dashboard
-        </Typography>
       </Box>
 
       {/* Main Monitoring Content */}

@@ -1,4 +1,4 @@
-# RobotControl Simplified Backend Requirements
+# RobotControl Backend Requirements
 # Minimal, focused dependencies for the simplified architecture
 
 # Core FastAPI and ASGI server

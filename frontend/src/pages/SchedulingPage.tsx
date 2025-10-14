@@ -48,7 +48,6 @@ import {
   Schedule as ScheduleIcon,
   Dashboard as DashboardIcon,
   PlayArrow as PlayArrowIcon,
-  QueueMusic as QueueIcon,
   CalendarMonth as CalendarIcon,
   Add as AddIcon,
   Edit as EditIcon,
@@ -70,7 +69,7 @@ import NotificationEmailSettingsPanel from '../components/scheduling/Notificatio
 import FolderImportDialog from '../components/scheduling/FolderImportDialog';
 import ExecutionHistory from '../components/ExecutionHistory';
 import useScheduling from '../hooks/useScheduling';
-import { formatDuration, formatExecutionStatus, ScheduledExperiment, CreateScheduleFormData, UpdateScheduleRequest } from '../types/scheduling';
+import { formatDuration, formatExecutionStatus, ScheduledExperiment, CreateScheduleFormData, UpdateScheduleRequest, SchedulingOperationStatus } from '../types/scheduling';
 
 type ScheduleFormValues = Partial<{
   experiment_name: string;
@@ -117,7 +116,6 @@ const SchedulingPage: React.FC = () => {
   const [currentTab, setCurrentTab] = useState(0);
   const [improvedFormOpen, setImprovedFormOpen] = useState(false);
   const [folderImportOpen, setFolderImportOpen] = useState(false);
-  const [scanning, setScanning] = useState(false);
   const [scheduleFormMode, setScheduleFormMode] = useState<'create' | 'edit'>('create');
   const [scheduleFormInitialData, setScheduleFormInitialData] = useState<ScheduleFormValues>({});
   const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
@@ -136,6 +134,13 @@ const SchedulingPage: React.FC = () => {
   const isSmallScreen = useMediaQuery(theme.breakpoints.down('sm'));
   const cardPadding = { xs: 2.75, md: 4 };
   const tabPadding = { xs: 1.75, md: 2.75 };
+  const isLocalClient = useMemo(() => {
+    if (typeof window === 'undefined') {
+      return false;
+    }
+    const hostname = window.location.hostname.toLowerCase();
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '0.0.0.0';
+  }, []);
 
   const formatTimestamp = (value?: string | null): string => {
     if (!value) {
@@ -433,7 +438,7 @@ const SchedulingPage: React.FC = () => {
 
     return (
       <Grid container spacing={{ xs: 2, md: 2.5 }} sx={{ mb: { xs: 2.5, md: 3 } }}>
-        <Grid item xs={12} md={3}>
+        <Grid item xs={12} md={6}>
           <Card sx={{ borderRadius: 2, height: '100%' }}>
             <CardContent sx={{ p: cardPadding }}>
               <Stack direction="row" alignItems="center" spacing={1}>
@@ -448,7 +453,7 @@ const SchedulingPage: React.FC = () => {
             </CardContent>
           </Card>
         </Grid>
-        <Grid item xs={12} md={3}>
+        <Grid item xs={12} md={6}>
           <Card sx={{ borderRadius: 2, height: '100%' }}>
             <CardContent sx={{ p: cardPadding }}>
               <Stack direction="row" alignItems="center" spacing={1}>
@@ -459,38 +464,6 @@ const SchedulingPage: React.FC = () => {
                   </Typography>
                   <Typography variant="body2" color="textSecondary">
                     Scheduler Status
-                  </Typography>
-                </Box>
-              </Stack>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={12} md={3}>
-          <Card sx={{ borderRadius: 2, height: '100%' }}>
-            <CardContent sx={{ p: cardPadding }}>
-              <Stack direction="row" alignItems="center" spacing={1}>
-                <QueueIcon color={state.queueStatus ? 'info' : 'disabled'} />
-                <Box>
-                  <Typography variant="h6">
-                    {state.queueStatus?.running_jobs || 0}
-                  </Typography>
-                  <Typography variant="body2" color="textSecondary">
-                    Active Jobs
-                  </Typography>
-                </Box>
-              </Stack>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={12} md={3}>
-          <Card sx={{ borderRadius: 2, height: '100%' }}>
-            <CardContent sx={{ p: cardPadding }}>
-              <Stack direction="row" alignItems="center" spacing={1}>
-                <CalendarIcon color={state.calendarEvents.length > 0 ? 'secondary' : 'disabled'} />
-                <Box>
-                  <Typography variant="h6">{state.calendarEvents.length}</Typography>
-                  <Typography variant="body2" color="textSecondary">
-                    Upcoming Events
                   </Typography>
                 </Box>
               </Stack>
@@ -713,11 +686,6 @@ const SchedulingPage: React.FC = () => {
         <Typography variant="h4" component="h1" sx={{ fontWeight: 700 }}>
           Experiment Scheduling
         </Typography>
-        <Typography variant="body1" color="text.secondary" sx={{ mt: { xs: 1.5, md: 2 } }}>
-          Schedule, manage, and monitor automated experiment execution.
-          Replace legacy VBS scripts with modern scheduling capabilities.
-        </Typography>
-
         {/* Status Summary */}
         <Box sx={{ mt: { xs: 3, md: 4 } }}>
           <SchedulingStatusSummary />
@@ -881,11 +849,22 @@ const SchedulingPage: React.FC = () => {
                         variant="outlined"
                         fullWidth
                         startIcon={<FolderIcon />}
-                        onClick={() => setFolderImportOpen(true)}
-                        disabled={state.loading}
+                        onClick={() => {
+                          if (!isLocalClient) {
+                            window.alert('Import from folder is only available when accessing RobotControl locally.');
+                            return;
+                          }
+                          setFolderImportOpen(true);
+                        }}
+                        disabled={state.loading || !isLocalClient}
                       >
                         Import Experiments from Folder
                       </Button>
+                      {!isLocalClient && (
+                        <Typography variant="caption" color="text.secondary">
+                          Available only when using RobotControl directly on the host machine.
+                        </Typography>
+                      )}
 
                       {/* Edit/Delete for selected schedule */}
                       {state.selectedSchedule && (
@@ -920,31 +899,6 @@ const SchedulingPage: React.FC = () => {
                         </>
                       )}
 
-                      {/* Auto-scan for experiments */}
-                      <Divider />
-                      <Typography variant="subtitle2" color="text.secondary">
-                        Discovery
-                      </Typography>
-                      <Button
-                        variant="outlined"
-                        fullWidth
-                        startIcon={<RefreshIcon />}
-                        onClick={async () => {
-                          try {
-                            setScanning(true);
-                            // Call API directly since it might not be in the hook yet
-                            // Mock scan operation for now
-                            console.log('Scan completed');
-                          } catch (error) {
-                            console.error('Scan failed:', error);
-                          } finally {
-                            setScanning(false);
-                          }
-                        }}
-                        disabled={state.loading}
-                      >
-                        Scan Default Hamilton Paths
-                      </Button>
                     </Stack>
                   </CardContent>
                 </Card>
@@ -1000,7 +954,7 @@ const SchedulingPage: React.FC = () => {
                 )}
 
                 {/* Operation Status */}
-                {state.operationStatus && (
+                {state.operationStatus && state.operationStatus !== SchedulingOperationStatus.Idle && (
                   <Alert 
                     severity={'info'}
                     sx={{ borderRadius: 2 }}
@@ -1282,6 +1236,7 @@ const SchedulingPage: React.FC = () => {
           // Experiments have been imported, they'll be available in the form now
           console.log('Experiments imported successfully');
         }}
+        isLocalClient={isLocalClient}
       />
     </Container>
   );

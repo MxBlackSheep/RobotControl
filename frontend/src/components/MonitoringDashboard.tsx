@@ -23,7 +23,6 @@ import ErrorAlert from './ErrorAlert';
 import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import Button from '@mui/material/Button';
-import Divider from '@mui/material/Divider';
 import LoadingSpinner from './LoadingSpinner';
 import {
   Refresh as RefreshIcon,
@@ -35,7 +34,6 @@ import {
   Speed as CpuIcon
 } from '@mui/icons-material';
 import { useMonitoring } from '../hooks/useMonitoring';
-import { buildApiUrl } from '@/utils/apiBase';
 
 interface ProgressCardProps {
   title: string;
@@ -304,51 +302,6 @@ const MonitoringDashboard: React.FC = memo(() => {
         </Card>
       )}
 
-      {/* Connection Details */}
-      {isConnected && systemHealth && (
-        <Card sx={{ mt: 3 }}>
-          <CardContent>
-            <Typography variant="h6" gutterBottom>
-              Connection Details
-            </Typography>
-            <Divider sx={{ mb: 2 }} />
-            <Grid container spacing={2}>
-              <Grid item xs={6} sm={3}>
-                <Typography variant="body2" color="text.secondary">
-                  API Endpoint
-                </Typography>
-                <Typography variant="body2">
-                  ${buildApiUrl('/api/monitoring/*')}
-                </Typography>
-              </Grid>
-              <Grid item xs={6} sm={3}>
-                <Typography variant="body2" color="text.secondary">
-                  Connection Status
-                </Typography>
-                <Typography variant="body2" color="success.main">
-                  Active
-                </Typography>
-              </Grid>
-              <Grid item xs={6} sm={3}>
-                <Typography variant="body2" color="text.secondary">
-                  Update Frequency
-                </Typography>
-                <Typography variant="body2">
-                  60 seconds
-                </Typography>
-              </Grid>
-              <Grid item xs={6} sm={3}>
-                <Typography variant="body2" color="text.secondary">
-                  Data Source
-                </Typography>
-                <Typography variant="body2">
-                  Live System Metrics
-                </Typography>
-              </Grid>
-            </Grid>
-          </CardContent>
-        </Card>
-      )}
     </Box>
   );
 });

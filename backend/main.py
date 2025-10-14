@@ -1,5 +1,5 @@
 """
-RobotControl Simplified Backend Application
+RobotControl Backend Application
 
 Main FastAPI application that consolidates all simplified services.
 Replaces the complex web_app structure with a clean, unified backend.
@@ -308,7 +308,7 @@ async def lifespan(app: FastAPI):
     logger.info(session_marker)
     logger.info("Backend session starting | pid=%s", os.getpid())
 
-    logger.info("Starting RobotControl Simplified Backend...")
+    logger.info("Starting RobotControl Backend...")
 
     logger.info("All services configured for lazy loading")
     logger.info("Authentication: ready (will initialize on first login)")
@@ -350,11 +350,11 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("AutoRecording | event=start_failed | error=%s", exc)
 
-    logger.info("RobotControl Simplified Backend startup complete - all services ready for lazy loading!")
+    logger.info("RobotControl Backend startup complete - all services ready for lazy loading!")
     try:
         yield
     finally:
-        logger.info("Shutting down RobotControl Simplified Backend...")
+        logger.info("Shutting down RobotControl Backend...")
         
         if _scheduler_autostart_task:
             if not _scheduler_autostart_task.done():
@@ -416,7 +416,7 @@ async def lifespan(app: FastAPI):
 
 # Create FastAPI application
 app = FastAPI(
-    title="RobotControl Simplified Backend",
+    title="RobotControl Backend",
     description="Unified backend for Hamilton VENUS liquid handling robot management",
     version="1.0.0",
     docs_url="/docs",
@@ -509,7 +509,7 @@ app.include_router(scheduling_router, tags=["scheduling"])
 async def health_check():
     """Fast health check - no dependencies"""
     return {
-        "service": "RobotControl Simplified Backend",
+        "service": "RobotControl Backend",
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
         "message": "Server is running"
@@ -632,7 +632,7 @@ async def global_exception_handler(request, exc):
 async def root():
     """Root endpoint with basic information - respects lazy loading"""
     return {
-        "service": "RobotControl Simplified Backend",
+        "service": "RobotControl Backend",
         "version": "1.0.0",
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
@@ -655,7 +655,7 @@ async def root():
 async def api_info():
     """API information and available endpoints"""
     return {
-        "api": "RobotControl Simplified API",
+        "api": "RobotControl API",
         "version": "1.0.0",
         "endpoints": {
             "authentication": {
@@ -711,7 +711,7 @@ def main():
     
     # Parse command line arguments
     parser = argparse.ArgumentParser(
-        description="RobotControl Simplified Backend Server",
+        description="RobotControl Backend Server",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -731,7 +731,7 @@ Examples:
     
     args = parser.parse_args()
     
-    logger.info("Starting RobotControl Simplified Backend Server...")
+    logger.info("Starting RobotControl Backend Server...")
     
     # Detect if running as compiled executable
     is_compiled = getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS')

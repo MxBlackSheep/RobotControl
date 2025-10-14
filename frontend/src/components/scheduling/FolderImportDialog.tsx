@@ -44,12 +44,14 @@ interface FolderImportDialogProps {
   open: boolean;
   onClose: () => void;
   onImportComplete?: () => void;
+  isLocalClient: boolean;
 }
 
 const FolderImportDialog: React.FC<FolderImportDialogProps> = ({
   open,
   onClose,
-  onImportComplete
+  onImportComplete,
+  isLocalClient
 }) => {
   const [folderPath, setFolderPath] = useState('');
   const [importing, setImporting] = useState(false);
@@ -68,6 +70,10 @@ const FolderImportDialog: React.FC<FolderImportDialogProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFolderSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (!isLocalClient) {
+      setError('Folder import is only available from the RobotControl host.');
+      return;
+    }
     const files = Array.from(event.target.files || []);
     
     // Filter for .med files only
@@ -84,12 +90,20 @@ const FolderImportDialog: React.FC<FolderImportDialogProps> = ({
   };
 
   const handleBrowserFolderPicker = () => {
+    if (!isLocalClient) {
+      setError('Folder import is only available from the RobotControl host.');
+      return;
+    }
     if (fileInputRef.current) {
       fileInputRef.current.click();
     }
   };
 
   const handleImportFromBrowser = async () => {
+    if (!isLocalClient) {
+      setError('Folder import is only available from the RobotControl host.');
+      return;
+    }
     if (selectedFiles.length === 0) {
       setError('Please select a folder containing .med files');
       return;
@@ -149,6 +163,10 @@ const FolderImportDialog: React.FC<FolderImportDialogProps> = ({
   };
 
   const handleImportFromPath = async () => {
+    if (!isLocalClient) {
+      setError('Folder import is only available from the RobotControl host.');
+      return;
+    }
     if (!folderPath.trim()) {
       setError('Please enter a folder path');
       return;

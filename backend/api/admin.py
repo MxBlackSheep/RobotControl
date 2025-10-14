@@ -1,5 +1,5 @@
 """
-RobotControl Simplified Admin API
+RobotControl Admin API
 Basic admin endpoints for user management and system monitoring
 """
 

@@ -1,5 +1,5 @@
 """
-RobotControl Simplified Database API
+RobotControl Database API
 
 Clean and simple REST API endpoints for database operations.
 Consolidates functionality from web_app/api/v1/database.py into a simplified interface.
