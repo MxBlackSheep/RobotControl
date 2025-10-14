@@ -69,7 +69,7 @@ interface FolderState {
   error?: string;
 }
 
-const ITEM_HEIGHT = 96;
+const ITEM_HEIGHT = 128;
 const MAX_LIST_HEIGHT = 320;
 
 // Utility functions
@@ -416,7 +416,14 @@ const VideoListRow: React.FC<
         bgcolor: 'background.paper'
       }}
     >
-      <Box sx={{ flexGrow: 1, minWidth: 0, pr: { xs: 0, sm: 1.5 } }}>
+      <Box
+        sx={{
+          flexGrow: 1,
+          minWidth: 0,
+          pr: { xs: 0, sm: 1.5 },
+          mb: { xs: 1, sm: 0 },
+        }}
+      >
         <Typography
           variant="body2"
           sx={{ fontWeight: 500, overflowWrap: 'anywhere' }}
@@ -443,13 +450,14 @@ const VideoListRow: React.FC<
           )}
         </Stack>
       </Box>
-      <Box
+      <Stack
         sx={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 1,
           flexShrink: 0,
-          marginLeft: { xs: 0, sm: 'auto' }
+          gap: 1,
+          alignItems: 'center',
+          alignSelf: { xs: 'stretch', sm: 'center' },
+          width: { xs: '100%', sm: 'auto' },
+          justifyContent: { xs: 'flex-end', sm: 'flex-start' }
         }}
       >
         <Tooltip title="Download video">
@@ -464,7 +472,7 @@ const VideoListRow: React.FC<
             </IconButton>
           </Tooltip>
         )}
-      </Box>
+      </Stack>
     </Box>
   );
 };
