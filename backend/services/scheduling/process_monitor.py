@@ -16,6 +16,7 @@ import time
 import threading
 import subprocess
 import platform
+import os
 from typing import Dict, Any, List, Optional, Tuple, Callable
 from datetime import datetime, timedelta
 from dataclasses import dataclass
@@ -136,11 +137,21 @@ class HamiltonProcessMonitor:
                 # Fallback method using tasklist command (Windows-specific)
                 if platform.system() == "Windows":
                     try:
+                        # Suppress tasklist window flashes in packaged apps
+                        startupinfo = None
+                        creationflags = 0
+                        if os.name == "nt":
+                            startupinfo = subprocess.STARTUPINFO()
+                            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                            creationflags = subprocess.CREATE_NO_WINDOW
+
                         result = subprocess.run(
                             ['tasklist', '/FI', 'IMAGENAME eq HxRun.exe'],
                             capture_output=True,
                             text=True,
-                            timeout=5
+                            timeout=5,
+                            startupinfo=startupinfo,
+                            creationflags=creationflags
                         )
                         is_running = "HxRun.exe" in result.stdout
                     except Exception as e:
