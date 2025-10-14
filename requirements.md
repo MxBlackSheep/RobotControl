@@ -1,4 +1,4 @@
-PyRobot Requirements and Packaging Guide
+RobotControl Requirements and Packaging Guide
 
 This document enumerates all third‑party dependencies used by the active backend, plus system prerequisites and reproducible build steps. Use this as the single source of truth to avoid ModuleNotFoundError issues (e.g., `pyodbc`).
 
@@ -61,7 +61,7 @@ Embedding Frontend (affects EXE size)
 Build with PyInstaller
 Option A — spec file (repeatable)
 - `python build_scripts/embed_resources.py` (optional but recommended)
-- `pyinstaller PyRobot.spec`
+- `pyinstaller RobotControl.spec`
 
 Option B — helper script
 - `python build_scripts/pyinstaller_build.py`
@@ -70,8 +70,8 @@ Option B — helper script
 Operational Checks
 - Start backend: `cd backend && python main.py --port 8005`
 - Warm DB: `python -c "from backend.services.database import get_database_service; print(get_database_service().get_status())"`
-- Logs: latest under `data/logs/pyrobot_backend_*.log`
+- Logs: latest under `data/logs/robotcontrol_backend_*.log`
 - Camera smoke tests: `python tmp_test_camera.py`
 
 Change Management
-- When adding a new import under `backend/`, add its pip package here and, if PyInstaller misses it, extend hidden‑imports or collect‑all in `PyRobot.spec` or `build_scripts/pyinstaller_build.py`.
+- When adding a new import under `backend/`, add its pip package here and, if PyInstaller misses it, extend hidden‑imports or collect‑all in `RobotControl.spec` or `build_scripts/pyinstaller_build.py`.

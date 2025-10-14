@@ -1,4 +1,4 @@
-# PyRobot Simplified Backend Requirements
+# RobotControl Simplified Backend Requirements
 # Minimal, focused dependencies for the simplified architecture
 
 # Core FastAPI and ASGI server

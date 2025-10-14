@@ -1,5 +1,5 @@
 """
-PyRobot Simplified Database API
+RobotControl Simplified Database API
 
 Clean and simple REST API endpoints for database operations.
 Consolidates functionality from web_app/api/v1/database.py into a simplified interface.
@@ -766,7 +766,7 @@ if __name__ == "__main__":
     import uvicorn
     from fastapi import FastAPI
     
-    app = FastAPI(title="PyRobot Database API", version="1.0.0")
+    app = FastAPI(title="RobotControl Database API", version="1.0.0")
     app.include_router(router)
     
     uvicorn.run(app, host="0.0.0.0", port=8001)

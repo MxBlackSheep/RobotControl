@@ -1,5 +1,5 @@
 /**
- * Keyboard Shortcuts Help Component for PyRobot
+ * Keyboard Shortcuts Help Component for RobotControl
  * 
  * Displays available keyboard shortcuts to users in a modal dialog
  */
@@ -147,7 +147,7 @@ const KeyboardShortcutsHelp: React.FC<KeyboardShortcutsHelpProps> = ({
 
       <DialogContent sx={{ p: { xs: 2, sm: 3 } }}>
         <Typography variant="body2" color="text.secondary" gutterBottom>
-          Use these keyboard shortcuts to navigate PyRobot more efficiently:
+          Use these keyboard shortcuts to navigate RobotControl more efficiently:
         </Typography>
 
         <TableContainer 

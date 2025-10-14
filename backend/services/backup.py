@@ -1,5 +1,5 @@
 """
-PyRobot Database Backup/Restore Service
+RobotControl Database Backup/Restore Service
 
 Provides secure database backup and restore functionality for authorized users.
 Implements SQL Server backup operations with metadata management and file validation.
@@ -625,7 +625,7 @@ def create_backup_metadata(filename: str, description: str, database_name: str,
         "sql_server": sql_server,
         "file_size": file_size,
         "file_size_formatted": format_file_size(file_size),
-        "created_by": "PyRobot Backup Service",
+        "created_by": "RobotControl Backup Service",
         "version": "1.0"
     }
 

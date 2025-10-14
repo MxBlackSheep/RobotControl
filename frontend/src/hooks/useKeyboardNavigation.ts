@@ -1,5 +1,5 @@
 /**
- * Keyboard Navigation Hook for PyRobot
+ * Keyboard Navigation Hook for RobotControl
  * 
  * Provides keyboard shortcuts and navigation support for better accessibility
  * and power user experience.

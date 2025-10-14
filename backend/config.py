@@ -1,5 +1,5 @@
 """
-Simplified Configuration Management for PyRobot Backend
+Simplified Configuration Management for RobotControl Backend
 """
 
 import os
@@ -71,7 +71,7 @@ class Settings:
     }
     
     # Security settings
-    SECRET_KEY: str = os.getenv("SECRET_KEY", "pyrobot-simplified-secret-key-2025")
+    SECRET_KEY: str = os.getenv("SECRET_KEY", "robotcontrol-simplified-secret-key-2025")
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     

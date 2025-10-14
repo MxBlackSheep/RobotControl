@@ -1,5 +1,5 @@
 """
-Comprehensive security manager for PyRobot backend.
+Comprehensive security manager for RobotControl backend.
 
 Implements advanced security patterns including threat detection, 
 input validation, rate limiting, and security monitoring.

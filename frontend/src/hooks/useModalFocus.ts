@@ -1,5 +1,5 @@
 ﻿/**
- * Modal Focus Management Hook for PyRobot
+ * Modal Focus Management Hook for RobotControl
  *
  * Handles focus trapping and focus restoration for dialogs while allowing
  * MUI to manage body scroll locking. Previously the hook forced

@@ -193,7 +193,7 @@ def get_total_size() -> int:
 if __name__ == "__main__":
     # Check if we're in the right directory
     if not os.path.exists("backend") or not os.path.exists("frontend"):
-        print("Error: Please run this script from the PyRobot project root directory")
+        print("Error: Please run this script from the RobotControl project root directory")
         exit(1)
     
     # Embed resources

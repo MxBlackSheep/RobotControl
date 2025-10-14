@@ -35,7 +35,7 @@ export const useLocalStorage = <T>(
     serialize = true,
     serializer,
     syncAcrossTabs = true,
-    keyPrefix = 'pyrobot_'
+    keyPrefix = 'robotcontrol_'
   } = options;
 
   const prefixedKey = keyPrefix + key;

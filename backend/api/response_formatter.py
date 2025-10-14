@@ -1,5 +1,5 @@
 """
-PyRobot API Response Formatter
+RobotControl API Response Formatter
 
 Standardizes API response formatting across all endpoints for consistency.
 Addresses the frontend issue where Axios wraps responses in `.data`, causing
@@ -101,7 +101,7 @@ class ResponseFormatter:
     Centralized API response formatter for consistent response structure.
     
     Provides methods for success and error responses with optional metadata.
-    All responses follow the standard PyRobot API response format.
+    All responses follow the standard RobotControl API response format.
     """
     
     @staticmethod

@@ -1,5 +1,5 @@
 /**
- * PyRobot Schedule Actions Component
+ * RobotControl Schedule Actions Component
  * 
  * Action buttons and dialogs for schedule operations:
  * - Create schedule with comprehensive form

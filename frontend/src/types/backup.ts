@@ -1,5 +1,5 @@
 /**
- * PyRobot Database Backup/Restore TypeScript Interfaces
+ * RobotControl Database Backup/Restore TypeScript Interfaces
  * 
  * Type definitions for database backup and restore functionality.
  * Mirrors the backend Python data models to ensure type safety across the full stack.

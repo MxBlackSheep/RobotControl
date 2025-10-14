@@ -1,5 +1,5 @@
 /**
- * Accessible Modal Component for PyRobot
+ * Accessible Modal Component for RobotControl
  * 
  * A wrapper around Material-UI Dialog that provides comprehensive accessibility features:
  * - Focus management and trapping

@@ -1,5 +1,5 @@
 /**
- * PyRobot Database Backup Page
+ * RobotControl Database Backup Page
  * 
  * Dedicated page for database backup and restore operations.
  * Provides full-page backup management interface with:
@@ -165,7 +165,7 @@ const BackupPage: React.FC = () => {
           Database Backup Manager
         </Typography>
         <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>
-          Create, restore, and manage database backups for the PyRobot system.
+          Create, restore, and manage database backups for the RobotControl system.
           All backup operations are logged and secured for administrator access only.
         </Typography>
 

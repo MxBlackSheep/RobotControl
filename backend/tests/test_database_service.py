@@ -1,6 +1,6 @@
 """
 Database Service Unit Tests
-Tests for the simplified PyRobot database service layer
+Tests for the simplified RobotControl database service layer
 """
 
 import pytest

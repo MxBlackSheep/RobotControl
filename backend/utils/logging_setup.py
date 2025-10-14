@@ -260,7 +260,7 @@ def setup_logging(
         formatter = logging.Formatter(DEFAULT_FORMAT)
 
     app_handler = ImmediateGZipTimedRotatingFileHandler(
-        filename=str(logs_dir / "pyrobot_backend.log"),
+        filename=str(logs_dir / "robotcontrol_backend.log"),
         when="midnight",
         backupCount=max(retention_days, 1),
         encoding="utf-8",
@@ -269,7 +269,7 @@ def setup_logging(
     app_handler.setFormatter(formatter)
 
     error_handler = ImmediateGZipTimedRotatingFileHandler(
-        filename=str(logs_dir / "pyrobot_backend_error.log"),
+        filename=str(logs_dir / "robotcontrol_backend_error.log"),
         when="midnight",
         backupCount=max(error_retention_days, 1),
         encoding="utf-8",

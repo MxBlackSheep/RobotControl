@@ -95,7 +95,7 @@ async def update_database_config(
         
         # Persist changes to .env file for persistence across restarts
         env_file_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')
-        env_content = f"""# PyRobot Backend Configuration
+        env_content = f"""# RobotControl Backend Configuration
 # Updated via web interface on {datetime.now().isoformat()}
 
 VM_SQL_SERVER={config.vm_sql_server}
@@ -106,7 +106,7 @@ SQL_BACKUP_PATH={config.sql_backup_path}
 
 PORT=8005
 DEBUG=True
-SECRET_KEY=pyrobot-simplified-secret-key-2025
+SECRET_KEY=robotcontrol-simplified-secret-key-2025
 """
         
         env_persisted = False

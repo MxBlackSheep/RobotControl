@@ -1,5 +1,5 @@
 """
-PyRobot Simplified Camera Service
+RobotControl Simplified Camera Service
 
 Consolidated camera management service that combines functionality from:
 - SimpleCameraRecorder: Recording and streaming

@@ -1,5 +1,5 @@
 /**
- * LoadingSpinner - Unified loading component for PyRobot
+ * LoadingSpinner - Unified loading component for RobotControl
  * 
  * Provides consistent loading states across the application with multiple variants:
  * - Spinner: Traditional circular progress indicator

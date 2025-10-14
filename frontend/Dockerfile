@@ -1,4 +1,4 @@
-# PyRobot Frontend - Production Docker Image
+# RobotControl Frontend - Production Docker Image
 # Multi-stage build for optimized production image
 
 # Build stage

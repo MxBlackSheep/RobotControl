@@ -1,5 +1,5 @@
 /**
- * ErrorAlert - Unified error handling component for PyRobot
+ * ErrorAlert - Unified error handling component for RobotControl
  * 
  * Provides consistent error display across the application with:
  * - Multiple severity levels (error, warning, info, success)

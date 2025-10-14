@@ -1,6 +1,6 @@
 # API Response Format Standardization Guide
 
-This guide explains how to migrate existing PyRobot API endpoints to use the standardized response format, addressing the frontend Axios data wrapping issue.
+This guide explains how to migrate existing RobotControl API endpoints to use the standardized response format, addressing the frontend Axios data wrapping issue.
 
 ## Problem Statement
 

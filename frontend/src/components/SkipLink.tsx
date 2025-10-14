@@ -1,5 +1,5 @@
 /**
- * Skip Link Component for PyRobot
+ * Skip Link Component for RobotControl
  * 
  * Provides a "skip to main content" link for keyboard users and screen readers
  * to quickly navigate past navigation elements.

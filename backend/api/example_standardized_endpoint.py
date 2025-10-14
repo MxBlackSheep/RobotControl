@@ -2,7 +2,7 @@
 Example API Endpoint Using Standardized Response Format
 
 This file demonstrates how to implement API endpoints using the standardized
-ResponseFormatter to ensure consistent response structure across PyRobot.
+ResponseFormatter to ensure consistent response structure across RobotControl.
 
 This example shows:
 1. Success responses with metadata
@@ -47,9 +47,9 @@ class User(BaseModel):
 
 # Mock data for demonstration
 MOCK_USERS = [
-    User(id=1, username="admin", email="admin@pyrobot.com", role="admin", created_at="2023-01-01T00:00:00Z"),
-    User(id=2, username="user1", email="user1@pyrobot.com", role="user", created_at="2023-01-02T00:00:00Z"),
-    User(id=3, username="mod1", email="mod1@pyrobot.com", role="moderator", created_at="2023-01-03T00:00:00Z"),
+    User(id=1, username="admin", email="admin@robotcontrol.com", role="admin", created_at="2023-01-01T00:00:00Z"),
+    User(id=2, username="user1", email="user1@robotcontrol.com", role="user", created_at="2023-01-02T00:00:00Z"),
+    User(id=3, username="mod1", email="mod1@robotcontrol.com", role="moderator", created_at="2023-01-03T00:00:00Z"),
 ]
 
 

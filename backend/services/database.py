@@ -1,5 +1,5 @@
 """
-Lightweight database service for PyRobot.
+Lightweight database service for RobotControl.
 Provides the small subset of features the API relies on without
 connection pooling, failover orchestration, or mock data layers.
 """

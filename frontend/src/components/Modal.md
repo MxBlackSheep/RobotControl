@@ -1,6 +1,6 @@
 # Modal Focus Management
 
-This document describes the modal focus management system implemented for PyRobot, providing comprehensive accessibility features for dialog components.
+This document describes the modal focus management system implemented for RobotControl, providing comprehensive accessibility features for dialog components.
 
 ## Components
 

@@ -85,7 +85,7 @@ export const PredefinedErrorsExample: React.FC = () => {
       <Grid container spacing={2}>
         <Grid item xs={12}>
           <NetworkError
-            message="Failed to connect to the PyRobot API server."
+            message="Failed to connect to the RobotControl API server."
             onRetry={handleRetry}
             onClose={handleClose}
           />
@@ -175,7 +175,7 @@ export const InteractiveErrorExample: React.FC = () => {
               detailed={true}
               details={`Error Code: DB_CONNECTION_FAILED
 Timestamp: ${new Date().toISOString()}
-Server: PyRobot Database Server
+Server: RobotControl Database Server
 Connection: LOCALHOST\\HAMILTON
 Database: EvoYeast`}
             />

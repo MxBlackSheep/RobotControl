@@ -2,7 +2,7 @@
  * useFormHandling Hook - Comprehensive form state management and validation
  * 
  * Provides standardized form handling with validation, submission states, and error management
- * Integrates with existing PyRobot patterns for consistent form behavior
+ * Integrates with existing RobotControl patterns for consistent form behavior
  */
 
 import { useState, useCallback, useMemo } from 'react';

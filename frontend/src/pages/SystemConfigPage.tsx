@@ -61,7 +61,7 @@ export default function SystemConfigPage() {
         
         <Typography variant="body1" color="text.secondary">
           Manage centralized database connections, backup paths, and system parameters.
-          Changes made here affect the entire PyRobot system and are automatically persisted.
+          Changes made here affect the entire RobotControl system and are automatically persisted.
         </Typography>
       </Box>
 

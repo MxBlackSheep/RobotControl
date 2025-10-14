@@ -254,7 +254,7 @@ class SchedulingNotificationService:
             )
             return
 
-        subject = f"PyRobot manual recovery required: {schedule.experiment_name}"
+        subject = f"RobotControl manual recovery required: {schedule.experiment_name}"
         lines = [
             "Status: Manual Recovery Required",
             "",
@@ -286,7 +286,7 @@ class SchedulingNotificationService:
             )
             return
 
-        subject = f"PyRobot manual recovery cleared: {schedule.experiment_name}"
+        subject = f"RobotControl manual recovery cleared: {schedule.experiment_name}"
         lines = [
             "Status: Manual Recovery Cleared",
             "",
@@ -426,11 +426,11 @@ class SchedulingNotificationService:
     # ------------------------------------------------------------------
 
     def _resolve_video_root(self) -> Path:
-        override = _env("PYROBOT_VIDEO_ARCHIVE_PATH")
+        override = _env("ROBOTCONTROL_VIDEO_ARCHIVE_PATH")
         return Path(override) if override else Path(VIDEO_PATH)
 
     def _resolve_trc_directory(self) -> Path:
-        raw_path = _env("PYROBOT_HAMILTON_LOG_PATH", r"C:\Program Files\HAMILTON\LogFiles")
+        raw_path = _env("ROBOTCONTROL_HAMILTON_LOG_PATH", r"C:\Program Files\HAMILTON\LogFiles")
         return Path(raw_path)
 
     def _render_alert_subject(self, schedule: ScheduledExperiment, trigger: str) -> str:
@@ -438,7 +438,7 @@ class SchedulingNotificationService:
             "long_running": "Long-running execution",
             "aborted": "Aborted execution",
         }.get(trigger, trigger.replace("_", " ").title())
-        return f"PyRobot alert: {schedule.experiment_name} [{trigger_label}]"
+        return f"RobotControl alert: {schedule.experiment_name} [{trigger_label}]"
 
     def _render_alert_body(
         self,
@@ -525,7 +525,7 @@ class SchedulingNotificationService:
                 return None
         try:
             with tempfile.NamedTemporaryFile(
-                prefix="pyrobot_trc_",
+                prefix="robotcontrol_trc_",
                 suffix=".log",
                 delete=False,
                 mode="w",
@@ -598,7 +598,7 @@ class SchedulingNotificationService:
         if not valid_clips:
             return None
 
-        output_path = Path(tempfile.gettempdir()) / f"pyrobot_rolling_summary_{uuid.uuid4().hex}.mp4"
+        output_path = Path(tempfile.gettempdir()) / f"robotcontrol_rolling_summary_{uuid.uuid4().hex}.mp4"
         writer: Optional["cv2.VideoWriter"] = None
         frame_size: Optional[Tuple[int, int]] = None
         target_fps = 7.5
@@ -679,7 +679,7 @@ class SchedulingNotificationService:
         if not folder.exists():
             return None
         try:
-            temp_dir = Path(tempfile.mkdtemp(prefix="pyrobot_alert_"))
+            temp_dir = Path(tempfile.mkdtemp(prefix="robotcontrol_alert_"))
             archive_base = temp_dir / f"{folder.name}"
             zip_path = Path(shutil.make_archive(str(archive_base), "zip", folder))
             return zip_path

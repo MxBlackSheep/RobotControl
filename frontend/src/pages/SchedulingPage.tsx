@@ -1,5 +1,5 @@
 /**
- * PyRobot Experiment Scheduling Page
+ * RobotControl Experiment Scheduling Page
  * 
  * Dedicated page for experiment scheduling and management operations.
  * Provides full-page scheduling interface with:

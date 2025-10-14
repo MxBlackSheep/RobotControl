@@ -1,10 +1,10 @@
 # Color Accessibility Guide
 
-This document outlines PyRobot's approach to color accessibility, ensuring the application is usable by people with various types of color vision deficiencies.
+This document outlines RobotControl's approach to color accessibility, ensuring the application is usable by people with various types of color vision deficiencies.
 
 ## Overview
 
-PyRobot implements a multi-layered approach to color accessibility:
+RobotControl implements a multi-layered approach to color accessibility:
 
 1. **WCAG 2.1 AA Compliant Colors** - All colors meet minimum contrast requirements
 2. **Non-Color Indicators** - Icons, patterns, and text labels accompany all color coding
@@ -35,7 +35,7 @@ PyRobot implements a multi-layered approach to color accessibility:
 
 ### Status Indicators
 
-PyRobot uses multiple visual cues to convey status information:
+RobotControl uses multiple visual cues to convey status information:
 
 #### 1. Icons
 - ✅ **Success**: CheckCircle icon

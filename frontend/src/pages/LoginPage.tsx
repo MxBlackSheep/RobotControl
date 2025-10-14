@@ -38,12 +38,12 @@ const LoginPage: React.FC = () => {
   const headerText = useMemo(() => {
     switch (mode) {
       case 'register':
-        return 'Create a PyRobot Account';
+        return 'Create a RobotControl Account';
       case 'forgot':
         return 'Request a Password Reset';
       case 'login':
       default:
-        return 'Sign in to PyRobot';
+        return 'Sign in to RobotControl';
     }
   }, [mode]);
 

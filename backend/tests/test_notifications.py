@@ -66,15 +66,15 @@ class StubEmailService:
 @pytest.fixture(autouse=True)
 def clear_smtp_env(monkeypatch):
     for key in [
-        "PYROBOT_SMTP_HOST",
-        "PYROBOT_SMTP_PORT",
-        "PYROBOT_SMTP_USERNAME",
-        "PYROBOT_SMTP_PASSWORD",
-        "PYROBOT_SMTP_FROM",
-        "PYROBOT_SMTP_TO",
-        "PYROBOT_SMTP_USE_TLS",
-        "PYROBOT_SMTP_USE_SSL",
-        "PYROBOT_ALERT_RECIPIENTS",
+        "ROBOTCONTROL_SMTP_HOST",
+        "ROBOTCONTROL_SMTP_PORT",
+        "ROBOTCONTROL_SMTP_USERNAME",
+        "ROBOTCONTROL_SMTP_PASSWORD",
+        "ROBOTCONTROL_SMTP_FROM",
+        "ROBOTCONTROL_SMTP_TO",
+        "ROBOTCONTROL_SMTP_USE_TLS",
+        "ROBOTCONTROL_SMTP_USE_SSL",
+        "ROBOTCONTROL_ALERT_RECIPIENTS",
     ]:
         monkeypatch.delenv(key, raising=False)
     yield
@@ -135,7 +135,7 @@ def test_schedule_alert_uses_rolling_clip_fallback(monkeypatch, tmp_path):
     logs_dir.mkdir(parents=True, exist_ok=True)
 
     monkeypatch.setattr("backend.services.notifications.VIDEO_PATH", str(video_root))
-    monkeypatch.setenv("PYROBOT_HAMILTON_LOG_PATH", str(logs_dir))
+    monkeypatch.setenv("ROBOTCONTROL_HAMILTON_LOG_PATH", str(logs_dir))
 
     service = SchedulingNotificationService()
     stub_email = StubEmailService()

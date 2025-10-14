@@ -1,5 +1,5 @@
 """
-PyRobot Backend Constants
+RobotControl Backend Constants
 Consolidated constants for camera service and API operations
 """
 

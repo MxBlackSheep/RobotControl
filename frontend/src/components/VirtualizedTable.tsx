@@ -1,5 +1,5 @@
 /**
- * VirtualizedTable Component for PyRobot Optimization
+ * VirtualizedTable Component for RobotControl Optimization
  * 
  * High-performance table component using custom virtualization
  * Handles large datasets efficiently without performance degradation

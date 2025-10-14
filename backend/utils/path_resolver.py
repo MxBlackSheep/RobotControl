@@ -62,7 +62,7 @@ class PathResolver:
         if self._is_portable:
             # Use temp directory for portable mode
             if self._temp_fallback is None:
-                self._temp_fallback = Path(tempfile.gettempdir()) / "PyRobot_Portable"
+                self._temp_fallback = Path(tempfile.gettempdir()) / "RobotControl_Portable"
             data_dir = self._temp_fallback / "data"
         else:
             # Use relative to executable
@@ -75,7 +75,7 @@ class PathResolver:
             except Exception as e:
                 logger.error(f"Failed to create data directory {data_dir}: {e}")
                 # Fallback to temp
-                data_dir = Path(tempfile.gettempdir()) / "PyRobot_Data"
+                data_dir = Path(tempfile.gettempdir()) / "RobotControl_Data"
                 data_dir.mkdir(parents=True, exist_ok=True)
                 logger.warning(f"Using fallback data directory: {data_dir}")
         
@@ -94,7 +94,7 @@ class PathResolver:
         if self._is_portable:
             # Use temp directory for portable mode
             if self._temp_fallback is None:
-                self._temp_fallback = Path(tempfile.gettempdir()) / "PyRobot_Portable"
+                self._temp_fallback = Path(tempfile.gettempdir()) / "RobotControl_Portable"
             logs_dir = self._temp_fallback / "logs"
         else:
             # Use relative to executable
@@ -107,7 +107,7 @@ class PathResolver:
             except Exception as e:
                 logger.error(f"Failed to create logs directory {logs_dir}: {e}")
                 # Fallback to temp
-                logs_dir = Path(tempfile.gettempdir()) / "PyRobot_Logs"
+                logs_dir = Path(tempfile.gettempdir()) / "RobotControl_Logs"
                 logs_dir.mkdir(parents=True, exist_ok=True)
                 logger.warning(f"Using fallback logs directory: {logs_dir}")
         
@@ -128,7 +128,7 @@ class PathResolver:
             config_dir = self._exe_dir / "config"
             if not self._can_write_to_path(config_dir.parent):
                 if self._temp_fallback is None:
-                    self._temp_fallback = Path(tempfile.gettempdir()) / "PyRobot_Portable"
+                    self._temp_fallback = Path(tempfile.gettempdir()) / "RobotControl_Portable"
                 config_dir = self._temp_fallback / "config"
         else:
             # Use relative to executable
@@ -141,7 +141,7 @@ class PathResolver:
             except Exception as e:
                 logger.error(f"Failed to create config directory {config_dir}: {e}")
                 # Fallback to temp
-                config_dir = Path(tempfile.gettempdir()) / "PyRobot_Config"
+                config_dir = Path(tempfile.gettempdir()) / "RobotControl_Config"
                 config_dir.mkdir(parents=True, exist_ok=True)
                 logger.warning(f"Using fallback config directory: {config_dir}")
         
@@ -222,7 +222,7 @@ class PathResolver:
             logger.warning(f"Path {path} not writable: {e}")
             
             # Create fallback in temp directory
-            fallback_path = Path(tempfile.gettempdir()) / "PyRobot_Fallback" / path.name
+            fallback_path = Path(tempfile.gettempdir()) / "RobotControl_Fallback" / path.name
             fallback_path.parent.mkdir(parents=True, exist_ok=True)
             
             logger.info(f"Using fallback path: {fallback_path}")

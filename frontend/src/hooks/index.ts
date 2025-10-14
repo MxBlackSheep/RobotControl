@@ -1,5 +1,5 @@
 /**
- * Custom Hooks Index - Centralized export for all PyRobot custom hooks
+ * Custom Hooks Index - Centralized export for all RobotControl custom hooks
  * 
  * Provides easy access to all shared logic hooks with consistent imports
  */

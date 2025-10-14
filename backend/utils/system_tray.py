@@ -1,5 +1,5 @@
 """
-System tray icon for PyRobot server status indication.
+System tray icon for RobotControl server status indication.
 Shows server running status and provides convenient management options.
 """
 
@@ -26,8 +26,8 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-class PyRobotSystemTray:
-    """System tray icon for PyRobot server management"""
+class RobotControlSystemTray:
+    """System tray icon for RobotControl server management"""
     
     def __init__(self, port: int = 8005):
         self.port = port
@@ -51,7 +51,7 @@ class PyRobotSystemTray:
         try:
             # Create menu
             menu = pystray.Menu(
-                Item("PyRobot Server", self._show_info, default=True),
+                Item("RobotControl Server", self._show_info, default=True),
                 Item("Status", self._show_status),
                 pystray.Menu.SEPARATOR,
                 Item("Open in Browser", self._open_browser),
@@ -68,9 +68,9 @@ class PyRobotSystemTray:
             image = self._create_status_image("starting")
             
             self.icon = pystray.Icon(
-                "PyRobot",
+                "RobotControl",
                 image,
-                "PyRobot Server - Starting",
+                "RobotControl Server - Starting",
                 menu
             )
             
@@ -103,7 +103,7 @@ class PyRobotSystemTray:
             # Draw a filled circle as status indicator
             draw.ellipse([2, 2, 14, 14], fill=color, outline='black')
             
-            # Add a small "P" for PyRobot
+            # Add a small "P" for RobotControl
             draw.text((6, 4), "P", fill='black')
             
             return image
@@ -127,13 +127,13 @@ class PyRobotSystemTray:
             
             # Update tooltip
             status_messages = {
-                'starting': 'PyRobot Server - Starting up...',
-                'running': f'PyRobot Server - Running on port {self.port}',
-                'stopped': 'PyRobot Server - Stopped',
-                'error': f'PyRobot Server - Error: {message or "Unknown error"}'
+                'starting': 'RobotControl Server - Starting up...',
+                'running': f'RobotControl Server - Running on port {self.port}',
+                'stopped': 'RobotControl Server - Stopped',
+                'error': f'RobotControl Server - Error: {message or "Unknown error"}'
             }
             
-            tooltip = status_messages.get(status, f'PyRobot Server - {status}')
+            tooltip = status_messages.get(status, f'RobotControl Server - {status}')
             self.icon.title = tooltip
             
             logger.debug(f"Tray icon updated: {status}")
@@ -154,7 +154,7 @@ class PyRobotSystemTray:
             # Run tray icon in separate thread
             tray_thread = threading.Thread(
                 target=self._run_tray, 
-                name="PyRobotTray",
+                name="RobotControlTray",
                 daemon=True
             )
             tray_thread.start()
@@ -184,7 +184,7 @@ class PyRobotSystemTray:
     
     # Menu item handlers
     def _show_info(self, icon, item):
-        """Show PyRobot information"""
+        """Show RobotControl information"""
         try:
             # Try to use native Windows notification
             subprocess.run([
@@ -193,7 +193,7 @@ class PyRobotSystemTray:
                 Add-Type -AssemblyName System.Windows.Forms
                 $notification = New-Object System.Windows.Forms.NotifyIcon
                 $notification.Icon = [System.Drawing.SystemIcons]::Information
-                $notification.BalloonTipTitle = "PyRobot Server"
+                $notification.BalloonTipTitle = "RobotControl Server"
                 $notification.BalloonTipText = "Hamilton VENUS Robot Management System\\nRunning on port {self.port}\\nClick to open in browser"
                 $notification.Visible = $true
                 $notification.ShowBalloonTip(5000)
@@ -203,7 +203,7 @@ class PyRobotSystemTray:
             ], shell=True, capture_output=True)
         except:
             # Fallback - just log
-            logger.info(f"PyRobot Server running on port {self.port}")
+            logger.info(f"RobotControl Server running on port {self.port}")
     
     def _show_status(self, icon, item):
         """Show server status"""
@@ -213,14 +213,14 @@ class PyRobotSystemTray:
                 'powershell', '-Command',
                 f'''
                 Add-Type -AssemblyName System.Windows.Forms
-                [System.Windows.Forms.MessageBox]::Show("{status_msg}", "PyRobot Server Status", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
+                [System.Windows.Forms.MessageBox]::Show("{status_msg}", "RobotControl Server Status", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
                 '''
             ], shell=True, capture_output=True)
         except:
             logger.info(status_msg)
     
     def _open_browser(self, icon, item):
-        """Open PyRobot in default browser"""
+        """Open RobotControl in default browser"""
         try:
             url = f"http://localhost:{self.port}"
             webbrowser.open(url)
@@ -258,10 +258,10 @@ class PyRobotSystemTray:
             logger.error(f"Failed to open data directory: {e}")
     
     def _stop_server(self, icon, item):
-        """Stop the PyRobot server"""
+        """Stop the RobotControl server"""
         try:
             if self.stop_callback:
-                logger.info("Stopping PyRobot server via tray menu")
+                logger.info("Stopping RobotControl server via tray menu")
                 self.stop_callback()
             else:
                 logger.warning("No stop callback configured")
@@ -271,7 +271,7 @@ class PyRobotSystemTray:
     def _exit_app(self, icon, item):
         """Exit the application"""
         try:
-            logger.info("Exiting PyRobot via tray menu")
+            logger.info("Exiting RobotControl via tray menu")
             self.stop()
             if self.stop_callback:
                 self.stop_callback()
@@ -282,16 +282,16 @@ class PyRobotSystemTray:
             sys.exit(1)
 
 # Global tray instance
-_tray_instance: Optional[PyRobotSystemTray] = None
+_tray_instance: Optional[RobotControlSystemTray] = None
 
-def get_system_tray(port: int = 8005) -> PyRobotSystemTray:
+def get_system_tray(port: int = 8005) -> RobotControlSystemTray:
     """Get the global system tray instance"""
     global _tray_instance
     if _tray_instance is None:
-        _tray_instance = PyRobotSystemTray(port)
+        _tray_instance = RobotControlSystemTray(port)
     return _tray_instance
 
-def start_system_tray(port: int = 8005, stop_callback: Optional[Callable] = None) -> PyRobotSystemTray:
+def start_system_tray(port: int = 8005, stop_callback: Optional[Callable] = None) -> RobotControlSystemTray:
     """Start system tray icon and return instance"""
     tray = get_system_tray(port)
     tray.start(stop_callback)

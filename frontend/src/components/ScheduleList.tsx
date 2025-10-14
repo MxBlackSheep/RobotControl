@@ -1,5 +1,5 @@
 /**
- * PyRobot Schedule List Component
+ * RobotControl Schedule List Component
  * 
  * Material-UI table component for displaying scheduled experiments with:
  * - Sortable columns by name, schedule type, duration, and next run

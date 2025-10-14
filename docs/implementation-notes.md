@@ -1,6 +1,12 @@
-# PyRobot Development Log (Chronological)
+# RobotControl Development Log (Chronological)
 
 ---
+
+## 2025-10-14 Branding Refresh
+
+- Renamed all user-facing strings, documentation, environment defaults, and packaging assets from “PyRobot” to “RobotControl” (`README.md`, `backend/main.py`, `frontend/src/**/*`, `build_scripts/*`, `RobotControl.spec`, etc.).
+- Updated environment variable prefixes to `ROBOTCONTROL_` and adjusted default credentials/subjects accordingly (`backend/services/auth.py`, `.env.example`, `backend/services/notifications.py`).
+- Regenerated packaging spec as `RobotControl.spec` with relative project paths so branding stays consistent without hard-coded directories.
 
 ## 2025-10-14 Camera Page Streamlining
 
@@ -77,7 +83,7 @@
 
 ## 2025-10-12 Backup Path Persistence
 
-- Pointed the backup service at the managed data directory so PyInstaller builds persist backups beside `PyRobot.exe` rather than the temp `_MEI` unpack location (`backend/services/backup.py`).
+- Pointed the backup service at the managed data directory so PyInstaller builds persist backups beside `RobotControl.exe` rather than the temp `_MEI` unpack location (`backend/services/backup.py`).
 
 ## 2025-10-11 Manual Recovery Dropdown
 
@@ -86,9 +92,9 @@
 
 ## 2025-10-11 Manual Recovery Distribution
 
-- Manual recovery recipient lists persist in NotificationSettings and flow through the admin API/UI; legacy `PYROBOT_*` email fallbacks were removed so delivery now depends on stored configuration (`backend/api/scheduling.py`, `backend/services/scheduling/sqlite_database.py`, `backend/services/notifications.py`, `backend/tests/test_notifications.py`).
+- Manual recovery recipient lists persist in NotificationSettings and flow through the admin API/UI; legacy `ROBOTCONTROL_*` email fallbacks were removed so delivery now depends on stored configuration (`backend/api/scheduling.py`, `backend/services/scheduling/sqlite_database.py`, `backend/services/notifications.py`, `backend/tests/test_notifications.py`).
 - Hamilton TRC attachments convert to `.log` files with predictable names before mailing, and scheduler alerts prefer the configured distribution list when present (`backend/services/notifications.py`, `backend/tests/test_notifications.py`).
-- Restored missing FastAPI imports so the scheduling router initializes correctly in packaged builds (`backend/api/scheduling.py`); rebuilt frontend assets, refreshed embedded resources, and regenerated the PyInstaller executable to capture all changes (`frontend build output`, `backend/embedded_static.py`, `dist/PyRobot.exe` via `build_scripts/pyinstaller_build.py`).
+- Restored missing FastAPI imports so the scheduling router initializes correctly in packaged builds (`backend/api/scheduling.py`); rebuilt frontend assets, refreshed embedded resources, and regenerated the PyInstaller executable to capture all changes (`frontend build output`, `backend/embedded_static.py`, `dist/RobotControl.exe` via `build_scripts/pyinstaller_build.py`).
 
 ## 2025-10-10 Long-Run Alerts & SMTP Test Harness
 
@@ -132,15 +138,15 @@
 
 ## 2025-10-08 Streaming Guard & UI Polish (Binary Refresh)
 
-- Refined the streaming CPU guard to sample the PyRobot process with a rolling window, preventing false "CPU limit reached" shutdowns while keeping the soft/hard protections (`backend/services/live_streaming.py`).
+- Refined the streaming CPU guard to sample the RobotControl process with a rolling window, preventing false "CPU limit reached" shutdowns while keeping the soft/hard protections (`backend/services/live_streaming.py`).
 - Widened scheduling layout padding so desktop cards and calendars no longer hug the container edges (`frontend/src/pages/SchedulingPage.tsx`).
 - Execution history's experiment filter now includes a short schedule-id suffix to distinguish duplicate method names (`frontend/src/components/ExecutionHistory.tsx`).
 - Restored the lightweight camera live-stream view without frame counters while retaining start/stop controls (`frontend/src/pages/CameraPage.tsx`).
-- Rebuilt the frontend, re-embedded static assets, and produced a fresh PyInstaller binary with the updated bundle (`build_scripts/embed_resources.py`, `build_scripts/pyinstaller_build.py`, `dist/PyRobot.exe`).
+- Rebuilt the frontend, re-embedded static assets, and produced a fresh PyInstaller binary with the updated bundle (`build_scripts/embed_resources.py`, `build_scripts/pyinstaller_build.py`, `dist/RobotControl.exe`).
 
 ## 2025-10-08 Streaming Guard & Scheduling Polish
 
-- Reworked the streaming CPU guard to sample the PyRobot process, smooth spikes, and require consecutive hits before terminating sessions (`backend/services/live_streaming.py`).
+- Reworked the streaming CPU guard to sample the RobotControl process, smooth spikes, and require consecutive hits before terminating sessions (`backend/services/live_streaming.py`).
 - Widened scheduling tab padding and card content so laptop layouts breathe instead of hugging the edges (`frontend/src/pages/SchedulingPage.tsx`).
 - Execution history's experiment filter now shows each schedule's short id alongside the name to avoid duplicate labels (`frontend/src/components/ExecutionHistory.tsx`).
 

@@ -1,5 +1,5 @@
 """
-PyRobot Authentication Service (persistent edition).
+RobotControl Authentication Service (persistent edition).
 
 Replaces the in-memory user store with a SQLite-backed implementation so that:
 - Users, hashed passwords, and refresh tokens persist across restarts
@@ -30,18 +30,18 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 # Configuration (environment overrides supported for deployments)
-DEFAULT_ADMIN_USERNAME = os.getenv("PYROBOT_ADMIN_USERNAME", "admin")
-DEFAULT_ADMIN_PASSWORD = os.getenv("PYROBOT_ADMIN_PASSWORD", "ShouGroupAdmin")
-DEFAULT_ADMIN_EMAIL = os.getenv("PYROBOT_ADMIN_EMAIL", "admin@localhost")
+DEFAULT_ADMIN_USERNAME = os.getenv("ROBOTCONTROL_ADMIN_USERNAME", "admin")
+DEFAULT_ADMIN_PASSWORD = os.getenv("ROBOTCONTROL_ADMIN_PASSWORD", "ShouGroupAdmin")
+DEFAULT_ADMIN_EMAIL = os.getenv("ROBOTCONTROL_ADMIN_EMAIL", "admin@localhost")
 
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("PYROBOT_ACCESS_TOKEN_MINUTES", "240"))
-REFRESH_TOKEN_EXPIRE_HOURS = int(os.getenv("PYROBOT_REFRESH_TOKEN_HOURS", "168"))
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ROBOTCONTROL_ACCESS_TOKEN_MINUTES", "240"))
+REFRESH_TOKEN_EXPIRE_HOURS = int(os.getenv("ROBOTCONTROL_REFRESH_TOKEN_HOURS", "168"))
 
 ACCESS_TOKEN_SECRET = os.getenv(
-    "PYROBOT_ACCESS_TOKEN_SECRET", "PyRobot_Access_Secret_2025"
+    "ROBOTCONTROL_ACCESS_TOKEN_SECRET", "RobotControl_Access_Secret_2025"
 )
 REFRESH_TOKEN_SECRET = os.getenv(
-    "PYROBOT_REFRESH_TOKEN_SECRET", "PyRobot_Refresh_Secret_2025"
+    "ROBOTCONTROL_REFRESH_TOKEN_SECRET", "RobotControl_Refresh_Secret_2025"
 )
 ALGORITHM = "HS256"
 
@@ -572,7 +572,7 @@ def verify_token(token: str) -> Optional[User]:
 
 if __name__ == "__main__":
     service = get_auth_service()
-    print("=== PyRobot Authentication Service ===")
+    print("=== RobotControl Authentication Service ===")
 
     demo_user = service.authenticate_user("admin", DEFAULT_ADMIN_PASSWORD)
     if demo_user:

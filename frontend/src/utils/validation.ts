@@ -79,7 +79,7 @@ export function validateData<T extends Record<string, any>>(
 }
 
 /**
- * Common validation schemas for PyRobot components
+ * Common validation schemas for RobotControl components
  */
 export const ValidationSchemas = {
   // User authentication

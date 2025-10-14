@@ -1,1 +1,1 @@
-# Tests package for PyRobot Simplified Backend
+# Tests package for RobotControl Simplified Backend

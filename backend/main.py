@@ -1,5 +1,5 @@
 """
-PyRobot Simplified Backend Application
+RobotControl Simplified Backend Application
 
 Main FastAPI application that consolidates all simplified services.
 Replaces the complex web_app structure with a clean, unified backend.
@@ -137,15 +137,15 @@ def _env_scheduler_autostart_delay(name: str, default: int) -> Optional[int]:
 data_paths = DataPathManager()
 logs_dir = data_paths.logs_path
 
-log_level_name = os.getenv("PYROBOT_LOG_LEVEL", "INFO").upper()
+log_level_name = os.getenv("ROBOTCONTROL_LOG_LEVEL", "INFO").upper()
 log_level = getattr(logging, log_level_name, logging.INFO)
 
-console_level_name = os.getenv("PYROBOT_CONSOLE_LOG_LEVEL", log_level_name).upper()
+console_level_name = os.getenv("ROBOTCONTROL_CONSOLE_LOG_LEVEL", log_level_name).upper()
 console_level = getattr(logging, console_level_name, log_level)
 
-retention_days = _env_int("PYROBOT_LOG_RETENTION_DAYS", 14)
-error_retention_days = _env_int("PYROBOT_LOG_ERROR_RETENTION_DAYS", 30)
-use_json_logs = _env_flag("PYROBOT_LOG_JSON")
+retention_days = _env_int("ROBOTCONTROL_LOG_RETENTION_DAYS", 14)
+error_retention_days = _env_int("ROBOTCONTROL_LOG_ERROR_RETENTION_DAYS", 30)
+use_json_logs = _env_flag("ROBOTCONTROL_LOG_JSON")
 
 logging_handlers = setup_logging(
     logs_dir,
@@ -200,14 +200,14 @@ for logger_name in backend_loggers:
     target_logger.propagate = True
 
 rate_limit_config = {
-    "backend.services.automatic_recording": os.getenv("PYROBOT_LOG_RATE_LIMIT_AUTOMATION", "60"),
-    "backend.services.monitoring": os.getenv("PYROBOT_LOG_RATE_LIMIT_MONITORING", "30"),
+    "backend.services.automatic_recording": os.getenv("ROBOTCONTROL_LOG_RATE_LIMIT_AUTOMATION", "60"),
+    "backend.services.monitoring": os.getenv("ROBOTCONTROL_LOG_RATE_LIMIT_MONITORING", "30"),
 }
 rate_limit_config = {k: v for k, v in rate_limit_config.items() if v not in {None, ""}}
 apply_rate_limit_filters(rate_limit_config, exempt_level=logging.WARNING)
 
 _SCHEDULER_AUTOSTART_DELAY_SECONDS: Optional[int] = _env_scheduler_autostart_delay(
-    "PYROBOT_SCHEDULER_AUTOSTART_DELAY_SECONDS",
+    "ROBOTCONTROL_SCHEDULER_AUTOSTART_DELAY_SECONDS",
     60,
 )
 _scheduler_autostart_task: Optional[asyncio.Task] = None
@@ -308,7 +308,7 @@ async def lifespan(app: FastAPI):
     logger.info(session_marker)
     logger.info("Backend session starting | pid=%s", os.getpid())
 
-    logger.info("Starting PyRobot Simplified Backend...")
+    logger.info("Starting RobotControl Simplified Backend...")
 
     logger.info("All services configured for lazy loading")
     logger.info("Authentication: ready (will initialize on first login)")
@@ -350,11 +350,11 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("AutoRecording | event=start_failed | error=%s", exc)
 
-    logger.info("PyRobot Simplified Backend startup complete - all services ready for lazy loading!")
+    logger.info("RobotControl Simplified Backend startup complete - all services ready for lazy loading!")
     try:
         yield
     finally:
-        logger.info("Shutting down PyRobot Simplified Backend...")
+        logger.info("Shutting down RobotControl Simplified Backend...")
         
         if _scheduler_autostart_task:
             if not _scheduler_autostart_task.done():
@@ -416,7 +416,7 @@ async def lifespan(app: FastAPI):
 
 # Create FastAPI application
 app = FastAPI(
-    title="PyRobot Simplified Backend",
+    title="RobotControl Simplified Backend",
     description="Unified backend for Hamilton VENUS liquid handling robot management",
     version="1.0.0",
     docs_url="/docs",
@@ -509,7 +509,7 @@ app.include_router(scheduling_router, tags=["scheduling"])
 async def health_check():
     """Fast health check - no dependencies"""
     return {
-        "service": "PyRobot Simplified Backend",
+        "service": "RobotControl Simplified Backend",
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
         "message": "Server is running"
@@ -607,7 +607,7 @@ else:
             
         logger.info(f"Development mode: serving static files from {frontend_dist}")
     elif not SERVE_FRONTEND_FROM_BACKEND:
-        logger.info("Static asset serving disabled; expecting external web server (set PYROBOT_SERVE_FRONTEND=1 to re-enable backend asset serving)")
+        logger.info("Static asset serving disabled; expecting external web server (set ROBOTCONTROL_SERVE_FRONTEND=1 to re-enable backend asset serving)")
     else:
         logger.info("No frontend build found - API only mode")
 
@@ -632,7 +632,7 @@ async def global_exception_handler(request, exc):
 async def root():
     """Root endpoint with basic information - respects lazy loading"""
     return {
-        "service": "PyRobot Simplified Backend",
+        "service": "RobotControl Simplified Backend",
         "version": "1.0.0",
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
@@ -655,7 +655,7 @@ async def root():
 async def api_info():
     """API information and available endpoints"""
     return {
-        "api": "PyRobot Simplified API",
+        "api": "RobotControl Simplified API",
         "version": "1.0.0",
         "endpoints": {
             "authentication": {
@@ -711,14 +711,14 @@ def main():
     
     # Parse command line arguments
     parser = argparse.ArgumentParser(
-        description="PyRobot Simplified Backend Server",
+        description="RobotControl Simplified Backend Server",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  PyRobot.exe                    # Start server on default port 8005
-  PyRobot.exe --port 8080        # Start server on port 8080
-  PyRobot.exe --host 127.0.0.1   # Start server on localhost only
-  PyRobot.exe --no-browser       # Start without opening browser
+  RobotControl.exe                    # Start server on default port 8005
+  RobotControl.exe --port 8080        # Start server on port 8080
+  RobotControl.exe --host 127.0.0.1   # Start server on localhost only
+  RobotControl.exe --no-browser       # Start without opening browser
         """
     )
     parser.add_argument('--port', type=int, default=8005, 
@@ -727,11 +727,11 @@ Examples:
                        help='Host to bind the server to (default: 0.0.0.0)')
     parser.add_argument('--no-browser', action='store_true',
                        help='Do not automatically open browser')
-    parser.add_argument('--version', action='version', version='PyRobot 1.0.0')
+    parser.add_argument('--version', action='version', version='RobotControl 1.0.0')
     
     args = parser.parse_args()
     
-    logger.info("Starting PyRobot Simplified Backend Server...")
+    logger.info("Starting RobotControl Simplified Backend Server...")
     
     # Detect if running as compiled executable
     is_compiled = getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS')

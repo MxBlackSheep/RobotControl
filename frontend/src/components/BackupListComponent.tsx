@@ -1,5 +1,5 @@
 /**
- * PyRobot Backup List Component
+ * RobotControl Backup List Component
  * 
  * Material-UI table component for displaying database backups with:
  * - Sortable columns by date, size, filename, and description  

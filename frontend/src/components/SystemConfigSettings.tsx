@@ -331,7 +331,7 @@ export default function SystemConfigSettings() {
                     label="Local Backup Path"
                     value={config.local_backup_path}
                     onChange={handleInputChange('local_backup_path')}
-                    placeholder="\\192.168.3.20\PyRobot\data\backups"
+                    placeholder="\\192.168.3.20\RobotControl\data\backups"
                     helperText="Network path for host machine backup operations"
                     disabled={loading}
                   />

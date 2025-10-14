@@ -1,5 +1,5 @@
 """
-PyRobot Backend Types
+RobotControl Backend Types
 Consolidated type definitions for camera service and API responses
 """
 

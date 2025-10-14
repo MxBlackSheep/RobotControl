@@ -1,5 +1,5 @@
 """
-PyRobot Simplified Monitoring API
+RobotControl Simplified Monitoring API
 Real-time monitoring endpoints for system status, experiments, and WebSocket connections
 """
 
@@ -327,7 +327,7 @@ async def monitoring_health_check():
         monitoring_service = get_monitoring_service()
         
         health_data = {
-            "service": "PyRobot Monitoring API",
+            "service": "RobotControl Monitoring API",
             "status": "healthy",
             "monitoring_running": monitoring_service.is_running,
             "websocket_connections": monitoring_service.websocket_manager.connection_count

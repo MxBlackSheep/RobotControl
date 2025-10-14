@@ -5,7 +5,7 @@ import { isMaintenanceActive, getMaintenanceRemainingMs, activateMaintenance } f
 // Derive API base dynamically so phone/tablet clients proxy to the correct backend
 const API_BASE_URL = getApiBase();
 
-export const ACCESS_TOKEN_UPDATED_EVENT = 'pyrobot:access-token-updated';
+export const ACCESS_TOKEN_UPDATED_EVENT = 'robotcontrol:access-token-updated';
 
 export const api = axios.create({
   baseURL: API_BASE_URL || undefined,

@@ -1,4 +1,4 @@
-# PyRobot Backend - Production Docker Image
+# RobotControl Backend - Production Docker Image
 FROM python:3.11-slim
 
 # Set working directory
@@ -34,9 +34,9 @@ COPY . .
 RUN mkdir -p /app/data /app/logs /app/config
 
 # Create non-root user
-RUN groupadd -r pyrobot && useradd -r -g pyrobot pyrobot
-RUN chown -R pyrobot:pyrobot /app
-USER pyrobot
+RUN groupadd -r robotcontrol && useradd -r -g robotcontrol robotcontrol
+RUN chown -R robotcontrol:robotcontrol /app
+USER robotcontrol
 
 # Expose port
 EXPOSE 8000

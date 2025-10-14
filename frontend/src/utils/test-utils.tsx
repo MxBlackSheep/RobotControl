@@ -1,7 +1,7 @@
 /**
  * Test Utilities
  * 
- * Custom testing utilities for PyRobot components
+ * Custom testing utilities for RobotControl components
  * Provides themed wrappers, mock providers, and common test helpers
  */
 

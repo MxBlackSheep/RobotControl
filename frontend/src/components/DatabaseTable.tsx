@@ -1,5 +1,5 @@
 /**
- * Enhanced Database Table Component for PyRobot Simplified Architecture
+ * Enhanced Database Table Component for RobotControl Simplified Architecture
  * 
  * Features:
  * - Advanced filtering and search

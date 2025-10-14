@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 TEST_DB_NAME = f"test_auth_{uuid.uuid4().hex}.db"
-os.environ["PYROBOT_AUTH_DB_FILENAME"] = TEST_DB_NAME
+os.environ["ROBOTCONTROL_AUTH_DB_FILENAME"] = TEST_DB_NAME
 
 from backend.utils.data_paths import get_data_path
 from backend.services import auth as auth_module

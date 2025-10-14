@@ -1,6 +1,6 @@
-# PyRobot Custom Hooks
+# RobotControl Custom Hooks
 
-This directory contains custom React hooks that provide shared logic and consistent patterns across the PyRobot application.
+This directory contains custom React hooks that provide shared logic and consistent patterns across the RobotControl application.
 
 ## Core Hooks
 
@@ -276,4 +276,4 @@ When migrating existing components to use shared hooks:
 4. **Gradual Migration**: Update components incrementally
 5. **Document Changes**: Update component documentation
 
-For questions or suggestions, please refer to the PyRobot development guidelines.
+For questions or suggestions, please refer to the RobotControl development guidelines.

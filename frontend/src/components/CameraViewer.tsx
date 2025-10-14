@@ -1,5 +1,5 @@
 ﻿/**
- * Camera Viewer Component for PyRobot Simplified Architecture
+ * Camera Viewer Component for RobotControl Simplified Architecture
  * 
  * Features:
  * - Live camera streaming via MJPEG and WebSocket

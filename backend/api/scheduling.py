@@ -280,9 +280,9 @@ async def test_notification_settings_endpoint(
         detail = email_service.last_error or "SMTP configuration is incomplete"
         raise HTTPException(status_code=400, detail=detail)
 
-    subject = "PyRobot SMTP test message"
+    subject = "RobotControl SMTP test message"
     body_lines = [
-        "This is a test email sent from the PyRobot scheduling service.",
+        "This is a test email sent from the RobotControl scheduling service.",
         "",
         f"Recipient: {recipient}",
         f"Requested by: {current_user.get('username', 'unknown')}",

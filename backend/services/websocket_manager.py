@@ -1,5 +1,5 @@
 """
-High-performance WebSocket management for PyRobot real-time features.
+High-performance WebSocket management for RobotControl real-time features.
 
 Implements connection pooling, load balancing, and resource management
 for scalable WebSocket operations.

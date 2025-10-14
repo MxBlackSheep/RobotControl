@@ -1,5 +1,5 @@
 """
-PyRobot Database Backup/Restore API
+RobotControl Database Backup/Restore API
 
 Secure admin-only endpoints for database backup and restore operations.
 Follows the simplified architecture pattern with comprehensive error handling.

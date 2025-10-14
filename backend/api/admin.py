@@ -1,5 +1,5 @@
 """
-PyRobot Simplified Admin API
+RobotControl Simplified Admin API
 Basic admin endpoints for user management and system monitoring
 """
 

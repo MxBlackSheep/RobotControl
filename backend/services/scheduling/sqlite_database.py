@@ -5,7 +5,7 @@ Provides a lightweight SQLite-based database for scheduling data that:
 - Auto-creates in the data directory
 - Works in both development and compiled modes
 - Stores scheduling metadata separately from Hamilton's read-only database
-- Can be extended for user management and other PyRobot-specific data
+- Can be extended for user management and other RobotControl-specific data
 """
 
 import sqlite3
@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 class SQLiteSchedulingDatabase:
     """SQLite database manager for scheduling system"""
     
-    def __init__(self, db_name: str = "pyrobot_scheduling.db"):
+    def __init__(self, db_name: str = "robotcontrol_scheduling.db"):
         """
         Initialize SQLite database for scheduling
         

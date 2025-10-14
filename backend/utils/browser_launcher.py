@@ -14,7 +14,7 @@ import socket
 logger = logging.getLogger(__name__)
 
 class BrowserLauncher:
-    """Handles automatic browser launching for the PyRobot application."""
+    """Handles automatic browser launching for the RobotControl application."""
     
     def __init__(self, host: str = "localhost", port: int = 8005, auto_launch: bool = True):
         self.host = host

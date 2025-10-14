@@ -1,5 +1,5 @@
 /**
- * PyRobot Database Backup Manager Component
+ * RobotControl Database Backup Manager Component
  * 
  * Main component combining BackupListComponent and BackupActions for complete
  * backup management functionality. Handles state management, API operations,

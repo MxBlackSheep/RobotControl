@@ -1,5 +1,5 @@
 ﻿/**
- * Camera Management Page for PyRobot Simplified Architecture
+ * Camera Management Page for RobotControl Simplified Architecture
  * 
  * Features:
  * - Live camera streaming interface

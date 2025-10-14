@@ -66,11 +66,11 @@ Edit `backend/config.py` lines 18-26 to change defaults.
 ## Current Configuration:
 - **VM SQL Server**: `192.168.3.21,50131` 
 - **VM User**: `Hamilton`
-- **Local Backup Path**: `\\192.168.3.20\PyRobot\data\backups`  
+- **Local Backup Path**: `\\192.168.3.20\RobotControl\data\backups`  
 - **VM Backup Path**: `Z:\backups` (requires Z: drive mapping on VM)
 
 ## Next Steps:
-1. Map Z: drive on VM: `net use Z: \\192.168.3.20\PyRobot\data /persistent:yes`
+1. Map Z: drive on VM: `net use Z: \\192.168.3.20\RobotControl\data /persistent:yes`
 2. Create backup directory: `mkdir Z:\backups`
 3. Test backup creation
 

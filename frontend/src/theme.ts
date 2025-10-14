@@ -1,7 +1,7 @@
 import { createTheme } from '@mui/material/styles';
 
 /**
- * PyRobot Accessible Theme
+ * RobotControl Accessible Theme
  * 
  * Colors and contrast ratios have been verified to meet WCAG 2.1 AA standards:
  * - Normal text: minimum 4.5:1 contrast ratio

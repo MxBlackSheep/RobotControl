@@ -1,5 +1,5 @@
 /**
- * Jest Configuration for PyRobot Frontend
+ * Jest Configuration for RobotControl Frontend
  * 
  * Comprehensive testing setup for React TypeScript components
  */

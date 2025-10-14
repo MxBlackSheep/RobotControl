@@ -1,5 +1,5 @@
 /**
- * PerformanceMonitor Utility for PyRobot Optimization
+ * PerformanceMonitor Utility for RobotControl Optimization
  * 
  * Comprehensive performance tracking and reporting system using the Performance API
  * Tracks page load times, component render times, user interactions, and API calls

@@ -15,11 +15,11 @@ from pathlib import Path
 from typing import List
 
 
-logger = logging.getLogger("pyrobot.build")
+logger = logging.getLogger("robotcontrol.build")
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run the full PyRobot build pipeline")
+    parser = argparse.ArgumentParser(description="Run the full RobotControl build pipeline")
     parser.add_argument(
         "--skip-frontend",
         action="store_true",

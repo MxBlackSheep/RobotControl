@@ -1,5 +1,5 @@
 /**
- * PyRobot Scheduling TypeScript Interfaces
+ * RobotControl Scheduling TypeScript Interfaces
  * 
  * Type definitions for experiment scheduling functionality.
  * Mirrors the backend Python data models to ensure type safety across the full stack.

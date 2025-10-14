@@ -1,7 +1,7 @@
 /**
  * Test Setup Configuration
  * 
- * Configures the testing environment for PyRobot frontend components
+ * Configures the testing environment for RobotControl frontend components
  * Sets up Jest DOM matchers, React Testing Library, and custom test utilities
  */
 

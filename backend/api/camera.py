@@ -1,5 +1,5 @@
 """
-PyRobot Simplified Backend - Camera API Endpoints
+RobotControl Simplified Backend - Camera API Endpoints
 
 Provides comprehensive camera access through REST API and WebSocket connections.
 Integrates with the unified CameraService for all camera operations.

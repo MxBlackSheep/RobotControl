@@ -1,5 +1,5 @@
 /**
- * PyRobot Backup Actions Component
+ * RobotControl Backup Actions Component
  * 
  * Action buttons and dialogs for backup operations:
  * - Create backup with description form

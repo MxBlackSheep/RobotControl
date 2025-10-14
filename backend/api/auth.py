@@ -1,5 +1,5 @@
 """
-PyRobot Simplified Authentication API
+RobotControl Simplified Authentication API
 
 Clean and simple REST API endpoints for authentication operations.
 Consolidates functionality from web_app/api/v1/auth.py into a simplified interface.
@@ -630,7 +630,7 @@ if __name__ == "__main__":
     import uvicorn
     from fastapi import FastAPI
     
-    app = FastAPI(title="PyRobot Authentication API", version="1.0.0")
+    app = FastAPI(title="RobotControl Authentication API", version="1.0.0")
     app.include_router(router)
     
     uvicorn.run(app, host="0.0.0.0", port=8002)

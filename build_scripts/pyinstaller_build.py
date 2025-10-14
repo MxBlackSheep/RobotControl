@@ -1,5 +1,5 @@
 """
-PyInstaller build script for PyRobot executables.
+PyInstaller build script for RobotControl executables.
 Supports both onedir and onefile layouts without Visual C++ Build Tools.
 """
 
@@ -36,7 +36,7 @@ def _copy_directory_contents(src: Path, dst: Path) -> int:
     return copied
 
 def build_with_pyinstaller(layout: str = "onedir", console: bool = False) -> bool:
-    """Build PyRobot with PyInstaller."""
+    """Build RobotControl with PyInstaller."""
     project_root = Path(".").resolve()
     backend_main = project_root / "backend" / "main.py"
     
@@ -51,7 +51,7 @@ def build_with_pyinstaller(layout: str = "onedir", console: bool = False) -> boo
     # Preserve existing backups inside dist before cleaning build artifacts
     dist_root = project_root / "dist"
     backup_candidates = [
-        dist_root / "PyRobot" / "data" / "backups",
+        dist_root / "RobotControl" / "data" / "backups",
         dist_root / "data" / "backups",
         dist_root / "init" / "data" / "backups",
     ]
@@ -89,7 +89,7 @@ def build_with_pyinstaller(layout: str = "onedir", console: bool = False) -> boo
         sys.executable, "-m", "PyInstaller",
         str(backend_main),
 
-        "--name", "PyRobot",
+        "--name", "RobotControl",
 
         # Python path setup
         "--paths", ".",
@@ -167,14 +167,14 @@ def build_with_pyinstaller(layout: str = "onedir", console: bool = False) -> boo
         
         if result.returncode == 0:
             if layout == "onefile":
-                exe_path = dist_root / "PyRobot.exe"
+                exe_path = dist_root / "RobotControl.exe"
                 support_root = dist_root
                 if not exe_path.exists():
                     logger.error("Build succeeded but executable not found (onefile). Expected at %s", exe_path)
                     return False
             else:
-                support_root = dist_root / "PyRobot"
-                exe_path = support_root / "PyRobot.exe"
+                support_root = dist_root / "RobotControl"
+                exe_path = support_root / "RobotControl.exe"
 
                 if not support_root.exists():
                     logger.error("Onedir build output directory not found: %s", support_root)
@@ -226,7 +226,7 @@ def build_with_pyinstaller(layout: str = "onedir", console: bool = False) -> boo
         return False
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Build PyRobot using PyInstaller")
+    parser = argparse.ArgumentParser(description="Build RobotControl using PyInstaller")
     parser.add_argument(
         "--layout",
         choices=["onefile", "onedir"],

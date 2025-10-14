@@ -1,6 +1,6 @@
-# PyRobot TypeScript Type System
+# RobotControl TypeScript Type System
 
-This directory contains comprehensive TypeScript type definitions for all PyRobot components, providing type safety, better IntelliSense, and improved developer experience.
+This directory contains comprehensive TypeScript type definitions for all RobotControl components, providing type safety, better IntelliSense, and improved developer experience.
 
 ## Overview
 
@@ -355,4 +355,4 @@ expectType<MyComponentProps>({
 });
 ```
 
-This type system provides a foundation for scalable, maintainable TypeScript code across the entire PyRobot application.
+This type system provides a foundation for scalable, maintainable TypeScript code across the entire RobotControl application.

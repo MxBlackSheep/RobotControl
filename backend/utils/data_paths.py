@@ -1,5 +1,5 @@
 """
-Data path management for PyRobot executable.
+Data path management for RobotControl executable.
 Handles creating and resolving data directories relative to executable location.
 """
 
@@ -12,7 +12,7 @@ from typing import Dict, Optional
 logger = logging.getLogger(__name__)
 
 class DataPathManager:
-    """Manages data directories for PyRobot executable deployment"""
+    """Manages data directories for RobotControl executable deployment"""
     
     def __init__(self):
         self._base_path: Optional[Path] = None

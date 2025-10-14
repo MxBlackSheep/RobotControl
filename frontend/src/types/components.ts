@@ -1,7 +1,7 @@
 /**
  * Component TypeScript Interfaces - Comprehensive type definitions
  * 
- * Centralized type definitions for all PyRobot components
+ * Centralized type definitions for all RobotControl components
  * Provides type safety, better IntelliSense, and developer experience
  */
 

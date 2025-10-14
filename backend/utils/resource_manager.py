@@ -1,5 +1,5 @@
 """
-Comprehensive resource management for PyRobot backend.
+Comprehensive resource management for RobotControl backend.
 
 Monitors and optimizes memory usage, file handles, and system resources
 with automatic cleanup and garbage collection strategies.

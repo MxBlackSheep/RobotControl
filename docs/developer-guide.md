@@ -1,17 +1,17 @@
-# PyRobot Developer Guide
+# RobotControl Developer Guide
 
 _Last updated: 2025-10-01_
 
 ## 1. Overview & Goals
-- PyRobot delivers a unified control plane for the lab Hamilton robot stack: SQL Server data access, experiment scheduling, camera monitoring/recording, and admin tooling.
+- RobotControl delivers a unified control plane for the lab Hamilton robot stack: SQL Server data access, experiment scheduling, camera monitoring/recording, and admin tooling.
 - The project replaces multiple legacy services with a single FastAPI backend (`backend/main.py`) and a modern React/Vite frontend (`frontend/src`).
 - Windows is the target runtime (local lab workstation). Packaging uses PyInstaller for a single-file distribution that embeds the compiled frontend.
 
 ## 2. Technology Stack
 - **Backend:** Python 3.11, FastAPI, Uvicorn, PyODBC (SQL Server), Pydantic v2, OpenCV, websockets, passlib, python-jose, pytest.
 - **Frontend:** React 18 + TypeScript, Vite build, Material UI (MUI 5), TanStack React Query, Axios, react-router.
-- **Build/Packaging:** Vite static bundle, custom embed script (`build_scripts/embed_resources.py`), PyInstaller spec (`PyRobot.spec`).
-- **Data/storage:** Microsoft SQL Server (primary + secondary failover), local SQLite (`data/pyrobot_scheduling.db`) for scheduling metadata, Windows filesystem shares for backups/videos.
+- **Build/Packaging:** Vite static bundle, custom embed script (`build_scripts/embed_resources.py`), PyInstaller spec (`RobotControl.spec`).
+- **Data/storage:** Microsoft SQL Server (primary + secondary failover), local SQLite (`data/robotcontrol_scheduling.db`) for scheduling metadata, Windows filesystem shares for backups/videos.
 
 ## 3. Repository Layout
 | Path | Description |
@@ -36,7 +36,7 @@ _Last updated: 2025-10-01_
 ## 4. Backend Architecture
 ### 4.1 Application entry point
 - `backend/main.py` constructs the FastAPI app via `create_app()` and wires routers in `_include_routers()`. Startup tasks in `_register_startup_event()` warm services (`get_database_service()`, `get_monitoring_service()`), while `_register_shutdown_event()` closes resources cleanly. Static asset serving toggles between embedded (`EmbeddedResourceManager.get_resource()`) and filesystem mode.
-- `main()` boots uvicorn with graceful shutdown (signal handlers defined near the top of the file). Environment toggles: `PYROBOT_SERVE_FRONTEND`, `STREAMING_CPU_*`, `PYROBOT_SKIP_CAMERA_INIT`.
+- `main()` boots uvicorn with graceful shutdown (signal handlers defined near the top of the file). Environment toggles: `ROBOTCONTROL_SERVE_FRONTEND`, `STREAMING_CPU_*`, `ROBOTCONTROL_SKIP_CAMERA_INIT`.
 
 ### 4.2 API layer (`backend/api`)
 Each router isolates a domain with clear entry points:
@@ -123,7 +123,7 @@ Each router isolates a domain with clear entry points:
 - **Frontend only:** `npm run dev` inside `frontend/`; access http://localhost:3005. The dev server proxies API calls using `VITE_API_BASE_URL`.
 - **Integrated run:** From repo root, execute `python main.py`. The orchestrator launches both processes, watches for exit signals, and cleans up automatically.
 - **Database connectivity:** Ensure VPN/bridge to the lab SQL Server or update `.env` to point at a local test instance. For offline development, mock responses in API services or use local SQLite fixtures.
-- **Static assets:** During dev mode the backend reads directly from `frontend/dist` (if `PYROBOT_SERVE_FRONTEND=1`) or delegates to Vite; no rebuild required unless packaging.
+- **Static assets:** During dev mode the backend reads directly from `frontend/dist` (if `ROBOTCONTROL_SERVE_FRONTEND=1`) or delegates to Vite; no rebuild required unless packaging.
 
 ## 9. Testing & Quality Gates
 - Backend unit/integration tests: `pytest backend/tests` (add `-k` to target subsystems). Use `pytest --maxfail=1` in CI to surface failures quickly.
@@ -133,7 +133,7 @@ Each router isolates a domain with clear entry points:
 ## 10. Build & Packaging Pipeline
 1. **Frontend build:** `cd frontend && npm run build`. Outputs hashed assets under `frontend/dist/`.
 2. **Embed assets:** From repo root, run `python build_scripts/embed_resources.py`. This regenerates `backend/embedded_static.py` with base64+gzip payloads. Commit the generated file when preparing a release.
-3. **PyInstaller build:** `pyinstaller PyRobot.spec`. The spec draws in backend modules, embedded assets, and required hidden imports (FastAPI, uvicorn, OpenCV). Outputs go to `dist/PyRobot/`.
+3. **PyInstaller build:** `pyinstaller RobotControl.spec`. The spec draws in backend modules, embedded assets, and required hidden imports (FastAPI, uvicorn, OpenCV). Outputs go to `dist/RobotControl/`.
 4. **Alternate builds:** `build_scripts/pyinstaller_build.py` wraps the above with argument parsing (logging, clean flags). `build_scripts/nuitka_build.py` is experimental for performance-focused builds.
 5. **Post-build validation:** Launch the generated executable on a clean Windows VM, confirm it serves the embedded frontend, verifies SQL connectivity, and records videos to `data/videos`.
 6. **Clean up:** Remove stale `build/` and `dist/` directories before new builds to avoid shipping outdated assets.
@@ -142,7 +142,7 @@ Each router isolates a domain with clear entry points:
 - Logs default to `data/logs/*.log`; rotation is handled by `backend/utils/logging_setup.py`.
 - Video segments accumulate in `data/videos/`; periodic cleanup is driven by `AUTO_RECORDING_CONFIG` thresholds.
 - Backups go to `data/backups/` or network share specified via `.env` (`LOCAL_BACKUP_PATH`). Ensure service account has access.
-- Scheduling metadata persists in `data/pyrobot_scheduling.db`; delete carefully if you need a clean slate (queues will reset).
+- Scheduling metadata persists in `data/robotcontrol_scheduling.db`; delete carefully if you need a clean slate (queues will reset).
 
 ## 12. Maintenance Notes & Potential Redundancies
 - `backend/services/scheduling/database_manager_backup.py` appears unused (no imports found); confirm before removal.
@@ -164,7 +164,7 @@ Each router isolates a domain with clear entry points:
 - `pytest backend/tests -k scheduling`
 - `npm run dev -- --host 0.0.0.0 --port 3005`
 - `npm run build && python build_scripts/embed_resources.py`
-- `pyinstaller PyRobot.spec --clean`
+- `pyinstaller RobotControl.spec --clean`
 ### 2025-10-06 Backend bring-up notes
 - Ensured embedded frontend assets are always served by setting `SERVE_FRONTEND_FROM_BACKEND = True` in `backend/main.py` so the backend serves the SPA without env configuration.
 - Updated project venv metadata in `.venv/pyvenv.cfg` to point at local Python 3.13 (`C:\Python313`) eliminating runtime warnings about missing platform libraries.

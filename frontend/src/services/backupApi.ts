@@ -1,5 +1,5 @@
 /**
- * PyRobot Database Backup/Restore API Client
+ * RobotControl Database Backup/Restore API Client
  * 
  * Provides a type-safe client for backup and restore operations.
  * Handles API communication, error handling, and response transformation.

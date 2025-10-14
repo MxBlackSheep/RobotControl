@@ -1,7 +1,7 @@
 {
-  "name": "pyrobot-simplified-frontend",
+  "name": "robotcontrol-simplified-frontend",
   "version": "2.0.0",
-  "description": "Simplified React frontend for PyRobot",
+  "description": "Simplified React frontend for RobotControl",
   "private": true,
   "type": "module",
   "dependencies": {

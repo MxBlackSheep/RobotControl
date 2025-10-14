@@ -1,5 +1,5 @@
 /**
- * PyRobot Backup Error Boundary Component
+ * RobotControl Backup Error Boundary Component
  * 
  * React error boundary specifically for backup-related components.
  * Implements graceful error recovery and user-friendly error displays.
@@ -181,7 +181,7 @@ class BackupErrorBoundary extends Component<BackupErrorBoundaryProps, BackupErro
     const { error, errorInfo, errorId, timestamp } = this.state;
     
     return `
-PyRobot Backup System Error Report
+RobotControl Backup System Error Report
 =================================
 
 Error ID: ${errorId}
