@@ -2,12 +2,9 @@
  * Camera Management Page for PyRobot Simplified Architecture
  * 
  * Features:
- * - Multiple camera management and viewing
  * - Live camera streaming interface
  * - Video archive browsing and playback
- * - System status monitoring
  * - Recording management controls
- * - Real-time camera status updates
  */
 
 import React, { useState, useEffect } from 'react';
@@ -15,22 +12,15 @@ import {
   Box,
   Container,
   Typography,
-  Grid,
   Card,
   CardContent,
   Button,
   Tabs,
   Tab,
-  List,
-  ListItem,
-  ListItemText,
   IconButton,
   Chip,
   Paper,
   Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
   Stack,
   Divider
 } from '@mui/material';
@@ -39,34 +29,19 @@ import {
   Videocam as VideocamIcon,
   VideoLibrary as VideoLibraryIcon,
   Refresh as RefreshIcon,
-  Info as InfoIcon,
-  Storage as StorageIcon,
   Stream as StreamIcon,
   PlayArrow as PlayArrowIcon,
   Stop as StopIcon,
-  Settings as SettingsIcon,
   Fullscreen as FullscreenIcon,
   Close as CloseIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import LoadingSpinner, { PageLoading, ButtonLoading } from '../components/LoadingSpinner';
+import LoadingSpinner, { ButtonLoading } from '../components/LoadingSpinner';
 import ErrorAlert, { ServerError } from '../components/ErrorAlert';
 import { buildApiUrl, buildWsUrl } from '@/utils/apiBase';
 import VideoArchiveTab, {
   type ExperimentFolder
 } from '../components/camera/VideoArchiveTab';
-
-interface CameraInfo {
-  id: number;
-  name: string;
-  width: number;
-  height: number;
-  fps: number;
-  status: string;
-  is_recording: boolean;
-  has_live_stream: boolean;
-}
-
 
 interface StreamingSession {
   session_id: string;
@@ -91,14 +66,6 @@ interface StreamingStatus {
   priority_mode: string;
 }
 
-interface CameraSystemStatus {
-  system_health: any;
-  camera_status: any;
-  storage_info: any;
-  configuration: any;
-  paths: any;
-}
-
 interface TabPanelProps {
   children?: React.ReactNode;
   index: number;
@@ -115,13 +82,11 @@ const CameraPage: React.FC = () => {
   const navigate = useNavigate();
   
   // State management
-  const [cameras, setCameras] = useState<CameraInfo[]>([]);
   const [experimentFolders, setExperimentFolders] = useState<ExperimentFolder[]>([]);
-  const [systemStatus, setSystemStatus] = useState<CameraSystemStatus | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [archiveLoading, setArchiveLoading] = useState(true);
+  const [archiveError, setArchiveError] = useState('');
   const [error, setError] = useState('');
   const [currentTab, setCurrentTab] = useState(0);
-  const [statusDialogOpen, setStatusDialogOpen] = useState(false);
   
   // Streaming state
   const [streamingStatus, setStreamingStatus] = useState<StreamingStatus | null>(null);
@@ -133,24 +98,6 @@ const CameraPage: React.FC = () => {
   // Video streaming state
   const [wsRef, setWsRef] = useState<WebSocket | null>(null);
 
-  // API base URL
-    const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeoutMs = 10000): Promise<Response> => {
-    const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      return await fetch(url, { ...options, signal: controller.signal });
-    } finally {
-      window.clearTimeout(timeoutId);
-    }
-  };
-
-  // Load camera data
-  useEffect(() => {
-    loadCameraData();
-    const interval = setInterval(loadCameraData, 30000); // Refresh every 30 seconds
-    return () => clearInterval(interval);
-  }, []);
-
   // Cleanup WebSocket on unmount
   useEffect(() => {
     return () => {
@@ -160,17 +107,12 @@ const CameraPage: React.FC = () => {
     };
   }, [wsRef]);
 
-  // Load recordings when switching to archive tab
+  // Load content when switching tabs
   useEffect(() => {
-    if (currentTab === 1) {
-      loadRecordings();
-    }
-  }, [currentTab]);
-
-  // Load streaming status when switching to streaming tab
-  useEffect(() => {
-    if (currentTab === 2) {
-      loadStreamingStatus();
+    if (currentTab === 0) {
+      void loadRecordings();
+    } else if (currentTab === 1) {
+      void loadStreamingStatus();
     }
   }, [currentTab]);
 
@@ -183,114 +125,39 @@ const CameraPage: React.FC = () => {
     }
   }, [fullscreenDialogOpen, mySession]);
 
-  const loadCameraData = async () => {
-    try {
-      const token = localStorage.getItem('access_token');
-      const headers: HeadersInit = token
-        ? { Authorization: `Bearer ${token}` }
-        : {};
-
-      const [camerasResult, statusResult] = await Promise.allSettled([
-        fetchWithTimeout(buildApiUrl('/api/camera/cameras'), { headers }, 10000),
-        fetchWithTimeout(buildApiUrl('/api/camera/status'), { headers }, 10000)
-      ]);
-
-      const errors: string[] = [];
-
-      if (camerasResult.status === 'fulfilled') {
-        const response = camerasResult.value;
-        if (response.ok) {
-          try {
-            const camerasData = await response.json();
-            setCameras(camerasData?.data?.cameras || []);
-          } catch (parseError) {
-            console.error('Failed to parse camera list response:', parseError);
-            errors.push('Camera list response was malformed');
-          }
-        } else {
-          console.error('Camera list request failed:', response.status, response.statusText);
-          errors.push(`Camera list request failed (${response.status})`);
-        }
-      } else {
-        const reason = camerasResult.reason as { name?: string; message?: string };
-        if (reason?.name === 'AbortError') {
-          errors.push('Camera list request timed out');
-        } else {
-          console.error('Camera list request rejected:', reason);
-          errors.push('Failed to load camera list');
-        }
-      }
-
-      if (statusResult.status === 'fulfilled') {
-        const response = statusResult.value;
-        if (response.ok) {
-          try {
-            const statusData = await response.json();
-            setSystemStatus(statusData?.data ?? null);
-          } catch (parseError) {
-            console.error('Failed to parse camera status response:', parseError);
-            errors.push('Camera status response was malformed');
-            setSystemStatus(null);
-          }
-        } else {
-          console.error('Camera status request failed:', response.status, response.statusText);
-          errors.push(`Camera status request failed (${response.status})`);
-          setSystemStatus(null);
-        }
-      } else {
-        const reason = statusResult.reason as { name?: string; message?: string };
-        if (reason?.name === 'AbortError') {
-          errors.push('Camera status request timed out');
-        } else {
-          console.error('Camera status request rejected:', reason);
-          errors.push('Failed to load camera system status');
-        }
-        setSystemStatus(null);
-      }
-
-      if (errors.length === 0) {
-        setError('');
-      } else {
-        setError(errors.join(' | '));
-      }
-
-    } catch (error) {
-      console.error('Error loading camera data:', error);
-      setError('Failed to load camera data');
-    } finally {
-      setLoading(false);
-    }
-
-  };
-
   const loadRecordings = async () => {
+    setArchiveLoading(true);
+    setArchiveError('');
     try {
       const token = localStorage.getItem('access_token');
       
       const response = await fetch(buildApiUrl('/api/camera/recordings?recording_type=experiment&limit=100'), {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` }
       });
 
       if (response.ok) {
         const data = await response.json();
         setExperimentFolders(data.data?.experiment_folders || []);
+        setError('');
+      } else {
+        setArchiveError('Failed to load experiment folders');
+        setError('Failed to load experiment folders');
       }
-    } catch (error) {
-      console.error('Error loading experiment folders:', error);
+    } catch (err) {
+      console.error('Error loading experiment folders:', err);
+      setArchiveError('Failed to load experiment folders');
       setError('Failed to load experiment folders');
+    } finally {
+      setArchiveLoading(false);
     }
   };
 
-  const handleCameraStatusChange = (cameraId: number, status: string) => {
-    setCameras(prev => prev.map(camera => 
-      camera.id === cameraId 
-        ? { ...camera, is_recording: status === 'recording' }
-        : camera
-    ));
-  };
-
-  const handleError = (errorMessage: string) => {
-    setError(errorMessage);
+  const handleRefresh = () => {
+    if (currentTab === 0) {
+      void loadRecordings();
+    } else {
+      void loadStreamingStatus();
+    }
   };
 
   const downloadRecording = async (filename: string) => {
@@ -456,10 +323,6 @@ const CameraPage: React.FC = () => {
     }
   };
 
-  if (loading) {
-    return <PageLoading message="Loading camera system..." />;
-  }
-
   return (
     <>
       <Container 
@@ -502,35 +365,17 @@ const CameraPage: React.FC = () => {
           </Typography>
         </Box>
         
-        {/* System Status Button */}
-        <Stack 
-          direction={{ xs: 'column', sm: 'row' }} 
-          spacing={1}
-          sx={{ width: { xs: '100%', sm: 'auto' } }}
+        <Button
+          variant="outlined"
+          startIcon={<RefreshIcon />}
+          onClick={handleRefresh}
+          sx={{ 
+            minHeight: { xs: 44, sm: 36 },
+            fontSize: { xs: '0.875rem', sm: '0.875rem' }
+          }}
         >
-          <Button
-            variant="outlined"
-            startIcon={<InfoIcon />}
-            onClick={() => setStatusDialogOpen(true)}
-            sx={{ 
-              minHeight: { xs: 44, sm: 36 },
-              fontSize: { xs: '0.875rem', sm: '0.875rem' }
-            }}
-          >
-            System Status
-          </Button>
-          <Button
-            variant="outlined"
-            startIcon={<RefreshIcon />}
-            onClick={loadCameraData}
-            sx={{ 
-              minHeight: { xs: 44, sm: 36 },
-              fontSize: { xs: '0.875rem', sm: '0.875rem' }
-            }}
-          >
-            Refresh
-          </Button>
-        </Stack>
+          Refresh
+        </Button>
       </Box>
 
       {/* Error Display */}
@@ -538,7 +383,7 @@ const CameraPage: React.FC = () => {
         <ServerError
           message={error}
           retryable={true}
-          onRetry={loadCameraData}
+          onRetry={handleRefresh}
           onClose={() => setError('')}
           sx={{ mb: 3 }}
         />
@@ -560,16 +405,6 @@ const CameraPage: React.FC = () => {
           scrollButtons="auto"
           allowScrollButtonsMobile
         >
-          <Tab 
-            label={`Live Cameras (${cameras.length})`}
-            icon={<VideocamIcon />}
-            iconPosition="start"
-            sx={{ 
-              minHeight: { xs: 72, sm: 48 },
-              fontSize: { xs: '0.75rem', sm: '0.875rem' },
-              minWidth: { xs: 120, sm: 160 }
-            }}
-          />
           <Tab 
             label={`Video Archive (${experimentFolders.length})`}
             icon={<VideoLibraryIcon />}
@@ -593,135 +428,19 @@ const CameraPage: React.FC = () => {
         </Tabs>
       </Paper>
 
-      {/* Live Cameras Tab */}
-      <TabPanel value={currentTab} index={0}>
-        {cameras.length > 0 ? (
-          <Grid container spacing={{ xs: 2, md: 3 }}>
-            {cameras.map((camera) => (
-              <Grid item xs={12} sm={6} lg={4} key={camera.id}>
-                <Card>
-                  <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
-                    <Box sx={{ 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      mb: 2,
-                      flexWrap: 'wrap',
-                      gap: 1
-                    }}>
-                      <VideocamIcon sx={{ 
-                        mr: 1, 
-                        color: 'primary.main',
-                        fontSize: { xs: 20, sm: 24 }
-                      }} />
-                      <Typography 
-                        variant="h6"
-                        sx={{ flexGrow: 1 }}
-                      >
-                        {camera.name}
-                      </Typography>
-                      <Chip
-                        label={camera.is_recording ? 'Recording' : 'Available'}
-                        color={camera.is_recording ? 'success' : 'default'}
-                        size="small"
-                      />
-                    </Box>
-                    
-                    <Stack spacing={{ xs: 1.5, sm: 2 }}>
-                      <Box>
-                        <Typography variant="body2" color="textSecondary">
-                          Resolution
-                        </Typography>
-                        <Typography 
-                          variant="body1"
-                          sx={{ fontSize: { xs: '0.875rem', sm: '1rem' } }}
-                        >
-                          {camera.width} x {camera.height}
-                        </Typography>
-                      </Box>
-                      
-                      <Box>
-                        <Typography variant="body2" color="textSecondary">
-                          Frame Rate
-                        </Typography>
-                        <Typography 
-                          variant="body1"
-                          sx={{ fontSize: { xs: '0.875rem', sm: '1rem' } }}
-                        >
-                          {camera.fps} FPS
-                        </Typography>
-                      </Box>
-                      
-                      <Box>
-                        <Typography variant="body2" color="textSecondary">
-                          Status
-                        </Typography>
-                        <Chip
-                          label={camera.status}
-                          color={camera.status === 'active' ? 'success' : 'default'}
-                          size="small"
-                        />
-                      </Box>
-                      
-                      <Box>
-                        <Typography variant="body2" color="textSecondary">
-                          Live Stream Available
-                        </Typography>
-                        <Typography 
-                          variant="body1"
-                          sx={{ fontSize: { xs: '0.875rem', sm: '1rem' } }}
-                        >
-                          {camera.has_live_stream ? 'Yes' : 'No'}
-                        </Typography>
-                      </Box>
-                      
-                      <Divider />
-                      
-                      <Typography 
-                        variant="body2" 
-                        color="textSecondary" 
-                        sx={{ 
-                          fontStyle: 'italic',
-                          fontSize: { xs: '0.75rem', sm: '0.875rem' }
-                        }}
-                      >
-                        Use the Live Streaming tab to view live video from this camera.
-                      </Typography>
-                    </Stack>
-                  </CardContent>
-                </Card>
-              </Grid>
-            ))}
-          </Grid>
-        ) : (
-          <Card>
-            <CardContent>
-              <Box sx={{ textAlign: 'center', py: 8 }}>
-                <VideocamIcon sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
-                <Typography variant="h6" color="textSecondary" gutterBottom>
-                  No cameras detected
-                </Typography>
-                <Typography variant="body2" color="textSecondary">
-                  Make sure cameras are connected and try refreshing the page.
-                </Typography>
-              </Box>
-            </CardContent>
-          </Card>
-        )}
-      </TabPanel>
-
       {/* Video Archive Tab */}
-      <TabPanel value={currentTab} index={1}>
+      <TabPanel value={currentTab} index={0}>
         <VideoArchiveTab
           experimentFolders={experimentFolders}
-          loading={loading}
-          error={error}
-          onRefresh={loadRecordings}
+          loading={archiveLoading}
+          error={archiveError}
+          onRefresh={() => void loadRecordings()}
           onDownloadVideo={downloadRecording}
         />
       </TabPanel>
 
       {/* Live Streaming Tab */}
-      <TabPanel value={currentTab} index={2}>
+      <TabPanel value={currentTab} index={1}>
         <Card>
           <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
             <Stack spacing={2.5}>
@@ -736,19 +455,12 @@ const CameraPage: React.FC = () => {
               >
                 <Stack direction="row" spacing={1} alignItems="center">
                   <StreamIcon sx={{ fontSize: { xs: 20, sm: 24 } }} />
-                  <Typography variant="h6">
-                    Streaming Session
-                  </Typography>
-                  <Chip
-                    label={streamingStatus?.enabled ? 'Service Enabled' : 'Service Disabled'}
-                    color={streamingStatus?.enabled ? 'success' : 'default'}
-                    size="small"
-                  />
+                  <Typography variant="h6">Streaming Session</Typography>
                 </Stack>
                 <Button
                   size="small"
                   startIcon={<RefreshIcon />}
-                  onClick={loadStreamingStatus}
+                  onClick={() => loadStreamingStatus()}
                 >
                   Refresh Status
                 </Button>
@@ -760,37 +472,11 @@ const CameraPage: React.FC = () => {
                     <Typography variant="body2" color="textSecondary">
                       Session ID
                     </Typography>
-                    <Typography variant="body1" sx={{ fontFamily: 'monospace' }}>
-                      {mySession.session_id.substring(0, 8)}...
-                    </Typography>
-                  </Box>
-
-                  <Box>
-                    <Typography variant="body2" color="textSecondary">
-                      Quality Level
-                    </Typography>
-                    <Chip
-                      label={mySession.quality_level}
-                      color="primary"
-                      size="small"
-                    />
-                  </Box>
-
-                  <Box>
-                    <Typography variant="body2" color="textSecondary">
-                      Bandwidth
-                    </Typography>
-                    <Typography variant="body1">
-                      {mySession.bandwidth_usage_mbps.toFixed(1)} MB/s
-                    </Typography>
-                  </Box>
-
-                  <Box>
-                    <Typography variant="body2" color="textSecondary">
-                      FPS
-                    </Typography>
-                    <Typography variant="body1">
-                      {mySession.actual_fps.toFixed(1)} fps
+                    <Typography
+                      variant="body1"
+                      sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}
+                    >
+                      {mySession.session_id}
                     </Typography>
                   </Box>
 
@@ -892,7 +578,8 @@ const CameraPage: React.FC = () => {
                         <Stack spacing={2} alignItems="center">
                           <StreamIcon sx={{ fontSize: 48, color: 'grey.400' }} />
                           <Typography variant="body2" color="textSecondary">
-                            Connecting to stream鈥?                          </Typography>
+                            Connecting to stream…
+                          </Typography>
                         </Stack>
                       </Box>
                     )}
@@ -933,146 +620,6 @@ const CameraPage: React.FC = () => {
         </Card>
       </TabPanel>
 
-      {/* System Status Dialog */}
-      <Dialog
-        open={statusDialogOpen}
-        onClose={() => setStatusDialogOpen(false)}
-        maxWidth="md"
-        fullWidth
-      >
-        <DialogTitle>
-          <Box sx={{ display: 'flex', alignItems: 'center' }}>
-            <InfoIcon sx={{ mr: 1 }} />
-            Camera System Status
-          </Box>
-        </DialogTitle>
-        <DialogContent>
-          {systemStatus ? (
-            <Grid container spacing={3}>
-              {/* System Health */}
-              <Grid item xs={12} md={6}>
-                <Typography variant="h6" gutterBottom>
-                  System Health
-                </Typography>
-                <List dense>
-                  <ListItem>
-                    <ListItemText
-                      primary="Overall Status"
-                      secondary={
-                        <Chip
-                          label={systemStatus.system_health?.healthy ? 'Healthy' : 'Issues Detected'}
-                          color={systemStatus.system_health?.healthy ? 'success' : 'error'}
-                          size="small"
-                        />
-                      }
-                    />
-                  </ListItem>
-                  <ListItem>
-                    <ListItemText
-                      primary="Storage Accessible"
-                      secondary={systemStatus.system_health?.storage_accessible ? 'Yes' : 'No'}
-                    />
-                  </ListItem>
-                  <ListItem>
-                    <ListItemText
-                      primary="Active Threads"
-                      secondary={`${systemStatus.system_health?.active_recording_threads || 0} / ${systemStatus.system_health?.total_cameras || 0}`}
-                    />
-                  </ListItem>
-                </List>
-              </Grid>
-
-              {/* Storage Info */}
-              <Grid item xs={12} md={6}>
-                <Typography variant="h6" gutterBottom>
-                  Storage Information
-                </Typography>
-                <List dense>
-                  <ListItem>
-                    <ListItemText
-                      primary="Free Space"
-                      secondary={`${systemStatus.storage_info?.free_gb || 0} GB`}
-                    />
-                  </ListItem>
-                  <ListItem>
-                    <ListItemText
-                      primary="Used Space"
-                      secondary={`${systemStatus.storage_info?.used_gb || 0} GB`}
-                    />
-                  </ListItem>
-                  <ListItem>
-                    <ListItemText
-                      primary="Usage"
-                      secondary={`${systemStatus.storage_info?.usage_percent || 0}%`}
-                    />
-                  </ListItem>
-                </List>
-              </Grid>
-
-              {/* Configuration */}
-              <Grid item xs={12}>
-                <Typography variant="h6" gutterBottom>
-                  Configuration
-                </Typography>
-                <Grid container spacing={2}>
-                  <Grid item xs={6} sm={3}>
-                    <Typography variant="body2" color="textSecondary">
-                      Max Cameras: {systemStatus.configuration?.max_cameras}
-                    </Typography>
-                  </Grid>
-                  <Grid item xs={6} sm={3}>
-                    <Typography variant="body2" color="textSecondary">
-                      Recording Duration: {systemStatus.configuration?.recording_duration_minutes}m
-                    </Typography>
-                  </Grid>
-                  <Grid item xs={6} sm={3}>
-                    <Typography variant="body2" color="textSecondary">
-                      Archive Duration: {systemStatus.configuration?.archive_duration_minutes}m
-                    </Typography>
-                  </Grid>
-                  <Grid item xs={6} sm={3}>
-                    <Typography variant="body2" color="textSecondary">
-                      Rolling Clips: {systemStatus.configuration?.rolling_clips_count}
-                    </Typography>
-                  </Grid>
-                </Grid>
-              </Grid>
-
-              {/* Paths */}
-              <Grid item xs={12}>
-                <Typography variant="h6" gutterBottom>
-                  Storage Paths
-                </Typography>
-                <List dense>
-                  <ListItem>
-                    <ListItemText
-                      primary="Video Base"
-                      secondary={systemStatus.paths?.video_base}
-                    />
-                  </ListItem>
-                  <ListItem>
-                    <ListItemText
-                      primary="Rolling Clips"
-                      secondary={systemStatus.paths?.rolling_clips}
-                    />
-                  </ListItem>
-                  <ListItem>
-                    <ListItemText
-                      primary="Experiments"
-                      secondary={systemStatus.paths?.experiments}
-                    />
-                  </ListItem>
-                </List>
-              </Grid>
-            </Grid>
-          ) : (
-            <Typography>No status information available</Typography>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setStatusDialogOpen(false)}>Close</Button>
-        </DialogActions>
-        </Dialog>
       </Container>
 
       <Dialog
@@ -1099,7 +646,7 @@ const CameraPage: React.FC = () => {
             </Typography>
             {mySession && (
               <Typography variant="body2" color="grey.300">
-                Session {mySession.session_id.substring(0, 8)} • Quality {mySession.quality_level}
+                Session {mySession.session_id.substring(0, 8)} • {mySession.websocket_state}
               </Typography>
             )}
           </Stack>

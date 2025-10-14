@@ -229,7 +229,14 @@ const VideoArchiveTab: React.FC<VideoArchiveTabProps> = ({
           </Button>
         </Box>
 
-        {experimentFolders.length === 0 ? (
+        {loading && experimentFolders.length === 0 ? (
+          <Box sx={{ textAlign: 'center', py: 4 }}>
+            <CircularProgress size={32} sx={{ mb: 2 }} />
+            <Typography variant="body2" color="textSecondary">
+              Loading recordings...
+            </Typography>
+          </Box>
+        ) : experimentFolders.length === 0 ? (
           <Box sx={{ textAlign: 'center', py: 4 }}>
             <VideoLibraryIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
             <Typography variant="h6" color="textSecondary" gutterBottom>
@@ -301,8 +308,23 @@ const FolderTree: React.FC<FolderTreeProps> = ({
               </ListItemIcon>
               <ListItemText
                 primary={
-                  <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-                    <Typography variant="subtitle1">{folder.folder_name}</Typography>
+                  <Stack
+                    direction={{ xs: 'column', sm: 'row' }}
+                    spacing={1}
+                    alignItems={{ xs: 'flex-start', sm: 'center' }}
+                    flexWrap="wrap"
+                    sx={{ width: '100%' }}
+                  >
+                    <Typography
+                      variant="subtitle1"
+                      sx={{
+                        wordBreak: 'break-word',
+                        overflowWrap: 'anywhere',
+                        maxWidth: '100%'
+                      }}
+                    >
+                      {folder.folder_name}
+                    </Typography>
                     <Chip
                       label={`${folder.video_count} videos`}
                       size="small"
@@ -383,8 +405,9 @@ const VideoListRow: React.FC<
       sx={{
         boxSizing: 'border-box',
         display: 'flex',
+        flexWrap: 'wrap',
         alignItems: 'center',
-        gap: 2,
+        gap: 1.5,
         py: 1,
         pr: 1.5,
         pl: 1,
@@ -393,11 +416,20 @@ const VideoListRow: React.FC<
         bgcolor: 'background.paper'
       }}
     >
-      <Box sx={{ flexGrow: 1 }}>
-        <Typography variant="body2" sx={{ fontWeight: 500 }}>
+      <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+        <Typography
+          variant="body2"
+          sx={{ fontWeight: 500, overflowWrap: 'anywhere' }}
+        >
           {video.filename}
         </Typography>
-        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+        <Stack
+          direction="row"
+          spacing={1}
+          alignItems="center"
+          flexWrap="wrap"
+          sx={{ color: 'text.secondary', fontSize: '0.75rem' }}
+        >
           <Typography variant="caption" color="text.secondary">
             {formatTimestamp(video.timestamp)}
           </Typography>
@@ -411,7 +443,11 @@ const VideoListRow: React.FC<
           )}
         </Stack>
       </Box>
-      <Stack direction="row" spacing={1}>
+      <Stack
+        direction="row"
+        spacing={1}
+        sx={{ flexShrink: 0 }}
+      >
         <Tooltip title="Download video">
           <IconButton onClick={() => onDownloadVideo(video.filename)} size="small">
             <DownloadIcon fontSize="small" />
