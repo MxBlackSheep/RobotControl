@@ -436,7 +436,7 @@ const DatabaseTable: React.FC<DatabaseTableProps> = ({ tableName, onError }) => 
 
       {/* Data Table */}
       <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minHeight: 0 }}>
-        <Paper sx={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+        <Paper sx={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: { xs: 320, md: 480 }, overflow: 'hidden' }}>
           {loading ? (
             <LoadingSpinner 
               variant="spinner" 
@@ -447,7 +447,7 @@ const DatabaseTable: React.FC<DatabaseTableProps> = ({ tableName, onError }) => 
             <TableContainer 
               sx={{ 
                 flex: 1, 
-                minHeight: 0,
+                minHeight: { xs: 240, md: 360 },
                 maxHeight: '100%',
                 overflowY: 'auto',
                 overflowX: 'auto'

@@ -6,6 +6,7 @@
 
 - Limited the database browser cards to responsive `maxHeight` values and contained overflow so table content scrolls inside the card instead of stretching past the viewport on mobile (`frontend/src/pages/DatabasePage.tsx`).
 - Reworked the table container to keep pagination anchored below the scroll area and moved filter editors into a responsive drawer so the data grid keeps its height even with multiple conditions (`frontend/src/components/DatabaseTable.tsx`).
+- Increased the responsive height allowances for the database cards and enforced larger minimum table heights so roughly 10 rows remain visible on desktop and more rows show on mobile even when chips are present (`frontend/src/pages/DatabasePage.tsx`, `frontend/src/components/DatabaseTable.tsx`).
 
 ## 2025-10-14 Branding Refresh
 

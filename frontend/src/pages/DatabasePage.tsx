@@ -210,10 +210,10 @@ const DatabasePage: React.FC = () => {
               sx={{
                 display: 'flex',
                 flexDirection: 'column',
-                maxHeight: { xs: 'calc(100vh - 200px)', md: 'calc(100vh - 220px)' },
+                maxHeight: { xs: 'calc(100vh - 120px)', md: 'none' },
                 minHeight: { xs: 360, md: 520 },
                 mb: { xs: 2, md: 0 },
-                overflow: 'hidden'
+                overflow: { xs: 'hidden', md: 'visible' }
               }}
             >
             <CardContent sx={{ p: { xs: 2, sm: 3 }, display: 'flex', flexDirection: 'column', flexGrow: 1, minHeight: 0 }}>
@@ -313,9 +313,9 @@ const DatabasePage: React.FC = () => {
                 sx={{
                   display: 'flex',
                   flexDirection: 'column',
-                  maxHeight: { xs: 'calc(100vh - 200px)', md: 'calc(100vh - 220px)' },
+                  maxHeight: { xs: 'calc(100vh - 120px)', md: 'none' },
                   minHeight: { xs: 360, md: 540 },
-                  overflow: 'hidden'
+                  overflow: { xs: 'hidden', md: 'visible' }
                 }}
               >
                 <CardContent sx={{ flexGrow: 1, p: { xs: 1, sm: 2 }, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
@@ -346,9 +346,9 @@ const DatabasePage: React.FC = () => {
                   flexDirection: 'column',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  maxHeight: { xs: 'calc(100vh - 200px)', md: 'calc(100vh - 220px)' },
+                  maxHeight: { xs: 'calc(100vh - 120px)', md: 'none' },
                   minHeight: { xs: 360, md: 540 },
-                  overflow: 'hidden'
+                  overflow: { xs: 'hidden', md: 'visible' }
                 }}
               >
                 <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
