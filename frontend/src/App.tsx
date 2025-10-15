@@ -42,6 +42,12 @@ const AppContent: React.FC = () => {
   const [mobileDrawerOpen, setMobileDrawerOpen] = React.useState(false);
   const [passwordDialogOpen, setPasswordDialogOpen] = React.useState(false);
   const isMobile = useMediaQuery(theme.breakpoints.down('md')); // < 768px
+  const roleLabel = React.useMemo(() => {
+    if (!user?.role) {
+      return '';
+    }
+    return user.role.charAt(0).toUpperCase() + user.role.slice(1);
+  }, [user?.role]);
 
   // Keyboard navigation and shortcuts
   useKeyboardNavigation({ enabled: isAuthenticated });
@@ -106,13 +112,27 @@ const AppContent: React.FC = () => {
       <MaintenanceDialog />
       
       <AppBar position="static">
-        <Toolbar>
+        <Toolbar
+          sx={{
+            flexWrap: { xs: 'wrap', md: 'nowrap' },
+            alignItems: { xs: 'flex-start', sm: 'center' },
+            gap: { xs: 1, md: 2 },
+            py: { xs: 1, md: 0 },
+          }}
+        >
           {/* Mobile Menu Button - only visible on mobile */}
           <MobileMenuButton 
             onClick={() => setMobileDrawerOpen(true)} 
           />
           
-          <Typography variant="h6" sx={{ flexGrow: 1 }}>
+          <Typography
+            variant="h6"
+            sx={{
+              flexGrow: 1,
+              minWidth: { xs: '100%', sm: 'auto' },
+              mb: { xs: 0.5, sm: 0 },
+            }}
+          >
             RobotControl
           </Typography>
           
@@ -120,43 +140,54 @@ const AppContent: React.FC = () => {
           <Typography 
             variant="body2" 
             sx={{ 
-              mr: 2,
+              mr: { sm: 2 },
               display: { xs: 'none', sm: 'block' }
             }}
           >
-            Welcome, {user?.username} ({user?.role})
+            {user ? `Welcome, ${user.username}${roleLabel ? ` (${roleLabel})` : ''}` : ''}
           </Typography>
           
           {/* Role indicator for mobile */}
           <Typography 
             variant="body2" 
             sx={{ 
-              mr: 2,
+              mr: { xs: 1, sm: 0 },
               display: { xs: 'block', sm: 'none' }
             }}
           >
-            {user?.role}
+            {user ? `${user.username}${roleLabel ? ` (${roleLabel})` : ''}` : ''}
           </Typography>
           
-          <Button 
-            color="inherit" 
-            onClick={() => setPasswordDialogOpen(true)}
+          <Box
             sx={{
-              minHeight: { xs: 44, sm: 36 },
-              mr: 1
+              display: 'flex',
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 1,
+              flexWrap: { xs: 'wrap', sm: 'nowrap' },
+              width: { xs: '100%', sm: 'auto' },
+              justifyContent: { xs: 'flex-end', sm: 'flex-start' },
             }}
           >
-            Change Password
-          </Button>
-          <Button 
-            color="inherit" 
-            onClick={logout}
-            sx={{
-              minHeight: { xs: 44, sm: 36 } // Touch-friendly height
-            }}
-          >
-            Logout
-          </Button>
+            <Button 
+              color="inherit" 
+              onClick={() => setPasswordDialogOpen(true)}
+              sx={{
+                minHeight: { xs: 44, sm: 36 }
+              }}
+            >
+              Change Password
+            </Button>
+            <Button 
+              color="inherit" 
+              onClick={logout}
+              sx={{
+                minHeight: { xs: 44, sm: 36 }
+              }}
+            >
+              Logout
+            </Button>
+          </Box>
         </Toolbar>
       </AppBar>
       

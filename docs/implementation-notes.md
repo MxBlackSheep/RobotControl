@@ -2,6 +2,11 @@
 
 ---
 
+## 2025-10-15 Database Browser Layout Tuning
+
+- Limited the database browser cards to responsive `maxHeight` values and contained overflow so table content scrolls inside the card instead of stretching past the viewport on mobile (`frontend/src/pages/DatabasePage.tsx`).
+- Reworked the table container to keep pagination anchored below the scroll area and moved filter editors into a responsive drawer so the data grid keeps its height even with multiple conditions (`frontend/src/components/DatabaseTable.tsx`).
+
 ## 2025-10-14 Branding Refresh
 
 - Renamed all user-facing strings, documentation, environment defaults, and packaging assets from “PyRobot” to “RobotControl” (`README.md`, `backend/main.py`, `frontend/src/**/*`, `build_scripts/*`, `RobotControl.spec`, etc.).
@@ -9,6 +14,8 @@
 - Regenerated packaging spec as `RobotControl.spec` with relative project paths so branding stays consistent without hard-coded directories.
 - Cleaned up scheduling/monitoring UI copy, removed the discovery auto-scan, limited folder imports to localhost, trimmed summary cards, and simplified system-status widgets (`frontend/src/pages/SchedulingPage.tsx`, `frontend/src/components/scheduling/FolderImportDialog.tsx`, `frontend/src/pages/MonitoringPage.tsx`, `frontend/src/components/MonitoringDashboard.tsx`, `frontend/src/App.tsx`).
 - Formatted archive video labels to display friendly timestamps while keeping actions accessible on mobile (`frontend/src/components/camera/VideoArchiveTab.tsx`).
+- Refined the top navigation bar layout so the title, user info, and buttons wrap cleanly on small screens (`frontend/src/App.tsx`).
+- Widened the database browser layout so the table list keeps its refresh button and the data card/pagination stay fully visible even with multiple filters (`frontend/src/pages/DatabasePage.tsx`, `frontend/src/components/DatabaseTable.tsx`).
 
 ## 2025-10-14 Camera Page Streamlining
 

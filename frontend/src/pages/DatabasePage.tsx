@@ -206,12 +206,17 @@ const DatabasePage: React.FC = () => {
         <Grid container spacing={{ xs: 1, sm: 2 }}>
           {/* Tables List */}
           <Grid item xs={12} md={3} lg={2}>
-            <Card sx={{ 
-              height: { xs: 'auto', md: 'calc(100vh - 240px)' }, 
-              minHeight: { xs: 'auto', md: '500px' },
-              mb: { xs: 2, md: 0 }
-            }}>
-            <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
+            <Card
+              sx={{
+                display: 'flex',
+                flexDirection: 'column',
+                maxHeight: { xs: 'calc(100vh - 200px)', md: 'calc(100vh - 220px)' },
+                minHeight: { xs: 360, md: 520 },
+                mb: { xs: 2, md: 0 },
+                overflow: 'hidden'
+              }}
+            >
+            <CardContent sx={{ p: { xs: 2, sm: 3 }, display: 'flex', flexDirection: 'column', flexGrow: 1, minHeight: 0 }}>
               <Typography 
                 variant="h6" 
                 gutterBottom
@@ -225,12 +230,13 @@ const DatabasePage: React.FC = () => {
                 )}
               </Typography>
               
-              <List 
-                dense 
-                sx={{ 
-                  maxHeight: { xs: '300px', md: 'calc(100vh - 350px)' }, 
-                  minHeight: { xs: '200px', md: '300px' }, 
-                  overflow: 'auto' 
+              <List
+                dense
+                sx={{
+                  flexGrow: 1,
+                  minHeight: { xs: 200, md: 300 },
+                  overflow: 'auto',
+                  pr: 0.5
                 }}
               >
                 {tables.map((table) => (
@@ -284,7 +290,7 @@ const DatabasePage: React.FC = () => {
                   No tables found
                 </Typography>
               )}
-              
+
               <Box sx={{ mt: 2, pt: 2, borderTop: 1, borderColor: 'divider' }}>
                 <Button
                   fullWidth
@@ -303,12 +309,16 @@ const DatabasePage: React.FC = () => {
           {/* Table Data */}
           <Grid item xs={12} md={9} lg={10}>
             {selectedTable ? (
-              <Card sx={{ 
-                height: { xs: 'auto', md: 'calc(100vh - 240px)' }, 
-                minHeight: { xs: 'auto', md: '500px' }, 
-                overflow: 'hidden' 
-              }}>
-                <CardContent sx={{ height: '100%', p: { xs: 1, sm: 2 }, display: 'flex', flexDirection: 'column' }}>
+              <Card
+                sx={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  maxHeight: { xs: 'calc(100vh - 200px)', md: 'calc(100vh - 220px)' },
+                  minHeight: { xs: 360, md: 540 },
+                  overflow: 'hidden'
+                }}
+              >
+                <CardContent sx={{ flexGrow: 1, p: { xs: 1, sm: 2 }, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
                   <Typography 
                     variant="h6" 
                     gutterBottom 
@@ -321,7 +331,7 @@ const DatabasePage: React.FC = () => {
                     <TableChartIcon sx={{ mr: 1, fontSize: { xs: 18, sm: 20 } }} />
                     {selectedTable}
                   </Typography>
-                  <Box sx={{ flex: 1, minHeight: 0 }}>
+                  <Box sx={{ flexGrow: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                     <DatabaseTable
                       tableName={selectedTable}
                       onError={handleError}
@@ -330,10 +340,17 @@ const DatabasePage: React.FC = () => {
                 </CardContent>
               </Card>
             ) : (
-              <Card sx={{ 
-                height: { xs: 'auto', md: 'calc(100vh - 240px)' }, 
-                minHeight: { xs: '300px', md: '500px' } 
-              }}>
+              <Card
+                sx={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  maxHeight: { xs: 'calc(100vh - 200px)', md: 'calc(100vh - 220px)' },
+                  minHeight: { xs: 360, md: 540 },
+                  overflow: 'hidden'
+                }}
+              >
                 <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
                   <Box sx={{ textAlign: 'center', py: { xs: 4, sm: 8 } }}>
                     <TableChartIcon sx={{ 
@@ -349,7 +366,7 @@ const DatabasePage: React.FC = () => {
                       Select a table to view its data
                     </Typography>
                     <Typography variant="body2" color="textSecondary">
-                      Choose from the list of available tables {window.innerWidth < 768 ? 'above' : 'on the left'} to browse data
+                      Choose from the list of available tables {isSmallScreen ? 'above' : 'on the left'} to browse data
                     </Typography>
                   </Box>
                 </CardContent>

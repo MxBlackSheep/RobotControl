@@ -32,8 +32,11 @@ import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
 import DialogActions from '@mui/material/DialogActions';
 import Typography from '@mui/material/Typography';
+import Drawer from '@mui/material/Drawer';
+import Divider from '@mui/material/Divider';
+import useTheme from '@mui/material/styles/useTheme';
+import useMediaQuery from '@mui/material/useMediaQuery';
 import LoadingSpinner from './LoadingSpinner';
-import ErrorAlert from './ErrorAlert';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import Grid from '@mui/material/Grid';
@@ -49,9 +52,10 @@ import {
   Refresh as RefreshIcon,
   Download as DownloadIcon,
   FilterList as FilterIcon,
-  Visibility as ViewIcon,
   Sort as SortIcon,
-  Clear as ClearIcon
+  Clear as ClearIcon,
+  Close as CloseIcon,
+  Add as AddIcon
 } from '@mui/icons-material';
 import { databaseAPI } from '../services/api';
 import { useModalFocus } from '../hooks/useModalFocus';
@@ -87,7 +91,10 @@ const DatabaseTable: React.FC<DatabaseTableProps> = ({ tableName, onError }) => 
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [selectedCell, setSelectedCell] = useState<any>(null);
   const [exportMenuAnchor, setExportMenuAnchor] = useState<null | HTMLElement>(null);
-  const [filterMenuAnchor, setFilterMenuAnchor] = useState<null | HTMLElement>(null);
+  const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
+
+  const theme = useTheme();
+  const isSmallScreen = useMediaQuery(theme.breakpoints.down('sm'));
 
   // Add modal focus management for cell value dialog
   const { modalRef: cellDialogRef } = useModalFocus({
@@ -170,8 +177,8 @@ const DatabaseTable: React.FC<DatabaseTableProps> = ({ tableName, onError }) => 
     setSearchTerm('');
     setSortColumn('');
     setSortDirection('asc');
-    setFilterMenuAnchor(null);
     setExportMenuAnchor(null);
+    setFilterDrawerOpen(false);
   }, [tableName]);
   // Effects
   useEffect(() => {
@@ -211,9 +218,12 @@ const DatabaseTable: React.FC<DatabaseTableProps> = ({ tableName, onError }) => 
     setSelectedCell(value);
   };
 
-  const handleAddFilter = (column: string) => {
-    setFilters([...filters, { column, value: '', operator: 'contains' }]);
-    setFilterMenuAnchor(null);
+  const handleAddFilter = (column?: string) => {
+    const targetColumn = column ?? data?.columns?.[0];
+    if (!targetColumn) {
+      return;
+    }
+    setFilters([...filters, { column: targetColumn, value: '', operator: 'contains' }]);
   };
 
   const handleUpdateFilter = (index: number, field: keyof ColumnFilter, value: string) => {
@@ -322,9 +332,9 @@ const DatabaseTable: React.FC<DatabaseTableProps> = ({ tableName, onError }) => 
   }, [searchTerm, filters, sortColumn]);
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       {/* Controls Bar */}
-      <Card sx={{ mb: 2, flexShrink: 0 }}>
+      <Card sx={{ mb: 2, flexShrink: 0, overflow: 'visible' }}>
         <CardContent>
           <Grid container spacing={2} alignItems="center">
             {/* Search */}
@@ -368,10 +378,11 @@ const DatabaseTable: React.FC<DatabaseTableProps> = ({ tableName, onError }) => 
                   </IconButton>
                 </Tooltip>
                 
-                <Tooltip title="Add Filter">
+                <Tooltip title="Manage Filters">
                   <IconButton 
-                    onClick={(e) => setFilterMenuAnchor(e.currentTarget)}
-                    disabled={!data?.columns}
+                    onClick={() => setFilterDrawerOpen(true)}
+                    disabled={!data?.columns?.length}
+                    aria-label="Open filters panel"
                   >
                     <FilterIcon />
                   </IconButton>
@@ -420,78 +431,25 @@ const DatabaseTable: React.FC<DatabaseTableProps> = ({ tableName, onError }) => 
             </Box>
           )}
 
-          {/* Filter Controls */}
-          {filters.map((filter, index) => (
-            <Grid container spacing={2} key={index} sx={{ mt: 1 }}>
-              <Grid item xs={3}>
-                <FormControl fullWidth size="small">
-                  <InputLabel>Column</InputLabel>
-                  <Select
-                    value={filter.column}
-                    onChange={(e) => handleUpdateFilter(index, 'column', e.target.value)}
-                    input={<OutlinedInput label="Column" />}
-                  >
-                    {data?.columns.map(col => (
-                      <MenuItem key={col} value={col}>{col}</MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-              <Grid item xs={3}>
-                <FormControl fullWidth size="small">
-                  <InputLabel>Operator</InputLabel>
-                  <Select
-                    value={filter.operator}
-                    onChange={(e) => handleUpdateFilter(index, 'operator', e.target.value)}
-                    input={<OutlinedInput label="Operator" />}
-                  >
-                    <MenuItem value="contains">Contains</MenuItem>
-                    <MenuItem value="equals">Equals</MenuItem>
-                    <MenuItem value="starts_with">Starts With</MenuItem>
-                    <MenuItem value="ends_with">Ends With</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
-              <Grid item xs={4}>
-                <TextField
-                  fullWidth
-                  size="small"
-                  label="Value"
-                  value={filter.value}
-                  onChange={(e) => handleUpdateFilter(index, 'value', e.target.value)}
-                />
-              </Grid>
-              <Grid item xs={2}>
-                <Button
-                  fullWidth
-                  size="small"
-                  color="error"
-                  onClick={() => handleRemoveFilter(index)}
-                >
-                  Remove
-                </Button>
-              </Grid>
-            </Grid>
-          ))}
         </CardContent>
       </Card>
 
       {/* Data Table */}
-      <Paper sx={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-        {loading ? (
-          <LoadingSpinner 
-            variant="spinner" 
-            message="Loading table data..." 
-            minHeight={200}
-          />
-        ) : data ? (
-          <>
+      <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minHeight: 0 }}>
+        <Paper sx={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+          {loading ? (
+            <LoadingSpinner 
+              variant="spinner" 
+              message="Loading table data..." 
+              minHeight={200}
+            />
+          ) : data ? (
             <TableContainer 
               sx={{ 
                 flex: 1, 
-                minHeight: 300,
-                maxHeight: { xs: 'none', md: 'calc(100vh - 380px)' },
-                overflowY: { xs: 'visible', md: 'auto' },
+                minHeight: 0,
+                maxHeight: '100%',
+                overflowY: 'auto',
                 overflowX: 'auto'
               }}
               role="region"
@@ -563,8 +521,17 @@ const DatabaseTable: React.FC<DatabaseTableProps> = ({ tableName, onError }) => 
                 </TableBody>
               </Table>
             </TableContainer>
+          ) : (
+            <Box sx={{ textAlign: 'center', py: 4 }}>
+              <Typography color="textSecondary">
+                No data available
+              </Typography>
+            </Box>
+          )}
+        </Paper>
 
-            {/* Pagination */}
+        {!loading && data && (
+          <Box sx={{ flexShrink: 0, borderTop: 1, borderColor: 'divider', bgcolor: 'background.paper' }}>
             <TablePagination
               component="div"
               count={data.total_rows}
@@ -577,48 +544,143 @@ const DatabaseTable: React.FC<DatabaseTableProps> = ({ tableName, onError }) => 
               showLastButton
               sx={{
                 '.MuiTablePagination-toolbar': {
-                  flexWrap: { xs: 'wrap', sm: 'nowrap' },
+                  flexWrap: 'wrap',
                   rowGap: 1.5,
-                  justifyContent: { xs: 'center', sm: 'space-between' },
+                  columnGap: { xs: 1, sm: 2 },
+                  justifyContent: { xs: 'center', md: 'space-between' },
                   px: { xs: 1, sm: 2 }
                 },
                 '.MuiTablePagination-selectLabel, .MuiTablePagination-displayedRows': {
                   fontSize: { xs: '0.85rem', sm: '0.9rem' }
                 },
                 '.MuiTablePagination-selectRoot': {
-                  marginRight: { xs: 0, sm: 3 }
+                  marginRight: { xs: 0, md: 3 }
                 },
                 '.MuiInputBase-root': {
                   minWidth: 120,
                   fontSize: { xs: '0.9rem', sm: '1rem' }
                 },
                 '.MuiTablePagination-actions': {
-                  marginLeft: { xs: 0, sm: 1 }
+                  marginLeft: { xs: 0, md: 1 }
                 }
               }}
             />
-          </>
-        ) : (
-          <Box sx={{ textAlign: 'center', py: 4 }}>
-            <Typography color="textSecondary">
-              No data available
-            </Typography>
           </Box>
         )}
-      </Paper>
+      </Box>
 
-      {/* Filter Menu */}
-      <Menu
-        anchorEl={filterMenuAnchor}
-        open={Boolean(filterMenuAnchor)}
-        onClose={() => setFilterMenuAnchor(null)}
+      <Drawer
+        anchor={isSmallScreen ? 'bottom' : 'right'}
+        open={filterDrawerOpen}
+        onClose={() => setFilterDrawerOpen(false)}
+        ModalProps={{ keepMounted: true }}
+        PaperProps={{
+          sx: {
+            width: isSmallScreen ? '100%' : 360,
+            maxWidth: '100%',
+            height: isSmallScreen ? '60vh' : '100%',
+            display: 'flex',
+            flexDirection: 'column'
+          }
+        }}
       >
-        {data?.columns.map(column => (
-          <MenuItem key={column} onClick={() => handleAddFilter(column)}>
-            Add filter for {column}
-          </MenuItem>
-        ))}
-      </Menu>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 2 }}>
+          <Typography variant="h6">
+            Filters
+          </Typography>
+          <IconButton onClick={() => setFilterDrawerOpen(false)} aria-label="Close filters panel">
+            <CloseIcon />
+          </IconButton>
+        </Box>
+        <Divider />
+        <Box sx={{ flexGrow: 1, overflowY: 'auto', p: 2, pt: 1 }}>
+          {filters.length === 0 ? (
+            <Typography variant="body2" color="textSecondary">
+              No filters applied. Use "Add condition" to create one.
+            </Typography>
+          ) : (
+            filters.map((filter, index) => (
+              <Grid container spacing={1.5} key={index} sx={{ mb: 2, alignItems: 'flex-start' }}>
+                <Grid item xs={12} sm={12}>
+                  <Typography variant="subtitle2" color="textSecondary">
+                    Condition {index + 1}
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>Column</InputLabel>
+                    <Select
+                      value={filter.column}
+                      onChange={(e) => handleUpdateFilter(index, 'column', e.target.value)}
+                      input={<OutlinedInput label="Column" />}
+                    >
+                      {data?.columns.map(col => (
+                        <MenuItem key={col} value={col}>{col}</MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>Operator</InputLabel>
+                    <Select
+                      value={filter.operator}
+                      onChange={(e) => handleUpdateFilter(index, 'operator', e.target.value)}
+                      input={<OutlinedInput label="Operator" />}
+                    >
+                      <MenuItem value="contains">Contains</MenuItem>
+                      <MenuItem value="equals">Equals</MenuItem>
+                      <MenuItem value="starts_with">Starts With</MenuItem>
+                      <MenuItem value="ends_with">Ends With</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12}>
+                  <TextField
+                    fullWidth
+                    size="small"
+                    label="Value"
+                    value={filter.value}
+                    onChange={(e) => handleUpdateFilter(index, 'value', e.target.value)}
+                  />
+                </Grid>
+                <Grid item xs={12}>
+                  <Button
+                    size="small"
+                    color="error"
+                    onClick={() => handleRemoveFilter(index)}
+                    sx={{ justifyContent: 'flex-start' }}
+                  >
+                    Remove condition
+                  </Button>
+                </Grid>
+              </Grid>
+            ))
+          )}
+        </Box>
+        <Divider />
+        <Box sx={{ p: 2, display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+          <Button
+            variant="contained"
+            size="small"
+            startIcon={<AddIcon />}
+            onClick={() => handleAddFilter()}
+            disabled={!data?.columns?.length}
+          >
+            Add condition
+          </Button>
+          {filters.length > 0 && (
+            <Button
+              size="small"
+              color="error"
+              startIcon={<ClearIcon />}
+              onClick={handleClearFilters}
+            >
+              Clear all
+            </Button>
+          )}
+        </Box>
+      </Drawer>
 
       {/* Export Menu */}
       <Menu
