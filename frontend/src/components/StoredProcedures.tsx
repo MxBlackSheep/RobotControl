@@ -153,11 +153,15 @@ const StoredProcedures: React.FC<StoredProceduresProps> = ({ onError }) => {
 
   if (loading) {
     return (
-      <LoadingSpinner
-        variant="fullscreen"
-        message="Loading stored procedures and functions..."
-        size="large"
-      />
+      <Card sx={{ minHeight: 320, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <CardContent>
+          <LoadingSpinner
+            variant="spinner"
+            message="Loading stored procedures and functions..."
+            size="large"
+          />
+        </CardContent>
+      </Card>
     );
   }
 
