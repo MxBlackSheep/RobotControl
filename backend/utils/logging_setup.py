@@ -14,7 +14,10 @@ from datetime import datetime
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Mapping, Optional
+from typing import Dict, Iterable, Mapping, Optional
+
+
+logger = logging.getLogger(__name__)
 
 
 class ImmediateFlushStreamHandler(logging.StreamHandler):
@@ -41,10 +44,18 @@ class ImmediateGZipTimedRotatingFileHandler(logging.handlers.TimedRotatingFileHa
         *,
         daily_alias: bool = True,
         alias_format: str = "%Y-%m-%d",
+        history_dir: Optional[Path] = None,
     ) -> None:
         self._alias_enabled = daily_alias
         self._alias_format = alias_format
         self.alias_path: Optional[Path] = None
+        self._history_dir = Path(history_dir) if history_dir else None
+        if self._history_dir:
+            try:
+                self._history_dir.mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                logger.warning("Unable to create log history directory %s: %s", self._history_dir, exc)
+                self._history_dir = None
         super().__init__(
             filename,
             when=when,
@@ -70,7 +81,9 @@ class ImmediateGZipTimedRotatingFileHandler(logging.handlers.TimedRotatingFileHa
         self.suffix = "%Y-%m-%d"
 
         def _rotator(source: str, dest: str) -> None:
-            with open(source, "rb") as src, gzip.open(dest, "wb") as dst:
+            dest_path = Path(dest)
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(source, "rb") as src, gzip.open(dest_path, "wb") as dst:
                 shutil.copyfileobj(src, dst)
             os.remove(source)
 
@@ -87,9 +100,10 @@ class ImmediateGZipTimedRotatingFileHandler(logging.handlers.TimedRotatingFileHa
         """Rename rotated files to include gzip suffix and align with alias naming."""
         base_path = Path(self.baseFilename)
         rotated = Path(name)
+        target_dir = self._history_dir or base_path.parent
         timestamp = rotated.name[len(base_path.name) + 1 :] if rotated.name.startswith(base_path.name + ".") else rotated.suffix.lstrip('.')
         alias_friendly = f"{base_path.stem}_{timestamp}{base_path.suffix}" if timestamp else rotated.name
-        final_path = rotated.parent / alias_friendly
+        final_path = target_dir / alias_friendly
         if final_path.suffix != base_path.suffix:
             final_path = final_path.with_suffix(base_path.suffix)
         compressed = final_path.with_suffix(final_path.suffix + ".gz")
@@ -247,6 +261,8 @@ def setup_logging(
     console_level: Optional[int] = None,
 ) -> LoggingHandlers:
     logs_dir.mkdir(parents=True, exist_ok=True)
+    history_dir = logs_dir / "history"
+    history_dir.mkdir(parents=True, exist_ok=True)
 
     console_handler = ImmediateFlushStreamHandler()
     console_handler_level = console_level if console_level is not None else log_level
@@ -264,6 +280,7 @@ def setup_logging(
         when="midnight",
         backupCount=max(retention_days, 1),
         encoding="utf-8",
+        history_dir=history_dir,
     )
     app_handler.setLevel(log_level)
     app_handler.setFormatter(formatter)
@@ -273,6 +290,7 @@ def setup_logging(
         when="midnight",
         backupCount=max(error_retention_days, 1),
         encoding="utf-8",
+        history_dir=history_dir,
     )
     error_handler.setLevel(logging.WARNING)
     error_handler.setFormatter(formatter)
@@ -286,11 +304,59 @@ def setup_logging(
 
     logging.captureWarnings(True)
 
+    keep_paths = {
+        Path(app_handler.baseFilename),
+        Path(error_handler.baseFilename),
+    }
+    for handler in (app_handler, error_handler):
+        alias_path = getattr(handler, "alias_path", None)
+        if alias_path:
+            keep_paths.add(Path(alias_path))
+    _relocate_historical_logs(logs_dir, history_dir, keep_paths)
+
     return LoggingHandlers(
         console=console_handler,
         application=app_handler,
         error=error_handler,
     )
+
+
+def _relocate_historical_logs(logs_dir: Path, history_dir: Path, keep: Iterable[Path]) -> None:
+    """Move historical log artifacts into the history directory so the root stays tidy."""
+    try:
+        keep_resolved = {path.resolve() for path in keep if path}
+    except Exception:
+        keep_resolved = {path for path in keep if path}
+
+    dated_pattern = re.compile(r".*_\\d{4}-\\d{2}-\\d{2}\\.log(?:\\.gz)?$", re.IGNORECASE)
+
+    for entry in logs_dir.iterdir():
+        if not entry.is_file():
+            continue
+        try:
+            resolved = entry.resolve()
+        except OSError:
+            resolved = entry
+        if resolved in keep_resolved:
+            continue
+
+        name = entry.name
+        is_dated_log = bool(dated_pattern.match(name))
+        is_gzip_archive = name.endswith(".log.gz")
+        if not (is_dated_log or is_gzip_archive):
+            continue
+
+        destination = history_dir / name
+        suffixes = "".join(entry.suffixes)
+        counter = 1
+        while destination.exists():
+            destination = history_dir / f"{entry.stem}-{counter}{suffixes}"
+            counter += 1
+
+        try:
+            entry.replace(destination)
+        except Exception as exc:
+            logger.warning("Failed to move historical log %s to %s: %s", entry, destination, exc)
 
 
 def apply_rate_limit_filters(
