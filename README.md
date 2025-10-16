@@ -38,7 +38,7 @@ Join different system utilities and provide unified control surface for the Shou
 ## Compiled Release
 
 This repository provides compiled binary release that could be run directly on target machine. To fully utilize the features implemented, please make sure:
-- ODBC driver has been installed on the target machine [Microsoft ODBC Driver](https://learn.microsoft.com/en-us/sql/connect/odbc/download-odbc-driver-for-sql-server?view=sql-server-ver17)
+- ODBC driver has been installed on the target machine ([Microsoft ODBC Driver])(https://learn.microsoft.com/en-us/sql/connect/odbc/download-odbc-driver-for-sql-server?view=sql-server-ver17)
 - [optional]: To use camera service please make sure at least one camera is connected to the PC.
 
 ## Local Usage
