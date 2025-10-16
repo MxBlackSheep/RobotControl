@@ -2,6 +2,17 @@
 
 ---
 
+## 2025-10-16 Tray Menu Simplification & Log History Relocation
+
+- Replaced the Windows tray menu with the three requested actions so the icon only exposes `Open in Browser`, `Show Data`, and `Terminate` (`backend/utils/system_tray.py`); terminate still runs the graceful stop callback before forcing the process down.
+- Logging setup now writes rotated archives into `data/logs/history`, keeps only the active-day aliases in `data/logs`, and moves existing dated `.log`/`.log.gz` files into the history folder during startup (`backend/utils/logging_setup.py`).
+
+## 2025-10-15 README Completion
+
+- Filled the missing sections in `README.md` to align with project conventions: completed Implemented Modules for SQL Server, Camera, and Scheduling; and added a concise Local Development guide.
+- Documented key API groups and data paths, included an example `backend/.env` snippet, and called out the Microsoft ODBC driver requirement for SQL Server connectivity.
+- Kept existing highlights, repository layout, and Windows packaging steps; no code changes required.
+
 ## 2025-10-15 Database Browser Layout Tuning
 
 - Limited the database browser cards to responsive `maxHeight` values and contained overflow so table content scrolls inside the card instead of stretching past the viewport on mobile (`frontend/src/pages/DatabasePage.tsx`).
