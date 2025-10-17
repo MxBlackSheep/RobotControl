@@ -1157,12 +1157,21 @@ async def delete_schedule(
     """
     actor = current_user.get("username", "unknown")
     try:
-        # Check user permissions
-        if current_user.get("role") != "admin":
-            raise HTTPException(status_code=403, detail="Admin role required")
-        
         scheduler, db_mgr, queue_mgr, proc_mon = get_services()
-        
+
+        existing_schedule = db_mgr.get_schedule_by_id(schedule_id)
+        if not existing_schedule:
+            raise HTTPException(status_code=404, detail="Schedule not found")
+
+        is_admin = current_user.get("role") == "admin"
+        is_local_owner = (
+            connection.is_local
+            and existing_schedule.created_by
+            and existing_schedule.created_by == current_user.get("username")
+        )
+        if not (is_admin or is_local_owner):
+            raise HTTPException(status_code=403, detail="Admin role required")
+
         # Check concurrency against authoritative record
         expected_token = if_unmodified_since
         authoritative_schedule = _load_current_schedule(schedule_id, db_mgr, expected_token)

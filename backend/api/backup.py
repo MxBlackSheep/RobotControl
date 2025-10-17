@@ -19,9 +19,9 @@ from datetime import datetime
 import logging
 import time
 
-from backend.services.auth import get_current_admin_user
+from backend.services.auth import get_current_admin_user, get_current_user
 from backend.services.backup import get_backup_service, BackupInfo, BackupResult, RestoreResult, BackupDetails
-from backend.api.dependencies import ConnectionContext, require_local_access
+from backend.api.dependencies import ConnectionContext, require_local_access, get_connection_context
 from backend.utils.audit import log_action
 
 # Import standardized response formatter
@@ -34,6 +34,19 @@ from backend.api.response_formatter import (
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _ensure_backup_permission(current_user: Dict[str, Any], connection: ConnectionContext) -> None:
+    """Allow admins or local users to perform backup operations."""
+    role = current_user.get("role")
+    if role == "admin":
+        return
+    if connection.is_local and role in {"user", "admin"}:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Admin role required",
+    )
 
 # Request/Response Models
 class CreateBackupRequest(BaseModel):
@@ -120,7 +133,7 @@ def create_api_response(success: bool, data: Any = None, message: str = "", meta
 @router.post("/create", response_model=Dict[str, Any])
 async def create_backup(
     request: CreateBackupRequest,
-    current_user: dict = Depends(get_current_admin_user),
+    current_user: dict = Depends(get_current_user),
     connection: ConnectionContext = Depends(require_local_access),
 ):
     """
@@ -146,7 +159,7 @@ async def create_backup(
         metadata = ResponseMetadata()
         metadata.set_execution_time(start_time)
         metadata.add_metadata("operation", "create_backup")
-        metadata.add_metadata("admin_user", current_user['username'])
+        metadata.add_metadata("requested_by", current_user['username'])
         metadata.add_metadata("description", request.description)
         
         if result.success:
@@ -203,7 +216,10 @@ async def create_backup(
 
 
 @router.get("/list", response_model=Dict[str, Any])
-async def list_backups(current_user: dict = Depends(get_current_admin_user)):
+async def list_backups(
+    current_user: dict = Depends(get_current_user),
+    connection: ConnectionContext = Depends(get_connection_context),
+):
     """
     Get list of all available backups
     
@@ -216,6 +232,7 @@ async def list_backups(current_user: dict = Depends(get_current_admin_user)):
     start_time = time.time()
     
     try:
+        _ensure_backup_permission(current_user, connection)
         logger.info(f"Listing backups requested by user: {current_user['username']}")
         
         backup_service = get_backup_service()
@@ -230,7 +247,7 @@ async def list_backups(current_user: dict = Depends(get_current_admin_user)):
         metadata = ResponseMetadata()
         metadata.set_execution_time(start_time)
         metadata.add_metadata("operation", "list_backups")
-        metadata.add_metadata("admin_user", current_user['username'])
+        metadata.add_metadata("requested_by", current_user['username'])
         metadata.add_metadata("backup_count", len(backups))
         
         return ResponseFormatter.success(
@@ -313,7 +330,7 @@ class RestoreBackupRequest(BaseModel):
 @router.post("/restore", response_model=Dict[str, Any])
 async def restore_backup(
     request: RestoreBackupRequest,
-    current_user: dict = Depends(get_current_admin_user),
+    current_user: dict = Depends(get_current_user),
     connection: ConnectionContext = Depends(require_local_access),
 ):
     """
@@ -343,6 +360,13 @@ async def restore_backup(
                 detail="Provide either filename or file_path, not both"
             )
         restore_source = request.filename or request.file_path
+        is_admin = current_user.get("role") == "admin"
+        is_local_user = connection.is_local and current_user.get("role") in {"user", "admin"}
+        if not (is_admin or is_local_user):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Admin role required"
+            )
         logger.warning(f"Database restore from {restore_source} requested by user: {current_user['username']}")
         
         backup_service = get_backup_service()
