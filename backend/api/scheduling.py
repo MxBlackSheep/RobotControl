@@ -1,4 +1,4 @@
-from typing import Dict, Any, List, Optional, Union
+from typing import Dict, Any, List, Optional, Union, Tuple
 import logging
 import re
 from datetime import datetime, timedelta
@@ -14,6 +14,7 @@ from backend.services.scheduling import (
 )
 from backend.services.notifications import EmailNotificationService
 from backend.services.scheduling.experiment_discovery import get_experiment_discovery_service
+from backend.services.scheduling.experiment_executor import resolve_experiment_path
 from backend.models import (
     ScheduledExperiment,
     JobExecution,
@@ -47,6 +48,13 @@ queue_manager = None
 process_monitor = None
 
 EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+SCHEDULE_INTERVAL_ALIASES: Dict[str, float] = {
+    "hourly": 1.0,
+    "daily": 24.0,
+    "weekly": 24.0 * 7,
+}
+SUPPORTED_SCHEDULE_TYPES = {"once", "interval", "cron"} | set(SCHEDULE_INTERVAL_ALIASES.keys())
 
 
 def get_services():
@@ -119,7 +127,53 @@ def _timestamps_match(expected: Optional[str], actual: Optional[datetime]) -> bo
         expected_dt = parse_iso_datetime_to_local(candidate)
     except Exception:  # pragma: no cover - defensive
         return False
-    return expected_dt == actual
+
+    if expected_dt == actual:
+        return True
+    delta_seconds = abs((expected_dt - actual).total_seconds())
+    return delta_seconds <= 1
+
+
+def _normalize_schedule_request(
+    schedule_type: Any,
+    interval_hours: Optional[Any],
+) -> Tuple[str, Optional[float]]:
+    """Validate and normalize schedule type + interval combination."""
+    if not isinstance(schedule_type, str):
+        raise HTTPException(status_code=400, detail="schedule_type must be a string")
+    normalized_type = schedule_type.strip().lower()
+    if normalized_type not in SUPPORTED_SCHEDULE_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported schedule_type '{schedule_type}'",
+        )
+
+    if normalized_type == "interval":
+        if interval_hours is None:
+            raise HTTPException(
+                status_code=400,
+                detail="interval_hours is required for interval schedules",
+            )
+        try:
+            hours_value = float(interval_hours)
+        except (TypeError, ValueError):
+            raise HTTPException(
+                status_code=400,
+                detail="interval_hours must be a numeric value",
+            )
+        if hours_value <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail="interval_hours must be greater than zero",
+            )
+        return normalized_type, hours_value
+
+    alias_hours = SCHEDULE_INTERVAL_ALIASES.get(normalized_type)
+    if alias_hours is not None:
+        return normalized_type, alias_hours
+
+    # For types like "once" or "cron" we do not enforce interval hours.
+    return normalized_type, None
 
 
 def _load_current_schedule(schedule_id: str, db_mgr, expected_timestamp: Optional[str]) -> ScheduledExperiment:
@@ -128,6 +182,12 @@ def _load_current_schedule(schedule_id: str, db_mgr, expected_timestamp: Optiona
     if not schedule:
         raise HTTPException(status_code=404, detail="Schedule not found")
     if not _timestamps_match(expected_timestamp, schedule.updated_at):
+        logger.warning(
+            "Schedule concurrency mismatch | schedule_id=%s | expected=%s | actual=%s",
+            schedule_id,
+            expected_timestamp,
+            schedule.updated_at.isoformat() if schedule.updated_at else None,
+        )
         raise HTTPException(
             status_code=409,
             detail="Schedule was modified by another user. Refresh and try again.",
@@ -573,13 +633,18 @@ async def create_schedule(
         if "retry_config" in schedule_data:
             retry_config = RetryConfig.from_dict(schedule_data["retry_config"])
         
+        normalized_type, normalized_interval_hours = _normalize_schedule_request(
+            schedule_data["schedule_type"],
+            schedule_data.get("interval_hours"),
+        )
+        
         # Create scheduled experiment
         experiment = ScheduledExperiment(
             schedule_id="",  # Will be auto-generated
             experiment_name=schedule_data["experiment_name"],
-            experiment_path=schedule_data["experiment_path"],
-            schedule_type=schedule_data["schedule_type"],
-            interval_hours=schedule_data.get("interval_hours"),
+            experiment_path=str(resolve_experiment_path(schedule_data["experiment_path"])),
+            schedule_type=normalized_type,
+            interval_hours=normalized_interval_hours,
             start_time=start_time,
             estimated_duration=schedule_data.get("estimated_duration", 60),
             created_by=current_user.get("username", "unknown"),
@@ -868,7 +933,7 @@ async def update_schedule(
         if "experiment_name" in update_data:
             updated_schedule.experiment_name = update_data["experiment_name"]
         if "experiment_path" in update_data:
-            updated_schedule.experiment_path = update_data["experiment_path"]
+            updated_schedule.experiment_path = str(resolve_experiment_path(update_data["experiment_path"]))
         if "schedule_type" in update_data:
             updated_schedule.schedule_type = update_data["schedule_type"]
         if "interval_hours" in update_data:
@@ -895,7 +960,14 @@ async def update_schedule(
                 db_mgr
             )
 
-        updated_schedule.updated_at = datetime.now()
+        normalized_type, normalized_interval_hours = _normalize_schedule_request(
+            updated_schedule.schedule_type,
+            updated_schedule.interval_hours,
+        )
+        updated_schedule.schedule_type = normalized_type
+        updated_schedule.interval_hours = normalized_interval_hours
+
+        updated_schedule.updated_at = datetime.utcnow()
 
         success = scheduler.update_schedule(updated_schedule)
         if not success:

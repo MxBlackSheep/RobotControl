@@ -39,6 +39,13 @@ except ImportError:  # pragma: no cover - fallback
 
 logger = logging.getLogger(__name__)
 
+INTERVAL_SCHEDULE_TYPES = {"interval", "hourly", "daily", "weekly"}
+INTERVAL_TYPE_DEFAULT_HOURS: Dict[str, float] = {
+    "hourly": 1.0,
+    "daily": 24.0,
+    "weekly": 24.0 * 7,
+}
+
 
 @dataclass
 class SchedulerConfig:
@@ -118,7 +125,27 @@ class SchedulerEngine:
     
     def _ensure_naive_datetime(self, dt: Optional[datetime]) -> Optional[datetime]:
         """Ensure datetime reflects local wall-clock time without timezone info."""
+        if dt is None:
+            return None
         return ensure_local_naive(dt)
+
+    def _resolve_interval_hours(self, experiment: ScheduledExperiment) -> Optional[float]:
+        """Return the effective interval hours for a schedule, applying sensible defaults."""
+        if experiment.schedule_type == "interval":
+            if experiment.interval_hours and experiment.interval_hours > 0:
+                return float(experiment.interval_hours)
+            return None
+
+        default_hours = INTERVAL_TYPE_DEFAULT_HOURS.get(experiment.schedule_type)
+        if default_hours is None:
+            return None
+
+        if experiment.interval_hours and experiment.interval_hours > 0:
+            return float(experiment.interval_hours)
+
+        # Persist defaults for alias-backed schedules if interval_hours was missing.
+        experiment.interval_hours = default_hours
+        return default_hours
     
     def start(self) -> bool:
         """
@@ -482,7 +509,7 @@ class SchedulerEngine:
         """Public entrypoint for marking a schedule as requiring manual recovery."""
         schedule = self.get_schedule(schedule_id)
         if not schedule:
-            schedule = self.db_manager.get_scheduled_experiment(schedule_id)
+            schedule = self.db_manager.get_schedule_by_id(schedule_id)
             if not schedule:
                 logger.error("Schedule %s not found when marking manual recovery", schedule_id)
                 return None
@@ -496,7 +523,7 @@ class SchedulerEngine:
         schedule = self.get_schedule(schedule_id)
         if schedule:
             return schedule
-        return self.db_manager.get_scheduled_experiment(schedule_id)
+        return self.db_manager.get_schedule_by_id(schedule_id)
 
     def get_manual_recovery_state(self) -> ManualRecoveryState:
         """Return the current manual recovery state."""
@@ -558,13 +585,17 @@ class SchedulerEngine:
                     continue
                 
                 start_time = self._ensure_naive_datetime(experiment.start_time)
+                interval_hours = self._resolve_interval_hours(experiment)
                 max_failures = experiment.retry_config.max_retries if experiment.retry_config else 3
                 
                 if experiment.failed_execution_count > max_failures:
                     # Disable schedule that has exceeded retry limit
                     logger.warning(f"Schedule {experiment.experiment_name} has exceeded retry limit ({experiment.failed_execution_count}/{max_failures}), disabling")
                     experiment.is_active = False
-                    self.db_manager.update_scheduled_experiment(experiment)
+                    self.db_manager.update_scheduled_experiment(
+                        experiment,
+                        touch_updated_at=False,
+                    )
                     continue
                 
                 # Check if experiment is due
@@ -573,8 +604,8 @@ class SchedulerEngine:
                     time_since_scheduled = (current_time - start_time).total_seconds() / 60  # minutes
                     
                     # For interval schedules: if missed by more than half the interval, mark as missed and schedule next
-                    if experiment.schedule_type == "interval" and experiment.interval_hours:
-                        grace_period_minutes = (experiment.interval_hours * 60) / 2  # Half the interval
+                    if interval_hours:
+                        grace_period_minutes = (interval_hours * 60) / 2  # Half the interval
                         
                         if time_since_scheduled > grace_period_minutes:
                             # Mark as missed and calculate next execution time
@@ -595,8 +626,10 @@ class SchedulerEngine:
                             # Update to next execution time for interval schedules
                             next_time = self._calculate_next_execution_time(experiment)
                             experiment.start_time = next_time
-                            experiment.updated_at = current_time
-                            self.db_manager.update_scheduled_experiment(experiment)
+                            self.db_manager.update_scheduled_experiment(
+                                experiment,
+                                touch_updated_at=False,
+                            )
                             
                             logger.info(f"Next execution scheduled for {experiment.experiment_name}: {next_time}")
                             continue
@@ -622,7 +655,10 @@ class SchedulerEngine:
                             
                             # Deactivate missed one-time schedules
                             experiment.is_active = False
-                            self.db_manager.update_scheduled_experiment(experiment)
+                            self.db_manager.update_scheduled_experiment(
+                                experiment,
+                                touch_updated_at=False,
+                            )
                             continue
                         else:
                             # Execute normally
@@ -702,6 +738,8 @@ class SchedulerEngine:
                 duration = execution.end_time - execution.start_time
                 execution.duration_minutes = int(duration.total_seconds() / 60)
             
+            interval_hours = self._resolve_interval_hours(experiment)
+
             if success:
                 execution.status = "completed"
                 # Reset failed count on success
@@ -712,11 +750,10 @@ class SchedulerEngine:
                     # Deactivate "once" schedules after successful completion
                     experiment.is_active = False
                     logger.info(f"Job completed successfully: {experiment.experiment_name} - Deactivating 'once' schedule")
-                elif experiment.schedule_type == "interval":
+                elif interval_hours:
                     # Update next execution time for interval schedules
                     next_time = self._calculate_next_execution_time(experiment)
                     experiment.start_time = next_time
-                    experiment.updated_at = current_time
                     logger.info(f"Job completed successfully: {experiment.experiment_name} - Next execution: {next_time}")
                 else:
                     logger.info(f"Job completed successfully: {experiment.experiment_name}")
@@ -733,7 +770,10 @@ class SchedulerEngine:
             
             # Update database with execution and schedule
             self.db_manager.store_job_execution(execution)
-            self.db_manager.update_scheduled_experiment(experiment)
+            self.db_manager.update_scheduled_experiment(
+                experiment,
+                touch_updated_at=False,
+            )
 
             if execution.status == "failed":
                 self._handle_failed_execution(experiment, execution)
@@ -747,7 +787,10 @@ class SchedulerEngine:
             # Increment failed execution count on exception
             experiment.failed_execution_count += 1
             self.db_manager.store_job_execution(execution)
-            self.db_manager.update_scheduled_experiment(experiment)
+            self.db_manager.update_scheduled_experiment(
+                experiment,
+                touch_updated_at=False,
+            )
 
 
             self._handle_failed_execution(experiment, execution)
@@ -796,19 +839,23 @@ class SchedulerEngine:
         """Update next execution times for interval-based schedules"""
         with self._schedules_lock:
             for experiment in self._active_schedules.values():
-                if (experiment.schedule_type == "interval" and 
-                    experiment.interval_hours and
-                    experiment.start_time and
-                    self._ensure_naive_datetime(experiment.start_time) <= current_time):
+                interval_hours = self._resolve_interval_hours(experiment)
+                if (
+                    interval_hours
+                    and experiment.start_time
+                    and self._ensure_naive_datetime(experiment.start_time) <= current_time
+                ):
                     
                     # Calculate next execution time
                     next_time = self._calculate_next_execution_time(experiment)
                     if next_time != experiment.start_time:
                         experiment.start_time = next_time
-                        experiment.updated_at = current_time
-                        
-                        # Update in database
-                        self.db_manager.update_scheduled_experiment(experiment)
+
+                        # Update in database without touching concurrency timestamp
+                        self.db_manager.update_scheduled_experiment(
+                            experiment,
+                            touch_updated_at=False,
+                        )
                         
                         logger.debug(f"Updated next execution time for {experiment.experiment_name}: {next_time}")
     
@@ -816,19 +863,20 @@ class SchedulerEngine:
         """Calculate the next execution time for an experiment"""
         current_time = datetime.now()
         
-        if experiment.schedule_type == "interval" and experiment.interval_hours:
+        interval_hours = self._resolve_interval_hours(experiment)
+        if interval_hours:
             if experiment.start_time and self._ensure_naive_datetime(experiment.start_time) > current_time:
                 return experiment.start_time
-            
+
             # Calculate next interval time
-            next_time = current_time + timedelta(hours=experiment.interval_hours)
-            
+            next_time = current_time + timedelta(hours=interval_hours)
+
             # Round to the nearest minute for cleaner scheduling
             next_time = next_time.replace(second=0, microsecond=0)
-            
+
             return next_time
-        
-        elif experiment.schedule_type == "once":
+
+        if experiment.schedule_type == "once":
             # For "once" schedules, if they're completed they should be deactivated
             # If still active, return the original start time
             return experiment.start_time or current_time
@@ -847,13 +895,17 @@ class SchedulerEngine:
             logger.error("Experiment path is required")
             return False
         
-        if experiment.schedule_type not in ["interval", "once", "cron"]:
+        allowed_types = INTERVAL_SCHEDULE_TYPES | {"once", "cron"}
+        if experiment.schedule_type not in allowed_types:
             logger.error(f"Invalid schedule type: {experiment.schedule_type}")
             return False
         
-        if experiment.schedule_type == "interval" and not experiment.interval_hours:
-            logger.error("Interval hours required for interval schedules")
-            return False
+        interval_hours = self._resolve_interval_hours(experiment)
+        if experiment.schedule_type in INTERVAL_SCHEDULE_TYPES:
+            if not interval_hours:
+                logger.error("Interval hours required for interval-style schedules")
+                return False
+            experiment.interval_hours = interval_hours
         
         if experiment.estimated_duration <= 0:
             logger.error("Estimated duration must be positive")
@@ -1021,7 +1073,7 @@ class SchedulerEngine:
         if schedule:
             return schedule
         try:
-            return self.db_manager.get_scheduled_experiment(schedule_id)
+            return self.db_manager.get_schedule_by_id(schedule_id)
         except Exception as exc:  # pragma: no cover - best effort
             logger.error("Failed to load schedule snapshot for %s: %s", schedule_id, exc)
             return None

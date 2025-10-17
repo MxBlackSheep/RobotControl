@@ -86,7 +86,7 @@ class SchedulingDatabaseManager:
             logger.error("Error storing scheduled experiment: %s", exc)
             return False
 
-    def get_scheduled_experiment(self, schedule_id: str) -> Optional[ScheduledExperiment]:
+    def get_schedule_by_id(self, schedule_id: str) -> Optional[ScheduledExperiment]:
         """Retrieve a scheduled experiment by ID from SQLite."""
         try:
             return self.sqlite_db.get_schedule_by_id(schedule_id)
@@ -102,10 +102,15 @@ class SchedulingDatabaseManager:
             logger.error("Error getting active schedules: %s", exc)
             return []
 
-    def update_scheduled_experiment(self, experiment: ScheduledExperiment) -> bool:
+    def update_scheduled_experiment(
+        self,
+        experiment: ScheduledExperiment,
+        *,
+        touch_updated_at: bool = True,
+    ) -> bool:
         """Update a scheduled experiment in the SQLite database."""
         try:
-            return self.sqlite_db.update_schedule(experiment)
+            return self.sqlite_db.update_schedule(experiment, touch_updated_at=touch_updated_at)
         except Exception as exc:  # pragma: no cover - log only
             logger.error("Error updating scheduled experiment: %s", exc)
             return False
@@ -117,7 +122,7 @@ class SchedulingDatabaseManager:
         user: str,
     ) -> Optional[ScheduledExperiment]:
         """Mark a schedule as requiring manual recovery and return the updated record."""
-        schedule = self.get_scheduled_experiment(schedule_id)
+        schedule = self.get_schedule_by_id(schedule_id)
         if not schedule:
             return None
 
@@ -125,7 +130,7 @@ class SchedulingDatabaseManager:
         if not success:
             return None
 
-        updated = self.get_scheduled_experiment(schedule_id)
+        updated = self.get_schedule_by_id(schedule_id)
         schedule_for_state = updated or schedule
         try:
             self.sqlite_db.set_global_recovery_required(schedule_for_state, note, user)
@@ -145,7 +150,7 @@ class SchedulingDatabaseManager:
         if not success:
             return None
 
-        schedule = self.get_scheduled_experiment(schedule_id)
+        schedule = self.get_schedule_by_id(schedule_id)
         try:
             self.sqlite_db.clear_global_recovery(note, user)
         except Exception as exc:  # pragma: no cover - log only

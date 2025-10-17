@@ -873,6 +873,18 @@ const SchedulingPage: React.FC = () => {
                           <Typography variant="subtitle2" color="text.secondary">
                             Selected: {state.selectedSchedule.experiment_name}
                           </Typography>
+                          {state.selectedSchedule.experiment_path && (
+                            <Typography
+                              variant="caption"
+                              color="text.secondary"
+                              sx={{ display: 'block', wordBreak: 'break-all', mt: 0.25 }}
+                            >
+                              Method path:{' '}
+                              <Typography component="span" variant="caption" sx={{ fontFamily: 'monospace' }}>
+                                {state.selectedSchedule.experiment_path}
+                              </Typography>
+                            </Typography>
+                          )}
                           <Button
                             variant="outlined"
                             fullWidth

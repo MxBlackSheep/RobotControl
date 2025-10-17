@@ -141,9 +141,9 @@ class ScheduledExperiment:
         if not self.schedule_id:
             self.schedule_id = str(uuid.uuid4())
         if self.created_at is None:
-            self.created_at = datetime.now()
+            self.created_at = datetime.utcnow()
         if self.updated_at is None:
-            self.updated_at = datetime.now()
+            self.updated_at = datetime.utcnow()
     
     def to_dict(self) -> Dict[str, Any]:
         return {

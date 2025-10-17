@@ -1,6 +1,14 @@
 # RobotControl Development Log (Chronological)
 
 ---
+## 2025-10-17 Schedule Deletion Concurrency Fix
+
+- Background scheduler updates now avoid touching the `updated_at` field by passing `touch_updated_at=False` whenever they persist interval/next-run metadata. This keeps optimistic locking tokens stable for UI operations (`backend/services/scheduling/scheduler_engine.py`, `backend/services/scheduling/database_manager.py`, `backend/services/scheduling/sqlite_database.py`).
+- Added a `touch_updated_at` flag through the scheduling data layer so API writes still bump timestamps while automated maintenance writes do not, preserving multi-user safeguards without spurious 409s on delete requests (`backend/services/scheduling/database_manager.py`, `backend/services/scheduling/database_manager_backup.py`, `backend/services/scheduling/sqlite_database.py`).
+- Updated the scheduler manual-recovery test stub to support the new signature (`backend/tests/test_scheduler_manual_recovery.py`).
+- Experiment execution now resolves stored relative experiment paths against the Hamilton `Methods` root, so imports from “Active Experiment” (and other sibling folders) run without falling back to the legacy LabProtocols directory (`backend/services/scheduling/experiment_executor.py`).
+- Scheduling API writes now persist the exact `updated_at` values supplied by the caller instead of relying on SQLite’s UTC `CURRENT_TIMESTAMP`, eliminating timezone drift between optimistic-lock headers and stored records (`backend/services/scheduling/sqlite_database.py`, `backend/api/scheduling.py`, `backend/models.py`).
+- Manual recovery helpers write explicit UTC timestamps to keep schedule metadata consistent with other updates (`backend/services/scheduling/sqlite_database.py`).
 
 ## 2025-10-16 Tray Menu Simplification & Log History Relocation
 

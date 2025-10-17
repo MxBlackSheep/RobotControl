@@ -54,6 +54,36 @@ class ExecutionResult:
     retry_count: int = 0
 
 
+def resolve_experiment_path(raw_path: str, config: Optional[ExecutionConfig] = None) -> Path:
+    """
+    Resolve a schedule's stored path to an absolute .med file location.
+    """
+    cfg = config or ExecutionConfig()
+    candidate = Path(raw_path).expanduser()
+
+    if candidate.suffix.lower() != ".med":
+        candidate = candidate.with_suffix(".med")
+
+    if candidate.is_absolute():
+        try:
+            return candidate.resolve(strict=False)
+        except Exception:  # pragma: no cover - defensive
+            return candidate
+
+    base_path = Path(cfg.method_base_path).expanduser()
+    try:
+        resolved_base = base_path.resolve()
+    except Exception:  # pragma: no cover - defensive
+        resolved_base = base_path
+
+    try:
+        methods_root = resolved_base.parents[1]
+    except IndexError:
+        methods_root = resolved_base
+
+    return (methods_root / candidate).resolve(strict=False)
+
+
 class ExperimentExecutor:
     """Service for executing scheduled experiments"""
     
@@ -315,9 +345,9 @@ class ExperimentExecutor:
                             execution: JobExecution, start_time: float) -> ExecutionResult:
         """Execute real Hamilton HxRun.exe command"""
         try:
-            # Build command exactly like VBS script
-            method_path = Path(self.config.method_base_path) / f"{experiment.experiment_name}.med"
-            
+            raw_path = experiment.experiment_path or experiment.experiment_name
+            method_path = resolve_experiment_path(raw_path, self.config)
+
             if not method_path.exists():
                 return ExecutionResult(
                     success=False,
@@ -328,7 +358,9 @@ class ExperimentExecutor:
                     command_executed="",
                     error_message=f"Method file not found: {method_path}"
                 )
-            
+
+            experiment.experiment_path = str(method_path)
+
             # Construct command with quotes like VBS: "HxRun.exe" "method.med" -t
             cmd = [
                 str(self.config.hxrun_path),

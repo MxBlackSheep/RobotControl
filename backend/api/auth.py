@@ -464,8 +464,9 @@ async def get_current_user_info(
     start_time = time.time()
     
     try:
+        user_id = str(current_user.id)
         user_data = {
-            "user_id": current_user.user_id,
+            "user_id": user_id,
             "username": current_user.username,
             "role": current_user.role,
             "is_active": current_user.is_active,
@@ -480,7 +481,7 @@ async def get_current_user_info(
         metadata = ResponseMetadata()
         metadata.set_execution_time(start_time)
         metadata.add_metadata("operation", "get_user_info")
-        metadata.add_metadata("user_id", current_user.user_id)
+        metadata.add_metadata("user_id", user_id)
         metadata.add_metadata("connection", connection.ip_classification)
         
         return ResponseFormatter.success(data=user_data, metadata=metadata)

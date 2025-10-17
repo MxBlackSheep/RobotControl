@@ -69,7 +69,7 @@ class SchedulingDatabaseManager:
             logger.error(f"Error storing scheduled experiment: {e}")
             return False
     
-    def get_scheduled_experiment(self, schedule_id: str) -> Optional[ScheduledExperiment]:
+    def get_schedule_by_id(self, schedule_id: str) -> Optional[ScheduledExperiment]:
         """
         Retrieve a scheduled experiment by ID from SQLite
         
@@ -100,7 +100,12 @@ class SchedulingDatabaseManager:
             logger.error(f"Error getting active schedules: {e}")
             return []
     
-    def update_scheduled_experiment(self, experiment: ScheduledExperiment) -> bool:
+    def update_scheduled_experiment(
+        self,
+        experiment: ScheduledExperiment,
+        *,
+        touch_updated_at: bool = True,
+    ) -> bool:
         """
         Update a scheduled experiment in the SQLite database
         
@@ -111,7 +116,7 @@ class SchedulingDatabaseManager:
             bool: True if updated successfully, False otherwise
         """
         try:
-            return self.sqlite_db.update_schedule(experiment)
+            return self.sqlite_db.update_schedule(experiment, touch_updated_at=touch_updated_at)
             
         except Exception as e:
             logger.error(f"Error updating scheduled experiment: {e}")

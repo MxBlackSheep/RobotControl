@@ -40,7 +40,7 @@ class StubDBManager:
     def get_active_schedules(self):
         return []
 
-    def get_scheduled_experiment(self, schedule_id: str) -> Optional[ScheduledExperiment]:
+    def get_schedule_by_id(self, schedule_id: str) -> Optional[ScheduledExperiment]:
         if schedule_id == self.schedule.schedule_id:
             return self.schedule
         return None
@@ -92,7 +92,7 @@ class StubDBManager:
     def store_job_execution(self, execution: JobExecution) -> bool:
         return True
 
-    def update_scheduled_experiment(self, experiment: ScheduledExperiment) -> bool:
+    def update_scheduled_experiment(self, experiment: ScheduledExperiment, *, touch_updated_at: bool = True) -> bool:
         self.schedule = experiment
         return True
 

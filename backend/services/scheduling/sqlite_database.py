@@ -410,7 +410,12 @@ class SQLiteSchedulingDatabase:
         
         return None
     
-    def update_schedule(self, schedule: ScheduledExperiment) -> bool:
+    def update_schedule(
+        self,
+        schedule: ScheduledExperiment,
+        *,
+        touch_updated_at: bool = True,
+    ) -> bool:
         """
         Update an existing scheduled experiment
         
@@ -424,18 +429,25 @@ class SQLiteSchedulingDatabase:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 
-                cursor.execute("""
-                    UPDATE ScheduledExperiments SET
-                        experiment_name = ?, experiment_path = ?, schedule_type = ?,
-                        interval_hours = ?, start_time = ?, estimated_duration = ?,
-                        is_active = ?, retry_config = ?, prerequisites = ?,
-                        failed_execution_count = ?,
-                        recovery_required = ?, recovery_note = ?,
-                        recovery_marked_at = ?, recovery_marked_by = ?,
-                        recovery_resolved_at = ?, recovery_resolved_by = ?,
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE schedule_id = ?
-                """, (
+                set_clauses = [
+                    "experiment_name = ?",
+                    "experiment_path = ?",
+                    "schedule_type = ?",
+                    "interval_hours = ?",
+                    "start_time = ?",
+                    "estimated_duration = ?",
+                    "is_active = ?",
+                    "retry_config = ?",
+                    "prerequisites = ?",
+                    "failed_execution_count = ?",
+                    "recovery_required = ?",
+                    "recovery_note = ?",
+                    "recovery_marked_at = ?",
+                    "recovery_marked_by = ?",
+                    "recovery_resolved_at = ?",
+                    "recovery_resolved_by = ?",
+                ]
+                params: List[Any] = [
                     schedule.experiment_name,
                     schedule.experiment_path,
                     schedule.schedule_type,
@@ -452,8 +464,26 @@ class SQLiteSchedulingDatabase:
                     schedule.recovery_marked_by,
                     schedule.recovery_resolved_at.isoformat() if schedule.recovery_resolved_at else None,
                     schedule.recovery_resolved_by,
-                    schedule.schedule_id
-                ))
+                ]
+
+                if touch_updated_at:
+                    updated_value = schedule.updated_at
+                    if isinstance(updated_value, datetime):
+                        updated_value = updated_value.isoformat()
+                    if not updated_value:
+                        updated_value = datetime.utcnow().isoformat()
+                    set_clauses.append("updated_at = ?")
+                    params.append(updated_value)
+
+                params.append(schedule.schedule_id)
+
+                sql = f"""
+                    UPDATE ScheduledExperiments SET
+                        {', '.join(set_clauses)}
+                    WHERE schedule_id = ?
+                """
+
+                cursor.execute(sql, params)
                 
                 self._replace_schedule_contacts(conn, schedule.schedule_id, schedule.notification_contacts or [])
                 conn.commit()
@@ -492,7 +522,7 @@ class SQLiteSchedulingDatabase:
         update_password: bool,
         password_encrypted: Optional[str],
     ) -> NotificationSettings:
-        timestamp = datetime.now().isoformat()
+        timestamp = datetime.utcnow().isoformat()
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -816,7 +846,7 @@ class SQLiteSchedulingDatabase:
         self, schedule_id: str, note: Optional[str], user: str
     ) -> bool:
         """Mark a schedule as requiring manual recovery."""
-        timestamp = datetime.now().isoformat()
+        timestamp = datetime.utcnow().isoformat()
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -828,9 +858,9 @@ class SQLiteSchedulingDatabase:
                         recovery_marked_by = ?,
                         recovery_resolved_at = NULL,
                         recovery_resolved_by = NULL,
-                        updated_at = CURRENT_TIMESTAMP
+                        updated_at = ?
                     WHERE schedule_id = ?
-                """, (note, timestamp, user, schedule_id))
+                """, (note, timestamp, user, timestamp, schedule_id))
                 conn.commit()
                 return cursor.rowcount > 0
         except Exception as exc:
@@ -851,9 +881,9 @@ class SQLiteSchedulingDatabase:
                         recovery_note = COALESCE(?, recovery_note),
                         recovery_resolved_at = ?,
                         recovery_resolved_by = ?,
-                        updated_at = CURRENT_TIMESTAMP
+                        updated_at = ?
                     WHERE schedule_id = ?
-                """, (note, timestamp, user, schedule_id))
+                """, (note, timestamp, user, timestamp, schedule_id))
                 conn.commit()
                 return cursor.rowcount > 0
         except Exception as exc:
