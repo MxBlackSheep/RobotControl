@@ -22,8 +22,7 @@ import shutil
 from datetime import datetime, timedelta
 from collections import deque
 from pathlib import Path
-from typing import List, Dict, Optional, Any, Generator
-import asyncio
+from typing import List, Dict, Optional, Any
 from concurrent.futures import ThreadPoolExecutor
 
 from backend.config import CAMERA_CONFIG, VIDEO_PATH
@@ -680,13 +679,12 @@ class CameraService:
             JPEG encoded frame bytes or None
         """
         try:
-            # Get frame from new SharedFrameBuffer system
-            if self.streaming_integration_enabled and self.shared_frame_buffer:
-                frame_data = self.shared_frame_buffer.get_frame_for_streaming(timeout=0.05)
-                if frame_data and frame_data.frame is not None:
-                    _, buffer = cv2.imencode('.jpg', frame_data.frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-                    return buffer.tobytes()
-            
+            from backend.services.live_streaming import get_live_streaming_service
+            streaming_service = get_live_streaming_service()
+            frame_bytes = streaming_service.get_latest_frame_bytes(timeout=0.05)
+            if frame_bytes:
+                return frame_bytes
+
             return None
                 
         except Exception as e:

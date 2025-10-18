@@ -144,9 +144,11 @@ const CameraViewer: React.FC<CameraViewerProps> = ({
         };
         
         streamRef.current.onerror = () => {
-          setError('Failed to load camera stream');
+          const message = 'Live streaming is not available for this camera. Start recording to enable streaming.';
+          setError(message);
           setConnectionStatus('disconnected');
           setIsStreaming(false);
+          onError?.(message);
         };
         
         // Set stream source with authentication header (if needed via proxy)
@@ -194,6 +196,9 @@ const CameraViewer: React.FC<CameraViewerProps> = ({
                 streamRef.current.src = `data:image/jpeg;base64,${data.data}`;
                 setLastFrameTime(new Date());
                 setFrameCount(prev => prev + 1);
+                if (error) {
+                  setError('');
+                }
               }
               break;
               
@@ -209,7 +214,13 @@ const CameraViewer: React.FC<CameraViewerProps> = ({
               break;
               
             case 'no_frame':
-              // No frame available (camera not recording)
+              // Streaming not available (camera idle or service disabled)
+              setIsStreaming(false);
+              if (!error) {
+                const message = 'Live streaming is not available for this camera. Start recording to enable streaming.';
+                setError(message);
+                onError?.(message);
+              }
               break;
           }
         } catch (error) {
