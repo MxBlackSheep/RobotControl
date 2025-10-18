@@ -22,7 +22,6 @@ import subprocess
 import threading
 import time
 import traceback
-import pyodbc
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional, Tuple, Union
 from dataclasses import dataclass, asdict
@@ -448,6 +447,249 @@ class BackupDetails:
         return asdict(self)
 
 
+class SqlCommandExecutor:
+    """Helper responsible for running SQL commands against the target server."""
+
+    def __init__(self, server: str, database: str) -> None:
+        self.server = server
+        self.database = database
+
+    def execute(
+        self,
+        sql_command: str,
+        *,
+        timeout: int = BACKUP_TIMEOUT,
+    ) -> Tuple[bool, str]:
+        """Execute the provided SQL command using sqlcmd."""
+        temp_sql_file: Optional[str] = None
+        try:
+            import tempfile
+
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".sql", delete=False) as handle:
+                handle.write(sql_command)
+                temp_sql_file = handle.name
+
+            try:
+                command = f'sqlcmd -S "{self.server}" -i "{temp_sql_file}" -E'
+                logger.debug("Executing SQL via sqlcmd: %s...", sql_command[:100])
+                result = subprocess.run(
+                    command,
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                )
+
+                output_text = (result.stdout or "") + (result.stderr or "")
+                has_sql_errors = "Msg " in output_text and (
+                    "Level 15" in output_text or "Level 16" in output_text
+                )
+
+                if result.returncode == 0 and not has_sql_errors:
+                    if result.stdout:
+                        logger.debug("SQL Server output: %s", result.stdout.strip())
+                    return True, result.stdout.strip()
+
+                if has_sql_errors:
+                    sqlcmd_error = f"SQL Server error: {output_text.strip()}"
+                else:
+                    sqlcmd_error = (
+                        f"sqlcmd failed (exit code {result.returncode}): {result.stderr.strip()}"
+                    )
+
+                logger.debug("sqlcmd execution failed: %s", sqlcmd_error)
+                return False, sqlcmd_error
+            finally:
+                if temp_sql_file:
+                    try:
+                        os.unlink(temp_sql_file)
+                    except OSError:
+                        pass
+        except subprocess.TimeoutExpired:
+            return False, f"SQL command timed out after {timeout} seconds"
+        except Exception as exc:  # pragma: no cover - defensive
+            sqlcmd_error = f"sqlcmd execution error: {exc}"
+            logger.debug(sqlcmd_error)
+            return False, sqlcmd_error
+
+    def perform_backup(self, backup_file_path: str) -> Tuple[bool, str]:
+        """Execute a BACKUP DATABASE command using sqlcmd."""
+        import tempfile
+
+        try:
+            backup_sql_path = escape_sql_path(backup_file_path)
+            sql = (
+                f"BACKUP DATABASE [{self.database}] "
+                f"TO DISK = N'{backup_sql_path}' "
+                "WITH FORMAT, INIT, NAME = 'Full Backup';"
+            )
+
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".sql", delete=False) as handle:
+                handle.write(sql)
+                temp_sql_file = handle.name
+
+            try:
+                command = f'sqlcmd -S "{self.server}" -i "{temp_sql_file}" -E'
+                logger.debug("Executing backup via sqlcmd: %s", sql)
+                result = subprocess.run(
+                    command,
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=BACKUP_TIMEOUT,
+                )
+
+                output_text = (result.stdout or "") + (result.stderr or "")
+                if "Msg " in output_text and ("Level 15" in output_text or "Level 16" in output_text):
+                    logger.error("SQL Server reported errors: %s", output_text)
+                    return False, f"SQL Server error: {output_text}"
+
+                if result.returncode != 0:
+                    error_msg = result.stderr.strip() or "Unknown sqlcmd error"
+                    logger.warning("Simple backup failed: %s", error_msg)
+                    return False, f"sqlcmd failed: {error_msg}"
+            finally:
+                try:
+                    os.unlink(temp_sql_file)
+                except OSError:
+                    pass
+
+            if os.path.exists(backup_file_path):
+                file_size = os.path.getsize(backup_file_path)
+                logger.info("Backup successful: %s", format_file_size(file_size))
+                return True, f"Backup created successfully ({format_file_size(file_size)})"
+            return False, "Backup file was not created"
+        except subprocess.TimeoutExpired:
+            return False, f"Backup operation timed out after {BACKUP_TIMEOUT} seconds"
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("Simple backup error: %s", exc)
+            return False, f"Simple backup error: {exc}"
+
+    def _get_database_connection(self):
+        """Return a direct database connection via the shared connection manager."""
+        try:
+            from backend.core.database_connection import db_connection_manager
+
+            return db_connection_manager.get_connection(timeout=30)
+        except ImportError:
+            logger.error("Could not import centralized database connection manager")
+            return None
+
+
+class BackupMetadataStore:
+    """Manage backup metadata files and directory listings."""
+
+    def __init__(self, backup_dir: str) -> None:
+        self.backup_dir = backup_dir
+
+    def metadata_path(self, filename: str) -> str:
+        return os.path.join(self.backup_dir, filename.replace(".bak", ".json"))
+
+    def save(
+        self,
+        filename: str,
+        description: str,
+        database_name: str,
+        sql_server: str,
+        file_size: int,
+    ) -> None:
+        metadata = create_backup_metadata(
+            filename, description, database_name, sql_server, file_size
+        )
+        metadata_path = self.metadata_path(filename)
+        with open(metadata_path, "w", encoding="utf-8") as handle:
+            json.dump(metadata, handle, indent=2, ensure_ascii=False)
+        logger.debug("Metadata file created: %s", metadata_path)
+
+    def list_backups(self) -> List[BackupInfo]:
+        backups: List[BackupInfo] = []
+        try:
+            backup_files = [f for f in os.listdir(self.backup_dir) if f.endswith(".bak")]
+            for backup_file in backup_files:
+                try:
+                    backup_path = os.path.join(self.backup_dir, backup_file)
+                    metadata_path = self.metadata_path(backup_file)
+                    backup_exists = os.path.exists(backup_path)
+                    metadata_exists = os.path.exists(metadata_path)
+                    is_valid = backup_exists and metadata_exists
+
+                    if metadata_exists:
+                        with open(metadata_path, "r", encoding="utf-8") as handle:
+                            metadata = json.load(handle)
+                        current_file_size = os.path.getsize(backup_path) if backup_exists else 0
+                        backups.append(
+                            BackupInfo(
+                                filename=backup_file,
+                                description=metadata.get("description", "No description"),
+                                timestamp=metadata.get("timestamp", ""),
+                                created_date=metadata.get("created_date", ""),
+                                file_size=current_file_size,
+                                file_size_formatted=format_file_size(current_file_size),
+                                is_valid=is_valid,
+                                database_name=metadata.get("database_name"),
+                                sql_server=metadata.get("sql_server"),
+                            )
+                        )
+                    else:
+                        file_size = os.path.getsize(backup_path) if backup_exists else 0
+                        file_stats = os.stat(backup_path) if backup_exists else None
+                        created_time = (
+                            datetime.fromtimestamp(file_stats.st_ctime) if file_stats else datetime.now()
+                        )
+                        backups.append(
+                            BackupInfo(
+                                filename=backup_file,
+                                description="[Orphaned backup - no metadata]",
+                                timestamp=created_time.strftime("%Y%m%d_%H%M%S"),
+                                created_date=created_time.isoformat(),
+                                file_size=file_size,
+                                file_size_formatted=format_file_size(file_size),
+                                is_valid=False,
+                            )
+                        )
+                except Exception as exc:  # pragma: no cover - defensive
+                    logger.warning("Error processing backup file %s: %s", backup_file, exc)
+                    continue
+
+            backups.sort(key=lambda b: b.created_date, reverse=True)
+            logger.info("Found %s backup files", len(backups))
+        except Exception as exc:
+            logger.error("Error listing backups: %s", exc)
+        return backups
+
+    def load_details(self, filename: str) -> Optional[BackupDetails]:
+        backup_path = os.path.join(self.backup_dir, filename)
+        metadata_path = self.metadata_path(filename)
+        if not os.path.exists(backup_path) or not os.path.exists(metadata_path):
+            return None
+        with open(metadata_path, "r", encoding="utf-8") as handle:
+            metadata = json.load(handle)
+        file_size = os.path.getsize(backup_path)
+        return BackupDetails(
+            filename=filename,
+            description=metadata.get("description", "No description"),
+            timestamp=metadata.get("timestamp", ""),
+            created_date=metadata.get("created_date", ""),
+            file_size=file_size,
+            file_size_formatted=format_file_size(file_size),
+            database_name=metadata.get("database_name", "Unknown"),
+            sql_server=metadata.get("sql_server", "Unknown"),
+            metadata=metadata,
+            is_valid=True,
+        )
+
+    def delete_metadata_file(self, filename: str) -> Tuple[bool, str, Optional[str]]:
+        metadata_filename = filename.replace(".bak", ".json")
+        path = self.metadata_path(filename)
+        if os.path.exists(path):
+            try:
+                os.remove(path)
+                return True, metadata_filename, None
+            except Exception as exc:
+                return False, metadata_filename, str(exc)
+        return False, metadata_filename, None
+
+
 class BackupValidationError(Exception):
     """Exception for backup validation errors"""
     pass
@@ -644,6 +886,8 @@ class BackupService:
         self.sql_server = SQL_SERVER
         self.database_name = DATABASE_NAME
         self._operation_lock = threading.Lock()
+        self._sql_executor = SqlCommandExecutor(self.sql_server, self.database_name)
+        self._metadata_store = BackupMetadataStore(self.backup_dir)
         
         # Ensure backup directory exists (skip if network path not accessible locally)  
         try:
@@ -652,184 +896,6 @@ class BackupService:
             logger.warning(f"Could not create backup directory in service init (network path expected): {e}")
         
         logger.info(f"BackupService initialized - Database: {self.database_name}, Server: {self.sql_server}")
-    
-    def _get_database_connection(self):
-        """
-        Get direct database connection using centralized connection manager.
-        This is used as fallback when sqlcmd is not available.
-        """
-        try:
-            from backend.core.database_connection import db_connection_manager
-            return db_connection_manager.get_connection(timeout=30)
-        except ImportError:
-            logger.error("Could not import centralized database connection manager")
-            return None
-    
-    def _execute_sql_command(self, sql_command: str, use_pyodbc_fallback: bool = True) -> Tuple[bool, str]:
-        """
-        Execute SQL command using sqlcmd first, with pyodbc fallback.
-        
-        Args:
-            sql_command: SQL command to execute
-            use_pyodbc_fallback: Whether to try pyodbc if sqlcmd fails
-            
-        Returns:
-            Tuple of (success: bool, message: str)
-        """
-        # First try sqlcmd using temp file (more reliable for complex SQL)
-        try:
-            import tempfile
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.sql', delete=False) as f:
-                f.write(sql_command)
-                temp_sql_file = f.name
-            
-            try:
-                cmd = f'sqlcmd -S "{self.sql_server}" -i "{temp_sql_file}" -E'
-                logger.debug(f"Executing SQL command via sqlcmd temp file: {sql_command[:100]}...")
-                
-                result = subprocess.run(
-                    cmd, 
-                    shell=True, 
-                    capture_output=True, 
-                    text=True, 
-                    timeout=BACKUP_TIMEOUT
-                )
-                
-                # Check for SQL errors in output (even if returncode is 0)
-                output_text = result.stdout + (result.stderr or "")
-                has_sql_errors = "Msg " in output_text and ("Level 15" in output_text or "Level 16" in output_text)
-                
-                if result.returncode == 0 and not has_sql_errors:
-                    logger.debug(f"SQL Server output: {result.stdout.strip()}")
-                    return True, result.stdout.strip()
-                else:
-                    if has_sql_errors:
-                        sqlcmd_error = f"SQL Server error: {output_text.strip()}"
-                    else:
-                        sqlcmd_error = f"sqlcmd failed (exit code {result.returncode}): {result.stderr.strip()}"
-                    
-                    logger.debug(f"sqlcmd execution failed: {sqlcmd_error}")
-                    
-                    # If sqlcmd not found and fallback enabled, try pyodbc
-                    if use_pyodbc_fallback and ("not recognized" in result.stderr or "not found" in result.stderr):
-                        logger.info("sqlcmd not available, trying direct database connection...")
-                        return self._execute_sql_via_pyodbc(sql_command)
-                    else:
-                        return False, sqlcmd_error
-                        
-            finally:
-                # Clean up temp file
-                try:
-                    os.unlink(temp_sql_file)
-                except:
-                    pass
-                    
-        except subprocess.TimeoutExpired:
-            return False, f"SQL command timed out after {BACKUP_TIMEOUT} seconds"
-        except Exception as e:
-            sqlcmd_error = f"sqlcmd execution error: {str(e)}"
-            logger.debug(sqlcmd_error)
-            
-            # Try pyodbc fallback if enabled
-            if use_pyodbc_fallback:
-                logger.info("sqlcmd failed with exception, trying direct database connection...")
-                return self._execute_sql_via_pyodbc(sql_command)
-            else:
-                return False, sqlcmd_error
-    
-    def _simple_backup_fallback(self, backup_file_path: str, description: str) -> Tuple[bool, str]:
-        """
-        Simple backup fallback using the exact PyQt5 approach.
-        This method replicates the working backup_database() function from PyQt5.
-        """
-        try:
-            # Use the exact same approach as PyQt5
-            def escape_sql_path(path):
-                return path.replace("\\", "\\\\").replace("'", "''")
-            
-            # Create SQL command exactly like PyQt5
-            backup_sql_path = escape_sql_path(backup_file_path)
-            sql = f"BACKUP DATABASE [{self.database_name}] TO DISK = N'{backup_sql_path}' WITH FORMAT, INIT, NAME = 'Full Backup';"
-            
-            # Execute using sqlcmd with temp file approach (more reliable than -Q for complex paths)
-            import tempfile
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.sql', delete=False) as f:
-                f.write(sql)
-                temp_sql_file = f.name
-            
-            try:
-                cmd = f'sqlcmd -S "{self.sql_server}" -i "{temp_sql_file}" -E'
-                logger.debug(f"Executing SQL command via sqlcmd temp file: {sql}")
-                logger.info(f"Executing simple backup command: sqlcmd (path length: {len(backup_file_path)})")
-                
-                result = subprocess.run(cmd, shell=True, check=True, capture_output=True, text=True)
-                
-                # Log output for debugging
-                if result.stdout:
-                    logger.debug(f"SQL Server output: {result.stdout.strip()}")
-                if result.stderr:
-                    logger.debug(f"SQL Server stderr: {result.stderr.strip()}")
-                
-                # Check for SQL errors in output
-                output_text = result.stdout + (result.stderr or "")
-                if "Msg " in output_text and ("Level 15" in output_text or "Level 16" in output_text):
-                    logger.error(f"SQL Server reported errors: {output_text}")
-                    return False, f"SQL Server error: {output_text}"
-                    
-            finally:
-                # Clean up temp file
-                try:
-                    os.unlink(temp_sql_file)
-                except:
-                    pass
-            
-            # Verify file was created
-            if os.path.exists(backup_file_path):
-                file_size = os.path.getsize(backup_file_path)
-                logger.info(f"Simple backup successful: {format_file_size(file_size)}")
-                return True, f"Backup created successfully using simple method ({format_file_size(file_size)})"
-            else:
-                return False, "Backup file was not created (simple method)"
-                
-        except subprocess.CalledProcessError as e:
-            error_msg = f"Simple backup failed: {e.stderr if e.stderr else str(e)}"
-            logger.warning(error_msg)
-            return False, error_msg
-        except Exception as e:
-            error_msg = f"Simple backup error: {str(e)}"
-            logger.warning(error_msg)
-            return False, error_msg
-    
-    def _execute_sql_via_pyodbc(self, sql_command: str) -> Tuple[bool, str]:
-        """
-        Execute SQL command using direct pyodbc connection.
-        Used as fallback when sqlcmd is not available.
-        """
-        try:
-            conn = self._get_database_connection()
-            if not conn:
-                return False, "Could not establish database connection for direct SQL execution"
-            
-            # Execute without transaction context for BACKUP/RESTORE commands
-            cursor = conn.cursor()
-            conn.autocommit = True  # Enable autocommit to avoid transaction context
-            
-            cursor.execute(sql_command)
-            
-            # For backup/restore commands, we need to wait for completion
-            while cursor.nextset():
-                pass
-            
-            cursor.close()
-            conn.close()
-            
-            logger.debug("SQL command executed successfully via direct connection")
-            return True, "SQL command executed successfully via direct database connection"
-                
-        except Exception as e:
-            error_msg = f"Direct database connection failed: {str(e)}"
-            logger.debug(error_msg)
-            return False, error_msg
     
     def _estimate_backup_size(self) -> Optional[int]:
         """
@@ -900,7 +966,7 @@ class BackupService:
             try:
                 # Validate paths
                 backup_file_path = validate_file_path(backup_file_path)
-                metadata_file_path = validate_file_path(metadata_file_path)
+                validate_file_path(metadata_file_path)
                 
                 logger.debug(f"Backup paths validated - File: {backup_file_path}")
                 
@@ -923,14 +989,14 @@ class BackupService:
                         logger.warning(f"WARNING: Could not check disk space: {e}")
                     
                     # Execute backup using streamlined sqlcmd command (compatible with Express)
-                    success, message = self._simple_backup_fallback(sql_backup_path, description)
+                    success, message = self._sql_executor.perform_backup(sql_backup_path)
                     if not success:
                         raise BackupOperationError(
                             f"SQL Server backup failed: {message}",
                             "SQL_BACKUP_FAILED"
                         )
                     
-                    logger.debug(f"Backup command executed successfully via simple sqlcmd: {message}")
+                    logger.debug("Backup command executed successfully via sqlcmd: %s", message)
                     
                     # Verify backup file was created and get size
                     if not os.path.exists(backup_file_path):
@@ -940,22 +1006,16 @@ class BackupService:
                 file_size = os.path.getsize(backup_file_path)
                 metrics.file_size_bytes = file_size
                 
-                logger.info(f"Backup file created: {format_file_size(file_size)}")
+                logger.info("Backup file created: %s", format_file_size(file_size))
                 
-                # Create metadata
-                metadata = create_backup_metadata(
-                    backup_filename, 
+                # Save metadata alongside the backup
+                self._metadata_store.save(
+                    backup_filename,
                     description.strip(),
                     self.database_name,
                     self.sql_server,
                     file_size
                 )
-                
-                # Save metadata file
-                with open(metadata_file_path, 'w', encoding='utf-8') as f:
-                    json.dump(metadata, f, indent=2, ensure_ascii=False)
-                
-                logger.debug(f"Metadata file created: {metadata_file_path}")
                 
                 # Record performance metrics
                 performance_monitor.record_operation(metrics)
@@ -987,73 +1047,7 @@ class BackupService:
         Returns:
             List of BackupInfo objects
         """
-        backups = []
-        
-        try:
-            # Get all .bak files in backup directory
-            backup_files = [f for f in os.listdir(self.backup_dir) if f.endswith('.bak')]
-            
-            for backup_file in backup_files:
-                try:
-                    backup_path = os.path.join(self.backup_dir, backup_file)
-                    metadata_path = backup_path.replace('.bak', '.json')
-                    
-                    # Check if both backup and metadata files exist
-                    backup_exists = os.path.exists(backup_path)
-                    metadata_exists = os.path.exists(metadata_path)
-                    is_valid = backup_exists and metadata_exists
-                    
-                    if metadata_exists:
-                        # Load metadata
-                        with open(metadata_path, 'r', encoding='utf-8') as f:
-                            metadata = json.load(f)
-                        
-                        # Get current file size (may have changed)
-                        current_file_size = os.path.getsize(backup_path) if backup_exists else 0
-                        
-                        backup_info = BackupInfo(
-                            filename=backup_file,
-                            description=metadata.get('description', 'No description'),
-                            timestamp=metadata.get('timestamp', ''),
-                            created_date=metadata.get('created_date', ''),
-                            file_size=current_file_size,
-                            file_size_formatted=format_file_size(current_file_size),
-                            is_valid=is_valid,
-                            database_name=metadata.get('database_name'),
-                            sql_server=metadata.get('sql_server')
-                        )
-                    else:
-                        # Backup file without metadata (orphaned)
-                        file_size = os.path.getsize(backup_path) if backup_exists else 0
-                        file_stats = os.stat(backup_path) if backup_exists else None
-                        created_time = datetime.fromtimestamp(file_stats.st_ctime) if file_stats else datetime.now()
-                        
-                        backup_info = BackupInfo(
-                            filename=backup_file,
-                            description="[Orphaned backup - no metadata]",
-                            timestamp=created_time.strftime("%Y%m%d_%H%M%S"),
-                            created_date=created_time.isoformat(),
-                            file_size=file_size,
-                            file_size_formatted=format_file_size(file_size),
-                            is_valid=False
-                        )
-                    
-                    backups.append(backup_info)
-                    
-                except Exception as e:
-                    logger.warning(f"Error processing backup file {backup_file}: {e}")
-                    # Continue processing other files
-                    continue
-            
-            # Sort by timestamp (most recent first)
-            backups.sort(key=lambda b: b.created_date, reverse=True)
-            
-            logger.info(f"Found {len(backups)} backup files")
-            return backups
-            
-        except Exception as e:
-            logger.error(f"Error listing backups: {e}")
-            return []
+        return self._metadata_store.list_backups()
     
     def get_backup_details(self, filename: str) -> Optional[BackupDetails]:
         """
@@ -1068,43 +1062,10 @@ class BackupService:
         try:
             # Validate filename
             filename = validate_filename(filename)
-            
-            backup_path = os.path.join(self.backup_dir, filename)
-            metadata_path = backup_path.replace('.bak', '.json')
-            
-            # Validate paths
-            backup_path = validate_file_path(backup_path)
-            metadata_path = validate_file_path(metadata_path)
-            
-            if not os.path.exists(backup_path):
-                logger.warning(f"Backup file not found: {filename}")
-                return None
-            
-            if not os.path.exists(metadata_path):
-                logger.warning(f"Metadata file not found for backup: {filename}")
-                return None
-            
-            # Load metadata
-            with open(metadata_path, 'r', encoding='utf-8') as f:
-                metadata = json.load(f)
-            
-            # Get current file information
-            file_size = os.path.getsize(backup_path)
-            
-            backup_details = BackupDetails(
-                filename=filename,
-                description=metadata.get('description', 'No description'),
-                timestamp=metadata.get('timestamp', ''),
-                created_date=metadata.get('created_date', ''),
-                file_size=file_size,
-                file_size_formatted=format_file_size(file_size),
-                database_name=metadata.get('database_name', 'Unknown'),
-                sql_server=metadata.get('sql_server', 'Unknown'),
-                metadata=metadata,
-                is_valid=True
-            )
-            
-            return backup_details
+            details = self._metadata_store.load_details(filename)
+            if not details:
+                logger.warning("Backup details not found for: %s", filename)
+            return details
             
         except (BackupValidationError, BackupSecurityError) as e:
             logger.error(f"Validation error getting backup details: {e}")
@@ -1165,11 +1126,11 @@ class BackupService:
                     backup_path=escaped_path
                 )
                 
-                # Execute restore with sqlcmd/pyodbc fallback
+                # Execute restore via sqlcmd
                 logger.info(f"Starting restore from: {filename}")
                 logger.warning("Database will be temporarily unavailable during restore")
                 
-                success, message = self._execute_sql_command(sql_command)
+                success, message = self._sql_executor.execute(sql_command)
                 
                 if not success:
                     error_msg = f"SQL Server restore failed: {message}"
@@ -1178,7 +1139,7 @@ class BackupService:
                     # Try to return database to multi-user mode if possible
                     try:
                         recovery_cmd = f"ALTER DATABASE [{self.database_name}] SET MULTI_USER;"
-                        self._execute_sql_command(recovery_cmd)
+                        self._sql_executor.execute(recovery_cmd)
                     except Exception as recovery_error:
                         logger.error(f"Failed to recover database to multi-user mode: {recovery_error}")
                         warnings.append("Database may still be in single-user mode")
@@ -1210,7 +1171,7 @@ class BackupService:
             # Try to recover database state
             try:
                 recovery_cmd = f"ALTER DATABASE [{self.database_name}] SET MULTI_USER;"
-                self._execute_sql_command(recovery_cmd)
+                self._sql_executor.execute(recovery_cmd)
             except Exception:
                 warnings.append("Database may be in an inconsistent state")
             
@@ -1276,9 +1237,6 @@ class BackupService:
             
             with operation_tracker('restore_from_path', {'file_path': str(backup_path)}) as metrics:
                 # Execute restore operation
-                with self.get_sql_connection() as conn:
-                    if conn is None:
-                        raise BackupError("Unable to connect to database for restore operation")
                     
                     try:
                         cursor = conn.cursor()
@@ -1331,7 +1289,7 @@ class BackupService:
                 file_path=str(backup_path),
                 execution_time_seconds=execution_time,
                 database_name=self.database_name,
-                sql_server=self.server_name,
+                sql_server=self.sql_server,
                 warnings=warnings if warnings else None
             )
             
@@ -1386,18 +1344,17 @@ class BackupService:
                 logger.warning(f"Backup file not found: {filename}")
             
             # Delete metadata file
-            metadata_filename = filename.replace('.bak', '.json')
-            if os.path.exists(metadata_path):
-                try:
-                    os.remove(metadata_path)
-                    files_deleted.append(metadata_filename)
-                    logger.info(f"Deleted metadata file: {metadata_filename}")
-                except Exception as e:
-                    error_msg = f"Failed to delete metadata file: {e}"
+            deleted_metadata, metadata_filename, metadata_error = self._metadata_store.delete_metadata_file(filename)
+            if deleted_metadata:
+                files_deleted.append(metadata_filename)
+                logger.info(f"Deleted metadata file: {metadata_filename}")
+            else:
+                if metadata_error:
+                    error_msg = f"Failed to delete metadata file: {metadata_error}"
                     logger.error(error_msg)
                     errors.append(error_msg)
-            else:
-                logger.warning(f"Metadata file not found: {metadata_filename}")
+                else:
+                    logger.warning(f"Metadata file not found: {metadata_filename}")
             
             # Determine overall success
             if files_deleted and not errors:
@@ -1512,5 +1469,3 @@ def get_backup_service() -> BackupService:
                 logger.info("BackupService singleton instance created")
     
     return _backup_service_instance
-
-

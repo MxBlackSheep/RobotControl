@@ -11,6 +11,7 @@
 - Dropped stale backend service singletons by making `get_services()` fetch fresh dependencies each call, avoiding hidden global state while keeping endpoint signatures unchanged (`backend/api/scheduling.py`).
 - Removed the unused refactored camera route and demo components after folding their improvements into the main camera page, trimming dead UI code (`frontend/src/pages/CameraPageRefactored.tsx`, `frontend/src/components/examples/*`, `frontend/src/components/camera/index.ts`, `frontend/src/components/camera/TabPanel.tsx`).
 - Simplified the camera backend to use the standard config/data-path helpers and rely solely on the shared frame buffer/LiveStreaming service for streaming, eliminating the legacy per-camera frame cache and fallback imports (`backend/services/camera.py`, `backend/services/live_streaming.py`, `backend/tests/test_camera.py`).
+- Broke the backup service into a `SqlCommandExecutor` and `BackupMetadataStore`, removing duplicated SQL/metadata handling logic and making the core service focused on orchestration (`backend/services/backup.py`).
 
 ---
 ## 2025-10-17 Archive Feature Finalization
