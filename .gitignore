@@ -5,6 +5,8 @@ frontend/dist/
 data/
 tools/
 backend/embedded_static.py
+*.spec
+main.py
 
 # Python cache
 __pycache__/
@@ -17,7 +19,13 @@ venv/
 # IDE settings
 .idea/
 .vscode/
+AGENTS.md
 
 # Node modules (frontend)
 frontend/node_modules/
 
+# Test
+backend/tests/test_notification_logging.py
+
+# CLI
+backend/scripts/auth_cli.py
