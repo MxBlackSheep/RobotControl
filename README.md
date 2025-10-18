@@ -71,6 +71,11 @@ If you would like make changes and compile on your own machine, make sure the fo
 pip install -r requirements.txt
    ```
 
+**Run backend locally**
+   ```bash
+   python backend/main.py --host 127.0.0.1 --port 8005
+   ```
+
 ### Build
 
 #### Frontend
