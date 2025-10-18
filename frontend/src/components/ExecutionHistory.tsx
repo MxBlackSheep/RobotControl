@@ -153,29 +153,7 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
         return execution;
       }) : [];
 
-      // Deduplicate executions when archive + live return same ID
-      const dedupedMap = normalised.reduce((acc, execution) => {
-        if (!acc.has(execution.execution_id)) {
-          acc.set(execution.execution_id, execution);
-        } else {
-          const existing = acc.get(execution.execution_id)!;
-          const existingArchived = Boolean(existing.archived_at);
-          const incomingArchived = Boolean(execution.archived_at);
-          const existingHasSnapshot = Boolean(existing.experiment_name_snapshot);
-          const incomingHasSnapshot = Boolean(execution.experiment_name_snapshot);
-
-          if (!existingArchived && incomingArchived) {
-            acc.set(execution.execution_id, execution);
-          } else if (existingArchived === incomingArchived) {
-            if (!existingHasSnapshot && incomingHasSnapshot) {
-              acc.set(execution.execution_id, execution);
-            }
-          }
-        }
-        return acc;
-      }, new Map<string, ExecutionRecord>());
-
-      setExecutions(Array.from(dedupedMap.values()));
+      setExecutions(normalised);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load execution history');
     } finally {

@@ -41,12 +41,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/scheduling", tags=["scheduling"])
 
-# Service instances (lazy-loaded)
-scheduler_engine = None
-db_manager = None
-queue_manager = None
-process_monitor = None
-
 EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 SCHEDULE_INTERVAL_ALIASES: Dict[str, float] = {
@@ -58,19 +52,12 @@ SUPPORTED_SCHEDULE_TYPES = {"once", "interval", "cron"} | set(SCHEDULE_INTERVAL_
 
 
 def get_services():
-    """Get lazy-loaded service instances"""
-    global scheduler_engine, db_manager, queue_manager, process_monitor
-    
-    if scheduler_engine is None:
-        scheduler_engine = get_scheduler_engine()
-    if db_manager is None:
-        db_manager = get_scheduling_database_manager()
-    if queue_manager is None:
-        queue_manager = get_job_queue_manager()
-    if process_monitor is None:
-        process_monitor = get_hamilton_process_monitor()
-    
-    return scheduler_engine, db_manager, queue_manager, process_monitor
+    """Return the scheduler service dependencies."""
+    scheduler = get_scheduler_engine()
+    db_mgr = get_scheduling_database_manager()
+    queue_mgr = get_job_queue_manager()
+    proc_monitor = get_hamilton_process_monitor()
+    return scheduler, db_mgr, queue_mgr, proc_monitor
 
 
 def _normalize_contact_ids(contact_ids: Optional[Any], db_mgr) -> List[str]:
