@@ -4,7 +4,7 @@
 ## 2025-10-18 Scheduling Maintenance Trim
 
 - Added a project-level `.gitignore` so transient build outputs (PyInstaller bundles, frontend builds, venvs, caches) stop polluting status checks while still leaving the generated files in place for runtime use (`.gitignore`).
-- Collapsed the duplicate scheduling database manager implementation by turning `database_manager_backup.py` into a thin compatibility shim that re-exports the primary manager, preventing feature drift between the two code paths (`backend/services/scheduling/database_manager_backup.py`).
+- Removed the obsolete `database_manager_backup.py` module entirely; all scheduling paths now import the single primary database manager implementation (`backend/services/scheduling/database_manager.py`).
 - Encapsulated scheduler capacity acquisition in a dedicated helper, leaving `_execute_job` easier to follow while preserving the existing retry semantics and logging (`backend/services/scheduling/scheduler_engine.py`).
 - Moved execution-history deduplication into the SQLite layer so the API now returns a single authoritative record per execution; the React view simply renders the list without client-side merging (`backend/services/scheduling/sqlite_database.py`, `frontend/src/components/ExecutionHistory.tsx`).
 - Centralised manual-recovery normalisation in the scheduling API client so hooks and services share one mapping definition (`frontend/src/services/schedulingApi.ts`, `frontend/src/hooks/useScheduling.ts`).
@@ -14,7 +14,7 @@
 ## 2025-10-17 Archive Feature Finalization
 
 - Removed every reference to the legacy `failed_execution_count` field so new databases no longer create or maintain the column while existing files stay compatible; scheduling models, API payloads, and SQLite operations now ignore the obsolete counter (`backend/models.py`, `backend/api/scheduling.py`, `backend/services/scheduling/sqlite_database.py`, `frontend/src/types/scheduling.ts`, `frontend/src/services/schedulingApi.ts`).
-- Hardened archive toggling on the backend by reusing the standard update path, forcing scheduler cache invalidation, and keeping optimistic locking timestamps accurate so archived schedules reliably stay dormant (`backend/api/scheduling.py`, `backend/services/scheduling/database_manager_backup.py`).
+- Hardened archive toggling on the backend by reusing the standard update path, forcing scheduler cache invalidation, and keeping optimistic locking timestamps accurate so archived schedules reliably stay dormant (`backend/api/scheduling.py`).
 - Completed the frontend archive experience with dedicated loading states, list labelling, and hook state for archived schedules, allowing the “Archive” tab and buttons to stay in sync after archive/unarchive actions (`frontend/src/hooks/useScheduling.ts`, `frontend/src/components/ScheduleList.tsx`, `frontend/src/pages/SchedulingPage.tsx`).
 
 ## 2025-10-17 Scheduler Concurrency Queueing
@@ -22,7 +22,7 @@
 - Added a backlog tracker for schedules deferred because the concurrency limit is hit so we log “Max concurrent jobs reached” only once per waiting job and avoid losing it from the queue (`backend/services/scheduling/scheduler_engine.py`).
 - Prevented one-time schedules from being auto-marked “missed” while they are waiting for capacity, letting them run as soon as the current job finishes instead of flipping to “Not scheduled” (`backend/services/scheduling/scheduler_engine.py`).
 - Folded the scheduler’s concurrency limit into the same five-attempt retry loop we use for HxRun launches: when capacity is saturated the job logs a retry, waits 120 s, and after five tries it is treated as failed and rescheduled to its next interval (`backend/services/scheduling/scheduler_engine.py`).
-- When a schedule is deleted we now persist its name/path snapshot with every archived execution so Execution History keeps the original experiment label instead of dropping to “Archived Schedule” (`backend/api/scheduling.py`, `backend/services/scheduling/database_manager.py`, `backend/services/scheduling/database_manager_backup.py`, `backend/services/scheduling/sqlite_database.py`, `backend/services/scheduling/scheduler_engine.py`).
+- When a schedule is deleted we now persist its name/path snapshot with every archived execution so Execution History keeps the original experiment label instead of dropping to “Archived Schedule” (`backend/api/scheduling.py`, `backend/services/scheduling/database_manager.py`, `backend/services/scheduling/sqlite_database.py`, `backend/services/scheduling/scheduler_engine.py`).
 
 ## 2025-10-17 Scheduling Failure Handling Refresh
 
@@ -34,7 +34,7 @@
 ## 2025-10-17 Schedule Deletion Concurrency Fix
 
 - Background scheduler updates now avoid touching the `updated_at` field by passing `touch_updated_at=False` whenever they persist interval/next-run metadata. This keeps optimistic locking tokens stable for UI operations (`backend/services/scheduling/scheduler_engine.py`, `backend/services/scheduling/database_manager.py`, `backend/services/scheduling/sqlite_database.py`).
-- Added a `touch_updated_at` flag through the scheduling data layer so API writes still bump timestamps while automated maintenance writes do not, preserving multi-user safeguards without spurious 409s on delete requests (`backend/services/scheduling/database_manager.py`, `backend/services/scheduling/database_manager_backup.py`, `backend/services/scheduling/sqlite_database.py`).
+- Added a `touch_updated_at` flag through the scheduling data layer so API writes still bump timestamps while automated maintenance writes do not, preserving multi-user safeguards without spurious 409s on delete requests (`backend/services/scheduling/database_manager.py`, `backend/services/scheduling/sqlite_database.py`).
 - Updated the scheduler manual-recovery test stub to support the new signature (`backend/tests/test_scheduler_manual_recovery.py`).
 - Experiment execution now resolves stored relative experiment paths against the Hamilton `Methods` root, so imports from “Active Experiment” (and other sibling folders) run without falling back to the legacy LabProtocols directory (`backend/services/scheduling/experiment_executor.py`).
 - Scheduling API writes now persist the exact `updated_at` values supplied by the caller instead of relying on SQLite’s UTC `CURRENT_TIMESTAMP`, eliminating timezone drift between optimistic-lock headers and stored records (`backend/services/scheduling/sqlite_database.py`, `backend/api/scheduling.py`, `backend/models.py`).
