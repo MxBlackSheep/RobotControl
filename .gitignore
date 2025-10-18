@@ -1,0 +1,23 @@
+# Build artifacts
+build/
+dist/
+frontend/dist/
+data/
+tools/
+backend/embedded_static.py
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtual environments
+.venv*/
+venv/
+
+# IDE settings
+.idea/
+.vscode/
+
+# Node modules (frontend)
+frontend/node_modules/
+
