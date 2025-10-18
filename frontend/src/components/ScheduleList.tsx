@@ -51,7 +51,8 @@ import {
   Schedule as ScheduleIcon,
   AccessTime as ClockIcon,
   Science as ExperimentIcon,
-  Loop as IntervalIcon
+  Loop as IntervalIcon,
+  Archive as ArchiveIcon
 } from '@mui/icons-material';
 import LoadingSpinner from './LoadingSpinner';
 import ErrorAlert from './ErrorAlert';
@@ -212,6 +213,14 @@ const ScheduleDetailsDialog: React.FC<ScheduleDetailsDialogProps> = ({
                       {new Date(schedule.updated_at).toLocaleString()}
                     </Typography>
                   </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="body2" color="textSecondary">
+                      Archived
+                    </Typography>
+                    <Typography variant="body1">
+                      {schedule.archived ? 'Yes' : 'No'}
+                    </Typography>
+                  </Grid>
                   {schedule.last_run && (
                     <Grid item xs={6}>
                       <Typography variant="body2" color="textSecondary">
@@ -306,7 +315,8 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
   onRefresh,
   loading = false,
   error = null,
-  initialized = false
+  initialized = false,
+  archivedView = false,
 }) => {
   const [sortOptions, setSortOptions] = useState<ScheduleSortOptions>({
     field: 'next_run',
@@ -380,6 +390,14 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
       );
     }
 
+    if (schedule.archived) {
+      return (
+        <Tooltip title="Schedule is archived">
+          <ArchiveIcon color="disabled" fontSize="small" />
+        </Tooltip>
+      );
+    }
+
     if (!schedule.is_active) {
       return (
         <Tooltip title="Schedule is inactive">
@@ -430,6 +448,14 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
             size="small"
           />
         )}
+        {schedule.archived && (
+          <Chip
+            label="Archived"
+            color="default"
+            size="small"
+            variant="outlined"
+          />
+        )}
       </Stack>
     );
   };
@@ -470,9 +496,9 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
             <CardContent>
               <Stack alignItems="center" spacing={2}>
                 <ExperimentIcon color="disabled" sx={{ fontSize: 48 }} />
-                <Typography color="textSecondary">
-                  No scheduled experiments found
-                </Typography>
+          <Typography color="textSecondary">
+            {archivedView ? 'No archived schedules found' : 'No scheduled experiments found'}
+          </Typography>
               </Stack>
             </CardContent>
           </Card>
@@ -603,10 +629,13 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
   };
 
   if (!initialized) {
+    const loadingMessage = archivedView
+      ? 'Loading archived schedules...'
+      : 'Loading scheduled experiments...';
     return (
       <LoadingSpinner
         variant="spinner"
-        message="Loading scheduled experiments..."
+        message={loadingMessage}
         minHeight={300}
       />
     );
@@ -640,10 +669,12 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
         }}
       >
         <Typography variant="h6" gutterBottom>
-          No scheduled experiments yet
+          {archivedView ? 'No archived schedules yet' : 'No scheduled experiments yet'}
         </Typography>
         <Typography variant="body2" color="text.secondary" gutterBottom>
-          Create a schedule to see it listed here.
+          {archivedView
+            ? 'Archived schedules will appear here once you archive existing experiments.'
+            : 'Create a schedule to see it listed here.'}
         </Typography>
         <Button variant="outlined" onClick={onRefresh} startIcon={<RefreshIcon />}>
           Refresh
@@ -684,7 +715,7 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
             rowGap={1}
           >
             <Typography variant="h6" sx={{ fontSize: { xs: '1rem', sm: '1.1rem' } }}>
-              Scheduled Experiments ({schedules.length})
+              {archivedView ? 'Archived Schedules' : 'Scheduled Experiments'} ({schedules.length})
             </Typography>
             <Button
               startIcon={<RefreshIcon />}
@@ -717,11 +748,11 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
               <TableBody>
                 {sortedSchedules.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
-                      <Stack alignItems="center" spacing={2}>
-                        <ExperimentIcon color="disabled" sx={{ fontSize: 48 }} />
-                        <Typography color="textSecondary">
-                          No scheduled experiments found
+                  <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
+                    <Stack alignItems="center" spacing={2}>
+                      <ExperimentIcon color="disabled" sx={{ fontSize: 48 }} />
+                      <Typography color="textSecondary">
+                        {archivedView ? 'No archived schedules found' : 'No scheduled experiments found'}
                         </Typography>
                       </Stack>
                     </TableCell>

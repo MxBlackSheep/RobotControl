@@ -117,10 +117,10 @@ class ScheduledExperiment:
     estimated_duration: int = 60  # Duration in minutes
     created_by: str = "system"
     is_active: bool = True
+    archived: bool = False
     retry_config: Optional[RetryConfig] = None
     prerequisites: List[str] = None  # Database flags to set before execution
     notification_contacts: List[str] = None  # Contact IDs to notify on issues
-    failed_execution_count: int = 0  # Track failed executions for retry limits
     recovery_required: bool = False
     recovery_note: Optional[str] = None
     recovery_marked_at: Optional[datetime] = None
@@ -156,10 +156,10 @@ class ScheduledExperiment:
             "estimated_duration": self.estimated_duration,
             "created_by": self.created_by,
             "is_active": self.is_active,
+            "archived": self.archived,
             "retry_config": self.retry_config.to_dict() if self.retry_config else None,
             "prerequisites": self.prerequisites,
             "notification_contacts": self.notification_contacts,
-            "failed_execution_count": self.failed_execution_count,
             "recovery_required": self.recovery_required,
             "recovery_note": self.recovery_note,
             "recovery_marked_at": self.recovery_marked_at.isoformat() if self.recovery_marked_at else None,
@@ -195,10 +195,10 @@ class ScheduledExperiment:
             estimated_duration=data.get("estimated_duration", 60),
             created_by=data.get("created_by", "system"),
             is_active=data.get("is_active", True),
+            archived=data.get("archived", False),
             retry_config=retry_config,
             prerequisites=data.get("prerequisites", []),
             notification_contacts=data.get("notification_contacts", []),
-            failed_execution_count=data.get("failed_execution_count", 0),
             recovery_required=data.get("recovery_required", False),
             recovery_note=data.get("recovery_note"),
             recovery_marked_at=recovery_marked_at,

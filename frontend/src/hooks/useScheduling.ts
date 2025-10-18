@@ -57,9 +57,13 @@ const extractErrorMessage = (error: unknown): string => {
 
 const useScheduling = () => {
   const [schedules, setSchedules] = useState<ScheduledExperiment[]>([]);
+  const [archivedSchedules, setArchivedSchedules] = useState<ScheduledExperiment[]>([]);
   const [selectedSchedule, setSelectedSchedule] = useState<ScheduledExperiment | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
+  const [archivedLoading, setArchivedLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [archivedError, setArchivedError] = useState<string | null>(null);
+  const [archivedInitialized, setArchivedInitialized] = useState<boolean>(false);
   const [operationStatus, setOperationStatus] = useState<SchedulingOperationStatus>(
     SchedulingOperationStatus.Idle,
   );
@@ -88,12 +92,12 @@ const useScheduling = () => {
 
 
   const loadSchedules = useCallback(
-    async (activeOnly = true, focusScheduleId?: string | null): Promise<void> => {
+    async (activeOnly = false, focusScheduleId?: string | null): Promise<void> => {
       setOperationStatus(SchedulingOperationStatus.Loading);
       setLoading(true);
       setError(null);
       try {
-        const result = await schedulingService.getAllSchedules(activeOnly);
+        const result = await schedulingService.getAllSchedules(activeOnly, false);
         if (result.error) {
           setError(result.error);
           setOperationStatus(SchedulingOperationStatus.Error);
@@ -104,7 +108,7 @@ const useScheduling = () => {
         setSchedules(fetchedSchedules);
         setCalendarEvents(
           fetchedSchedules
-            .filter((schedule) => Boolean(schedule.next_run))
+            .filter((schedule) => schedule.is_active && Boolean(schedule.next_run))
             .map((schedule) => ({
               event_id: `${schedule.schedule_id}-${schedule.next_run}`,
               schedule_id: schedule.schedule_id,
@@ -149,6 +153,24 @@ const useScheduling = () => {
     [],
   );
 
+  const loadArchivedSchedules = useCallback(async (): Promise<void> => {
+    setArchivedLoading(true);
+    setArchivedError(null);
+    try {
+      const result = await schedulingService.getArchivedSchedules();
+      if (result.error) {
+        setArchivedError(result.error);
+        return;
+      }
+      setArchivedSchedules(result.schedules);
+    } catch (err) {
+      setArchivedError(extractErrorMessage(err));
+    } finally {
+      setArchivedLoading(false);
+      setArchivedInitialized(true);
+    }
+  }, []);
+
   const createSchedule = useCallback(
     async (formData: CreateScheduleFormData): Promise<void> => {
       setOperationStatus(SchedulingOperationStatus.Creating);
@@ -160,7 +182,7 @@ const useScheduling = () => {
           setOperationStatus(SchedulingOperationStatus.Error);
           return;
         }
-        await loadSchedules(true, result.scheduleId);
+        await loadSchedules(false, result.scheduleId);
       } catch (err) {
         setError(extractErrorMessage(err));
         setOperationStatus(SchedulingOperationStatus.Error);
@@ -187,11 +209,11 @@ const useScheduling = () => {
           setOperationStatus(SchedulingOperationStatus.Error);
           return;
         }
-        await loadSchedules(true, scheduleId);
+        await loadSchedules(false, scheduleId);
       } catch (err) {
         setError(extractErrorMessage(err));
         if (isAxiosError(err) && err.response?.status === 409) {
-          await loadSchedules(true, scheduleId);
+          await loadSchedules(false, scheduleId);
         }
         setOperationStatus(SchedulingOperationStatus.Error);
       }
@@ -211,16 +233,39 @@ const useScheduling = () => {
           setOperationStatus(SchedulingOperationStatus.Error);
           return;
         }
-        await loadSchedules(true, null);
+        await loadSchedules(false, null);
+        await loadArchivedSchedules();
       } catch (err) {
         setError(extractErrorMessage(err));
         if (isAxiosError(err) && err.response?.status === 409) {
-          await loadSchedules(true, null);
+          await loadSchedules(false, null);
+          await loadArchivedSchedules();
         }
         setOperationStatus(SchedulingOperationStatus.Error);
       }
     },
-    [loadSchedules],
+    [loadArchivedSchedules, loadSchedules],
+  );
+
+  const archiveSchedule = useCallback(
+    async (schedule: ScheduledExperiment, archived: boolean): Promise<void> => {
+      setOperationStatus(SchedulingOperationStatus.Updating);
+      setError(null);
+      try {
+        const result = await schedulingService.archiveSchedule(schedule.schedule_id, archived);
+        if (result.error) {
+          setError(result.error);
+          setOperationStatus(SchedulingOperationStatus.Error);
+          return;
+        }
+        await loadSchedules(false, archived ? null : schedule.schedule_id);
+        await loadArchivedSchedules();
+      } catch (err) {
+        setError(extractErrorMessage(err));
+        setOperationStatus(SchedulingOperationStatus.Error);
+      }
+    },
+    [loadArchivedSchedules, loadSchedules],
   );
 
   const loadContacts = useCallback(
@@ -371,11 +416,11 @@ const useScheduling = () => {
           setManualRecovery(result.manualRecovery ?? null);
         }
         const focusId = result.schedule?.schedule_id ?? scheduleId;
-        await loadSchedules(true, focusId);
+        await loadSchedules(false, focusId);
       } catch (err) {
         setError(extractErrorMessage(err));
         if (isAxiosError(err) && err.response?.status === 409) {
-          await loadSchedules(true, scheduleId);
+          await loadSchedules(false, scheduleId);
         }
         setOperationStatus(SchedulingOperationStatus.Error);
       }
@@ -400,11 +445,11 @@ const useScheduling = () => {
           setManualRecovery(result.manualRecovery ?? null);
         }
         const focusId = result.schedule?.schedule_id ?? scheduleId;
-        await loadSchedules(true, focusId);
+        await loadSchedules(false, focusId);
       } catch (err) {
         setError(extractErrorMessage(err));
         if (isAxiosError(err) && err.response?.status === 409) {
-          await loadSchedules(true, scheduleId);
+          await loadSchedules(false, scheduleId);
         }
         setOperationStatus(SchedulingOperationStatus.Error);
       }
@@ -506,17 +551,19 @@ const useScheduling = () => {
 
   const clearError = useCallback(() => {
     setError(null);
+    setArchivedError(null);
     if (operationStatus === SchedulingOperationStatus.Error) {
       setOperationStatus(SchedulingOperationStatus.Idle);
     }
   }, [operationStatus]);
 
   useEffect(() => {
-    loadSchedules(true);
+    loadSchedules(false);
+    loadArchivedSchedules();
     getQueueStatus();
     getSchedulerStatus();
     getCalendarData();
-  }, [loadSchedules, getQueueStatus, getSchedulerStatus, getCalendarData]);
+  }, [loadSchedules, loadArchivedSchedules, getQueueStatus, getSchedulerStatus, getCalendarData]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -528,10 +575,14 @@ const useScheduling = () => {
   const state = useMemo(
     () => ({
       schedules,
+      archivedSchedules,
       selectedSchedule,
       operationStatus,
       loading,
+      archivedLoading,
       error,
+      archivedError,
+      archivedInitialized,
       lastRefresh,
       calendarEvents,
       queueStatus,
@@ -546,10 +597,14 @@ const useScheduling = () => {
     }),
     [
       schedules,
+      archivedSchedules,
       selectedSchedule,
       operationStatus,
       loading,
+      archivedLoading,
       error,
+      archivedError,
+      archivedInitialized,
       lastRefresh,
       calendarEvents,
       queueStatus,
@@ -567,9 +622,11 @@ const useScheduling = () => {
   const actions = useMemo(
     () => ({
       loadSchedules,
+      loadArchivedSchedules,
       createSchedule,
       updateSchedule,
       deleteSchedule,
+      archiveSchedule,
       loadContacts,
       createContact,
       updateContact,
@@ -591,9 +648,11 @@ const useScheduling = () => {
     }),
     [
       loadSchedules,
+      loadArchivedSchedules,
       createSchedule,
       updateSchedule,
       deleteSchedule,
+      archiveSchedule,
       loadContacts,
       createContact,
       updateContact,

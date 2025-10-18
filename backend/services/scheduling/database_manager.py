@@ -102,6 +102,14 @@ class SchedulingDatabaseManager:
             logger.error("Error getting active schedules: %s", exc)
             return []
 
+    def get_schedules(self, *, active_only: bool, archived_only: bool) -> List[ScheduledExperiment]:
+        """Get schedules filtered by active/archive state."""
+        try:
+            return self.sqlite_db.get_schedules(active_only=active_only, archived_only=archived_only)
+        except Exception as exc:  # pragma: no cover - log only
+            logger.error("Error getting schedules: %s", exc)
+            return []
+
     def update_scheduled_experiment(
         self,
         experiment: ScheduledExperiment,
@@ -187,10 +195,18 @@ class SchedulingDatabaseManager:
             logger.error("Failed to clear global recovery state: %s", exc)
             return self.sqlite_db.get_manual_recovery_state()
 
-    def delete_scheduled_experiment(self, schedule_id: str) -> bool:
+    def delete_scheduled_experiment(
+        self,
+        schedule_id: str,
+        schedule: Optional[ScheduledExperiment] = None,
+    ) -> bool:
         """Delete a scheduled experiment and its associated job executions from SQLite."""
         try:
-            return self.sqlite_db.delete_schedule(schedule_id)
+            return self.sqlite_db.delete_schedule(
+                schedule_id,
+                name_snapshot=schedule.experiment_name if schedule else None,
+                path_snapshot=schedule.experiment_path if schedule else None,
+            )
         except Exception as exc:  # pragma: no cover - log only
             logger.error("Error deleting scheduled experiment: %s", exc)
             return False

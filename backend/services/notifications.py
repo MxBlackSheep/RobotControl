@@ -437,6 +437,7 @@ class SchedulingNotificationService:
         trigger_label = {
             "long_running": "Long-running execution",
             "aborted": "Aborted execution",
+            "execution_failed": "Launch failure",
         }.get(trigger, trigger.replace("_", " ").title())
         return f"RobotControl alert: {schedule.experiment_name} [{trigger_label}]"
 
@@ -450,6 +451,7 @@ class SchedulingNotificationService:
         trigger_label = {
             "long_running": "Long-running Execution",
             "aborted": "Aborted Execution",
+            "execution_failed": "Launch Failure",
         }.get(trigger, trigger.replace("_", " ").title())
 
         lines: List[str] = [

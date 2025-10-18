@@ -652,7 +652,6 @@ async def create_schedule(
             retry_config=retry_config,
             prerequisites=schedule_data.get("prerequisites", []),
             notification_contacts=notification_contact_ids,
-            failed_execution_count=0,  # Initialize to 0 for new schedules
             created_at=None,  # Will be set in __post_init__
             updated_at=None   # Will be set in __post_init__
         )
@@ -709,6 +708,7 @@ async def create_schedule(
 @router.get("/list")
 async def list_schedules(
     active_only: bool = Query(True, description="Return only active schedules"),
+    archived_only: bool = Query(False, description="Return only archived schedules"),
     current_user: dict = Depends(get_current_user)
 ):
     """
@@ -719,17 +719,19 @@ async def list_schedules(
     try:
         scheduler, db_mgr, queue_mgr, proc_mon = get_services()
         
-        logger.info(f"Getting schedules: active_only={active_only}")
-        
-        if active_only:
+        logger.info(f"Getting schedules: active_only={active_only} archived_only={archived_only}")
+
+        if archived_only:
+            schedules = db_mgr.get_schedules(active_only=False, archived_only=True)
+        elif active_only:
             schedules = scheduler.get_active_schedules()
             if schedules:
                 logger.info(f"Found {len(schedules)} schedules from scheduler cache")
             else:
                 logger.info("Scheduler cache empty; loading schedules from database")
-                schedules = db_mgr.get_active_schedules()
+                schedules = db_mgr.get_schedules(active_only=True, archived_only=False)
         else:
-            schedules = db_mgr.get_active_schedules()
+            schedules = db_mgr.get_schedules(active_only=False, archived_only=False)
             logger.info(f"Found {len(schedules)} schedules from database (active_only=False)")
         
         schedule_list = []
@@ -751,7 +753,8 @@ async def list_schedules(
             data=schedule_list,
             metadata={
                 "count": len(schedule_list),
-                "active_only": active_only
+                "active_only": active_only,
+                "archived_only": archived_only,
             }
         )
         
@@ -1188,7 +1191,10 @@ async def delete_schedule(
 
         if not success:
             # Either the scheduler is not running or removal failed; fall back to direct DB removal
-            fallback_deleted = db_mgr.delete_scheduled_experiment(schedule_id)
+            fallback_deleted = db_mgr.delete_scheduled_experiment(
+                schedule_id,
+                schedule=existing_schedule,
+            )
             if not fallback_deleted:
                 raise HTTPException(status_code=400, detail="Failed to delete schedule")
             fallback_used = True
@@ -1238,6 +1244,57 @@ async def delete_schedule(
             details={"schedule_id": schedule_id, "error": str(e)},
         )
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post("/{schedule_id}/archive")
+async def set_schedule_archived(
+    schedule_id: str,
+    payload: Dict[str, Any],
+    current_user: dict = Depends(get_current_user),
+    connection: ConnectionContext = Depends(require_local_access),
+):
+    archived_flag = payload.get("archived")
+    if archived_flag is None:
+        raise HTTPException(status_code=400, detail="archived flag is required")
+    archived = bool(archived_flag)
+
+    scheduler, db_mgr, _, _ = get_services()
+    schedule = db_mgr.get_schedule_by_id(schedule_id)
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+
+    is_admin = current_user.get("role") == "admin"
+    is_local_owner = (
+        connection.is_local
+        and schedule.created_by
+        and schedule.created_by == current_user.get("username")
+    )
+    if not (is_admin or is_local_owner):
+        raise HTTPException(status_code=403, detail="Admin role required")
+
+    if schedule.archived == archived:
+        return ApiResponse(
+            success=True,
+            message="Schedule archive state unchanged",
+            data=schedule.to_dict(),
+        ).to_dict()
+
+    schedule.archived = archived
+    if archived:
+        schedule.is_active = False
+    schedule.updated_at = datetime.utcnow()
+
+    if not db_mgr.update_scheduled_experiment(schedule):
+        raise HTTPException(status_code=400, detail="Failed to update schedule")
+
+    scheduler.invalidate_schedule(schedule_id)
+
+    message = "Schedule archived" if archived else "Schedule unarchived"
+    return ApiResponse(
+        success=True,
+        message=message,
+        data=schedule.to_dict(),
+    ).to_dict()
 
 
 @router.get("/status/scheduler")
@@ -1346,7 +1403,6 @@ async def check_conflicts(
                 is_active=True,
                 retry_config=None,
                 prerequisites=[],
-                failed_execution_count=0,
                 created_at=None,
                 updated_at=None
             )
@@ -1790,7 +1846,6 @@ async def get_execution_history(
         # Get execution history from SQLite database
         sqlite_db = db_mgr.sqlite_db
         executions = sqlite_db.get_execution_history(schedule_id, limit)
-        
         response = ApiResponse(
             success=True,
             message=f"Retrieved {len(executions)} execution records",

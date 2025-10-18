@@ -72,6 +72,7 @@ export const normalizeSchedule = (raw: any): ScheduledExperiment => {
     created_at: coerceString(raw?.created_at || ''),
     updated_at: coerceString(raw?.updated_at || raw?.created_at || ''),
     is_active: Boolean(raw?.is_active ?? true),
+    archived: Boolean(raw?.archived ?? false),
     retry_config: {
       max_retries: coerceNumber(retryConfig.max_retries, 3),
       retry_delay_minutes: coerceNumber(retryConfig.retry_delay_minutes, 2),
@@ -79,7 +80,6 @@ export const normalizeSchedule = (raw: any): ScheduledExperiment => {
     },
     prerequisites: Array.isArray(raw?.prerequisites) ? raw.prerequisites : [],
     notification_contacts: Array.isArray(raw?.notification_contacts) ? raw.notification_contacts : [],
-    failed_execution_count: coerceNumber(raw?.failed_execution_count, 0),
     recovery_required: Boolean(raw?.recovery_required),
     recovery_note: coerceOptionalString(raw?.recovery_note),
     recovery_marked_at: raw?.recovery_marked_at ?? null,
@@ -246,8 +246,10 @@ export const schedulingAPI = {
   createSchedule: (data: CreateScheduleRequest) =>
     api.post<ScheduleCreateResponse>('/api/scheduling/create', data),
 
-  getSchedules: (activeOnly = true) =>
-    api.get<ScheduleListResponse>('/api/scheduling/list', { params: { active_only: activeOnly } }),
+  getSchedules: (activeOnly = true, archivedOnly = false) =>
+    api.get<ScheduleListResponse>('/api/scheduling/list', {
+      params: { active_only: activeOnly, archived_only: archivedOnly },
+    }),
 
   getSchedule: (scheduleId: string) => api.get<ScheduleResponse>(`/api/scheduling/${scheduleId}`),
 
@@ -270,6 +272,9 @@ export const schedulingAPI = {
     const config = expected ? { headers: { 'If-Unmodified-Since': expected } } : undefined;
     return api.delete<ScheduleResponse>(`/api/scheduling/${scheduleId}`, config);
   },
+
+  archiveSchedule: (scheduleId: string, archived: boolean) =>
+    api.post<ScheduleResponse>(`/api/scheduling/${scheduleId}/archive`, { archived }),
 
   requireRecovery: (scheduleId: string, note?: string, options?: { expectedUpdatedAt?: string | null }) => {
     const expected = options?.expectedUpdatedAt ?? undefined;
@@ -389,9 +394,12 @@ const buildScheduleRequest = (data: CreateScheduleFormData): CreateScheduleReque
 });
 
 export const schedulingService = {
-  async getAllSchedules(activeOnly = true): Promise<{ schedules: ScheduledExperiment[]; error?: string }> {
+  async getAllSchedules(
+    activeOnly = true,
+    archivedOnly = false,
+  ): Promise<{ schedules: ScheduledExperiment[]; error?: string }> {
     try {
-      const { data } = await schedulingAPI.getSchedules(activeOnly);
+      const { data } = await schedulingAPI.getSchedules(activeOnly, archivedOnly);
       if (!data.success) {
         return { schedules: [], error: data.message || 'Failed to load schedules' };
       }
@@ -399,6 +407,10 @@ export const schedulingService = {
     } catch (error) {
       return { schedules: [], error: parseAPIError(error) };
     }
+  },
+
+  async getArchivedSchedules(): Promise<{ schedules: ScheduledExperiment[]; error?: string }> {
+    return this.getAllSchedules(false, true);
   },
 
   async createSchedule(data: CreateScheduleFormData): Promise<{ scheduleId?: string; error?: string }> {
@@ -445,6 +457,21 @@ export const schedulingService = {
       return { success: true };
     } catch (error) {
       return { success: false, error: parseAPIError(error) };
+    }
+  },
+
+  async archiveSchedule(
+    scheduleId: string,
+    archived: boolean,
+  ): Promise<{ schedule?: ScheduledExperiment; error?: string }> {
+    try {
+      const { data } = await schedulingAPI.archiveSchedule(scheduleId, archived);
+      if (!data.success || !data.data) {
+        return { error: data.message || 'Failed to update archive state' };
+      }
+      return { schedule: normalizeSchedule(data.data) };
+    } catch (error) {
+      return { error: parseAPIError(error) };
     }
   },
 

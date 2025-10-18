@@ -47,6 +47,7 @@ interface ExecutionRecord {
   execution_id: string;
   schedule_id: string;
   experiment_name: string;
+  experiment_name_snapshot?: string | null;
   experiment_path?: string | null;
   status: string;
   status_display?: string;
@@ -126,10 +127,15 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
     try {
       const historyData = await actions.getExecutionHistory(undefined, limit);
       const normalised = Array.isArray(historyData) ? historyData.map((record) => {
+        const snapshotName =
+          (typeof record.experiment_name_snapshot === 'string' && record.experiment_name_snapshot.trim()) || null;
+        const responseName =
+          (typeof record.experiment_name === 'string' && record.experiment_name.trim()) || null;
         const execution: ExecutionRecord = {
           execution_id: record.execution_id,
           schedule_id: record.schedule_id,
-          experiment_name: record.experiment_name || 'Unknown Experiment',
+          experiment_name: snapshotName || responseName || 'Archived Schedule',
+          experiment_name_snapshot: snapshotName,
           experiment_path: record.experiment_path,
           status: record.status,
           status_display: record.status_display || record.status_formatted,
@@ -153,9 +159,17 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
           acc.set(execution.execution_id, execution);
         } else {
           const existing = acc.get(execution.execution_id)!;
-          // Prefer non-archived entry when choosing between duplicates
-          if (existing.archived_at && !execution.archived_at) {
+          const existingArchived = Boolean(existing.archived_at);
+          const incomingArchived = Boolean(execution.archived_at);
+          const existingHasSnapshot = Boolean(existing.experiment_name_snapshot);
+          const incomingHasSnapshot = Boolean(execution.experiment_name_snapshot);
+
+          if (!existingArchived && incomingArchived) {
             acc.set(execution.execution_id, execution);
+          } else if (existingArchived === incomingArchived) {
+            if (!existingHasSnapshot && incomingHasSnapshot) {
+              acc.set(execution.execution_id, execution);
+            }
           }
         }
         return acc;
@@ -531,7 +545,7 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
                       {execution.archived_at && (
                         <Chip
                           size="small"
-                          label="Archived"
+                          label="Deleted"
                           color="default"
                           variant="outlined"
                           sx={{ mt: 0.5 }}

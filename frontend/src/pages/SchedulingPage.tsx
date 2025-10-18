@@ -56,7 +56,8 @@ import {
   Refresh as RefreshIcon,
   History as HistoryIcon,
   WarningAmber as WarningIcon,
-  Email as EmailIcon
+  Email as EmailIcon,
+  Archive as ArchiveIcon
 } from '@mui/icons-material';
 import { useNavigate, Link as RouterLink } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -182,7 +183,7 @@ const SchedulingPage: React.FC = () => {
         expected_updated_at: state.selectedSchedule?.updated_at || undefined,
       };
       await actions.updateSchedule(editingScheduleId, updatePayload);
-      await actions.loadSchedules(true, editingScheduleId);
+      await actions.loadSchedules(false, editingScheduleId);
     } else {
       const createPayload: CreateScheduleFormData = {
         experiment_name: data.experiment_name,
@@ -199,7 +200,7 @@ const SchedulingPage: React.FC = () => {
         notification_contacts: Array.isArray(data.notification_contacts) ? data.notification_contacts : [],
       };
       await actions.createSchedule(createPayload);
-      await actions.loadSchedules(true);
+      await actions.loadSchedules(false);
     }
   };
 
@@ -282,14 +283,16 @@ const SchedulingPage: React.FC = () => {
   }, []);
 
   const openNotificationsTab = useCallback(() => {
-    setCurrentTab(4);
-  }, []);
+    if (user?.role === 'admin') {
+      setCurrentTab(5);
+    }
+  }, [user?.role]);
 
   useEffect(() => {
     if (user?.role !== 'admin') {
       return;
     }
-    if (currentTab !== 4 || notificationsTab !== 0) {
+    if (currentTab !== 5 || notificationsTab !== 0) {
       return;
     }
     if (!contactsRequested) {
@@ -302,7 +305,7 @@ const SchedulingPage: React.FC = () => {
     if (user?.role !== 'admin') {
       return;
     }
-    if (currentTab !== 4 || notificationsTab !== 1) {
+    if (currentTab !== 5 || notificationsTab !== 1) {
       return;
     }
     if (!logsLoaded && !logsLoading) {
@@ -314,7 +317,7 @@ const SchedulingPage: React.FC = () => {
     if (user?.role !== 'admin') {
       return;
     }
-    if (currentTab !== 4 || notificationsTab !== 2) {
+    if (currentTab !== 5 || notificationsTab !== 2) {
       return;
     }
     if (!emailSettingsRequested) {
@@ -364,7 +367,7 @@ const SchedulingPage: React.FC = () => {
     if (!scheduleId) {
       return;
     }
-    await actions.loadSchedules(true, scheduleId);
+    await actions.loadSchedules(false, scheduleId);
     setCurrentTab(0);
   };
 
@@ -790,6 +793,21 @@ const SchedulingPage: React.FC = () => {
                 px: tabPadding
               }}
             />
+            <Tab
+              label={
+                <Stack direction="row" alignItems="center" spacing={isSmallScreen ? 1 : 1.25}>
+                  <ArchiveIcon fontSize="small" />
+                  <Typography component="span" variant="body2">
+                    Archived
+                  </Typography>
+                </Stack>
+              }
+              sx={{
+                minHeight: 0,
+                py: { xs: 1, md: 1.25 },
+                px: tabPadding
+              }}
+            />
             {user?.role === 'admin' && (
               <Tab 
                 label={
@@ -818,7 +836,7 @@ const SchedulingPage: React.FC = () => {
                 schedules={state.schedules}
                 selectedSchedule={state.selectedSchedule}
                 onScheduleSelect={actions.selectSchedule}
-                onRefresh={() => actions.loadSchedules(true)}
+                onRefresh={() => actions.loadSchedules(false)}
                 loading={state.loading}
                 error={state.error}
                 initialized={state.initialized}
@@ -885,20 +903,37 @@ const SchedulingPage: React.FC = () => {
                               </Typography>
                             </Typography>
                           )}
-                          <Button
-                            variant="outlined"
-                            fullWidth
-                            startIcon={<EditIcon />}
-                            onClick={handleOpenEditForm}
-                            disabled={state.loading}
-                          >
-                            Edit Schedule
-                          </Button>
-                          <Button
-                            variant="outlined"
-                            color="error"
-                            fullWidth
-                            startIcon={<DeleteIcon />}
+                      <Button
+                        variant="outlined"
+                        fullWidth
+                        startIcon={<EditIcon />}
+                        onClick={handleOpenEditForm}
+                        disabled={state.loading}
+                      >
+                        Edit Schedule
+                      </Button>
+                      <Button
+                        variant="outlined"
+                        fullWidth
+                        startIcon={<ArchiveIcon />}
+                        onClick={async () => {
+                          if (!state.selectedSchedule) {
+                            return;
+                          }
+                          await actions.archiveSchedule(
+                            state.selectedSchedule,
+                            !state.selectedSchedule.archived,
+                          );
+                        }}
+                        disabled={state.loading || !state.selectedSchedule}
+                      >
+                        {state.selectedSchedule?.archived ? 'Unarchive Schedule' : 'Archive Schedule'}
+                      </Button>
+                      <Button
+                        variant="outlined"
+                        color="error"
+                        fullWidth
+                        startIcon={<DeleteIcon />}
                             onClick={() => {
                               if (window.confirm(`Delete schedule for ${state.selectedSchedule.experiment_name}?`)) {
                                 actions.deleteSchedule(state.selectedSchedule);
@@ -1058,8 +1093,21 @@ const SchedulingPage: React.FC = () => {
           />
         </TabPanel>
 
+        <TabPanel value={currentTab} index={4}>
+          <ScheduleList
+            schedules={state.archivedSchedules}
+            selectedSchedule={state.selectedSchedule}
+            onScheduleSelect={actions.selectSchedule}
+            onRefresh={actions.loadArchivedSchedules}
+            loading={state.archivedLoading}
+            error={state.archivedError}
+            initialized={state.archivedInitialized}
+            archivedView
+          />
+        </TabPanel>
+
         {user?.role === 'admin' && (
-          <TabPanel value={currentTab} index={4}>
+          <TabPanel value={currentTab} index={5}>
             <Stack spacing={3}>
               <Box sx={{ borderBottom: 1, borderColor: 'divider', px: { xs: 0.5, md: 1 } }}>
                 <Tabs

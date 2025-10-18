@@ -18,10 +18,10 @@ export interface ScheduledExperiment {
   created_at: string; // ISO format
   updated_at: string; // ISO format
   is_active: boolean;
+  archived: boolean;
   retry_config: RetryConfig;
   prerequisites: string[];
   notification_contacts: string[];
-  failed_execution_count?: number;
   recovery_required: boolean;
   recovery_note?: string | null;
   recovery_marked_at?: string | null;
@@ -255,6 +255,7 @@ export interface ScheduleListResponse extends ApiResponse<ScheduledExperiment[]>
   metadata: {
     count: number;
     active_only: boolean;
+    archived_only: boolean;
   };
 }
 
@@ -312,10 +313,13 @@ export enum SchedulingOperationStatus {
 
 export interface SchedulingUIState {
   schedules: ScheduledExperiment[];
+  archivedSchedules: ScheduledExperiment[];
   selectedSchedule: ScheduledExperiment | null;
   operationStatus: SchedulingOperationStatus;
   loading: boolean;
+  archivedLoading: boolean;
   error: string | null;
+  archivedError: string | null;
   lastRefresh: Date | null;
   calendarEvents: CalendarEvent[];
   queueStatus: QueueStatus | null;
@@ -323,6 +327,7 @@ export interface SchedulingUIState {
   schedulerRunning: boolean;
   manualRecovery: ManualRecoveryState | null;
   initialized: boolean;
+  archivedInitialized: boolean;
 }
 
 // Form interfaces
@@ -362,6 +367,7 @@ export interface ScheduleListProps {
   loading?: boolean;
   error?: string | null;
   initialized: boolean;
+  archivedView?: boolean;
 }
 
 export interface ScheduleActionsProps {
@@ -401,9 +407,11 @@ export interface UseSchedulingReturn {
   state: SchedulingUIState;
   actions: {
     loadSchedules: (activeOnly?: boolean, focusScheduleId?: string | null) => Promise<void>;
+    loadArchivedSchedules: () => Promise<void>;
     createSchedule: (data: CreateScheduleFormData) => Promise<void>;
     updateSchedule: (scheduleId: string, data: UpdateScheduleRequest) => Promise<void>;
     deleteSchedule: (schedule: ScheduledExperiment) => Promise<void>;
+    archiveSchedule: (schedule: ScheduledExperiment, archived: boolean) => Promise<void>;
     requireRecovery: (scheduleId: string, note?: string) => Promise<void>;
     resolveRecovery: (scheduleId: string, note?: string) => Promise<void>;
     getQueueStatus: () => Promise<void>;

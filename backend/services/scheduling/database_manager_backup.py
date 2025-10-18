@@ -95,9 +95,16 @@ class SchedulingDatabaseManager:
         """
         try:
             return self.sqlite_db.get_active_schedules()
-            
+        
         except Exception as e:
             logger.error(f"Error getting active schedules: {e}")
+            return []
+
+    def get_schedules(self, *, active_only: bool, archived_only: bool) -> List[ScheduledExperiment]:
+        try:
+            return self.sqlite_db.get_schedules(active_only=active_only, archived_only=archived_only)
+        except Exception as e:
+            logger.error(f"Error getting schedules: {e}")
             return []
     
     def update_scheduled_experiment(
@@ -122,7 +129,11 @@ class SchedulingDatabaseManager:
             logger.error(f"Error updating scheduled experiment: {e}")
             return False
     
-    def delete_scheduled_experiment(self, schedule_id: str) -> bool:
+    def delete_scheduled_experiment(
+        self,
+        schedule_id: str,
+        schedule: Optional[ScheduledExperiment] = None,
+    ) -> bool:
         """
         Delete a scheduled experiment and its associated job executions from SQLite
         
@@ -133,7 +144,11 @@ class SchedulingDatabaseManager:
             bool: True if deleted successfully, False otherwise
         """
         try:
-            return self.sqlite_db.delete_schedule(schedule_id)
+            return self.sqlite_db.delete_schedule(
+                schedule_id,
+                name_snapshot=schedule.experiment_name if schedule else None,
+                path_snapshot=schedule.experiment_path if schedule else None,
+            )
             
         except Exception as e:
             logger.error(f"Error deleting scheduled experiment: {e}")
@@ -348,7 +363,6 @@ class SchedulingDatabaseManager:
                 is_active=bool(row.get("is_active", True)),
                 retry_config=retry_config,
                 prerequisites=prerequisites,
-                failed_execution_count=row.get("failed_execution_count", 0),
                 created_at=row.get("created_at"),
                 updated_at=row.get("updated_at")
             )

@@ -102,6 +102,7 @@ class SchedulerEngine:
         self._job_queue = Queue()
         self._active_schedules: Dict[str, ScheduledExperiment] = {}
         self._running_jobs: Set[str] = set()
+        self._queued_backlog: Set[str] = set()
         self._event_callbacks: List[Callable[[SchedulingEvent], None]] = []
         self._manual_state_lock = threading.RLock()
         self._manual_recovery_cache: ManualRecoveryState = ManualRecoveryState()
@@ -279,7 +280,10 @@ class SchedulerEngine:
                 experiment = self._active_schedules[schedule_id]
                 
                 # Remove from database
-                if not self.db_manager.delete_scheduled_experiment(schedule_id):
+                if not self.db_manager.delete_scheduled_experiment(
+                    schedule_id,
+                    schedule=experiment,
+                ):
                     logger.error(f"Failed to delete schedule from database: {schedule_id}")
                     return False
                 
@@ -463,6 +467,7 @@ class SchedulerEngine:
         if not updated:
             logger.error("Manual recovery update returned no schedule for %s", schedule.schedule_id)
             return None
+        updated.is_active = False
         with self._schedules_lock:
             self._active_schedules[updated.schedule_id] = updated
         self._refresh_manual_recovery_state(force=True)
@@ -529,6 +534,14 @@ class SchedulerEngine:
         """Return the current manual recovery state."""
         return self._refresh_manual_recovery_state(force=True)
 
+    @staticmethod
+    def _calculate_retry_delay(attempt: int, retry_config: RetryConfig) -> int:
+        """Calculate retry delay (in seconds) matching executor backoff rules."""
+        base_delay = max(retry_config.retry_delay_minutes, 1) * 60
+        if retry_config.backoff_strategy == "exponential":
+            return int(base_delay * (2 ** attempt))
+        return int(base_delay)
+
     def _scheduler_loop(self):
         """Main scheduler loop running in background thread"""
         logger.info("Scheduler loop started")
@@ -581,22 +594,12 @@ class SchedulerEngine:
                 if (not experiment.is_active or
                     not experiment.start_time or
                     experiment.schedule_id in self._running_jobs or
+                    experiment.schedule_id in self._queued_backlog or
                     experiment.recovery_required):
                     continue
                 
                 start_time = self._ensure_naive_datetime(experiment.start_time)
                 interval_hours = self._resolve_interval_hours(experiment)
-                max_failures = experiment.retry_config.max_retries if experiment.retry_config else 3
-                
-                if experiment.failed_execution_count > max_failures:
-                    # Disable schedule that has exceeded retry limit
-                    logger.warning(f"Schedule {experiment.experiment_name} has exceeded retry limit ({experiment.failed_execution_count}/{max_failures}), disabling")
-                    experiment.is_active = False
-                    self.db_manager.update_scheduled_experiment(
-                        experiment,
-                        touch_updated_at=False,
-                    )
-                    continue
                 
                 # Check if experiment is due
                 if start_time <= current_time:
@@ -607,10 +610,26 @@ class SchedulerEngine:
                     if interval_hours:
                         grace_period_minutes = (interval_hours * 60) / 2  # Half the interval
                         
+                        if (
+                            experiment.schedule_id in self._running_jobs
+                            or experiment.schedule_id in self._queued_backlog
+                            or len(self._running_jobs) >= self.config.max_concurrent_jobs
+                        ):
+                            logger.debug(
+                                "Interval experiment %s overdue but waiting for capacity; keeping scheduled",
+                                experiment.experiment_name,
+                            )
+                            due_jobs.append(experiment)
+                            continue
+
                         if time_since_scheduled > grace_period_minutes:
                             # Mark as missed and calculate next execution time
-                            logger.info(f"Experiment {experiment.experiment_name} missed (overdue by {time_since_scheduled:.1f} minutes), scheduling next occurrence")
-                            
+                            logger.info(
+                                "Experiment %s missed (overdue by %.1f minutes), scheduling next occurrence",
+                                experiment.experiment_name,
+                                time_since_scheduled,
+                            )
+
                             # Create a missed execution record
                             missed_execution = JobExecution(
                                 execution_id=f"missed_{experiment.schedule_id}_{int(current_time.timestamp())}",
@@ -622,7 +641,7 @@ class SchedulerEngine:
                                 retry_count=0
                             )
                             self.db_manager.store_job_execution(missed_execution)
-                            
+
                             # Update to next execution time for interval schedules
                             next_time = self._calculate_next_execution_time(experiment)
                             experiment.start_time = next_time
@@ -630,17 +649,37 @@ class SchedulerEngine:
                                 experiment,
                                 touch_updated_at=False,
                             )
-                            
-                            logger.info(f"Next execution scheduled for {experiment.experiment_name}: {next_time}")
+
+                            logger.info(
+                                "Next execution scheduled for %s: %s",
+                                experiment.experiment_name,
+                                next_time,
+                            )
                             continue
-                        else:
-                            # Still within grace period, execute normally
-                            due_jobs.append(experiment)
+
+                        # Still within grace period, execute normally
+                        due_jobs.append(experiment)
                     else:
                         # For "once" schedules: if missed by more than 30 minutes, mark as missed
                         if experiment.schedule_type == "once" and time_since_scheduled > 30:
-                            logger.info(f"One-time experiment {experiment.experiment_name} missed (overdue by {time_since_scheduled:.1f} minutes)")
-                            
+                            if (
+                                experiment.schedule_id in self._running_jobs
+                                or experiment.schedule_id in self._queued_backlog
+                                or len(self._running_jobs) >= self.config.max_concurrent_jobs
+                            ):
+                                logger.debug(
+                                    "One-time experiment %s is overdue but waiting for capacity; keeping queued",
+                                    experiment.experiment_name,
+                                )
+                                due_jobs.append(experiment)
+                                continue
+
+                            logger.info(
+                                "One-time experiment %s missed (overdue by %.1f minutes)",
+                                experiment.experiment_name,
+                                time_since_scheduled,
+                            )
+
                             # Create missed execution record
                             missed_execution = JobExecution(
                                 execution_id=f"missed_{experiment.schedule_id}_{int(current_time.timestamp())}",
@@ -652,7 +691,7 @@ class SchedulerEngine:
                                 retry_count=0
                             )
                             self.db_manager.store_job_execution(missed_execution)
-                            
+
                             # Deactivate missed one-time schedules
                             experiment.is_active = False
                             self.db_manager.update_scheduled_experiment(
@@ -669,15 +708,17 @@ class SchedulerEngine:
     def _process_due_job(self, experiment: ScheduledExperiment, current_time: datetime):
         """Process a job that is due for execution"""
         try:
-            # Check if we have capacity for more jobs
             with self._jobs_lock:
-                if len(self._running_jobs) >= self.config.max_concurrent_jobs:
-                    logger.info(f"Max concurrent jobs reached, queuing: {experiment.experiment_name}")
+                if (
+                    experiment.schedule_id in self._queued_backlog
+                    or experiment.schedule_id in self._running_jobs
+                ):
+                    logger.debug(
+                        "Schedule %s already pending or running; skipping duplicate dispatch",
+                        experiment.experiment_name,
+                    )
                     return
-                
-                # Mark job as running
-                self._running_jobs.add(experiment.schedule_id)
-            
+                self._queued_backlog.add(experiment.schedule_id)
             # Create job execution record
             execution = JobExecution(
                 execution_id="",  # Will be auto-generated
@@ -691,6 +732,7 @@ class SchedulerEngine:
                 logger.error(f"Failed to store job execution: {experiment.schedule_id}")
                 with self._jobs_lock:
                     self._running_jobs.discard(experiment.schedule_id)
+                    self._queued_backlog.discard(experiment.schedule_id)
                 return
             
             logger.info(f"Starting job execution: {experiment.experiment_name}")
@@ -712,7 +754,7 @@ class SchedulerEngine:
         except Exception as e:
             logger.error(f"Error processing due job: {e}")
             with self._jobs_lock:
-                self._running_jobs.discard(experiment.schedule_id)
+                self._queued_backlog.discard(experiment.schedule_id)
     
     def _execute_job(self, experiment: ScheduledExperiment, execution: JobExecution):
         """Execute a scheduled job"""
@@ -722,7 +764,85 @@ class SchedulerEngine:
             
             executor = ExperimentExecutor()
             current_time = datetime.now()
-            
+
+            retry_config = experiment.retry_config or RetryConfig()
+            max_capacity_attempts = min(
+                retry_config.max_retries,
+                getattr(executor.config, "max_retry_attempts", retry_config.max_retries),
+            )
+            capacity_acquired = False
+            attempt = 0
+            while attempt <= max_capacity_attempts:
+                with self._jobs_lock:
+                    if len(self._running_jobs) < self.config.max_concurrent_jobs:
+                        self._running_jobs.add(experiment.schedule_id)
+                        self._queued_backlog.discard(experiment.schedule_id)
+                        capacity_acquired = True
+                        if attempt > 0:
+                            logger.info(
+                                "Scheduler capacity acquired for %s after %d attempt(s)",
+                                experiment.experiment_name,
+                                attempt,
+                            )
+                        break
+
+                if attempt == max_capacity_attempts:
+                    break
+
+                delay_seconds = self._calculate_retry_delay(attempt, retry_config)
+                logger.info(
+                    "Scheduler at capacity for %s, retrying in %d seconds (attempt %d/%d)",
+                    experiment.experiment_name,
+                    delay_seconds,
+                    attempt + 1,
+                    max_capacity_attempts + 1,
+                )
+                time.sleep(delay_seconds)
+                attempt += 1
+
+            if not capacity_acquired:
+                logger.error(
+                    "Scheduler capacity exhausted for %s after %d attempts",
+                    experiment.experiment_name,
+                    max_capacity_attempts + 1,
+                )
+                execution.status = "failed"
+                execution.error_message = "Scheduler capacity exhausted after retry attempts"
+                execution.end_time = datetime.now()
+                interval_hours = self._resolve_interval_hours(experiment)
+                self.db_manager.store_job_execution(execution)
+                self._emit_event(
+                    "job_failed",
+                    experiment.schedule_id,
+                    experiment.experiment_name,
+                    "Scheduler capacity exhausted",
+                )
+                self._handle_failed_execution(experiment, execution)
+
+                if interval_hours:
+                    next_time = self._calculate_next_execution_time(experiment)
+                    experiment.start_time = next_time
+                    self.db_manager.update_scheduled_experiment(
+                        experiment,
+                        touch_updated_at=False,
+                    )
+                    logger.info(
+                        "Capacity retry exhausted; next execution for %s scheduled at %s",
+                        experiment.experiment_name,
+                        next_time,
+                    )
+                elif experiment.schedule_type == "once":
+                    experiment.is_active = False
+                    self.db_manager.update_scheduled_experiment(
+                        experiment,
+                        touch_updated_at=False,
+                    )
+                    logger.info(
+                        "Capacity retry exhausted; one-time schedule %s marked inactive",
+                        experiment.experiment_name,
+                    )
+                return
+
             # Update execution status
             execution.status = "running"
             execution.start_time = current_time
@@ -742,31 +862,42 @@ class SchedulerEngine:
 
             if success:
                 execution.status = "completed"
-                # Reset failed count on success
-                experiment.failed_execution_count = 0
-                
+
                 # Handle schedule completion based on type
                 if experiment.schedule_type == "once":
                     # Deactivate "once" schedules after successful completion
                     experiment.is_active = False
-                    logger.info(f"Job completed successfully: {experiment.experiment_name} - Deactivating 'once' schedule")
+                    logger.info(
+                        "Job completed successfully: %s - Deactivating 'once' schedule",
+                        experiment.experiment_name,
+                    )
                 elif interval_hours:
                     # Update next execution time for interval schedules
                     next_time = self._calculate_next_execution_time(experiment)
                     experiment.start_time = next_time
-                    logger.info(f"Job completed successfully: {experiment.experiment_name} - Next execution: {next_time}")
+                    logger.info(
+                        "Job completed successfully: %s - Next execution: %s",
+                        experiment.experiment_name,
+                        next_time,
+                    )
                 else:
-                    logger.info(f"Job completed successfully: {experiment.experiment_name}")
-                
-                self._emit_event("job_completed", experiment.schedule_id,
-                               experiment.experiment_name, "Job completed successfully")
+                    logger.info("Job completed successfully: %s", experiment.experiment_name)
+
+                self._emit_event(
+                    "job_completed",
+                    experiment.schedule_id,
+                    experiment.experiment_name,
+                    "Job completed successfully",
+                )
             else:
                 execution.status = "failed"
-                # Increment failed execution count
-                experiment.failed_execution_count += 1
-                logger.error(f"Job failed: {experiment.experiment_name} (failure {experiment.failed_execution_count})")
-                self._emit_event("job_failed", experiment.schedule_id,
-                               experiment.experiment_name, f"Job execution failed (attempt {experiment.failed_execution_count})")
+                logger.error("Job failed: %s", experiment.experiment_name)
+                self._emit_event(
+                    "job_failed",
+                    experiment.schedule_id,
+                    experiment.experiment_name,
+                    "Job execution failed",
+                )
             
             # Update database with execution and schedule
             self.db_manager.store_job_execution(execution)
@@ -778,14 +909,11 @@ class SchedulerEngine:
             if execution.status == "failed":
                 self._handle_failed_execution(experiment, execution)
 
-            
         except Exception as e:
-            logger.error(f"Error executing job {experiment.experiment_name}: {e}")
+            logger.error("Error executing job %s: %s", experiment.experiment_name, e)
             execution.status = "failed"
             execution.error_message = str(e)
             execution.end_time = datetime.now()
-            # Increment failed execution count on exception
-            experiment.failed_execution_count += 1
             self.db_manager.store_job_execution(execution)
             self.db_manager.update_scheduled_experiment(
                 experiment,
@@ -794,15 +922,19 @@ class SchedulerEngine:
 
 
             self._handle_failed_execution(experiment, execution)
-
-            self._emit_event("job_failed", experiment.schedule_id,
-                           experiment.experiment_name, f"Job failed: {str(e)} (attempt {experiment.failed_execution_count})")
+            self._emit_event(
+                "job_failed",
+                experiment.schedule_id,
+                experiment.experiment_name,
+                f"Job failed: {str(e)}",
+            )
         
         finally:
             self._clear_execution_watch(execution.execution_id)
             # Remove from running jobs
             with self._jobs_lock:
                 self._running_jobs.discard(experiment.schedule_id)
+                self._queued_backlog.discard(experiment.schedule_id)
     
     def _handle_failed_execution(self, experiment: ScheduledExperiment, execution: JobExecution) -> None:
         """Handle logic after a failed execution, including manual recovery enforcement."""
@@ -822,7 +954,6 @@ class SchedulerEngine:
         if aborted:
             context: Dict[str, Any] = {
                 "error_message": execution.error_message or "Unknown error",
-                "failure_count": experiment.failed_execution_count,
             }
             if note:
                 context["note"] = note
@@ -832,8 +963,13 @@ class SchedulerEngine:
                 )
             self._notify_execution_event(experiment, execution, "aborted", context)
 
-        if note:
-            self._apply_manual_recovery(experiment, note, actor="scheduler")
+            if note:
+                self._apply_manual_recovery(experiment, note, actor="scheduler")
+            return
+
+        # Non-abort failure (e.g., launch or execution error): notify contacts.
+        context = {"error_message": execution.error_message or "Unknown error"}
+        self._notify_execution_event(experiment, execution, "execution_failed", context)
 
     def _update_interval_schedules(self, current_time: datetime):
         """Update next execution times for interval-based schedules"""
@@ -843,21 +979,23 @@ class SchedulerEngine:
                 if (
                     interval_hours
                     and experiment.start_time
+                    and experiment.schedule_id in self._running_jobs
                     and self._ensure_naive_datetime(experiment.start_time) <= current_time
                 ):
-                    
-                    # Calculate next execution time
+                    # Calculate next execution time for jobs that are actively running.
                     next_time = self._calculate_next_execution_time(experiment)
                     if next_time != experiment.start_time:
                         experiment.start_time = next_time
-
                         # Update in database without touching concurrency timestamp
                         self.db_manager.update_scheduled_experiment(
                             experiment,
                             touch_updated_at=False,
                         )
-                        
-                        logger.debug(f"Updated next execution time for {experiment.experiment_name}: {next_time}")
+                        logger.debug(
+                            "Updated next execution time for %s: %s",
+                            experiment.experiment_name,
+                            next_time,
+                        )
     
     def _calculate_next_execution_time(self, experiment: ScheduledExperiment) -> datetime:
         """Calculate the next execution time for an experiment"""

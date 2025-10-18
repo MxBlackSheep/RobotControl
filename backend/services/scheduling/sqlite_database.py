@@ -97,7 +97,7 @@ class SQLiteSchedulingDatabase:
                         is_active INTEGER NOT NULL DEFAULT 1,
                         retry_config TEXT,
                         prerequisites TEXT,
-                        failed_execution_count INTEGER NOT NULL DEFAULT 0,
+                        archived INTEGER NOT NULL DEFAULT 0,
                         recovery_required INTEGER NOT NULL DEFAULT 0,
                         recovery_note TEXT,
                         recovery_marked_at TEXT,
@@ -259,7 +259,8 @@ class SQLiteSchedulingDatabase:
                     ('recovery_marked_at', "ALTER TABLE ScheduledExperiments ADD COLUMN recovery_marked_at TEXT"),
                     ('recovery_marked_by', "ALTER TABLE ScheduledExperiments ADD COLUMN recovery_marked_by TEXT"),
                     ('recovery_resolved_at', "ALTER TABLE ScheduledExperiments ADD COLUMN recovery_resolved_at TEXT"),
-                    ('recovery_resolved_by', "ALTER TABLE ScheduledExperiments ADD COLUMN recovery_resolved_by TEXT")
+                    ('recovery_resolved_by', "ALTER TABLE ScheduledExperiments ADD COLUMN recovery_resolved_by TEXT"),
+                    ('archived', "ALTER TABLE ScheduledExperiments ADD COLUMN archived INTEGER NOT NULL DEFAULT 0"),
                 ]
                 for column_name, alter_sql in column_alterations:
                     if column_name not in existing_columns:
@@ -321,7 +322,7 @@ class SQLiteSchedulingDatabase:
                     INSERT INTO ScheduledExperiments (
                         schedule_id, experiment_name, experiment_path, schedule_type,
                         interval_hours, start_time, estimated_duration, created_by,
-                        is_active, retry_config, prerequisites, failed_execution_count,
+                        is_active, archived, retry_config, prerequisites,
                         recovery_required, recovery_note, recovery_marked_at, recovery_marked_by,
                         recovery_resolved_at, recovery_resolved_by
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -335,9 +336,9 @@ class SQLiteSchedulingDatabase:
                     schedule.estimated_duration,
                     schedule.created_by,
                     1 if schedule.is_active else 0,
+                    1 if getattr(schedule, "archived", False) else 0,
                     json.dumps(schedule.retry_config.to_dict()) if schedule.retry_config else None,
                     json.dumps(schedule.prerequisites) if schedule.prerequisites else None,
-                    schedule.failed_execution_count,
                     1 if schedule.recovery_required else 0,
                     schedule.recovery_note,
                     schedule.recovery_marked_at.isoformat() if schedule.recovery_marked_at else None,
@@ -369,7 +370,7 @@ class SQLiteSchedulingDatabase:
                 
                 cursor.execute("""
                     SELECT * FROM ScheduledExperiments 
-                    WHERE is_active = 1 
+                    WHERE is_active = 1 AND archived = 0
                     ORDER BY start_time ASC
                 """)
                 
@@ -384,7 +385,39 @@ class SQLiteSchedulingDatabase:
             logger.error(f"Failed to get active schedules from SQLite: {e}")
         
         return schedules
-    
+
+    def get_schedules(self, *, active_only: bool, archived_only: bool) -> List[ScheduledExperiment]:
+        """Fetch schedules filtered by active/archive state."""
+        schedules: List[ScheduledExperiment] = []
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                clauses: List[str] = []
+
+                if archived_only:
+                    clauses.append("archived = 1")
+                else:
+                    clauses.append("archived = 0")
+                    if active_only:
+                        clauses.append("is_active = 1")
+
+                where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+                query = f"""
+                    SELECT * FROM ScheduledExperiments
+                    {where}
+                    ORDER BY start_time ASC
+                """
+
+                cursor.execute(query)
+                rows = cursor.fetchall()
+                for row in rows:
+                    schedule = self._row_to_scheduled_experiment(row, conn)
+                    if schedule:
+                        schedules.append(schedule)
+        except Exception as exc:
+            logger.error("Failed to get schedules: %s", exc)
+        return schedules
+
     def get_schedule_by_id(self, schedule_id: str) -> Optional[ScheduledExperiment]:
         """
         Get a specific schedule by ID
@@ -437,9 +470,9 @@ class SQLiteSchedulingDatabase:
                     "start_time = ?",
                     "estimated_duration = ?",
                     "is_active = ?",
+                    "archived = ?",
                     "retry_config = ?",
                     "prerequisites = ?",
-                    "failed_execution_count = ?",
                     "recovery_required = ?",
                     "recovery_note = ?",
                     "recovery_marked_at = ?",
@@ -455,9 +488,9 @@ class SQLiteSchedulingDatabase:
                     schedule.start_time.isoformat() if schedule.start_time else None,
                     schedule.estimated_duration,
                     1 if schedule.is_active else 0,
+                    1 if getattr(schedule, "archived", False) else 0,
                     json.dumps(schedule.retry_config.to_dict()) if schedule.retry_config else None,
                     json.dumps(schedule.prerequisites) if schedule.prerequisites else None,
-                    schedule.failed_execution_count,
                     1 if schedule.recovery_required else 0,
                     schedule.recovery_note,
                     schedule.recovery_marked_at.isoformat() if schedule.recovery_marked_at else None,
@@ -852,6 +885,7 @@ class SQLiteSchedulingDatabase:
                 cursor = conn.cursor()
                 cursor.execute("""
                     UPDATE ScheduledExperiments SET
+                        is_active = 0,
                         recovery_required = 1,
                         recovery_note = COALESCE(?, recovery_note),
                         recovery_marked_at = ?,
@@ -979,7 +1013,14 @@ class SQLiteSchedulingDatabase:
 
         return self.get_manual_recovery_state()
 
-    def _archive_job_executions(self, cursor: sqlite3.Cursor, schedule_id: str) -> None:
+    def _archive_job_executions(
+        self,
+        cursor: sqlite3.Cursor,
+        schedule_id: str,
+        *,
+        name_snapshot: Optional[str] = None,
+        path_snapshot: Optional[str] = None,
+    ) -> None:
         """Persist historical job executions before their schedule is removed."""
         cursor.execute(
             """
@@ -1001,8 +1042,8 @@ class SQLiteSchedulingDatabase:
             SELECT
                 je.execution_id,
                 je.schedule_id,
-                se.experiment_name,
-                se.experiment_path,
+                COALESCE(se.experiment_name, ?),
+                COALESCE(se.experiment_path, ?),
                 je.status,
                 je.start_time,
                 je.end_time,
@@ -1016,10 +1057,23 @@ class SQLiteSchedulingDatabase:
             LEFT JOIN ScheduledExperiments se ON je.schedule_id = se.schedule_id
             WHERE je.schedule_id = ?
             """,
-            (schedule_id,)
+            (name_snapshot, path_snapshot, schedule_id),
         )
 
-    def delete_schedule(self, schedule_id: str) -> bool:
+        logger.debug(
+            "Archived executions for %s using name=%r path=%r",
+            schedule_id,
+            name_snapshot,
+            path_snapshot,
+        )
+
+    def delete_schedule(
+        self,
+        schedule_id: str,
+        *,
+        name_snapshot: Optional[str] = None,
+        path_snapshot: Optional[str] = None,
+    ) -> bool:
         """
         Delete a scheduled experiment
         
@@ -1033,12 +1087,18 @@ class SQLiteSchedulingDatabase:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(
-                    "SELECT experiment_name FROM ScheduledExperiments WHERE schedule_id = ?",
+                    "SELECT experiment_name, experiment_path FROM ScheduledExperiments WHERE schedule_id = ?",
                     (schedule_id,)
                 )
-                if not cursor.fetchone():
+                schedule_row = cursor.fetchone()
+                if not schedule_row:
                     logger.warning(f"No schedule found to delete: {schedule_id}")
                     return False
+
+                if not name_snapshot:
+                    name_snapshot = schedule_row["experiment_name"]
+                if not path_snapshot:
+                    path_snapshot = schedule_row["experiment_path"]
 
                 cursor.execute(
                     "SELECT COUNT(*) FROM JobExecutions WHERE schedule_id = ?",
@@ -1047,7 +1107,19 @@ class SQLiteSchedulingDatabase:
                 execution_count = cursor.fetchone()[0]
 
                 if execution_count:
-                    self._archive_job_executions(cursor, schedule_id)
+                    logger.debug(
+                        "Archiving %d execution(s) for %s using name=%r path=%r",
+                        execution_count,
+                        schedule_id,
+                        name_snapshot,
+                        path_snapshot,
+                    )
+                    self._archive_job_executions(
+                        cursor,
+                        schedule_id,
+                        name_snapshot=name_snapshot,
+                        path_snapshot=path_snapshot,
+                    )
 
                 cursor.execute(
                     "DELETE FROM ScheduledExperiments WHERE schedule_id = ?",
@@ -1361,10 +1433,10 @@ class SQLiteSchedulingDatabase:
                 estimated_duration=row["estimated_duration"],
                 created_by=row["created_by"],
                 is_active=bool(row["is_active"]),
+                archived=bool(row["archived"]) if "archived" in row_keys else False,
                 retry_config=retry_config,
                 prerequisites=prerequisites,
                 notification_contacts=[],
-                failed_execution_count=row["failed_execution_count"] if "failed_execution_count" in row_keys else 0,
                 recovery_required=bool(row["recovery_required"]) if "recovery_required" in row_keys else False,
                 recovery_note=row["recovery_note"] if "recovery_note" in row_keys else None,
                 recovery_marked_at=recovery_marked_at,
@@ -1450,6 +1522,8 @@ class SQLiteSchedulingDatabase:
                         je.created_at,
                         se.experiment_name AS experiment_name,
                         se.experiment_path AS experiment_path,
+                        NULL AS experiment_name_snapshot,
+                        NULL AS experiment_path_snapshot,
                         NULL AS archived_at
                     FROM JobExecutions je
                     LEFT JOIN ScheduledExperiments se ON je.schedule_id = se.schedule_id
@@ -1477,6 +1551,8 @@ class SQLiteSchedulingDatabase:
                         created_at,
                         experiment_name_snapshot AS experiment_name,
                         experiment_path_snapshot AS experiment_path,
+                        experiment_name_snapshot,
+                        experiment_path_snapshot,
                         archived_at
                     FROM JobExecutionsArchive
                     {archive_where}
@@ -1505,7 +1581,10 @@ class SQLiteSchedulingDatabase:
                     else:
                         execution["calculated_duration_minutes"] = execution.get("duration_minutes")
 
-                    if not execution.get("experiment_name"):
+                    snapshot_name = execution.get("experiment_name_snapshot")
+                    if snapshot_name:
+                        execution["experiment_name"] = snapshot_name
+                    elif not execution.get("experiment_name"):
                         execution["experiment_name"] = "Archived Schedule"
 
                     execution["status_display"] = self._format_execution_status(execution["status"])

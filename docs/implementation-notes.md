@@ -1,6 +1,26 @@
 # RobotControl Development Log (Chronological)
 
 ---
+## 2025-10-17 Archive Feature Finalization
+
+- Removed every reference to the legacy `failed_execution_count` field so new databases no longer create or maintain the column while existing files stay compatible; scheduling models, API payloads, and SQLite operations now ignore the obsolete counter (`backend/models.py`, `backend/api/scheduling.py`, `backend/services/scheduling/sqlite_database.py`, `frontend/src/types/scheduling.ts`, `frontend/src/services/schedulingApi.ts`).
+- Hardened archive toggling on the backend by reusing the standard update path, forcing scheduler cache invalidation, and keeping optimistic locking timestamps accurate so archived schedules reliably stay dormant (`backend/api/scheduling.py`, `backend/services/scheduling/database_manager_backup.py`).
+- Completed the frontend archive experience with dedicated loading states, list labelling, and hook state for archived schedules, allowing the “Archive” tab and buttons to stay in sync after archive/unarchive actions (`frontend/src/hooks/useScheduling.ts`, `frontend/src/components/ScheduleList.tsx`, `frontend/src/pages/SchedulingPage.tsx`).
+
+## 2025-10-17 Scheduler Concurrency Queueing
+
+- Added a backlog tracker for schedules deferred because the concurrency limit is hit so we log “Max concurrent jobs reached” only once per waiting job and avoid losing it from the queue (`backend/services/scheduling/scheduler_engine.py`).
+- Prevented one-time schedules from being auto-marked “missed” while they are waiting for capacity, letting them run as soon as the current job finishes instead of flipping to “Not scheduled” (`backend/services/scheduling/scheduler_engine.py`).
+- Folded the scheduler’s concurrency limit into the same five-attempt retry loop we use for HxRun launches: when capacity is saturated the job logs a retry, waits 120 s, and after five tries it is treated as failed and rescheduled to its next interval (`backend/services/scheduling/scheduler_engine.py`).
+- When a schedule is deleted we now persist its name/path snapshot with every archived execution so Execution History keeps the original experiment label instead of dropping to “Archived Schedule” (`backend/api/scheduling.py`, `backend/services/scheduling/database_manager.py`, `backend/services/scheduling/database_manager_backup.py`, `backend/services/scheduling/sqlite_database.py`, `backend/services/scheduling/scheduler_engine.py`).
+
+## 2025-10-17 Scheduling Failure Handling Refresh
+
+- Removed the legacy `failed_execution_count` bookkeeping and now rely on HxRun launch retries alone; each scheduled occurrence attempts to start the robot up to five times before reporting failure (`backend/services/scheduling/scheduler_engine.py`, `backend/services/scheduling/experiment_executor.py`).
+- When a run aborts, the scheduler marks the schedule inactive via manual recovery and emails the configured contacts using the existing notification pipeline (`backend/services/scheduling/scheduler_engine.py`, `backend/services/scheduling/sqlite_database.py`).
+- Non-abort launch failures now trigger an “execution_failed” notification so operators are alerted even when the robot never started (`backend/services/scheduling/scheduler_engine.py`).
+- Introduced an `archived` flag for schedules, API support to list/archive/unarchive them, and a dedicated frontend tab so operators can review retired experiments without cluttering the active list (`backend/models.py`, `backend/services/scheduling/sqlite_database.py`, `backend/api/scheduling.py`, `frontend/src/hooks/useScheduling.ts`, `frontend/src/components/ScheduleList.tsx`, `frontend/src/pages/SchedulingPage.tsx`).
+
 ## 2025-10-17 Schedule Deletion Concurrency Fix
 
 - Background scheduler updates now avoid touching the `updated_at` field by passing `touch_updated_at=False` whenever they persist interval/next-run metadata. This keeps optimistic locking tokens stable for UI operations (`backend/services/scheduling/scheduler_engine.py`, `backend/services/scheduling/database_manager.py`, `backend/services/scheduling/sqlite_database.py`).
