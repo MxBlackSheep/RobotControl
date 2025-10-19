@@ -96,6 +96,7 @@ const StatusDialog: React.FC<StatusDialogProps> = ({
       open={open}
       onClose={onClose}
       title={title}
+      closeButton={false}
       actions={actions}
       fullWidth={fullWidth}
       maxWidth={maxWidth}

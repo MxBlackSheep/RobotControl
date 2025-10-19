@@ -23,6 +23,7 @@ This guide explains the overall React shell: routing, theming, providers, and na
   - `MobileDrawer` – collapsible nav on small screens.
   - `SkipLink`, `KeyboardShortcutsHelp` – accessibility helpers.
   - `MaintenanceDialog` – warns users during backend maintenance windows.
+  - `ErrorAlert`, `SuccessAlert`, `ServerError` – modal notifications for state-changing flows (password change, delete confirmations). Dashboard-style status messages should use inline cards inside the relevant component.
 
 **Rule of thumb:** All new pages should be registered in `App.tsx` (both the `Routes` block and, if appropriate, the navigation tabs). Ensure they sit inside `AuthProvider` so they can access user data.
 
@@ -88,7 +89,15 @@ This guide explains the overall React shell: routing, theming, providers, and na
 
 ---
 
-## 6. Extending or Modifying Behaviour
+## 6. Passive vs Active Messaging
+
+- **Passive surfaces** (dashboards, list views) should render inline warning cards with retry buttons. Keep messages inside the component and avoid popping modals for status updates.
+- **Active flows** (password changes, destructive deletes) go through `ErrorAlert` / confirmation dialogs. These modals provide titles and explicit actions.
+- **Consistency** – Reuse the shared red warning card styling (`borderColor: 'error.light', bgcolor: 'rgba(244, 67, 54, 0.08)'`) whenever you add a new passive warning.
+
+---
+
+## 7. Extending or Modifying Behaviour
 
 ### 6.1 Add route guards
 1. Wrap restricted routes with a component that checks `user.role`.  
@@ -110,7 +119,7 @@ This guide explains the overall React shell: routing, theming, providers, and na
 
 ---
 
-## 7. Quick Reference
+## 8. Quick Reference
 
 | Piece | Purpose | Notes |
 |-------|---------|-------|
@@ -141,4 +150,3 @@ This guide explains the overall React shell: routing, theming, providers, and na
    - After editing `theme.ts`, restart Vite (or rebuild the packaged app). Material UI caches the theme; hot module reload usually works but not during some production builds.
 
 Stick to this playbook and the main shell will stay tidy, predictable, and easy to extend.
-

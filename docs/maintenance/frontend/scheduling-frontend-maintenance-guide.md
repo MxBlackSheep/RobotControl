@@ -68,7 +68,7 @@ From `useScheduling`:
 Useful derived flags provided by the hook:
 
 - `state.loading` / `state.archivedLoading` – drive `LoadingSpinner` placements.  
-- `state.error` / `state.archivedError` – show `Alert` banners.  
+- `state.error` / `state.archivedError` – show the inline warning cards in the schedule list panels.  
 - `state.initialized` – prevents the page from showing “empty” states before the first load completes.
 
 ---
@@ -84,7 +84,7 @@ Useful derived flags provided by the hook:
 
 2. **Reload data after every mutation.** Actions like `createSchedule` already call `loadSchedules` internally. If you add new actions (e.g., pause scheduler), make sure they refresh the relevant state.
 
-3. **Handle errors gracefully.** `useScheduling` surfaces errors via `state.error`. Display them using `<Alert>` or `<ServerError>` so users understand what happened.
+3. **Handle errors gracefully.** `useScheduling` surfaces errors via `state.error`. The list components now render inline warning cards—use those instead of modal alerts.
 
 4. **Respect optimistic locking.** When updating a schedule, include `expected_updated_at`. The hook already injects it, but if you add new update flows, reuse the same pattern to prevent 409 conflicts.
 
@@ -104,7 +104,15 @@ Useful derived flags provided by the hook:
 
 ---
 
-## 6. Extending or Modifying Behaviour
+## 6. Passive vs Active Messaging
+
+- **Passive dashboard** – List and detail panels show inline warning cards for errors (e.g., failed schedule fetch). If you add new read-only panels, keep the message in the panel and add a retry button.
+- **Active operations** – Deleting schedules, resolving recovery, or other destructive changes must go through the shared `DeleteConfirmationDialog` / modal flows. Don’t revert to `window.confirm` prompts.
+- **Titles & buttons** – Keep inline card titles short (“Failed to load schedules”) and wire the existing action buttons (`Try Again`, `Retry`). Only escalate to modal to confirm irreversible changes.
+
+---
+
+## 7. Extending or Modifying Behaviour
 
 ### 6.1 Calendar view for schedules
 1. Use `state.calendarEvents` (already provided by the hook).  
@@ -123,7 +131,7 @@ Useful derived flags provided by the hook:
 
 ---
 
-## 7. Quick Reference
+## 8. Quick Reference
 
 | Function / Component | Purpose | Notes |
 |----------------------|---------|-------|
@@ -137,7 +145,7 @@ Useful derived flags provided by the hook:
 
 ---
 
-## 8. When Something Goes Wrong
+## 9. When Something Goes Wrong
 
 1. **Schedules never load (spinner forever)**  
    - Check browser network tab for `/api/scheduling/schedules`. If it fails, the hook sets `state.error`; ensure you display it.  
@@ -156,4 +164,3 @@ Useful derived flags provided by the hook:
    - Call `actions.loadArchivedSchedules()` when the archived tab first opens. The hook sets `archivedInitialized`; use it to avoid duplicate loads.
 
 Stick to this blueprint and the scheduling UI will stay maintainable even for new contributors.
-

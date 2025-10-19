@@ -23,7 +23,7 @@ If you need to change anything about live video, streaming, or the archive UI, r
 
 - Supporting utilities:  
   - `frontend/src/utils/apiBase.ts` (`buildApiUrl`, `buildWsUrl`) – builds REST and WS URLs with the correct host.  
-  - `frontend/src/components/LoadingSpinner.tsx`, `ErrorAlert.tsx` – shared loading/error widgets.
+  - `frontend/src/components/LoadingSpinner.tsx` – shared spinner component for loading states.
 
 **Rule of thumb:** Keep network calls inside `CameraPage` (or the specific tab) and pass data down via props. `CameraViewer` itself should only care about rendering frames, not fetching metadata.
 
@@ -80,7 +80,7 @@ If you need to change anything about live video, streaming, or the archive UI, r
 
 1. **Always attach the bearer token** when using `fetch`. `CameraPage` reads `localStorage.getItem('access_token')` before hitting any camera endpoint.
 2. **Use `buildApiUrl` / `buildWsUrl`.** They adapt to different hosts (localhost vs packaged exe). Hardcoding `/api/...` only works in dev.
-3. **Handle error states explicitly.** When a fetch fails, set both `error` and `archiveError`/`streamingLoading` so the correct view shows `ErrorAlert`.
+3. **Handle error states explicitly.** When a fetch fails, set both `error` and `archiveError`/`streamingLoading` so the correct view shows the inline warning card (the tabs now render in-panel callouts instead of modal alerts).
 4. **Remember to `URL.revokeObjectURL`.** When you create download links, revoke them once `click()` completes to avoid memory leaks.
 
 ---
@@ -98,7 +98,15 @@ If you need to change anything about live video, streaming, or the archive UI, r
 
 ---
 
-## 6. Extending or Modifying Behaviour
+## 6. Passive vs Active Messaging
+
+- **Passive (dashboard) surfaces** – `LiveCamerasTab`, `LiveStreamingTab`, `VideoArchiveTab`, and `CameraViewer` now render inline warning cards for errors. If you introduce new read-only panels, follow the same pattern: stick the message in the card, include a retry button, and avoid opening modals.
+- **Active operations** – Destructive or state-changing flows (e.g., deleting recordings, starting/stopping sessions) should continue to use modal confirmations. Place the modal in the page-level component so the rest of the UI remains responsive.
+- **Keep titles short** – Inline cards use `Typography` with succinct headings (“Streaming service unavailable”). Reserve long technical details for expandable sections or logs.
+
+---
+
+## 7. Extending or Modifying Behaviour
 
 ### 6.1 Supporting multiple simultaneous camera feeds
 1. Store an array of selected cameras in `CameraPage` instead of a single `currentFrame`.  
@@ -117,7 +125,7 @@ If you need to change anything about live video, streaming, or the archive UI, r
 
 ---
 
-## 7. Quick Reference
+## 8. Quick Reference
 
 | Component / Function | Purpose | Notes |
 |----------------------|---------|-------|
@@ -130,7 +138,7 @@ If you need to change anything about live video, streaming, or the archive UI, r
 
 ---
 
-## 8. When Something Goes Wrong
+## 9. When Something Goes Wrong
 
 1. **Viewer stuck on “connecting”**  
    - Check browser dev tools for blocked WebSocket or MJPEG request. Usually the backend isn’t streaming or the token expired. Attempt logout/login to refresh tokens.

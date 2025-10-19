@@ -13,7 +13,6 @@ import Typography from '@mui/material/Typography';
 import Chip from '@mui/material/Chip';
 import Skeleton from '@mui/material/Skeleton';
 import LoadingSpinner from './LoadingSpinner';
-import ErrorAlert from './ErrorAlert';
 import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import Stack from '@mui/material/Stack';
@@ -282,13 +281,24 @@ const ExperimentStatus: React.FC<ExperimentStatusProps> = memo(({
               </IconButton>
             </Tooltip>
           </Box>
-          <ErrorAlert
-            message={error}
-            severity="warning"
-            category="client"
-            compact={true}
-            sx={{ py: 1 }}
-          />
+          <Box
+            sx={{
+              p: 2,
+              borderRadius: 1,
+              border: '1px solid',
+              borderColor: 'warning.light',
+              bgcolor: 'rgba(255, 193, 7, 0.08)'
+            }}
+          >
+            <Stack spacing={1}>
+              <Typography variant="subtitle2" color="warning.main">
+                Experiment data is temporarily unavailable
+              </Typography>
+              <Typography variant="body2">
+                {error}
+              </Typography>
+            </Stack>
+          </Box>
         </CardContent>
       </Card>
     );

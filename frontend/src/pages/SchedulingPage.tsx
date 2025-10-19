@@ -71,6 +71,12 @@ import FolderImportDialog from '../components/scheduling/FolderImportDialog';
 import ExecutionHistory from '../components/ExecutionHistory';
 import useScheduling from '../hooks/useScheduling';
 import { formatDuration, formatExecutionStatus, ScheduledExperiment, CreateScheduleFormData, UpdateScheduleRequest, SchedulingOperationStatus } from '../types/scheduling';
+import {
+  AuthenticationError,
+  AuthorizationError,
+  ServerError
+} from '../components/ErrorAlert';
+import { DeleteConfirmationDialog } from '../components/ScheduleActions';
 
 type ScheduleFormValues = Partial<{
   experiment_name: string;
@@ -120,6 +126,7 @@ const SchedulingPage: React.FC = () => {
   const [scheduleFormMode, setScheduleFormMode] = useState<'create' | 'edit'>('create');
   const [scheduleFormInitialData, setScheduleFormInitialData] = useState<ScheduleFormValues>({});
   const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [logsLoading, setLogsLoading] = useState(false);
   const [logsError, setLogsError] = useState<string | null>(null);
   const [logsLoaded, setLogsLoaded] = useState(false);
@@ -389,41 +396,40 @@ const SchedulingPage: React.FC = () => {
   // Access control - users and admins can view, only admins can control scheduler service
   if (!user) {
     return (
-      <Container maxWidth="md" sx={{ mt: 4 }}>
-        <Alert severity="error" icon={<ScheduleIcon />}>
-          <Typography variant="h6" gutterBottom>
-            Authentication Required
-          </Typography>
-          <Typography variant="body2">
-            Please log in to access experiment scheduling functionality.
-          </Typography>
-        </Alert>
-      </Container>
+      <AuthenticationError
+        title="Authentication Required"
+        message="Please log in to access experiment scheduling functionality."
+        retryable={false}
+        actions={
+          <Button
+            variant="contained"
+            onClick={() => navigate('/login')}
+          >
+            Go to Login
+          </Button>
+        }
+        onClose={() => navigate('/login')}
+      />
     );
   }
 
   if (!['admin', 'user'].includes(user.role)) {
     return (
-      <Container maxWidth="md" sx={{ mt: 4 }}>
-        <Alert severity="error" icon={<ScheduleIcon />}>
-          <Typography variant="h6" gutterBottom>
-            Insufficient Permissions
-          </Typography>
-          <Typography variant="body2">
-            Experiment scheduling requires user or administrator privileges. 
-            Contact your system administrator for access.
-          </Typography>
-          <Box sx={{ mt: 2 }}>
-            <Button
-              startIcon={<ArrowBackIcon />}
-              onClick={() => navigate('/')}
-              variant="outlined"
-            >
-              Return to Dashboard
-            </Button>
-          </Box>
-        </Alert>
-      </Container>
+      <AuthorizationError
+        title="Insufficient Permissions"
+        message="Experiment scheduling requires user or administrator privileges. Contact your system administrator for access."
+        retryable={false}
+        actions={
+          <Button
+            startIcon={<ArrowBackIcon />}
+            onClick={() => navigate('/')}
+            variant="outlined"
+          >
+            Return to Dashboard
+          </Button>
+        }
+        onClose={() => navigate('/')}
+      />
     );
   }
 
@@ -696,9 +702,11 @@ const SchedulingPage: React.FC = () => {
 
         {/* Error Display */}
         {state.error && (
-          <Alert severity="error" onClose={actions.clearError} sx={{ mb: 3 }}>
-            {state.error}
-          </Alert>
+          <ServerError
+            message={state.error}
+            onClose={actions.clearError}
+            retryable={false}
+          />
         )}
       </Box>
 
@@ -934,15 +942,11 @@ const SchedulingPage: React.FC = () => {
                         color="error"
                         fullWidth
                         startIcon={<DeleteIcon />}
-                            onClick={() => {
-                              if (window.confirm(`Delete schedule for ${state.selectedSchedule.experiment_name}?`)) {
-                                actions.deleteSchedule(state.selectedSchedule);
-                              }
-                            }}
-                            disabled={state.loading}
-                          >
-                            Delete Schedule
-                          </Button>
+                        onClick={() => setDeleteDialogOpen(true)}
+                        disabled={state.loading}
+                      >
+                        Delete Schedule
+                      </Button>
                         </>
                       )}
 
@@ -978,9 +982,16 @@ const SchedulingPage: React.FC = () => {
                             Attachments: {latestNotificationForSelectedSchedule.attachments.length ? `${latestNotificationForSelectedSchedule.attachments.length} file${latestNotificationForSelectedSchedule.attachments.length > 1 ? 's' : ''}` : 'N/A'}
                           </Typography>
                           {latestNotificationForSelectedSchedule.error_message && (
-                            <Alert severity="error" variant="outlined">
-                              {latestNotificationForSelectedSchedule.error_message}
-                            </Alert>
+                            <>
+                              <Typography variant="body2" color="error">
+                                Last delivery reported an error. See details below.
+                              </Typography>
+                              <ServerError
+                                title="Notification Delivery Error"
+                                message={latestNotificationForSelectedSchedule.error_message}
+                                retryable={false}
+                              />
+                            </>
                           )}
                           <Button onClick={openNotificationsTab} size="small">
                             View notification history
@@ -1203,9 +1214,12 @@ const SchedulingPage: React.FC = () => {
                     </Stack>
 
                     {logsError && (
-                      <Alert severity="error" sx={{ mb: 2 }}>
-                        {logsError}
-                      </Alert>
+                      <ServerError
+                        title="Notification Logs Error"
+                        message={logsError}
+                        onClose={() => setLogsError(null)}
+                        onRetry={handleLogsRefresh}
+                      />
                     )}
 
                     {logsLoading && state.notificationLogs.length === 0 ? (
@@ -1288,12 +1302,23 @@ const SchedulingPage: React.FC = () => {
         contacts={state.contacts}
       />
 
-      {/* Folder Import Dialog */}
-      <FolderImportDialog
-        open={folderImportOpen}
-        onClose={() => setFolderImportOpen(false)}
-        onImportComplete={() => {
-          // Experiments have been imported, they'll be available in the form now
+  {/* Folder Import Dialog */}
+  <DeleteConfirmationDialog
+    open={deleteDialogOpen}
+    schedule={state.selectedSchedule}
+    onClose={() => setDeleteDialogOpen(false)}
+    onConfirm={async () => {
+      if (!state.selectedSchedule) return;
+      await actions.deleteSchedule(state.selectedSchedule);
+    }}
+    loading={state.operationStatus === SchedulingOperationStatus.Deleting}
+  />
+
+  <FolderImportDialog
+    open={folderImportOpen}
+    onClose={() => setFolderImportOpen(false)}
+    onImportComplete={() => {
+      // Experiments have been imported, they'll be available in the form now
           console.log('Experiments imported successfully');
         }}
         isLocalClient={isLocalClient}

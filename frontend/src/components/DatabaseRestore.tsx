@@ -283,7 +283,6 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
   const [creatingBackup, setCreatingBackup] = useState(false);
   const [createDescription, setCreateDescription] = useState('');
   const [createDialogError, setCreateDialogError] = useState<string | null>(null);
-  const [createFeedback, setCreateFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [statusDialog, setStatusDialog] = useState<{
     open: boolean;
     title: string;
@@ -501,7 +500,6 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
       setCreateDialogError(null);
       setCreateDialogOpen(false);
       setCreateDescription('');
-      setCreateFeedback({ type: 'success', message });
       showStatusDialog('Backup Created', message, 'success');
 
       const updatedBackups = await loadBackupFiles();
@@ -515,7 +513,6 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
     } catch (err: any) {
       const message = err?.response?.data?.detail || err?.message || 'Failed to create backup.';
       setCreateDialogError(message);
-      setCreateFeedback({ type: 'error', message });
       showStatusDialog('Backup Creation Failed', message, 'error');
     } finally {
       setCreatingBackup(false);
@@ -530,15 +527,6 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
             Database Restore
           </Typography>
 
-          {createFeedback && (
-            <ErrorAlert
-              message={createFeedback.message}
-              severity={createFeedback.type === 'success' ? 'success' : 'error'}
-              category="client"
-              closable
-              onClose={() => setCreateFeedback(null)}
-            />
-          )}
 
           {/* Tab Navigation */}
           <Paper sx={{ borderBottom: 1, borderColor: 'divider' }}>
@@ -867,13 +855,6 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
               />
             )}
 
-            <ErrorAlert
-              message="This operation will completely replace the current database with the backup data. All current data will be permanently lost and cannot be recovered."
-              severity="warning"
-              category="server"
-              title="DESTRUCTIVE OPERATION WARNING"
-            />
-
             {/* Backup Information */}
             {currentSelection && (
               <Card variant="outlined">
@@ -916,12 +897,22 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
               </Card>
             )}
 
-            <ErrorAlert
-              message="During the restore process:\n• Database will be temporarily unavailable (5-15 minutes)\n• All active connections will be terminated\n• Current experiments and monitoring will be interrupted\n• Web application may show connection errors temporarily"
-              severity="info"
-              category="server"
-              title="Operation Impact"
-            />
+            <Card variant="outlined" sx={{ bgcolor: 'rgba(255, 167, 38, 0.08)', borderColor: 'warning.light' }}>
+              <CardContent>
+                <Stack spacing={1.5}>
+                  <Typography variant="subtitle2" color="warning.main" gutterBottom>
+                    What this restore will do
+                  </Typography>
+                  <Typography variant="body2">
+                    • Replace the entire database with the selected backup (no undo)
+                    <br />
+                    • Disconnect all users and pause monitoring during the restore
+                    <br />
+                    • Cause a short outage (typically 5–15 minutes)
+                  </Typography>
+                </Stack>
+              </CardContent>
+            </Card>
 
             {/* Confirmation Checkboxes */}
             <Stack spacing={2}>

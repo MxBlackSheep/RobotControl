@@ -11,6 +11,7 @@ import {
 } from '@mui/material';
 import { isAxiosError } from 'axios';
 import { useAuth } from '@/context/AuthContext';
+import { ServerError, SuccessAlert } from './ErrorAlert';
 
 interface ChangePasswordDialogProps {
   open: boolean;
@@ -87,7 +88,24 @@ const ChangePasswordDialog: React.FC<ChangePasswordDialogProps> = ({
   };
 
   return (
-    <Dialog open={open} onClose={handleClose} fullWidth maxWidth="xs">
+    <>
+      {error && (
+        <ServerError
+          title="Unable to Change Password"
+          message={error}
+          onClose={() => setError(null)}
+          retryable={false}
+        />
+      )}
+      {successMessage && (
+        <SuccessAlert
+          title="Password Updated"
+          message={successMessage}
+          onClose={() => setSuccessMessage(null)}
+          retryable={false}
+        />
+      )}
+      <Dialog open={open} onClose={handleClose} fullWidth maxWidth="xs">
       <DialogTitle>
         {requireChange ? 'Password Reset Required' : 'Change Password'}
       </DialogTitle>
@@ -96,16 +114,7 @@ const ChangePasswordDialog: React.FC<ChangePasswordDialogProps> = ({
           <Alert severity="info" sx={{ mb: 2 }}>
             Use a strong password that you do not reuse elsewhere.
           </Alert>
-          {error && (
-            <Alert severity="error" sx={{ mb: 2 }}>
-              {error}
-            </Alert>
-          )}
-          {successMessage && (
-            <Alert severity="success" sx={{ mb: 2 }}>
-              {successMessage}
-            </Alert>
-          )}
+          
           <TextField
             fullWidth
             type="password"
@@ -154,7 +163,8 @@ const ChangePasswordDialog: React.FC<ChangePasswordDialogProps> = ({
           </Button>
         </DialogActions>
       </Box>
-    </Dialog>
+      </Dialog>
+    </>
   );
 };
 

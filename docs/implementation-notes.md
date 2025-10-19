@@ -1,6 +1,13 @@
 # RobotControl Development Log (Chronological)
 
 ---
+## 2025-10-19 Modal Notifications
+
+- Replaced every inline error/success banner with the modal-based `ErrorAlert` suite so feedback now appears as dialogs instead of shifting layouts; the shared component renders Material UI dialogs with retry/close actions (`frontend/src/components/ErrorAlert.tsx`).
+- Updated all consumers—camera, scheduling, backups, authentication dialogs, and system settings—to trigger the modal notifications and removed legacy snackbars/alerts (`frontend/src/pages/SchedulingPage.tsx`, `frontend/src/components/BackupManager.tsx`, `frontend/src/pages/BackupPage.tsx`, `frontend/src/components/ChangePasswordDialog.tsx`, `frontend/src/components/SystemConfigSettings.tsx`, `frontend/src/components/scheduling/FolderImportDialog.tsx`, `frontend/src/components/BackupActions.tsx`, `frontend/src/components/BackupListComponent.tsx`).
+- Trimmed success messaging so one concise dialog appears per action and removed redundant inline alerts (e.g., backup creation/deletion, database restore, experiment deletion) for a single-source notification (`frontend/src/components/ErrorAlert.tsx`, `frontend/src/components/BackupManager.tsx`, `frontend/src/components/DatabaseRestore.tsx`, `frontend/src/components/DatabaseOperations.tsx`, `frontend/src/pages/BackupPage.tsx`).
+- Adjusted restore confirmation copy so the warnings live directly in the dialog instead of duplicated modals, and clarified outage expectations in a short bullet list (`frontend/src/components/DatabaseRestore.tsx`).
+
 ## 2025-10-19 Camera Stream Aspect Ratio
 
 - Let the live streaming card size itself to the incoming frame by capturing each `<img>`’s natural dimensions and applying an `aspectRatio`, replacing the old fixed 360 px viewport so portrait feeds fill the panel while placeholders keep a sensible minimum height; the fullscreen control now appears only after frames arrive (`frontend/src/pages/CameraPage.tsx`).

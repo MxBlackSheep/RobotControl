@@ -34,7 +34,6 @@ import {
   Close as CloseIcon
 } from '@mui/icons-material';
 import LoadingSpinner, { ButtonLoading } from '../LoadingSpinner';
-import ErrorAlert from '../ErrorAlert';
 
 export interface StreamingSession {
   session_id: string;
@@ -108,13 +107,36 @@ const LiveStreamingTab: React.FC<LiveStreamingTabProps> = ({
 
   if (error) {
     return (
-      <ErrorAlert
-        message={error}
-        severity="error"
-        category="server"
-        retryable={true}
-        onRetry={onRefresh}
-      />
+      <Box
+        sx={{
+          p: 3,
+          borderRadius: 2,
+          border: '1px solid',
+          borderColor: 'error.light',
+          bgcolor: 'rgba(244, 67, 54, 0.08)'
+        }}
+      >
+        <Stack spacing={2} alignItems="center" textAlign="center">
+          <StreamIcon sx={{ fontSize: 48, color: 'error.main' }} />
+          <Box>
+            <Typography variant="h6" color="error.main">
+              Streaming service unavailable
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {error}
+            </Typography>
+          </Box>
+          <Button
+            variant="contained"
+            color="error"
+            startIcon={<RefreshIcon />}
+            onClick={onRefresh}
+            disabled={loading}
+          >
+            {loading ? <ButtonLoading /> : 'Try Again'}
+          </Button>
+        </Stack>
+      </Box>
     );
   }
 

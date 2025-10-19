@@ -133,7 +133,7 @@ describe('Component Integration', () => {
       renderWithTheme(<ThemedComponents />);
 
       expect(screen.getByRole('progressbar')).toBeInTheDocument();
-      expect(screen.getByRole('alert')).toBeInTheDocument();
+      expect(screen.getByRole('alertdialog')).toBeInTheDocument();
     });
   });
 
@@ -156,8 +156,8 @@ describe('Component Integration', () => {
 
       expect(screen.getByRole('main')).toBeInTheDocument();
       expect(screen.getByRole('progressbar')).toHaveAttribute('aria-label');
-      expect(screen.getByRole('alert')).toHaveAttribute('aria-live');
-      expect(screen.getByLabelText(/retry/i)).toBeInTheDocument();
+      expect(screen.getByRole('alertdialog')).toHaveAttribute('aria-live', 'assertive');
+      expect(screen.getByText(/retry/i)).toBeInTheDocument();
       expect(screen.getByLabelText(/close/i)).toBeInTheDocument();
     });
   });
@@ -260,7 +260,7 @@ describe('Component API consistency', () => {
 
       // Components should accept sx prop without throwing
       expect(screen.getByRole('progressbar')).toBeInTheDocument();
-      expect(screen.getByRole('alert')).toBeInTheDocument();
+      expect(screen.getByRole('alertdialog')).toBeInTheDocument();
     });
   });
 

@@ -64,6 +64,7 @@ import {
   validateScheduleFormData,
   formatScheduleType
 } from '../types/scheduling';
+import { ServerError } from './ErrorAlert';
 
 interface CreateScheduleDialogProps {
   open: boolean;
@@ -185,7 +186,16 @@ const CreateScheduleDialog: React.FC<CreateScheduleDialogProps> = ({
   };
 
   return (
-    <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
+    <>
+      {errors.length > 0 && (
+        <ServerError
+          title="Cannot Create Schedule"
+          message={errors.map((item) => `• ${item}`).join('\n')}
+          onClose={() => setErrors([])}
+          retryable={false}
+        />
+      )}
+      <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
         <DialogTitle>
           <Stack direction="row" alignItems="center" spacing={1}>
             <AddIcon color="primary" />
@@ -194,16 +204,6 @@ const CreateScheduleDialog: React.FC<CreateScheduleDialogProps> = ({
         </DialogTitle>
         <DialogContent>
           <Stack spacing={3} sx={{ mt: 1 }}>
-            {errors.length > 0 && (
-              <Alert severity="error">
-                <ul style={{ margin: 0, paddingLeft: 20 }}>
-                  {errors.map((error, index) => (
-                    <li key={index}>{error}</li>
-                  ))}
-                </ul>
-              </Alert>
-            )}
-
             {/* Basic Information */}
             <Card variant="outlined">
               <CardContent>
@@ -395,7 +395,8 @@ const CreateScheduleDialog: React.FC<CreateScheduleDialogProps> = ({
           </Button>
         </DialogActions>
       </Dialog>
-    );
+    </>
+  );
 };
 
 const EditScheduleDialog: React.FC<EditScheduleDialogProps> = ({
@@ -459,6 +460,15 @@ const EditScheduleDialog: React.FC<EditScheduleDialogProps> = ({
   if (!schedule) return null;
 
   return (
+    <>
+      {errors.length > 0 && (
+        <ServerError
+          title="Cannot Update Schedule"
+          message={errors.map((item) => `• ${item}`).join('\n')}
+          onClose={() => setErrors([])}
+          retryable={false}
+        />
+      )}
     <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
       <DialogTitle>
         <Stack direction="row" alignItems="center" spacing={1}>
@@ -468,16 +478,6 @@ const EditScheduleDialog: React.FC<EditScheduleDialogProps> = ({
       </DialogTitle>
       <DialogContent>
         <Stack spacing={3} sx={{ mt: 1 }}>
-          {errors.length > 0 && (
-            <Alert severity="error">
-              <ul style={{ margin: 0, paddingLeft: 20 }}>
-                {errors.map((error, index) => (
-                  <li key={index}>{error}</li>
-                ))}
-              </ul>
-            </Alert>
-          )}
-
           <Grid container spacing={2}>
             <Grid item xs={12} md={6}>
               <TextField
@@ -539,7 +539,8 @@ const EditScheduleDialog: React.FC<EditScheduleDialogProps> = ({
           {loading ? 'Updating...' : 'Update Schedule'}
         </Button>
       </DialogActions>
-    </Dialog>
+      </Dialog>
+    </>
   );
 };
 

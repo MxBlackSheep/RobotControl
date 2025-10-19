@@ -18,9 +18,10 @@ import {
   Button,
   Breadcrumbs,
   Link,
-  Alert,
   Paper,
-  Stack
+  Stack,
+  Card,
+  CardContent
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
@@ -32,6 +33,10 @@ import { useNavigate, Link as RouterLink } from 'react-router-dom';
 import { useAuthContext } from '../context/AuthContext';
 import BackupManager from '../components/BackupManager';
 import BackupErrorBoundary from '../components/BackupErrorBoundary';
+import {
+  AuthenticationError,
+  AuthorizationError
+} from '../components/ErrorAlert';
 
 /**
  * BackupPage Component
@@ -46,41 +51,37 @@ const BackupPage: React.FC = () => {
   // Admin access control - following CLAUDE.md security principles
   if (!user) {
     return (
-      <Container maxWidth="md" sx={{ mt: 4 }}>
-        <Alert severity="error" icon={<AdminIcon />}>
-          <Typography variant="h6" gutterBottom>
-            Authentication Required
-          </Typography>
-          <Typography variant="body2">
-            Please log in to access backup management functionality.
-          </Typography>
-        </Alert>
-      </Container>
+      <AuthenticationError
+        title="Authentication Required"
+        message="Please log in to access backup management functionality."
+        retryable={false}
+        actions={
+          <Button variant="contained" onClick={() => navigate('/login')}>
+            Go to Login
+          </Button>
+        }
+        onClose={() => navigate('/login')}
+      />
     );
   }
 
   if (user.role !== 'admin') {
     return (
-      <Container maxWidth="md" sx={{ mt: 4 }}>
-        <Alert severity="error" icon={<AdminIcon />}>
-          <Typography variant="h6" gutterBottom>
-            Admin Access Required
-          </Typography>
-          <Typography variant="body2">
-            Database backup operations require administrator privileges. 
-            Contact your system administrator for access.
-          </Typography>
-          <Box sx={{ mt: 2 }}>
-            <Button
-              startIcon={<ArrowBackIcon />}
-              onClick={() => navigate('/')}
-              variant="outlined"
-            >
-              Return to Dashboard
-            </Button>
-          </Box>
-        </Alert>
-      </Container>
+      <AuthorizationError
+        title="Admin Access Required"
+        message="Database backup operations require administrator privileges. Contact your system administrator for access."
+        retryable={false}
+        actions={
+          <Button
+            startIcon={<ArrowBackIcon />}
+            onClick={() => navigate('/')}
+            variant="outlined"
+          >
+            Return to Dashboard
+          </Button>
+        }
+        onClose={() => navigate('/')}
+      />
     );
   }
 
@@ -169,18 +170,23 @@ const BackupPage: React.FC = () => {
           All backup operations are logged and secured for administrator access only.
         </Typography>
 
-        {/* Information Alert */}
-        <Alert severity="info" sx={{ mb: 3 }}>
-          <Typography variant="subtitle2" gutterBottom>
-            Important Notes
-          </Typography>
-          <Typography variant="body2" component="div">
-            • Backup operations may temporarily affect database connectivity
-            • Restore operations will replace all current data with backup content
-            • Always verify backup integrity before performing restore operations
-            • Large databases may require several minutes to backup or restore
-          </Typography>
-        </Alert>
+        {/* Information Box */}
+        <Card variant="outlined" sx={{ mb: 3 }}>
+          <CardContent>
+            <Typography variant="subtitle2" gutterBottom>
+              Important Notes
+            </Typography>
+            <Typography variant="body2" component="div">
+              • Backup operations may temporarily affect database connectivity
+              <br />
+              • Restore operations will replace all current data with backup content
+              <br />
+              • Always verify backup integrity before performing restore operations
+              <br />
+              • Large databases may require several minutes to backup or restore
+            </Typography>
+          </CardContent>
+        </Card>
       </Box>
 
       {/* Main Content with Error Boundary */}

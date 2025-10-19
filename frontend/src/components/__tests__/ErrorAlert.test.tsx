@@ -24,7 +24,7 @@ describe('ErrorAlert', () => {
       renderWithTheme(<ErrorAlert message={message} />);
       
       expect(screen.getByText(message)).toBeInTheDocument();
-      expect(screen.getByRole('alert')).toBeInTheDocument();
+      expect(screen.getByRole('alertdialog')).toBeInTheDocument();
     });
 
     it('displays custom title', () => {
@@ -46,7 +46,7 @@ describe('ErrorAlert', () => {
         />
       );
       
-      const alert = screen.getByRole('alert');
+      const alert = screen.getByRole('alertdialog');
       expect(alert).toHaveClass('custom-error');
     });
   });
@@ -55,8 +55,8 @@ describe('ErrorAlert', () => {
     it('renders error severity by default', () => {
       renderWithTheme(<ErrorAlert message="Error message" />);
       
-      const alert = screen.getByRole('alert');
-      expect(alert).toHaveClass(/error/i);
+      const alert = screen.getByRole('alertdialog');
+      expect(alert).toHaveAttribute('data-severity', 'error');
     });
 
     it('renders warning severity', () => {
@@ -64,8 +64,8 @@ describe('ErrorAlert', () => {
         <ErrorAlert message="Warning message" severity="warning" />
       );
       
-      const alert = screen.getByRole('alert');
-      expect(alert).toHaveClass(/warning/i);
+      const alert = screen.getByRole('alertdialog');
+      expect(alert).toHaveAttribute('data-severity', 'warning');
     });
 
     it('renders info severity', () => {
@@ -73,8 +73,8 @@ describe('ErrorAlert', () => {
         <ErrorAlert message="Info message" severity="info" />
       );
       
-      const alert = screen.getByRole('alert');
-      expect(alert).toHaveClass(/info/i);
+      const alert = screen.getByRole('alertdialog');
+      expect(alert).toHaveAttribute('data-severity', 'info');
     });
 
     it('renders success severity', () => {
@@ -82,8 +82,8 @@ describe('ErrorAlert', () => {
         <ErrorAlert message="Success message" severity="success" />
       );
       
-      const alert = screen.getByRole('alert');
-      expect(alert).toHaveClass(/success/i);
+      const alert = screen.getByRole('alertdialog');
+      expect(alert).toHaveAttribute('data-severity', 'success');
     });
   });
 
@@ -107,7 +107,7 @@ describe('ErrorAlert', () => {
         />
       );
       
-      const alert = screen.getByRole('alert');
+      const alert = screen.getByRole('alertdialog');
       expect(alert).toBeInTheDocument();
     });
   });
@@ -147,14 +147,14 @@ describe('ErrorAlert', () => {
         <ErrorAlert message="Test error" closable={true} />
       );
       
-      const alert = screen.getByRole('alert');
+      const alert = screen.getByRole('alertdialog');
       expect(alert).toBeInTheDocument();
       
       const closeButton = screen.getByLabelText(/close/i);
       await user.click(closeButton);
       
       await waitFor(() => {
-        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+        expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
       });
     });
   });
@@ -229,7 +229,7 @@ describe('ErrorAlert', () => {
         />
       );
       
-      const detailsToggle = screen.getByLabelText(/show details/i);
+      const detailsToggle = screen.getByRole('button', { name: /show details/i });
       expectElementToBeVisible(detailsToggle);
     });
 
@@ -247,7 +247,7 @@ describe('ErrorAlert', () => {
       
       expect(screen.queryByText(details)).not.toBeInTheDocument();
       
-      const detailsToggle = screen.getByLabelText(/show details/i);
+      const detailsToggle = screen.getByRole('button', { name: /show details/i });
       await user.click(detailsToggle);
       
       await waitFor(() => {
@@ -267,7 +267,7 @@ describe('ErrorAlert', () => {
         />
       );
       
-      const detailsToggle = screen.getByLabelText(/show details/i);
+      const detailsToggle = screen.getByRole('button', { name: /show details/i });
       
       // Expand
       await user.click(detailsToggle);
@@ -294,12 +294,12 @@ describe('ErrorAlert', () => {
         />
       );
       
-      expect(screen.getByRole('alert')).toBeInTheDocument();
+      expect(screen.getByRole('alertdialog')).toBeInTheDocument();
       
       jest.advanceTimersByTime(3000);
       
       await waitFor(() => {
-        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+        expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
       });
       
       jest.useRealTimers();
@@ -310,8 +310,8 @@ describe('ErrorAlert', () => {
     it('has proper ARIA attributes', () => {
       renderWithTheme(<ErrorAlert message="Accessible error" />);
       
-      const alert = screen.getByRole('alert');
-      expect(alert).toHaveAttribute('aria-live', 'polite');
+      const alert = screen.getByRole('alertdialog');
+      expect(alert).toHaveAttribute('aria-live', 'assertive');
       expect(alert).toHaveAttribute('aria-atomic', 'true');
     });
 
@@ -324,7 +324,7 @@ describe('ErrorAlert', () => {
         />
       );
       
-      const retryButton = screen.getByLabelText(/retry operation/i);
+      const retryButton = screen.getByText(/retry/i);
       expect(retryButton).toBeInTheDocument();
     });
 
@@ -333,7 +333,7 @@ describe('ErrorAlert', () => {
         <ErrorAlert message="Test error" closable={true} />
       );
       
-      const closeButton = screen.getByLabelText(/close alert/i);
+      const closeButton = screen.getByLabelText(/close notification/i);
       expect(closeButton).toBeInTheDocument();
     });
 
@@ -346,7 +346,7 @@ describe('ErrorAlert', () => {
         />
       );
       
-      const detailsToggle = screen.getByLabelText(/show details/i);
+      const detailsToggle = screen.getByRole('button', { name: /show details/i });
       expect(detailsToggle).toHaveAttribute('aria-expanded', 'false');
       expect(detailsToggle).toHaveAttribute('aria-controls');
     });
@@ -371,8 +371,8 @@ describe('Specialized Error Components', () => {
         <AuthenticationError message="Please log in" />
       );
       
-      const alert = screen.getByRole('alert');
-      expect(alert).toHaveClass(/warning/i);
+      const alert = screen.getByRole('alertdialog');
+      expect(alert).toHaveAttribute('data-severity', 'warning');
       expect(screen.getByText('Please log in')).toBeInTheDocument();
     });
   });
@@ -383,8 +383,8 @@ describe('Specialized Error Components', () => {
         <ServerError message="Server error" onRetry={() => {}} />
       );
       
-      const alert = screen.getByRole('alert');
-      expect(alert).toHaveClass(/error/i);
+      const alert = screen.getByRole('alertdialog');
+      expect(alert).toHaveAttribute('data-severity', 'error');
       expect(screen.getByText(/retry/i)).toBeInTheDocument();
     });
   });
@@ -395,8 +395,8 @@ describe('Specialized Error Components', () => {
         <SuccessAlert message="Operation successful" />
       );
       
-      const alert = screen.getByRole('alert');
-      expect(alert).toHaveClass(/success/i);
+      const alert = screen.getByRole('alertdialog');
+      expect(alert).toHaveAttribute('data-severity', 'success');
     });
 
     it('auto hides by default', () => {
@@ -406,12 +406,12 @@ describe('Specialized Error Components', () => {
         <SuccessAlert message="Success message" />
       );
       
-      expect(screen.getByRole('alert')).toBeInTheDocument();
+      expect(screen.getByRole('alertdialog')).toBeInTheDocument();
       
       jest.advanceTimersByTime(5000);
       
       waitFor(() => {
-        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+        expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
       });
       
       jest.useRealTimers();

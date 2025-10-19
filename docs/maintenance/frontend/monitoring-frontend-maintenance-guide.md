@@ -81,7 +81,7 @@ Actions returned by the hook:
 
 3. **Render clear fallback states.**  
    - When `isLoading` is true, show `<LoadingSpinner />`.  
-   - When `error` is set, display `ErrorAlert` with “refresh” or “reconnect” actions.
+   - When `error` is set, display the inline warning cards baked into `MonitoringDashboard` / `SystemStatus` (headline + retry button). Reserve modal alerts for destructive actions only.
 
 4. **Respect responsive design.** `MonitoringDashboard` and `SystemStatus` rely on MUI’s responsive props (`sx` with `{ xs: …, md: … }`). Mirror that style for new elements so the layout still works on tablets.
 
@@ -99,7 +99,15 @@ Actions returned by the hook:
 
 ---
 
-## 6. Extending or Modifying Behaviour
+## 6. Passive vs Active Messaging
+
+- **Dashboard cards stay passive.** Errors in `MonitoringDashboard` and `SystemStatus` are rendered as inline warning cards with retry buttons. Follow the same design for any new widgets so the page does not pop a modal for status updates.
+- **Reserve modals for state-changing actions.** Only confirmation-heavy actions (e.g., enabling maintenance mode) should open dialogs. Refresh/reconnect flows belong inside the card.
+- **Reuse the shared styling.** Inline warnings use the red-outlined card (`borderColor: 'error.light', bgcolor: 'rgba(244, 67, 54, 0.08)'`). Keep that aesthetic for consistency.
+
+---
+
+## 7. Extending or Modifying Behaviour
 
 ### 6.1 Separate WebSocket channels
 1. The hook currently connects to `/ws/general`. To support dedicated channels (e.g., `/ws/experiments`), add a parameter to the hook so callers can choose a channel.  
@@ -116,7 +124,7 @@ Actions returned by the hook:
 
 ---
 
-## 7. Quick Reference
+## 8. Quick Reference
 
 | Function / Component | Purpose | Notes |
 |----------------------|---------|-------|
@@ -129,7 +137,7 @@ Actions returned by the hook:
 
 ---
 
-## 8. When Something Goes Wrong
+## 9. When Something Goes Wrong
 
 1. **Dashboard stuck on “Loading…”**  
    - Check network tab for `/api/monitoring/system-health` and `/api/monitoring/experiments`. If they fail, the hook never sets `isLoading=false`. Display the error so the user can retry.
@@ -147,4 +155,3 @@ Actions returned by the hook:
    - The hook swallows errors from `/api/camera/streaming/status`. Check logs for warnings (“Failed to parse streaming status response”). Fix the backend response shape or guard the UI to handle missing data.
 
 Stick to this playbook and the monitoring dashboard will remain reliable, even under heavy load.
-

@@ -645,14 +645,32 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
 
   if (error) {
     return (
-      <ErrorAlert
-        message={error}
-        severity="error"
-        category="server"
-        retryable
-        onRetry={() => onRefresh()}
-        sx={{ mb: 2 }}
-      />
+      <Paper
+        elevation={0}
+        sx={{
+          p: { xs: 3, md: 3.5 },
+          borderRadius: 2,
+          border: 1,
+          borderColor: 'error.light',
+          bgcolor: 'rgba(244, 67, 54, 0.04)'
+        }}
+      >
+        <Stack spacing={2}>
+          <Typography variant="h6" color="error.main">
+            {error}
+          </Typography>
+          <Box>
+            <Button
+              variant="contained"
+              color="error"
+              onClick={() => onRefresh()}
+              startIcon={<RefreshIcon />}
+            >
+              Try again
+            </Button>
+          </Box>
+        </Stack>
+      </Paper>
     );
   }
 

@@ -15,7 +15,6 @@ import Grid from '@mui/material/Grid';
 import LinearProgress from '@mui/material/LinearProgress';
 import Chip from '@mui/material/Chip';
 import LoadingSpinner from './LoadingSpinner';
-import ErrorAlert from './ErrorAlert';
 import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import List from '@mui/material/List';
@@ -25,6 +24,7 @@ import ListItemIcon from '@mui/material/ListItemIcon';
 import Divider from '@mui/material/Divider';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
+import Button from '@mui/material/Button';
 import {
   Refresh as RefreshIcon,
   Science as ExperimentIcon,
@@ -277,13 +277,20 @@ const DatabaseStatusCard: React.FC<DatabaseStatusCardProps> = memo(({ databaseSt
           </Box>
 
           {databaseStatus.error_message && (
-            <ErrorAlert
-              message={databaseStatus.error_message}
-              severity="error"
-              category="server"
-              compact={true}
-              sx={{ mt: 1 }}
-            />
+            <Box
+              sx={{
+                mt: 1,
+                p: 1.5,
+                borderRadius: 1,
+                border: '1px solid',
+                borderColor: 'error.light',
+                bgcolor: 'rgba(244, 67, 54, 0.08)'
+              }}
+            >
+              <Typography variant="caption" color="error.main">
+                {databaseStatus.error_message}
+              </Typography>
+            </Box>
           )}
         </Stack>
       </CardContent>
@@ -496,14 +503,36 @@ const SystemStatus: React.FC<SystemStatusProps> = memo(({
 
       {/* Error Alert */}
       {error && (
-        <ErrorAlert
-          message={error}
-          severity="error"
-          category="network"
-          retryable={true}
-          onRetry={handleReconnect}
-          sx={{ mb: 2 }}
-        />
+        <Box
+          sx={{
+            mb: 2,
+            p: 2,
+            borderRadius: 1,
+            border: '1px solid',
+            borderColor: 'error.light',
+            bgcolor: 'rgba(244, 67, 54, 0.08)'
+          }}
+        >
+          <Stack spacing={1.5}>
+            <Typography variant="subtitle2" color="error.main">
+              Monitoring connection lost
+            </Typography>
+            <Typography variant="body2">
+              {error}
+            </Typography>
+            <Box>
+              <Button
+                variant="contained"
+                color="error"
+                onClick={handleReconnect}
+                startIcon={<RefreshIcon />}
+                size="small"
+              >
+                Reconnect
+              </Button>
+            </Box>
+          </Stack>
+        </Box>
       )}
 
       {/* Status Cards */}

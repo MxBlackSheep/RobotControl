@@ -27,7 +27,6 @@ import {
   useMediaQuery
 } from '@mui/material';
 import LoadingSpinner from './LoadingSpinner';
-import ErrorAlert from './ErrorAlert';
 import { buildApiUrl, buildWsUrl } from '@/utils/apiBase';
 import {
   PlayArrow as PlayIcon,
@@ -399,15 +398,36 @@ const CameraViewer: React.FC<CameraViewerProps> = ({
 
           {/* Error Display */}
           {error && (
-            <ErrorAlert
-              message={error}
-              severity="error"
-              category="network"
-              retryable={true}
-              onRetry={() => window.location.reload()}
-              onClose={() => setError('')}
-              sx={{ mb: 2 }}
-            />
+            <Box
+              sx={{
+                mb: 2,
+                p: 2,
+                borderRadius: 1,
+                border: '1px solid',
+                borderColor: 'error.light',
+                bgcolor: 'rgba(244, 67, 54, 0.08)'
+              }}
+            >
+              <Stack spacing={1.5}>
+                <Typography variant="subtitle2" color="error.main">
+                  Live stream unavailable
+                </Typography>
+                <Typography variant="body2">
+                  {error}
+                </Typography>
+                <Box>
+                  <Button
+                    variant="outlined"
+                    color="error"
+                    size="small"
+                    startIcon={<RefreshIcon />}
+                    onClick={() => window.location.reload()}
+                  >
+                    Retry
+                  </Button>
+                </Box>
+              </Stack>
+            </Box>
           )}
 
           {/* Camera Info */}
