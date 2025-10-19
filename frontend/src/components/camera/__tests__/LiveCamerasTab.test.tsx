@@ -218,7 +218,7 @@ describe('LiveCamerasTab', () => {
       );
       
       expect(screen.getByText(errorMessage)).toBeInTheDocument();
-      expect(screen.getByRole('alert')).toBeInTheDocument();
+      expect(screen.getByRole('alertdialog')).toBeInTheDocument();
     });
 
     it('shows retry button in error state', async () => {

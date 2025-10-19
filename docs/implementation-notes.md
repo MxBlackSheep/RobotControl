@@ -1,10 +1,63 @@
 # RobotControl Development Log (Chronological)
 
 ---
+## 2025-10-20 Restore Reconnect Hardening
+
+- Fixed the maintenance bypass flag so `/health` polls escape the interceptor by checking `headers.has('X-Allow-Maintenance')` before rejecting, which lets the UI drop maintenance mode as soon as the backend responds (`frontend/src/services/api.ts`).
+- Reworked the backup restore flow to open its own pyodbc connection, then clear pooled handles and wait for a clean `SELECT 1` before reporting success; the helper covers both managed `.bak` restores and the direct path workflow (`backend/services/backup.py`).
+- Added a `reset_pools()` hook on the async connection manager so disruptive operations can drop stale handles, and wired `DatabaseConnectionManager.reset_pools()` through for legacy callers (`backend/core/database_connection.py`).
+- Simplified the database service to use only the primary connection profile and removed the unused secondary config entry to reflect current deployments (`backend/services/database.py`, `backend/config.py`).
+
+## 2025-10-20 Archived Deletion & Logging Cleanup
+
+- Added delete controls to the archived schedules table/cards and route them through the existing confirmation dialog so archived jobs can be purged without switching tabs (`frontend/src/components/ScheduleList.tsx`, `frontend/src/pages/SchedulingPage.tsx`, `frontend/src/types/scheduling.ts`).
+- Disabled daily alias files in backend logging so `data/logs/` now only holds the live `robotcontrol_backend.log` and `robotcontrol_backend_error.log`; rotated files are compressed directly into `data/logs/history` (`backend/utils/logging_setup.py`).
+- Reworked the system tray stop callback to flag the running uvicorn server to exit instead of calling `sys.exit`, which eliminates the `SystemExit` traceback from pystray when shutting down from the tray menu (`backend/main.py`).
+
+## 2025-10-20 Restore Error Messaging
+
+- Prevented Database Restore failures from firing both the modal status dialog and the page-level banner by removing the extra `onError` call in the restore handler, so users now see a single validation message when a restore cannot start (`frontend/src/components/DatabaseRestore.tsx`).
+
+## 2025-10-19 Modal Notifications
+
+- Replaced every inline error/success banner with the modal-based `ErrorAlert` suite so feedback now appears as dialogs instead of shifting layouts; the shared component renders Material UI dialogs with retry/close actions (`frontend/src/components/ErrorAlert.tsx`).
+- Updated all consumers—camera, scheduling, backups, authentication dialogs, and system settings—to trigger the modal notifications and removed legacy snackbars/alerts (`frontend/src/pages/SchedulingPage.tsx`, `frontend/src/components/BackupManager.tsx`, `frontend/src/pages/BackupPage.tsx`, `frontend/src/components/ChangePasswordDialog.tsx`, `frontend/src/components/SystemConfigSettings.tsx`, `frontend/src/components/scheduling/FolderImportDialog.tsx`, `frontend/src/components/BackupActions.tsx`, `frontend/src/components/BackupListComponent.tsx`).
+- Trimmed success messaging so one concise dialog appears per action and removed redundant inline alerts (e.g., backup creation/deletion, database restore, experiment deletion) for a single-source notification (`frontend/src/components/ErrorAlert.tsx`, `frontend/src/components/BackupManager.tsx`, `frontend/src/components/DatabaseRestore.tsx`, `frontend/src/components/DatabaseOperations.tsx`, `frontend/src/pages/BackupPage.tsx`).
+- Adjusted restore confirmation copy so the warnings live directly in the dialog instead of duplicated modals, and clarified outage expectations in a short bullet list (`frontend/src/components/DatabaseRestore.tsx`).
+
+## 2025-10-19 Camera Stream Aspect Ratio
+
+- Let the live streaming card size itself to the incoming frame by capturing each `<img>`’s natural dimensions and applying an `aspectRatio`, replacing the old fixed 360 px viewport so portrait feeds fill the panel while placeholders keep a sensible minimum height; the fullscreen control now appears only after frames arrive (`frontend/src/pages/CameraPage.tsx`).
+- Kept the reusable camera viewer ready for portrait feeds by syncing its aspect ratio to each frame’s natural size (`frontend/src/components/CameraViewer.tsx`).
+
+## 2025-10-19 Frontend Maintenance Guides
+
+- Added idiot-proof walkthroughs for the authentication, camera, database, scheduling, monitoring, and application shell UI so every frontend module now has a matching maintenance manual (`docs/maintenance/frontend/authentication-frontend-maintenance-guide.md`, `docs/maintenance/frontend/camera-frontend-maintenance-guide.md`, `docs/maintenance/frontend/database-frontend-maintenance-guide.md`, `docs/maintenance/frontend/scheduling-frontend-maintenance-guide.md`, `docs/maintenance/frontend/monitoring-frontend-maintenance-guide.md`, `docs/maintenance/frontend/main-application-frontend-maintenance-guide.md`).
+- Each guide mirrors the backend documentation style—high-level architecture, lifecycle steps, key state, tasks, extension patterns, and troubleshooting—so future contributors have consistent references across the stack.
+
+## 2025-10-19 Maintenance Guides Expansion
+
+- Documented the authentication stack for future operators, covering the `AuthService`, SQLite schema, REST endpoints, and frontend token wiring so password resets, token refreshes, and config tweaks stay predictable (`docs/maintenance/authentication-maintenance-guide.md`).
+- Captured the full monitoring/notifications pipeline—background loops, experiment polling, WebSocket channels, and scheduler email alerts—so the real-time dashboard and alerting remain stable during tweaks (`docs/maintenance/monitoring-maintenance-guide.md`).
+- Wrote a main-application guide describing FastAPI startup/shutdown, static asset serving, logging directories, and packaging scripts to make backend deployments and PyInstaller builds idiot-proof (`docs/maintenance/main-application-maintenance-guide.md`).
+
+## 2025-10-18 Scheduling Maintenance Trim
+
+- Added a project-level `.gitignore` so transient build outputs (PyInstaller bundles, frontend builds, venvs, caches) stop polluting status checks while still leaving the generated files in place for runtime use (`.gitignore`).
+- Removed the obsolete `database_manager_backup.py` module entirely; all scheduling paths now import the single primary database manager implementation (`backend/services/scheduling/database_manager.py`).
+- Encapsulated scheduler capacity acquisition in a dedicated helper, leaving `_execute_job` easier to follow while preserving the existing retry semantics and logging (`backend/services/scheduling/scheduler_engine.py`).
+- Moved execution-history deduplication into the SQLite layer so the API now returns a single authoritative record per execution; the React view simply renders the list without client-side merging (`backend/services/scheduling/sqlite_database.py`, `frontend/src/components/ExecutionHistory.tsx`).
+- Centralised manual-recovery normalisation in the scheduling API client so hooks and services share one mapping definition (`frontend/src/services/schedulingApi.ts`, `frontend/src/hooks/useScheduling.ts`).
+- Dropped stale backend service singletons by making `get_services()` fetch fresh dependencies each call, avoiding hidden global state while keeping endpoint signatures unchanged (`backend/api/scheduling.py`).
+- Removed the unused refactored camera route and demo components after folding their improvements into the main camera page, trimming dead UI code (`frontend/src/pages/CameraPageRefactored.tsx`, `frontend/src/components/examples/*`, `frontend/src/components/camera/index.ts`, `frontend/src/components/camera/TabPanel.tsx`).
+- Simplified the camera backend to use the standard config/data-path helpers and rely solely on the shared frame buffer/LiveStreaming service for streaming, eliminating the legacy per-camera frame cache and fallback imports (`backend/services/camera.py`, `backend/services/live_streaming.py`, `backend/tests/test_camera.py`).
+- Broke the backup service into a `SqlCommandExecutor` and `BackupMetadataStore`, removing duplicated SQL/metadata handling logic and making the core service focused on orchestration (`backend/services/backup.py`).
+
+---
 ## 2025-10-17 Archive Feature Finalization
 
 - Removed every reference to the legacy `failed_execution_count` field so new databases no longer create or maintain the column while existing files stay compatible; scheduling models, API payloads, and SQLite operations now ignore the obsolete counter (`backend/models.py`, `backend/api/scheduling.py`, `backend/services/scheduling/sqlite_database.py`, `frontend/src/types/scheduling.ts`, `frontend/src/services/schedulingApi.ts`).
-- Hardened archive toggling on the backend by reusing the standard update path, forcing scheduler cache invalidation, and keeping optimistic locking timestamps accurate so archived schedules reliably stay dormant (`backend/api/scheduling.py`, `backend/services/scheduling/database_manager_backup.py`).
+- Hardened archive toggling on the backend by reusing the standard update path, forcing scheduler cache invalidation, and keeping optimistic locking timestamps accurate so archived schedules reliably stay dormant (`backend/api/scheduling.py`).
 - Completed the frontend archive experience with dedicated loading states, list labelling, and hook state for archived schedules, allowing the “Archive” tab and buttons to stay in sync after archive/unarchive actions (`frontend/src/hooks/useScheduling.ts`, `frontend/src/components/ScheduleList.tsx`, `frontend/src/pages/SchedulingPage.tsx`).
 
 ## 2025-10-17 Scheduler Concurrency Queueing
@@ -12,7 +65,7 @@
 - Added a backlog tracker for schedules deferred because the concurrency limit is hit so we log “Max concurrent jobs reached” only once per waiting job and avoid losing it from the queue (`backend/services/scheduling/scheduler_engine.py`).
 - Prevented one-time schedules from being auto-marked “missed” while they are waiting for capacity, letting them run as soon as the current job finishes instead of flipping to “Not scheduled” (`backend/services/scheduling/scheduler_engine.py`).
 - Folded the scheduler’s concurrency limit into the same five-attempt retry loop we use for HxRun launches: when capacity is saturated the job logs a retry, waits 120 s, and after five tries it is treated as failed and rescheduled to its next interval (`backend/services/scheduling/scheduler_engine.py`).
-- When a schedule is deleted we now persist its name/path snapshot with every archived execution so Execution History keeps the original experiment label instead of dropping to “Archived Schedule” (`backend/api/scheduling.py`, `backend/services/scheduling/database_manager.py`, `backend/services/scheduling/database_manager_backup.py`, `backend/services/scheduling/sqlite_database.py`, `backend/services/scheduling/scheduler_engine.py`).
+- When a schedule is deleted we now persist its name/path snapshot with every archived execution so Execution History keeps the original experiment label instead of dropping to “Archived Schedule” (`backend/api/scheduling.py`, `backend/services/scheduling/database_manager.py`, `backend/services/scheduling/sqlite_database.py`, `backend/services/scheduling/scheduler_engine.py`).
 
 ## 2025-10-17 Scheduling Failure Handling Refresh
 
@@ -24,7 +77,7 @@
 ## 2025-10-17 Schedule Deletion Concurrency Fix
 
 - Background scheduler updates now avoid touching the `updated_at` field by passing `touch_updated_at=False` whenever they persist interval/next-run metadata. This keeps optimistic locking tokens stable for UI operations (`backend/services/scheduling/scheduler_engine.py`, `backend/services/scheduling/database_manager.py`, `backend/services/scheduling/sqlite_database.py`).
-- Added a `touch_updated_at` flag through the scheduling data layer so API writes still bump timestamps while automated maintenance writes do not, preserving multi-user safeguards without spurious 409s on delete requests (`backend/services/scheduling/database_manager.py`, `backend/services/scheduling/database_manager_backup.py`, `backend/services/scheduling/sqlite_database.py`).
+- Added a `touch_updated_at` flag through the scheduling data layer so API writes still bump timestamps while automated maintenance writes do not, preserving multi-user safeguards without spurious 409s on delete requests (`backend/services/scheduling/database_manager.py`, `backend/services/scheduling/sqlite_database.py`).
 - Updated the scheduler manual-recovery test stub to support the new signature (`backend/tests/test_scheduler_manual_recovery.py`).
 - Experiment execution now resolves stored relative experiment paths against the Hamilton `Methods` root, so imports from “Active Experiment” (and other sibling folders) run without falling back to the legacy LabProtocols directory (`backend/services/scheduling/experiment_executor.py`).
 - Scheduling API writes now persist the exact `updated_at` values supplied by the caller instead of relying on SQLite’s UTC `CURRENT_TIMESTAMP`, eliminating timezone drift between optimistic-lock headers and stored records (`backend/services/scheduling/sqlite_database.py`, `backend/api/scheduling.py`, `backend/models.py`).
@@ -96,7 +149,7 @@
 ## 2025-10-13 Camera Archive Virtualization
 
 - Replaced the archive card-grid with a collapsible tree that virtualizes video rows via `react-window`; per-folder state now lives inside `VideoArchiveTab` and supports optional lazy loading (`frontend/src/components/camera/VideoArchiveTab.tsx`, `frontend/src/types/components.ts`).
-- Updated both camera pages to consume the shared archive component so the optimized UI appears regardless of route (`frontend/src/pages/CameraPage.tsx`, `frontend/src/pages/CameraPageRefactored.tsx`).
+- Updated the camera page to consume the shared archive component so the optimized UI appears on the main route (`frontend/src/pages/CameraPage.tsx`).
 - Added a full-screen dialog for the live streaming preview triggered from the inline player, closing automatically if the session drops (`frontend/src/pages/CameraPage.tsx`).
 - Standardised SQL backup writes to `data/backups` and removed the compressed backup attempt so Express Edition uses the same reliable sqlcmd path as the legacy UI (`backend/config.py`, `backend/services/backup.py`).
 

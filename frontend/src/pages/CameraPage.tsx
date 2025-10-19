@@ -93,6 +93,7 @@ const CameraPage: React.FC = () => {
   const [mySession, setMySession] = useState<StreamingSession | null>(null);
   const [streamingLoading, setStreamingLoading] = useState(false);
   const [currentFrame, setCurrentFrame] = useState<string | null>(null);
+  const [frameDimensions, setFrameDimensions] = useState<{ width: number; height: number } | null>(null);
   const [fullscreenDialogOpen, setFullscreenDialogOpen] = useState(false);
 
   // Video streaming state
@@ -325,6 +326,15 @@ const CameraPage: React.FC = () => {
     }
   };
 
+  const hasFrame = Boolean(currentFrame);
+  useEffect(() => {
+    if (!currentFrame) {
+      setFrameDimensions(null);
+    }
+  }, [currentFrame]);
+
+  const frameMaxHeight = { xs: '70vh', md: '80vh' } as const;
+
   return (
     <>
       <Container 
@@ -516,40 +526,82 @@ const CameraPage: React.FC = () => {
                     </Typography>
 
                     {mySession.websocket_state === 'connected' ? (
-                      <Box
-                        sx={{
-                          position: 'relative',
-                          width: '100%',
-                          height: { xs: 240, sm: 300, md: 360 },
-                          bgcolor: 'black',
-                          borderRadius: 1,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          overflow: 'hidden'
-                        }}
-                      >
-                        <IconButton
-                          size="small"
-                          onClick={() => setFullscreenDialogOpen(true)}
+                      hasFrame ? (
+                        <Box
                           sx={{
-                            position: 'absolute',
-                            top: 8,
-                            right: 8,
-                            bgcolor: 'rgba(0,0,0,0.5)',
-                            color: 'common.white',
-                            '&:hover': { bgcolor: 'rgba(0,0,0,0.7)' }
+                            position: 'relative',
+                            width: '100%',
+                            bgcolor: 'black',
+                            borderRadius: 1,
+                            overflow: 'hidden',
+                            maxHeight: frameMaxHeight,
+                            ...(frameDimensions && frameDimensions.width > 0 && frameDimensions.height > 0
+                              ? {
+                                  aspectRatio: `${frameDimensions.width} / ${frameDimensions.height}`,
+                                  mx: 'auto'
+                                }
+                              : {
+                                  minHeight: { xs: 240, sm: 300, md: 360 },
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center'
+                                })
                           }}
                         >
-                          <FullscreenIcon fontSize="small" />
-                        </IconButton>
-                        {currentFrame ? (
-                          <img
+                          <IconButton
+                            size="small"
+                            onClick={() => setFullscreenDialogOpen(true)}
+                            sx={{
+                              position: 'absolute',
+                              top: 8,
+                              right: 8,
+                              bgcolor: 'rgba(0,0,0,0.5)',
+                              color: 'common.white',
+                              '&:hover': { bgcolor: 'rgba(0,0,0,0.7)' }
+                            }}
+                          >
+                            <FullscreenIcon fontSize="small" />
+                          </IconButton>
+                          <Box
+                            component="img"
                             src={currentFrame}
                             alt="Live camera stream"
-                            style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                            onLoad={(event: React.SyntheticEvent<HTMLImageElement>) => {
+                              const { naturalWidth, naturalHeight } = event.currentTarget;
+                              if (!naturalWidth || !naturalHeight) return;
+                              setFrameDimensions(prev => {
+                                if (prev && prev.width === naturalWidth && prev.height === naturalHeight) {
+                                  return prev;
+                                }
+                                return { width: naturalWidth, height: naturalHeight };
+                              });
+                            }}
+                            sx={{
+                              position: frameDimensions ? 'absolute' : 'relative',
+                              inset: frameDimensions ? 0 : 'auto',
+                              width: '100%',
+                              height: frameDimensions ? '100%' : 'auto',
+                              maxWidth: '100%',
+                              maxHeight: frameDimensions ? '100%' : frameMaxHeight,
+                              objectFit: 'contain',
+                              margin: frameDimensions ? 0 : '0 auto'
+                            }}
                           />
-                        ) : (
+                        </Box>
+                      ) : (
+                        <Box
+                          sx={{
+                            width: '100%',
+                            height: { xs: 240, sm: 300, md: 360 },
+                            bgcolor: 'grey.50',
+                            borderRadius: 1,
+                            border: 1,
+                            borderColor: 'grey.200',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                          }}
+                        >
                           <Stack spacing={2} alignItems="center">
                             <LoadingSpinner
                               variant="spinner"
@@ -561,8 +613,8 @@ const CameraPage: React.FC = () => {
                               Session {mySession.session_id.substring(0, 8)}...
                             </Typography>
                           </Stack>
-                        )}
-                      </Box>
+                        </Box>
+                      )
                     ) : (
                       <Box
                         sx={{

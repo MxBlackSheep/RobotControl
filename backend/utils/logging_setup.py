@@ -281,6 +281,7 @@ def setup_logging(
         backupCount=max(retention_days, 1),
         encoding="utf-8",
         history_dir=history_dir,
+        daily_alias=False,
     )
     app_handler.setLevel(log_level)
     app_handler.setFormatter(formatter)
@@ -291,6 +292,7 @@ def setup_logging(
         backupCount=max(error_retention_days, 1),
         encoding="utf-8",
         history_dir=history_dir,
+        daily_alias=False,
     )
     error_handler.setLevel(logging.WARNING)
     error_handler.setFormatter(formatter)

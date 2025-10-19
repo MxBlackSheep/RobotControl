@@ -32,12 +32,11 @@ import {
 import {
   FolderOpen as FolderIcon,
   Upload as UploadIcon,
-  CheckCircle as SuccessIcon,
-  Error as ErrorIcon,
   Info as InfoIcon,
   CloudUpload as BrowserIcon,
   Edit as ManualIcon
 } from '@mui/icons-material';
+import ErrorAlert, { ServerError, SuccessAlert } from '../ErrorAlert';
 import { schedulingAPI } from '../../services/schedulingApi';
 
 interface FolderImportDialogProps {
@@ -354,26 +353,35 @@ const FolderImportDialog: React.FC<FolderImportDialogProps> = ({
               </Alert>
 
               {selectedFiles.length > 0 && (
-                <Alert severity="success" variant="outlined">
-                  <Typography variant="body2" gutterBottom>
-                    <strong>Selected {selectedFiles.length} experiment files:</strong>
-                  </Typography>
-                  <Box sx={{ maxHeight: 150, overflow: 'auto' }}>
-                    {selectedFiles.slice(0, 10).map((file, index) => (
-                      <Chip
-                        key={index}
-                        label={file.name}
-                        size="small"
-                        sx={{ m: 0.5 }}
-                      />
-                    ))}
-                    {selectedFiles.length > 10 && (
-                      <Typography variant="caption" color="text.secondary">
-                        ...and {selectedFiles.length - 10} more files
+                <>
+                  <SuccessAlert
+                    title="Files Selected"
+                    message={`Selected ${selectedFiles.length} experiment file${selectedFiles.length === 1 ? '' : 's'}. Review the list below before importing.`}
+                    retryable={false}
+                  />
+                  <Card variant="outlined" sx={{ mt: 2 }}>
+                    <CardContent sx={{ pt: 2, pb: 1 }}>
+                      <Typography variant="body2" gutterBottom fontWeight={600}>
+                        Selected files ({selectedFiles.length}):
                       </Typography>
-                    )}
-                  </Box>
-                </Alert>
+                      <Box sx={{ maxHeight: 150, overflow: 'auto' }}>
+                        {selectedFiles.slice(0, 10).map((file, index) => (
+                          <Chip
+                            key={index}
+                            label={file.name}
+                            size="small"
+                            sx={{ m: 0.5 }}
+                          />
+                        ))}
+                        {selectedFiles.length > 10 && (
+                          <Typography variant="caption" color="text.secondary">
+                            ...and {selectedFiles.length - 10} more files
+                          </Typography>
+                        )}
+                      </Box>
+                    </CardContent>
+                  </Card>
+                </>
               )}
             </Box>
           )}
@@ -437,9 +445,12 @@ const FolderImportDialog: React.FC<FolderImportDialogProps> = ({
 
           {/* Error Display */}
           {error && (
-            <Alert severity="error" onClose={() => setError(null)}>
-              {error}
-            </Alert>
+            <ServerError
+              title="Import Error"
+              message={error}
+              onClose={() => setError(null)}
+              retryable={false}
+            />
           )}
 
           {/* Import Progress */}
@@ -455,38 +466,46 @@ const FolderImportDialog: React.FC<FolderImportDialogProps> = ({
           {/* Import Results */}
           {importResults && (
             <Box>
-              <Alert 
-                severity={importResults.success ? "success" : "warning"}
-                icon={importResults.success ? <SuccessIcon /> : <InfoIcon />}
-              >
-                <Typography variant="subtitle2" gutterBottom>
-                  Import Summary
-                </Typography>
-                <Stack spacing={0.5}>
-                  <Typography variant="body2">
-                    Total files found: <strong>{importResults.total_found}</strong>
+              {importResults.success ? (
+                <SuccessAlert
+                  title="Import Complete"
+                  message={`Import finished successfully. Total files found: ${importResults.total_found}. Review the summary below.`}
+                  retryable={false}
+                />
+              ) : (
+                <ErrorAlert
+                  title="Import Completed With Warnings"
+                  message="Some files could not be imported. Review the summary below for details."
+                  severity="warning"
+                  retryable={false}
+                />
+              )}
+
+              <Card variant="outlined" sx={{ mt: 2 }}>
+                <CardContent sx={{ pt: 2 }}>
+                  <Typography variant="subtitle2" gutterBottom>
+                    Import Summary
                   </Typography>
-                  {importResults.new_methods > 0 && (
-                    <Typography variant="body2" color="success.main">
+                  <Stack spacing={0.5}>
+                    <Typography variant="body2">
+                      Total files found: <strong>{importResults.total_found}</strong>
+                    </Typography>
+                    <Typography variant="body2" color={importResults.new_methods > 0 ? 'success.main' : 'text.primary'}>
                       New methods imported: <strong>{importResults.new_methods}</strong>
                     </Typography>
-                  )}
-                  {importResults.updated_methods > 0 && (
-                    <Typography variant="body2" color="info.main">
+                    <Typography variant="body2" color={importResults.updated_methods > 0 ? 'info.main' : 'text.primary'}>
                       Existing methods updated: <strong>{importResults.updated_methods}</strong>
                     </Typography>
-                  )}
-                  {importResults.failed_methods > 0 && (
-                    <Typography variant="body2" color="error.main">
+                    <Typography variant="body2" color={importResults.failed_methods > 0 ? 'error.main' : 'text.primary'}>
                       Failed imports: <strong>{importResults.failed_methods}</strong>
                     </Typography>
-                  )}
-                </Stack>
-              </Alert>
+                  </Stack>
+                </CardContent>
+              </Card>
 
               {/* Method List (show first 10) */}
               {importResults.methods && importResults.methods.length > 0 && (
-                <Box>
+                <Box sx={{ mt: 2 }}>
                   <Typography variant="subtitle2" gutterBottom>
                     Imported Methods {importResults.methods.length > 10 && '(showing first 10)'}:
                   </Typography>
@@ -505,18 +524,11 @@ const FolderImportDialog: React.FC<FolderImportDialogProps> = ({
 
               {/* Errors */}
               {importResults.errors && importResults.errors.length > 0 && (
-                <Alert severity="error" variant="outlined">
-                  <Typography variant="subtitle2" gutterBottom>
-                    Errors:
-                  </Typography>
-                  <ul style={{ margin: 0, paddingLeft: 20 }}>
-                    {importResults.errors.map((err, index) => (
-                      <li key={index}>
-                        <Typography variant="caption">{err}</Typography>
-                      </li>
-                    ))}
-                  </ul>
-                </Alert>
+                <ServerError
+                  title="Import Errors"
+                  message={importResults.errors.map((err) => `• ${err}`).join('\n')}
+                  retryable={false}
+                />
               )}
             </Box>
           )}

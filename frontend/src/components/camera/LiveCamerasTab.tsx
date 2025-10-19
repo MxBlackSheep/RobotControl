@@ -24,7 +24,6 @@ import {
   Settings as SettingsIcon
 } from '@mui/icons-material';
 import { ButtonLoading } from '../LoadingSpinner';
-import ErrorAlert from '../ErrorAlert';
 
 export interface CameraInfo {
   id: string;
@@ -56,13 +55,33 @@ const LiveCamerasTab: React.FC<LiveCamerasTabProps> = ({
 }) => {
   if (error) {
     return (
-      <ErrorAlert
-        message={error}
-        severity="error"
-        category="server"
-        retryable={true}
-        onRetry={onRefresh}
-      />
+      <Box
+        sx={{
+          p: 3,
+          borderRadius: 2,
+          border: '1px solid',
+          borderColor: 'error.light',
+          bgcolor: 'rgba(244, 67, 54, 0.08)',
+          textAlign: 'center'
+        }}
+      >
+        <VideocamIcon sx={{ fontSize: 48, color: 'error.main', mb: 2 }} />
+        <Typography variant="h6" color="error.main" gutterBottom>
+          Unable to load cameras
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          {error}
+        </Typography>
+        <Button
+          variant="contained"
+          color="error"
+          startIcon={<RefreshIcon />}
+          onClick={onRefresh}
+          disabled={loading}
+        >
+          {loading ? <ButtonLoading /> : 'Try Again'}
+        </Button>
+      </Box>
     );
   }
 

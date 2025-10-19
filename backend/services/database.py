@@ -27,23 +27,11 @@ DEFAULT_PRIMARY: Dict[str, Any] = {
     "timeout": 5,
 }
 
-DEFAULT_SECONDARY: Dict[str, Any] = {
-    "driver": "{ODBC Driver 11 for SQL Server}",
-    "server": "192.168.3.21,50131",
-    "database": "EvoYeast",
-    "user": "Hamilton",
-    "password": "mkdpw:V43",
-    "encrypt": "no",
-    "trust_server_certificate": "yes",
-    "timeout": 5,
-}
-
 try:  # pragma: no cover - fallback for environments without backend.config
     from backend.config import settings  # type: ignore
 except Exception:  # pragma: no cover
     class _DefaultSettings:
         DB_CONFIG_PRIMARY = DEFAULT_PRIMARY
-        DB_CONFIG_SECONDARY = DEFAULT_SECONDARY
 
     settings = _DefaultSettings()
 
@@ -83,20 +71,18 @@ class DatabaseStatus:
 
 
 class DatabaseConnectionError(RuntimeError):
-    """Raised when neither primary nor secondary connection succeeds."""
+    """Raised when the primary database connection cannot be established."""
 
 
 class DatabaseService:
     """Small wrapper around pyodbc for the FastAPI endpoints.
 
-    The service tries the primary connection first (localhost), falls back to
-    the configured secondary connection, and records minimal performance stats
-    so the UI can display activity metrics.
+    The service connects to the primary SQL Server instance (localhost) and
+    records minimal performance stats so the UI can display activity metrics.
     """
 
     def __init__(self) -> None:
         self._primary_config = _get_config("DB_CONFIG_PRIMARY", DEFAULT_PRIMARY)
-        self._secondary_config = _get_config("DB_CONFIG_SECONDARY", DEFAULT_SECONDARY)
 
         self._lock = threading.Lock()
         self._active_mode: Optional[str] = None
@@ -144,29 +130,20 @@ class DatabaseService:
         return ';'.join(parts)
 
     def _open_connection(self) -> Tuple[pyodbc.Connection, str]:
-        modes: List[str] = []
-        if self._active_mode:
-            modes.append(self._active_mode)
-        for candidate in ("primary", "secondary"):
-            if candidate not in modes:
-                modes.append(candidate)
+        config = self._primary_config
+        conn_str = self._build_connection_string(config)
+        timeout = config.get("timeout", 5)
 
-        last_error: Optional[str] = None
-        for mode in modes:
-            config = self._primary_config if mode == "primary" else self._secondary_config
-            conn_str = self._build_connection_string(config)
-            timeout = config.get("timeout", 5)
-            try:
-                conn = pyodbc.connect(conn_str, timeout=timeout)
-                self._active_mode = mode
-                self._last_error = None
-                return conn, mode
-            except pyodbc.Error as exc:  # pragma: no cover - depends on environment
-                last_error = str(exc)
-                logger.warning("Database connection attempt failed (%s): %s", mode, exc)
+        try:
+            conn = pyodbc.connect(conn_str, timeout=timeout)
+        except pyodbc.Error as exc:  # pragma: no cover - depends on environment
+            self._last_error = str(exc)
+            logger.warning("Database connection attempt failed (primary): %s", exc)
+            raise DatabaseConnectionError(self._last_error or "Unable to connect to database")
 
-        self._last_error = last_error
-        raise DatabaseConnectionError(last_error or "Unable to connect to database")
+        self._active_mode = "primary"
+        self._last_error = None
+        return conn, "primary"
 
     def _ensure_capabilities(self, conn) -> None:
         """Populate feature flags based on SQL Server version."""

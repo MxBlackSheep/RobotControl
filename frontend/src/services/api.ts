@@ -79,7 +79,9 @@ api.interceptors.request.use((config) => {
   const headers = AxiosHeaders.from(config.headers || {});
   config.headers = headers;
 
-  const bypassMaintenance = headers.get('X-Allow-Maintenance') === 'true';
+  const maintenanceBypassHeader =
+    headers.get('X-Allow-Maintenance') ?? headers.get('x-allow-maintenance');
+  const bypassMaintenance = maintenanceBypassHeader === 'true';
 
   if (!bypassMaintenance && isMaintenanceActive()) {
     const maintenanceError: any = new Error('Database maintenance in progress. Please wait a moment.');

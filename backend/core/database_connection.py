@@ -392,6 +392,26 @@ class AsyncDatabaseConnectionManager:
             total_queries=self._pool_stats.total_queries
         )
 
+    def reset_pools(self):
+        """Close and clear pooled connections after disruptive operations."""
+        with self._pool_lock:
+            for pool in (self._production_pool, self._development_pool):
+                while True:
+                    try:
+                        connection = pool.get_nowait()
+                    except Empty:
+                        break
+                    try:
+                        connection.close()
+                    except Exception:
+                        pass
+
+            self._connection_health.clear()
+            self._pool_stats = PoolStats(0, 0, 0, 0, 0.0, 0)
+            self._failure_count = 0
+            self._circuit_breaker_state = "closed"
+            self._last_failure_time = None
+
 # Global async connection manager instance
 async_db_manager = AsyncDatabaseConnectionManager()
 
@@ -403,6 +423,11 @@ class DatabaseConnectionManager:
     def get_connection(timeout: int = 30) -> Optional[pyodbc.Connection]:
         """Legacy synchronous connection method"""
         return async_db_manager._get_connection_sync(timeout)
+
+    @staticmethod
+    def reset_pools():
+        """Expose pool reset for callers that need to drop stale connections."""
+        async_db_manager.reset_pools()
 
 # Global instance for backward compatibility
 db_connection_manager = DatabaseConnectionManager()

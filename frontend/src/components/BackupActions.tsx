@@ -48,6 +48,7 @@ import {
   formatBackupDate,
   BACKUP_CONSTANTS
 } from '../types/backup';
+import { ServerError } from './ErrorAlert';
 
 interface BackupActionsProps {
   selectedBackup: BackupInfo | null;
@@ -125,7 +126,16 @@ const CreateBackupDialog: React.FC<CreateBackupDialogProps> = ({
   };
 
   return (
-    <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
+    <>
+      {errors.length > 0 && (
+        <ServerError
+          title="Cannot Create Backup"
+          message={errors.map((item) => `• ${item}`).join('\n')}
+          onClose={() => setErrors([])}
+          retryable={false}
+        />
+      )}
+      <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
       <DialogTitle>
         <Stack direction="row" alignItems="center" spacing={1}>
           <AddIcon color="primary" />
@@ -134,15 +144,6 @@ const CreateBackupDialog: React.FC<CreateBackupDialogProps> = ({
       </DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
-          {errors.length > 0 && (
-            <Alert severity="error">
-              <ul style={{ margin: 0, paddingLeft: 20 }}>
-                {errors.map((error, index) => (
-                  <li key={index}>{error}</li>
-                ))}
-              </ul>
-            </Alert>
-          )}
           
           <TextField
             label="Backup Description"
@@ -174,7 +175,8 @@ const CreateBackupDialog: React.FC<CreateBackupDialogProps> = ({
           {loading ? 'Creating...' : 'Create Backup'}
         </Button>
       </DialogActions>
-    </Dialog>
+      </Dialog>
+    </>
   );
 };
 

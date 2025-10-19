@@ -98,7 +98,7 @@ const normalizeSchedules = (payload: unknown): ScheduledExperiment[] => {
   return payload.map(normalizeSchedule);
 };
 
-const normalizeManualRecovery = (payload: unknown): ManualRecoveryState | null => {
+export const normalizeManualRecovery = (payload: unknown): ManualRecoveryState | null => {
   if (!payload || typeof payload !== 'object') {
     return null;
   }

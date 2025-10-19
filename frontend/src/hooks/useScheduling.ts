@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AxiosError, isAxiosError } from 'axios';
-import { schedulingAPI, schedulingService } from '../services/schedulingApi';
+import { schedulingAPI, schedulingService, normalizeManualRecovery } from '../services/schedulingApi';
 import {
   CalendarEvent,
   ConflictCheckRequest,
@@ -20,23 +20,6 @@ import {
   NotificationSettings,
   NotificationSettingsUpdatePayload,
 } from '../types/scheduling';
-
-const normalizeManualRecovery = (payload: unknown): ManualRecoveryState | null => {
-  if (!payload || typeof payload !== 'object') {
-    return null;
-  }
-  const data = payload as Record<string, unknown>;
-  return {
-    active: Boolean(data.active),
-    note: typeof data.note === 'string' ? (data.note as string) : null,
-    schedule_id: typeof data.schedule_id === 'string' ? (data.schedule_id as string) : null,
-    experiment_name: typeof data.experiment_name === 'string' ? (data.experiment_name as string) : null,
-    triggered_by: typeof data.triggered_by === 'string' ? (data.triggered_by as string) : null,
-    triggered_at: typeof data.triggered_at === 'string' ? (data.triggered_at as string) : null,
-    resolved_by: typeof data.resolved_by === 'string' ? (data.resolved_by as string) : null,
-    resolved_at: typeof data.resolved_at === 'string' ? (data.resolved_at as string) : null,
-  };
-};
 
 const extractErrorMessage = (error: unknown): string => {
   if (isAxiosError(error)) {

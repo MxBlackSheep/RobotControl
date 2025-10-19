@@ -162,7 +162,6 @@ class TestCameraRecording(TestCameraService):
         assert success is True
         assert 0 in camera_service.recording_threads
         assert 0 in camera_service.stop_events
-        assert 0 in camera_service.frame_locks
         assert camera_service.recording_threads[0].is_alive()
     
     def test_start_recording_camera_not_found(self, camera_service):
@@ -195,7 +194,6 @@ class TestCameraRecording(TestCameraService):
         assert success is True
         assert 0 not in camera_service.recording_threads
         assert 0 not in camera_service.stop_events
-        assert 0 not in camera_service.frame_locks
     
     def test_stop_recording_not_recording(self, camera_service, mock_cv2):
         """Test stopping recording on camera that's not recording"""
@@ -284,26 +282,35 @@ class TestLiveStreaming(TestCameraService):
         mock_cap_class, mock_cap = mock_cv2
         camera_service.detect_cameras()
         
-        # Setup frame data
         test_frame_data = b"fake_jpeg_data"
-        camera_service.frame_locks[0] = threading.Lock()
-        camera_service.shared_frames[0] = test_frame_data
-        
-        frame = camera_service.get_live_frame(0)
-        assert frame == test_frame_data
+        with patch('backend.services.camera.get_live_streaming_service') as mock_get_service:
+            mock_streaming_service = Mock()
+            mock_streaming_service.get_latest_frame_bytes.return_value = test_frame_data
+            mock_get_service.return_value = mock_streaming_service
+
+            frame = camera_service.get_live_frame(0)
+            assert frame == test_frame_data
+            mock_streaming_service.get_latest_frame_bytes.assert_called()
     
     def test_get_live_frame_no_camera(self, camera_service):
         """Test getting live frame from non-existent camera"""
-        frame = camera_service.get_live_frame(999)
-        assert frame is None
+        with patch('backend.services.camera.get_live_streaming_service') as mock_get_service:
+            mock_streaming_service = Mock()
+            mock_streaming_service.get_latest_frame_bytes.return_value = None
+            mock_get_service.return_value = mock_streaming_service
+
+            frame = camera_service.get_live_frame(999)
+            assert frame is None
     
     def test_get_live_frame_not_recording(self, camera_service, mock_cv2):
         """Test getting live frame when camera is not recording"""
-        mock_cap_class, mock_cap = mock_cv2
-        camera_service.detect_cameras()
-        
-        frame = camera_service.get_live_frame(0)
-        assert frame is None
+        with patch('backend.services.camera.get_live_streaming_service') as mock_get_service:
+            mock_streaming_service = Mock()
+            mock_streaming_service.get_latest_frame_bytes.return_value = None
+            mock_get_service.return_value = mock_streaming_service
+
+            frame = camera_service.get_live_frame(0)
+            assert frame is None
 
 
 class TestExperimentArchiving(TestCameraService):

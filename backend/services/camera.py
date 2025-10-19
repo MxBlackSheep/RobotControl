@@ -22,51 +22,15 @@ import shutil
 from datetime import datetime, timedelta
 from collections import deque
 from pathlib import Path
-from typing import List, Dict, Optional, Any, Generator
-import asyncio
+from typing import List, Dict, Optional, Any
 from concurrent.futures import ThreadPoolExecutor
 
-try:
-    from backend.config import CAMERA_CONFIG, VIDEO_PATH
-except ImportError:
-    try:
-        from config import CAMERA_CONFIG, VIDEO_PATH
-    except ImportError:
-        # Fallback for missing config
-        CAMERA_CONFIG = {"default_fps": 30, "default_resolution": [640, 480], "max_cameras": 2, "recording_duration_minutes": 1, "archive_duration_minutes": 15, "rolling_clips_count": 120}
-        VIDEO_PATH = "data/videos"
-
-# Import types and constants (with fallbacks for modular design)
-try:
-    from backend.models import CameraRecordingModel
-except ImportError:
-    try:
-        from models import CameraRecordingModel
-    except ImportError:
-        # Fallback for missing types
-        from dataclasses import dataclass
-        from datetime import datetime as dt
-        from typing import Dict, Any
-        
-        @dataclass
-        class CameraRecordingModel:
-            camera_id: int
-            filename: str
-            timestamp: dt
-            duration_seconds: int
-            file_size_bytes: int
-            recording_type: str
-
-try:
-    from backend.constants import CAMERA_STREAM_FPS, VIDEO_CODEC, CAMERA_DETECTION_TIMEOUT
-except ImportError:
-    try:
-        from constants import CAMERA_STREAM_FPS, VIDEO_CODEC, CAMERA_DETECTION_TIMEOUT
-    except ImportError:
-        # Fallback constants
-        CAMERA_STREAM_FPS = 15
-        VIDEO_CODEC = 'mp4v'
-        CAMERA_DETECTION_TIMEOUT = 5
+from backend.config import CAMERA_CONFIG, VIDEO_PATH
+from backend.constants import CAMERA_STREAM_FPS, VIDEO_CODEC, CAMERA_DETECTION_TIMEOUT
+from backend.models import CameraRecordingModel
+from backend.services.shared_frame_buffer import get_shared_frame_buffer
+from backend.services.storage_manager import get_storage_manager
+from backend.utils.data_paths import get_videos_path, is_compiled_mode
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -112,24 +76,16 @@ class CameraService:
         
         # Paths - use data path manager for portable deployment
         # Initialize video paths with fallbacks for modular design
-        try:
-            try:
-                from backend.utils.data_paths import get_videos_path, is_compiled_mode
-            except ImportError:  # pragma: no cover - fallback for legacy packaging
-                from utils.data_paths import get_videos_path, is_compiled_mode
-            if is_compiled_mode():
-                self.video_path = get_videos_path()
-                logger.info(f"Compiled mode - using local video directory: {self.video_path}")
-            else:
-                # Ensure we use the project root data directory, not backend subdirectory
-                project_root = Path(__file__).parent.parent.parent  # /backend/services/camera.py -> project root
-                self.video_path = project_root / "data" / "videos"
-                logger.info(f"Development mode - using project root video path: {self.video_path}")
-        except ImportError:
-            # Fallback - use project root calculation
-            project_root = Path(__file__).parent.parent.parent  
-            self.video_path = project_root / "data" / "videos"
-            logger.info(f"Data path manager not available, using project root fallback: {self.video_path}")
+        if is_compiled_mode():
+            self.video_path = get_videos_path()
+            logger.info("Compiled mode - using packaged video directory: %s", self.video_path)
+        else:
+            configured = Path(VIDEO_PATH) if VIDEO_PATH else get_videos_path()
+            if not configured.is_absolute():
+                project_root = Path(__file__).resolve().parents[2]  # repo root
+                configured = (project_root / configured).resolve()
+            self.video_path = configured
+            logger.info("Development mode - using video path: %s", self.video_path)
         self.rolling_clips_path = self.video_path / "rolling_clips"
         self.experiments_path = self.video_path / "experiments"
         
@@ -150,10 +106,6 @@ class CameraService:
         self.camera_lock = threading.Lock()
         self.clips_lock = threading.Lock()
         
-        # Shared frames for streaming (legacy)
-        self.shared_frames: Dict[int, Optional[bytes]] = {}
-        self.frame_locks: Dict[int, threading.Lock] = {}
-        
         # Integration with new live streaming system
         self.streaming_integration_enabled = False
         self.shared_frame_buffer = None
@@ -172,18 +124,11 @@ class CameraService:
         Called during startup to connect with SharedFrameBuffer for live streaming.
         """
         try:
-            # Import streaming components
-            from backend.services.shared_frame_buffer import get_shared_frame_buffer
-            
             self.shared_frame_buffer = get_shared_frame_buffer()
             self.streaming_integration_enabled = True
-            
             logger.info("Streaming integration enabled")
-            
-        except ImportError as e:
-            logger.warning(f"Streaming integration not available: {e}")
-        except Exception as e:
-            logger.error(f"Failed to enable streaming integration: {e}")
+        except Exception as exc:
+            logger.error("Failed to enable streaming integration: %s", exc)
     
     def disable_streaming_integration(self):
         """
@@ -197,13 +142,7 @@ class CameraService:
     def _get_storage_manager(self):
         """Lazily load the storage manager used for archiving experiment clips."""
         if self._storage_manager is None:
-            try:
-                from backend.services.storage_manager import get_storage_manager
-            except ImportError:  # pragma: no cover - fallback
-                from backend.services.storage_manager import get_storage_manager as legacy_get_storage_manager  # type: ignore
-                self._storage_manager = legacy_get_storage_manager()
-            else:
-                self._storage_manager = get_storage_manager()
+            self._storage_manager = get_storage_manager()
         return self._storage_manager
     
     def _create_directories(self):
@@ -339,9 +278,6 @@ class CameraService:
                 # Create stop event and frame lock for this camera
                 stop_event = threading.Event()
                 self.stop_events[camera_id] = stop_event
-                self.frame_locks[camera_id] = threading.Lock()
-                self.shared_frames[camera_id] = None
-
                 if not self.streaming_integration_enabled:
                     self.enable_streaming_integration()
 
@@ -395,11 +331,6 @@ class CameraService:
                 del self.recording_threads[camera_id]
                 if camera_id in self.stop_events:
                     del self.stop_events[camera_id]
-                if camera_id in self.frame_locks:
-                    del self.frame_locks[camera_id]
-                if camera_id in self.shared_frames:
-                    del self.shared_frames[camera_id]
-                
                 logger.info(f"Stopped recording on camera {camera_id}")
                 return True
                 
@@ -511,16 +442,6 @@ class CameraService:
                         if sleep_time > 0:
                             time.sleep(sleep_time)
                     
-                    # Update shared frame for streaming (legacy system)
-                    try:
-                        with self.frame_locks[camera_id]:
-                            # Encode frame as JPEG for streaming
-                            _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-                            self.shared_frames[camera_id] = buffer.tobytes()
-                    except Exception as e:
-                        logger.debug(f"Error updating shared frame: {e}")
-                    
-                    # NEW: Send frame to shared buffer for live streaming
                     if self.streaming_integration_enabled and self.shared_frame_buffer:
                         try:
                             # Send frame to shared buffer - recording has priority access
@@ -758,22 +679,12 @@ class CameraService:
             JPEG encoded frame bytes or None
         """
         try:
-            # First check old system for backward compatibility
-            if camera_id in self.frame_locks:
-                with self.frame_locks[camera_id]:
-                    old_frame = self.shared_frames.get(camera_id)
-                    if old_frame:
-                        return old_frame
-            
-            # Get frame from new SharedFrameBuffer system
-            if self.streaming_integration_enabled and self.shared_frame_buffer:
-                latest_frame = self.shared_frame_buffer.get_latest_frame()
-                if latest_frame and latest_frame.frame is not None:
-                    # Encode frame as JPEG for WebSocket transmission
-                    import cv2
-                    _, buffer = cv2.imencode('.jpg', latest_frame.frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-                    return buffer.tobytes()
-            
+            from backend.services.live_streaming import get_live_streaming_service
+            streaming_service = get_live_streaming_service()
+            frame_bytes = streaming_service.get_latest_frame_bytes(timeout=0.05)
+            if frame_bytes:
+                return frame_bytes
+
             return None
                 
         except Exception as e:
@@ -843,7 +754,7 @@ class CameraService:
             camera_status = {
                 **camera_info,
                 "recording": camera_id in self.recording_threads,
-                "has_live_stream": camera_id in self.shared_frames
+                "has_live_stream": self.streaming_integration_enabled and self.shared_frame_buffer is not None
             }
             status["cameras"].append(camera_status)
         

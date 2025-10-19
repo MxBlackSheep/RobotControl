@@ -52,7 +52,8 @@ import {
   AccessTime as ClockIcon,
   Science as ExperimentIcon,
   Loop as IntervalIcon,
-  Archive as ArchiveIcon
+  Archive as ArchiveIcon,
+  Delete as DeleteIcon
 } from '@mui/icons-material';
 import LoadingSpinner from './LoadingSpinner';
 import ErrorAlert from './ErrorAlert';
@@ -313,6 +314,7 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
   selectedSchedule,
   onScheduleSelect,
   onRefresh,
+  onDeleteSchedule,
   loading = false,
   error = null,
   initialized = false,
@@ -379,6 +381,13 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
       open: true,
       schedule
     });
+  };
+
+  const handleDeleteClick = (event: React.MouseEvent, schedule: ScheduledExperiment) => {
+    event.stopPropagation();
+    if (onDeleteSchedule) {
+      onDeleteSchedule(schedule);
+    }
   };
 
   const renderStatusIcon = (schedule: ScheduledExperiment) => {
@@ -568,30 +577,42 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
                   </Stack>
                 </CardActionArea>
                 <Divider />
-                <Stack
-                  direction="row"
-                  justifyContent="space-between"
-                  alignItems="center"
-                  sx={{ px: 2, py: 1, flexWrap: 'wrap', rowGap: 1 }}
-                >
-                  <Typography variant="caption" color="textSecondary">
-                    ID: {schedule.schedule_id}
-                  </Typography>
+            <Stack
+              direction="row"
+              justifyContent="space-between"
+              alignItems="center"
+              sx={{ px: 2, py: 1, flexWrap: 'wrap', rowGap: 1 }}
+            >
+              <Typography variant="caption" color="textSecondary">
+                ID: {schedule.schedule_id}
+              </Typography>
+              <Stack direction="row" spacing={1}>
+                {archivedView && onDeleteSchedule && (
                   <Button
                     size="small"
-                    startIcon={<InfoIcon fontSize="small" />}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      handleViewDetails(schedule);
-                    }}
+                    color="error"
+                    startIcon={<DeleteIcon fontSize="small" />}
+                    onClick={(event) => handleDeleteClick(event, schedule)}
                   >
-                    Details
+                    Delete
                   </Button>
-                </Stack>
-              </Card>
-            );
-          })}
-        </Stack>
+                )}
+                <Button
+                  size="small"
+                  startIcon={<InfoIcon fontSize="small" />}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    handleViewDetails(schedule);
+                  }}
+                >
+                  Details
+                </Button>
+              </Stack>
+            </Stack>
+          </Card>
+        );
+      })}
+    </Stack>
       </Box>
     );
   };
@@ -645,14 +666,32 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
 
   if (error) {
     return (
-      <ErrorAlert
-        message={error}
-        severity="error"
-        category="server"
-        retryable
-        onRetry={() => onRefresh()}
-        sx={{ mb: 2 }}
-      />
+      <Paper
+        elevation={0}
+        sx={{
+          p: { xs: 3, md: 3.5 },
+          borderRadius: 2,
+          border: 1,
+          borderColor: 'error.light',
+          bgcolor: 'rgba(244, 67, 54, 0.04)'
+        }}
+      >
+        <Stack spacing={2}>
+          <Typography variant="h6" color="error.main">
+            {error}
+          </Typography>
+          <Box>
+            <Button
+              variant="contained"
+              color="error"
+              onClick={() => onRefresh()}
+              startIcon={<RefreshIcon />}
+            >
+              Try again
+            </Button>
+          </Box>
+        </Stack>
+      </Paper>
     );
   }
 
@@ -832,6 +871,18 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
                           >
                             <InfoIcon fontSize="small" />
                           </IconButton>
+                          {archivedView && onDeleteSchedule && (
+                            <Tooltip title="Delete archived schedule">
+                              <IconButton
+                                size="small"
+                                color="error"
+                                onClick={(e) => handleDeleteClick(e, schedule)}
+                                sx={{ ml: 0.5 }}
+                              >
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          )}
                         </TableCell>
                       </TableRow>
                     );

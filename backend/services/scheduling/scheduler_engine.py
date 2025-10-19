@@ -86,6 +86,14 @@ class ExecutionWatch:
         return event_type in self.notified_events
 
 
+@dataclass
+class CapacityAcquisitionResult:
+    """Hold the outcome of a scheduler capacity acquisition attempt."""
+    acquired: bool
+    attempts_made: int
+    max_attempts: int
+
+
 class SchedulerEngine:
     """Core scheduling engine for experiment execution"""
     
@@ -755,7 +763,49 @@ class SchedulerEngine:
             logger.error(f"Error processing due job: {e}")
             with self._jobs_lock:
                 self._queued_backlog.discard(experiment.schedule_id)
-    
+
+    def _acquire_capacity_slot(
+        self,
+        experiment: ScheduledExperiment,
+        retry_config: RetryConfig,
+        executor: "ExperimentExecutor",
+    ) -> CapacityAcquisitionResult:
+        """Attempt to secure a scheduler slot, applying retry policy if saturated."""
+        max_attempts = min(
+            retry_config.max_retries,
+            getattr(executor.config, "max_retry_attempts", retry_config.max_retries),
+        )
+        attempt_index = 0
+
+        while attempt_index <= max_attempts:
+            with self._jobs_lock:
+                if len(self._running_jobs) < self.config.max_concurrent_jobs:
+                    self._running_jobs.add(experiment.schedule_id)
+                    self._queued_backlog.discard(experiment.schedule_id)
+                    if attempt_index > 0:
+                        logger.info(
+                            "Scheduler capacity acquired for %s after %d attempt(s)",
+                            experiment.experiment_name,
+                            attempt_index,
+                        )
+                    return CapacityAcquisitionResult(True, attempt_index, max_attempts + 1)
+
+            if attempt_index == max_attempts:
+                break
+
+            delay_seconds = self._calculate_retry_delay(attempt_index, retry_config)
+            logger.info(
+                "Scheduler at capacity for %s, retrying in %d seconds (attempt %d/%d)",
+                experiment.experiment_name,
+                delay_seconds,
+                attempt_index + 1,
+                max_attempts + 1,
+            )
+            time.sleep(delay_seconds)
+            attempt_index += 1
+
+        return CapacityAcquisitionResult(False, attempt_index + 1, max_attempts + 1)
+
     def _execute_job(self, experiment: ScheduledExperiment, execution: JobExecution):
         """Execute a scheduled job"""
         try:
@@ -766,45 +816,13 @@ class SchedulerEngine:
             current_time = datetime.now()
 
             retry_config = experiment.retry_config or RetryConfig()
-            max_capacity_attempts = min(
-                retry_config.max_retries,
-                getattr(executor.config, "max_retry_attempts", retry_config.max_retries),
-            )
-            capacity_acquired = False
-            attempt = 0
-            while attempt <= max_capacity_attempts:
-                with self._jobs_lock:
-                    if len(self._running_jobs) < self.config.max_concurrent_jobs:
-                        self._running_jobs.add(experiment.schedule_id)
-                        self._queued_backlog.discard(experiment.schedule_id)
-                        capacity_acquired = True
-                        if attempt > 0:
-                            logger.info(
-                                "Scheduler capacity acquired for %s after %d attempt(s)",
-                                experiment.experiment_name,
-                                attempt,
-                            )
-                        break
+            capacity_result = self._acquire_capacity_slot(experiment, retry_config, executor)
 
-                if attempt == max_capacity_attempts:
-                    break
-
-                delay_seconds = self._calculate_retry_delay(attempt, retry_config)
-                logger.info(
-                    "Scheduler at capacity for %s, retrying in %d seconds (attempt %d/%d)",
-                    experiment.experiment_name,
-                    delay_seconds,
-                    attempt + 1,
-                    max_capacity_attempts + 1,
-                )
-                time.sleep(delay_seconds)
-                attempt += 1
-
-            if not capacity_acquired:
+            if not capacity_result.acquired:
                 logger.error(
                     "Scheduler capacity exhausted for %s after %d attempts",
                     experiment.experiment_name,
-                    max_capacity_attempts + 1,
+                    capacity_result.max_attempts,
                 )
                 execution.status = "failed"
                 execution.error_message = "Scheduler capacity exhausted after retry attempts"

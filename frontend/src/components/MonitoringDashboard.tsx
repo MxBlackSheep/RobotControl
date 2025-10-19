@@ -19,11 +19,11 @@ import Typography from '@mui/material/Typography';
 import Grid from '@mui/material/Grid';
 import LinearProgress from '@mui/material/LinearProgress';
 import Chip from '@mui/material/Chip';
-import ErrorAlert from './ErrorAlert';
 import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import Button from '@mui/material/Button';
 import LoadingSpinner from './LoadingSpinner';
+import Stack from '@mui/material/Stack';
 import {
   Refresh as RefreshIcon,
   SignalWifi4Bar as ConnectedIcon,
@@ -213,17 +213,38 @@ const MonitoringDashboard: React.FC = memo(() => {
 
       {/* Error Alert */}
       {error && (
-        <ErrorAlert
-          message={connectionRetries > 0 ? 
-            `${error}\nReconnection attempts: ${connectionRetries}/5` : 
-            error
-          }
-          severity="error"
-          category="network"
-          retryable={true}
-          onRetry={handleReconnect}
-          sx={{ mb: 3 }}
-        />
+        <Box
+          sx={{
+            mb: 3,
+            p: 2,
+            borderRadius: 1,
+            border: '1px solid',
+            borderColor: 'error.light',
+            bgcolor: 'rgba(244, 67, 54, 0.08)'
+          }}
+        >
+          <Stack spacing={1.5}>
+            <Typography variant="subtitle2" color="error.main">
+              {connectionRetries > 0
+                ? `Connection issue (attempt ${connectionRetries} of 5)`
+                : 'Connection issue'}
+            </Typography>
+            <Typography variant="body2">
+              {error}
+            </Typography>
+            <Box>
+              <Button
+                variant="contained"
+                color="error"
+                onClick={handleReconnect}
+                size="small"
+                startIcon={<RefreshIcon />}
+              >
+                Reconnect
+              </Button>
+            </Box>
+          </Stack>
+        </Box>
       )}
 
       {/* Overall Health Status */}

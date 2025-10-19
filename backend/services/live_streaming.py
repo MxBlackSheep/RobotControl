@@ -10,6 +10,7 @@ import uuid
 from collections import deque
 from datetime import datetime, timedelta
 import psutil
+import cv2
 from typing import Dict, List, Optional, Any, Deque
 from fastapi import WebSocket
 
@@ -155,6 +156,18 @@ class LiveStreamingService:
 
 
             logger.info("Streaming | event=service_stopped")
+
+    def get_latest_frame_bytes(self, timeout: float = 0.05) -> Optional[bytes]:
+        """Return the most recent frame encoded as JPEG bytes for ad-hoc previews."""
+        frame_data = self.frame_buffer.get_frame_for_streaming(timeout=timeout)
+        if not frame_data or frame_data.frame is None:
+            return None
+        try:
+            _, buffer = cv2.imencode('.jpg', frame_data.frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            return buffer.tobytes()
+        except Exception as exc:  # pragma: no cover - guard path
+            logger.debug("Streaming | event=frame_encode_failed | error=%s", exc)
+            return None
 
     async def create_session(
         self,

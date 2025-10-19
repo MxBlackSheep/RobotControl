@@ -17,14 +17,11 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Typography,
-  Alert,
-  Snackbar,
   Paper,
   Divider,
   Stack,
   IconButton,
   Tooltip,
-  Fade,
   CircularProgress,
   Card,
   CardContent
@@ -39,6 +36,7 @@ import {
 
 import BackupListComponent from './BackupListComponent';
 import BackupActions from './BackupActions';
+import ErrorAlert, { ServerError } from './ErrorAlert';
 import { backupAPI, BackupApiError } from '../services/backupApi';
 import {
   BackupInfo,
@@ -95,6 +93,12 @@ const BackupManager: React.FC<BackupManagerProps> = ({
     message: '',
     severity: 'info'
   });
+  const notificationTitles: Record<NotificationState['severity'], string> = {
+    success: 'Success',
+    error: 'Error',
+    warning: 'Warning',
+    info: 'Notification'
+  };
 
   // Health status (if enabled)
   const [healthStatus, setHealthStatus] = useState<{
@@ -142,7 +146,8 @@ const BackupManager: React.FC<BackupManagerProps> = ({
    * Load backup list from API
    * CRITICAL: Proper error handling to prevent component crashes
    */
-  const loadBackups = useCallback(async () => {
+  const loadBackups = useCallback(async (options?: { quiet?: boolean }) => {
+    const quiet = options?.quiet ?? false;
     try {
       updateState({ loading: true, error: null });
       
@@ -157,7 +162,7 @@ const BackupManager: React.FC<BackupManagerProps> = ({
       });
 
       // Show success message only if this was a manual refresh
-      if (!autoRefresh || state.lastRefresh !== null) {
+      if (!quiet && (!autoRefresh || state.lastRefresh !== null)) {
         showNotification(`Loaded ${backupsData.length} backup(s)`, 'success', 2000);
       }
 
@@ -201,7 +206,7 @@ const BackupManager: React.FC<BackupManagerProps> = ({
         );
 
         // Refresh backup list to show new backup
-        await loadBackups();
+        await loadBackups({ quiet: true });
 
         // Notify parent component
         if (onBackupCreated) {
@@ -311,7 +316,7 @@ const BackupManager: React.FC<BackupManagerProps> = ({
         );
 
         // Refresh backup list to remove deleted backup
-        await loadBackups();
+        await loadBackups({ quiet: true });
 
         // Notify parent component
         if (onBackupDeleted) {
@@ -479,21 +484,12 @@ const BackupManager: React.FC<BackupManagerProps> = ({
 
       {/* Error Alert */}
       {state.error && (
-        <Fade in>
-          <Alert 
-            severity="error" 
-            onClose={clearError} 
-            sx={{ mb: 3 }}
-            icon={<WarningIcon />}
-          >
-            <Typography variant="subtitle2" gutterBottom>
-              Backup Operation Error
-            </Typography>
-            <Typography variant="body2">
-              {state.error}
-            </Typography>
-          </Alert>
-        </Fade>
+          <ServerError
+            title="Backup Operation Error"
+            message={state.error}
+            onClose={clearError}
+            onRetry={handleManualRefresh}
+          />
       )}
 
       {/* Main Content */}
@@ -531,20 +527,16 @@ const BackupManager: React.FC<BackupManagerProps> = ({
       </Paper>
 
       {/* Notifications */}
-      <Snackbar
-        open={notification.open}
-        autoHideDuration={notification.duration || 6000}
-        onClose={() => setNotification(prev => ({ ...prev, open: false }))}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-      >
-        <Alert
-          onClose={() => setNotification(prev => ({ ...prev, open: false }))}
+      {notification.open && (
+        <ErrorAlert
           severity={notification.severity}
-          variant="filled"
-        >
-          {notification.message}
-        </Alert>
-      </Snackbar>
+          title={notificationTitles[notification.severity]}
+          message={notification.message}
+          autoHideDuration={notification.duration || 6000}
+          retryable={false}
+          onClose={() => setNotification(prev => ({ ...prev, open: false }))}
+        />
+      )}
     </Box>
   );
 };

@@ -36,7 +36,6 @@ import {
   CardContent,
   Divider,
   CircularProgress,
-  Alert,
   Stack
 } from '@mui/material';
 import {
@@ -58,6 +57,7 @@ import {
   formatBackupDate,
   formatBackupTimestamp
 } from '../types/backup';
+import { ServerError } from './ErrorAlert';
 
 interface BackupListComponentProps {
   backups: BackupInfo[];
@@ -386,9 +386,12 @@ const BackupListComponent: React.FC<BackupListComponentProps> = ({
 
   if (error) {
     return (
-      <Alert severity="error" sx={{ mb: 2 }}>
-        {error}
-      </Alert>
+      <ServerError
+        title="Backup List Error"
+        message={error}
+        onClose={onRefresh}
+        onRetry={onRefresh}
+      />
     );
   }
 

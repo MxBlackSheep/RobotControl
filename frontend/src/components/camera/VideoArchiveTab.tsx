@@ -36,7 +36,6 @@ import {
 } from '@mui/icons-material';
 import { List as VirtualizedList } from 'react-window';
 import { ButtonLoading } from '../LoadingSpinner';
-import ErrorAlert from '../ErrorAlert';
 
 export interface VideoFile {
   filename: string;
@@ -214,13 +213,33 @@ const VideoArchiveTab: React.FC<VideoArchiveTabProps> = ({
 
   if (error) {
     return (
-      <ErrorAlert
-        message={error}
-        severity="error"
-        category="server"
-        retryable
-        onRetry={onRefresh}
-      />
+      <Box
+        sx={{
+          p: 3,
+          borderRadius: 2,
+          border: '1px solid',
+          borderColor: 'error.light',
+          bgcolor: 'rgba(244, 67, 54, 0.08)',
+          textAlign: 'center'
+        }}
+      >
+        <VideoLibraryIcon sx={{ fontSize: 48, color: 'error.main', mb: 2 }} />
+        <Typography variant="h6" color="error.main" gutterBottom>
+          Unable to load video archive
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          {error}
+        </Typography>
+        <Button
+          variant="contained"
+          color="error"
+          startIcon={<RefreshIcon />}
+          onClick={onRefresh}
+          disabled={loading}
+        >
+          {loading ? <ButtonLoading /> : 'Try Again'}
+        </Button>
+      </Box>
     );
   }
 
@@ -381,13 +400,35 @@ const FolderTree: React.FC<FolderTreeProps> = ({
                     <CircularProgress size={24} />
                   </Box>
                 ) : state.error ? (
-                  <ErrorAlert
-                    message={state.error}
-                    severity="error"
-                    category="client"
-                    retryable
-                    onRetry={() => onEnsureVideos(folder)}
-                  />
+                  <Box
+                    sx={{
+                      p: 2,
+                      borderRadius: 1,
+                      border: '1px solid',
+                      borderColor: 'error.light',
+                      bgcolor: 'rgba(244, 67, 54, 0.08)'
+                    }}
+                  >
+                    <Stack spacing={1.5}>
+                      <Typography variant="subtitle2" color="error.main">
+                        Could not load videos in this folder
+                      </Typography>
+                      <Typography variant="body2">
+                        {state.error}
+                      </Typography>
+                      <Box>
+                        <Button
+                          variant="outlined"
+                          color="error"
+                          size="small"
+                          startIcon={<RefreshIcon />}
+                          onClick={() => onEnsureVideos(folder)}
+                        >
+                          Retry
+                        </Button>
+                      </Box>
+                    </Stack>
+                  </Box>
                 ) : state.videos.length === 0 ? (
                   <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
                     No videos detected in this folder.

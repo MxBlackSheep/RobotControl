@@ -28,7 +28,6 @@ import {
 import DeleteIcon from '@mui/icons-material/Delete';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import LoadingSpinner from './LoadingSpinner';
-import ErrorAlert from './ErrorAlert';
 import WarningIcon from '@mui/icons-material/Warning';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import { databaseAPI } from '../services/api';
@@ -241,13 +240,28 @@ const DatabaseOperations: React.FC<DatabaseOperationsProps> = ({ onError }) => {
           Confirm Experiment Deletion
         </DialogTitle>
         <DialogContent>
-          <ErrorAlert
-            message="This action cannot be undone. The experiment and all associated data will be permanently deleted."
-            severity="error"
-            category="server"
-            title="Warning"
-            sx={{ mb: 2 }}
-          />
+          <Paper
+            elevation={0}
+            sx={{
+              mb: 2,
+              p: 2,
+              bgcolor: 'rgba(244, 67, 54, 0.08)',
+              border: '1px solid',
+              borderColor: 'error.light'
+            }}
+          >
+            <Stack direction="row" spacing={1.5} alignItems="flex-start">
+              <WarningIcon color="error" sx={{ mt: 0.25 }} />
+              <Box>
+                <Typography variant="subtitle2" color="error.main" gutterBottom>
+                  This action cannot be undone.
+                </Typography>
+                <Typography variant="body2">
+                  The experiment and all associated data will be permanently deleted.
+                </Typography>
+              </Box>
+            </Stack>
+          </Paper>
           
           {selectedExpDetails && (
             <Box>
@@ -303,13 +317,36 @@ const DatabaseOperations: React.FC<DatabaseOperationsProps> = ({ onError }) => {
           )}
         </DialogTitle>
         <DialogContent>
-          <ErrorAlert
-            message={executionResult?.data?.message || executionResult?.error || 'Operation completed'}
-            severity={executionResult?.success ? 'success' : 'error'}
-            category={executionResult?.success ? 'unknown' : 'server'}
-            title={executionResult?.success ? 'Operation Successful' : undefined}
-            sx={{ mb: 2 }}
-          />
+          <Paper
+            elevation={0}
+            sx={{
+              mb: 2,
+              p: 2,
+              bgcolor: executionResult?.success ? 'rgba(76, 175, 80, 0.08)' : 'rgba(244, 67, 54, 0.08)',
+              border: '1px solid',
+              borderColor: executionResult?.success ? 'success.light' : 'error.light'
+            }}
+          >
+            <Stack direction="row" spacing={1.5} alignItems="flex-start">
+              {executionResult?.success ? (
+                <CheckCircleIcon color="success" sx={{ mt: 0.25 }} />
+              ) : (
+                <WarningIcon color="error" sx={{ mt: 0.25 }} />
+              )}
+              <Box>
+                <Typography
+                  variant="subtitle2"
+                  color={executionResult?.success ? 'success.main' : 'error.main'}
+                  gutterBottom
+                >
+                  {executionResult?.success ? 'Operation Successful' : 'Operation Failed'}
+                </Typography>
+                <Typography variant="body2">
+                  {executionResult?.data?.message || executionResult?.error || 'Operation completed'}
+                </Typography>
+              </Box>
+            </Stack>
+          </Paper>
           {executionResult?.data?.result && (
             <Box>
               <Typography variant="subtitle2" gutterBottom>Execution Details:</Typography>

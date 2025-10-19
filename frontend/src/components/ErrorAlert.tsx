@@ -13,14 +13,17 @@
 import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
 
 // Optimized Material-UI imports for better tree-shaking
-import Alert from '@mui/material/Alert';
-import AlertTitle from '@mui/material/AlertTitle';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
 import Typography from '@mui/material/Typography';
 import Collapse from '@mui/material/Collapse';
+import Dialog from '@mui/material/Dialog';
+import DialogActions from '@mui/material/DialogActions';
+import DialogContent from '@mui/material/DialogContent';
+import DialogTitle from '@mui/material/DialogTitle';
 import { SxProps, Theme } from '@mui/material/styles';
+import { useTheme } from '@mui/material/styles';
 import {
   Close as CloseIcon,
   Refresh as RetryIcon,
@@ -133,6 +136,13 @@ const errorCategoryConfig: Record<ErrorCategory, {
   },
 };
 
+const severityTitleMap: Record<ErrorSeverity, string> = {
+  error: 'Application Error',
+  warning: 'Warning',
+  info: 'Information',
+  success: 'Success'
+};
+
 const ErrorAlert: React.FC<ErrorAlertProps> = memo(({
   message,
   severity = 'error',
@@ -154,10 +164,15 @@ const ErrorAlert: React.FC<ErrorAlertProps> = memo(({
 }) => {
   const [isVisible, setIsVisible] = useState(true);
   const [showDetails, setShowDetails] = useState(false);
+  const theme = useTheme();
 
   // Get category configuration
   const categoryConfig = errorCategoryConfig[category];
-  const alertTitle = title || categoryConfig.defaultTitle;
+  const defaultTitle =
+    category === 'unknown'
+      ? severityTitleMap[severity]
+      : categoryConfig.defaultTitle;
+  const alertTitle = title || defaultTitle;
   const normalizedMessage = useMemo(() => normalizeMultilineText(message), [message]);
   const normalizedDetails = useMemo(
     () => (details ? normalizeMultilineText(details) : undefined),
@@ -203,7 +218,7 @@ const ErrorAlert: React.FC<ErrorAlertProps> = memo(({
   }
 
   // Determine the appropriate severity icon
-  const getSeverityIcon = () => {
+  const getSeverityIcon = (): React.ReactNode => {
     switch (severity) {
       case 'success': return <SuccessIcon />;
       case 'warning': return <WarningIcon />;
@@ -213,109 +228,167 @@ const ErrorAlert: React.FC<ErrorAlertProps> = memo(({
     }
   };
 
-  return (
-    <Alert
-      severity={severity}
-      className={className}
-      sx={{
-        ...(fullWidth && { width: '100%' }),
-        ...(compact && { py: 1 }),
-        ...sx,
-      }}
-      role="alert"
-      aria-live="polite"
-      aria-atomic="true"
-      action={
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          {/* Custom actions */}
-          {actions}
-          
-          {/* Retry button */}
-          {retryable && onRetry && (
-            <Button
-              color="inherit"
-              size="small"
-              onClick={handleRetry}
-              disabled={retrying}
-              startIcon={<RetryIcon />}
-              aria-label="Retry operation"
-            >
-              {retrying ? 'Retrying...' : 'Retry'}
-            </Button>
-          )}
+  const severityPaletteKey: 'error' | 'warning' | 'info' | 'success' =
+    severity === 'success' ? 'success' :
+    severity === 'warning' ? 'warning' :
+    severity === 'info' ? 'info' : 'error';
 
-          {/* Details toggle button */}
-          {detailed && details && (
-            <IconButton
-              color="inherit"
-              size="small"
+  const severityColor = theme.palette[severityPaletteKey].main;
+
+  const actionButtons: React.ReactNode[] = [];
+
+  if (actions) {
+    actionButtons.push(actions);
+  }
+
+  if (retryable && onRetry) {
+    actionButtons.push(
+      <Button
+        key="retry"
+        onClick={handleRetry}
+        color={severityPaletteKey}
+        startIcon={<RetryIcon />}
+        disabled={retrying}
+      >
+        {retrying ? 'Retrying…' : 'Retry'}
+      </Button>
+    );
+  }
+
+  if (closable) {
+    actionButtons.push(
+      <Button
+        key="dismiss"
+        onClick={handleClose}
+        color="inherit"
+        startIcon={<CloseIcon />}
+      >
+        Dismiss
+      </Button>
+    );
+  }
+
+  const dialogActions = actionButtons.length > 0 ? (
+    <Box
+      sx={{
+        display: 'flex',
+        justifyContent: 'flex-end',
+        width: '100%',
+        flexWrap: 'wrap',
+        gap: 1
+      }}
+    >
+      {actionButtons}
+    </Box>
+  ) : null;
+
+  return (
+    <Dialog
+      open={isVisible}
+      onClose={closable ? handleClose : undefined}
+      aria-labelledby="notification-dialog-title"
+      aria-describedby="notification-dialog-description"
+      role="alertdialog"
+      aria-live="assertive"
+      aria-atomic="true"
+      fullWidth={fullWidth ?? true}
+      maxWidth={compact ? 'xs' : 'sm'}
+      PaperProps={{
+        className,
+        'data-severity': severity,
+        sx: {
+          borderTop: `6px solid ${severityColor}`,
+          ...sx
+        }
+      }}
+    >
+      <DialogTitle
+        id="notification-dialog-title"
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 2,
+          pr: closable ? 1 : 3
+        }}
+      >
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+          <Box
+            sx={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: severityColor,
+            }}
+          >
+            {getSeverityIcon()}
+          </Box>
+          <Typography component="h2" variant="h6" sx={{ fontWeight: 600 }}>
+            {alertTitle}
+          </Typography>
+        </Box>
+      </DialogTitle>
+
+      <DialogContent dividers sx={{ pt: 2 }}>
+        <Typography
+          id="notification-dialog-description"
+          variant="body1"
+          sx={{ whiteSpace: 'pre-line' }}
+        >
+          {normalizedMessage}
+        </Typography>
+
+        {detailed && details && (
+          <Box sx={{ mt: 2 }}>
+            <Button
               onClick={toggleDetails}
+              size="small"
+              startIcon={showDetails ? <CollapseIcon /> : <ExpandIcon />}
+              sx={{ textTransform: 'none' }}
               aria-label={showDetails ? 'Hide details' : 'Show details'}
               aria-expanded={showDetails}
               aria-controls="error-details"
             >
-              {showDetails ? <CollapseIcon /> : <ExpandIcon />}
-            </IconButton>
-          )}
-
-          {/* Close button */}
-          {closable && (
-            <IconButton
-              color="inherit"
-              size="small"
-              onClick={handleClose}
-              aria-label="Close alert"
-            >
-              <CloseIcon />
-            </IconButton>
-          )}
-        </Box>
-      }
-    >
-      {/* Alert title */}
-      {!compact && alertTitle && (
-        <AlertTitle sx={{ fontWeight: 600 }}>
-          {alertTitle}
-        </AlertTitle>
-      )}
-
-      {/* Main message */}
-      <Typography variant="body2" component="div" sx={{ whiteSpace: 'pre-line' }}>
-        {normalizedMessage}
-      </Typography>
-
-      {/* Detailed error information */}
-      {detailed && details && (
-        <Collapse in={showDetails} timeout="auto" unmountOnExit>
-          <Box 
-            id="error-details"
-            sx={{ 
-              mt: 2, 
-              p: 2, 
-              bgcolor: 'rgba(0, 0, 0, 0.04)', 
-              borderRadius: 1,
-              border: '1px solid rgba(0, 0, 0, 0.12)'
-            }}
-          >
-            <Typography variant="caption" color="text.secondary" display="block" gutterBottom>
-              Technical Details:
-            </Typography>
-            <Typography
-              variant="body2"
-              component="pre"
-              sx={{
-                fontFamily: 'monospace',
-                fontSize: '0.75rem',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word'
-              }}
-            >
-              {normalizedDetails}
-            </Typography>
+              {showDetails ? 'Hide details' : 'Show details'}
+            </Button>
+            <Collapse in={showDetails} timeout="auto" unmountOnExit>
+              <Box
+                id="error-details"
+                sx={{
+                  mt: 2,
+                  p: 2,
+                  bgcolor: 'rgba(0, 0, 0, 0.04)',
+                  borderRadius: 1,
+                  border: '1px solid rgba(0, 0, 0, 0.12)'
+                }}
+              >
+                <Typography variant="caption" color="text.secondary" display="block" gutterBottom>
+                  Technical Details:
+                </Typography>
+                <Typography
+                  variant="body2"
+                  component="pre"
+                  sx={{
+                    fontFamily: 'monospace',
+                    fontSize: '0.75rem',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word'
+                  }}
+                >
+                  {normalizedDetails}
+                </Typography>
+              </Box>
+            </Collapse>
           </Box>
-        </Collapse>
+        )}
+      </DialogContent>
+
+      {dialogActions && (
+        <DialogActions sx={{ px: 3, py: 2 }}>
+          {dialogActions}
+        </DialogActions>
       )}
-    </Alert>
+    </Dialog>
   );
 });
 

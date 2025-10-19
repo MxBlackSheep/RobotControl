@@ -6,7 +6,6 @@ import {
   CardContent,
   TextField,
   Button,
-  Alert,
   Grid,
   Dialog,
   DialogTitle,
@@ -32,6 +31,7 @@ import {
   Info as InfoIcon,
   Refresh as RefreshIcon
 } from '@mui/icons-material';
+import ErrorAlert, { ServerError, SuccessAlert } from './ErrorAlert';
 import { api } from '../services/api';
 
 interface DatabaseConfig {
@@ -183,15 +183,37 @@ export default function SystemConfigSettings() {
       </Box>
 
       {error && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
-          {error}
-        </Alert>
+        <ServerError
+          title="Configuration Update Failed"
+          message={error}
+          onClose={() => setError(null)}
+          retryable={false}
+        />
       )}
 
       {success && (
-        <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess(null)}>
-          {success}
-        </Alert>
+        <SuccessAlert
+          title="Configuration Saved"
+          message={success}
+          onClose={() => setSuccess(null)}
+          retryable={false}
+        />
+      )}
+
+      {showTestDialog && testResult && (
+        testResult.success ? (
+          <SuccessAlert
+            title="Connection Test Successful"
+            message={testResult.message}
+            retryable={false}
+          />
+        ) : (
+          <ServerError
+            title="Connection Test Failed"
+            message={testResult.message}
+            retryable={false}
+          />
+        )
       )}
 
       {loading && <LinearProgress sx={{ mb: 2 }} />}
@@ -400,9 +422,13 @@ export default function SystemConfigSettings() {
         <DialogContent>
           {testResult && (
             <Box>
-              <Alert severity={testResult.success ? 'success' : 'error'} sx={{ mb: 2 }}>
+              <Typography
+                variant="body2"
+                sx={{ mb: 2 }}
+                color={testResult.success ? 'success.main' : 'error.main'}
+              >
                 {testResult.message}
-              </Alert>
+              </Typography>
               
               <Typography variant="body2" gutterBottom>
                 <strong>Server:</strong> {testResult.server || 'Unknown'}

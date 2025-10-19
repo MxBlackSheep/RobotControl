@@ -1561,7 +1561,41 @@ class SQLiteSchedulingDatabase:
                 )
                 archived_rows = [dict(row) for row in cursor.fetchall()]
 
-                executions = current_rows + archived_rows
+                def select_preferred(existing: Dict[str, Any], candidate: Dict[str, Any]) -> Dict[str, Any]:
+                    existing_archived = bool(existing.get("archived_at"))
+                    candidate_archived = bool(candidate.get("archived_at"))
+                    if candidate_archived and not existing_archived:
+                        return candidate
+                    if existing_archived and not candidate_archived:
+                        return existing
+
+                    existing_snapshot = bool(existing.get("experiment_name_snapshot"))
+                    candidate_snapshot = bool(candidate.get("experiment_name_snapshot"))
+                    if candidate_snapshot and not existing_snapshot:
+                        return candidate
+                    if existing_snapshot and not candidate_snapshot:
+                        return existing
+
+                    existing_name = (existing.get("experiment_name") or "").strip()
+                    candidate_name = (candidate.get("experiment_name") or "").strip()
+                    if candidate_name and not existing_name:
+                        return candidate
+                    if existing_name and not candidate_name:
+                        return existing
+
+                    return candidate
+
+                merged: Dict[str, Dict[str, Any]] = {}
+                for row in current_rows + archived_rows:
+                    execution_id = row.get("execution_id")
+                    if not execution_id:
+                        continue
+                    if execution_id in merged:
+                        merged[execution_id] = select_preferred(merged[execution_id], row)
+                    else:
+                        merged[execution_id] = row
+
+                executions = list(merged.values())
                 executions.sort(key=lambda item: item.get("created_at") or "", reverse=True)
 
                 if limit and len(executions) > limit:
