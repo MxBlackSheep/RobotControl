@@ -1,6 +1,13 @@
 # RobotControl Development Log (Chronological)
 
 ---
+## 2025-10-20 Restore Reconnect Hardening
+
+- Fixed the maintenance bypass flag so `/health` polls escape the interceptor by checking `headers.has('X-Allow-Maintenance')` before rejecting, which lets the UI drop maintenance mode as soon as the backend responds (`frontend/src/services/api.ts`).
+- Reworked the backup restore flow to open its own pyodbc connection, then clear pooled handles and wait for a clean `SELECT 1` before reporting success; the helper covers both managed `.bak` restores and the direct path workflow (`backend/services/backup.py`).
+- Added a `reset_pools()` hook on the async connection manager so disruptive operations can drop stale handles, and wired `DatabaseConnectionManager.reset_pools()` through for legacy callers (`backend/core/database_connection.py`).
+- Simplified the database service to use only the primary connection profile and removed the unused secondary config entry to reflect current deployments (`backend/services/database.py`, `backend/config.py`).
+
 ## 2025-10-20 Archived Deletion & Logging Cleanup
 
 - Added delete controls to the archived schedules table/cards and route them through the existing confirmation dialog so archived jobs can be purged without switching tabs (`frontend/src/components/ScheduleList.tsx`, `frontend/src/pages/SchedulingPage.tsx`, `frontend/src/types/scheduling.ts`).

@@ -58,18 +58,6 @@ class Settings:
         "timeout": 5
     }
     
-    DB_CONFIG_SECONDARY = {
-        "driver": "{ODBC Driver 11 for SQL Server}",
-        "server": VM_SQL_SERVER,
-        "database": "EvoYeast", 
-        "user": VM_SQL_USER,
-        "password": VM_SQL_PASSWORD,
-        "trust_connection": "no",
-        "encrypt": "no",
-        "trust_server_certificate": "yes",
-        "timeout": 5
-    }
-    
     # Security settings
     SECRET_KEY: str = os.getenv("SECRET_KEY", "robotcontrol-simplified-secret-key-2025")
     ALGORITHM: str = "HS256"

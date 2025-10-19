@@ -19,7 +19,7 @@ This write-up explains every moving part of the database browser UI. It is desig
   Collection of maintenance actions (e.g., reindex, stats updates) exposed in the Operations tab.
 
 - `frontend/src/components/DatabaseRestore.tsx`  
-  UI for triggering restores and showing backup metadata.
+  UI for triggering restores, showing backup metadata, and managing the maintenance countdown while the backend restarts.
 
 - `frontend/src/services/api.ts` (`databaseAPI`)  
   Wrapper around the REST endpoints for tables, stored procedures, and status.
@@ -42,7 +42,8 @@ This write-up explains every moving part of the database browser UI. It is desig
    - Running a procedure posts to `/api/database/execute-procedure` with `procedure_name` and `parameters`.
 
 4. **Restore tab**  
-   - `DatabaseRestore` displays available backups (from `/api/admin/backup/list`) and exposes restore/delete actions (admin token required).
+  - `DatabaseRestore` displays available backups (from `/api/admin/backup/list`) and exposes restore/delete actions (admin token required).
+  - After the operator confirms a restore, the component starts a 60-second maintenance window and repeatedly calls `GET /health` with the header `X-Allow-Maintenance: true`. As soon as the backend answers, maintenance ends early so the UI unlocks without waiting the full minute.
 
 5. **Operations tab**  
    - `DatabaseOperations` groups actions (clear cache, rebuild indexes). Each button maps to a backend endpoint exposed under `/api/database/...`.
@@ -91,6 +92,7 @@ This write-up explains every moving part of the database browser UI. It is desig
 | Support additional filter operators | `DatabaseTable.tsx` (`ColumnFilter`) | Extend the `operator` union and update backend interpretation. Add UI controls in the filter drawer. |
 | Enable CSV export in a new format | `DatabaseTable` export handlers | Adjust the `handleExport` logic to map rows to your desired shape before building the download. |
 | Display table row counts in the sidebar | `DatabasePage` list render | Include `table.row_count` when mapping to `<ListItemButton>`. Remember to update the data mapping in `loadTablesAndStatus()`. |
+| Restore unlocks never end | `DatabaseRestore` maintenance watcher | Confirm the poll request sends `X-Allow-Maintenance: true`. Without that header the Axios interceptor blocks the call and the UI waits the full 60 seconds. |
 
 ---
 
@@ -142,5 +144,8 @@ This write-up explains every moving part of the database browser UI. It is desig
 
 5. **Filters never apply**  
    - Inspect the network request; the backend expects `filters` as JSON string. Verify you updated both the UI state and the serialization logic when adding new operators.
+
+6. **Restore dialog hangs for a minute**  
+   - Check the `/health` poll in dev tools. If the request is missing `X-Allow-Maintenance: true`, the Axios interceptor cancels it and maintenance only clears after the 60-second timer expires.
 
 Follow these instructions and the database UI will stay easy to maintain and hard to break.

@@ -10,7 +10,7 @@ This guide explains how the database utilities (backup, restore, metadata manage
   Contains `BackupService` plus two helpers: `SqlCommandExecutor` (runs sqlcmd commands) and `BackupMetadataStore` (writes/reads `.json` metadata). This is the core logic behind backup/restore features.
 
 - `backend/services/database.py`  
-  Houses utility functions for running ad-hoc SQL queries and listing tables (used by the “Database” admin page). It sits in front of the shared database connection manager.
+  Houses utility functions for running ad-hoc SQL queries and listing tables (used by the “Database” admin page). It now targets only the primary SQL Server instance and sits in front of the shared database connection manager.
 
 - `backend/api/backup.py`  
   FastAPI routes for listing backups, creating/deleting them, restoring, and fetching health metrics. Calls into `BackupService` and emits audit logs.
@@ -49,7 +49,7 @@ This guide explains how the database utilities (backup, restore, metadata manage
    `BackupMetadataStore.list_backups` walks the `BACKUP_DIR`, pairs `.bak` files with `.json` metadata, and returns `BackupInfo` objects (or marks orphaned files as invalid).
 
 7. **Restore** (`POST /api/backup/restore`).  
-   Validates the filename, builds a multi-statement `RESTORE` script, and passes it to `SqlCommandExecutor.execute`. On failure it attempts to set the database back to multi-user mode before returning an error.
+   Validates the filename, builds a multi-statement `RESTORE` script, and passes it to `SqlCommandExecutor.execute`. On failure it attempts to set the database back to multi-user mode before returning an error. On success the service immediately clears the connection pool, then pings the database until a fresh `SELECT 1` succeeds so the API is ready before the frontend resumes polling.
 
 8. **Delete** (`DELETE /api/backup/{filename}`).
    Removes the `.bak` file, asks `BackupMetadataStore.delete_metadata_file` to remove the `.json`, and reports which files were deleted.
@@ -69,6 +69,9 @@ This guide explains how the database utilities (backup, restore, metadata manage
 
 - `SqlCommandExecutor`  
   Provides `perform_backup` and `execute(sql, timeout=...)`. It always uses `sqlcmd`; if `sqlcmd` is missing or the command fails, the calling service handles the error. There is no pyodbc fallback anymore.
+
+- `BackupService._recover_database_connections`  
+  Runs right after a successful restore. It clears the pooled connections via `db_connection_manager.reset_pools()` and keeps trying `SELECT 1` until SQL Server responds, so the API does not hand control back while the database is still restarting.
 
 - `BackupMetadataStore`  
   Handles writing `.json`, listing backups, loading details, and removing metadata files. Keeps metadata logic out of the core service.
@@ -174,6 +177,9 @@ This guide explains how the database utilities (backup, restore, metadata manage
 6. **Ad-hoc query errors**  
    - The query API is intentionally minimalist. Avoid running multi-statement scripts; stick to `SELECT`, `EXEC` read-only procedures.  
    - Enforce role-based access to these endpoints; never expose them to unauthenticated users.
+
+7. **Restore reports success but the API still errors**  
+   - Check `backup_service.log` for the warning “Database connectivity check after restore …”. That means `_recover_database_connections()` could not reach SQL Server within 30 seconds. Verify SQL Server is fully online, then retry a manual `SELECT 1` via sqlcmd. Once the server responds, the next health poll will clear maintenance mode.
 
 ---
 

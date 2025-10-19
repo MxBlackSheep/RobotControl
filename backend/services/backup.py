@@ -690,6 +690,11 @@ class BackupMetadataStore:
         return False, metadata_filename, None
 
 
+class BackupError(Exception):
+    """Generic backup service error"""
+    pass
+
+
 class BackupValidationError(Exception):
     """Exception for backup validation errors"""
     pass
@@ -915,6 +920,46 @@ class BackupService:
         except Exception as e:
             logger.debug(f"Could not estimate backup size: {e}")
             return None
+
+    def _recover_database_connections(self, timeout_seconds: int = 30) -> Optional[str]:
+        """Reset pooled connections and verify the database is reachable after a restore."""
+        try:
+            from backend.core.database_connection import db_connection_manager
+        except ImportError:
+            return "Database connection manager unavailable during recovery"
+
+        try:
+            db_connection_manager.reset_pools()
+        except AttributeError:
+            # Older builds may not expose pool reset; continue with verification attempts
+            pass
+
+        deadline = time.time() + timeout_seconds
+        last_error: Optional[str] = None
+
+        while time.time() < deadline:
+            conn = None
+            try:
+                conn = db_connection_manager.get_connection(timeout=5)
+                if conn:
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT 1")
+                    cursor.fetchone()
+                    cursor.close()
+                    return None
+            except Exception as exc:
+                last_error = str(exc)
+                time.sleep(2)
+            finally:
+                if conn:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+
+        if last_error:
+            return f"Database connectivity check after restore failed: {last_error}"
+        return "Database connectivity check after restore timed out"
     
     def create_backup(self, description: str) -> BackupResult:
         """
@@ -1156,6 +1201,9 @@ class BackupService:
                 duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
                 
                 logger.info(f"Restore completed successfully from: {filename}")
+                recovery_warning = self._recover_database_connections()
+                if recovery_warning:
+                    warnings.append(recovery_warning)
                 
                 return RestoreResult(
                     success=True,
@@ -1236,52 +1284,60 @@ class BackupService:
             backup_logger.info(f"Starting database restore from path: {backup_path}")
             
             with operation_tracker('restore_from_path', {'file_path': str(backup_path)}) as metrics:
-                # Execute restore operation
-                    
-                    try:
-                        cursor = conn.cursor()
-                        
-                        # Use the absolute path for the SQL command
-                        sql_restore = f"""
-                        USE master;
-                        ALTER DATABASE [{self.database_name}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
-                        RESTORE DATABASE [{self.database_name}] 
-                        FROM DISK = '{backup_path}'
-                        WITH REPLACE;
-                        ALTER DATABASE [{self.database_name}] SET MULTI_USER;
-                        """
-                        
-                        backup_logger.info("Executing restore SQL command...")
-                        
-                        # Execute each statement separately
-                        for statement in sql_restore.split(';'):
-                            statement = statement.strip()
-                            if statement:
-                                cursor.execute(statement)
-                        
-                        backup_logger.info("Database restore completed successfully")
-                        
-                        # Update metrics
-                        metrics.file_size_bytes = file_size
-                        metrics.success = True
-                        
-                    except Exception as sql_error:
-                        backup_logger.error(f"SQL restore operation failed: {sql_error}")
-                        # Try to restore multi-user mode if possible
+                conn = None
+                cursor = None
+                try:
+                    conn = self._get_database_connection()
+                    if conn is None:
+                        raise BackupError("Unable to acquire database connection for restore")
+
+                    conn.autocommit = True
+                    cursor = conn.cursor()
+
+                    escaped_path = escape_sql_path(str(backup_path))
+                    statements = [
+                        "USE master",
+                        f"ALTER DATABASE [{self.database_name}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE",
+                        f"RESTORE DATABASE [{self.database_name}] FROM DISK = N'{escaped_path}' WITH REPLACE",
+                        f"ALTER DATABASE [{self.database_name}] SET MULTI_USER",
+                    ]
+
+                    backup_logger.info("Executing restore SQL command...")
+
+                    for statement in statements:
+                        cursor.execute(statement)
+
+                    backup_logger.info("Database restore completed successfully")
+                    metrics.file_size_bytes = file_size
+                    metrics.success = True
+
+                except Exception as sql_error:
+                    backup_logger.error(f"SQL restore operation failed: {sql_error}")
+                    if cursor:
                         try:
                             cursor.execute(f"ALTER DATABASE [{self.database_name}] SET MULTI_USER;")
-                        except:
+                        except Exception:
                             pass
-                        raise BackupError(f"Database restore failed: {sql_error}")
-                    
-                    finally:
+                    raise BackupError(f"Database restore failed: {sql_error}")
+
+                finally:
+                    if cursor:
                         try:
                             cursor.close()
-                        except:
+                        except Exception:
                             pass
-            
+                    if conn:
+                        try:
+                            conn.close()
+                        except Exception:
+                            pass
+
             # Create successful result
             execution_time = (datetime.now() - start_time).total_seconds()
+
+            recovery_warning = self._recover_database_connections()
+            if recovery_warning:
+                warnings.append(recovery_warning)
             
             return RestoreResult(
                 success=True,
