@@ -9,7 +9,7 @@
  * - Camera selection and management
  */
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Box,
   Card,
@@ -78,11 +78,37 @@ const CameraViewer: React.FC<CameraViewerProps> = ({
   const [lastFrameTime, setLastFrameTime] = useState<Date | null>(null);
   const [frameCount, setFrameCount] = useState(0);
   const [streamQuality, setStreamQuality] = useState<'high' | 'medium' | 'low'>('high');
+  const [frameSize, setFrameSize] = useState(() => ({
+    width: cameraInfo?.width || 640,
+    height: cameraInfo?.height || 480
+  }));
+
+  const aspectPadding = useMemo(() => {
+    if (!frameSize.width || !frameSize.height) {
+      return null;
+    }
+    return (frameSize.height / frameSize.width) * 100;
+  }, [frameSize]);
 
   // Refs
   const streamRef = useRef<HTMLImageElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const streamUrlRef = useRef<string>('');// Auto-detect stream quality based on device capabilities
+
+  // Cleanup function
+  const cleanup = useCallback(() => {
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    if (streamUrlRef.current) {
+      URL.revokeObjectURL(streamUrlRef.current);
+      streamUrlRef.current = '';
+    }
+    setIsStreaming(false);
+    setConnectionStatus('disconnected');
+  }, []);
+
   useEffect(() => {
     if (isMobile) {
       // Optimize for mobile bandwidth
@@ -106,25 +132,44 @@ const CameraViewer: React.FC<CameraViewerProps> = ({
   useEffect(() => {
     if (cameraInfo) {
       setIsRecording(cameraInfo.is_recording);
+      if (cameraInfo.width && cameraInfo.height) {
+        setFrameSize({ width: cameraInfo.width, height: cameraInfo.height });
+      }
     }
     return () => {
       cleanup();
     };
-  }, [cameraId, cameraInfo]);
+  }, [cameraId, cameraInfo, cleanup]);
 
-  // Cleanup function
-  const cleanup = useCallback(() => {
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
+  const handleStreamImageLoad = useCallback(() => {
+    const img = streamRef.current;
+    if (img?.naturalWidth && img?.naturalHeight) {
+      setFrameSize({
+        width: img.naturalWidth,
+        height: img.naturalHeight
+      });
     }
-    if (streamUrlRef.current) {
-      URL.revokeObjectURL(streamUrlRef.current);
-      streamUrlRef.current = '';
+
+    // MJPEG streams rely on the image load event to confirm connectivity
+    if (!wsRef.current) {
+      setConnectionStatus('connected');
+      setIsStreaming(true);
+      setLastFrameTime(new Date());
+      setFrameCount(prev => prev + 1);
     }
-    setIsStreaming(false);
-    setConnectionStatus('disconnected');
   }, []);
+
+  useEffect(() => {
+    const img = streamRef.current;
+    if (!img) return;
+
+    img.onload = handleStreamImageLoad;
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.onload = null;
+      }
+    };
+  }, [handleStreamImageLoad]);
 
   // Start MJPEG stream
   const startMJPEGStream = useCallback(async () => {
@@ -136,13 +181,6 @@ const CameraViewer: React.FC<CameraViewerProps> = ({
       const streamUrl = buildApiUrl(`/api/camera/stream/${cameraId}`);
       
       if (streamRef.current) {
-        streamRef.current.onload = () => {
-          setConnectionStatus('connected');
-          setIsStreaming(true);
-          setLastFrameTime(new Date());
-          setFrameCount(prev => prev + 1);
-        };
-        
         streamRef.current.onerror = () => {
           const message = 'Live streaming is not available for this camera. Start recording to enable streaming.';
           setError(message);
@@ -418,9 +456,10 @@ const CameraViewer: React.FC<CameraViewerProps> = ({
           <Paper sx={{ 
             position: 'relative', 
             backgroundColor: 'black', 
-            minHeight: { xs: 200, sm: 250, md: 300 },
+            minHeight: isStreaming ? 'auto' : { xs: 200, sm: 250, md: 300 },
             borderRadius: 1,
-            overflow: 'hidden'
+            overflow: 'hidden',
+            p: 0
           }}>
             {connectionStatus === 'connecting' ? (
               <Box sx={{ 
@@ -437,17 +476,26 @@ const CameraViewer: React.FC<CameraViewerProps> = ({
                 />
               </Box>
             ) : isStreaming ? (
-              <Box 
-                sx={{ position: 'relative' }}
+              <Box
+                sx={{
+                  position: 'relative',
+                  width: '100%',
+                  backgroundColor: 'black',
+                  ...(aspectPadding
+                    ? { height: 0, pt: `${aspectPadding}%` }
+                    : { minHeight: { xs: 200, sm: 250, md: 300 } })
+                }}
                 onDoubleClick={toggleFullscreen} // Double tap to fullscreen on mobile
               >
-                <img
+                <Box
+                  component="img"
                   ref={streamRef}
                   alt={`Camera ${cameraId} stream`}
-                  style={{
+                  sx={{
+                    position: 'absolute',
+                    inset: 0,
                     width: '100%',
-                    height: 'auto',
-                    maxHeight: isMobile ? '250px' : '400px',
+                    height: '100%',
                     objectFit: 'contain',
                     userSelect: 'none', // Prevent selection on mobile
                     WebkitUserSelect: 'none'

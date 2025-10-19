@@ -1,6 +1,11 @@
 # RobotControl Development Log (Chronological)
 
 ---
+## 2025-10-19 Camera Stream Aspect Ratio
+
+- Let the live streaming card size itself to the incoming frame by capturing each `<img>`’s natural dimensions and applying an `aspectRatio`, replacing the old fixed 360 px viewport so portrait feeds fill the panel while placeholders keep a sensible minimum height; the fullscreen control now appears only after frames arrive (`frontend/src/pages/CameraPage.tsx`).
+- Kept the reusable camera viewer ready for portrait feeds by syncing its aspect ratio to each frame’s natural size (`frontend/src/components/CameraViewer.tsx`).
+
 ## 2025-10-19 Frontend Maintenance Guides
 
 - Added idiot-proof walkthroughs for the authentication, camera, database, scheduling, monitoring, and application shell UI so every frontend module now has a matching maintenance manual (`docs/maintenance/frontend/authentication-frontend-maintenance-guide.md`, `docs/maintenance/frontend/camera-frontend-maintenance-guide.md`, `docs/maintenance/frontend/database-frontend-maintenance-guide.md`, `docs/maintenance/frontend/scheduling-frontend-maintenance-guide.md`, `docs/maintenance/frontend/monitoring-frontend-maintenance-guide.md`, `docs/maintenance/frontend/main-application-frontend-maintenance-guide.md`).

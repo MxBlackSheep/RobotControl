@@ -93,6 +93,7 @@ If you need to change anything about live video, streaming, or the archive UI, r
 | Change the archive limit | `loadRecordings()` in `CameraPage.tsx` | Tweak the query parameter (`limit=100`). Update backend defaults if you want parity. |
 | Display more streaming stats | `LiveStreamingTab.tsx` | Add fields to the status card. Make sure the backend returns the fields and update the `StreamingStatus` interface. |
 | Customise fullscreen viewer | `CameraViewer.tsx` | Adjust the `fullscreenDialogOpen` logic and the `<Dialog>` contents. Keep the cleanup logic so the WebSocket closes. |
+| Fix letterboxed live feed | `CameraPage.tsx` (streaming card) | The card now stores `frameDimensions` from the `<img>` load event and sets the container `aspectRatio` dynamically—if you tweak the layout, keep that state update and avoid reintroducing fixed heights, while still leaving the placeholder `minHeight` for the spinner and only showing the fullscreen button once a frame is visible. |
 | Delete recordings | Add `onDeleteVideo` to `VideoArchiveTab` | Provide a handler in `CameraPage` that calls `DELETE /api/camera/recording/{filename}` and then refreshes the folder. |
 
 ---
@@ -147,4 +148,3 @@ If you need to change anything about live video, streaming, or the archive UI, r
    - `VideoArchiveTab` keeps per-folder state. If your API returns a different structure, clear `folderState` in `useEffect` or normalise the payload before setting state.
 
 Follow these guardrails and the camera UI will stay reliable while you extend it.
-
