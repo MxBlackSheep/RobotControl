@@ -1,6 +1,11 @@
 # RobotControl Development Log (Chronological)
 
 ---
+## 2025-10-19 Frontend Maintenance Guides
+
+- Added idiot-proof walkthroughs for the authentication, camera, database, scheduling, monitoring, and application shell UI so every frontend module now has a matching maintenance manual (`docs/maintenance/frontend/authentication-frontend-maintenance-guide.md`, `docs/maintenance/frontend/camera-frontend-maintenance-guide.md`, `docs/maintenance/frontend/database-frontend-maintenance-guide.md`, `docs/maintenance/frontend/scheduling-frontend-maintenance-guide.md`, `docs/maintenance/frontend/monitoring-frontend-maintenance-guide.md`, `docs/maintenance/frontend/main-application-frontend-maintenance-guide.md`).
+- Each guide mirrors the backend documentation style—high-level architecture, lifecycle steps, key state, tasks, extension patterns, and troubleshooting—so future contributors have consistent references across the stack.
+
 ## 2025-10-19 Maintenance Guides Expansion
 
 - Documented the authentication stack for future operators, covering the `AuthService`, SQLite schema, REST endpoints, and frontend token wiring so password resets, token refreshes, and config tweaks stay predictable (`docs/maintenance/authentication-maintenance-guide.md`).
