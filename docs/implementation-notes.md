@@ -1,6 +1,12 @@
 # RobotControl Development Log (Chronological)
 
 ---
+## 2025-10-19 Maintenance Guides Expansion
+
+- Documented the authentication stack for future operators, covering the `AuthService`, SQLite schema, REST endpoints, and frontend token wiring so password resets, token refreshes, and config tweaks stay predictable (`docs/maintenance/authentication-maintenance-guide.md`).
+- Captured the full monitoring/notifications pipeline—background loops, experiment polling, WebSocket channels, and scheduler email alerts—so the real-time dashboard and alerting remain stable during tweaks (`docs/maintenance/monitoring-maintenance-guide.md`).
+- Wrote a main-application guide describing FastAPI startup/shutdown, static asset serving, logging directories, and packaging scripts to make backend deployments and PyInstaller builds idiot-proof (`docs/maintenance/main-application-maintenance-guide.md`).
+
 ## 2025-10-18 Scheduling Maintenance Trim
 
 - Added a project-level `.gitignore` so transient build outputs (PyInstaller bundles, frontend builds, venvs, caches) stop polluting status checks while still leaving the generated files in place for runtime use (`.gitignore`).
