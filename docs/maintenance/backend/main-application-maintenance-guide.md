@@ -49,6 +49,7 @@ This guide explains how the FastAPI entry point, logging, static assets, and bui
 
 5. **Signal & exit handling**  
    - `graceful_shutdown` handles `SIGINT`/`SIGTERM` and `atexit`, stopping camera, auto-recording, monitoring, etc.
+   - In packaged builds the system-tray “Terminate” now toggles `server.should_exit`; avoid calling `sys.exit()` there or pystray will log a handler error.
 
 6. **Shutdown block in lifespan**  
    - Cancels pending auto-start task, clears DB pool, stops monitoring/live streaming/auto-recording/scheduler/camera in a predictable order.
@@ -104,7 +105,7 @@ This guide explains how the FastAPI entry point, logging, static assets, and bui
 - **Log retention**  
   - `ROBOTCONTROL_LOG_RETENTION_DAYS` (default 14).  
   - `ROBOTCONTROL_LOG_ERROR_RETENTION_DAYS` (default 30).  
-  - Logs rotate daily, old files compressed (`.gz`) and moved into `data/logs/history`.
+  - Logs rotate daily, old files compress straight into `data/logs/history`, and only the live `robotcontrol_backend.log`/`robotcontrol_backend_error.log` stay in `data/logs/`.
 
 - **JSON logs**  
   - Set `ROBOTCONTROL_LOG_JSON=1` for structured output (makes log ingestion easier).
@@ -186,4 +187,3 @@ This guide explains how the FastAPI entry point, logging, static assets, and bui
    - If running via Windows service, ensure signals propagate; use `Ctrl+C` during testing to validate.
 
 Follow these patterns and the backend entry point will stay predictable across local development, packaging, and deployment.
-

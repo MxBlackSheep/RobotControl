@@ -845,6 +845,10 @@ const SchedulingPage: React.FC = () => {
                 selectedSchedule={state.selectedSchedule}
                 onScheduleSelect={actions.selectSchedule}
                 onRefresh={() => actions.loadSchedules(false)}
+                onDeleteSchedule={(schedule) => {
+                  actions.selectSchedule(schedule);
+                  setDeleteDialogOpen(true);
+                }}
                 loading={state.loading}
                 error={state.error}
                 initialized={state.initialized}
@@ -1110,6 +1114,10 @@ const SchedulingPage: React.FC = () => {
             selectedSchedule={state.selectedSchedule}
             onScheduleSelect={actions.selectSchedule}
             onRefresh={actions.loadArchivedSchedules}
+            onDeleteSchedule={(schedule) => {
+              actions.selectSchedule(schedule);
+              setDeleteDialogOpen(true);
+            }}
             loading={state.archivedLoading}
             error={state.archivedError}
             initialized={state.archivedInitialized}

@@ -140,7 +140,7 @@ Useful derived flags provided by the hook:
 | `actions.createSchedule(formData)` | Create new schedule | Handles errors, reloads list, focuses new entry. |
 | `actions.updateSchedule(id, payload)` | Update schedule | Adds `expected_updated_at`. Automatically reloads list. |
 | `actions.toggleScheduleActive(id, bool)` | Activate/deactivate | Use when wiring toggle buttons. |
-| `ScheduleList` | Renders schedule cards | Accepts callbacks for edit/delete/archive. |
+| `ScheduleList` | Renders schedule cards | Takes selection/refresh callbacks plus optional `onDeleteSchedule` for the archived tab delete buttons. |
 | `ImprovedScheduleForm` | Schedule editor dialog | Controlled via props from the page (`open`, `mode`, `initialValues`). |
 
 ---

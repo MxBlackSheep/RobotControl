@@ -20,6 +20,7 @@ import argparse
 from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Optional
+import threading
 
 # Patch bcrypt metadata to remain compatible with passlib when using bcrypt>=4
 
@@ -747,6 +748,8 @@ Examples:
     
     # Initialize system tray (only in compiled mode for now)
     tray = None
+    shutdown_requested = threading.Event()
+    server_holder: dict[str, Optional[uvicorn.Server]] = {"server": None}
     if is_compiled:
         try:
             from backend.utils.system_tray import start_system_tray, update_tray_status, is_tray_available
@@ -755,7 +758,12 @@ Examples:
                 # Create stop callback for tray
                 def stop_server():
                     logger.info("Server stop requested from system tray")
-                    sys.exit(0)
+                    shutdown_requested.set()
+                    server_obj = server_holder.get("server")
+                    if server_obj is not None:
+                        server_obj.should_exit = True
+                    else:
+                        logger.debug("Stop requested before server initialised; awaiting startup")
                 
                 tray = start_system_tray(port, stop_server)
                 update_tray_status("starting")
@@ -788,7 +796,12 @@ Examples:
                 log_config=None,  # Use existing logger configuration
             )
             server = uvicorn.Server(uvicorn_config)
+            server_holder["server"] = server
+            if shutdown_requested.is_set():
+                logger.info("Shutdown requested before server fully started; signalling server exit")
+                server.should_exit = True
             server.run()
+            server_holder["server"] = None
         else:
             # For development, use string reference for auto-reload
             uvicorn.run(

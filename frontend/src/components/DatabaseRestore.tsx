@@ -436,9 +436,6 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
       console.error('Error restoring backup:', err);
       const message = err.response?.data?.detail || err.message || 'Failed to restore backup';
       showStatusDialog('Restore Failed', message, 'error');
-      if (onError) {
-        onError(message);
-      }
     } finally {
       setRestoreProgress(false);
     }

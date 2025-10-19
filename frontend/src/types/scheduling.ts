@@ -364,6 +364,7 @@ export interface ScheduleListProps {
   selectedSchedule: ScheduledExperiment | null;
   onScheduleSelect: (schedule: ScheduledExperiment | null) => void;
   onRefresh: () => void;
+  onDeleteSchedule?: (schedule: ScheduledExperiment) => void;
   loading?: boolean;
   error?: string | null;
   initialized: boolean;

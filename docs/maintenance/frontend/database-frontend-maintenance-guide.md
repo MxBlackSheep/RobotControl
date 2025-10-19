@@ -69,7 +69,7 @@ This write-up explains every moving part of the database browser UI. It is desig
 
 - Props to keep consistent:
   - `DatabaseTable` expects `tableName` and an `onError` callback.  
-  - `StoredProcedures`, `DatabaseRestore`, `DatabaseOperations` all receive `onError` or `onSuccess` props to bubble messages back up.
+- `StoredProcedures` and `DatabaseOperations` rely on `onError`/`onSuccess` to surface issues; `DatabaseRestore` only fires `onError` while loading its backup list—restore failures must stay inside the status dialog so the page doesn’t show double errors.
 
 ---
 
@@ -144,4 +144,3 @@ This write-up explains every moving part of the database browser UI. It is desig
    - Inspect the network request; the backend expects `filters` as JSON string. Verify you updated both the UI state and the serialization logic when adding new operators.
 
 Follow these instructions and the database UI will stay easy to maintain and hard to break.
-

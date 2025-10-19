@@ -1,6 +1,16 @@
 # RobotControl Development Log (Chronological)
 
 ---
+## 2025-10-20 Archived Deletion & Logging Cleanup
+
+- Added delete controls to the archived schedules table/cards and route them through the existing confirmation dialog so archived jobs can be purged without switching tabs (`frontend/src/components/ScheduleList.tsx`, `frontend/src/pages/SchedulingPage.tsx`, `frontend/src/types/scheduling.ts`).
+- Disabled daily alias files in backend logging so `data/logs/` now only holds the live `robotcontrol_backend.log` and `robotcontrol_backend_error.log`; rotated files are compressed directly into `data/logs/history` (`backend/utils/logging_setup.py`).
+- Reworked the system tray stop callback to flag the running uvicorn server to exit instead of calling `sys.exit`, which eliminates the `SystemExit` traceback from pystray when shutting down from the tray menu (`backend/main.py`).
+
+## 2025-10-20 Restore Error Messaging
+
+- Prevented Database Restore failures from firing both the modal status dialog and the page-level banner by removing the extra `onError` call in the restore handler, so users now see a single validation message when a restore cannot start (`frontend/src/components/DatabaseRestore.tsx`).
+
 ## 2025-10-19 Modal Notifications
 
 - Replaced every inline error/success banner with the modal-based `ErrorAlert` suite so feedback now appears as dialogs instead of shifting layouts; the shared component renders Material UI dialogs with retry/close actions (`frontend/src/components/ErrorAlert.tsx`).
