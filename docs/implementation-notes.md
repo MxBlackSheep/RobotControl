@@ -1,6 +1,12 @@
 # RobotControl Development Log (Chronological)
 
 ---
+## 2025-10-21 Schedule Timestamp Localisation
+
+- Stopped writing UTC-naive strings for new schedules by stamping `created_at` / `updated_at` with the local wall-clock and persisting those values explicitly in SQLite (`backend/models.py`, `backend/services/scheduling/sqlite_database.py`, `backend/api/scheduling.py`).
+- Guarded the Database Restore tab so only admins or users coming from a “local” login see the restore UI; remote non-admins now see a friendly notice instead of stacked API error pop-ups (`frontend/src/pages/DatabasePage.tsx`, `frontend/src/components/DatabaseRestore.tsx`).
+- `AuthContext` now preserves the session metadata (`session_is_local`, IP classification, client IP) FastAPI returns, so future guards can make local-vs-remote decisions without another round trip (`frontend/src/context/AuthContext.tsx`).
+
 ## 2025-10-20 Restore Reconnect Hardening
 
 - Fixed the maintenance bypass flag so `/health` polls escape the interceptor by checking `headers.has('X-Allow-Maintenance')` before rejecting, which lets the UI drop maintenance mode as soon as the backend responds (`frontend/src/services/api.ts`).

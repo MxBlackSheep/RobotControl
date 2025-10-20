@@ -149,7 +149,7 @@ Represent email contacts and SMTP configuration. Hooks appear in `frontend/src/c
   Locks: `_schedules_lock`, `_jobs_lock`, `_contacts_lock`, `_execution_watch_lock`. Acquire them exactly where the engine currently does. Never hold locks while performing long operations (like network calls).
 
 - **Timezones**  
-  Always normalize timestamps with `backend.utils.datetime.ensure_local_naive`. API expects local naive strings. Avoid using `datetime.utcnow()` without wrapping.
+  Always normalize timestamps with the helpers in `backend.utils.datetime`. `ScheduledExperiment.__post_init__` now calls `utc_now_as_local_naive()`, and the SQLite layer serializes dates through `_serialize_timestamp`, so any new timestamps must follow the same pattern. Never write bare `datetime.utcnow()` values into the database.
 
 - **Optimistic concurrency**  
   API enforces `updated_at` token checks (`_load_current_schedule`). When adding writes, pass `touch_updated_at=False` for background adjustments and `True` for user actions.
@@ -220,4 +220,3 @@ Represent email contacts and SMTP configuration. Hooks appear in `frontend/src/c
 - [ ] PyInstaller spec includes any new modules if packaging is required (`RobotControl.spec`).
 
 By following the structure above you can extend the scheduling stack without reintroducing the duplication and fragile flows that existed before this cleanup. When in doubt, trace the execution lifecycle in section 2 and ensure your changes respect the same boundaries. Happy scheduling!
-

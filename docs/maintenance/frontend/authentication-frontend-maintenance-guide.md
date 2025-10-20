@@ -7,7 +7,7 @@ Read this before you touch anything related to login, registration, or password 
 ## 1. High-Level Architecture
 
 - `frontend/src/context/AuthContext.tsx`  
-  Wraps the entire app. Stores the currently signed-in user, access token, and exposes helpers (`login`, `register`, `logout`, `changePassword`). Also listens for token refresh events.
+  Wraps the entire app. Stores the currently signed-in user, access token, and exposes helpers (`login`, `register`, `logout`, `changePassword`). Also listens for token refresh events. The normaliser now keeps the server-provided session metadata (`session_is_local`, `session_ip_classification`, `session_client_ip`) so components can tell whether this browser was classified as “local” without making another API call.
 
 - `frontend/src/services/api.ts`  
   Axios instance with interceptors. Adds the `Authorization` header, blocks calls during maintenance mode, and automatically attempts `/api/auth/refresh` when a request returns `401`.
@@ -41,6 +41,7 @@ Read this before you touch anything related to login, registration, or password 
 
 - **React state stored in `AuthContext`:**
   - `user`: Normalised shape with `user_id`, `username`, `role`, `must_reset`, login metadata.
+    - Session metadata from `/api/auth/me` is available as `session_is_local`, `session_ip_classification`, and `session_client_ip`. Use these flags for local-only UI (e.g., Database Restore restrictions) instead of guessing from `last_login_ip_type`.
   - `token`: Current access token string (mirrors `localStorage`).
   - `loading`: Tracks whether the provider is checking `/api/auth/me` on initial mount.
 
@@ -127,4 +128,3 @@ Read this before you touch anything related to login, registration, or password 
    - Update `normalizeUser` whenever backend responses change. If you forget, components will display `Unknown` or `undefined`.
 
 Stick to these steps and the auth experience will stay predictable for everyone, including your future self.
-

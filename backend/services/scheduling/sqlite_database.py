@@ -28,9 +28,17 @@ from backend.models import (
 )
 
 try:
-    from backend.utils.datetime import parse_iso_datetime_to_local
+    from backend.utils.datetime import (
+        ensure_local_naive,
+        parse_iso_datetime_to_local,
+        utc_now_as_local_naive,
+    )
 except ImportError:  # pragma: no cover - fallback
-    from utils.datetime import parse_iso_datetime_to_local  # type: ignore
+    from utils.datetime import (  # type: ignore
+        ensure_local_naive,
+        parse_iso_datetime_to_local,
+        utc_now_as_local_naive,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -304,6 +312,13 @@ class SQLiteSchedulingDatabase:
         except (ValueError, TypeError):
             return None
 
+    @staticmethod
+    def _serialize_timestamp(value: Optional[datetime]) -> Optional[str]:
+        """Serialize a datetime to ISO string using local wall-clock semantics."""
+        if value is None:
+            return None
+        return ensure_local_naive(value).isoformat()
+
     def create_schedule(self, schedule: ScheduledExperiment) -> bool:
         """
         Create a new scheduled experiment
@@ -324,15 +339,15 @@ class SQLiteSchedulingDatabase:
                         interval_hours, start_time, estimated_duration, created_by,
                         is_active, archived, retry_config, prerequisites,
                         recovery_required, recovery_note, recovery_marked_at, recovery_marked_by,
-                        recovery_resolved_at, recovery_resolved_by
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        recovery_resolved_at, recovery_resolved_by, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     schedule.schedule_id,
                     schedule.experiment_name,
                     schedule.experiment_path,
                     schedule.schedule_type,
                     schedule.interval_hours,
-                    schedule.start_time.isoformat() if schedule.start_time else None,
+                    self._serialize_timestamp(schedule.start_time),
                     schedule.estimated_duration,
                     schedule.created_by,
                     1 if schedule.is_active else 0,
@@ -341,10 +356,12 @@ class SQLiteSchedulingDatabase:
                     json.dumps(schedule.prerequisites) if schedule.prerequisites else None,
                     1 if schedule.recovery_required else 0,
                     schedule.recovery_note,
-                    schedule.recovery_marked_at.isoformat() if schedule.recovery_marked_at else None,
+                    self._serialize_timestamp(schedule.recovery_marked_at),
                     schedule.recovery_marked_by,
-                    schedule.recovery_resolved_at.isoformat() if schedule.recovery_resolved_at else None,
-                    schedule.recovery_resolved_by
+                    self._serialize_timestamp(schedule.recovery_resolved_at),
+                    schedule.recovery_resolved_by,
+                    self._serialize_timestamp(schedule.created_at),
+                    self._serialize_timestamp(schedule.updated_at),
                 ))
                 self._replace_schedule_contacts(conn, schedule.schedule_id, schedule.notification_contacts or [])
                 conn.commit()
@@ -485,7 +502,7 @@ class SQLiteSchedulingDatabase:
                     schedule.experiment_path,
                     schedule.schedule_type,
                     schedule.interval_hours,
-                    schedule.start_time.isoformat() if schedule.start_time else None,
+                    self._serialize_timestamp(schedule.start_time),
                     schedule.estimated_duration,
                     1 if schedule.is_active else 0,
                     1 if getattr(schedule, "archived", False) else 0,
@@ -493,18 +510,16 @@ class SQLiteSchedulingDatabase:
                     json.dumps(schedule.prerequisites) if schedule.prerequisites else None,
                     1 if schedule.recovery_required else 0,
                     schedule.recovery_note,
-                    schedule.recovery_marked_at.isoformat() if schedule.recovery_marked_at else None,
+                    self._serialize_timestamp(schedule.recovery_marked_at),
                     schedule.recovery_marked_by,
-                    schedule.recovery_resolved_at.isoformat() if schedule.recovery_resolved_at else None,
+                    self._serialize_timestamp(schedule.recovery_resolved_at),
                     schedule.recovery_resolved_by,
                 ]
 
                 if touch_updated_at:
-                    updated_value = schedule.updated_at
-                    if isinstance(updated_value, datetime):
-                        updated_value = updated_value.isoformat()
+                    updated_value = self._serialize_timestamp(schedule.updated_at)
                     if not updated_value:
-                        updated_value = datetime.utcnow().isoformat()
+                        updated_value = utc_now_as_local_naive().isoformat()
                     set_clauses.append("updated_at = ?")
                     params.append(updated_value)
 

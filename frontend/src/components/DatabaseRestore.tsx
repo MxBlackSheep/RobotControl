@@ -53,6 +53,7 @@ import ErrorAlert from './ErrorAlert';
 import { api } from '../services/api';
 import { activateMaintenance, clearMaintenance } from '@/utils/MaintenanceManager';
 import StatusDialog, { StatusSeverity } from './StatusDialog';
+import { useAuthContext } from '../context/AuthContext';
 
 interface BackupFile {
   filename: string;
@@ -266,6 +267,11 @@ const FileExplorer: React.FC<FileExplorerProps> = ({ open, onClose, onSelect }) 
 };
 
 const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
+  const { user } = useAuthContext();
+  const hasBackupAccess = Boolean(
+    user && (user.role === 'admin' || user.session_is_local === true || user.last_login_ip_type === 'local')
+  );
+
   const [activeTab, setActiveTab] = useState(0); // 0 = .bak files, 1 = .bck browser
   const [backupFiles, setBackupFiles] = useState<BackupFile[]>([]);
   const [selectedBackup, setSelectedBackup] = useState<BackupFile | null>(null);
@@ -331,8 +337,15 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
   };
 
   useEffect(() => {
+    if (!hasBackupAccess) {
+      setLoading(false);
+      setBackupFiles([]);
+      setSelectedBackup(null);
+      return;
+    }
     loadBackupFiles();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasBackupAccess]);
 
   useEffect(() => {
     return () => {
@@ -354,6 +367,10 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
   };
 
   const loadBackupFiles = async (): Promise<BackupFile[]> => {
+    if (!hasBackupAccess) {
+      setLoading(false);
+      return [];
+    }
     setLoading(true);
     try {
       const response = await api.get('/api/admin/backup/list');
@@ -408,6 +425,15 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
   const hasSelection = (activeTab === 0 && selectedBackup) || (activeTab === 1 && selectedBckPath);
 
   const handleRestoreBackup = async () => {
+    if (!hasBackupAccess) {
+      showStatusDialog(
+        'Access Restricted',
+        'Only administrators or trusted lab machines can restore backups.',
+        'warning',
+        5000
+      );
+      return;
+    }
     if (!canProceed || !hasSelection) return;
     
     const restoreRequest = activeTab === 0 && selectedBackup 
@@ -478,6 +504,15 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
   };
 
   const handleCreateBackup = async () => {
+    if (!hasBackupAccess) {
+      showStatusDialog(
+        'Access Restricted',
+        'Only administrators or trusted lab machines can create or manage backups.',
+        'warning',
+        5000
+      );
+      return;
+    }
     if (!createDescription.trim()) {
       setCreateDialogError('Please provide a brief description for the backup.');
       return;

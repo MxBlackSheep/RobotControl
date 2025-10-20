@@ -31,10 +31,12 @@ from backend.utils.secret_cipher import encrypt_secret, SecretCipherError
 try:
     from backend.utils.datetime import (
         parse_iso_datetime_to_local,
+        utc_now_as_local_naive,
     )
 except ImportError:  # pragma: no cover - fallback
     from utils.datetime import (  # type: ignore
         parse_iso_datetime_to_local,
+        utc_now_as_local_naive,
     )
 
 logger = logging.getLogger(__name__)
@@ -957,7 +959,7 @@ async def update_schedule(
         updated_schedule.schedule_type = normalized_type
         updated_schedule.interval_hours = normalized_interval_hours
 
-        updated_schedule.updated_at = datetime.utcnow()
+        updated_schedule.updated_at = utc_now_as_local_naive()
 
         success = scheduler.update_schedule(updated_schedule)
         if not success:
@@ -1269,7 +1271,7 @@ async def set_schedule_archived(
     schedule.archived = archived
     if archived:
         schedule.is_active = False
-    schedule.updated_at = datetime.utcnow()
+    schedule.updated_at = utc_now_as_local_naive()
 
     if not db_mgr.update_scheduled_experiment(schedule):
         raise HTTPException(status_code=400, detail="Failed to update schedule")

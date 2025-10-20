@@ -30,6 +30,7 @@ import CodeIcon from '@mui/icons-material/Code';
 import SettingsIcon from '@mui/icons-material/Settings';
 import RestoreIcon from '@mui/icons-material/Restore';
 import { databaseAPI } from '../services/api';
+import { useAuthContext } from '../context/AuthContext';
 import DatabaseTable from '../components/DatabaseTable';
 import StoredProcedures from '../components/StoredProcedures';
 import DatabaseOperations from '../components/DatabaseOperations';
@@ -45,6 +46,13 @@ interface TableInfo {
 }
 
 const DatabasePage: React.FC = () => {
+  const { user } = useAuthContext();
+  const isAdmin = user?.role === 'admin';
+  const isLocalSession = Boolean(
+    (user?.session_is_local ?? false) || user?.last_login_ip_type === 'local'
+  );
+  const canUseRestoreTools = Boolean(user && (isAdmin || isLocalSession));
+
   const navigate = useNavigate();
   const [tables, setTables] = useState<TableInfo[]>([]);
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
@@ -386,7 +394,45 @@ const DatabasePage: React.FC = () => {
       {/* Tab Panel 2: Database Restore */}
       {activeTab === 2 && (
         <Box>
-          <DatabaseRestore onError={handleError} />
+          {canUseRestoreTools ? (
+            <DatabaseRestore onError={handleError} />
+          ) : (
+            <Paper
+              elevation={2}
+              sx={{
+                p: { xs: 2, sm: 3 },
+                mt: { xs: 1, sm: 2 },
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 1.5,
+              }}
+            >
+              <Typography variant="h6">
+                Restore Tools Restricted
+              </Typography>
+              <Typography variant="body2" color="textSecondary">
+                Database restore operations are only available to administrators or lab machines on the trusted network.
+                If you need a backup restored, please contact an on-site administrator.
+              </Typography>
+              <Stack direction="row" spacing={1}>
+                <Button
+                  startIcon={<ArrowBackIcon />}
+                  variant="outlined"
+                  onClick={() => setActiveTab(0)}
+                  size="small"
+                >
+                  Back to Tables
+                </Button>
+                <Button
+                  variant="contained"
+                  onClick={() => navigate('/admin')}
+                  size="small"
+                >
+                  Contact Admin Team
+                </Button>
+              </Stack>
+            </Paper>
+          )}
         </Box>
       )}
 

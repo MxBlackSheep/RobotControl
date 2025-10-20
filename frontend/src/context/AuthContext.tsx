@@ -10,6 +10,9 @@ interface User {
   must_reset?: boolean;
   last_login_ip?: string | null;
   last_login_ip_type?: string | null;
+  session_is_local?: boolean;
+  session_ip_classification?: string | null;
+  session_client_ip?: string | null;
 }
 
 interface AuthContextType {
@@ -45,16 +48,22 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const normalizeUser = useCallback((rawUser: any): User => ({
-    user_id: String(rawUser?.user_id ?? rawUser?.id ?? ''),
-    username: rawUser?.username ?? '',
-    email: rawUser?.email ?? rawUser?.user_email,
-    role: rawUser?.role ?? 'user',
-    is_active: rawUser?.is_active,
-    must_reset: rawUser?.must_reset,
-    last_login_ip: rawUser?.last_login_ip ?? null,
-    last_login_ip_type: rawUser?.last_login_ip_type ?? null,
-  }), []);
+  const normalizeUser = useCallback((rawUser: any, sessionOverride?: any): User => {
+    const session = sessionOverride ?? rawUser?.session ?? {};
+    return {
+      user_id: String(rawUser?.user_id ?? rawUser?.id ?? ''),
+      username: rawUser?.username ?? '',
+      email: rawUser?.email ?? rawUser?.user_email,
+      role: rawUser?.role ?? 'user',
+      is_active: rawUser?.is_active,
+      must_reset: rawUser?.must_reset,
+      last_login_ip: rawUser?.last_login_ip ?? null,
+      last_login_ip_type: rawUser?.last_login_ip_type ?? null,
+      session_is_local: typeof session?.is_local === 'boolean' ? session.is_local : undefined,
+      session_ip_classification: session?.ip_classification ?? null,
+      session_client_ip: session?.client_ip ?? null,
+    };
+  }, []);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -65,7 +74,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           const response = await authAPI.me();
           // Handle standardized response format: { success, data: {...}, metadata }
           const userData = response.data.data || response.data;
-          setUser(normalizeUser(userData));
+          setUser(normalizeUser(userData, userData?.session));
         }
       } catch (error) {
         localStorage.removeItem('access_token');
@@ -101,12 +110,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       const response = await authAPI.login(username, password);
       // Handle standardized response format: { success, data: {...}, metadata }
       const responseData = response.data.data || response.data;
-      const { access_token, refresh_token, user: userData } = responseData;
+      const { access_token, refresh_token, user: userData, session } = responseData;
       
       localStorage.setItem('access_token', access_token);
       localStorage.setItem('refresh_token', refresh_token);
       setToken(access_token);
-      setUser(normalizeUser(userData));
+      setUser(normalizeUser(userData, session));
     } catch (error) {
       throw new Error('Login failed');
     }
@@ -116,12 +125,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       const response = await authAPI.register(username, email, password);
       const responseData = response.data.data || response.data;
-      const { access_token, refresh_token, user: userData } = responseData;
+      const { access_token, refresh_token, user: userData, session } = responseData;
 
       localStorage.setItem('access_token', access_token);
       localStorage.setItem('refresh_token', refresh_token);
       setToken(access_token);
-      setUser(normalizeUser(userData));
+      setUser(normalizeUser(userData, session));
     } catch (error) {
       throw new Error('Registration failed');
     }
@@ -133,7 +142,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       const response = await authAPI.me();
       const userData = response.data.data || response.data;
-      setUser(normalizeUser(userData));
+      setUser(normalizeUser(userData, userData?.session));
     } catch (error) {
       // If fetching profile fails, log the user out to avoid inconsistent state
       localStorage.removeItem('access_token');

@@ -12,11 +12,13 @@ try:
     from backend.utils.datetime import (
         ensure_local_naive,
         parse_iso_datetime_to_local,
+        utc_now_as_local_naive,
     )
 except ImportError:  # pragma: no cover - fallback for legacy packaging
     from utils.datetime import (  # type: ignore
         ensure_local_naive,
         parse_iso_datetime_to_local,
+        utc_now_as_local_naive,
     )
 
 
@@ -141,9 +143,9 @@ class ScheduledExperiment:
         if not self.schedule_id:
             self.schedule_id = str(uuid.uuid4())
         if self.created_at is None:
-            self.created_at = datetime.utcnow()
+            self.created_at = utc_now_as_local_naive()
         if self.updated_at is None:
-            self.updated_at = datetime.utcnow()
+            self.updated_at = utc_now_as_local_naive()
     
     def to_dict(self) -> Dict[str, Any]:
         return {
