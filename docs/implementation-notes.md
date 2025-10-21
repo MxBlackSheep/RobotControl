@@ -1,6 +1,14 @@
 # RobotControl Development Log (Chronological)
 
 ---
+## 2025-10-22 Local Scheduling Guardrails
+
+- Reworked schedule management controls to respect the session’s `session_is_local`/`last_login_ip_type` flags so remote browsers stay in read-only mode while the local workstation still gets full CRUD (`frontend/src/pages/SchedulingPage.tsx`).
+- Hid the manual recovery action buttons for remote users while keeping the status display intact; handlers now short-circuit when the session is not local to prevent accidental calls from devtools (`frontend/src/pages/SchedulingPage.tsx`).
+- Replaced the Database Operations tab with an informational card for remote sessions so destructive experiment tooling never renders outside the lab (`frontend/src/pages/DatabasePage.tsx`).
+- Fixed the “local session” check to rely on the live `session_is_local` flag (with hostname fallback only when the flag is missing) so remote logins that previously logged in locally no longer gain restore or scheduling controls (`frontend/src/pages/DatabasePage.tsx`, `frontend/src/components/DatabaseRestore.tsx`, `frontend/src/pages/SchedulingPage.tsx`).
+- Archived schedule deletion buttons now respect the same guard, keeping remote users from removing runs while still letting them review history (`frontend/src/pages/SchedulingPage.tsx`).
+
 ## 2025-10-21 Schedule Timestamp Localisation
 
 - Stopped writing UTC-naive strings for new schedules by stamping `created_at` / `updated_at` with the local wall-clock and persisting those values explicitly in SQLite (`backend/models.py`, `backend/services/scheduling/sqlite_database.py`, `backend/api/scheduling.py`).

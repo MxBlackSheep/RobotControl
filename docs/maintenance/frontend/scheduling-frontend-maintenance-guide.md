@@ -27,6 +27,16 @@ This document spells out how the scheduling UI is wired together. It assumes you
 
 ---
 
+## 1.5 Local vs Remote Sessions
+
+- `SchedulingPage` calculates `isLocalSession` from the authenticated user (`session_is_local` when available, otherwise it falls back to checking whether the browser is hitting a localhost hostname). Do not try to outsmart this—fetch the flag from `useAuth()` instead of inventing your own detection.
+- When `isLocalSession` is `false`, all destructive controls disappear: the Create/Edit/Delete/Archive buttons are replaced with a notice, and the manual recovery buttons (“View Schedule”, “Resolve Manual Recovery”) are hidden. The read-only cards stay visible so remote viewers still see status updates.
+- The confirm handlers (`handleViewRecoverySchedule`, `handleResolveManualRecovery`) bail out early if `isLocalSession` is false. Leave those guards in place—remote browsers should never trigger backend mutations through devtools tricks.
+- Folder import is also gated; the button stays visible only when the session is local (and falls back to hostname detection for development). Remote users should see the explanatory caption instead of touchy file dialogs.
+- The archived schedules tab only wires up the delete callback when the session is local, so remote users never see the trash icon and cannot purge historical runs.
+
+---
+
 ## 2. Scheduling Workflow Overview
 
 1. **Page mount** → `const { state, actions } = useScheduling();`.  

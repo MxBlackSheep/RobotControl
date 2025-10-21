@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Box,
   Container,
@@ -45,12 +45,21 @@ interface TableInfo {
   is_important?: boolean;
 }
 
+const LOCAL_SESSION_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '0.0.0.0']);
+
 const DatabasePage: React.FC = () => {
   const { user } = useAuthContext();
   const isAdmin = user?.role === 'admin';
-  const isLocalSession = Boolean(
-    (user?.session_is_local ?? false) || user?.last_login_ip_type === 'local'
-  );
+  const isLocalSession = useMemo(() => {
+    if (typeof user?.session_is_local === 'boolean') {
+      return user.session_is_local;
+    }
+    if (typeof window !== 'undefined') {
+      const hostname = window.location.hostname.toLowerCase();
+      return LOCAL_SESSION_HOSTS.has(hostname);
+    }
+    return false;
+  }, [user?.session_is_local]);
   const canUseRestoreTools = Boolean(user && (isAdmin || isLocalSession));
 
   const navigate = useNavigate();
@@ -439,7 +448,31 @@ const DatabasePage: React.FC = () => {
       {/* Tab Panel 3: Database Operations */}
       {activeTab === 3 && (
         <Box>
-          <DatabaseOperations onError={handleError} />
+          {isLocalSession ? (
+            <DatabaseOperations onError={handleError} />
+          ) : (
+            <Card
+              variant="outlined"
+              sx={{
+                p: { xs: 2.5, sm: 3 },
+                mt: { xs: 1, sm: 2 },
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 1.5,
+              }}
+            >
+              <CardContent sx={{ p: 0, '&:last-child': { pb: 0 } }}>
+                <Stack spacing={1.5}>
+                  <Typography variant="h6">Local Access Required</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Database operations that change data are restricted to users working directly on the robot
+                    control workstation. Please sign in locally to manage experiments or contact an on-site
+                    administrator for assistance.
+                  </Typography>
+                </Stack>
+              </CardContent>
+            </Card>
+          )}
         </Box>
       )}
     </Container>

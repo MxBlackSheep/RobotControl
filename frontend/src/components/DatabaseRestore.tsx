@@ -268,8 +268,23 @@ const FileExplorer: React.FC<FileExplorerProps> = ({ open, onClose, onSelect }) 
 
 const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
   const { user } = useAuthContext();
+  const isLocalSession = React.useMemo(() => {
+    if (typeof user?.session_is_local === 'boolean') {
+      return user.session_is_local;
+    }
+    if (typeof window !== 'undefined') {
+      const hostname = window.location.hostname.toLowerCase();
+      return (
+        hostname === 'localhost' ||
+        hostname === '127.0.0.1' ||
+        hostname === '::1' ||
+        hostname === '0.0.0.0'
+      );
+    }
+    return false;
+  }, [user?.session_is_local]);
   const hasBackupAccess = Boolean(
-    user && (user.role === 'admin' || user.session_is_local === true || user.last_login_ip_type === 'local')
+    user && (user.role === 'admin' || isLocalSession)
   );
 
   const [activeTab, setActiveTab] = useState(0); // 0 = .bak files, 1 = .bck browser

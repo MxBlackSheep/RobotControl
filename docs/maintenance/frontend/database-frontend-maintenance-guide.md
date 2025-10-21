@@ -48,6 +48,7 @@ This write-up explains every moving part of the database browser UI. It is desig
 
 5. **Operations tab**  
    - `DatabaseOperations` groups actions (clear cache, rebuild indexes). Each button maps to a backend endpoint exposed under `/api/database/...`.
+   - Remote sessions never mount this component. Instead, the tab shows a friendly “Local Access Required” card. If you change the guard, keep the message in sync so remote staff know to walk over to the robot console.
 
 6. **Error handling**  
    - Any failure sets `error` in `DatabasePage`, which renders `ServerError` with retry buttons.

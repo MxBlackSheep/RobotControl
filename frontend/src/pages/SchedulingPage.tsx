@@ -142,13 +142,31 @@ const SchedulingPage: React.FC = () => {
   const isSmallScreen = useMediaQuery(theme.breakpoints.down('sm'));
   const cardPadding = { xs: 2.75, md: 4 };
   const tabPadding = { xs: 1.75, md: 2.75 };
+  const isLocalSession = useMemo(() => {
+    if (typeof user?.session_is_local === 'boolean') {
+      return user.session_is_local;
+    }
+    if (typeof window !== 'undefined') {
+      const hostname = window.location.hostname.toLowerCase();
+      return (
+        hostname === 'localhost' ||
+        hostname === '127.0.0.1' ||
+        hostname === '::1' ||
+        hostname === '0.0.0.0'
+      );
+    }
+    return false;
+  }, [user?.session_is_local]);
   const isLocalClient = useMemo(() => {
+    if (isLocalSession) {
+      return true;
+    }
     if (typeof window === 'undefined') {
       return false;
     }
     const hostname = window.location.hostname.toLowerCase();
     return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '0.0.0.0';
-  }, []);
+  }, [isLocalSession]);
 
   const formatTimestamp = (value?: string | null): string => {
     if (!value) {
@@ -370,6 +388,9 @@ const SchedulingPage: React.FC = () => {
   );
 
   const handleViewRecoverySchedule = async () => {
+    if (!isLocalSession) {
+      return;
+    }
     const scheduleId = state.manualRecovery?.schedule_id;
     if (!scheduleId) {
       return;
@@ -379,6 +400,9 @@ const SchedulingPage: React.FC = () => {
   };
 
   const handleResolveManualRecovery = async () => {
+    if (!isLocalSession) {
+      return;
+    }
     const scheduleId = state.manualRecovery?.schedule_id;
     if (!scheduleId) {
       window.alert('Manual recovery is active, but the originating schedule could not be identified.');
@@ -862,99 +886,108 @@ const SchedulingPage: React.FC = () => {
                     <Typography variant="h6" gutterBottom>
                       Actions
                     </Typography>
-                    <Stack spacing={2}>
-                      {/* Create New Schedule Button */}
-                      <Button
-                        variant="contained"
-                        fullWidth
-                        startIcon={<AddIcon />}
-                        onClick={handleOpenCreateForm}
-                        disabled={state.loading}
-                      >
-                        Create New Schedule
-                      </Button>
-                      
-                      {/* Import Experiments Button */}
-                      <Button
-                        variant="outlined"
-                        fullWidth
-                        startIcon={<FolderIcon />}
-                        onClick={() => {
-                          if (!isLocalClient) {
-                            window.alert('Import from folder is only available when accessing RobotControl locally.');
-                            return;
-                          }
-                          setFolderImportOpen(true);
-                        }}
-                        disabled={state.loading || !isLocalClient}
-                      >
-                        Import Experiments from Folder
-                      </Button>
-                      {!isLocalClient && (
-                        <Typography variant="caption" color="text.secondary">
-                          Available only when using RobotControl directly on the host machine.
-                        </Typography>
-                      )}
-
-                      {/* Edit/Delete for selected schedule */}
-                      {state.selectedSchedule && (
-                        <>
-                          <Divider />
-                          <Typography variant="subtitle2" color="text.secondary">
-                            Selected: {state.selectedSchedule.experiment_name}
+                    {isLocalSession ? (
+                      <Stack spacing={2}>
+                        {/* Create New Schedule Button */}
+                        <Button
+                          variant="contained"
+                          fullWidth
+                          startIcon={<AddIcon />}
+                          onClick={handleOpenCreateForm}
+                          disabled={state.loading}
+                        >
+                          Create New Schedule
+                        </Button>
+                        
+                        {/* Import Experiments Button */}
+                        <Button
+                          variant="outlined"
+                          fullWidth
+                          startIcon={<FolderIcon />}
+                          onClick={() => {
+                            if (!isLocalClient) {
+                              window.alert('Import from folder is only available when accessing RobotControl locally.');
+                              return;
+                            }
+                            setFolderImportOpen(true);
+                          }}
+                          disabled={state.loading || !isLocalClient}
+                        >
+                          Import Experiments from Folder
+                        </Button>
+                        {!isLocalClient && (
+                          <Typography variant="caption" color="text.secondary">
+                            Available only when using RobotControl directly on the host machine.
                           </Typography>
-                          {state.selectedSchedule.experiment_path && (
-                            <Typography
-                              variant="caption"
-                              color="text.secondary"
-                              sx={{ display: 'block', wordBreak: 'break-all', mt: 0.25 }}
-                            >
-                              Method path:{' '}
-                              <Typography component="span" variant="caption" sx={{ fontFamily: 'monospace' }}>
-                                {state.selectedSchedule.experiment_path}
-                              </Typography>
-                            </Typography>
-                          )}
-                      <Button
-                        variant="outlined"
-                        fullWidth
-                        startIcon={<EditIcon />}
-                        onClick={handleOpenEditForm}
-                        disabled={state.loading}
-                      >
-                        Edit Schedule
-                      </Button>
-                      <Button
-                        variant="outlined"
-                        fullWidth
-                        startIcon={<ArchiveIcon />}
-                        onClick={async () => {
-                          if (!state.selectedSchedule) {
-                            return;
-                          }
-                          await actions.archiveSchedule(
-                            state.selectedSchedule,
-                            !state.selectedSchedule.archived,
-                          );
-                        }}
-                        disabled={state.loading || !state.selectedSchedule}
-                      >
-                        {state.selectedSchedule?.archived ? 'Unarchive Schedule' : 'Archive Schedule'}
-                      </Button>
-                      <Button
-                        variant="outlined"
-                        color="error"
-                        fullWidth
-                        startIcon={<DeleteIcon />}
-                        onClick={() => setDeleteDialogOpen(true)}
-                        disabled={state.loading}
-                      >
-                        Delete Schedule
-                      </Button>
-                        </>
-                      )}
+                        )}
 
-                    </Stack>
+                        {/* Edit/Delete for selected schedule */}
+                        {state.selectedSchedule && (
+                          <>
+                            <Divider />
+                            <Typography variant="subtitle2" color="text.secondary">
+                              Selected: {state.selectedSchedule.experiment_name}
+                            </Typography>
+                            {state.selectedSchedule.experiment_path && (
+                              <Typography
+                                variant="caption"
+                                color="text.secondary"
+                                sx={{ display: 'block', wordBreak: 'break-all', mt: 0.25 }}
+                              >
+                                Method path:{' '}
+                                <Typography component="span" variant="caption" sx={{ fontFamily: 'monospace' }}>
+                                  {state.selectedSchedule.experiment_path}
+                                </Typography>
+                              </Typography>
+                            )}
+                        <Button
+                          variant="outlined"
+                          fullWidth
+                          startIcon={<EditIcon />}
+                          onClick={handleOpenEditForm}
+                          disabled={state.loading}
+                        >
+                          Edit Schedule
+                        </Button>
+                        <Button
+                          variant="outlined"
+                          fullWidth
+                          startIcon={<ArchiveIcon />}
+                          onClick={async () => {
+                            if (!state.selectedSchedule) {
+                              return;
+                            }
+                            await actions.archiveSchedule(
+                              state.selectedSchedule,
+                              !state.selectedSchedule.archived,
+                            );
+                          }}
+                          disabled={state.loading || !state.selectedSchedule}
+                        >
+                          {state.selectedSchedule?.archived ? 'Unarchive Schedule' : 'Archive Schedule'}
+                        </Button>
+                        <Button
+                          variant="outlined"
+                          color="error"
+                          fullWidth
+                          startIcon={<DeleteIcon />}
+                          onClick={() => setDeleteDialogOpen(true)}
+                          disabled={state.loading}
+                        >
+                          Delete Schedule
+                        </Button>
+                          </>
+                        )}
+                      </Stack>
+                    ) : (
+                      <Stack spacing={2}>
+                        <Typography variant="body2" color="text.secondary">
+                          Schedule actions such as creating, editing, archiving, or deleting are only available when
+                          you are logged in from the local robot control workstation. You can still review schedule
+                          details remotely.
+                        </Typography>
+                      </Stack>
+                    )}
                   </CardContent>
                 </Card>
 
@@ -1073,24 +1106,30 @@ const SchedulingPage: React.FC = () => {
                       </Typography>
                     )}
                   </Stack>
-                  <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
-                    <Button
-                      variant="outlined"
-                      onClick={handleViewRecoverySchedule}
-                      disabled={!state.manualRecovery.schedule_id}
-                    >
-                      View Schedule
-                    </Button>
-                    {state.manualRecovery.active && (
+                  {isLocalSession ? (
+                    <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
                       <Button
-                        variant="contained"
-                        color="primary"
-                        onClick={handleResolveManualRecovery}
+                        variant="outlined"
+                        onClick={handleViewRecoverySchedule}
+                        disabled={!state.manualRecovery.schedule_id}
                       >
-                        Resolve Manual Recovery
+                        View Schedule
                       </Button>
-                    )}
-                  </Stack>
+                      {state.manualRecovery.active && (
+                        <Button
+                          variant="contained"
+                          color="primary"
+                          onClick={handleResolveManualRecovery}
+                        >
+                          Resolve Manual Recovery
+                        </Button>
+                      )}
+                    </Stack>
+                  ) : (
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+                      Manual recovery controls are available only on the local robot control workstation.
+                    </Typography>
+                  )}
                 </CardContent>
               </Card>
             )}
@@ -1114,15 +1153,28 @@ const SchedulingPage: React.FC = () => {
             selectedSchedule={state.selectedSchedule}
             onScheduleSelect={actions.selectSchedule}
             onRefresh={actions.loadArchivedSchedules}
-            onDeleteSchedule={(schedule) => {
-              actions.selectSchedule(schedule);
-              setDeleteDialogOpen(true);
-            }}
+            onDeleteSchedule={
+              isLocalSession
+                ? (schedule) => {
+                    actions.selectSchedule(schedule);
+                    setDeleteDialogOpen(true);
+                  }
+                : undefined
+            }
             loading={state.archivedLoading}
             error={state.archivedError}
             initialized={state.archivedInitialized}
             archivedView
           />
+          {!isLocalSession && (
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ mt: 1, display: 'block' }}
+            >
+              Archival cleanup can only be performed from the local robot control workstation.
+            </Typography>
+          )}
         </TabPanel>
 
         {user?.role === 'admin' && (
