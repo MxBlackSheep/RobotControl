@@ -1,6 +1,15 @@
 # RobotControl Development Log (Chronological)
 
 ---
+## 2026-02-12 HxRun Maintenance Mode (Event + Fallback Enforcement)
+
+- Added a new persistent **HxRun Maintenance Mode** (separate from the existing database-restore maintenance window) with a dedicated backend API: authenticated users can inspect state, while toggles require loopback/local access (`backend/api/maintenance.py`, `backend/main.py`).
+- Extended scheduler SQLite global state to store `hxrun_maintenance_enabled` plus reason/user/timestamp metadata, including auto-migration for existing databases (`backend/services/scheduling/sqlite_database.py`, `backend/services/scheduling/database_manager.py`, `backend/models.py`).
+- Introduced a global enforcement service that uses **event-driven process-start watching** for `HxRun.exe` with **1s fallback polling**; when enabled, any detected HxRun process is terminated and a Windows popup explains the block (`backend/services/hxrun_maintenance.py`, `backend/main.py`).
+- Added hard backend guards so scheduler dispatch pauses while maintenance mode is enabled and experiment execution exits early with a clear maintenance-blocked error instead of launching HxRun (`backend/services/scheduling/scheduler_engine.py`, `backend/services/scheduling/experiment_executor.py`).
+- Added an independent top-level `MAINTENANCE` page/tab between Labware and System Status, with local-only edit controls and remote read-only inspection (`frontend/src/pages/MaintenancePage.tsx`, `frontend/src/services/hxrunMaintenanceApi.ts`, `frontend/src/App.tsx`, `frontend/src/components/MobileDrawer.tsx`, `frontend/src/components/NavigationBreadcrumbs.tsx`, `frontend/src/hooks/useKeyboardNavigation.ts`, `frontend/src/components/KeyboardShortcutsHelp.tsx`).
+- Added API + executor regression tests for local/remote permissions and maintenance launch blocking (`backend/tests/test_hxrun_maintenance_api.py`, `backend/tests/test_hxrun_maintenance_executor.py`).
+
 ## 2026-02-12 Camera Download Resume + Retry
 
 - Upgraded camera recording downloads to support resumable transfers over unstable links by adding `HEAD` + `GET` range handling on `/api/camera/recording/{recording_id}`; responses now include `Accept-Ranges`, `Content-Range` (for `206`), `ETag`, and `Last-Modified`, and return `416` for invalid ranges (`backend/api/camera.py`).

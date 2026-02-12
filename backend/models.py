@@ -403,6 +403,33 @@ class ManualRecoveryState:
 
 
 @dataclass
+class HxRunMaintenanceState:
+    """Global maintenance switch that blocks any HxRun launch attempts."""
+
+    enabled: bool = False
+    reason: Optional[str] = None
+    updated_by: Optional[str] = None
+    updated_at: Optional[datetime] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "reason": self.reason,
+            "updated_by": self.updated_by,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "HxRunMaintenanceState":
+        return cls(
+            enabled=bool(data.get("enabled", False)),
+            reason=data.get("reason"),
+            updated_by=data.get("updated_by"),
+            updated_at=parse_iso_datetime_to_local(data.get("updated_at")),
+        )
+
+
+@dataclass
 class JobExecution:
     """Model for tracking individual job execution instances"""
     execution_id: str

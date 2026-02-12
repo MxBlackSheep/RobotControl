@@ -23,6 +23,7 @@ from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass
 from pathlib import Path
 from backend.models import ScheduledExperiment, JobExecution, RetryConfig
+from backend.services.hxrun_maintenance import get_hxrun_maintenance_service
 from backend.services.scheduling.database_manager import get_scheduling_database_manager
 from backend.services.scheduling.process_monitor import get_hamilton_process_monitor
 from backend.services.scheduling.experiment_discovery import get_experiment_discovery_service
@@ -97,6 +98,7 @@ class ExperimentExecutor:
         self.config = config or ExecutionConfig()
         self.db_manager = get_scheduling_database_manager()
         self.process_monitor = get_hamilton_process_monitor()
+        self.hxrun_maintenance_service = get_hxrun_maintenance_service()
         self.pre_execution = PreExecutionPipeline(self.db_manager)
         self._active_executions: Dict[str, subprocess.Popen] = {}
         self._execution_lock = threading.RLock()
@@ -122,6 +124,13 @@ class ExperimentExecutor:
         pre_run = None
         try:
             logger.info(f"Starting experiment execution: {experiment.experiment_name}")
+            if self.hxrun_maintenance_service.is_enabled():
+                execution.error_message = self._maintenance_block_message()
+                logger.warning(
+                    "Blocked experiment execution for %s because HxRun maintenance mode is enabled",
+                    experiment.experiment_name,
+                )
+                return False
 
             pre_run = self.pre_execution.run(experiment)
             if not pre_run.success:
@@ -248,6 +257,18 @@ class ExperimentExecutor:
         
         for attempt in range(max_retries + 1):
             try:
+                if self.hxrun_maintenance_service.is_enabled():
+                    return ExecutionResult(
+                        success=False,
+                        return_code=None,
+                        stdout="",
+                        stderr="",
+                        execution_time_seconds=0,
+                        command_executed="",
+                        error_message=self._maintenance_block_message(),
+                        retry_count=attempt,
+                    )
+
                 # Check if Hamilton is busy before attempting
                 if self.process_monitor.is_hamilton_running():
                     if attempt == max_retries:
@@ -310,6 +331,11 @@ class ExperimentExecutor:
             error_message="Unexpected retry logic error",
             retry_count=max_retries
         )
+
+    def _maintenance_block_message(self) -> str:
+        state = self.hxrun_maintenance_service.get_state(force_refresh=False)
+        detail = state.reason or "HxRun maintenance mode is enabled."
+        return f"HxRun launch blocked by maintenance mode: {detail}"
     
     def _execute_hamilton_command(self, experiment: ScheduledExperiment, 
                                 execution: JobExecution) -> ExecutionResult:

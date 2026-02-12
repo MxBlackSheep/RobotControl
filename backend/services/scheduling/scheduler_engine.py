@@ -31,6 +31,7 @@ from backend.models import (
 from backend.services.scheduling.database_manager import get_scheduling_database_manager
 from backend.services.scheduling.process_monitor import get_hamilton_process_monitor
 from backend.services.notifications import get_notification_service
+from backend.services.hxrun_maintenance import get_hxrun_maintenance_service
 
 try:
     from backend.utils.datetime import ensure_local_naive
@@ -116,11 +117,13 @@ class SchedulerEngine:
         self._manual_recovery_cache: ManualRecoveryState = ManualRecoveryState()
         self._manual_state_last_check: float = 0.0
         self._manual_state_logged_active = False
+        self._hxrun_maintenance_logged_active = False
         self._notification_service = get_notification_service() if self.config.enable_notifications else None
         
         # Service dependencies
         self.db_manager = get_scheduling_database_manager()
         self.process_monitor = get_hamilton_process_monitor()
+        self.hxrun_maintenance_service = get_hxrun_maintenance_service()
         
         # Threading synchronization
         self._schedules_lock = threading.RLock()
@@ -415,6 +418,8 @@ class SchedulerEngine:
             }
         manual_state = self.get_manual_recovery_state()
         status["manual_recovery"] = manual_state.to_dict() if manual_state else None
+        hxrun_state = self.hxrun_maintenance_service.get_state(force_refresh=False)
+        status["hxrun_maintenance"] = hxrun_state.to_dict()
         return status
     
     def add_event_callback(self, callback: Callable[[SchedulingEvent], None]):
@@ -560,6 +565,19 @@ class SchedulerEngine:
         while self._running:
             try:
                 current_time = datetime.now()
+                hxrun_state = self.hxrun_maintenance_service.get_state(force_refresh=False)
+                if hxrun_state.enabled:
+                    if not self._hxrun_maintenance_logged_active:
+                        logger.warning(
+                            "HxRun maintenance mode active; scheduler dispatch paused (%s)",
+                            hxrun_state.reason or "no reason provided",
+                        )
+                        self._hxrun_maintenance_logged_active = True
+                    time.sleep(self.config.check_interval_seconds)
+                    continue
+                if self._hxrun_maintenance_logged_active:
+                    logger.info("HxRun maintenance mode cleared; scheduler dispatch resuming")
+                    self._hxrun_maintenance_logged_active = False
 
                 manual_state = self._refresh_manual_recovery_state()
                 if manual_state.active:

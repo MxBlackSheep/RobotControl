@@ -14,6 +14,7 @@ This document explains how the scheduling subsystem fits together and how to mod
 
 - `backend/services/scheduling/experiment_executor.py`  
   Bridges between schedule metadata and the Hamilton controller (builds the command line, launches HxRun, tracks process exit codes).
+  Also checks the global HxRun maintenance flag and blocks launches when enabled.
 
 - `backend/services/scheduling/process_monitor.py`  
   Watches Hamilton processes so the scheduler knows whether the robot is already busy.
@@ -26,6 +27,9 @@ This document explains how the scheduling subsystem fits together and how to mod
 
 - `backend/api/scheduling.py`  
   FastAPI endpoints. Marshals request payloads, performs optimistic locking, and calls into the manager and engine.
+
+- `backend/services/hxrun_maintenance.py`  
+  Global enforcer outside the scheduler package. Scheduler/Executor both consult this flag before dispatching HxRun work.
 
 **Rule of thumb:** never reach into `sqlite_database.py` from the API or engine directly. Always go through `SchedulingDatabaseManager`.
 
@@ -42,17 +46,20 @@ This document explains how the scheduling subsystem fits together and how to mod
 3. **Capacity check** (`_acquire_capacity_slot`).  
    Tries up to five times (configurable) to reserve a slot under `config.max_concurrent_jobs`. Logs `Scheduler at capacity…` while waiting.
 
-4. **Execution** (`ExperimentExecutor.execute_experiment`).  
+4. **Maintenance guard** (`SchedulerEngine._scheduler_loop`, `ExperimentExecutor.execute_experiment`).  
+   If HxRun maintenance mode is enabled, dispatch is paused and executor returns a blocked message without launching HxRun.
+
+5. **Execution** (`ExperimentExecutor.execute_experiment`).  
    Launches HxRun, waits for completion, collects exit code, returns success flag.
 
-5. **Result handling** (`_execute_job`).  
+6. **Result handling** (`_execute_job`).  
    Updates execution row (`running` → `completed` or `failed`), updates schedule next-run time, triggers notifications.
 
-6. **Failure pathways** (`_handle_failed_execution`).  
+7. **Failure pathways** (`_handle_failed_execution`).  
    - Abort signals ⇒ schedule marked inactive via `mark_recovery_required`, email alerts sent.  
    - Capacity exhaustion ⇒ run logged as failed, schedule rescheduled to the next interval.
 
-7. **Watcher cleanup** (`_clear_execution_watch`).  
+8. **Watcher cleanup** (`_clear_execution_watch`).  
    Removes timers that detect long-running jobs.
 
 ---

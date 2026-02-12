@@ -28,6 +28,7 @@ import MaintenanceDialog from './components/MaintenanceDialog';
 const DatabasePage = loadComponent(() => import('./pages/DatabasePage'));
 const CameraPage = loadComponent(() => import('./pages/CameraPage'));
 const LabwarePage = loadComponent(() => import('./pages/LabwarePage'));
+const MaintenancePage = loadComponent(() => import('./pages/MaintenancePage'));
 const SystemStatusPage = loadComponent(() => import('./pages/MonitoringPage'));
 const SchedulingPage = loadComponent(() => import('./pages/SchedulingPage'));
 const AboutPage = loadComponent(() => import('./pages/AboutPage'));
@@ -76,6 +77,7 @@ const AppContent: React.FC = () => {
       items.push({ label: 'Labware', path: '/labware' });
     }
 
+    items.push({ label: 'Maintenance', path: '/maintenance' });
     items.push({ label: 'System Status', path: '/system-status' });
 
     if (user?.role === 'admin') {
@@ -251,6 +253,7 @@ const AppContent: React.FC = () => {
             {(['admin', 'user'].includes(user?.role || '')) && (
               <Route path="/labware" element={<LabwarePage />} />
             )}
+            <Route path="/maintenance" element={<MaintenancePage />} />
             <Route path="/system-status" element={<SystemStatusPage />} />
             <Route path="/monitoring" element={<Navigate to="/system-status" replace />} />
             {(['admin', 'user'].includes(user?.role || '')) && (

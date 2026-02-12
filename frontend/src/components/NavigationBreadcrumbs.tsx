@@ -19,6 +19,7 @@ import {
   Storage as DatabaseIcon,
   Videocam as CameraIcon,
   Science as LabwareIcon,
+  Build as MaintenanceIcon,
   MonitorHeart as MonitoringIcon,
   Schedule as ScheduleIcon,
   Info as InfoIcon,
@@ -71,6 +72,11 @@ const routeConfigs: BreadcrumbConfig[] = [
     label: 'Labware',
     icon: <LabwareIcon fontSize="small" />,
     requiresRole: ['admin', 'user'],
+  },
+  {
+    path: '/maintenance',
+    label: 'Maintenance',
+    icon: <MaintenanceIcon fontSize="small" />,
   },
   {
     path: '/system-status',

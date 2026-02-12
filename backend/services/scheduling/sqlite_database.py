@@ -18,6 +18,7 @@ from datetime import datetime, timedelta
 from contextlib import contextmanager
 from backend.utils.data_paths import get_data_path
 from backend.models import (
+    HxRunMaintenanceState,
     ScheduledExperiment,
     JobExecution,
     RetryConfig,
@@ -163,7 +164,11 @@ class SQLiteSchedulingDatabase:
                         recovery_triggered_by TEXT,
                         recovery_triggered_at TEXT,
                         recovery_resolved_by TEXT,
-                        recovery_resolved_at TEXT
+                        recovery_resolved_at TEXT,
+                        hxrun_maintenance_enabled INTEGER NOT NULL DEFAULT 0,
+                        hxrun_maintenance_reason TEXT,
+                        hxrun_maintenance_updated_by TEXT,
+                        hxrun_maintenance_updated_at TEXT
                     )
                 """)
                 cursor.execute("INSERT OR IGNORE INTO SchedulerState (id) VALUES (1)")
@@ -279,6 +284,28 @@ class SQLiteSchedulingDatabase:
                             logger.warning("SQLite scheduling database: unable to add column %s (%s)", column_name, alter_exc)
 
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_scheduled_recovery_required ON ScheduledExperiments(recovery_required)")
+
+                scheduler_state_columns = {col["name"] for col in cursor.execute("PRAGMA table_info(SchedulerState)")}
+                scheduler_state_alterations = [
+                    (
+                        "hxrun_maintenance_enabled",
+                        "ALTER TABLE SchedulerState ADD COLUMN hxrun_maintenance_enabled INTEGER NOT NULL DEFAULT 0",
+                    ),
+                    ("hxrun_maintenance_reason", "ALTER TABLE SchedulerState ADD COLUMN hxrun_maintenance_reason TEXT"),
+                    ("hxrun_maintenance_updated_by", "ALTER TABLE SchedulerState ADD COLUMN hxrun_maintenance_updated_by TEXT"),
+                    ("hxrun_maintenance_updated_at", "ALTER TABLE SchedulerState ADD COLUMN hxrun_maintenance_updated_at TEXT"),
+                ]
+                for column_name, alter_sql in scheduler_state_alterations:
+                    if column_name not in scheduler_state_columns:
+                        try:
+                            cursor.execute(alter_sql)
+                            logger.info("SQLite scheduling database: added SchedulerState column %s", column_name)
+                        except Exception as alter_exc:
+                            logger.warning(
+                                "SQLite scheduling database: unable to add SchedulerState column %s (%s)",
+                                column_name,
+                                alter_exc,
+                            )
 
                 # Test database access
                 cursor.execute("SELECT COUNT(*) FROM ScheduledExperiments")
@@ -1027,6 +1054,61 @@ class SQLiteSchedulingDatabase:
             logger.error(f"Failed to clear scheduler recovery state: {exc}")
 
         return self.get_manual_recovery_state()
+
+    def get_hxrun_maintenance_state(self) -> HxRunMaintenanceState:
+        """Return the persisted HxRun maintenance mode flag and metadata."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT hxrun_maintenance_enabled, hxrun_maintenance_reason, "
+                    "hxrun_maintenance_updated_by, hxrun_maintenance_updated_at "
+                    "FROM SchedulerState WHERE id = 1"
+                )
+                row = cursor.fetchone()
+        except Exception as exc:
+            logger.error(f"Failed to load HxRun maintenance state: {exc}")
+            row = None
+
+        if not row:
+            return HxRunMaintenanceState()
+
+        return HxRunMaintenanceState(
+            enabled=bool(row["hxrun_maintenance_enabled"]),
+            reason=row["hxrun_maintenance_reason"],
+            updated_by=row["hxrun_maintenance_updated_by"],
+            updated_at=self._parse_timestamp(row["hxrun_maintenance_updated_at"]),
+        )
+
+    def set_hxrun_maintenance_state(
+        self,
+        enabled: bool,
+        reason: Optional[str],
+        user: str,
+    ) -> HxRunMaintenanceState:
+        """Persist HxRun maintenance mode flag updates."""
+        timestamp = datetime.now().isoformat()
+        normalized_reason = reason.strip() if isinstance(reason, str) and reason.strip() else None
+
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    UPDATE SchedulerState SET
+                        hxrun_maintenance_enabled = ?,
+                        hxrun_maintenance_reason = ?,
+                        hxrun_maintenance_updated_by = ?,
+                        hxrun_maintenance_updated_at = ?
+                    WHERE id = 1
+                    """,
+                    (1 if enabled else 0, normalized_reason, user, timestamp),
+                )
+                conn.commit()
+        except Exception as exc:
+            logger.error(f"Failed to persist HxRun maintenance state: {exc}")
+
+        return self.get_hxrun_maintenance_state()
 
     def _archive_job_executions(
         self,
