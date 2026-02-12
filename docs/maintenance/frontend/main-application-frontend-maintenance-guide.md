@@ -47,7 +47,7 @@ This guide explains the overall React shell: routing, theming, providers, and na
 
 4. **Route definitions**  
    - `'/'` → `Dashboard`  
-   - `/database`, `/camera`, `/system-status`, `/scheduling`, `/admin`, `/about` (lazy-loaded).  
+   - `/database`, `/camera`, `/labware`, `/system-status`, `/scheduling`, `/admin`, `/about` (lazy-loaded).  
    - Redirect unknown paths with `<Navigate to="/" />` as needed.
 
 5. **Global dialogs**  

@@ -16,7 +16,7 @@ This guide explains how the FastAPI entry point, logging, static assets, and bui
   Builds rotating file handlers, optional JSON logs, and log rate limiting. Imported early in `main.py`.
 
 - API routers included by `main.py`:
-  - `backend/api/auth`, `backend/api/database`, `backend/api/camera`, `backend/api/monitoring`, `backend/api/scheduling`, `backend/api/admin`, `backend/api/system_config`, `backend/api/system`, `backend/api/experiments`.
+  - `backend/api/auth`, `backend/api/database`, `backend/api/camera`, `backend/api/monitoring`, `backend/api/scheduling`, `backend/api/labware`, `backend/api/admin`, `backend/api/system_config`, `backend/api/system`, `backend/api/experiments`.
 
 - Static asset helpers
   - `backend/services/embedded_resources.py` & generated `backend/embedded_static.py` handle single-exe mode.

@@ -52,20 +52,26 @@ export const useKeyboardNavigation = ({
     {
       key: '4',
       altKey: true,
-      action: () => navigate('/system-status'),
-      description: 'Go to System Status (Alt+4)'
+      action: () => navigate('/labware'),
+      description: 'Go to Labware (Alt+4)'
     },
     {
       key: '5',
       altKey: true,
-      action: () => navigate('/scheduling'),
-      description: 'Go to Scheduling (Alt+5)'
+      action: () => navigate('/system-status'),
+      description: 'Go to System Status (Alt+5)'
     },
     {
       key: '6',
       altKey: true,
+      action: () => navigate('/scheduling'),
+      description: 'Go to Scheduling (Alt+6)'
+    },
+    {
+      key: '7',
+      altKey: true,
       action: () => navigate('/about'),
-      description: 'Go to About (Alt+6)'
+      description: 'Go to About (Alt+7)'
     },
     {
       key: 'h',

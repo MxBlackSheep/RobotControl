@@ -1,6 +1,14 @@
 # RobotControl Development Log (Chronological)
 
 ---
+## 2026-02-12 Labware TipTracking Web Module
+
+- Added a dedicated Labware backend module with SQL-backed tip tracking for `1000ul` and `300ul` families, including snapshot read APIs plus batch update/reset operations (`backend/services/labware_tip_tracking.py`, `backend/api/labware.py`, `backend/main.py`).
+- Enforced the requested permission model: authenticated admin/user sessions can inspect tip state, while write endpoints require local network access via `require_local_access` (remote sessions are read-only by design).
+- Added a new `LABWARE` top-level page between Camera and System Status with a secondary tab architecture (`TipTracking` as the first module) and a full interactive tip editor (select/apply tip, apply column, apply rack, pending queue, save/discard/reset, legend, auto-refresh) (`frontend/src/pages/LabwarePage.tsx`, `frontend/src/components/labware/TipTrackingPanel.tsx`, `frontend/src/services/labwareApi.ts`).
+- Updated navigation and discoverability for the new route across desktop tabs, mobile drawer, breadcrumbs, and keyboard shortcuts/help text (`frontend/src/App.tsx`, `frontend/src/components/MobileDrawer.tsx`, `frontend/src/components/NavigationBreadcrumbs.tsx`, `frontend/src/hooks/useKeyboardNavigation.ts`, `frontend/src/components/KeyboardShortcutsHelp.tsx`).
+- Added backend and frontend maintenance guides for the new module and refreshed main-application guides to list the new route/router (`docs/maintenance/backend/labware-maintenance-guide.md`, `docs/maintenance/frontend/labware-frontend-maintenance-guide.md`, `docs/maintenance/backend/main-application-maintenance-guide.md`, `docs/maintenance/frontend/main-application-frontend-maintenance-guide.md`).
+
 ## 2025-10-22 Local Scheduling Guardrails
 
 - Reworked schedule management controls to respect the session’s `session_is_local`/`last_login_ip_type` flags so remote browsers stay in read-only mode while the local workstation still gets full CRUD (`frontend/src/pages/SchedulingPage.tsx`).

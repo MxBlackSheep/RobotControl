@@ -68,6 +68,7 @@ from backend.api.system_config import router as system_config_router
 from backend.api.camera import router as camera_router
 from backend.api.scheduling import router as scheduling_router
 from backend.api.system import router as system_router
+from backend.api.labware import router as labware_router
 
 # Import services for initialization
 from backend.services.database import get_database_service
@@ -504,6 +505,7 @@ app.include_router(monitoring_router, prefix="/api/monitoring", tags=["monitorin
 app.include_router(system_config_router, prefix="/api/admin/system", tags=["admin", "system"])
 app.include_router(system_router, tags=["system"])
 app.include_router(scheduling_router, tags=["scheduling"])
+app.include_router(labware_router, tags=["labware"])
 
 # Health check endpoint (must be before catch-all route)
 @app.get("/health")
@@ -643,6 +645,7 @@ async def root():
             "database": "/api/database/",
             "backup": "/api/admin/backup/",
             "admin": "/api/admin/",
+            "labware": "/api/labware/",
             "documentation": "/docs",
             "health": "/health"
         }
@@ -692,6 +695,15 @@ async def api_info():
                     "GET /api/admin/backup/health"
                 ],
                 "note": "Admin authentication required for all backup operations"
+            },
+            "labware": {
+                "base_url": "/api/labware",
+                "endpoints": [
+                    "GET /api/labware/tip-tracking",
+                    "PUT /api/labware/tip-tracking",
+                    "POST /api/labware/tip-tracking/reset"
+                ],
+                "note": "Update and reset operations require local network access"
             }
         },
         "documentation": {
