@@ -1,6 +1,14 @@
 # RobotControl Development Log (Chronological)
 
 ---
+## 2026-02-12 Camera Download Resume + Retry
+
+- Upgraded camera recording downloads to support resumable transfers over unstable links by adding `HEAD` + `GET` range handling on `/api/camera/recording/{recording_id}`; responses now include `Accept-Ranges`, `Content-Range` (for `206`), `ETag`, and `Last-Modified`, and return `416` for invalid ranges (`backend/api/camera.py`).
+- Kept compatibility with existing archive UI endpoints while hardening transfer semantics (full download still works, partial resume now works, and `If-Range` mismatch correctly falls back to full-body responses).
+- Fixed archive download file resolution for experiment recordings stored in nested subfolders: backend lookup now scans `experiments/` recursively and selects the newest match when duplicate filenames exist, which resolves false `404` responses for files visible in the archive list (`backend/api/camera.py`).
+- Added API-focused regression tests that validate full download, partial download, suffix range, invalid range, `If-Range` fallback, and metadata-only `HEAD` behavior (`backend/tests/test_camera_download_api.py`).
+- Reworked frontend archive download flow to support resume-aware retries with exponential backoff, live byte progress, and user cancellation; one active download can continue from the last successful byte instead of restarting from zero on transient network failures. Client now stops auto-retrying non-retryable `4xx` responses (notably `404`) and shows a direct error instead (`frontend/src/pages/CameraPage.tsx`, `frontend/src/components/camera/VideoArchiveTab.tsx`).
+
 ## 2026-02-12 Labware TipTracking Web Module
 
 - Added a dedicated Labware backend module with SQL-backed tip tracking for `1000ul` and `300ul` families, including snapshot read APIs plus batch update/reset operations (`backend/services/labware_tip_tracking.py`, `backend/api/labware.py`, `backend/main.py`).

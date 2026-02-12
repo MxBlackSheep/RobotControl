@@ -49,7 +49,7 @@ If you need to change anything about live video, streaming, or the archive UI, r
 
 5. **Archive browsing** (VideoArchiveTab):  
    - When the user expands a folder, the tab calls `onLoadFolderVideos(folder_name)` which should return video metadata.  
-   - Downloads call `onDownloadVideo(filename)` that performs a signed fetch and builds a temporary `<a>` tag to save the file.
+   - Downloads call `onDownloadVideo(filename)` which now supports resume-aware retries (`Range` headers), live progress updates, and cancellation from the page-level progress panel.
 
 6. **Cleanup**  
    - `CameraViewer` cleans WebSockets and revokes blob URLs in `cleanup()`, invoked on unmount and tab change.  
@@ -63,6 +63,7 @@ If you need to change anything about live video, streaming, or the archive UI, r
   - `experimentFolders` – data rendered by `VideoArchiveTab`.  
   - `streamingStatus` – top-level stats provided to `LiveStreamingTab`.  
   - `mySession` – shows the viewer’s session details (used to gate fullscreen).  
+  - `downloadProgress` – active archive download status (`downloadedBytes`, `totalBytes`, retry attempt, reconnecting state).  
   - `currentTab`, `error`, `archiveError`, `streamingLoading` – control UI feedback.
 
 - `CameraViewer` state:
@@ -81,7 +82,8 @@ If you need to change anything about live video, streaming, or the archive UI, r
 1. **Always attach the bearer token** when using `fetch`. `CameraPage` reads `localStorage.getItem('access_token')` before hitting any camera endpoint.
 2. **Use `buildApiUrl` / `buildWsUrl`.** They adapt to different hosts (localhost vs packaged exe). Hardcoding `/api/...` only works in dev.
 3. **Handle error states explicitly.** When a fetch fails, set both `error` and `archiveError`/`streamingLoading` so the correct view shows the inline warning card (the tabs now render in-panel callouts instead of modal alerts).
-4. **Remember to `URL.revokeObjectURL`.** When you create download links, revoke them once `click()` completes to avoid memory leaks.
+4. **Archive downloads now resume automatically.** `CameraPage` retries failed transfers with exponential backoff and sends `Range: bytes=<downloaded>-` for continuation. Keep retry/countdown logic in the page layer, not in `VideoArchiveTab`.
+5. **Remember to `URL.revokeObjectURL`.** When you create download links, revoke them once `click()` completes to avoid memory leaks.
 
 ---
 
@@ -154,5 +156,10 @@ If you need to change anything about live video, streaming, or the archive UI, r
 
 5. **Archive folders blank after refresh**  
    - `VideoArchiveTab` keeps per-folder state. If your API returns a different structure, clear `folderState` in `useEffect` or normalise the payload before setting state.
+
+6. **Download progress stalls on unstable VPN**  
+   - Check whether the progress panel shows repeated “Reconnecting...” attempts; if yes, backend resume works and the link is still flapping.  
+   - If every retry restarts from byte 0, verify backend response headers include `Accept-Ranges` and `ETag`.  
+   - Ensure only one archive download is active at a time; the page intentionally serializes downloads to keep recovery logic simple.
 
 Follow these guardrails and the camera UI will stay reliable while you extend it.

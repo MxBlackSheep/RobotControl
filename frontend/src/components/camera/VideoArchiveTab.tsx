@@ -57,7 +57,9 @@ export interface VideoArchiveTabProps {
   loading: boolean;
   error: string;
   onRefresh: () => void;
-  onDownloadVideo: (filename: string) => void;
+  onDownloadVideo: (filename: string) => void | Promise<void>;
+  downloadingFilename?: string | null;
+  downloadBusy?: boolean;
   onDeleteVideo?: (filename: string) => void;
   onLoadFolderVideos?: (folderName: string) => Promise<VideoFile[]>;
 }
@@ -128,6 +130,8 @@ const VideoArchiveTab: React.FC<VideoArchiveTabProps> = ({
   error,
   onRefresh,
   onDownloadVideo,
+  downloadingFilename,
+  downloadBusy = false,
   onDeleteVideo,
   onLoadFolderVideos
 }) => {
@@ -310,6 +314,8 @@ const VideoArchiveTab: React.FC<VideoArchiveTabProps> = ({
             onToggle={toggleFolder}
             onEnsureVideos={ensureVideosLoaded}
             onDownloadVideo={onDownloadVideo}
+            downloadingFilename={downloadingFilename}
+            downloadBusy={downloadBusy}
             onDeleteVideo={onDeleteVideo}
           />
         )}
@@ -324,7 +330,9 @@ interface FolderTreeProps {
   folderState: Record<string, FolderState>;
   onToggle: (folder: ExperimentFolder) => void;
   onEnsureVideos: (folder: ExperimentFolder) => void | Promise<void>;
-  onDownloadVideo: (filename: string) => void;
+  onDownloadVideo: (filename: string) => void | Promise<void>;
+  downloadingFilename?: string | null;
+  downloadBusy: boolean;
   onDeleteVideo?: (filename: string) => void;
 }
 
@@ -335,6 +343,8 @@ const FolderTree: React.FC<FolderTreeProps> = ({
   onToggle,
   onEnsureVideos,
   onDownloadVideo,
+  downloadingFilename,
+  downloadBusy,
   onDeleteVideo
 }) => {
   return (
@@ -437,6 +447,8 @@ const FolderTree: React.FC<FolderTreeProps> = ({
                   <VirtualizedVideoList
                     videos={state.videos}
                     onDownloadVideo={onDownloadVideo}
+                    downloadingFilename={downloadingFilename}
+                    downloadBusy={downloadBusy}
                     onDeleteVideo={onDeleteVideo}
                   />
                 )}
@@ -453,21 +465,26 @@ const FolderTree: React.FC<FolderTreeProps> = ({
 
 interface VirtualizedVideoListProps {
   videos: VideoFile[];
-  onDownloadVideo: (filename: string) => void;
+  onDownloadVideo: (filename: string) => void | Promise<void>;
+  downloadingFilename?: string | null;
+  downloadBusy: boolean;
   onDeleteVideo?: (filename: string) => void;
 }
 
 type VideoRowExtraProps = {
   videos: VideoFile[];
-  onDownloadVideo: (filename: string) => void;
+  onDownloadVideo: (filename: string) => void | Promise<void>;
+  downloadingFilename?: string | null;
+  downloadBusy: boolean;
   onDeleteVideo?: (filename: string) => void;
 };
 
 const VideoListRow: React.FC<
   { index: number; style: React.CSSProperties } & VideoRowExtraProps
-> = ({ index, style, videos, onDownloadVideo, onDeleteVideo }) => {
+> = ({ index, style, videos, onDownloadVideo, downloadingFilename, downloadBusy, onDeleteVideo }) => {
   const video = videos[index];
   const isLast = index === videos.length - 1;
+  const isActiveDownload = downloadingFilename === video.filename;
 
   return (
     <Box
@@ -533,8 +550,14 @@ const VideoListRow: React.FC<
         }}
       >
         <Tooltip title="Download video">
-          <IconButton onClick={() => onDownloadVideo(video.filename)} size="small">
-            <DownloadIcon fontSize="small" />
+          <IconButton
+            onClick={() => {
+              void onDownloadVideo(video.filename);
+            }}
+            size="small"
+            disabled={downloadBusy && !isActiveDownload}
+          >
+            {isActiveDownload ? <CircularProgress size={16} /> : <DownloadIcon fontSize="small" />}
           </IconButton>
         </Tooltip>
         {onDeleteVideo && (
@@ -552,6 +575,8 @@ const VideoListRow: React.FC<
 const VirtualizedVideoList: React.FC<VirtualizedVideoListProps> = ({
   videos,
   onDownloadVideo,
+  downloadingFilename,
+  downloadBusy,
   onDeleteVideo
 }) => {
   const height = Math.min(MAX_LIST_HEIGHT, Math.max(ITEM_HEIGHT, videos.length * ITEM_HEIGHT));
@@ -561,7 +586,7 @@ const VirtualizedVideoList: React.FC<VirtualizedVideoListProps> = ({
       rowCount={videos.length}
       rowHeight={ITEM_HEIGHT}
       rowComponent={VideoListRow}
-      rowProps={{ videos, onDownloadVideo, onDeleteVideo }}
+      rowProps={{ videos, onDownloadVideo, downloadingFilename, downloadBusy, onDeleteVideo }}
       overscanCount={4}
       style={{ height, width: '100%' }}
     />

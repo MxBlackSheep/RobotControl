@@ -21,6 +21,9 @@ This guide demystifies the camera stack. It explains what each file does, how fr
 - `backend/services/storage_manager.py`  
   Filesystem helper used when archiving clips for experiments (copies files into experiment-specific folders, cleans up old folders).
 
+- `backend/api/camera.py` (`/recording/{recording_id}`)  
+  Download endpoint for archived clips. Now supports resumable HTTP byte ranges (`Range`, `If-Range`) so remote users on unstable VPN links can continue interrupted downloads instead of restarting.
+
 - `frontend/src/components/CameraViewer.tsx`  
   React component that connects to the backend (MJPEG stream + WebSocket), displays status badges, and surfaces errors when streaming is unavailable.
 
@@ -108,6 +111,7 @@ This guide demystifies the camera stack. It explains what each file does, how fr
 | Start/stop recording | `CameraService.start_recording(camera_id)` / `stop_recording(camera_id)` | Always call `stop_recording` in `finally` blocks to release the OpenCV handle. |
 | Update stream quality defaults | `CameraViewer.tsx` (`getFps`, stream quality state), `LIVE_STREAMING_CONFIG` | Keep backend and frontend quality options in sync. |
 | Archive clips manually | `CameraService.archive_experiment_videos(experiment_id, method_name)` | Works even if automatic recording is disabled, provided rolling clips exist. |
+| Verify resume download headers | `GET/HEAD /api/camera/recording/{recording_id}` | Expect `Accept-Ranges: bytes`, stable `ETag`, and `206` with `Content-Range` when `Range` is provided. |
 | Clean orphaned clips | `_cleanup_old_clips()` | Called automatically, but you can run it after changing clip limits. |
 | Check health | `CameraService.health_check()` | Returns storage availability, active threads, and a timestamp – use this for monitoring dashboards. |
 
@@ -165,6 +169,11 @@ This guide demystifies the camera stack. It explains what each file does, how fr
    - Inspect browser console for `no_frame` events (means recording stopped).  
    - Check server logs for bandwidth warnings (may need to reduce quality).  
    - Verify the client’s network (mobile networks are prone to timeouts).
+
+6. **Archive download keeps restarting from 0%**  
+   - Confirm the response includes `Accept-Ranges: bytes` and `ETag`.  
+   - Check reverse proxy/CDN config is not stripping `Range` or `If-Range` headers.  
+   - Re-test with `HEAD /api/camera/recording/{recording_id}` and verify `Content-Length` matches the file size.
 
 ---
 
