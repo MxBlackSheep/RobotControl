@@ -1,6 +1,22 @@
 # RobotControl Development Log (Chronological)
 
 ---
+## 2026-02-14 Labware Cytomat Visualization + Controlled PlateID Editing
+
+- Added a dedicated Cytomat backend service and API endpoints under `/api/labware/cytomat` so users can view `CytomatPos` + `PlateID` and apply batch `PlateID` updates with the same auth/locality guard model as TipTracking (`backend/services/labware_cytomat.py`, `backend/api/labware.py`).
+- Cytomat dropdown options are now sourced from `Plates.PlateID`, with ordering enforced as: empty option first, then descending numeric IDs, then descending non-numeric IDs; empty selection is persisted as `NULL` in `Cytomat.PlateID`.
+- Added a new Labware secondary tab and Cytomat UI panel with row-level dropdown editing, pending-change queue, save/discard controls, read-only behavior for remote sessions, and refresh/autorefresh behavior (`frontend/src/pages/LabwarePage.tsx`, `frontend/src/components/labware/CytomatPanel.tsx`, `frontend/src/services/labwareApi.ts`).
+- Added backend API regression coverage for Cytomat read permissions, local-only write enforcement, successful local writes, and invalid PlateID rejection (`backend/tests/test_labware_api.py`).
+- Updated backend/frontend labware maintenance guides to document the new Cytomat module and maintenance workflow (`docs/maintenance/backend/labware-maintenance-guide.md`, `docs/maintenance/frontend/labware-frontend-maintenance-guide.md`).
+
+---
+## 2026-02-14 HxRun Maintenance Enable Guard (Do Not Kill Existing Session)
+
+- Added a backend pre-check on `PUT /api/maintenance/hxrun`: when enabling maintenance mode, RobotControl now first checks if `HxRun.exe` is already running and blocks the toggle with `409` instead of enabling and terminating HxRun (`backend/api/maintenance.py`, `backend/services/hxrun_maintenance.py`).
+- Added a clear operator-facing conflict message (`HxRun is running. Please close the software before entering maintenance mode.`) so local users know exactly why the toggle is rejected.
+- Added API regression coverage for the blocked-enable path and verified that state persistence is skipped when HxRun is running (`backend/tests/test_hxrun_maintenance_api.py`).
+- Updated the Maintenance page to show a dedicated dialog when this conflict happens, instead of silently failing or relying only on inline error text (`frontend/src/pages/MaintenancePage.tsx`).
+
 ## 2026-02-12 HxRun Maintenance Mode (Event + Fallback Enforcement)
 
 - Added a new persistent **HxRun Maintenance Mode** (separate from the existing database-restore maintenance window) with a dedicated backend API: authenticated users can inspect state, while toggles require loopback/local access (`backend/api/maintenance.py`, `backend/main.py`).

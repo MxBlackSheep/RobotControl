@@ -48,6 +48,7 @@ The backend is still the final authority (remote `PUT` returns 403 even if UI is
    - `permissions.can_edit`
 3. Button click calls `hxrunMaintenanceApi.updateState(enabled, reason)`.
 4. UI refreshes from returned state.
+5. If enable is rejected with `409` (HxRun already running), the page opens a blocking dialog with the backend message and keeps the flag unchanged.
 
 ---
 
@@ -73,6 +74,7 @@ If you rename labels, keep this distinction obvious.
 | Adjust shortcuts | `useKeyboardNavigation.ts` + `KeyboardShortcutsHelp.tsx` | Keep bindings/help text in sync. |
 | Add extra state fields | `hxrunMaintenanceApi.ts` + `MaintenancePage.tsx` | Extend interface and render cards/rows. |
 | Change read-only messaging | `MaintenancePage.tsx` | Edit the info `Alert` copy only. |
+| Change "HxRun already running" dialog copy/behavior | `MaintenancePage.tsx` | Keep backend as source-of-truth; frontend should display server message for `409` conflicts. |
 
 ---
 
@@ -95,3 +97,6 @@ If you rename labels, keep this distinction obvious.
    - Check `canEdit` logic in `MaintenancePage.tsx`.
    - Verify backend still returns `permissions.can_edit`.
 
+6. Local enable button does nothing:
+   - Check browser network response for `PUT /api/maintenance/hxrun`.
+   - If status is `409`, HxRun is still running; close HxRun first.

@@ -10,13 +10,19 @@ from backend.services.auth import get_current_user
 
 
 class FakeHxRunMaintenanceService:
-    def __init__(self) -> None:
+    def __init__(self, *, running: bool = False) -> None:
         self._state = HxRunMaintenanceState()
+        self._running = running
+        self.set_state_calls = 0
 
     def get_state(self, force_refresh: bool = True) -> HxRunMaintenanceState:
         return self._state
 
+    def is_hxrun_running(self) -> bool:
+        return self._running
+
     def set_state(self, *, enabled: bool, reason: Optional[str], actor: str) -> HxRunMaintenanceState:
+        self.set_state_calls += 1
         self._state = HxRunMaintenanceState(
             enabled=enabled,
             reason=reason,
@@ -91,3 +97,20 @@ def test_hxrun_maintenance_write_local_success(monkeypatch):
     assert payload["data"]["enabled"] is True
     assert payload["data"]["reason"] == "Robot is under service"
     assert payload["data"]["updated_by"] == "tester"
+
+
+def test_hxrun_maintenance_write_local_blocked_when_hxrun_running(monkeypatch):
+    fake_service = FakeHxRunMaintenanceService(running=True)
+    monkeypatch.setattr(maintenance_api, "get_hxrun_maintenance_service", lambda: fake_service)
+
+    response = client.put(
+        "/api/maintenance/hxrun",
+        json={"enabled": True, "reason": "Prepare service"},
+        headers={"x-forwarded-for": "127.0.0.1"},
+    )
+
+    assert response.status_code == 409
+    payload = response.json()
+    assert payload["success"] is False
+    assert "HxRun is running" in payload["message"]
+    assert fake_service.set_state_calls == 0

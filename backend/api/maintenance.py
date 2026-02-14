@@ -11,7 +11,7 @@ import logging
 import time
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, Field
 
 from backend.api.dependencies import ConnectionContext, get_connection_context, require_local_access
@@ -72,6 +72,40 @@ async def update_hxrun_maintenance_state(
     reason = payload.reason.strip() if isinstance(payload.reason, str) and payload.reason.strip() else None
 
     service = get_hxrun_maintenance_service()
+    current_state = service.get_state(force_refresh=True)
+
+    if payload.enabled and not current_state.enabled and service.is_hxrun_running():
+        message = "HxRun is running. Please close the software before entering maintenance mode."
+
+        log_action(
+            actor=actor,
+            action="hxrun_maintenance_update_blocked",
+            scope="maintenance",
+            client_ip=connection.client_ip,
+            success=False,
+            details={
+                "requested_enabled": True,
+                "reason": reason,
+                "blocked_by": "hxrun_running",
+            },
+        )
+
+        metadata = ResponseMetadata()
+        metadata.set_execution_time(start_time)
+        metadata.add_metadata("operation", "hxrun_maintenance_update")
+        metadata.add_metadata("requested_by", actor)
+        metadata.add_metadata("enabled", False)
+        metadata.add_metadata("blocked", True)
+        metadata.add_metadata("blocked_reason", "hxrun_running")
+
+        return ResponseFormatter.error(
+            message=message,
+            error_code="HXRUN_RUNNING",
+            details={"hxrun_running": True},
+            status_code=status.HTTP_409_CONFLICT,
+            metadata=metadata,
+        )
+
     state = service.set_state(enabled=payload.enabled, reason=reason, actor=actor)
 
     log_action(
@@ -105,4 +139,3 @@ async def update_hxrun_maintenance_state(
         metadata=metadata,
         message="HxRun maintenance state updated",
     )
-

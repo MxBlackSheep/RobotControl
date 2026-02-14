@@ -4,7 +4,8 @@ from fastapi.testclient import TestClient
 
 from backend.main import app
 from backend.services.auth import get_current_user
-from backend.api.labware import get_tip_tracking_service
+from backend.api.labware import get_cytomat_service, get_tip_tracking_service
+from backend.services.labware_cytomat import CytomatValidationError
 
 
 class FakeTipTrackingService:
@@ -46,6 +47,27 @@ class FakeTipTrackingService:
         return 192
 
 
+class FakeCytomatService:
+    _allowed = {"", "1003", "1002", "1001"}
+
+    def build_snapshot(self) -> Dict[str, Any]:
+        return {
+            "rows": [
+                {"cytomat_pos": "A01", "plate_id": "1003"},
+                {"cytomat_pos": "A02", "plate_id": ""},
+            ],
+            "plate_options": ["", "1003", "1002", "1001"],
+            "auto_refresh_ms": 15000,
+            "refreshed_at": "2026-02-14T00:00:00",
+        }
+
+    def apply_updates(self, updates: List[Any]) -> int:
+        for item in updates:
+            if str(item.plate_id) not in self._allowed:
+                raise CytomatValidationError("PlateID must exist in Plates table or be empty.")
+        return len(updates)
+
+
 client = TestClient(app)
 
 
@@ -56,6 +78,7 @@ def setup_function():
         "role": "user",
     }
     app.dependency_overrides[get_tip_tracking_service] = lambda: FakeTipTrackingService()
+    app.dependency_overrides[get_cytomat_service] = lambda: FakeCytomatService()
 
 
 def teardown_function():
@@ -123,3 +146,65 @@ def test_tip_tracking_role_guard():
 
     assert response.status_code == 403
     assert response.json()["detail"] == "Admin or user role required"
+
+
+def test_cytomat_read_remote_is_allowed_but_read_only():
+    response = client.get(
+        "/api/labware/cytomat",
+        headers={"x-forwarded-for": "8.8.8.8"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["data"]["permissions"]["can_update"] is False
+    assert payload["data"]["plate_options"][0] == ""
+
+
+def test_cytomat_update_requires_local_access():
+    response = client.put(
+        "/api/labware/cytomat",
+        json={
+            "updates": [
+                {"cytomat_pos": "A02", "plate_id": "1001"},
+            ],
+        },
+        headers={"x-forwarded-for": "8.8.8.8"},
+    )
+
+    assert response.status_code == 403
+    assert "Local network access required" in response.json()["detail"]
+
+
+def test_cytomat_update_local_success():
+    response = client.put(
+        "/api/labware/cytomat",
+        json={
+            "updates": [
+                {"cytomat_pos": "A01", "plate_id": ""},
+                {"cytomat_pos": "A02", "plate_id": "1002"},
+            ],
+        },
+        headers={"x-forwarded-for": "127.0.0.1"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["data"]["updated_count"] == 2
+
+
+def test_cytomat_update_rejects_unknown_plate_id():
+    response = client.put(
+        "/api/labware/cytomat",
+        json={
+            "updates": [
+                {"cytomat_pos": "A02", "plate_id": "9999"},
+            ],
+        },
+        headers={"x-forwarded-for": "127.0.0.1"},
+    )
+
+    assert response.status_code == 400
+    payload = response.json()
+    assert payload["success"] is False

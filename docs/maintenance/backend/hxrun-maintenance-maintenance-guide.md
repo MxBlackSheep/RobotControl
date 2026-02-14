@@ -63,6 +63,9 @@ If HxRun is detected while mode is enabled:
 
 - Read state (`GET`) is allowed for all authenticated sessions.
 - Write state (`PUT`) requires `require_local_access` (loopback only).
+- Enable requests are also blocked when `HxRun.exe` is already running.
+  - API returns `409` with message: `HxRun is running. Please close the software before entering maintenance mode.`
+  - In this case, the maintenance flag is not changed.
 
 So remote users can inspect, but only local users can enable/disable.
 
@@ -104,3 +107,6 @@ Do not remove this startup hook unless you intentionally want to disable externa
    - Confirm `ctypes.windll.user32.MessageBoxW` is reachable in current session.
    - Check cooldown setting is not too high.
 
+5. Local user cannot enable mode:
+   - Confirm HxRun is fully closed.
+   - Check API response status. `409` means enable was blocked because HxRun is still running.

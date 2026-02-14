@@ -8,6 +8,11 @@ import {
   Chip,
   CircularProgress,
   Container,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
   Stack,
   TextField,
   Typography,
@@ -35,6 +40,10 @@ const MaintenancePage: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reasonInput, setReasonInput] = useState('');
+  const [hxRunRunningDialogOpen, setHxRunRunningDialogOpen] = useState(false);
+  const [hxRunRunningDialogMessage, setHxRunRunningDialogMessage] = useState(
+    'HxRun is running. Please close the software before entering maintenance mode.',
+  );
 
   const isLocalSession = useMemo(() => {
     if (typeof user?.session_is_local === 'boolean') {
@@ -81,6 +90,12 @@ const MaintenancePage: React.FC = () => {
         setState(next);
       } catch (err: any) {
         const message = err?.response?.data?.message || err?.response?.data?.detail || err?.message || 'Failed to update maintenance state';
+        const statusCode = err?.response?.status;
+        if (enabled && statusCode === 409) {
+          setHxRunRunningDialogMessage(message);
+          setHxRunRunningDialogOpen(true);
+          return;
+        }
         setError(message);
       } finally {
         setSaving(false);
@@ -183,6 +198,23 @@ const MaintenancePage: React.FC = () => {
           )}
         </CardContent>
       </Card>
+
+      <Dialog
+        open={hxRunRunningDialogOpen}
+        onClose={() => setHxRunRunningDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>HxRun is running</DialogTitle>
+        <DialogContent>
+          <DialogContentText>{hxRunRunningDialogMessage}</DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setHxRunRunningDialogOpen(false)} autoFocus>
+            OK
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Container>
   );
 };

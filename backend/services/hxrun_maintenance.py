@@ -122,6 +122,10 @@ class HxRunMaintenanceService:
         """Fast helper used by scheduler/executor guards."""
         return bool(self.get_state(force_refresh=False).enabled)
 
+    def is_hxrun_running(self) -> bool:
+        """Return whether HxRun.exe is currently running."""
+        return self._is_hxrun_running()
+
     def _enforcement_loop(self) -> None:
         """Background loop: event watcher + fallback polling."""
         next_poll_at = 0.0
@@ -295,4 +299,3 @@ def get_hxrun_maintenance_service() -> HxRunMaintenanceService:
         if _hxrun_maintenance_service is None:
             _hxrun_maintenance_service = HxRunMaintenanceService()
     return _hxrun_maintenance_service
-

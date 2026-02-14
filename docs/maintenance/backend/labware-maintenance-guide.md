@@ -1,13 +1,14 @@
 # Labware Backend Maintenance Guide
 
-This guide covers the new Labware API module, focused on TipTracking.
+This guide covers Labware backend APIs for both `TipTracking` and `Cytomat`.
 
 ---
 
 ## 1. Where The Code Lives
 
 - API router: `backend/api/labware.py`
-- Service layer: `backend/services/labware_tip_tracking.py`
+- TipTracking service: `backend/services/labware_tip_tracking.py`
+- Cytomat service: `backend/services/labware_cytomat.py`
 - Router registration: `backend/main.py`
 
 ---
@@ -17,17 +18,27 @@ This guide covers the new Labware API module, focused on TipTracking.
 Base path: `/api/labware`
 
 - `GET /tip-tracking`
-  - Purpose: return full tip tracking snapshot (both families), plus permissions.
+  - Return full tip snapshot (families, status metadata, permissions).
   - Access: authenticated `admin` or `user`.
   - Locality: local and remote allowed.
 
 - `PUT /tip-tracking`
-  - Purpose: apply batch updates to one family.
+  - Apply batch tip status updates to one family.
   - Access: authenticated `admin` or `user`.
   - Locality: local only (`require_local_access`).
 
 - `POST /tip-tracking/reset`
-  - Purpose: reset one family to baseline state.
+  - Reset one tip family to configured baseline.
+  - Access: authenticated `admin` or `user`.
+  - Locality: local only (`require_local_access`).
+
+- `GET /cytomat`
+  - Return Cytomat rows (`CytomatPos`, `PlateID`) and dropdown options from `Plates.PlateID`.
+  - Access: authenticated `admin` or `user`.
+  - Locality: local and remote allowed.
+
+- `PUT /cytomat`
+  - Apply batch `PlateID` updates for Cytomat positions.
   - Access: authenticated `admin` or `user`.
   - Locality: local only (`require_local_access`).
 
@@ -35,116 +46,86 @@ Base path: `/api/labware`
 
 ## 3. Permission Rules
 
-1. Role gate is enforced in `backend/api/labware.py` via `_require_labware_role`.
-2. Write endpoints also use `require_local_access` from `backend/api/dependencies.py`.
-3. Read endpoint returns a `permissions` object:
-   - `role`
-   - `is_local_session`
-   - `can_update`
-   - `ip_classification`
-   - `client_ip`
+1. Role guard is `_require_labware_role` (`admin` or `user` only).
+2. Every write route uses `require_local_access`.
+3. Read routes include a `permissions` block (`can_update`, `is_local_session`, IP metadata).
 
-Frontend uses these flags to show read-only mode for remote sessions.
+Frontend must treat `can_update=false` as read-only mode.
 
 ---
 
 ## 4. Service Configuration
 
-`TipTrackingService` builds its DB config from `settings.DB_CONFIG_PRIMARY` and overrides database name using:
-
-- env var: `ROBOTCONTROL_LABWARE_DATABASE`
-- default fallback: `Labwares`
-
-Driver resolution uses `backend/utils/odbc_driver.py` so installed SQL Server ODBC drivers are selected safely.
+- `TipTrackingService` uses DB config from `settings.DB_CONFIG_PRIMARY` and forces database `Labwares`.
+- `CytomatService` uses DB config from `settings.DB_CONFIG_PRIMARY` and forces database `EvoYeast`.
+- Both use `backend/utils/odbc_driver.py` (`resolve_driver_clause`) to safely pick an installed SQL Server ODBC driver.
 
 ---
 
-## 5. Family Definitions
+## 5. TipTracking Rules
 
-Family definitions are constants in `backend/services/labware_tip_tracking.py` (`TIP_FAMILY_CONFIGS`).
-
-Each family includes:
-- rack ordering for `left_racks` and `right_racks`,
-- source tables (`ColA`, `ColB`),
-- reset map (`reset_map`).
-
-Current families:
-- `1000ul`
-- `300ul`
-
-If you add a new family, update this dictionary first.
-
----
-
-## 6. Core Service Behavior
-
-- `build_snapshot()`
-  - Reads all families and returns a single payload with grid/status metadata.
-
-- `fetch_tip_map(family_id)`
-  - Reads both tables for one family and maps rack/position -> normalized status.
-
-- `apply_updates(family_id, updates)`
-  - Validates family/rack/position/status.
-  - Deduplicates by `(labware_id, position_id)`.
-  - Splits updates by ColA/ColB and writes with `executemany`.
-
-- `reset_family(family_id)`
-  - Converts reset map to full position updates and reuses `apply_updates`.
+- Family definitions are in `TIP_FAMILY_CONFIGS` (`1000ul`, `300ul`).
+- Core calls:
+  - `build_snapshot()`
+  - `fetch_tip_map(family_id)`
+  - `apply_updates(family_id, updates)`
+  - `reset_family(family_id)`
+- Validation:
+  - family must exist
+  - position must be 1..96
+  - status must be in `STATUS_ORDER`
+  - rack must belong to selected family
 
 ---
 
-## 7. Validation Rules
+## 6. Cytomat Rules
 
-- `family_id` must exist in `TIP_FAMILY_CONFIGS`.
-- `position_id` must be 1..96.
-- `status` must be in `STATUS_ORDER`.
-- `labware_id` must belong to the target family.
-
-Validation errors raise `TipTrackingValidationError` and return 4xx responses.
+- Data source table: `[dbo].[Cytomat]` with columns `CytomatPos`, `PlateID`.
+- Dropdown source table: `[dbo].[Plates]` column `PlateID`.
+- `plate_options` ordering in snapshot:
+  1. empty option (`""`) first
+  2. then numeric `PlateID` values descending
+  3. then non-numeric values descending
+- Write validation:
+  - `cytomat_pos` must exist in `Cytomat`
+  - `plate_id` must be empty or exist in `Plates`
+- Empty dropdown choice is persisted as SQL `NULL` in `Cytomat.PlateID`.
 
 ---
 
-## 8. Auditing and Logging
+## 7. Auditing and Logging
 
-Write operations use `log_action(...)` with:
-- action: `tip_tracking_update` or `tip_tracking_reset`
+Write operations call `log_action(...)` with:
 - scope: `labware`
-- actor and client IP
-- success/failure details
+- tip actions: `tip_tracking_update`, `tip_tracking_reset`
+- cytomat action: `cytomat_update`
 
-Keep this auditing when extending write functionality.
-
----
-
-## 9. Extending Safely
-
-If you add features (example: plate tracking):
-
-1. Create a separate service module (do not overload tip service).
-2. Add new endpoints under `/api/labware/...` with explicit role/locality checks.
-3. Reuse `require_local_access` for any state-changing operation.
-4. Add tests that cover:
-   - role rejection,
-   - remote write rejection,
-   - local write success.
+Keep this pattern for any new write endpoint.
 
 ---
 
-## 10. Troubleshooting
+## 8. Extending Safely
 
-1. `500 Unable to load tip tracking state`:
-   - Verify SQL Server connectivity and `ROBOTCONTROL_LABWARE_DATABASE` value.
-   - Verify ODBC driver availability.
+1. Keep each labware sub-module in its own service file.
+2. Keep read and write endpoints separate and explicit.
+3. Keep local-access checks at API layer even if frontend already disables controls.
+4. Add tests for:
+   - role rejection
+   - remote write rejection
+   - local write success
+   - invalid payload validation
 
-2. Updates always rejected with local-access error:
-   - Check reverse proxy `X-Forwarded-For` behavior.
-   - Confirm client IP resolves to local classification.
+---
 
-3. Family not found errors:
-   - Confirm payload `family` exactly matches configured IDs.
+## 9. Troubleshooting
 
-4. Updates report success but data unchanged:
-   - Validate rack names match table rows exactly.
-   - Check if table rows for those rack/position combinations exist.
+1. `500 Unable to load Cytomat state` or tip state:
+   - Check SQL connectivity and ODBC driver installation.
+   - Confirm DB target (`EvoYeast` for Cytomat, `Labwares` for tip tracking).
 
+2. Cytomat `PlateID` validation failures:
+   - Verify the value exists in `Plates.PlateID`.
+   - Use empty option when clearing a slot.
+
+3. Writes blocked with local-access error:
+   - Confirm request IP resolves to loopback/local in `X-Forwarded-For`.

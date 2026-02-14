@@ -12,10 +12,12 @@ import {
   ArrowBack as ArrowBackIcon,
   Science as LabwareIcon,
   ViewModule as TipTrackingIcon,
+  TableChart as CytomatIcon,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 
 import TipTrackingPanel from '../components/labware/TipTrackingPanel';
+import CytomatPanel from '../components/labware/CytomatPanel';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -79,11 +81,15 @@ const LabwarePage: React.FC = () => {
           allowScrollButtonsMobile
         >
           <Tab icon={<TipTrackingIcon />} iconPosition="start" label="TipTracking" />
+          <Tab icon={<CytomatIcon />} iconPosition="start" label="Cytomat" />
         </Tabs>
       </Paper>
 
       <TabPanel value={tabIndex} index={0}>
         <TipTrackingPanel />
+      </TabPanel>
+      <TabPanel value={tabIndex} index={1}>
+        <CytomatPanel />
       </TabPanel>
     </Container>
   );
