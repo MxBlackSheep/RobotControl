@@ -159,8 +159,10 @@ export namespace Scheduling {
     status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
     description?: string;
     priority: 'low' | 'medium' | 'high';
-    max_retries: number;
-    retry_delay_minutes: number;
+    timeout_minutes?: number | null;
+    timeout_action?: 'continue' | 'run_cleanup_and_terminate';
+    timeout_cleanup_experiment_name?: string;
+    timeout_cleanup_experiment_path?: string;
     created_at: string;
     updated_at: string;
     next_run_time?: string;

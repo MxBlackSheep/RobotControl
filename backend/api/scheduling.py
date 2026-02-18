@@ -2,6 +2,7 @@ from typing import Dict, Any, List, Optional, Union, Tuple
 import logging
 import re
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Header
 
@@ -18,7 +19,7 @@ from backend.services.scheduling.experiment_executor import resolve_experiment_p
 from backend.models import (
     ScheduledExperiment,
     JobExecution,
-    RetryConfig,
+    TimeoutConfig,
     CalendarEvent,
     ApiResponse,
     NotificationContact,
@@ -51,6 +52,7 @@ SCHEDULE_INTERVAL_ALIASES: Dict[str, float] = {
     "weekly": 24.0 * 7,
 }
 SUPPORTED_SCHEDULE_TYPES = {"once", "interval", "cron"} | set(SCHEDULE_INTERVAL_ALIASES.keys())
+SUPPORTED_TIMEOUT_ACTIONS = {"continue", "run_cleanup_and_terminate"}
 
 
 def get_services():
@@ -182,6 +184,54 @@ def _load_current_schedule(schedule_id: str, db_mgr, expected_timestamp: Optiona
             detail="Schedule was modified by another user. Refresh and try again.",
         )
     return schedule
+
+
+def _normalize_timeout_config(raw_timeout: Optional[Any]) -> TimeoutConfig:
+    """Validate and normalize timeout configuration payload."""
+    if raw_timeout is None:
+        return TimeoutConfig()
+    if not isinstance(raw_timeout, dict):
+        raise HTTPException(status_code=400, detail="timeout_config must be an object")
+
+    timeout_minutes_raw = raw_timeout.get("timeout_minutes")
+    timeout_minutes: Optional[int] = None
+    if timeout_minutes_raw not in (None, ""):
+        try:
+            timeout_minutes = int(timeout_minutes_raw)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="timeout_minutes must be an integer")
+        if timeout_minutes <= 0:
+            raise HTTPException(status_code=400, detail="timeout_minutes must be greater than zero")
+
+    action = str(raw_timeout.get("action", "continue")).strip().lower() or "continue"
+    if action not in SUPPORTED_TIMEOUT_ACTIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported timeout action '{action}'",
+        )
+
+    cleanup_experiment_path: Optional[str] = None
+    cleanup_experiment_name: Optional[str] = None
+    if action == "run_cleanup_and_terminate":
+        raw_cleanup_path = raw_timeout.get("cleanup_experiment_path")
+        if not isinstance(raw_cleanup_path, str) or not raw_cleanup_path.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="cleanup_experiment_path is required when timeout action is run_cleanup_and_terminate",
+            )
+        cleanup_experiment_path = str(resolve_experiment_path(raw_cleanup_path))
+        raw_cleanup_name = raw_timeout.get("cleanup_experiment_name")
+        if isinstance(raw_cleanup_name, str) and raw_cleanup_name.strip():
+            cleanup_experiment_name = raw_cleanup_name.strip()
+        else:
+            cleanup_experiment_name = Path(cleanup_experiment_path).stem
+
+    return TimeoutConfig(
+        timeout_minutes=timeout_minutes,
+        action=action,
+        cleanup_experiment_path=cleanup_experiment_path,
+        cleanup_experiment_name=cleanup_experiment_name,
+    )
 
 
 @router.get("/notifications/settings")
@@ -376,7 +426,7 @@ async def list_notification_contacts(
 ):
     """List notification contacts for scheduling."""
     try:
-        scheduler, db_mgr, queue_mgr, proc_mon = get_services()
+        _, db_mgr, _, _ = get_services()
         contacts = db_mgr.get_notification_contacts(include_inactive=include_inactive)
         response = ApiResponse(
             success=True,
@@ -616,11 +666,13 @@ async def create_schedule(
                 start_time = parse_iso_datetime_to_local(schedule_data["start_time"])
             except ValueError:
                 raise HTTPException(status_code=400, detail="Invalid start_time format")
-        
-        # Create retry config
-        retry_config = RetryConfig()
-        if "retry_config" in schedule_data:
-            retry_config = RetryConfig.from_dict(schedule_data["retry_config"])
+            if start_time and start_time < datetime.now():
+                raise HTTPException(
+                    status_code=400,
+                    detail="start_time cannot be in the past",
+                )
+
+        timeout_config = _normalize_timeout_config(schedule_data.get("timeout_config"))
         
         normalized_type, normalized_interval_hours = _normalize_schedule_request(
             schedule_data["schedule_type"],
@@ -638,7 +690,7 @@ async def create_schedule(
             estimated_duration=schedule_data.get("estimated_duration", 60),
             created_by=current_user.get("username", "unknown"),
             is_active=schedule_data.get("is_active", True),
-            retry_config=retry_config,
+            timeout_config=timeout_config,
             prerequisites=schedule_data.get("prerequisites", []),
             notification_contacts=notification_contact_ids,
             created_at=None,  # Will be set in __post_init__
@@ -941,11 +993,8 @@ async def update_schedule(
             updated_schedule.is_active = update_data["is_active"]
         if "prerequisites" in update_data:
             updated_schedule.prerequisites = update_data["prerequisites"] or []
-        if "retry_config" in update_data:
-            retry_payload = update_data["retry_config"]
-            updated_schedule.retry_config = (
-                RetryConfig.from_dict(retry_payload) if isinstance(retry_payload, dict) else None
-            )
+        if "timeout_config" in update_data:
+            updated_schedule.timeout_config = _normalize_timeout_config(update_data["timeout_config"])
         if "notification_contacts" in update_data:
             updated_schedule.notification_contacts = _normalize_contact_ids(
                 update_data["notification_contacts"],
@@ -1326,8 +1375,8 @@ async def get_queue_status(
     try:
         scheduler, db_mgr, queue_mgr, proc_mon = get_services()
         
-        # Get queue status
-        queue_status = queue_mgr.get_queue_status()
+        # Get queue status from scheduler runtime (single-worker queue)
+        queue_status = scheduler.get_runtime_queue_status()
         
         # Get Hamilton status
         hamilton_status = proc_mon.get_status()
@@ -1390,7 +1439,7 @@ async def check_conflicts(
                 estimated_duration=exp_data.get("estimated_duration", 60),
                 created_by="system",
                 is_active=True,
-                retry_config=None,
+                timeout_config=None,
                 prerequisites=[],
                 created_at=None,
                 updated_at=None
@@ -1822,7 +1871,7 @@ async def get_execution_history(
     - Last run time and status
     - Success/failure counts  
     - Average duration
-    - Error messages and retry counts
+    - Error messages and timeout/queue context
     
     Requires: any authenticated user
     """
@@ -1936,4 +1985,3 @@ async def get_recent_executions(
     except Exception as e:
         logger.error(f"Error getting recent executions: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
-

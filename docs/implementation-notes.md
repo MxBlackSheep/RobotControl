@@ -1,6 +1,56 @@
 # RobotControl Development Log (Chronological)
 
 ---
+## 2026-02-18 Scheduler Blueprint Reconciliation (SCHEDULER_FULL_PICTURE)
+
+- Revalidated `SCHEDULER_FULL_PICTURE.txt` against current scheduling code (`backend/services/scheduling/scheduler_engine.py`, `backend/services/scheduling/experiment_executor.py`, `backend/api/scheduling.py`) and rewrote stale sections so the file can be used as handbook blueprint.
+- Removed outdated retry/`RetryConfig` descriptions and replaced them with current `TimeoutConfig` behavior (`continue` vs `run_cleanup_and_terminate`) including queue-wait-aware timeout evaluation at launch time.
+- Documented real single-worker dispatch gating (`HxRun maintenance`, `manual recovery`, `schedule recovery_required`, `HxRun busy`), queue `waiting_reason`, and cancellation behavior for removed/deactivated schedules before dispatch.
+- Clarified current API constraints in plain language: no duplicate-minute guard, preserved timestamp precision, create-time past-start rejection, and runtime-truth queue status from `/api/scheduling/status/queue`.
+
+---
+## 2026-02-18 Queue-First Dispatch Refactor (Checks Folded Into Worker)
+
+- Refactored scheduler dispatch to queue-first behavior: due jobs are always queued, and HxRun maintenance/manual recovery/HxRun busy checks now run inside the single worker before switching a job from queued to running (`backend/services/scheduling/scheduler_engine.py`).
+- Added runtime queue metadata (`queued_at`, `waiting_reason`) so blocked jobs remain visible as queued (not running) with explicit wait reasons in `/api/scheduling/status/queue`.
+- Updated executor contract to focus on launch + timeout action resolution only; scheduler worker now owns readiness gating (maintenance/manual/busy checks) (`backend/services/scheduling/experiment_executor.py`).
+- Updated schedule list next-run rendering to use backend canonical timestamp directly (removed client interval recomputation), preventing UI drift where displayed due time differs from actual launch timing (`frontend/src/types/scheduling.ts`, `frontend/src/components/ScheduleList.tsx`).
+- Added regression coverage for “busy robot keeps schedule queued until available,” and refreshed executor timeout-action tests to match the new worker-owned gating model (`backend/tests/test_scheduler_single_worker.py`, `backend/tests/test_hxrun_maintenance_executor.py`).
+
+---
+## 2026-02-18 Scheduler Timeout Refactor (No Retry Logic + Queue Visibility)
+
+- Replaced schedule retry configuration with timeout configuration across backend models/API/storage: schedules now persist `timeout_config` (`timeout_minutes`, `action`, optional cleanup method) and no longer accept/use `retry_config` (`backend/models.py`, `backend/api/scheduling.py`, `backend/services/scheduling/sqlite_database.py`).
+- Simplified execution path to single-attempt launches: removed executor retry loop, added timeout action routing (`continue` or `run_cleanup_and_terminate`), tied HxRun-availability wait to schedule timeout when configured, and when cleanup action is triggered the schedule is deactivated for subsequent runs (`backend/services/scheduling/experiment_executor.py`, `backend/services/scheduling/scheduler_engine.py`).
+- Added create-time start timestamp guard in backend (`start_time` cannot be in the past) and updated scheduling create-guard tests, including new rejection coverage for past timestamps (`backend/api/scheduling.py`, `backend/tests/test_scheduling_create_guard.py`).
+- Extended scheduler tests for timeout cleanup termination behavior and adjusted executor-maintenance test stubs for the new single-attempt executor contract (`backend/tests/test_scheduler_single_worker.py`, `backend/tests/test_hxrun_maintenance_executor.py`).
+- Updated frontend scheduling types/services/forms/pages for timeout config editing and rendering, removed retry fields from scheduling payloads, and added a runtime queue panel that shows both running and queued schedules from `queueStatus` (`frontend/src/types/scheduling.ts`, `frontend/src/services/schedulingApi.ts`, `frontend/src/components/scheduling/ImprovedScheduleForm.tsx`, `frontend/src/pages/SchedulingPage.tsx`, `frontend/src/hooks/useScheduling.ts`).
+- Updated scheduling maintenance guides to document timeout behavior and queue detail surfaces (`docs/maintenance/backend/scheduling-maintenance-guide.md`, `docs/maintenance/frontend/scheduling-frontend-maintenance-guide.md`).
+
+## 2026-02-17 Scheduler Policy Simplification (No Lateness Miss, No Timestamp Guard)
+
+- Removed lateness-based miss rules from due-job detection; scheduler now enqueues any active schedule whose `start_time <= now` and no longer auto-marks overdue jobs as `missed` based on fixed thresholds (`backend/services/scheduling/scheduler_engine.py`).
+- Removed API timestamp constraints on schedule create/update: no minute rounding and no duplicate-minute conflict checks (`backend/api/scheduling.py`).
+- Removed now-unused duplicate-minute lookup helpers from scheduling DB manager/SQLite layers (`backend/services/scheduling/database_manager.py`, `backend/services/scheduling/sqlite_database.py`).
+- Updated schedule create/update tests to match the new policy (timestamps are accepted as provided and duplicate-minute checks are not enforced) (`backend/tests/test_scheduling_create_guard.py`).
+- Fixed double error pop-up on save failures by keeping create/update failures local to the form dialog path (throw to caller without setting page-level scheduling error banner in mutation handlers) (`frontend/src/hooks/useScheduling.ts`, `frontend/src/components/scheduling/ImprovedScheduleForm.tsx`, `frontend/src/pages/SchedulingPage.tsx`).
+- Updated scheduler maintenance/explainer docs to reflect the simplified behavior (`docs/maintenance/backend/scheduling-maintenance-guide.md`, `docs/maintenance/frontend/scheduling-frontend-maintenance-guide.md`, `SCHEDULER_FULL_PICTURE.txt`).
+
+## 2026-02-17 Scheduling Form Save-Failure Dialog (No Silent Close)
+
+- Fixed scheduling create/update mutation behavior so failures now propagate to callers instead of being swallowed inside `useScheduling`; the hook still sets `state.error`, but now also throws to let dialog submit handlers react (`frontend/src/hooks/useScheduling.ts`).
+- This enables `ImprovedScheduleForm` submit flow to keep the form open and show `StatusDialog` (for example on duplicate active timestamp `409`) instead of closing as if save succeeded (`frontend/src/components/scheduling/ImprovedScheduleForm.tsx`, `frontend/src/pages/SchedulingPage.tsx`).
+- Updated frontend scheduling maintenance docs to reflect this contract: read-path errors remain inline (`state.error`), while create/update form failures should be handled via `try/catch` + modal status dialog (`docs/maintenance/frontend/scheduling-frontend-maintenance-guide.md`).
+
+## 2026-02-17 Single-Worker Scheduler Queue + Minute Timestamp Guard
+
+- Reworked scheduler dispatch to a true single-worker queue model: due jobs are enqueued and consumed serially by `SchedulerJobWorker`, and the legacy scheduler-side capacity reservation/retry layer was removed to avoid double-gating before HxRun launch (`backend/services/scheduling/scheduler_engine.py`).
+- Updated `/api/scheduling/status/queue` to report queue/running snapshots directly from scheduler runtime state instead of the detached legacy queue manager so UI queue status reflects actual execution flow (`backend/api/scheduling.py`, `backend/services/scheduling/scheduler_engine.py`).
+- Added a minute guard for active schedule timestamps on both create and update: incoming `start_time` values are normalized to minute precision and conflicts are rejected when another active non-archived schedule already uses that minute (`backend/api/scheduling.py`, `backend/services/scheduling/database_manager.py`, `backend/services/scheduling/sqlite_database.py`).
+- Normalized manual-recovery timestamp persistence to one local-naive serialization path for mark/resolve/global recovery writes, eliminating the previous UTC-vs-local inconsistency (`backend/services/scheduling/sqlite_database.py`).
+- Added regression coverage for single-worker serial execution behavior plus duplicate-minute create/update rejection and timestamp normalization (`backend/tests/test_scheduler_single_worker.py`, `backend/tests/test_scheduling_create_guard.py`).
+- Refreshed scheduler documentation to match the new architecture and rewrote the root-level plain-language explainer for the current flow (`docs/maintenance/backend/scheduling-maintenance-guide.md`, `SCHEDULER_FULL_PICTURE.txt`).
+
 ## 2026-02-14 Labware Cytomat Visualization + Controlled PlateID Editing
 
 - Added a dedicated Cytomat backend service and API endpoints under `/api/labware/cytomat` so users can view `CytomatPos` + `PlateID` and apply batch `PlateID` updates with the same auth/locality guard model as TipTracking (`backend/services/labware_cytomat.py`, `backend/api/labware.py`).

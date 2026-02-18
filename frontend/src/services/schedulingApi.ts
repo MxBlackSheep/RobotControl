@@ -59,7 +59,12 @@ const serializeMaybeDate = (value?: Date | string | null): string | null => {
 };
 
 export const normalizeSchedule = (raw: any): ScheduledExperiment => {
-  const retryConfig = raw?.retry_config ?? {};
+  const timeoutConfig = raw?.timeout_config ?? {};
+  const timeoutMinutesRaw = timeoutConfig.timeout_minutes;
+  const timeoutMinutes =
+    timeoutMinutesRaw === null || timeoutMinutesRaw === undefined || timeoutMinutesRaw === ''
+      ? null
+      : coerceNumber(timeoutMinutesRaw, 0);
   return {
     schedule_id: coerceString(raw?.schedule_id),
     experiment_name: coerceString(raw?.experiment_name),
@@ -73,10 +78,14 @@ export const normalizeSchedule = (raw: any): ScheduledExperiment => {
     updated_at: coerceString(raw?.updated_at || raw?.created_at || ''),
     is_active: Boolean(raw?.is_active ?? true),
     archived: Boolean(raw?.archived ?? false),
-    retry_config: {
-      max_retries: coerceNumber(retryConfig.max_retries, 3),
-      retry_delay_minutes: coerceNumber(retryConfig.retry_delay_minutes, 2),
-      backoff_strategy: (retryConfig.backoff_strategy || 'linear') as 'linear' | 'exponential',
+    timeout_config: {
+      timeout_minutes: timeoutMinutes,
+      action:
+        timeoutConfig.action === 'run_cleanup_and_terminate'
+          ? 'run_cleanup_and_terminate'
+          : 'continue',
+      cleanup_experiment_name: coerceOptionalString(timeoutConfig.cleanup_experiment_name),
+      cleanup_experiment_path: coerceOptionalString(timeoutConfig.cleanup_experiment_path),
     },
     prerequisites: Array.isArray(raw?.prerequisites) ? raw.prerequisites : [],
     notification_contacts: Array.isArray(raw?.notification_contacts) ? raw.notification_contacts : [],
@@ -384,10 +393,17 @@ const buildScheduleRequest = (data: CreateScheduleFormData): CreateScheduleReque
   start_time: serializeMaybeDate(data.start_time),
   estimated_duration: data.estimated_duration,
   is_active: data.is_active,
-  retry_config: {
-    max_retries: data.max_retries,
-    retry_delay_minutes: data.retry_delay_minutes,
-    backoff_strategy: data.backoff_strategy,
+  timeout_config: {
+    timeout_minutes: data.timeout_minutes ?? null,
+    action: data.timeout_action,
+    cleanup_experiment_name:
+      data.timeout_action === 'run_cleanup_and_terminate'
+        ? data.timeout_cleanup_experiment_name ?? null
+        : null,
+    cleanup_experiment_path:
+      data.timeout_action === 'run_cleanup_and_terminate'
+        ? data.timeout_cleanup_experiment_path ?? null
+        : null,
   },
   prerequisites: data.prerequisites,
   notification_contacts: data.notification_contacts,

@@ -81,29 +81,53 @@ class CameraRecordingModel:
 
 
 @dataclass
-class RetryConfig:
-    """Configuration for experiment execution retry behavior"""
-    max_retries: int = 5
-    retry_delay_minutes: int = 2
-    backoff_strategy: str = "linear"  # 'linear' or 'exponential'
-    abort_after_hours: int = 24
-    
+class TimeoutConfig:
+    """Configuration for overdue schedule handling."""
+    timeout_minutes: Optional[int] = None
+    action: str = "continue"  # 'continue' or 'run_cleanup_and_terminate'
+    cleanup_experiment_path: Optional[str] = None
+    cleanup_experiment_name: Optional[str] = None
+
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "max_retries": self.max_retries,
-            "retry_delay_minutes": self.retry_delay_minutes,
-            "backoff_strategy": self.backoff_strategy,
-            "abort_after_hours": self.abort_after_hours
+            "timeout_minutes": self.timeout_minutes,
+            "action": self.action,
+            "cleanup_experiment_path": self.cleanup_experiment_path,
+            "cleanup_experiment_name": self.cleanup_experiment_name,
         }
-    
+
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'RetryConfig':
-        """Create RetryConfig from dictionary data"""
+    def from_dict(cls, data: Dict[str, Any]) -> "TimeoutConfig":
+        """Create TimeoutConfig from dictionary data."""
+        timeout_value = data.get("timeout_minutes")
+        timeout_minutes: Optional[int]
+        if timeout_value in (None, "", 0):
+            timeout_minutes = None
+        else:
+            try:
+                timeout_minutes = int(timeout_value)
+            except (TypeError, ValueError):
+                timeout_minutes = None
+            if timeout_minutes is not None and timeout_minutes < 0:
+                timeout_minutes = None
+
+        action = str(data.get("action", "continue")).strip() or "continue"
+        if action not in {"continue", "run_cleanup_and_terminate"}:
+            action = "continue"
+
+        cleanup_experiment_path = data.get("cleanup_experiment_path")
+        if cleanup_experiment_path is not None:
+            cleanup_experiment_path = str(cleanup_experiment_path).strip() or None
+
+        cleanup_experiment_name = data.get("cleanup_experiment_name")
+        if cleanup_experiment_name is not None:
+            cleanup_experiment_name = str(cleanup_experiment_name).strip() or None
+
         return cls(
-            max_retries=data.get("max_retries", 5),
-            retry_delay_minutes=data.get("retry_delay_minutes", 2),
-            backoff_strategy=data.get("backoff_strategy", "linear"),
-            abort_after_hours=data.get("abort_after_hours", 24)
+            timeout_minutes=timeout_minutes,
+            action=action,
+            cleanup_experiment_path=cleanup_experiment_path,
+            cleanup_experiment_name=cleanup_experiment_name,
         )
 
 
@@ -120,7 +144,7 @@ class ScheduledExperiment:
     created_by: str = "system"
     is_active: bool = True
     archived: bool = False
-    retry_config: Optional[RetryConfig] = None
+    timeout_config: Optional[TimeoutConfig] = None
     prerequisites: List[str] = None  # Database flags to set before execution
     notification_contacts: List[str] = None  # Contact IDs to notify on issues
     recovery_required: bool = False
@@ -138,8 +162,8 @@ class ScheduledExperiment:
             self.prerequisites = []
         if self.notification_contacts is None:
             self.notification_contacts = []
-        if self.retry_config is None:
-            self.retry_config = RetryConfig()
+        if self.timeout_config is None:
+            self.timeout_config = TimeoutConfig()
         if not self.schedule_id:
             self.schedule_id = str(uuid.uuid4())
         if self.created_at is None:
@@ -159,7 +183,7 @@ class ScheduledExperiment:
             "created_by": self.created_by,
             "is_active": self.is_active,
             "archived": self.archived,
-            "retry_config": self.retry_config.to_dict() if self.retry_config else None,
+            "timeout_config": self.timeout_config.to_dict() if self.timeout_config else None,
             "prerequisites": self.prerequisites,
             "notification_contacts": self.notification_contacts,
             "recovery_required": self.recovery_required,
@@ -182,10 +206,27 @@ class ScheduledExperiment:
         recovery_marked_at = parse_iso_datetime_to_local(data.get("recovery_marked_at"))
         recovery_resolved_at = parse_iso_datetime_to_local(data.get("recovery_resolved_at"))
 
-        # Parse retry config
-        retry_config = None
-        if data.get("retry_config"):
-            retry_config = RetryConfig.from_dict(data["retry_config"])
+        # Parse timeout config
+        timeout_config = None
+        if data.get("timeout_config"):
+            timeout_config = TimeoutConfig.from_dict(data["timeout_config"])
+        elif any(
+            key in data
+            for key in (
+                "timeout_minutes",
+                "timeout_action",
+                "timeout_cleanup_experiment_name",
+                "timeout_cleanup_experiment_path",
+            )
+        ):
+            timeout_config = TimeoutConfig.from_dict(
+                {
+                    "timeout_minutes": data.get("timeout_minutes"),
+                    "action": data.get("timeout_action"),
+                    "cleanup_experiment_name": data.get("timeout_cleanup_experiment_name"),
+                    "cleanup_experiment_path": data.get("timeout_cleanup_experiment_path"),
+                }
+            )
         
         return cls(
             schedule_id=data.get("schedule_id", str(uuid.uuid4())),
@@ -198,7 +239,7 @@ class ScheduledExperiment:
             created_by=data.get("created_by", "system"),
             is_active=data.get("is_active", True),
             archived=data.get("archived", False),
-            retry_config=retry_config,
+            timeout_config=timeout_config,
             prerequisites=data.get("prerequisites", []),
             notification_contacts=data.get("notification_contacts", []),
             recovery_required=data.get("recovery_required", False),
@@ -434,7 +475,7 @@ class JobExecution:
     """Model for tracking individual job execution instances"""
     execution_id: str
     schedule_id: str
-    status: str  # 'pending', 'running', 'completed', 'failed', 'retrying'
+    status: str  # 'pending', 'running', 'completed', 'failed', 'cancelled'
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
     duration_minutes: Optional[int] = None

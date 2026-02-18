@@ -58,8 +58,8 @@ const CreateScheduleDialog: React.FC<CreateScheduleDialogProps> = ({
     description: '',
     priority: 'medium' as 'low' | 'medium' | 'high',
     enabled: true,
-    max_retries: 3,
-    retry_delay_minutes: 5
+    timeout_minutes: '',
+    timeout_action: 'continue' as 'continue' | 'run_cleanup_and_terminate'
   });
 
   const [loading, setLoading] = useState(false);
@@ -80,8 +80,8 @@ const CreateScheduleDialog: React.FC<CreateScheduleDialogProps> = ({
         description: '',
         priority: 'medium',
         enabled: true,
-        max_retries: 3,
-        retry_delay_minutes: 5
+        timeout_minutes: '',
+        timeout_action: 'continue'
       });
       setError('');
       setFormErrors({});
@@ -321,26 +321,26 @@ const CreateScheduleDialog: React.FC<CreateScheduleDialogProps> = ({
           <Grid item xs={12} sm={4}>
             <TextField
               fullWidth
-              label="Max Retries"
+              label="Timeout Minutes"
               type="number"
-              value={formData.max_retries}
-              onChange={(e) => handleInputChange('max_retries', parseInt(e.target.value))}
-              inputProps={{ min: 0, max: 10 }}
+              value={formData.timeout_minutes}
+              onChange={(e) => handleInputChange('timeout_minutes', e.target.value)}
+              inputProps={{ min: 1 }}
             />
           </Grid>
 
           <Grid item xs={12} sm={4}>
-            <TextField
-              fullWidth
-              label="Retry Delay"
-              type="number"
-              value={formData.retry_delay_minutes}
-              onChange={(e) => handleInputChange('retry_delay_minutes', parseInt(e.target.value))}
-              InputProps={{
-                endAdornment: <InputAdornment position="end">minutes</InputAdornment>
-              }}
-              inputProps={{ min: 1 }}
-            />
+            <FormControl fullWidth>
+              <InputLabel>Timeout Action</InputLabel>
+              <Select
+                value={formData.timeout_action}
+                label="Timeout Action"
+                onChange={(e) => handleInputChange('timeout_action', e.target.value)}
+              >
+                <MenuItem value="continue">Continue Execution</MenuItem>
+                <MenuItem value="run_cleanup_and_terminate">Run Cleanup + Stop Future Runs</MenuItem>
+              </Select>
+            </FormControl>
           </Grid>
 
           <Grid item xs={12}>

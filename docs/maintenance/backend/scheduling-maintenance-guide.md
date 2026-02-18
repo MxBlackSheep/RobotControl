@@ -7,14 +7,14 @@ This document explains how the scheduling subsystem fits together and how to mod
 ## 1. High-Level Architecture
 
 - `backend/services/scheduling/scheduler_engine.py`  
-  Runs the background thread that decides when jobs should execute. Handles capacity limits, retry loops, notifications, and state transitions.
+  Runs the background thread that decides when jobs should execute. Uses a single-worker in-memory queue to execute one schedule at a time, plus notifications and state transitions.
 
 - `backend/services/scheduling/job_queue.py`  
   Lightweight wrapper around `Queue` that the engine uses to hand work to worker threads.
 
 - `backend/services/scheduling/experiment_executor.py`  
   Bridges between schedule metadata and the Hamilton controller (builds the command line, launches HxRun, tracks process exit codes).
-  Also checks the global HxRun maintenance flag and blocks launches when enabled.
+  Timeout action selection also lives here, but readiness gating (maintenance/manual recovery/HxRun busy) now lives in the scheduler worker.
 
 - `backend/services/scheduling/process_monitor.py`  
   Watches Hamilton processes so the scheduler knows whether the robot is already busy.
@@ -41,13 +41,13 @@ This document explains how the scheduling subsystem fits together and how to mod
    Loads active schedules from the database and picks jobs that are due.
 
 2. **Job queued** (`_process_due_job`).  
-   Creates a `JobExecution` row (status `pending`), puts `(ScheduledExperiment, JobExecution)` on the job queue, spawns worker thread.
+   Creates a `JobExecution` row (status `pending`), puts `(ScheduledExperiment, JobExecution)` on the job queue.
 
-3. **Capacity check** (`_acquire_capacity_slot`).  
-   Tries up to five times (configurable) to reserve a slot under `config.max_concurrent_jobs`. Logs `Scheduler at capacity…` while waiting.
+3. **Single worker consumption** (`_job_worker_loop`).  
+   One worker thread drains the queue in FIFO order. No scheduler-side capacity retry loop remains.
 
-4. **Maintenance guard** (`SchedulerEngine._scheduler_loop`, `ExperimentExecutor.execute_experiment`).  
-   If HxRun maintenance mode is enabled, dispatch is paused and executor returns a blocked message without launching HxRun.
+4. **Dispatch gates inside queue worker** (`SchedulerEngine._job_worker_loop`).  
+   The worker keeps jobs in `queued` state while any gate is active: HxRun maintenance, manual recovery, or HxRun busy. Jobs are not marked `running` until gates clear.
 
 5. **Execution** (`ExperimentExecutor.execute_experiment`).  
    Launches HxRun, waits for completion, collects exit code, returns success flag.
@@ -57,7 +57,7 @@ This document explains how the scheduling subsystem fits together and how to mod
 
 7. **Failure pathways** (`_handle_failed_execution`).  
    - Abort signals ⇒ schedule marked inactive via `mark_recovery_required`, email alerts sent.  
-   - Capacity exhaustion ⇒ run logged as failed, schedule rescheduled to the next interval.
+   - Launch/execution failures ⇒ run logged as failed, schedule rescheduled to the next interval when applicable.
 
 8. **Watcher cleanup** (`_clear_execution_watch`).  
    Removes timers that detect long-running jobs.
@@ -72,7 +72,7 @@ Fields:
 - `experiment_name`, `experiment_path`: human label + MED file path.
 - `schedule_type`: `once`, `interval`, or alias (`hourly`, `daily`, `weekly`).
 - `interval_hours`: optional float; aliases default automatically.
-- `retry_config`: `RetryConfig(max_retries=5, retry_delay_minutes=2, backoff_strategy=...)`.
+- `timeout_config`: `TimeoutConfig(timeout_minutes, action, cleanup_experiment_path, cleanup_experiment_name)`.
 - `is_active`, `archived`, `next_run`, `last_run`.
 
 ### JobExecution
@@ -80,7 +80,7 @@ Captures each run:
 - `execution_id`: GUID string (auto-generated).
 - `schedule_id`: FK back to `ScheduledExperiment`.
 - `status`: `pending`, `running`, `completed`, `failed`, `aborted`, etc.
-- `retry_count`, `start_time`, `end_time`, `error_message`, `hamilton_command`.
+- `start_time`, `end_time`, `error_message`, `hamilton_command` (legacy `retry_count` remains stored as `0`).
 
 ### NotificationContact & NotificationSettings
 Represent email contacts and SMTP configuration. Hooks appear in `frontend/src/components/scheduling/*Notification*.tsx` and backend manager methods `get_notification_contacts`, `create_notification_log`, etc.
@@ -126,15 +126,25 @@ Represent email contacts and SMTP configuration. Hooks appear in `frontend/src/c
 4. **Front-end display**  
    Update `frontend/src/components/ScheduleHistory.tsx` or relevant UI to show the new status label.
 
-### 4.3 Adjusting Retry Behaviour
-1. `_acquire_capacity_slot` handles capacity retries. Modify `RetryConfig` (max attempts, delay) there.  
-2. Launch retry logic inside `ExperimentExecutor.execute_experiment` handles HxRun-specific retries. Keep these consistent to avoid “5×5” retry explosions.
-3. Update documentation and tests (`backend/tests/test_scheduling_pipeline.py`) to reflect new timings.
+### 4.3 Timeout Behaviour
+1. Timeout behavior lives in `ScheduledExperiment.timeout_config` and is evaluated in `SchedulerEngine._resolve_timeout_context`.
+2. Executor launch is now single-attempt: `ExperimentExecutor.execute_experiment` runs once (no retry loop).
+3. Worker readiness waiting is queue-based and indefinite (no robot-availability timeout cutoff). The schedule stays queued until gates clear.
+4. Timeout context is evaluated at actual launch time, so queued/wait delay contributes to timeout action selection.
+5. Timeout actions:
+   - `continue`: run the originally scheduled method.
+   - `run_cleanup_and_terminate`: run the configured cleanup method instead and deactivate the schedule.
 
 ### 4.4 Manual Recovery Flows
 1. Use `SchedulingDatabaseManager.mark_recovery_required(schedule_id, note, actor)` to force a schedule inactive.  
 2. Clearing the flag uses `resolve_recovery_required`.  
 3. Frontend surfaces rely on `ManualRecoveryState` via `useScheduling`. Update both the hook and API `GET /status/queue` responses if new metadata is needed.
+
+### 4.5 Start-Time Policy
+1. API accepts user-provided `start_time` without minute rounding.
+2. Create rejects past timestamps (`start_time < now`) to prevent invalid new schedules from being saved.
+3. Update still allows explicit operator control over `start_time` values for existing schedules.
+4. Scheduling engine treats any active schedule with `start_time <= now` as due and enqueues it; it does not auto-mark overdue jobs as `missed`.
 
 ---
 
@@ -174,19 +184,19 @@ Represent email contacts and SMTP configuration. Hooks appear in `frontend/src/c
 | Function | Purpose | Notes |
 |----------|---------|-------|
 | `SchedulerEngine.start()` | Launch background thread | Called once at backend startup. |
-| `_acquire_capacity_slot(experiment, retry_config, executor)` | Enforce max concurrent jobs | Returns `CapacityAcquisitionResult(acquired, attempts_made, max_attempts)`. |
+| `_job_worker_loop()` | Execute queued jobs serially | Single worker guarantees one active execution path and applies readiness gates while jobs remain queued. |
 | `_handle_failed_execution(experiment, execution)` | Post-failure logic | Determines abort vs generic failure and triggers notifications. |
 | `SchedulingDatabaseManager.create_schedule(experiment)` | Persist new schedule | Wraps `SQLiteSchedulingDatabase.create_schedule`. |
 | `SchedulingDatabaseManager.store_job_execution(execution)` | Insert new run | Must be called before queueing the job. |
 | `SQLiteSchedulingDatabase.get_execution_history(limit, schedule_id)` | Retrieve merged history | Already dedupes live+archive entries. |
-| `ExperimentExecutor.execute_experiment(experiment, execution)` | Run Hamilton command | Handles retry of launch attempts, returns `True` on success. |
+| `ExperimentExecutor.execute_experiment(experiment, execution, timeout_context)` | Run Hamilton command | Single-attempt launch; expects scheduler worker to have already passed readiness gates. |
 
 ---
 
 ## 8. When Something Goes Wrong
 
-1. **Capacity warnings flooding logs**  
-   Check `_acquire_capacity_slot` delay / attempts. Verify `config.max_concurrent_jobs` is correct.
+1. **Queue grows while robot is busy**  
+   In single-worker mode this is expected while HxRun is occupied, maintenance mode is on, or manual recovery is active. Check `/status/queue` `waiting_reason` for each queued job.
 
 2. **Execution history shows “Archived Schedule”**  
    Ensure the delete path passed `name_snapshot` and `path_snapshot` to `delete_schedule`. If you added new entry points, forward those snapshots.
@@ -222,7 +232,7 @@ Represent email contacts and SMTP configuration. Hooks appear in `frontend/src/c
 - [ ] New fields tested end-to-end (database, API, frontend).
 - [ ] `docs/implementation-notes.md` updated with the change summary.
 - [ ] No direct SQLite calls from API or engine.
-- [ ] Capacity retry logs read clearly (no spam loops).
+- [ ] `/status/queue` reflects scheduler runtime queue details (`running_job_details`, `queued_job_details`).
 - [ ] Frontend still builds (`npm run build` on Windows).
 - [ ] PyInstaller spec includes any new modules if packaging is required (`RobotControl.spec`).
 

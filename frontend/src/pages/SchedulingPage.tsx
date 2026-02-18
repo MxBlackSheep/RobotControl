@@ -87,9 +87,10 @@ type ScheduleFormValues = Partial<{
   estimated_duration: number;
   prerequisites: string[];
   is_active: boolean;
-  max_retries: number;
-  retry_delay_minutes: number;
-  backoff_strategy: 'linear' | 'exponential';
+  timeout_minutes: number | null;
+  timeout_action: 'continue' | 'run_cleanup_and_terminate';
+  timeout_cleanup_experiment_name: string | null;
+  timeout_cleanup_experiment_path: string | null;
   notification_contacts: string[];
 }>;
 
@@ -198,10 +199,20 @@ const SchedulingPage: React.FC = () => {
         start_time: data.start_time ? new Date(data.start_time).toISOString() : undefined,
         estimated_duration: Number(data.estimated_duration),
         is_active: data.is_active ?? true,
-        retry_config: {
-          max_retries: Number(data.max_retries ?? 0),
-          retry_delay_minutes: Number(data.retry_delay_minutes ?? 0),
-          backoff_strategy: data.backoff_strategy || 'linear',
+        timeout_config: {
+          timeout_minutes:
+            data.timeout_minutes === null || data.timeout_minutes === undefined
+              ? null
+              : Number(data.timeout_minutes),
+          action: data.timeout_action || 'continue',
+          cleanup_experiment_name:
+            data.timeout_action === 'run_cleanup_and_terminate'
+              ? data.timeout_cleanup_experiment_name ?? null
+              : null,
+          cleanup_experiment_path:
+            data.timeout_action === 'run_cleanup_and_terminate'
+              ? data.timeout_cleanup_experiment_path ?? null
+              : null,
         },
         prerequisites: Array.isArray(data.prerequisites) ? data.prerequisites : [],
         notification_contacts: Array.isArray(data.notification_contacts) ? data.notification_contacts : [],
@@ -218,9 +229,19 @@ const SchedulingPage: React.FC = () => {
         start_time: data.start_time ? new Date(data.start_time) : null,
         estimated_duration: Number(data.estimated_duration),
         is_active: data.is_active ?? true,
-        max_retries: Number(data.max_retries ?? 0),
-        retry_delay_minutes: Number(data.retry_delay_minutes ?? 0),
-        backoff_strategy: data.backoff_strategy || 'linear',
+        timeout_minutes:
+          data.timeout_minutes === null || data.timeout_minutes === undefined
+            ? null
+            : Number(data.timeout_minutes),
+        timeout_action: data.timeout_action || 'continue',
+        timeout_cleanup_experiment_name:
+          data.timeout_action === 'run_cleanup_and_terminate'
+            ? data.timeout_cleanup_experiment_name ?? null
+            : null,
+        timeout_cleanup_experiment_path:
+          data.timeout_action === 'run_cleanup_and_terminate'
+            ? data.timeout_cleanup_experiment_path ?? null
+            : null,
         prerequisites: Array.isArray(data.prerequisites) ? data.prerequisites : [],
         notification_contacts: Array.isArray(data.notification_contacts) ? data.notification_contacts : [],
       };
@@ -263,14 +284,15 @@ const SchedulingPage: React.FC = () => {
       start_time: selected.start_time ? formatStartTimeForInput(selected.start_time) : null,
       estimated_duration: selected.estimated_duration,
       is_active: selected.is_active,
-      max_retries: selected.retry_config?.max_retries ?? 3,
-      retry_delay_minutes: selected.retry_config?.retry_delay_minutes ?? 2,
-    backoff_strategy: selected.retry_config?.backoff_strategy ?? 'linear',
-    prerequisites: selected.prerequisites ?? [],
-    notification_contacts: selected.notification_contacts ?? [],
-  });
-  setImprovedFormOpen(true);
-};
+      timeout_minutes: selected.timeout_config?.timeout_minutes ?? null,
+      timeout_action: selected.timeout_config?.action ?? 'continue',
+      timeout_cleanup_experiment_name: selected.timeout_config?.cleanup_experiment_name ?? null,
+      timeout_cleanup_experiment_path: selected.timeout_config?.cleanup_experiment_path ?? null,
+      prerequisites: selected.prerequisites ?? [],
+      notification_contacts: selected.notification_contacts ?? [],
+    });
+    setImprovedFormOpen(true);
+  };
 
   const handleLogsRefresh = useCallback(async () => {
     if (user?.role !== 'admin') {
@@ -988,6 +1010,74 @@ const SchedulingPage: React.FC = () => {
                         </Typography>
                       </Stack>
                     )}
+                  </CardContent>
+                </Card>
+
+                <Card sx={{ borderRadius: 2 }}>
+                  <CardContent sx={{ p: cardPadding }}>
+                    <Stack spacing={1.5}>
+                      <Stack direction="row" justifyContent="space-between" alignItems="center">
+                        <Typography variant="h6">Runtime Queue</Typography>
+                        <Button size="small" startIcon={<RefreshIcon />} onClick={() => actions.getQueueStatus()}>
+                          Refresh
+                        </Button>
+                      </Stack>
+                      <Stack direction="row" spacing={1} flexWrap="wrap">
+                        <Chip
+                          size="small"
+                          label={`${state.queueStatus?.running_jobs ?? 0} running`}
+                          color={(state.queueStatus?.running_jobs ?? 0) > 0 ? 'primary' : 'default'}
+                        />
+                        <Chip
+                          size="small"
+                          label={`${state.queueStatus?.queued_jobs ?? 0} queued`}
+                          color={(state.queueStatus?.queued_jobs ?? 0) > 0 ? 'warning' : 'default'}
+                        />
+                      </Stack>
+                      <Typography variant="subtitle2" color="text.secondary">
+                        Running now
+                      </Typography>
+                      {(state.queueStatus?.running_job_details ?? []).length > 0 ? (
+                        <Stack spacing={0.75}>
+                          {(state.queueStatus?.running_job_details ?? []).map((item) => (
+                            <Stack key={`running-${item.schedule_id}`} spacing={0.25}>
+                              <Typography variant="body2">{item.experiment_name}</Typography>
+                              {item.waiting_reason && (
+                                <Typography variant="caption" color="text.secondary">
+                                  {item.waiting_reason}
+                                </Typography>
+                              )}
+                            </Stack>
+                          ))}
+                        </Stack>
+                      ) : (
+                        <Typography variant="body2" color="text.secondary">
+                          No running schedules.
+                        </Typography>
+                      )}
+                      <Divider />
+                      <Typography variant="subtitle2" color="text.secondary">
+                        Queued next
+                      </Typography>
+                      {(state.queueStatus?.queued_job_details ?? []).length > 0 ? (
+                        <Stack spacing={0.75}>
+                          {(state.queueStatus?.queued_job_details ?? []).map((item) => (
+                            <Stack key={`queued-${item.schedule_id}`} spacing={0.25}>
+                              <Typography variant="body2">{item.experiment_name}</Typography>
+                              {item.waiting_reason && (
+                                <Typography variant="caption" color="text.secondary">
+                                  {item.waiting_reason}
+                                </Typography>
+                              )}
+                            </Stack>
+                          ))}
+                        </Stack>
+                      ) : (
+                        <Typography variant="body2" color="text.secondary">
+                          No queued schedules.
+                        </Typography>
+                      )}
+                    </Stack>
                   </CardContent>
                 </Card>
 

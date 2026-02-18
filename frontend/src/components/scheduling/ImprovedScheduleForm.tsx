@@ -81,9 +81,10 @@ interface ScheduleFormData {
   prerequisites: string[];
   notification_contacts: string[];
   is_active: boolean;
-  max_retries: number;
-  retry_delay_minutes: number;
-  backoff_strategy: 'linear' | 'exponential';
+  timeout_minutes: number | null;
+  timeout_action: 'continue' | 'run_cleanup_and_terminate';
+  timeout_cleanup_experiment_name: string | null;
+  timeout_cleanup_experiment_path: string | null;
 }
 
 interface ImprovedScheduleFormProps {
@@ -114,9 +115,10 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
     prerequisites: initialData?.prerequisites ?? [],
     notification_contacts: initialData?.notification_contacts ?? [],
     is_active: true,
-    max_retries: 3,
-    retry_delay_minutes: 2,
-    backoff_strategy: 'linear',
+    timeout_minutes: null,
+    timeout_action: 'continue',
+    timeout_cleanup_experiment_name: null,
+    timeout_cleanup_experiment_path: null,
     ...initialData
   });
 
@@ -154,6 +156,12 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
     () => contacts.filter((contact) => formData.notification_contacts.includes(contact.contact_id)),
     [contacts, formData.notification_contacts],
   );
+  const minimumStartTime = useMemo(() => {
+    const now = new Date();
+    now.setSeconds(0, 0);
+    const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(0, 16);
+  }, [open]);
 
 
   useEffect(() => {
@@ -303,9 +311,10 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
       prerequisites: [],
       notification_contacts: [],
       is_active: true,
-      max_retries: 3,
-      retry_delay_minutes: 2,
-      backoff_strategy: 'linear',
+      timeout_minutes: null,
+      timeout_action: 'continue',
+      timeout_cleanup_experiment_name: null,
+      timeout_cleanup_experiment_path: null,
     };
 
     const initialPrereqs = initialData?.prerequisites ?? [];
@@ -315,9 +324,12 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
       start_time: initialData?.start_time ?? null,
       prerequisites: initialPrereqs,
       notification_contacts: initialData?.notification_contacts ?? defaultFormData.notification_contacts,
-      max_retries: initialData?.max_retries ?? defaultFormData.max_retries,
-      retry_delay_minutes: initialData?.retry_delay_minutes ?? defaultFormData.retry_delay_minutes,
-      backoff_strategy: initialData?.backoff_strategy ?? defaultFormData.backoff_strategy,
+      timeout_minutes: initialData?.timeout_minutes ?? defaultFormData.timeout_minutes,
+      timeout_action: initialData?.timeout_action ?? defaultFormData.timeout_action,
+      timeout_cleanup_experiment_name:
+        initialData?.timeout_cleanup_experiment_name ?? defaultFormData.timeout_cleanup_experiment_name,
+      timeout_cleanup_experiment_path:
+        initialData?.timeout_cleanup_experiment_path ?? defaultFormData.timeout_cleanup_experiment_path,
     };
 
     setFormData(mergedData);
@@ -401,6 +413,15 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
     }
   };
 
+  const handleTimeoutCleanupSelect = (experimentPath: string) => {
+    const selectedExperiment = experiments.find((exp) => exp.path === experimentPath);
+    setFormData((prev) => ({
+      ...prev,
+      timeout_cleanup_experiment_path: selectedExperiment?.path || null,
+      timeout_cleanup_experiment_name: selectedExperiment?.name || null,
+    }));
+  };
+
   const validateForm = (): boolean => {
     const newErrors: string[] = [];
 
@@ -422,6 +443,26 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
 
     if (experimentPrepOption === 'schedule' && !selectedExperimentId) {
       newErrors.push('Select an experiment to prepare before execution');
+    }
+
+    if (mode === 'create' && formData.start_time) {
+      const startDate = new Date(formData.start_time);
+      if (!Number.isNaN(startDate.getTime()) && startDate.getTime() < Date.now()) {
+        newErrors.push('Start time cannot be in the past');
+      }
+    }
+
+    if (formData.timeout_minutes !== null && formData.timeout_minutes !== undefined) {
+      if (!Number.isFinite(formData.timeout_minutes) || formData.timeout_minutes <= 0) {
+        newErrors.push('Timeout minutes must be greater than 0');
+      }
+    }
+
+    if (
+      formData.timeout_action === 'run_cleanup_and_terminate' &&
+      !formData.timeout_cleanup_experiment_path
+    ) {
+      newErrors.push('Select a cleanup method for timeout action');
     }
 
     if (newErrors.length > 0) {
@@ -652,9 +693,93 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                     onChange={(e) => setFormData({ ...formData, start_time: e.target.value })}
                     fullWidth
                     InputLabelProps={{ shrink: true }}
+                    inputProps={{ min: minimumStartTime }}
                     helperText="When should this schedule start?"
                   />
                 </Grid>
+
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    label="Timeout (minutes)"
+                    type="number"
+                    fullWidth
+                    value={formData.timeout_minutes ?? ''}
+                    onChange={(e) => {
+                      const rawValue = e.target.value;
+                      setFormData((prev) => ({
+                        ...prev,
+                        timeout_minutes: rawValue === '' ? null : Number(rawValue),
+                      }));
+                    }}
+                    InputProps={{
+                      endAdornment: <InputAdornment position="end">min</InputAdornment>
+                    }}
+                    inputProps={{ min: 1 }}
+                    helperText="Optional. If execution starts after this delay, timeout action is applied."
+                  />
+                </Grid>
+
+                <Grid item xs={12} md={6}>
+                  <FormControl fullWidth>
+                    <InputLabel>Timeout Action</InputLabel>
+                    <Select
+                      value={formData.timeout_action}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          timeout_action: e.target.value as 'continue' | 'run_cleanup_and_terminate',
+                          timeout_cleanup_experiment_name:
+                            e.target.value === 'run_cleanup_and_terminate'
+                              ? prev.timeout_cleanup_experiment_name
+                              : null,
+                          timeout_cleanup_experiment_path:
+                            e.target.value === 'run_cleanup_and_terminate'
+                              ? prev.timeout_cleanup_experiment_path
+                              : null,
+                        }))
+                      }
+                      label="Timeout Action"
+                    >
+                      <MenuItem value="continue">Do Nothing and Continue Execution</MenuItem>
+                      <MenuItem value="run_cleanup_and_terminate">
+                        Run Cleanup Method Instead and Stop Future Runs
+                      </MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
+
+                {formData.timeout_action === 'run_cleanup_and_terminate' && (
+                  <Grid item xs={12}>
+                    <FormControl fullWidth>
+                      <InputLabel>Cleanup Method</InputLabel>
+                      <Select
+                        value={formData.timeout_cleanup_experiment_path || ''}
+                        onChange={(e) => handleTimeoutCleanupSelect(e.target.value as string)}
+                        label="Cleanup Method"
+                      >
+                        <MenuItem value="">Select cleanup method</MenuItem>
+                        {Object.entries(categorizedExperiments).map(([category, exps]) => [
+                          <ListSubheader key={`cleanup-header-${category}`}>
+                            <Stack direction="row" alignItems="center" spacing={1}>
+                              <FolderIcon fontSize="small" />
+                              <Typography variant="caption">{category}</Typography>
+                            </Stack>
+                          </ListSubheader>,
+                          ...exps.map((exp) => (
+                            <MenuItem key={`cleanup-${exp.path}`} value={exp.path}>
+                              <Box width="100%">
+                                <Typography variant="body2">{exp.name}</Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  {exp.path}
+                                </Typography>
+                              </Box>
+                            </MenuItem>
+                          ))
+                        ])}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                )}
 
                 <Grid item xs={12} md={6}>
                   <Autocomplete
