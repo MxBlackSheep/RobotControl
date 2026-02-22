@@ -2,12 +2,12 @@
 Experiment Execution Service
 
 Executes scheduled experiments with Hamilton HxRun.exe integration.
-Replicates VBS script functionality with enhanced error handling and retry logic.
+Replicates VBS script functionality with explicit timeout handling.
 
 Features:
 - HxRun.exe command execution with proper argument handling
 - Database prerequisite configuration (ScheduledToRun flags)
-- Retry logic with exponential backoff
+- Timeout action selection (continue or cleanup method)
 - Process monitoring and timeout handling
 - Mock mode support for development environments
 """
@@ -19,12 +19,11 @@ import threading
 import os
 import signal
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, Optional
 from dataclasses import dataclass
 from pathlib import Path
-from backend.models import ScheduledExperiment, JobExecution, RetryConfig
+from backend.models import ScheduledExperiment, JobExecution
 from backend.services.scheduling.database_manager import get_scheduling_database_manager
-from backend.services.scheduling.process_monitor import get_hamilton_process_monitor
 from backend.services.scheduling.experiment_discovery import get_experiment_discovery_service
 from backend.services.scheduling.pre_execution import PreExecutionPipeline
 
@@ -37,8 +36,6 @@ class ExecutionConfig:
     hxrun_path: str = r"C:\Program Files\HAMILTON\Bin\HxRun.exe"
     method_base_path: str = r"C:\Program Files\HAMILTON\Methods\LabProtocols\Experiments"
     execution_timeout_minutes: int = 120  # Maximum execution time
-    retry_delay_base_seconds: int = 120  # Base delay between retries (2 minutes like VBS)
-    max_retry_attempts: int = 5
 
 
 @dataclass
@@ -51,7 +48,6 @@ class ExecutionResult:
     execution_time_seconds: float
     command_executed: str
     error_message: Optional[str] = None
-    retry_count: int = 0
 
 
 def resolve_experiment_path(raw_path: str, config: Optional[ExecutionConfig] = None) -> Path:
@@ -96,7 +92,6 @@ class ExperimentExecutor:
         """
         self.config = config or ExecutionConfig()
         self.db_manager = get_scheduling_database_manager()
-        self.process_monitor = get_hamilton_process_monitor()
         self.pre_execution = PreExecutionPipeline(self.db_manager)
         self._active_executions: Dict[str, subprocess.Popen] = {}
         self._execution_lock = threading.RLock()
@@ -107,8 +102,12 @@ class ExperimentExecutor:
         
         logger.info("Experiment executor initialized")
     
-    def execute_experiment(self, experiment: ScheduledExperiment, 
-                          execution: JobExecution) -> bool:
+    def execute_experiment(
+        self,
+        experiment: ScheduledExperiment,
+        execution: JobExecution,
+        timeout_context: Optional[Dict[str, Any]] = None,
+    ) -> bool:
         """
         Execute a scheduled experiment
 
@@ -122,14 +121,54 @@ class ExperimentExecutor:
         pre_run = None
         try:
             logger.info(f"Starting experiment execution: {experiment.experiment_name}")
+            effective_timeout_context = self._refresh_timeout_context(
+                experiment,
+                timeout_context,
+            )
+            run_target = experiment
+            run_pre_execution = True
+            if effective_timeout_context.get("timed_out"):
+                action = str(effective_timeout_context.get("action") or "continue")
+                if action == "run_cleanup_and_terminate":
+                    cleanup_path = effective_timeout_context.get("cleanup_experiment_path")
+                    if not cleanup_path:
+                        execution.error_message = (
+                            "Timeout action requires cleanup_experiment_path but none was configured"
+                        )
+                        logger.error(
+                            "Timeout cleanup path missing for %s",
+                            experiment.experiment_name,
+                        )
+                        return False
+                    cleanup_name = effective_timeout_context.get("cleanup_experiment_name") or "Timeout Cleanup"
+                    run_target = ScheduledExperiment(
+                        schedule_id=experiment.schedule_id,
+                        experiment_name=str(cleanup_name),
+                        experiment_path=str(cleanup_path),
+                        schedule_type="once",
+                        interval_hours=None,
+                        estimated_duration=experiment.estimated_duration,
+                        created_by=execution.schedule_id or "scheduler",
+                        is_active=True,
+                        timeout_config=None,
+                        prerequisites=[],
+                        notification_contacts=experiment.notification_contacts,
+                    )
+                    run_pre_execution = False
+                    logger.warning(
+                        "Timeout action triggered for %s: running cleanup method %s",
+                        experiment.experiment_name,
+                        run_target.experiment_name,
+                    )
 
-            pre_run = self.pre_execution.run(experiment)
-            if not pre_run.success:
-                execution.error_message = pre_run.failure_reason or "Pre-execution pipeline failed"
-                logger.error("Pre-execution failed for %s: %s", experiment.experiment_name, execution.error_message)
-                return False
+            if run_pre_execution:
+                pre_run = self.pre_execution.run(experiment)
+                if not pre_run.success:
+                    execution.error_message = pre_run.failure_reason or "Pre-execution pipeline failed"
+                    logger.error("Pre-execution failed for %s: %s", experiment.experiment_name, execution.error_message)
+                    return False
 
-            result = self._execute_with_retry(experiment, execution)
+            result = self._execute_hamilton_command(run_target, execution)
 
             if result.success:
                 abort_note = self.db_manager.should_block_due_to_abort(experiment)
@@ -139,19 +178,18 @@ class ExperimentExecutor:
                     result.error_message = abort_note
 
             execution.hamilton_command = result.command_executed
-            execution.retry_count = result.retry_count
 
             if result.success:
-                logger.info("Experiment completed successfully: %s", experiment.experiment_name)
+                logger.info("Experiment completed successfully: %s", run_target.experiment_name)
                 execution.error_message = None
                 try:
                     discovery_service = get_experiment_discovery_service()
-                    discovery_service.db.update_method_usage(experiment.experiment_path)
-                    logger.debug("Updated usage stats for %s", experiment.experiment_path)
+                    discovery_service.db.update_method_usage(run_target.experiment_path)
+                    logger.debug("Updated usage stats for %s", run_target.experiment_path)
                 except Exception as exc:  # pragma: no cover - best effort only
                     logger.warning("Failed to update usage stats: %s", exc)
             else:
-                logger.error("Experiment failed: %s", experiment.experiment_name)
+                logger.error("Experiment failed: %s", run_target.experiment_name)
                 execution.error_message = result.error_message
 
             return result.success
@@ -164,7 +202,6 @@ class ExperimentExecutor:
         finally:
             if pre_run and pre_run.cleanup_required:
                 self.pre_execution.cleanup(pre_run.steps)
-
 
     def stop_experiment(self, schedule_id: str) -> bool:
         """
@@ -230,86 +267,48 @@ class ExperimentExecutor:
                 }
         
         return active_info
-    
-    def _execute_with_retry(self, experiment: ScheduledExperiment, 
-                          execution: JobExecution) -> ExecutionResult:
-        """
-        Execute experiment with retry logic replicating VBS behavior
-        
-        Args:
-            experiment: Experiment to execute
-            execution: Execution record
-            
-        Returns:
-            ExecutionResult with execution details
-        """
-        retry_config = experiment.retry_config or RetryConfig()
-        max_retries = min(retry_config.max_retries, self.config.max_retry_attempts)
-        
-        for attempt in range(max_retries + 1):
-            try:
-                # Check if Hamilton is busy before attempting
-                if self.process_monitor.is_hamilton_running():
-                    if attempt == max_retries:
-                        return ExecutionResult(
-                            success=False,
-                            return_code=None,
-                            stdout="",
-                            stderr="",
-                            execution_time_seconds=0,
-                            command_executed="",
-                            error_message="Hamilton robot busy after all retry attempts",
-                            retry_count=attempt
-                        )
-                    
-                    # Wait before retry (replicating VBS delay logic)
-                    delay = self._calculate_retry_delay(attempt, retry_config)
-                    logger.info(f"Hamilton busy, retrying in {delay} seconds (attempt {attempt + 1}/{max_retries + 1})")
-                    time.sleep(delay)
-                    continue
-                
-                # Execute the experiment
-                result = self._execute_hamilton_command(experiment, execution)
-                result.retry_count = attempt
-                
-                if result.success:
-                    return result
-                
-                # If this was the last attempt, return the failure
-                if attempt == max_retries:
-                    return result
-                
-                # Wait before retry
-                delay = self._calculate_retry_delay(attempt, retry_config)
-                logger.info(f"Execution failed, retrying in {delay} seconds (attempt {attempt + 1}/{max_retries + 1})")
-                time.sleep(delay)
-                
-            except Exception as e:
-                if attempt == max_retries:
-                    return ExecutionResult(
-                        success=False,
-                        return_code=None,
-                        stdout="",
-                        stderr="",
-                        execution_time_seconds=0,
-                        command_executed="",
-                        error_message=f"Execution error: {str(e)}",
-                        retry_count=attempt
-                    )
-                
-                logger.warning(f"Execution attempt {attempt + 1} failed: {e}")
-        
-        # Should not reach here
-        return ExecutionResult(
-            success=False,
-            return_code=None,
-            stdout="",
-            stderr="",
-            execution_time_seconds=0,
-            command_executed="",
-            error_message="Unexpected retry logic error",
-            retry_count=max_retries
-        )
+
+    def _refresh_timeout_context(
+        self,
+        experiment: ScheduledExperiment,
+        timeout_context: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Recompute timeout state at launch time, including any queue/wait delays."""
+        timeout_config = experiment.timeout_config
+        action = "continue"
+        cleanup_experiment_name = None
+        cleanup_experiment_path = None
+        timeout_minutes: Optional[int] = None
+        if timeout_config:
+            action = timeout_config.action or "continue"
+            if action not in {"continue", "run_cleanup_and_terminate"}:
+                action = "continue"
+            cleanup_experiment_name = timeout_config.cleanup_experiment_name
+            cleanup_experiment_path = timeout_config.cleanup_experiment_path
+            timeout_minutes = timeout_config.timeout_minutes
+
+        timed_out = False
+        lateness_minutes = 0
+        if timeout_minutes and timeout_minutes > 0 and experiment.start_time:
+            deadline = experiment.start_time + timedelta(minutes=timeout_minutes)
+            now = datetime.now()
+            timed_out = now > deadline
+            if timed_out:
+                lateness_minutes = max(0, int((now - deadline).total_seconds() / 60))
+
+        refreshed = {
+            "timed_out": timed_out,
+            "action": action,
+            "terminate_schedule": timed_out and action == "run_cleanup_and_terminate",
+            "lateness_minutes": lateness_minutes if timed_out else 0,
+            "cleanup_experiment_path": cleanup_experiment_path,
+            "cleanup_experiment_name": cleanup_experiment_name,
+        }
+        if timeout_context is not None:
+            timeout_context.clear()
+            timeout_context.update(refreshed)
+            return timeout_context
+        return refreshed
     
     def _execute_hamilton_command(self, experiment: ScheduledExperiment, 
                                 execution: JobExecution) -> ExecutionResult:
@@ -446,29 +445,6 @@ class ExperimentExecutor:
                 error_message=f"Process execution error: {str(e)}"
             )
     
-
-
-    def _calculate_retry_delay(self, attempt: int, retry_config: RetryConfig) -> int:
-        """
-        Calculate retry delay using configured backoff strategy
-        
-        Args:
-            attempt: Current attempt number (0-based)
-            retry_config: Retry configuration
-            
-        Returns:
-            int: Delay in seconds
-        """
-        base_delay = retry_config.retry_delay_minutes * 60  # Convert to seconds
-        
-        if retry_config.backoff_strategy == "exponential":
-            # Exponential backoff: base * 2^attempt
-            delay = base_delay * (2 ** attempt)
-            # Cap at maximum reasonable delay (30 minutes)
-            return min(delay, 1800)
-        else:
-            # Linear backoff (default): base delay for all attempts
-            return base_delay
 
 
 # Singleton instance management

@@ -42,11 +42,13 @@ This write-up explains every moving part of the database browser UI. It is desig
    - Running a procedure posts to `/api/database/execute-procedure` with `procedure_name` and `parameters`.
 
 4. **Restore tab**  
-  - `DatabaseRestore` displays available backups (from `/api/admin/backup/list`) and exposes restore/delete actions (admin token required).
+  - `DatabasePage` now checks the signed-in user before mounting the restore UI. Admins always see the tools; non-admins only see them if the current session was classified as local (`session_is_local === true`). Everyone else gets an informational card instead of triggering API errors.
+  - When the restore UI is active, `DatabaseRestore` displays backups (from `/api/admin/backup/list`) and exposes restore/delete actions.
   - After the operator confirms a restore, the component starts a 60-second maintenance window and repeatedly calls `GET /health` with the header `X-Allow-Maintenance: true`. As soon as the backend answers, maintenance ends early so the UI unlocks without waiting the full minute.
 
 5. **Operations tab**  
    - `DatabaseOperations` groups actions (clear cache, rebuild indexes). Each button maps to a backend endpoint exposed under `/api/database/...`.
+   - Remote sessions never mount this component. Instead, the tab shows a friendly “Local Access Required” card. If you change the guard, keep the message in sync so remote staff know to walk over to the robot console.
 
 6. **Error handling**  
    - Any failure sets `error` in `DatabasePage`, which renders `ServerError` with retry buttons.
@@ -139,8 +141,8 @@ This write-up explains every moving part of the database browser UI. It is desig
 3. **CSV download is garbled**  
    - Ensure you’re stringifying rows correctly (wrap values that contain commas). Check the MIME type and file extension in the download helper.
 
-4. **Restore tab shows 401**  
-   - Only admins can see backup endpoints. Confirm the signed-in user has the `admin` role; otherwise hide the tab via `user?.role`.
+4. **Restore tab replaced by warning**  
+   - The page hides `DatabaseRestore` for remote non-admin sessions, so seeing the warning card is expected when you are off the lab network or signed in without admin rights. To test the UI, log in as an admin from a trusted machine.
 
 5. **Filters never apply**  
    - Inspect the network request; the backend expects `filters` as JSON string. Verify you updated both the UI state and the serialization logic when adding new operators.

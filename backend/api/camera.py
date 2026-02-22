@@ -20,8 +20,10 @@ import time
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 from pathlib import Path
+from email.utils import formatdate
+from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, status, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, status, WebSocket, WebSocketDisconnect, Header, Request
 from fastapi.responses import StreamingResponse, Response
 
 # Import services with relative imports (within backend directory)
@@ -62,6 +64,132 @@ router = APIRouter(prefix="/camera", tags=["camera"])
 VIDEO_BASE_PATH = Path(VIDEO_PATH)
 ROLLING_CLIPS_PATH = VIDEO_BASE_PATH / "rolling_clips"
 EXPERIMENTS_PATH = VIDEO_BASE_PATH / "experiments"
+
+DOWNLOAD_CHUNK_SIZE = 1024 * 1024  # 1MB chunks
+
+
+def _resolve_recording_file_path(recording_id: str) -> Optional[Path]:
+    """Resolve a recording ID to a concrete file path in rolling or experiment storage."""
+    # Security check - prevent directory traversal
+    if '..' in recording_id or '/' in recording_id or '\\' in recording_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid recording ID"
+        )
+
+    # Check rolling clips first
+    rolling_path = ROLLING_CLIPS_PATH / recording_id
+    if rolling_path.exists() and rolling_path.is_file():
+        return rolling_path
+
+    # Check experiment folders recursively (archives may contain nested folders).
+    candidates: List[Path] = []
+    if EXPERIMENTS_PATH.exists():
+        for root, _, files in os.walk(EXPERIMENTS_PATH):
+            if recording_id in files:
+                candidates.append(Path(root) / recording_id)
+
+    if candidates:
+        # If duplicates exist across folders, prefer the most recently modified file.
+        if len(candidates) > 1:
+            logger.warning(
+                "Multiple recordings found for '%s'; selecting newest match among %s candidates",
+                recording_id,
+                len(candidates),
+            )
+        candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        return candidates[0]
+
+    return None
+
+
+def _build_recording_etag(file_path: Path) -> str:
+    """Build a weak ETag from size + mtime for resume validation."""
+    stat_result = file_path.stat()
+    return f'W/"{stat_result.st_size:x}-{stat_result.st_mtime_ns:x}"'
+
+
+def _parse_range_header(range_header: str, file_size: int) -> tuple[int, int]:
+    """
+    Parse a single HTTP byte range into (start, end), inclusive.
+
+    Supports:
+    - bytes=<start>-<end>
+    - bytes=<start>-
+    - bytes=-<suffix_length>
+    """
+    if not range_header or not range_header.startswith("bytes="):
+        raise ValueError("Range header must start with 'bytes='")
+
+    raw_ranges = range_header[6:].split(",")
+    if len(raw_ranges) != 1:
+        raise ValueError("Multiple ranges are not supported")
+
+    range_value = raw_ranges[0].strip()
+    if "-" not in range_value:
+        raise ValueError("Invalid range format")
+
+    start_str, end_str = range_value.split("-", 1)
+
+    if start_str == "":
+        # Suffix range: bytes=-500 (last 500 bytes)
+        if end_str == "":
+            raise ValueError("Invalid suffix range")
+        suffix_len = int(end_str)
+        if suffix_len <= 0:
+            raise ValueError("Invalid suffix length")
+        start = max(file_size - suffix_len, 0)
+        end = file_size - 1
+    else:
+        start = int(start_str)
+        if start < 0:
+            raise ValueError("Invalid range start")
+        end = file_size - 1 if end_str == "" else int(end_str)
+        if end < start:
+            raise ValueError("Invalid range end")
+
+    if start >= file_size:
+        raise ValueError("Range start beyond file size")
+
+    return start, min(end, file_size - 1)
+
+
+def _iter_file_range(file_path: Path, start: int, end: int):
+    """Yield bytes in [start, end] inclusive."""
+    with open(file_path, mode="rb") as file_obj:
+        file_obj.seek(start)
+        remaining = end - start + 1
+        while remaining > 0:
+            chunk = file_obj.read(min(DOWNLOAD_CHUNK_SIZE, remaining))
+            if not chunk:
+                break
+            remaining -= len(chunk)
+            yield chunk
+
+
+def _build_download_headers(
+    recording_id: str,
+    file_path: Path,
+    file_size: int,
+    content_length: int,
+    etag: str,
+    range_start: Optional[int] = None,
+    range_end: Optional[int] = None
+) -> Dict[str, str]:
+    safe_filename = recording_id.replace('"', '')
+    quoted_filename = quote(safe_filename)
+    headers: Dict[str, str] = {
+        "Accept-Ranges": "bytes",
+        "Content-Disposition": f'attachment; filename="{safe_filename}"; filename*=UTF-8\'\'{quoted_filename}',
+        "Content-Length": str(content_length),
+        "ETag": etag,
+        "Last-Modified": formatdate(file_path.stat().st_mtime, usegmt=True)
+    }
+
+    if range_start is not None and range_end is not None:
+        headers["Content-Range"] = f"bytes {range_start}-{range_end}/{file_size}"
+
+    return headers
 
 
 @router.get("/cameras")
@@ -425,6 +553,10 @@ async def list_recordings(
 @router.get("/recording/{recording_id}")
 async def download_recording(
     recording_id: str,
+    request: Request,
+    range_header: Optional[str] = Header(default=None, alias="Range"),
+    if_range: Optional[str] = Header(default=None, alias="If-Range"),
+    if_none_match: Optional[str] = Header(default=None, alias="If-None-Match"),
     current_user: UserModel = Depends(get_current_user)
 ):
     """
@@ -433,56 +565,89 @@ async def download_recording(
     Searches in rolling clips and experiment folders for the specified recording.
     """
     try:
-        # Security check - prevent directory traversal
-        if '..' in recording_id or '/' in recording_id or '\\' in recording_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid recording ID"
-            )
-        
-        file_path = None
-        
-        # Check rolling clips first
-        rolling_path = ROLLING_CLIPS_PATH / recording_id
-        if rolling_path.exists() and rolling_path.is_file():
-            file_path = rolling_path
-        
-        # Check experiment folders
-        if not file_path and EXPERIMENTS_PATH.exists():
-            for exp_dir in EXPERIMENTS_PATH.iterdir():
-                if exp_dir.is_dir():
-                    exp_file = exp_dir / recording_id
-                    if exp_file.exists() and exp_file.is_file():
-                        file_path = exp_file
-                        break
-        
+        file_path = _resolve_recording_file_path(recording_id)
         if not file_path:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Recording '{recording_id}' not found"
             )
-        
-        def iter_file(file_path: Path):
-            """Stream file in chunks"""
-            with open(file_path, mode="rb") as file_obj:
-                while True:
-                    chunk = file_obj.read(1024 * 1024)  # 1MB chunks
-                    if not chunk:
-                        break
-                    yield chunk
-        
+
+        stat_result = file_path.stat()
+        file_size = stat_result.st_size
+        etag = _build_recording_etag(file_path)
+
+        if if_none_match and if_none_match.strip() == etag:
+            return Response(
+                status_code=status.HTTP_304_NOT_MODIFIED,
+                headers={
+                    "ETag": etag,
+                    "Last-Modified": formatdate(stat_result.st_mtime, usegmt=True),
+                    "Accept-Ranges": "bytes"
+                }
+            )
+
         # Determine content type based on file extension
         content_type = "video/mp4"
         if file_path.suffix.lower() == ".avi":
             content_type = "video/x-msvideo"
-        
+
+        use_range = bool(range_header)
+        if use_range and if_range:
+            # If-Range can be ETag or HTTP-date; on mismatch send full content.
+            if if_range.strip() != etag and if_range.strip() != formatdate(stat_result.st_mtime, usegmt=True):
+                use_range = False
+
+        if use_range:
+            try:
+                range_start, range_end = _parse_range_header(range_header or "", file_size)
+            except ValueError as range_error:
+                raise HTTPException(
+                    status_code=status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE,
+                    detail=str(range_error),
+                    headers={"Content-Range": f"bytes */{file_size}"}
+                ) from range_error
+
+            content_length = range_end - range_start + 1
+            headers = _build_download_headers(
+                recording_id=recording_id,
+                file_path=file_path,
+                file_size=file_size,
+                content_length=content_length,
+                etag=etag,
+                range_start=range_start,
+                range_end=range_end
+            )
+
+            if range_start == 0 and range_end == file_size - 1:
+                # Clients may send full-range requests explicitly.
+                if range_header:
+                    headers["Content-Range"] = f"bytes 0-{file_size - 1}/{file_size}"
+
+            if request.method == "HEAD":
+                return Response(status_code=status.HTTP_206_PARTIAL_CONTENT, media_type=content_type, headers=headers)
+
+            return StreamingResponse(
+                _iter_file_range(file_path, range_start, range_end),
+                status_code=status.HTTP_206_PARTIAL_CONTENT,
+                media_type=content_type,
+                headers=headers
+            )
+
+        full_headers = _build_download_headers(
+            recording_id=recording_id,
+            file_path=file_path,
+            file_size=file_size,
+            content_length=file_size,
+            etag=etag
+        )
+
+        if request.method == "HEAD":
+            return Response(status_code=status.HTTP_200_OK, media_type=content_type, headers=full_headers)
+
         return StreamingResponse(
-            iter_file(file_path),
+            _iter_file_range(file_path, 0, file_size - 1),
             media_type=content_type,
-            headers={
-                "Content-Disposition": f"attachment; filename={recording_id}",
-                "Content-Length": str(file_path.stat().st_size)
-            }
+            headers=full_headers
         )
         
     except HTTPException:
@@ -511,30 +676,23 @@ async def delete_recording(
                 detail="Invalid recording ID"
             )
         
-        deleted = False
-        
-        # Check rolling clips
-        rolling_path = ROLLING_CLIPS_PATH / recording_id
-        if rolling_path.exists():
-            rolling_path.unlink()
-            deleted = True
-            logger.info(f"Deleted rolling clip '{recording_id}' by user {current_user.username}")
-        
-        # Check experiment folders
-        if not deleted and EXPERIMENTS_PATH.exists():
-            for exp_dir in EXPERIMENTS_PATH.iterdir():
-                if exp_dir.is_dir():
-                    exp_file = exp_dir / recording_id
-                    if exp_file.exists():
-                        exp_file.unlink()
-                        deleted = True
-                        logger.info(f"Deleted experiment recording '{recording_id}' by user {current_user.username}")
-                        break
-        
-        if not deleted:
+        file_path = _resolve_recording_file_path(recording_id)
+        if not file_path:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Recording '{recording_id}' not found"
+            )
+
+        file_path.unlink()
+
+        if file_path.parent == ROLLING_CLIPS_PATH:
+            logger.info(f"Deleted rolling clip '{recording_id}' by user {current_user.username}")
+        else:
+            logger.info(
+                "Deleted experiment recording '%s' from '%s' by user %s",
+                recording_id,
+                file_path.parent,
+                current_user.username
             )
         
         return ApiResponse(

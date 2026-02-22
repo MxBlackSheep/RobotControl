@@ -33,6 +33,8 @@ import {
   Dashboard as DashboardIcon,
   Storage as DatabaseIcon,
   Videocam as CameraIcon,
+  Science as LabwareIcon,
+  Build as MaintenanceIcon,
   MonitorHeart as MonitoringIcon,
   Schedule as SchedulingIcon,
   Logout as LogoutIcon,
@@ -103,6 +105,17 @@ const MobileDrawer: React.FC<MobileDrawerProps> = ({
       label: 'Camera',
       path: '/camera',
       icon: <CameraIcon />,
+    },
+    {
+      label: 'Labware',
+      path: '/labware',
+      icon: <LabwareIcon />,
+      roles: ['admin', 'user'],
+    },
+    {
+      label: 'Maintenance',
+      path: '/maintenance',
+      icon: <MaintenanceIcon />,
     },
     {
       label: 'System Status',

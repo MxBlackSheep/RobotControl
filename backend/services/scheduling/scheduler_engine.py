@@ -6,6 +6,7 @@ Provides background thread-based scheduling with interval support and persistenc
 
 Features:
 - Background thread scheduler with configurable intervals
+- Single-worker in-memory execution queue (one dispatch at a time)
 - Support for 6hr, 8hr, and 24hr scheduling patterns
 - Job persistence and recovery on service restart
 - Integration with process monitor and database
@@ -15,7 +16,6 @@ Features:
 import logging
 import threading
 import time
-import asyncio
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional, Set, Callable
 from dataclasses import dataclass, field
@@ -23,7 +23,6 @@ from queue import Queue, Empty
 from backend.models import (
     ScheduledExperiment,
     JobExecution,
-    RetryConfig,
     ManualRecoveryState,
     NotificationContact,
     NotificationLogEntry,
@@ -31,6 +30,7 @@ from backend.models import (
 from backend.services.scheduling.database_manager import get_scheduling_database_manager
 from backend.services.scheduling.process_monitor import get_hamilton_process_monitor
 from backend.services.notifications import get_notification_service
+from backend.services.hxrun_maintenance import get_hxrun_maintenance_service
 
 try:
     from backend.utils.datetime import ensure_local_naive
@@ -45,13 +45,15 @@ INTERVAL_TYPE_DEFAULT_HOURS: Dict[str, float] = {
     "daily": 24.0,
     "weekly": 24.0 * 7,
 }
+TIMEOUT_ACTION_CONTINUE = "continue"
+TIMEOUT_ACTION_CLEANUP_AND_TERMINATE = "run_cleanup_and_terminate"
 
 
 @dataclass
 class SchedulerConfig:
     """Configuration for the scheduler engine"""
     check_interval_seconds: float = 30.0  # How often to check for due jobs
-    max_concurrent_jobs: int = 1  # Maximum concurrent experiment executions
+    max_concurrent_jobs: int = 1  # Legacy field kept for status/config compatibility
     startup_delay_seconds: float = 10.0  # Delay before first check
     enable_persistence: bool = True
     enable_notifications: bool = True
@@ -87,11 +89,10 @@ class ExecutionWatch:
 
 
 @dataclass
-class CapacityAcquisitionResult:
-    """Hold the outcome of a scheduler capacity acquisition attempt."""
-    acquired: bool
-    attempts_made: int
-    max_attempts: int
+class QueueRuntimeState:
+    """Runtime metadata for a queued/running schedule entry."""
+    queued_at: datetime
+    waiting_reason: Optional[str] = None
 
 
 class SchedulerEngine:
@@ -107,6 +108,7 @@ class SchedulerEngine:
         self.config = config or SchedulerConfig()
         self._running = False
         self._scheduler_thread = None
+        self._job_worker_thread = None
         self._job_queue = Queue()
         self._active_schedules: Dict[str, ScheduledExperiment] = {}
         self._running_jobs: Set[str] = set()
@@ -116,11 +118,13 @@ class SchedulerEngine:
         self._manual_recovery_cache: ManualRecoveryState = ManualRecoveryState()
         self._manual_state_last_check: float = 0.0
         self._manual_state_logged_active = False
+        self._queue_runtime: Dict[str, QueueRuntimeState] = {}
         self._notification_service = get_notification_service() if self.config.enable_notifications else None
         
         # Service dependencies
         self.db_manager = get_scheduling_database_manager()
         self.process_monitor = get_hamilton_process_monitor()
+        self.hxrun_maintenance_service = get_hxrun_maintenance_service()
         
         # Threading synchronization
         self._schedules_lock = threading.RLock()
@@ -191,6 +195,12 @@ class SchedulerEngine:
                 name="SchedulerEngine"
             )
             self._scheduler_thread.start()
+            self._job_worker_thread = threading.Thread(
+                target=self._job_worker_loop,
+                daemon=True,
+                name="SchedulerJobWorker",
+            )
+            self._job_worker_thread.start()
             
             logger.info(f"Scheduler engine started with {len(self._active_schedules)} active schedules")
             self._emit_event("scheduler_started", "", "Scheduler", 
@@ -206,10 +216,15 @@ class SchedulerEngine:
         """Stop the scheduler engine"""
         logger.info("Stopping scheduler engine...")
         self._running = False
-        
+
+        # Wake worker in case it is blocked waiting on queue.
+        self._job_queue.put(None)
+
         # Wait for scheduler thread to finish
         if self._scheduler_thread and self._scheduler_thread.is_alive():
             self._scheduler_thread.join(timeout=5.0)
+        if self._job_worker_thread and self._job_worker_thread.is_alive():
+            self._job_worker_thread.join(timeout=5.0)
         
         # Stop process monitoring
         self.process_monitor.stop_monitoring()
@@ -217,6 +232,10 @@ class SchedulerEngine:
         # Clear active schedules
         with self._schedules_lock:
             self._active_schedules.clear()
+        with self._jobs_lock:
+            self._running_jobs.clear()
+            self._queued_backlog.clear()
+            self._queue_runtime.clear()
         
         logger.info("Scheduler engine stopped")
         self._emit_event("scheduler_stopped", "", "Scheduler", "Scheduler engine stopped")
@@ -408,14 +427,68 @@ class SchedulerEngine:
                 "is_running": self._running,
                 "active_schedules_count": len(self._active_schedules),
                 "running_jobs_count": len(self._running_jobs),
+                "queued_jobs_count": len(self._queued_backlog),
+                "queue_depth": self._job_queue.qsize(),
                 "max_concurrent_jobs": self.config.max_concurrent_jobs,
+                "worker_mode": "single",
                 "check_interval_seconds": self.config.check_interval_seconds,
                 "thread_alive": self._scheduler_thread.is_alive() if self._scheduler_thread else False,
+                "worker_thread_alive": self._job_worker_thread.is_alive() if self._job_worker_thread else False,
                 "uptime_seconds": time.time() - self._start_time if hasattr(self, '_start_time') else 0,
             }
         manual_state = self.get_manual_recovery_state()
         status["manual_recovery"] = manual_state.to_dict() if manual_state else None
+        hxrun_state = self.hxrun_maintenance_service.get_state(force_refresh=False)
+        status["hxrun_maintenance"] = hxrun_state.to_dict()
         return status
+
+    def get_runtime_queue_status(self) -> Dict[str, Any]:
+        """Return queue/running snapshots from the scheduler's single worker runtime."""
+        with self._schedules_lock, self._jobs_lock:
+            now_dt = datetime.now()
+
+            def _queue_key(schedule_id: str) -> datetime:
+                entry = self._queue_runtime.get(schedule_id)
+                return entry.queued_at if entry else now_dt
+
+            def _build_detail(schedule_id: str) -> Dict[str, Any]:
+                schedule = self._active_schedules.get(schedule_id)
+                entry = self._queue_runtime.get(schedule_id)
+                queued_at = entry.queued_at if entry else now_dt
+                return {
+                    "schedule_id": schedule_id,
+                    "experiment_name": schedule.experiment_name if schedule else schedule_id,
+                    "priority": "NORMAL",
+                    "queued_time": queued_at.isoformat(),
+                    "retry_count": 0,
+                    "waiting_reason": entry.waiting_reason if entry else None,
+                }
+
+            running_ids = sorted(self._running_jobs, key=_queue_key)
+            queued_ids = sorted(self._queued_backlog, key=_queue_key)
+            running = [
+                _build_detail(schedule_id)
+                for schedule_id in running_ids
+            ]
+            queued = [
+                _build_detail(schedule_id)
+                for schedule_id in queued_ids
+            ]
+        running_count = len(running)
+        queued_count = len(queued)
+        return {
+            "queue_size": queued_count,
+            "queued_jobs": queued_count,
+            "running_jobs": running_count,
+            "completed_jobs": 0,
+            "failed_jobs": 0,
+            "max_parallel_jobs": 1,
+            "capacity_available": running_count == 0,
+            "running_job_details": running,
+            "queued_job_details": queued,
+            "execution_windows": [],
+            "hamilton_available": not self.process_monitor.is_hamilton_running(),
+        }
     
     def add_event_callback(self, callback: Callable[[SchedulingEvent], None]):
         """
@@ -456,12 +529,12 @@ class SchedulerEngine:
             self._manual_state_last_check = time.time()
             if state.active and not self._manual_state_logged_active:
                 logger.warning(
-                    "Manual recovery active for %s; scheduler dispatch paused",
+                    "Manual recovery active for %s; queued jobs will wait until recovery is cleared",
                     state.experiment_name or state.schedule_id or "unknown schedule",
                 )
                 self._manual_state_logged_active = True
             elif not state.active and self._manual_state_logged_active:
-                logger.info("Manual recovery cleared; scheduler dispatch resuming")
+                logger.info("Manual recovery cleared; queued dispatch can resume")
                 self._manual_state_logged_active = False
             return state
 
@@ -542,13 +615,138 @@ class SchedulerEngine:
         """Return the current manual recovery state."""
         return self._refresh_manual_recovery_state(force=True)
 
-    @staticmethod
-    def _calculate_retry_delay(attempt: int, retry_config: RetryConfig) -> int:
-        """Calculate retry delay (in seconds) matching executor backoff rules."""
-        base_delay = max(retry_config.retry_delay_minutes, 1) * 60
-        if retry_config.backoff_strategy == "exponential":
-            return int(base_delay * (2 ** attempt))
-        return int(base_delay)
+    def _ensure_queue_runtime_entry(
+        self,
+        schedule_id: str,
+        *,
+        queued_at: Optional[datetime] = None,
+    ) -> QueueRuntimeState:
+        """Ensure runtime metadata exists for a queue entry."""
+        state = self._queue_runtime.get(schedule_id)
+        if state is None:
+            state = QueueRuntimeState(queued_at=queued_at or datetime.now())
+            self._queue_runtime[schedule_id] = state
+            return state
+        if queued_at and queued_at < state.queued_at:
+            state.queued_at = queued_at
+        return state
+
+    def _set_queue_waiting_reason(self, schedule_id: str, reason: Optional[str]) -> None:
+        """Update queue wait reason for UI/runtime status."""
+        with self._jobs_lock:
+            state = self._ensure_queue_runtime_entry(schedule_id)
+            state.waiting_reason = reason
+
+    def _get_queue_waiting_reason(self, schedule_id: str) -> Optional[str]:
+        """Return queue wait reason snapshot."""
+        with self._jobs_lock:
+            state = self._queue_runtime.get(schedule_id)
+            return state.waiting_reason if state else None
+
+    def _resolve_dispatch_block_reason(self, schedule: ScheduledExperiment) -> Optional[str]:
+        """Return a human-readable reason when worker dispatch should pause."""
+        hxrun_state = self.hxrun_maintenance_service.get_state(force_refresh=False)
+        if hxrun_state.enabled:
+            detail = hxrun_state.reason or "maintenance mode is enabled"
+            return f"HxRun maintenance enabled: {detail}"
+
+        manual_state = self._refresh_manual_recovery_state()
+        if manual_state.active:
+            detail = manual_state.experiment_name or manual_state.schedule_id or "another schedule"
+            return f"Manual recovery active: {detail}"
+
+        if schedule.recovery_required:
+            return "Schedule requires manual recovery before next run"
+
+        if self.process_monitor.is_hamilton_running():
+            return "Hamilton HxRun.exe is currently busy"
+
+        return None
+
+    def _wait_until_dispatch_ready(self, schedule_id: str) -> Optional[ScheduledExperiment]:
+        """Block worker dispatch until all runtime gates are clear."""
+        last_reason: Optional[str] = None
+        wait_seconds = max(1.0, min(self.config.check_interval_seconds, 5.0))
+
+        while self._running:
+            with self._schedules_lock:
+                schedule = self._active_schedules.get(schedule_id)
+
+            if schedule is None:
+                self._set_queue_waiting_reason(schedule_id, "Schedule removed before dispatch")
+                return None
+
+            if not schedule.is_active:
+                self._set_queue_waiting_reason(schedule_id, "Schedule deactivated before dispatch")
+                return None
+
+            reason = self._resolve_dispatch_block_reason(schedule)
+            if reason is None:
+                if last_reason:
+                    logger.info(
+                        "Dispatch gate cleared for %s; worker starting execution",
+                        schedule.experiment_name,
+                    )
+                self._set_queue_waiting_reason(schedule_id, None)
+                return schedule
+
+            if reason != last_reason:
+                logger.info("Queue wait for %s: %s", schedule.experiment_name, reason)
+                last_reason = reason
+            self._set_queue_waiting_reason(schedule_id, reason)
+            time.sleep(wait_seconds)
+
+        self._set_queue_waiting_reason(schedule_id, "Scheduler stopping")
+        return None
+
+    def _job_worker_loop(self) -> None:
+        """Single-worker queue consumer for scheduled jobs."""
+        logger.info("Scheduler job worker loop started")
+        while self._running or not self._job_queue.empty():
+            try:
+                item = self._job_queue.get(timeout=1.0)
+            except Empty:
+                continue
+
+            try:
+                if item is None:
+                    continue
+                experiment, execution = item
+                schedule_id = experiment.schedule_id
+                with self._jobs_lock:
+                    self._ensure_queue_runtime_entry(schedule_id)
+                    if schedule_id in self._running_jobs:
+                        logger.debug(
+                            "Schedule %s already running in worker loop; skipping duplicate item",
+                            experiment.experiment_name,
+                        )
+                        self._queued_backlog.discard(schedule_id)
+                        continue
+
+                ready_schedule = self._wait_until_dispatch_ready(schedule_id)
+                if ready_schedule is None:
+                    wait_reason = self._get_queue_waiting_reason(schedule_id)
+                    if wait_reason and wait_reason != "Scheduler stopping":
+                        execution.status = "cancelled"
+                        execution.error_message = wait_reason
+                        execution.end_time = datetime.now()
+                        self.db_manager.store_job_execution(execution)
+                    with self._jobs_lock:
+                        self._running_jobs.discard(schedule_id)
+                        self._queued_backlog.discard(schedule_id)
+                        self._queue_runtime.pop(schedule_id, None)
+                    continue
+
+                with self._jobs_lock:
+                    self._running_jobs.add(schedule_id)
+                    self._queued_backlog.discard(schedule_id)
+                    state = self._queue_runtime.get(schedule_id)
+                    if state:
+                        state.waiting_reason = None
+                self._execute_job(ready_schedule, execution)
+            finally:
+                self._job_queue.task_done()
+        logger.info("Scheduler job worker loop stopped")
 
     def _scheduler_loop(self):
         """Main scheduler loop running in background thread"""
@@ -561,18 +759,11 @@ class SchedulerEngine:
             try:
                 current_time = datetime.now()
 
-                manual_state = self._refresh_manual_recovery_state()
-                if manual_state.active:
-                    time.sleep(self.config.check_interval_seconds)
-                    continue
-
                 # Check for due jobs
                 due_jobs = self._find_due_jobs(current_time)
                 
                 # Process due jobs
                 for experiment in due_jobs:
-                    if self._manual_recovery_cache.active:
-                        break
                     self._process_due_job(experiment, current_time)
                 
                 # Update next execution times for interval schedules
@@ -596,120 +787,23 @@ class SchedulerEngine:
     def _find_due_jobs(self, current_time: datetime) -> List[ScheduledExperiment]:
         """Find jobs that are due for execution"""
         due_jobs = []
-        
+
+        with self._jobs_lock:
+            running_snapshot = set(self._running_jobs)
+            queued_snapshot = set(self._queued_backlog)
+
         with self._schedules_lock:
             for experiment in self._active_schedules.values():
                 if (not experiment.is_active or
                     not experiment.start_time or
-                    experiment.schedule_id in self._running_jobs or
-                    experiment.schedule_id in self._queued_backlog or
+                    experiment.schedule_id in running_snapshot or
+                    experiment.schedule_id in queued_snapshot or
                     experiment.recovery_required):
                     continue
                 
                 start_time = self._ensure_naive_datetime(experiment.start_time)
-                interval_hours = self._resolve_interval_hours(experiment)
-                
-                # Check if experiment is due
                 if start_time <= current_time:
-                    # Calculate how much time has passed since scheduled time
-                    time_since_scheduled = (current_time - start_time).total_seconds() / 60  # minutes
-                    
-                    # For interval schedules: if missed by more than half the interval, mark as missed and schedule next
-                    if interval_hours:
-                        grace_period_minutes = (interval_hours * 60) / 2  # Half the interval
-                        
-                        if (
-                            experiment.schedule_id in self._running_jobs
-                            or experiment.schedule_id in self._queued_backlog
-                            or len(self._running_jobs) >= self.config.max_concurrent_jobs
-                        ):
-                            logger.debug(
-                                "Interval experiment %s overdue but waiting for capacity; keeping scheduled",
-                                experiment.experiment_name,
-                            )
-                            due_jobs.append(experiment)
-                            continue
-
-                        if time_since_scheduled > grace_period_minutes:
-                            # Mark as missed and calculate next execution time
-                            logger.info(
-                                "Experiment %s missed (overdue by %.1f minutes), scheduling next occurrence",
-                                experiment.experiment_name,
-                                time_since_scheduled,
-                            )
-
-                            # Create a missed execution record
-                            missed_execution = JobExecution(
-                                execution_id=f"missed_{experiment.schedule_id}_{int(current_time.timestamp())}",
-                                schedule_id=experiment.schedule_id,
-                                status="missed",
-                                start_time=start_time,
-                                end_time=current_time,
-                                error_message=f"Experiment missed - overdue by {time_since_scheduled:.1f} minutes",
-                                retry_count=0
-                            )
-                            self.db_manager.store_job_execution(missed_execution)
-
-                            # Update to next execution time for interval schedules
-                            next_time = self._calculate_next_execution_time(experiment)
-                            experiment.start_time = next_time
-                            self.db_manager.update_scheduled_experiment(
-                                experiment,
-                                touch_updated_at=False,
-                            )
-
-                            logger.info(
-                                "Next execution scheduled for %s: %s",
-                                experiment.experiment_name,
-                                next_time,
-                            )
-                            continue
-
-                        # Still within grace period, execute normally
-                        due_jobs.append(experiment)
-                    else:
-                        # For "once" schedules: if missed by more than 30 minutes, mark as missed
-                        if experiment.schedule_type == "once" and time_since_scheduled > 30:
-                            if (
-                                experiment.schedule_id in self._running_jobs
-                                or experiment.schedule_id in self._queued_backlog
-                                or len(self._running_jobs) >= self.config.max_concurrent_jobs
-                            ):
-                                logger.debug(
-                                    "One-time experiment %s is overdue but waiting for capacity; keeping queued",
-                                    experiment.experiment_name,
-                                )
-                                due_jobs.append(experiment)
-                                continue
-
-                            logger.info(
-                                "One-time experiment %s missed (overdue by %.1f minutes)",
-                                experiment.experiment_name,
-                                time_since_scheduled,
-                            )
-
-                            # Create missed execution record
-                            missed_execution = JobExecution(
-                                execution_id=f"missed_{experiment.schedule_id}_{int(current_time.timestamp())}",
-                                schedule_id=experiment.schedule_id,
-                                status="missed",
-                                start_time=start_time,
-                                end_time=current_time,
-                                error_message=f"One-time experiment missed - overdue by {time_since_scheduled:.1f} minutes",
-                                retry_count=0
-                            )
-                            self.db_manager.store_job_execution(missed_execution)
-
-                            # Deactivate missed one-time schedules
-                            experiment.is_active = False
-                            self.db_manager.update_scheduled_experiment(
-                                experiment,
-                                touch_updated_at=False,
-                            )
-                            continue
-                        else:
-                            # Execute normally
-                            due_jobs.append(experiment)
+                    due_jobs.append(experiment)
         
         return due_jobs
     
@@ -727,12 +821,13 @@ class SchedulerEngine:
                     )
                     return
                 self._queued_backlog.add(experiment.schedule_id)
+                self._ensure_queue_runtime_entry(experiment.schedule_id, queued_at=current_time)
             # Create job execution record
             execution = JobExecution(
                 execution_id="",  # Will be auto-generated
                 schedule_id=experiment.schedule_id,
                 status="pending",
-                start_time=current_time
+                start_time=None,
             )
             
             # Store execution record
@@ -741,70 +836,25 @@ class SchedulerEngine:
                 with self._jobs_lock:
                     self._running_jobs.discard(experiment.schedule_id)
                     self._queued_backlog.discard(experiment.schedule_id)
+                    self._queue_runtime.pop(experiment.schedule_id, None)
                 return
             
-            logger.info(f"Starting job execution: {experiment.experiment_name}")
-            self._emit_event("job_started", experiment.schedule_id, 
-                           experiment.experiment_name, "Job execution started")
-            
-            # Queue job for execution
-            self._job_queue.put((experiment, execution))
-            
-            # Start execution in separate thread
-            execution_thread = threading.Thread(
-                target=self._execute_job,
-                args=(experiment, execution),
-                daemon=True,
-                name=f"JobExecution-{experiment.experiment_name}"
+            logger.info("Queued due job: %s", experiment.experiment_name)
+            self._emit_event(
+                "job_queued",
+                experiment.schedule_id,
+                experiment.experiment_name,
+                "Job queued for single-worker dispatch",
             )
-            execution_thread.start()
             
+            # Queue job for single-worker execution
+            self._job_queue.put((experiment, execution))
+
         except Exception as e:
             logger.error(f"Error processing due job: {e}")
             with self._jobs_lock:
                 self._queued_backlog.discard(experiment.schedule_id)
-
-    def _acquire_capacity_slot(
-        self,
-        experiment: ScheduledExperiment,
-        retry_config: RetryConfig,
-        executor: "ExperimentExecutor",
-    ) -> CapacityAcquisitionResult:
-        """Attempt to secure a scheduler slot, applying retry policy if saturated."""
-        max_attempts = min(
-            retry_config.max_retries,
-            getattr(executor.config, "max_retry_attempts", retry_config.max_retries),
-        )
-        attempt_index = 0
-
-        while attempt_index <= max_attempts:
-            with self._jobs_lock:
-                if len(self._running_jobs) < self.config.max_concurrent_jobs:
-                    self._running_jobs.add(experiment.schedule_id)
-                    self._queued_backlog.discard(experiment.schedule_id)
-                    if attempt_index > 0:
-                        logger.info(
-                            "Scheduler capacity acquired for %s after %d attempt(s)",
-                            experiment.experiment_name,
-                            attempt_index,
-                        )
-                    return CapacityAcquisitionResult(True, attempt_index, max_attempts + 1)
-
-            if attempt_index == max_attempts:
-                break
-
-            delay_seconds = self._calculate_retry_delay(attempt_index, retry_config)
-            logger.info(
-                "Scheduler at capacity for %s, retrying in %d seconds (attempt %d/%d)",
-                experiment.experiment_name,
-                delay_seconds,
-                attempt_index + 1,
-                max_attempts + 1,
-            )
-            time.sleep(delay_seconds)
-            attempt_index += 1
-
-        return CapacityAcquisitionResult(False, attempt_index + 1, max_attempts + 1)
+                self._queue_runtime.pop(experiment.schedule_id, None)
 
     def _execute_job(self, experiment: ScheduledExperiment, execution: JobExecution):
         """Execute a scheduled job"""
@@ -814,52 +864,14 @@ class SchedulerEngine:
             
             executor = ExperimentExecutor()
             current_time = datetime.now()
-
-            retry_config = experiment.retry_config or RetryConfig()
-            capacity_result = self._acquire_capacity_slot(experiment, retry_config, executor)
-
-            if not capacity_result.acquired:
-                logger.error(
-                    "Scheduler capacity exhausted for %s after %d attempts",
+            timeout_context = self._resolve_timeout_context(experiment, current_time)
+            if timeout_context["timed_out"]:
+                logger.warning(
+                    "Schedule %s timed out by %s minute(s); applying timeout action '%s'",
                     experiment.experiment_name,
-                    capacity_result.max_attempts,
+                    timeout_context["lateness_minutes"],
+                    timeout_context["action"],
                 )
-                execution.status = "failed"
-                execution.error_message = "Scheduler capacity exhausted after retry attempts"
-                execution.end_time = datetime.now()
-                interval_hours = self._resolve_interval_hours(experiment)
-                self.db_manager.store_job_execution(execution)
-                self._emit_event(
-                    "job_failed",
-                    experiment.schedule_id,
-                    experiment.experiment_name,
-                    "Scheduler capacity exhausted",
-                )
-                self._handle_failed_execution(experiment, execution)
-
-                if interval_hours:
-                    next_time = self._calculate_next_execution_time(experiment)
-                    experiment.start_time = next_time
-                    self.db_manager.update_scheduled_experiment(
-                        experiment,
-                        touch_updated_at=False,
-                    )
-                    logger.info(
-                        "Capacity retry exhausted; next execution for %s scheduled at %s",
-                        experiment.experiment_name,
-                        next_time,
-                    )
-                elif experiment.schedule_type == "once":
-                    experiment.is_active = False
-                    self.db_manager.update_scheduled_experiment(
-                        experiment,
-                        touch_updated_at=False,
-                    )
-                    logger.info(
-                        "Capacity retry exhausted; one-time schedule %s marked inactive",
-                        experiment.experiment_name,
-                    )
-                return
 
             # Update execution status
             execution.status = "running"
@@ -868,7 +880,18 @@ class SchedulerEngine:
             self._register_execution_watch(experiment, execution)
             
             # Execute the experiment
-            success = executor.execute_experiment(experiment, execution)
+            success = executor.execute_experiment(
+                experiment,
+                execution,
+                timeout_context=timeout_context,
+            )
+            terminate_due_to_timeout = bool(timeout_context["terminate_schedule"])
+            if terminate_due_to_timeout and experiment.is_active:
+                experiment.is_active = False
+                logger.warning(
+                    "Schedule %s disabled after timeout cleanup action",
+                    experiment.experiment_name,
+                )
             
             # Update execution record
             execution.end_time = datetime.now()
@@ -882,7 +905,12 @@ class SchedulerEngine:
                 execution.status = "completed"
 
                 # Handle schedule completion based on type
-                if experiment.schedule_type == "once":
+                if terminate_due_to_timeout:
+                    logger.info(
+                        "Job completed with timeout action for %s; schedule deactivated",
+                        experiment.experiment_name,
+                    )
+                elif experiment.schedule_type == "once":
                     # Deactivate "once" schedules after successful completion
                     experiment.is_active = False
                     logger.info(
@@ -953,6 +981,7 @@ class SchedulerEngine:
             with self._jobs_lock:
                 self._running_jobs.discard(experiment.schedule_id)
                 self._queued_backlog.discard(experiment.schedule_id)
+                self._queue_runtime.pop(experiment.schedule_id, None)
     
     def _handle_failed_execution(self, experiment: ScheduledExperiment, execution: JobExecution) -> None:
         """Handle logic after a failed execution, including manual recovery enforcement."""
@@ -995,6 +1024,8 @@ class SchedulerEngine:
             for experiment in self._active_schedules.values():
                 interval_hours = self._resolve_interval_hours(experiment)
                 if (
+                    experiment.is_active
+                    and
                     interval_hours
                     and experiment.start_time
                     and experiment.schedule_id in self._running_jobs
@@ -1014,6 +1045,50 @@ class SchedulerEngine:
                             experiment.experiment_name,
                             next_time,
                         )
+
+    def _resolve_timeout_context(self, experiment: ScheduledExperiment, current_time: datetime) -> Dict[str, Any]:
+        """Resolve timeout behavior for the current execution attempt."""
+        timeout_config = experiment.timeout_config
+        if not timeout_config:
+            return {
+                "timed_out": False,
+                "action": TIMEOUT_ACTION_CONTINUE,
+                "terminate_schedule": False,
+                "lateness_minutes": 0,
+                "cleanup_experiment_path": None,
+                "cleanup_experiment_name": None,
+            }
+
+        timeout_minutes = timeout_config.timeout_minutes
+        if not timeout_minutes or timeout_minutes <= 0 or not experiment.start_time:
+            return {
+                "timed_out": False,
+                "action": timeout_config.action or TIMEOUT_ACTION_CONTINUE,
+                "terminate_schedule": False,
+                "lateness_minutes": 0,
+                "cleanup_experiment_path": timeout_config.cleanup_experiment_path,
+                "cleanup_experiment_name": timeout_config.cleanup_experiment_name,
+            }
+
+        scheduled_start = self._ensure_naive_datetime(experiment.start_time)
+        deadline = scheduled_start + timedelta(minutes=timeout_minutes)
+        timed_out = current_time > deadline
+        lateness_minutes = max(
+            0,
+            int((current_time - deadline).total_seconds() / 60),
+        )
+        action = timeout_config.action or TIMEOUT_ACTION_CONTINUE
+        if action not in {TIMEOUT_ACTION_CONTINUE, TIMEOUT_ACTION_CLEANUP_AND_TERMINATE}:
+            action = TIMEOUT_ACTION_CONTINUE
+
+        return {
+            "timed_out": timed_out,
+            "action": action,
+            "terminate_schedule": timed_out and action == TIMEOUT_ACTION_CLEANUP_AND_TERMINATE,
+            "lateness_minutes": lateness_minutes if timed_out else 0,
+            "cleanup_experiment_path": timeout_config.cleanup_experiment_path,
+            "cleanup_experiment_name": timeout_config.cleanup_experiment_name,
+        }
     
     def _calculate_next_execution_time(self, experiment: ScheduledExperiment) -> datetime:
         """Calculate the next execution time for an experiment"""
@@ -1363,11 +1438,15 @@ class SchedulerEngine:
     def _cleanup_completed_jobs(self):
         """Clean up old completed job records"""
         # This could be expanded to clean up old job execution records
-        # For now, we just ensure running jobs set is accurate
+        # For now, we just ensure runtime queue metadata remains consistent.
         with self._jobs_lock:
-            # Remove any jobs that shouldn't be in the running set
             active_job_ids = set(self._active_schedules.keys())
             self._running_jobs &= active_job_ids
+            self._queued_backlog &= active_job_ids
+            live_runtime_ids = self._running_jobs | self._queued_backlog
+            for schedule_id in list(self._queue_runtime.keys()):
+                if schedule_id not in live_runtime_ids:
+                    self._queue_runtime.pop(schedule_id, None)
     
     def _emit_event(self, event_type: str, schedule_id: str, 
                    experiment_name: str, message: str, data: Optional[Dict[str, Any]] = None):

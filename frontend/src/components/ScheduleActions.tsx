@@ -59,7 +59,6 @@ import {
   SchedulingOperationStatus,
   ScheduleActionsProps,
   SCHEDULE_TYPE_OPTIONS,
-  BACKOFF_STRATEGY_OPTIONS,
   SCHEDULING_CONSTANTS,
   validateScheduleFormData,
   formatScheduleType
@@ -103,9 +102,10 @@ const CreateScheduleDialog: React.FC<CreateScheduleDialogProps> = ({
     start_time: null,
     estimated_duration: 55,
     is_active: true,
-    max_retries: 3,
-    retry_delay_minutes: 2,
-    backoff_strategy: 'linear',
+    timeout_minutes: null,
+    timeout_action: 'continue',
+    timeout_cleanup_experiment_name: null,
+    timeout_cleanup_experiment_path: null,
     prerequisites: [],
     notification_contacts: []
   });
@@ -150,9 +150,10 @@ const CreateScheduleDialog: React.FC<CreateScheduleDialogProps> = ({
       start_time: null,
       estimated_duration: 55,
       is_active: true,
-      max_retries: 3,
-      retry_delay_minutes: 2,
-      backoff_strategy: 'linear',
+      timeout_minutes: null,
+      timeout_action: 'continue',
+      timeout_cleanup_experiment_name: null,
+      timeout_cleanup_experiment_path: null,
       prerequisites: [],
       notification_contacts: []
     });
@@ -419,7 +420,7 @@ const EditScheduleDialog: React.FC<EditScheduleDialogProps> = ({
         start_time: schedule.start_time,
         estimated_duration: schedule.estimated_duration,
         is_active: schedule.is_active,
-        retry_config: schedule.retry_config,
+        timeout_config: schedule.timeout_config,
         prerequisites: schedule.prerequisites,
         notification_contacts: schedule.notification_contacts ?? []
       });

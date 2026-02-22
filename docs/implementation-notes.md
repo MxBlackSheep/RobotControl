@@ -1,6 +1,134 @@
 # RobotControl Development Log (Chronological)
 
 ---
+## 2026-02-22 OD Auto-Reschedule Email Notification (Schedule Contacts)
+
+- Added `POST /api/scheduling/notifications/send` to send a custom email through the existing SMTP settings to the active notification contacts attached to a specific schedule (`backend/api/scheduling.py`).
+- Updated `backend/scripts/scheduling_api_cli.py` (OD prediction auto-rescheduler) to send a schedule-contact email only after a successful schedule update, including previous vs updated start time plus OD summary context (last data timestamp and average latest OD per culture).
+- Email delivery failures are logged as warnings in the CLI and do not roll back the successful reschedule.
+- Updated backend scheduling maintenance guide with the new endpoint/CLI behavior (`docs/maintenance/backend/scheduling-maintenance-guide.md`).
+
+---
+## 2026-02-18 Scheduling API CLI Prerequisites Visibility
+
+- Updated `backend/scripts/scheduling_api_cli.py` list/update row rendering to include `prerequisites`, so external operators can identify required pre-execution database flags while selecting target schedules.
+- Updated scheduling backend maintenance guide to document that `list` now shows `prerequisites` (`docs/maintenance/backend/scheduling-maintenance-guide.md`).
+
+---
+## 2026-02-18 Scheduling API Automation CLI (Target + Update Without Frontend)
+
+- Added `backend/scripts/scheduling_api_cli.py`, a small script for backend-only scheduling automation:
+  - `list` command to find target schedules by ID/name.
+  - `update` command to patch one schedule directly through `PUT /api/scheduling/{schedule_id}`.
+- Script performs login (`/api/auth/login`), handles bearer auth, supports optional `X-Forwarded-For`, and uses `expected_updated_at` optimistic locking by default by fetching a fresh schedule snapshot before updating.
+- Updated backend scheduling maintenance guide with a new section documenting external API automation workflow and concrete command examples (`docs/maintenance/backend/scheduling-maintenance-guide.md`).
+
+---
+## 2026-02-18 Scheduler Blueprint Reconciliation (SCHEDULER_FULL_PICTURE)
+
+- Revalidated `SCHEDULER_FULL_PICTURE.txt` against current scheduling code (`backend/services/scheduling/scheduler_engine.py`, `backend/services/scheduling/experiment_executor.py`, `backend/api/scheduling.py`) and rewrote stale sections so the file can be used as handbook blueprint.
+- Removed outdated retry/`RetryConfig` descriptions and replaced them with current `TimeoutConfig` behavior (`continue` vs `run_cleanup_and_terminate`) including queue-wait-aware timeout evaluation at launch time.
+- Documented real single-worker dispatch gating (`HxRun maintenance`, `manual recovery`, `schedule recovery_required`, `HxRun busy`), queue `waiting_reason`, and cancellation behavior for removed/deactivated schedules before dispatch.
+- Clarified current API constraints in plain language: no duplicate-minute guard, preserved timestamp precision, create-time past-start rejection, and runtime-truth queue status from `/api/scheduling/status/queue`.
+
+---
+## 2026-02-18 Queue-First Dispatch Refactor (Checks Folded Into Worker)
+
+- Refactored scheduler dispatch to queue-first behavior: due jobs are always queued, and HxRun maintenance/manual recovery/HxRun busy checks now run inside the single worker before switching a job from queued to running (`backend/services/scheduling/scheduler_engine.py`).
+- Added runtime queue metadata (`queued_at`, `waiting_reason`) so blocked jobs remain visible as queued (not running) with explicit wait reasons in `/api/scheduling/status/queue`.
+- Updated executor contract to focus on launch + timeout action resolution only; scheduler worker now owns readiness gating (maintenance/manual/busy checks) (`backend/services/scheduling/experiment_executor.py`).
+- Updated schedule list next-run rendering to use backend canonical timestamp directly (removed client interval recomputation), preventing UI drift where displayed due time differs from actual launch timing (`frontend/src/types/scheduling.ts`, `frontend/src/components/ScheduleList.tsx`).
+- Added regression coverage for “busy robot keeps schedule queued until available,” and refreshed executor timeout-action tests to match the new worker-owned gating model (`backend/tests/test_scheduler_single_worker.py`, `backend/tests/test_hxrun_maintenance_executor.py`).
+
+---
+## 2026-02-18 Scheduler Timeout Refactor (No Retry Logic + Queue Visibility)
+
+- Replaced schedule retry configuration with timeout configuration across backend models/API/storage: schedules now persist `timeout_config` (`timeout_minutes`, `action`, optional cleanup method) and no longer accept/use `retry_config` (`backend/models.py`, `backend/api/scheduling.py`, `backend/services/scheduling/sqlite_database.py`).
+- Simplified execution path to single-attempt launches: removed executor retry loop, added timeout action routing (`continue` or `run_cleanup_and_terminate`), tied HxRun-availability wait to schedule timeout when configured, and when cleanup action is triggered the schedule is deactivated for subsequent runs (`backend/services/scheduling/experiment_executor.py`, `backend/services/scheduling/scheduler_engine.py`).
+- Added create-time start timestamp guard in backend (`start_time` cannot be in the past) and updated scheduling create-guard tests, including new rejection coverage for past timestamps (`backend/api/scheduling.py`, `backend/tests/test_scheduling_create_guard.py`).
+- Extended scheduler tests for timeout cleanup termination behavior and adjusted executor-maintenance test stubs for the new single-attempt executor contract (`backend/tests/test_scheduler_single_worker.py`, `backend/tests/test_hxrun_maintenance_executor.py`).
+- Updated frontend scheduling types/services/forms/pages for timeout config editing and rendering, removed retry fields from scheduling payloads, and added a runtime queue panel that shows both running and queued schedules from `queueStatus` (`frontend/src/types/scheduling.ts`, `frontend/src/services/schedulingApi.ts`, `frontend/src/components/scheduling/ImprovedScheduleForm.tsx`, `frontend/src/pages/SchedulingPage.tsx`, `frontend/src/hooks/useScheduling.ts`).
+- Updated scheduling maintenance guides to document timeout behavior and queue detail surfaces (`docs/maintenance/backend/scheduling-maintenance-guide.md`, `docs/maintenance/frontend/scheduling-frontend-maintenance-guide.md`).
+
+## 2026-02-17 Scheduler Policy Simplification (No Lateness Miss, No Timestamp Guard)
+
+- Removed lateness-based miss rules from due-job detection; scheduler now enqueues any active schedule whose `start_time <= now` and no longer auto-marks overdue jobs as `missed` based on fixed thresholds (`backend/services/scheduling/scheduler_engine.py`).
+- Removed API timestamp constraints on schedule create/update: no minute rounding and no duplicate-minute conflict checks (`backend/api/scheduling.py`).
+- Removed now-unused duplicate-minute lookup helpers from scheduling DB manager/SQLite layers (`backend/services/scheduling/database_manager.py`, `backend/services/scheduling/sqlite_database.py`).
+- Updated schedule create/update tests to match the new policy (timestamps are accepted as provided and duplicate-minute checks are not enforced) (`backend/tests/test_scheduling_create_guard.py`).
+- Fixed double error pop-up on save failures by keeping create/update failures local to the form dialog path (throw to caller without setting page-level scheduling error banner in mutation handlers) (`frontend/src/hooks/useScheduling.ts`, `frontend/src/components/scheduling/ImprovedScheduleForm.tsx`, `frontend/src/pages/SchedulingPage.tsx`).
+- Updated scheduler maintenance/explainer docs to reflect the simplified behavior (`docs/maintenance/backend/scheduling-maintenance-guide.md`, `docs/maintenance/frontend/scheduling-frontend-maintenance-guide.md`, `SCHEDULER_FULL_PICTURE.txt`).
+
+## 2026-02-17 Scheduling Form Save-Failure Dialog (No Silent Close)
+
+- Fixed scheduling create/update mutation behavior so failures now propagate to callers instead of being swallowed inside `useScheduling`; the hook still sets `state.error`, but now also throws to let dialog submit handlers react (`frontend/src/hooks/useScheduling.ts`).
+- This enables `ImprovedScheduleForm` submit flow to keep the form open and show `StatusDialog` (for example on duplicate active timestamp `409`) instead of closing as if save succeeded (`frontend/src/components/scheduling/ImprovedScheduleForm.tsx`, `frontend/src/pages/SchedulingPage.tsx`).
+- Updated frontend scheduling maintenance docs to reflect this contract: read-path errors remain inline (`state.error`), while create/update form failures should be handled via `try/catch` + modal status dialog (`docs/maintenance/frontend/scheduling-frontend-maintenance-guide.md`).
+
+## 2026-02-17 Single-Worker Scheduler Queue + Minute Timestamp Guard
+
+- Reworked scheduler dispatch to a true single-worker queue model: due jobs are enqueued and consumed serially by `SchedulerJobWorker`, and the legacy scheduler-side capacity reservation/retry layer was removed to avoid double-gating before HxRun launch (`backend/services/scheduling/scheduler_engine.py`).
+- Updated `/api/scheduling/status/queue` to report queue/running snapshots directly from scheduler runtime state instead of the detached legacy queue manager so UI queue status reflects actual execution flow (`backend/api/scheduling.py`, `backend/services/scheduling/scheduler_engine.py`).
+- Added a minute guard for active schedule timestamps on both create and update: incoming `start_time` values are normalized to minute precision and conflicts are rejected when another active non-archived schedule already uses that minute (`backend/api/scheduling.py`, `backend/services/scheduling/database_manager.py`, `backend/services/scheduling/sqlite_database.py`).
+- Normalized manual-recovery timestamp persistence to one local-naive serialization path for mark/resolve/global recovery writes, eliminating the previous UTC-vs-local inconsistency (`backend/services/scheduling/sqlite_database.py`).
+- Added regression coverage for single-worker serial execution behavior plus duplicate-minute create/update rejection and timestamp normalization (`backend/tests/test_scheduler_single_worker.py`, `backend/tests/test_scheduling_create_guard.py`).
+- Refreshed scheduler documentation to match the new architecture and rewrote the root-level plain-language explainer for the current flow (`docs/maintenance/backend/scheduling-maintenance-guide.md`, `SCHEDULER_FULL_PICTURE.txt`).
+
+## 2026-02-14 Labware Cytomat Visualization + Controlled PlateID Editing
+
+- Added a dedicated Cytomat backend service and API endpoints under `/api/labware/cytomat` so users can view `CytomatPos` + `PlateID` and apply batch `PlateID` updates with the same auth/locality guard model as TipTracking (`backend/services/labware_cytomat.py`, `backend/api/labware.py`).
+- Cytomat dropdown options are now sourced from `Plates.PlateID`, with ordering enforced as: empty option first, then descending numeric IDs, then descending non-numeric IDs; empty selection is persisted as `NULL` in `Cytomat.PlateID`.
+- Added a new Labware secondary tab and Cytomat UI panel with row-level dropdown editing, pending-change queue, save/discard controls, read-only behavior for remote sessions, and refresh/autorefresh behavior (`frontend/src/pages/LabwarePage.tsx`, `frontend/src/components/labware/CytomatPanel.tsx`, `frontend/src/services/labwareApi.ts`).
+- Added backend API regression coverage for Cytomat read permissions, local-only write enforcement, successful local writes, and invalid PlateID rejection (`backend/tests/test_labware_api.py`).
+- Updated backend/frontend labware maintenance guides to document the new Cytomat module and maintenance workflow (`docs/maintenance/backend/labware-maintenance-guide.md`, `docs/maintenance/frontend/labware-frontend-maintenance-guide.md`).
+
+---
+## 2026-02-14 HxRun Maintenance Enable Guard (Do Not Kill Existing Session)
+
+- Added a backend pre-check on `PUT /api/maintenance/hxrun`: when enabling maintenance mode, RobotControl now first checks if `HxRun.exe` is already running and blocks the toggle with `409` instead of enabling and terminating HxRun (`backend/api/maintenance.py`, `backend/services/hxrun_maintenance.py`).
+- Added a clear operator-facing conflict message (`HxRun is running. Please close the software before entering maintenance mode.`) so local users know exactly why the toggle is rejected.
+- Added API regression coverage for the blocked-enable path and verified that state persistence is skipped when HxRun is running (`backend/tests/test_hxrun_maintenance_api.py`).
+- Updated the Maintenance page to show a dedicated dialog when this conflict happens, instead of silently failing or relying only on inline error text (`frontend/src/pages/MaintenancePage.tsx`).
+
+## 2026-02-12 HxRun Maintenance Mode (Event + Fallback Enforcement)
+
+- Added a new persistent **HxRun Maintenance Mode** (separate from the existing database-restore maintenance window) with a dedicated backend API: authenticated users can inspect state, while toggles require loopback/local access (`backend/api/maintenance.py`, `backend/main.py`).
+- Extended scheduler SQLite global state to store `hxrun_maintenance_enabled` plus reason/user/timestamp metadata, including auto-migration for existing databases (`backend/services/scheduling/sqlite_database.py`, `backend/services/scheduling/database_manager.py`, `backend/models.py`).
+- Introduced a global enforcement service that uses **event-driven process-start watching** for `HxRun.exe` with **1s fallback polling**; when enabled, any detected HxRun process is terminated and a Windows popup explains the block (`backend/services/hxrun_maintenance.py`, `backend/main.py`).
+- Added hard backend guards so scheduler dispatch pauses while maintenance mode is enabled and experiment execution exits early with a clear maintenance-blocked error instead of launching HxRun (`backend/services/scheduling/scheduler_engine.py`, `backend/services/scheduling/experiment_executor.py`).
+- Added an independent top-level `MAINTENANCE` page/tab between Labware and System Status, with local-only edit controls and remote read-only inspection (`frontend/src/pages/MaintenancePage.tsx`, `frontend/src/services/hxrunMaintenanceApi.ts`, `frontend/src/App.tsx`, `frontend/src/components/MobileDrawer.tsx`, `frontend/src/components/NavigationBreadcrumbs.tsx`, `frontend/src/hooks/useKeyboardNavigation.ts`, `frontend/src/components/KeyboardShortcutsHelp.tsx`).
+- Added API + executor regression tests for local/remote permissions and maintenance launch blocking (`backend/tests/test_hxrun_maintenance_api.py`, `backend/tests/test_hxrun_maintenance_executor.py`).
+
+## 2026-02-12 Camera Download Resume + Retry
+
+- Upgraded camera recording downloads to support resumable transfers over unstable links by adding `HEAD` + `GET` range handling on `/api/camera/recording/{recording_id}`; responses now include `Accept-Ranges`, `Content-Range` (for `206`), `ETag`, and `Last-Modified`, and return `416` for invalid ranges (`backend/api/camera.py`).
+- Kept compatibility with existing archive UI endpoints while hardening transfer semantics (full download still works, partial resume now works, and `If-Range` mismatch correctly falls back to full-body responses).
+- Fixed archive download file resolution for experiment recordings stored in nested subfolders: backend lookup now scans `experiments/` recursively and selects the newest match when duplicate filenames exist, which resolves false `404` responses for files visible in the archive list (`backend/api/camera.py`).
+- Added API-focused regression tests that validate full download, partial download, suffix range, invalid range, `If-Range` fallback, and metadata-only `HEAD` behavior (`backend/tests/test_camera_download_api.py`).
+- Reworked frontend archive download flow to support resume-aware retries with exponential backoff, live byte progress, and user cancellation; one active download can continue from the last successful byte instead of restarting from zero on transient network failures. Client now stops auto-retrying non-retryable `4xx` responses (notably `404`) and shows a direct error instead (`frontend/src/pages/CameraPage.tsx`, `frontend/src/components/camera/VideoArchiveTab.tsx`).
+
+## 2026-02-12 Labware TipTracking Web Module
+
+- Added a dedicated Labware backend module with SQL-backed tip tracking for `1000ul` and `300ul` families, including snapshot read APIs plus batch update/reset operations (`backend/services/labware_tip_tracking.py`, `backend/api/labware.py`, `backend/main.py`).
+- Enforced the requested permission model: authenticated admin/user sessions can inspect tip state, while write endpoints require local network access via `require_local_access` (remote sessions are read-only by design).
+- Added a new `LABWARE` top-level page between Camera and System Status with a secondary tab architecture (`TipTracking` as the first module) and a full interactive tip editor (select/apply tip, apply column, apply rack, pending queue, save/discard/reset, legend, auto-refresh) (`frontend/src/pages/LabwarePage.tsx`, `frontend/src/components/labware/TipTrackingPanel.tsx`, `frontend/src/services/labwareApi.ts`).
+- Updated navigation and discoverability for the new route across desktop tabs, mobile drawer, breadcrumbs, and keyboard shortcuts/help text (`frontend/src/App.tsx`, `frontend/src/components/MobileDrawer.tsx`, `frontend/src/components/NavigationBreadcrumbs.tsx`, `frontend/src/hooks/useKeyboardNavigation.ts`, `frontend/src/components/KeyboardShortcutsHelp.tsx`).
+- Added backend and frontend maintenance guides for the new module and refreshed main-application guides to list the new route/router (`docs/maintenance/backend/labware-maintenance-guide.md`, `docs/maintenance/frontend/labware-frontend-maintenance-guide.md`, `docs/maintenance/backend/main-application-maintenance-guide.md`, `docs/maintenance/frontend/main-application-frontend-maintenance-guide.md`).
+
+## 2025-10-22 Local Scheduling Guardrails
+
+- Reworked schedule management controls to respect the session’s `session_is_local`/`last_login_ip_type` flags so remote browsers stay in read-only mode while the local workstation still gets full CRUD (`frontend/src/pages/SchedulingPage.tsx`).
+- Hid the manual recovery action buttons for remote users while keeping the status display intact; handlers now short-circuit when the session is not local to prevent accidental calls from devtools (`frontend/src/pages/SchedulingPage.tsx`).
+- Replaced the Database Operations tab with an informational card for remote sessions so destructive experiment tooling never renders outside the lab (`frontend/src/pages/DatabasePage.tsx`).
+- Fixed the “local session” check to rely on the live `session_is_local` flag (with hostname fallback only when the flag is missing) so remote logins that previously logged in locally no longer gain restore or scheduling controls (`frontend/src/pages/DatabasePage.tsx`, `frontend/src/components/DatabaseRestore.tsx`, `frontend/src/pages/SchedulingPage.tsx`).
+- Archived schedule deletion buttons now respect the same guard, keeping remote users from removing runs while still letting them review history (`frontend/src/pages/SchedulingPage.tsx`).
+
+## 2025-10-21 Schedule Timestamp Localisation
+
+- Stopped writing UTC-naive strings for new schedules by stamping `created_at` / `updated_at` with the local wall-clock and persisting those values explicitly in SQLite (`backend/models.py`, `backend/services/scheduling/sqlite_database.py`, `backend/api/scheduling.py`).
+- Guarded the Database Restore tab so only admins or users coming from a “local” login see the restore UI; remote non-admins now see a friendly notice instead of stacked API error pop-ups (`frontend/src/pages/DatabasePage.tsx`, `frontend/src/components/DatabaseRestore.tsx`).
+- `AuthContext` now preserves the session metadata (`session_is_local`, IP classification, client IP) FastAPI returns, so future guards can make local-vs-remote decisions without another round trip (`frontend/src/context/AuthContext.tsx`).
+
 ## 2025-10-20 Restore Reconnect Hardening
 
 - Fixed the maintenance bypass flag so `/health` polls escape the interceptor by checking `headers.has('X-Allow-Maintenance')` before rejecting, which lets the UI drop maintenance mode as soon as the backend responds (`frontend/src/services/api.ts`).

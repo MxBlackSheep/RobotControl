@@ -68,11 +68,14 @@ from backend.api.system_config import router as system_config_router
 from backend.api.camera import router as camera_router
 from backend.api.scheduling import router as scheduling_router
 from backend.api.system import router as system_router
+from backend.api.labware import router as labware_router
+from backend.api.maintenance import router as maintenance_router
 
 # Import services for initialization
 from backend.services.database import get_database_service
 from backend.services.auth import get_auth_service
 from backend.services.monitoring import get_monitoring_service
+from backend.services.hxrun_maintenance import get_hxrun_maintenance_service
 
 # Import embedded resource manager
 # Only use embedded mode when running as compiled executable
@@ -351,6 +354,13 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("AutoRecording | event=start_failed | error=%s", exc)
 
+    try:
+        hxrun_maintenance_service = get_hxrun_maintenance_service()
+        hxrun_maintenance_service.start()
+        logger.info("HxRun maintenance enforcer initialized")
+    except Exception as exc:
+        logger.warning("Failed to start HxRun maintenance enforcer: %s", exc)
+
     logger.info("RobotControl Backend startup complete - all services ready for lazy loading!")
     try:
         yield
@@ -398,6 +408,13 @@ async def lifespan(app: FastAPI):
                 logger.info("Scheduling service stopped")
             except Exception as exc:
                 logger.warning("Error stopping scheduling service: %s", exc)
+
+            try:
+                hxrun_maintenance_service = get_hxrun_maintenance_service()
+                hxrun_maintenance_service.stop()
+                logger.info("HxRun maintenance enforcer stopped")
+            except Exception as exc:
+                logger.warning("Error stopping HxRun maintenance enforcer: %s", exc)
 
             try:
                 from backend.services.camera import get_camera_service
@@ -478,6 +495,13 @@ def graceful_shutdown(signum=None, frame=None):
             logger.info("Monitoring service stopped")
         except Exception as e:
             logger.warning(f"Error stopping monitoring service: {e}")
+
+        try:
+            hxrun_maintenance_service = get_hxrun_maintenance_service()
+            hxrun_maintenance_service.stop()
+            logger.info("HxRun maintenance enforcer stopped")
+        except Exception as e:
+            logger.warning(f"Error stopping HxRun maintenance enforcer: {e}")
             
     except Exception as e:
         logger.error(f"Error during graceful shutdown: {e}")
@@ -504,6 +528,8 @@ app.include_router(monitoring_router, prefix="/api/monitoring", tags=["monitorin
 app.include_router(system_config_router, prefix="/api/admin/system", tags=["admin", "system"])
 app.include_router(system_router, tags=["system"])
 app.include_router(scheduling_router, tags=["scheduling"])
+app.include_router(labware_router, tags=["labware"])
+app.include_router(maintenance_router, tags=["maintenance"])
 
 # Health check endpoint (must be before catch-all route)
 @app.get("/health")
@@ -643,6 +669,7 @@ async def root():
             "database": "/api/database/",
             "backup": "/api/admin/backup/",
             "admin": "/api/admin/",
+            "labware": "/api/labware/",
             "documentation": "/docs",
             "health": "/health"
         }
@@ -692,6 +719,15 @@ async def api_info():
                     "GET /api/admin/backup/health"
                 ],
                 "note": "Admin authentication required for all backup operations"
+            },
+            "labware": {
+                "base_url": "/api/labware",
+                "endpoints": [
+                    "GET /api/labware/tip-tracking",
+                    "PUT /api/labware/tip-tracking",
+                    "POST /api/labware/tip-tracking/reset"
+                ],
+                "note": "Update and reset operations require local network access"
             }
         },
         "documentation": {

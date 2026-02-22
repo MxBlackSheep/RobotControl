@@ -87,9 +87,10 @@ type ScheduleFormValues = Partial<{
   estimated_duration: number;
   prerequisites: string[];
   is_active: boolean;
-  max_retries: number;
-  retry_delay_minutes: number;
-  backoff_strategy: 'linear' | 'exponential';
+  timeout_minutes: number | null;
+  timeout_action: 'continue' | 'run_cleanup_and_terminate';
+  timeout_cleanup_experiment_name: string | null;
+  timeout_cleanup_experiment_path: string | null;
   notification_contacts: string[];
 }>;
 
@@ -142,13 +143,31 @@ const SchedulingPage: React.FC = () => {
   const isSmallScreen = useMediaQuery(theme.breakpoints.down('sm'));
   const cardPadding = { xs: 2.75, md: 4 };
   const tabPadding = { xs: 1.75, md: 2.75 };
+  const isLocalSession = useMemo(() => {
+    if (typeof user?.session_is_local === 'boolean') {
+      return user.session_is_local;
+    }
+    if (typeof window !== 'undefined') {
+      const hostname = window.location.hostname.toLowerCase();
+      return (
+        hostname === 'localhost' ||
+        hostname === '127.0.0.1' ||
+        hostname === '::1' ||
+        hostname === '0.0.0.0'
+      );
+    }
+    return false;
+  }, [user?.session_is_local]);
   const isLocalClient = useMemo(() => {
+    if (isLocalSession) {
+      return true;
+    }
     if (typeof window === 'undefined') {
       return false;
     }
     const hostname = window.location.hostname.toLowerCase();
     return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '0.0.0.0';
-  }, []);
+  }, [isLocalSession]);
 
   const formatTimestamp = (value?: string | null): string => {
     if (!value) {
@@ -180,10 +199,20 @@ const SchedulingPage: React.FC = () => {
         start_time: data.start_time ? new Date(data.start_time).toISOString() : undefined,
         estimated_duration: Number(data.estimated_duration),
         is_active: data.is_active ?? true,
-        retry_config: {
-          max_retries: Number(data.max_retries ?? 0),
-          retry_delay_minutes: Number(data.retry_delay_minutes ?? 0),
-          backoff_strategy: data.backoff_strategy || 'linear',
+        timeout_config: {
+          timeout_minutes:
+            data.timeout_minutes === null || data.timeout_minutes === undefined
+              ? null
+              : Number(data.timeout_minutes),
+          action: data.timeout_action || 'continue',
+          cleanup_experiment_name:
+            data.timeout_action === 'run_cleanup_and_terminate'
+              ? data.timeout_cleanup_experiment_name ?? null
+              : null,
+          cleanup_experiment_path:
+            data.timeout_action === 'run_cleanup_and_terminate'
+              ? data.timeout_cleanup_experiment_path ?? null
+              : null,
         },
         prerequisites: Array.isArray(data.prerequisites) ? data.prerequisites : [],
         notification_contacts: Array.isArray(data.notification_contacts) ? data.notification_contacts : [],
@@ -200,9 +229,19 @@ const SchedulingPage: React.FC = () => {
         start_time: data.start_time ? new Date(data.start_time) : null,
         estimated_duration: Number(data.estimated_duration),
         is_active: data.is_active ?? true,
-        max_retries: Number(data.max_retries ?? 0),
-        retry_delay_minutes: Number(data.retry_delay_minutes ?? 0),
-        backoff_strategy: data.backoff_strategy || 'linear',
+        timeout_minutes:
+          data.timeout_minutes === null || data.timeout_minutes === undefined
+            ? null
+            : Number(data.timeout_minutes),
+        timeout_action: data.timeout_action || 'continue',
+        timeout_cleanup_experiment_name:
+          data.timeout_action === 'run_cleanup_and_terminate'
+            ? data.timeout_cleanup_experiment_name ?? null
+            : null,
+        timeout_cleanup_experiment_path:
+          data.timeout_action === 'run_cleanup_and_terminate'
+            ? data.timeout_cleanup_experiment_path ?? null
+            : null,
         prerequisites: Array.isArray(data.prerequisites) ? data.prerequisites : [],
         notification_contacts: Array.isArray(data.notification_contacts) ? data.notification_contacts : [],
       };
@@ -245,14 +284,15 @@ const SchedulingPage: React.FC = () => {
       start_time: selected.start_time ? formatStartTimeForInput(selected.start_time) : null,
       estimated_duration: selected.estimated_duration,
       is_active: selected.is_active,
-      max_retries: selected.retry_config?.max_retries ?? 3,
-      retry_delay_minutes: selected.retry_config?.retry_delay_minutes ?? 2,
-    backoff_strategy: selected.retry_config?.backoff_strategy ?? 'linear',
-    prerequisites: selected.prerequisites ?? [],
-    notification_contacts: selected.notification_contacts ?? [],
-  });
-  setImprovedFormOpen(true);
-};
+      timeout_minutes: selected.timeout_config?.timeout_minutes ?? null,
+      timeout_action: selected.timeout_config?.action ?? 'continue',
+      timeout_cleanup_experiment_name: selected.timeout_config?.cleanup_experiment_name ?? null,
+      timeout_cleanup_experiment_path: selected.timeout_config?.cleanup_experiment_path ?? null,
+      prerequisites: selected.prerequisites ?? [],
+      notification_contacts: selected.notification_contacts ?? [],
+    });
+    setImprovedFormOpen(true);
+  };
 
   const handleLogsRefresh = useCallback(async () => {
     if (user?.role !== 'admin') {
@@ -370,6 +410,9 @@ const SchedulingPage: React.FC = () => {
   );
 
   const handleViewRecoverySchedule = async () => {
+    if (!isLocalSession) {
+      return;
+    }
     const scheduleId = state.manualRecovery?.schedule_id;
     if (!scheduleId) {
       return;
@@ -379,6 +422,9 @@ const SchedulingPage: React.FC = () => {
   };
 
   const handleResolveManualRecovery = async () => {
+    if (!isLocalSession) {
+      return;
+    }
     const scheduleId = state.manualRecovery?.schedule_id;
     if (!scheduleId) {
       window.alert('Manual recovery is active, but the originating schedule could not be identified.');
@@ -862,98 +908,175 @@ const SchedulingPage: React.FC = () => {
                     <Typography variant="h6" gutterBottom>
                       Actions
                     </Typography>
-                    <Stack spacing={2}>
-                      {/* Create New Schedule Button */}
-                      <Button
-                        variant="contained"
-                        fullWidth
-                        startIcon={<AddIcon />}
-                        onClick={handleOpenCreateForm}
-                        disabled={state.loading}
-                      >
-                        Create New Schedule
-                      </Button>
-                      
-                      {/* Import Experiments Button */}
-                      <Button
-                        variant="outlined"
-                        fullWidth
-                        startIcon={<FolderIcon />}
-                        onClick={() => {
-                          if (!isLocalClient) {
-                            window.alert('Import from folder is only available when accessing RobotControl locally.');
-                            return;
-                          }
-                          setFolderImportOpen(true);
-                        }}
-                        disabled={state.loading || !isLocalClient}
-                      >
-                        Import Experiments from Folder
-                      </Button>
-                      {!isLocalClient && (
-                        <Typography variant="caption" color="text.secondary">
-                          Available only when using RobotControl directly on the host machine.
+                    {isLocalSession ? (
+                      <Stack spacing={2}>
+                        {/* Create New Schedule Button */}
+                        <Button
+                          variant="contained"
+                          fullWidth
+                          startIcon={<AddIcon />}
+                          onClick={handleOpenCreateForm}
+                          disabled={state.loading}
+                        >
+                          Create New Schedule
+                        </Button>
+                        
+                        {/* Import Experiments Button */}
+                        <Button
+                          variant="outlined"
+                          fullWidth
+                          startIcon={<FolderIcon />}
+                          onClick={() => {
+                            if (!isLocalClient) {
+                              window.alert('Import from folder is only available when accessing RobotControl locally.');
+                              return;
+                            }
+                            setFolderImportOpen(true);
+                          }}
+                          disabled={state.loading || !isLocalClient}
+                        >
+                          Import Experiments from Folder
+                        </Button>
+                        {!isLocalClient && (
+                          <Typography variant="caption" color="text.secondary">
+                            Available only when using RobotControl directly on the host machine.
+                          </Typography>
+                        )}
+
+                        {/* Edit/Delete for selected schedule */}
+                        {state.selectedSchedule && (
+                          <>
+                            <Divider />
+                            <Typography variant="subtitle2" color="text.secondary">
+                              Selected: {state.selectedSchedule.experiment_name}
+                            </Typography>
+                            {state.selectedSchedule.experiment_path && (
+                              <Typography
+                                variant="caption"
+                                color="text.secondary"
+                                sx={{ display: 'block', wordBreak: 'break-all', mt: 0.25 }}
+                              >
+                                Method path:{' '}
+                                <Typography component="span" variant="caption" sx={{ fontFamily: 'monospace' }}>
+                                  {state.selectedSchedule.experiment_path}
+                                </Typography>
+                              </Typography>
+                            )}
+                        <Button
+                          variant="outlined"
+                          fullWidth
+                          startIcon={<EditIcon />}
+                          onClick={handleOpenEditForm}
+                          disabled={state.loading}
+                        >
+                          Edit Schedule
+                        </Button>
+                        <Button
+                          variant="outlined"
+                          fullWidth
+                          startIcon={<ArchiveIcon />}
+                          onClick={async () => {
+                            if (!state.selectedSchedule) {
+                              return;
+                            }
+                            await actions.archiveSchedule(
+                              state.selectedSchedule,
+                              !state.selectedSchedule.archived,
+                            );
+                          }}
+                          disabled={state.loading || !state.selectedSchedule}
+                        >
+                          {state.selectedSchedule?.archived ? 'Unarchive Schedule' : 'Archive Schedule'}
+                        </Button>
+                        <Button
+                          variant="outlined"
+                          color="error"
+                          fullWidth
+                          startIcon={<DeleteIcon />}
+                          onClick={() => setDeleteDialogOpen(true)}
+                          disabled={state.loading}
+                        >
+                          Delete Schedule
+                        </Button>
+                          </>
+                        )}
+                      </Stack>
+                    ) : (
+                      <Stack spacing={2}>
+                        <Typography variant="body2" color="text.secondary">
+                          Schedule actions such as creating, editing, archiving, or deleting are only available when
+                          you are logged in from the local robot control workstation. You can still review schedule
+                          details remotely.
+                        </Typography>
+                      </Stack>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card sx={{ borderRadius: 2 }}>
+                  <CardContent sx={{ p: cardPadding }}>
+                    <Stack spacing={1.5}>
+                      <Stack direction="row" justifyContent="space-between" alignItems="center">
+                        <Typography variant="h6">Runtime Queue</Typography>
+                        <Button size="small" startIcon={<RefreshIcon />} onClick={() => actions.getQueueStatus()}>
+                          Refresh
+                        </Button>
+                      </Stack>
+                      <Stack direction="row" spacing={1} flexWrap="wrap">
+                        <Chip
+                          size="small"
+                          label={`${state.queueStatus?.running_jobs ?? 0} running`}
+                          color={(state.queueStatus?.running_jobs ?? 0) > 0 ? 'primary' : 'default'}
+                        />
+                        <Chip
+                          size="small"
+                          label={`${state.queueStatus?.queued_jobs ?? 0} queued`}
+                          color={(state.queueStatus?.queued_jobs ?? 0) > 0 ? 'warning' : 'default'}
+                        />
+                      </Stack>
+                      <Typography variant="subtitle2" color="text.secondary">
+                        Running now
+                      </Typography>
+                      {(state.queueStatus?.running_job_details ?? []).length > 0 ? (
+                        <Stack spacing={0.75}>
+                          {(state.queueStatus?.running_job_details ?? []).map((item) => (
+                            <Stack key={`running-${item.schedule_id}`} spacing={0.25}>
+                              <Typography variant="body2">{item.experiment_name}</Typography>
+                              {item.waiting_reason && (
+                                <Typography variant="caption" color="text.secondary">
+                                  {item.waiting_reason}
+                                </Typography>
+                              )}
+                            </Stack>
+                          ))}
+                        </Stack>
+                      ) : (
+                        <Typography variant="body2" color="text.secondary">
+                          No running schedules.
                         </Typography>
                       )}
-
-                      {/* Edit/Delete for selected schedule */}
-                      {state.selectedSchedule && (
-                        <>
-                          <Divider />
-                          <Typography variant="subtitle2" color="text.secondary">
-                            Selected: {state.selectedSchedule.experiment_name}
-                          </Typography>
-                          {state.selectedSchedule.experiment_path && (
-                            <Typography
-                              variant="caption"
-                              color="text.secondary"
-                              sx={{ display: 'block', wordBreak: 'break-all', mt: 0.25 }}
-                            >
-                              Method path:{' '}
-                              <Typography component="span" variant="caption" sx={{ fontFamily: 'monospace' }}>
-                                {state.selectedSchedule.experiment_path}
-                              </Typography>
-                            </Typography>
-                          )}
-                      <Button
-                        variant="outlined"
-                        fullWidth
-                        startIcon={<EditIcon />}
-                        onClick={handleOpenEditForm}
-                        disabled={state.loading}
-                      >
-                        Edit Schedule
-                      </Button>
-                      <Button
-                        variant="outlined"
-                        fullWidth
-                        startIcon={<ArchiveIcon />}
-                        onClick={async () => {
-                          if (!state.selectedSchedule) {
-                            return;
-                          }
-                          await actions.archiveSchedule(
-                            state.selectedSchedule,
-                            !state.selectedSchedule.archived,
-                          );
-                        }}
-                        disabled={state.loading || !state.selectedSchedule}
-                      >
-                        {state.selectedSchedule?.archived ? 'Unarchive Schedule' : 'Archive Schedule'}
-                      </Button>
-                      <Button
-                        variant="outlined"
-                        color="error"
-                        fullWidth
-                        startIcon={<DeleteIcon />}
-                        onClick={() => setDeleteDialogOpen(true)}
-                        disabled={state.loading}
-                      >
-                        Delete Schedule
-                      </Button>
-                        </>
+                      <Divider />
+                      <Typography variant="subtitle2" color="text.secondary">
+                        Queued next
+                      </Typography>
+                      {(state.queueStatus?.queued_job_details ?? []).length > 0 ? (
+                        <Stack spacing={0.75}>
+                          {(state.queueStatus?.queued_job_details ?? []).map((item) => (
+                            <Stack key={`queued-${item.schedule_id}`} spacing={0.25}>
+                              <Typography variant="body2">{item.experiment_name}</Typography>
+                              {item.waiting_reason && (
+                                <Typography variant="caption" color="text.secondary">
+                                  {item.waiting_reason}
+                                </Typography>
+                              )}
+                            </Stack>
+                          ))}
+                        </Stack>
+                      ) : (
+                        <Typography variant="body2" color="text.secondary">
+                          No queued schedules.
+                        </Typography>
                       )}
-
                     </Stack>
                   </CardContent>
                 </Card>
@@ -1073,24 +1196,30 @@ const SchedulingPage: React.FC = () => {
                       </Typography>
                     )}
                   </Stack>
-                  <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
-                    <Button
-                      variant="outlined"
-                      onClick={handleViewRecoverySchedule}
-                      disabled={!state.manualRecovery.schedule_id}
-                    >
-                      View Schedule
-                    </Button>
-                    {state.manualRecovery.active && (
+                  {isLocalSession ? (
+                    <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
                       <Button
-                        variant="contained"
-                        color="primary"
-                        onClick={handleResolveManualRecovery}
+                        variant="outlined"
+                        onClick={handleViewRecoverySchedule}
+                        disabled={!state.manualRecovery.schedule_id}
                       >
-                        Resolve Manual Recovery
+                        View Schedule
                       </Button>
-                    )}
-                  </Stack>
+                      {state.manualRecovery.active && (
+                        <Button
+                          variant="contained"
+                          color="primary"
+                          onClick={handleResolveManualRecovery}
+                        >
+                          Resolve Manual Recovery
+                        </Button>
+                      )}
+                    </Stack>
+                  ) : (
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+                      Manual recovery controls are available only on the local robot control workstation.
+                    </Typography>
+                  )}
                 </CardContent>
               </Card>
             )}
@@ -1114,15 +1243,28 @@ const SchedulingPage: React.FC = () => {
             selectedSchedule={state.selectedSchedule}
             onScheduleSelect={actions.selectSchedule}
             onRefresh={actions.loadArchivedSchedules}
-            onDeleteSchedule={(schedule) => {
-              actions.selectSchedule(schedule);
-              setDeleteDialogOpen(true);
-            }}
+            onDeleteSchedule={
+              isLocalSession
+                ? (schedule) => {
+                    actions.selectSchedule(schedule);
+                    setDeleteDialogOpen(true);
+                  }
+                : undefined
+            }
             loading={state.archivedLoading}
             error={state.archivedError}
             initialized={state.archivedInitialized}
             archivedView
           />
+          {!isLocalSession && (
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ mt: 1, display: 'block' }}
+            >
+              Archival cleanup can only be performed from the local robot control workstation.
+            </Typography>
+          )}
         </TabPanel>
 
         {user?.role === 'admin' && (

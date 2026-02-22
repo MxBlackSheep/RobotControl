@@ -19,7 +19,7 @@ export interface ScheduledExperiment {
   updated_at: string; // ISO format
   is_active: boolean;
   archived: boolean;
-  retry_config: RetryConfig;
+  timeout_config: TimeoutConfig;
   prerequisites: string[];
   notification_contacts: string[];
   recovery_required: boolean;
@@ -32,10 +32,11 @@ export interface ScheduledExperiment {
   last_run?: string | null; // ISO format
 }
 
-export interface RetryConfig {
-  max_retries: number;
-  retry_delay_minutes: number;
-  backoff_strategy: 'linear' | 'exponential';
+export interface TimeoutConfig {
+  timeout_minutes: number | null;
+  action: 'continue' | 'run_cleanup_and_terminate';
+  cleanup_experiment_name?: string | null;
+  cleanup_experiment_path?: string | null;
 }
 
 export interface JobExecution {
@@ -167,10 +168,12 @@ export interface NotificationLogQuery {
 // Queue management interfaces
 export interface QueueStatus {
   queue_size: number;
+  queued_jobs: number;
   running_jobs: number;
   max_parallel_jobs: number;
   capacity_available: boolean;
   running_job_details: RunningJobDetail[];
+  queued_job_details: RunningJobDetail[];
   execution_windows: ExecutionWindow[];
   hamilton_available: boolean;
 }
@@ -189,6 +192,7 @@ export interface RunningJobDetail {
   priority: string;
   queued_time: string; // ISO format
   retry_count: number;
+  waiting_reason?: string | null;
 }
 
 export interface ExecutionWindow {
@@ -216,10 +220,11 @@ export interface CreateScheduleRequest {
   start_time?: string; // ISO format
   estimated_duration: number;
   is_active?: boolean;
-  retry_config?: {
-    max_retries?: number;
-    retry_delay_minutes?: number;
-    backoff_strategy?: 'linear' | 'exponential';
+  timeout_config?: {
+    timeout_minutes?: number | null;
+    action?: 'continue' | 'run_cleanup_and_terminate';
+    cleanup_experiment_name?: string | null;
+    cleanup_experiment_path?: string | null;
   };
   prerequisites?: string[];
   notification_contacts?: string[];
@@ -233,10 +238,11 @@ export interface UpdateScheduleRequest {
   start_time?: string; // ISO format
   estimated_duration?: number;
   is_active?: boolean;
-  retry_config?: {
-    max_retries?: number;
-    retry_delay_minutes?: number;
-    backoff_strategy?: 'linear' | 'exponential';
+  timeout_config?: {
+    timeout_minutes?: number | null;
+    action?: 'continue' | 'run_cleanup_and_terminate';
+    cleanup_experiment_name?: string | null;
+    cleanup_experiment_path?: string | null;
   };
   prerequisites?: string[];
   notification_contacts?: string[];
@@ -339,9 +345,10 @@ export interface CreateScheduleFormData {
   start_time?: Date | null;
   estimated_duration: number;
   is_active: boolean;
-  max_retries: number;
-  retry_delay_minutes: number;
-  backoff_strategy: 'linear' | 'exponential';
+  timeout_minutes?: number | null;
+  timeout_action: 'continue' | 'run_cleanup_and_terminate';
+  timeout_cleanup_experiment_name?: string | null;
+  timeout_cleanup_experiment_path?: string | null;
   prerequisites: string[];
   notification_contacts: string[];
 }
@@ -444,9 +451,8 @@ export const SCHEDULING_CONSTANTS = {
   MAX_ESTIMATED_DURATION: 1440, // 24 hours
   MIN_INTERVAL_HOURS: 1,
   MAX_INTERVAL_HOURS: 168, // 1 week
-  MAX_RETRY_ATTEMPTS: 10,
-  MIN_RETRY_DELAY: 1, // minutes
-  MAX_RETRY_DELAY: 1440, // 24 hours
+  MIN_TIMEOUT_MINUTES: 1,
+  MAX_TIMEOUT_MINUTES: 10080, // 7 days
   CALENDAR_DEFAULT_HOURS_AHEAD: 48,
   CALENDAR_MAX_HOURS_AHEAD: 168, // 1 week
   REFRESH_INTERVAL_MS: 30000, // 30 seconds
@@ -459,11 +465,6 @@ export const SCHEDULE_TYPE_OPTIONS = [
   { value: 'interval' as const, label: 'Interval (Hours)' },
   { value: 'daily' as const, label: 'Daily' },
   { value: 'weekly' as const, label: 'Weekly' },
-] as const;
-
-export const BACKOFF_STRATEGY_OPTIONS = [
-  { value: 'linear' as const, label: 'Linear (Fixed Delay)' },
-  { value: 'exponential' as const, label: 'Exponential (Growing Delay)' },
 ] as const;
 
 // Type guards for runtime type checking
@@ -480,7 +481,7 @@ export const isScheduledExperiment = (obj: any): obj is ScheduledExperiment => {
     typeof obj.created_at === 'string' &&
     typeof obj.updated_at === 'string' &&
     typeof obj.is_active === 'boolean' &&
-    typeof obj.retry_config === 'object' &&
+    typeof obj.timeout_config === 'object' &&
     Array.isArray(obj.prerequisites) &&
     typeof obj.recovery_required === 'boolean'
   );
@@ -579,8 +580,6 @@ export const formatExecutionStatus = (status: string): { text: string; color: st
 };
 
 export const getNextExecutionTime = (schedule: ScheduledExperiment): Date | null => {
-  if (schedule.recovery_required) return null;
-
   const reference = schedule.next_run ?? schedule.start_time;
   if (!reference) return null;
 
@@ -588,25 +587,7 @@ export const getNextExecutionTime = (schedule: ScheduledExperiment): Date | null
   if (Number.isNaN(parsed.getTime())) {
     return null;
   }
-
-  if (schedule.schedule_type === "interval" && schedule.interval_hours) {
-    const intervalMs = schedule.interval_hours * 60 * 60 * 1000;
-    if (intervalMs <= 0) {
-      return null;
-    }
-
-    const nowMs = Date.now();
-    const startMs = parsed.getTime();
-    if (startMs > nowMs) {
-      return parsed;
-    }
-
-    const intervalsElapsed = Math.floor((nowMs - startMs) / intervalMs) + 1;
-    const nextMs = startMs + intervalsElapsed * intervalMs;
-    return new Date(nextMs);
-  }
-
-  return parsed > new Date() ? parsed : null;
+  return parsed;
 };
 
 // Validation functions
@@ -641,14 +622,24 @@ export const validateScheduleFormData = (data: CreateScheduleFormData): string[]
       errors.push(`Interval must be ${SCHEDULING_CONSTANTS.MAX_INTERVAL_HOURS} hours or less`);
     }
   }
-  
-  if (data.max_retries < 0 || data.max_retries > SCHEDULING_CONSTANTS.MAX_RETRY_ATTEMPTS) {
-    errors.push(`Max retries must be between 0 and ${SCHEDULING_CONSTANTS.MAX_RETRY_ATTEMPTS}`);
+
+  if (data.start_time && data.start_time.getTime() < Date.now()) {
+    errors.push('Start time cannot be in the past');
   }
-  
-  if (data.retry_delay_minutes < SCHEDULING_CONSTANTS.MIN_RETRY_DELAY || 
-      data.retry_delay_minutes > SCHEDULING_CONSTANTS.MAX_RETRY_DELAY) {
-    errors.push(`Retry delay must be between ${SCHEDULING_CONSTANTS.MIN_RETRY_DELAY} and ${SCHEDULING_CONSTANTS.MAX_RETRY_DELAY} minutes`);
+
+  if (data.timeout_minutes !== undefined && data.timeout_minutes !== null) {
+    if (
+      data.timeout_minutes < SCHEDULING_CONSTANTS.MIN_TIMEOUT_MINUTES ||
+      data.timeout_minutes > SCHEDULING_CONSTANTS.MAX_TIMEOUT_MINUTES
+    ) {
+      errors.push(
+        `Timeout must be between ${SCHEDULING_CONSTANTS.MIN_TIMEOUT_MINUTES} and ${SCHEDULING_CONSTANTS.MAX_TIMEOUT_MINUTES} minutes`,
+      );
+    }
+  }
+
+  if (data.timeout_action === 'run_cleanup_and_terminate' && !data.timeout_cleanup_experiment_path?.trim()) {
+    errors.push('Cleanup method is required for "Run cleanup and terminate" timeout action');
   }
   
   return errors;

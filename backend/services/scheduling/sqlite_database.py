@@ -18,9 +18,10 @@ from datetime import datetime, timedelta
 from contextlib import contextmanager
 from backend.utils.data_paths import get_data_path
 from backend.models import (
+    HxRunMaintenanceState,
     ScheduledExperiment,
     JobExecution,
-    RetryConfig,
+    TimeoutConfig,
     ManualRecoveryState,
     NotificationContact,
     NotificationLogEntry,
@@ -28,9 +29,17 @@ from backend.models import (
 )
 
 try:
-    from backend.utils.datetime import parse_iso_datetime_to_local
+    from backend.utils.datetime import (
+        ensure_local_naive,
+        parse_iso_datetime_to_local,
+        utc_now_as_local_naive,
+    )
 except ImportError:  # pragma: no cover - fallback
-    from utils.datetime import parse_iso_datetime_to_local  # type: ignore
+    from utils.datetime import (  # type: ignore
+        ensure_local_naive,
+        parse_iso_datetime_to_local,
+        utc_now_as_local_naive,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +104,10 @@ class SQLiteSchedulingDatabase:
                         estimated_duration INTEGER NOT NULL DEFAULT 60,
                         created_by TEXT NOT NULL DEFAULT 'system',
                         is_active INTEGER NOT NULL DEFAULT 1,
-                        retry_config TEXT,
+                        timeout_minutes INTEGER,
+                        timeout_action TEXT NOT NULL DEFAULT 'continue',
+                        timeout_cleanup_experiment_name TEXT,
+                        timeout_cleanup_experiment_path TEXT,
                         prerequisites TEXT,
                         archived INTEGER NOT NULL DEFAULT 0,
                         recovery_required INTEGER NOT NULL DEFAULT 0,
@@ -155,7 +167,11 @@ class SQLiteSchedulingDatabase:
                         recovery_triggered_by TEXT,
                         recovery_triggered_at TEXT,
                         recovery_resolved_by TEXT,
-                        recovery_resolved_at TEXT
+                        recovery_resolved_at TEXT,
+                        hxrun_maintenance_enabled INTEGER NOT NULL DEFAULT 0,
+                        hxrun_maintenance_reason TEXT,
+                        hxrun_maintenance_updated_by TEXT,
+                        hxrun_maintenance_updated_at TEXT
                     )
                 """)
                 cursor.execute("INSERT OR IGNORE INTO SchedulerState (id) VALUES (1)")
@@ -261,6 +277,10 @@ class SQLiteSchedulingDatabase:
                     ('recovery_resolved_at', "ALTER TABLE ScheduledExperiments ADD COLUMN recovery_resolved_at TEXT"),
                     ('recovery_resolved_by', "ALTER TABLE ScheduledExperiments ADD COLUMN recovery_resolved_by TEXT"),
                     ('archived', "ALTER TABLE ScheduledExperiments ADD COLUMN archived INTEGER NOT NULL DEFAULT 0"),
+                    ('timeout_minutes', "ALTER TABLE ScheduledExperiments ADD COLUMN timeout_minutes INTEGER"),
+                    ('timeout_action', "ALTER TABLE ScheduledExperiments ADD COLUMN timeout_action TEXT NOT NULL DEFAULT 'continue'"),
+                    ('timeout_cleanup_experiment_name', "ALTER TABLE ScheduledExperiments ADD COLUMN timeout_cleanup_experiment_name TEXT"),
+                    ('timeout_cleanup_experiment_path', "ALTER TABLE ScheduledExperiments ADD COLUMN timeout_cleanup_experiment_path TEXT"),
                 ]
                 for column_name, alter_sql in column_alterations:
                     if column_name not in existing_columns:
@@ -271,6 +291,28 @@ class SQLiteSchedulingDatabase:
                             logger.warning("SQLite scheduling database: unable to add column %s (%s)", column_name, alter_exc)
 
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_scheduled_recovery_required ON ScheduledExperiments(recovery_required)")
+
+                scheduler_state_columns = {col["name"] for col in cursor.execute("PRAGMA table_info(SchedulerState)")}
+                scheduler_state_alterations = [
+                    (
+                        "hxrun_maintenance_enabled",
+                        "ALTER TABLE SchedulerState ADD COLUMN hxrun_maintenance_enabled INTEGER NOT NULL DEFAULT 0",
+                    ),
+                    ("hxrun_maintenance_reason", "ALTER TABLE SchedulerState ADD COLUMN hxrun_maintenance_reason TEXT"),
+                    ("hxrun_maintenance_updated_by", "ALTER TABLE SchedulerState ADD COLUMN hxrun_maintenance_updated_by TEXT"),
+                    ("hxrun_maintenance_updated_at", "ALTER TABLE SchedulerState ADD COLUMN hxrun_maintenance_updated_at TEXT"),
+                ]
+                for column_name, alter_sql in scheduler_state_alterations:
+                    if column_name not in scheduler_state_columns:
+                        try:
+                            cursor.execute(alter_sql)
+                            logger.info("SQLite scheduling database: added SchedulerState column %s", column_name)
+                        except Exception as alter_exc:
+                            logger.warning(
+                                "SQLite scheduling database: unable to add SchedulerState column %s (%s)",
+                                column_name,
+                                alter_exc,
+                            )
 
                 # Test database access
                 cursor.execute("SELECT COUNT(*) FROM ScheduledExperiments")
@@ -304,6 +346,13 @@ class SQLiteSchedulingDatabase:
         except (ValueError, TypeError):
             return None
 
+    @staticmethod
+    def _serialize_timestamp(value: Optional[datetime]) -> Optional[str]:
+        """Serialize a datetime to ISO string using local wall-clock semantics."""
+        if value is None:
+            return None
+        return ensure_local_naive(value).isoformat()
+
     def create_schedule(self, schedule: ScheduledExperiment) -> bool:
         """
         Create a new scheduled experiment
@@ -322,29 +371,35 @@ class SQLiteSchedulingDatabase:
                     INSERT INTO ScheduledExperiments (
                         schedule_id, experiment_name, experiment_path, schedule_type,
                         interval_hours, start_time, estimated_duration, created_by,
-                        is_active, archived, retry_config, prerequisites,
+                        is_active, archived, timeout_minutes, timeout_action,
+                        timeout_cleanup_experiment_name, timeout_cleanup_experiment_path, prerequisites,
                         recovery_required, recovery_note, recovery_marked_at, recovery_marked_by,
-                        recovery_resolved_at, recovery_resolved_by
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        recovery_resolved_at, recovery_resolved_by, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     schedule.schedule_id,
                     schedule.experiment_name,
                     schedule.experiment_path,
                     schedule.schedule_type,
                     schedule.interval_hours,
-                    schedule.start_time.isoformat() if schedule.start_time else None,
+                    self._serialize_timestamp(schedule.start_time),
                     schedule.estimated_duration,
                     schedule.created_by,
                     1 if schedule.is_active else 0,
                     1 if getattr(schedule, "archived", False) else 0,
-                    json.dumps(schedule.retry_config.to_dict()) if schedule.retry_config else None,
+                    schedule.timeout_config.timeout_minutes if schedule.timeout_config else None,
+                    schedule.timeout_config.action if schedule.timeout_config else "continue",
+                    schedule.timeout_config.cleanup_experiment_name if schedule.timeout_config else None,
+                    schedule.timeout_config.cleanup_experiment_path if schedule.timeout_config else None,
                     json.dumps(schedule.prerequisites) if schedule.prerequisites else None,
                     1 if schedule.recovery_required else 0,
                     schedule.recovery_note,
-                    schedule.recovery_marked_at.isoformat() if schedule.recovery_marked_at else None,
+                    self._serialize_timestamp(schedule.recovery_marked_at),
                     schedule.recovery_marked_by,
-                    schedule.recovery_resolved_at.isoformat() if schedule.recovery_resolved_at else None,
-                    schedule.recovery_resolved_by
+                    self._serialize_timestamp(schedule.recovery_resolved_at),
+                    schedule.recovery_resolved_by,
+                    self._serialize_timestamp(schedule.created_at),
+                    self._serialize_timestamp(schedule.updated_at),
                 ))
                 self._replace_schedule_contacts(conn, schedule.schedule_id, schedule.notification_contacts or [])
                 conn.commit()
@@ -442,7 +497,7 @@ class SQLiteSchedulingDatabase:
             logger.error(f"Failed to get schedule {schedule_id} from SQLite: {e}")
         
         return None
-    
+
     def update_schedule(
         self,
         schedule: ScheduledExperiment,
@@ -471,7 +526,10 @@ class SQLiteSchedulingDatabase:
                     "estimated_duration = ?",
                     "is_active = ?",
                     "archived = ?",
-                    "retry_config = ?",
+                    "timeout_minutes = ?",
+                    "timeout_action = ?",
+                    "timeout_cleanup_experiment_name = ?",
+                    "timeout_cleanup_experiment_path = ?",
                     "prerequisites = ?",
                     "recovery_required = ?",
                     "recovery_note = ?",
@@ -485,26 +543,27 @@ class SQLiteSchedulingDatabase:
                     schedule.experiment_path,
                     schedule.schedule_type,
                     schedule.interval_hours,
-                    schedule.start_time.isoformat() if schedule.start_time else None,
+                    self._serialize_timestamp(schedule.start_time),
                     schedule.estimated_duration,
                     1 if schedule.is_active else 0,
                     1 if getattr(schedule, "archived", False) else 0,
-                    json.dumps(schedule.retry_config.to_dict()) if schedule.retry_config else None,
+                    schedule.timeout_config.timeout_minutes if schedule.timeout_config else None,
+                    schedule.timeout_config.action if schedule.timeout_config else "continue",
+                    schedule.timeout_config.cleanup_experiment_name if schedule.timeout_config else None,
+                    schedule.timeout_config.cleanup_experiment_path if schedule.timeout_config else None,
                     json.dumps(schedule.prerequisites) if schedule.prerequisites else None,
                     1 if schedule.recovery_required else 0,
                     schedule.recovery_note,
-                    schedule.recovery_marked_at.isoformat() if schedule.recovery_marked_at else None,
+                    self._serialize_timestamp(schedule.recovery_marked_at),
                     schedule.recovery_marked_by,
-                    schedule.recovery_resolved_at.isoformat() if schedule.recovery_resolved_at else None,
+                    self._serialize_timestamp(schedule.recovery_resolved_at),
                     schedule.recovery_resolved_by,
                 ]
 
                 if touch_updated_at:
-                    updated_value = schedule.updated_at
-                    if isinstance(updated_value, datetime):
-                        updated_value = updated_value.isoformat()
+                    updated_value = self._serialize_timestamp(schedule.updated_at)
                     if not updated_value:
-                        updated_value = datetime.utcnow().isoformat()
+                        updated_value = utc_now_as_local_naive().isoformat()
                     set_clauses.append("updated_at = ?")
                     params.append(updated_value)
 
@@ -879,7 +938,7 @@ class SQLiteSchedulingDatabase:
         self, schedule_id: str, note: Optional[str], user: str
     ) -> bool:
         """Mark a schedule as requiring manual recovery."""
-        timestamp = datetime.utcnow().isoformat()
+        timestamp = self._serialize_timestamp(utc_now_as_local_naive()) or datetime.now().isoformat()
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -905,7 +964,7 @@ class SQLiteSchedulingDatabase:
         self, schedule_id: str, note: Optional[str], user: str
     ) -> bool:
         """Clear the manual recovery requirement for a schedule."""
-        timestamp = datetime.now().isoformat()
+        timestamp = self._serialize_timestamp(utc_now_as_local_naive()) or datetime.now().isoformat()
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -960,7 +1019,7 @@ class SQLiteSchedulingDatabase:
         note: Optional[str],
         user: str,
     ) -> ManualRecoveryState:
-        timestamp = datetime.now().isoformat()
+        timestamp = self._serialize_timestamp(utc_now_as_local_naive()) or datetime.now().isoformat()
         schedule_id = schedule.schedule_id if schedule else None
         experiment_name = schedule.experiment_name if schedule else None
         try:
@@ -992,7 +1051,7 @@ class SQLiteSchedulingDatabase:
         note: Optional[str],
         user: str,
     ) -> ManualRecoveryState:
-        timestamp = datetime.now().isoformat()
+        timestamp = self._serialize_timestamp(utc_now_as_local_naive()) or datetime.now().isoformat()
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -1012,6 +1071,61 @@ class SQLiteSchedulingDatabase:
             logger.error(f"Failed to clear scheduler recovery state: {exc}")
 
         return self.get_manual_recovery_state()
+
+    def get_hxrun_maintenance_state(self) -> HxRunMaintenanceState:
+        """Return the persisted HxRun maintenance mode flag and metadata."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT hxrun_maintenance_enabled, hxrun_maintenance_reason, "
+                    "hxrun_maintenance_updated_by, hxrun_maintenance_updated_at "
+                    "FROM SchedulerState WHERE id = 1"
+                )
+                row = cursor.fetchone()
+        except Exception as exc:
+            logger.error(f"Failed to load HxRun maintenance state: {exc}")
+            row = None
+
+        if not row:
+            return HxRunMaintenanceState()
+
+        return HxRunMaintenanceState(
+            enabled=bool(row["hxrun_maintenance_enabled"]),
+            reason=row["hxrun_maintenance_reason"],
+            updated_by=row["hxrun_maintenance_updated_by"],
+            updated_at=self._parse_timestamp(row["hxrun_maintenance_updated_at"]),
+        )
+
+    def set_hxrun_maintenance_state(
+        self,
+        enabled: bool,
+        reason: Optional[str],
+        user: str,
+    ) -> HxRunMaintenanceState:
+        """Persist HxRun maintenance mode flag updates."""
+        timestamp = datetime.now().isoformat()
+        normalized_reason = reason.strip() if isinstance(reason, str) and reason.strip() else None
+
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    UPDATE SchedulerState SET
+                        hxrun_maintenance_enabled = ?,
+                        hxrun_maintenance_reason = ?,
+                        hxrun_maintenance_updated_by = ?,
+                        hxrun_maintenance_updated_at = ?
+                    WHERE id = 1
+                    """,
+                    (1 if enabled else 0, normalized_reason, user, timestamp),
+                )
+                conn.commit()
+        except Exception as exc:
+            logger.error(f"Failed to persist HxRun maintenance state: {exc}")
+
+        return self.get_hxrun_maintenance_state()
 
     def _archive_job_executions(
         self,
@@ -1404,13 +1518,27 @@ class SQLiteSchedulingDatabase:
             created_at = self._parse_timestamp(row["created_at"]) if "created_at" in row_keys else None
             updated_at = self._parse_timestamp(row["updated_at"]) if "updated_at" in row_keys else None
 
-            retry_config = None
-            raw_retry = row["retry_config"] if "retry_config" in row_keys else None
-            if raw_retry:
-                try:
-                    retry_config = RetryConfig.from_dict(json.loads(raw_retry))
-                except Exception as exc:  # pragma: no cover - defensive
-                    logger.debug("Failed to parse retry_config: %s", exc)
+            timeout_config = TimeoutConfig()
+            raw_timeout_minutes = row["timeout_minutes"] if "timeout_minutes" in row_keys else None
+            raw_timeout_action = row["timeout_action"] if "timeout_action" in row_keys else "continue"
+            raw_cleanup_name = (
+                row["timeout_cleanup_experiment_name"]
+                if "timeout_cleanup_experiment_name" in row_keys
+                else None
+            )
+            raw_cleanup_path = (
+                row["timeout_cleanup_experiment_path"]
+                if "timeout_cleanup_experiment_path" in row_keys
+                else None
+            )
+            timeout_config = TimeoutConfig.from_dict(
+                {
+                    "timeout_minutes": raw_timeout_minutes,
+                    "action": raw_timeout_action,
+                    "cleanup_experiment_name": raw_cleanup_name,
+                    "cleanup_experiment_path": raw_cleanup_path,
+                }
+            )
 
             prerequisites: List[str] = []
             raw_prereqs = row["prerequisites"] if "prerequisites" in row_keys else None
@@ -1434,7 +1562,7 @@ class SQLiteSchedulingDatabase:
                 created_by=row["created_by"],
                 is_active=bool(row["is_active"]),
                 archived=bool(row["archived"]) if "archived" in row_keys else False,
-                retry_config=retry_config,
+                timeout_config=timeout_config,
                 prerequisites=prerequisites,
                 notification_contacts=[],
                 recovery_required=bool(row["recovery_required"]) if "recovery_required" in row_keys else False,
@@ -1810,8 +1938,6 @@ class SQLiteSchedulingDatabase:
             'completed': 'Success',
             'failed': 'Failed',
             'blocked': 'Blocked',
-            'missed': 'Missed',
-            'retrying': 'Retrying',
             'cancelled': 'Cancelled'
         }
         return status_map.get(status, status.title())
@@ -1836,5 +1962,3 @@ def get_sqlite_scheduling_database() -> SQLiteSchedulingDatabase:
             _sqlite_db_instance = SQLiteSchedulingDatabase()
             
     return _sqlite_db_instance
-
-

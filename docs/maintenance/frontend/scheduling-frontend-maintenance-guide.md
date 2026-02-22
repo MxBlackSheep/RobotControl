@@ -27,6 +27,16 @@ This document spells out how the scheduling UI is wired together. It assumes you
 
 ---
 
+## 1.5 Local vs Remote Sessions
+
+- `SchedulingPage` calculates `isLocalSession` from the authenticated user (`session_is_local` when available, otherwise it falls back to checking whether the browser is hitting a localhost hostname). Do not try to outsmart this—fetch the flag from `useAuth()` instead of inventing your own detection.
+- When `isLocalSession` is `false`, all destructive controls disappear: the Create/Edit/Delete/Archive buttons are replaced with a notice, and the manual recovery buttons (“View Schedule”, “Resolve Manual Recovery”) are hidden. The read-only cards stay visible so remote viewers still see status updates.
+- The confirm handlers (`handleViewRecoverySchedule`, `handleResolveManualRecovery`) bail out early if `isLocalSession` is false. Leave those guards in place—remote browsers should never trigger backend mutations through devtools tricks.
+- Folder import is also gated; the button stays visible only when the session is local (and falls back to hostname detection for development). Remote users should see the explanatory caption instead of touchy file dialogs.
+- The archived schedules tab only wires up the delete callback when the session is local, so remote users never see the trash icon and cannot purge historical runs.
+
+---
+
 ## 2. Scheduling Workflow Overview
 
 1. **Page mount** → `const { state, actions } = useScheduling();`.  
@@ -39,6 +49,8 @@ This document spells out how the scheduling UI is wired together. It assumes you
 
 3. **Creating a schedule**  
    - Clicking “New Schedule” opens `ImprovedScheduleForm` (modal).  
+   - Form enforces local-time guard: create requests cannot use a `start_time` earlier than current local time.
+   - Timeout behavior is configured in the same form (`timeout_minutes`, `timeout_action`, optional cleanup method).
    - On submit, `actions.createSchedule(formData)` calls the backend, then reloads schedules and focuses the new entry.
 
 4. **Editing a schedule**  
@@ -61,7 +73,8 @@ From `useScheduling`:
 - `state.schedules`, `archivedSchedules` – arrays of `ScheduledExperiment`.  
 - `state.selectedSchedule` – the item currently highlighted.  
 - `state.operationStatus` – one of `Idle`, `Loading`, `Creating`, `Updating`, etc. Use this to show spinners on buttons.  
-- `state.queueStatus`, `state.hamiltonStatus` – metadata for the robot queue.  
+- `state.queueStatus`, `state.hamiltonStatus` – metadata for the robot queue (including `running_job_details` and `queued_job_details`).  
+  `queued_job_details[].waiting_reason` now explains why a queued job is blocked (for example maintenance/manual recovery/HxRun busy).
 - `state.manualRecovery` – indicates if manual recovery is required and who flagged it.  
 - `state.contacts`, `state.notificationLogs`, `state.notificationSettings` – used on the Notifications tab.
 
@@ -83,8 +96,10 @@ Useful derived flags provided by the hook:
    ```
 
 2. **Reload data after every mutation.** Actions like `createSchedule` already call `loadSchedules` internally. If you add new actions (e.g., pause scheduler), make sure they refresh the relevant state.
+   - Queue telemetry refreshes every 30 seconds via `getQueueStatus()`; keep this interval when adding new queue-dependent widgets.
+   - Do not recalculate next-run interval times on the client. Use backend-provided `next_run`/`start_time` as the canonical timestamp so UI matches actual launch timing.
 
-3. **Handle errors gracefully.** `useScheduling` surfaces errors via `state.error`. The list components now render inline warning cards—use those instead of modal alerts.
+3. **Handle errors gracefully.** Read-path failures still surface through `state.error`. Create/update form mutations now reject (`throw`) without setting the page-level error banner, so submit handlers must stay in `try/catch` and show a modal status dialog.
 
 4. **Respect optimistic locking.** When updating a schedule, include `expected_updated_at`. The hook already injects it, but if you add new update flows, reuse the same pattern to prevent 409 conflicts.
 
@@ -96,7 +111,7 @@ Useful derived flags provided by the hook:
 
 | Task | Where | Step-by-step |
 |------|-------|--------------|
-| Add a new schedule field (e.g., priority) | `ImprovedScheduleForm`, `useScheduling`, `ScheduleList` | Update form inputs, extend `CreateScheduleFormData`/`UpdateScheduleRequest`, pass through to `actions`, and display the field in lists and detail panels. |
+| Add a new schedule field (e.g., priority) | `ImprovedScheduleForm`, `useScheduling`, `ScheduleList` | Update form inputs, extend `CreateScheduleFormData`/`UpdateScheduleRequest`, pass through `schedulingService.buildScheduleRequest`, and display the field in lists and detail panels. |
 | Show additional execution log columns | `ExecutionHistory.tsx` | Adjust the table header and row renderer. Ensure the backend includes the new field in the history API. |
 | Reorder tabs or rename them | `SchedulingPage.tsx` | Update the `Tabs` component and the `TabPanel` labels. Ensure indexes still align with the correct content. |
 | Add bulk schedule actions | `ScheduleList.tsx` + new action in `useScheduling` | Track selected rows, send a bulk request, then reload schedules. Show a toast to confirm completion. |
@@ -107,7 +122,7 @@ Useful derived flags provided by the hook:
 ## 6. Passive vs Active Messaging
 
 - **Passive dashboard** – List and detail panels show inline warning cards for errors (e.g., failed schedule fetch). If you add new read-only panels, keep the message in the panel and add a retry button.
-- **Active operations** – Deleting schedules, resolving recovery, or other destructive changes must go through the shared `DeleteConfirmationDialog` / modal flows. Don’t revert to `window.confirm` prompts.
+- **Active operations** – Deleting schedules, resolving recovery, or other destructive changes must go through the shared `DeleteConfirmationDialog` / modal flows. Create/update form failures should surface in `StatusDialog` (not silent close). Don’t revert to `window.confirm` prompts.
 - **Titles & buttons** – Keep inline card titles short (“Failed to load schedules”) and wire the existing action buttons (`Try Again`, `Retry`). Only escalate to modal to confirm irreversible changes.
 
 ---

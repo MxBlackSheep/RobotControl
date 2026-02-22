@@ -2,6 +2,7 @@ from typing import Dict, Any, List, Optional, Union, Tuple
 import logging
 import re
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Header
 
@@ -18,7 +19,7 @@ from backend.services.scheduling.experiment_executor import resolve_experiment_p
 from backend.models import (
     ScheduledExperiment,
     JobExecution,
-    RetryConfig,
+    TimeoutConfig,
     CalendarEvent,
     ApiResponse,
     NotificationContact,
@@ -31,10 +32,12 @@ from backend.utils.secret_cipher import encrypt_secret, SecretCipherError
 try:
     from backend.utils.datetime import (
         parse_iso_datetime_to_local,
+        utc_now_as_local_naive,
     )
 except ImportError:  # pragma: no cover - fallback
     from utils.datetime import (  # type: ignore
         parse_iso_datetime_to_local,
+        utc_now_as_local_naive,
     )
 
 logger = logging.getLogger(__name__)
@@ -49,6 +52,7 @@ SCHEDULE_INTERVAL_ALIASES: Dict[str, float] = {
     "weekly": 24.0 * 7,
 }
 SUPPORTED_SCHEDULE_TYPES = {"once", "interval", "cron"} | set(SCHEDULE_INTERVAL_ALIASES.keys())
+SUPPORTED_TIMEOUT_ACTIONS = {"continue", "run_cleanup_and_terminate"}
 
 
 def get_services():
@@ -99,6 +103,36 @@ def _validate_email_address(value: Any) -> str:
     if not EMAIL_REGEX.fullmatch(email):
         raise HTTPException(status_code=400, detail="Invalid email address format")
     return email
+
+
+def _collect_schedule_contact_recipients(
+    schedule: ScheduledExperiment,
+    db_mgr,
+) -> Tuple[List[str], List[str], List[str]]:
+    """Resolve active recipient emails for a schedule's notification contacts."""
+    contacts = db_mgr.get_notification_contacts(include_inactive=True)
+    contacts_by_id = {contact.contact_id: contact for contact in contacts}
+
+    recipients: List[str] = []
+    seen = set()
+    missing_contact_ids: List[str] = []
+    inactive_contact_ids: List[str] = []
+
+    for contact_id in schedule.notification_contacts or []:
+        contact = contacts_by_id.get(contact_id)
+        if not contact:
+            missing_contact_ids.append(contact_id)
+            continue
+        if not contact.is_active:
+            inactive_contact_ids.append(contact_id)
+            continue
+        email = (contact.email_address or "").strip()
+        if not email or email in seen:
+            continue
+        recipients.append(email)
+        seen.add(email)
+
+    return recipients, missing_contact_ids, inactive_contact_ids
 
 
 def _timestamps_match(expected: Optional[str], actual: Optional[datetime]) -> bool:
@@ -180,6 +214,54 @@ def _load_current_schedule(schedule_id: str, db_mgr, expected_timestamp: Optiona
             detail="Schedule was modified by another user. Refresh and try again.",
         )
     return schedule
+
+
+def _normalize_timeout_config(raw_timeout: Optional[Any]) -> TimeoutConfig:
+    """Validate and normalize timeout configuration payload."""
+    if raw_timeout is None:
+        return TimeoutConfig()
+    if not isinstance(raw_timeout, dict):
+        raise HTTPException(status_code=400, detail="timeout_config must be an object")
+
+    timeout_minutes_raw = raw_timeout.get("timeout_minutes")
+    timeout_minutes: Optional[int] = None
+    if timeout_minutes_raw not in (None, ""):
+        try:
+            timeout_minutes = int(timeout_minutes_raw)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="timeout_minutes must be an integer")
+        if timeout_minutes <= 0:
+            raise HTTPException(status_code=400, detail="timeout_minutes must be greater than zero")
+
+    action = str(raw_timeout.get("action", "continue")).strip().lower() or "continue"
+    if action not in SUPPORTED_TIMEOUT_ACTIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported timeout action '{action}'",
+        )
+
+    cleanup_experiment_path: Optional[str] = None
+    cleanup_experiment_name: Optional[str] = None
+    if action == "run_cleanup_and_terminate":
+        raw_cleanup_path = raw_timeout.get("cleanup_experiment_path")
+        if not isinstance(raw_cleanup_path, str) or not raw_cleanup_path.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="cleanup_experiment_path is required when timeout action is run_cleanup_and_terminate",
+            )
+        cleanup_experiment_path = str(resolve_experiment_path(raw_cleanup_path))
+        raw_cleanup_name = raw_timeout.get("cleanup_experiment_name")
+        if isinstance(raw_cleanup_name, str) and raw_cleanup_name.strip():
+            cleanup_experiment_name = raw_cleanup_name.strip()
+        else:
+            cleanup_experiment_name = Path(cleanup_experiment_path).stem
+
+    return TimeoutConfig(
+        timeout_minutes=timeout_minutes,
+        action=action,
+        cleanup_experiment_path=cleanup_experiment_path,
+        cleanup_experiment_name=cleanup_experiment_name,
+    )
 
 
 @router.get("/notifications/settings")
@@ -367,6 +449,108 @@ async def test_notification_settings_endpoint(
     ).to_dict()
 
 
+@router.post("/notifications/send")
+async def send_schedule_notification_email_endpoint(
+    payload: Dict[str, Any],
+    current_user: dict = Depends(get_current_user),
+    connection: ConnectionContext = Depends(require_local_access),
+):
+    """Send a custom email to the active notification contacts attached to a schedule."""
+    actor = current_user.get("username", "unknown")
+    if current_user.get("role") not in ["admin", "user"]:
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+
+    schedule_id_value = payload.get("schedule_id")
+    subject_value = payload.get("subject")
+    body_value = payload.get("body")
+
+    if not isinstance(schedule_id_value, str) or not schedule_id_value.strip():
+        raise HTTPException(status_code=400, detail="schedule_id is required")
+    if not isinstance(subject_value, str) or not subject_value.strip():
+        raise HTTPException(status_code=400, detail="subject is required")
+    if not isinstance(body_value, str) or not body_value.strip():
+        raise HTTPException(status_code=400, detail="body is required")
+
+    schedule_id = schedule_id_value.strip()
+    subject = subject_value.strip()
+    body = body_value
+
+    _, db_mgr, _, _ = get_services()
+    schedule = db_mgr.get_schedule_by_id(schedule_id)
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+
+    recipients, missing_contact_ids, inactive_contact_ids = _collect_schedule_contact_recipients(schedule, db_mgr)
+    if not recipients:
+        details = {
+            "schedule_id": schedule_id,
+            "reason": "no_active_notification_recipients",
+            "missing_contact_ids": missing_contact_ids,
+            "inactive_contact_ids": inactive_contact_ids,
+        }
+        log_action(
+            actor=actor,
+            action="send_schedule_notification_email",
+            scope="scheduling",
+            client_ip=connection.client_ip,
+            success=True,
+            details=details,
+        )
+        return ApiResponse(
+            success=True,
+            message="No active notification recipients configured for this schedule; email skipped",
+            data={
+                "schedule_id": schedule_id,
+                "sent": False,
+                "skipped": True,
+                "recipients": [],
+                "missing_contact_ids": missing_contact_ids,
+                "inactive_contact_ids": inactive_contact_ids,
+            },
+        ).to_dict()
+
+    email_service = EmailNotificationService()
+    if not email_service.send(subject, body, to=recipients):
+        detail = email_service.last_error or "Failed to deliver email; see backend logs for details"
+        log_action(
+            actor=actor,
+            action="send_schedule_notification_email",
+            scope="scheduling",
+            client_ip=connection.client_ip,
+            success=False,
+            details={
+                "schedule_id": schedule_id,
+                "recipient_count": len(recipients),
+                "error": detail,
+            },
+        )
+        raise HTTPException(status_code=502, detail=detail)
+
+    log_action(
+        actor=actor,
+        action="send_schedule_notification_email",
+        scope="scheduling",
+        client_ip=connection.client_ip,
+        success=True,
+        details={
+            "schedule_id": schedule_id,
+            "recipient_count": len(recipients),
+        },
+    )
+    return ApiResponse(
+        success=True,
+        message=f"Notification email sent to {len(recipients)} recipient(s)",
+        data={
+            "schedule_id": schedule_id,
+            "sent": True,
+            "skipped": False,
+            "recipients": recipients,
+            "missing_contact_ids": missing_contact_ids,
+            "inactive_contact_ids": inactive_contact_ids,
+        },
+    ).to_dict()
+
+
 @router.get("/contacts")
 async def list_notification_contacts(
     include_inactive: bool = Query(False, description="Include inactive contacts"),
@@ -374,7 +558,7 @@ async def list_notification_contacts(
 ):
     """List notification contacts for scheduling."""
     try:
-        scheduler, db_mgr, queue_mgr, proc_mon = get_services()
+        _, db_mgr, _, _ = get_services()
         contacts = db_mgr.get_notification_contacts(include_inactive=include_inactive)
         response = ApiResponse(
             success=True,
@@ -614,11 +798,13 @@ async def create_schedule(
                 start_time = parse_iso_datetime_to_local(schedule_data["start_time"])
             except ValueError:
                 raise HTTPException(status_code=400, detail="Invalid start_time format")
-        
-        # Create retry config
-        retry_config = RetryConfig()
-        if "retry_config" in schedule_data:
-            retry_config = RetryConfig.from_dict(schedule_data["retry_config"])
+            if start_time and start_time < datetime.now():
+                raise HTTPException(
+                    status_code=400,
+                    detail="start_time cannot be in the past",
+                )
+
+        timeout_config = _normalize_timeout_config(schedule_data.get("timeout_config"))
         
         normalized_type, normalized_interval_hours = _normalize_schedule_request(
             schedule_data["schedule_type"],
@@ -636,7 +822,7 @@ async def create_schedule(
             estimated_duration=schedule_data.get("estimated_duration", 60),
             created_by=current_user.get("username", "unknown"),
             is_active=schedule_data.get("is_active", True),
-            retry_config=retry_config,
+            timeout_config=timeout_config,
             prerequisites=schedule_data.get("prerequisites", []),
             notification_contacts=notification_contact_ids,
             created_at=None,  # Will be set in __post_init__
@@ -939,11 +1125,8 @@ async def update_schedule(
             updated_schedule.is_active = update_data["is_active"]
         if "prerequisites" in update_data:
             updated_schedule.prerequisites = update_data["prerequisites"] or []
-        if "retry_config" in update_data:
-            retry_payload = update_data["retry_config"]
-            updated_schedule.retry_config = (
-                RetryConfig.from_dict(retry_payload) if isinstance(retry_payload, dict) else None
-            )
+        if "timeout_config" in update_data:
+            updated_schedule.timeout_config = _normalize_timeout_config(update_data["timeout_config"])
         if "notification_contacts" in update_data:
             updated_schedule.notification_contacts = _normalize_contact_ids(
                 update_data["notification_contacts"],
@@ -957,7 +1140,7 @@ async def update_schedule(
         updated_schedule.schedule_type = normalized_type
         updated_schedule.interval_hours = normalized_interval_hours
 
-        updated_schedule.updated_at = datetime.utcnow()
+        updated_schedule.updated_at = utc_now_as_local_naive()
 
         success = scheduler.update_schedule(updated_schedule)
         if not success:
@@ -1269,7 +1452,7 @@ async def set_schedule_archived(
     schedule.archived = archived
     if archived:
         schedule.is_active = False
-    schedule.updated_at = datetime.utcnow()
+    schedule.updated_at = utc_now_as_local_naive()
 
     if not db_mgr.update_scheduled_experiment(schedule):
         raise HTTPException(status_code=400, detail="Failed to update schedule")
@@ -1324,8 +1507,8 @@ async def get_queue_status(
     try:
         scheduler, db_mgr, queue_mgr, proc_mon = get_services()
         
-        # Get queue status
-        queue_status = queue_mgr.get_queue_status()
+        # Get queue status from scheduler runtime (single-worker queue)
+        queue_status = scheduler.get_runtime_queue_status()
         
         # Get Hamilton status
         hamilton_status = proc_mon.get_status()
@@ -1388,7 +1571,7 @@ async def check_conflicts(
                 estimated_duration=exp_data.get("estimated_duration", 60),
                 created_by="system",
                 is_active=True,
-                retry_config=None,
+                timeout_config=None,
                 prerequisites=[],
                 created_at=None,
                 updated_at=None
@@ -1820,7 +2003,7 @@ async def get_execution_history(
     - Last run time and status
     - Success/failure counts  
     - Average duration
-    - Error messages and retry counts
+    - Error messages and timeout/queue context
     
     Requires: any authenticated user
     """
@@ -1934,4 +2117,3 @@ async def get_recent_executions(
     except Exception as e:
         logger.error(f"Error getting recent executions: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
-

@@ -161,14 +161,14 @@ const useScheduling = () => {
       try {
         const result = await schedulingService.createSchedule(formData);
         if (result.error) {
-          setError(result.error);
           setOperationStatus(SchedulingOperationStatus.Error);
-          return;
+          throw new Error(result.error);
         }
         await loadSchedules(false, result.scheduleId);
       } catch (err) {
-        setError(extractErrorMessage(err));
+        const message = extractErrorMessage(err);
         setOperationStatus(SchedulingOperationStatus.Error);
+        throw err instanceof Error ? err : new Error(message);
       }
     },
     [loadSchedules],
@@ -188,17 +188,18 @@ const useScheduling = () => {
           expectedUpdatedAt: expected,
         });
         if (!data.success) {
-          setError(data.message || 'Failed to update schedule');
+          const message = data.message || 'Failed to update schedule';
           setOperationStatus(SchedulingOperationStatus.Error);
-          return;
+          throw new Error(message);
         }
         await loadSchedules(false, scheduleId);
       } catch (err) {
-        setError(extractErrorMessage(err));
+        const message = extractErrorMessage(err);
         if (isAxiosError(err) && err.response?.status === 409) {
           await loadSchedules(false, scheduleId);
         }
         setOperationStatus(SchedulingOperationStatus.Error);
+        throw err instanceof Error ? err : new Error(message);
       }
     },
     [loadSchedules, schedules],
@@ -551,9 +552,10 @@ const useScheduling = () => {
   useEffect(() => {
     const interval = window.setInterval(() => {
       getSchedulerStatus();
+      getQueueStatus();
     }, 30000);
     return () => window.clearInterval(interval);
-  }, [getSchedulerStatus]);
+  }, [getQueueStatus, getSchedulerStatus]);
 
   const state = useMemo(
     () => ({

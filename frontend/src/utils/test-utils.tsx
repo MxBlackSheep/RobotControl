@@ -187,8 +187,8 @@ export const mockSchedule = {
   enabled: true,
   status: 'pending' as const,
   priority: 'medium' as const,
-  max_retries: 3,
-  retry_delay_minutes: 5,
+  timeout_minutes: null,
+  timeout_action: 'continue' as const,
   created_at: '2024-01-01T09:00:00Z',
   updated_at: '2024-01-01T09:00:00Z'
 };

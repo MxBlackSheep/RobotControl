@@ -19,6 +19,7 @@ from datetime import datetime, timedelta
 from backend.services.database import get_database_service
 from backend.services.scheduling.sqlite_database import get_sqlite_scheduling_database
 from backend.models import (
+    HxRunMaintenanceState,
     ScheduledExperiment,
     JobExecution,
     ManualRecoveryState,
@@ -194,6 +195,27 @@ class SchedulingDatabaseManager:
         except Exception as exc:  # pragma: no cover - log only
             logger.error("Failed to clear global recovery state: %s", exc)
             return self.sqlite_db.get_manual_recovery_state()
+
+    def get_hxrun_maintenance_state(self) -> HxRunMaintenanceState:
+        """Return the persistent HxRun maintenance mode state."""
+        try:
+            return self.sqlite_db.get_hxrun_maintenance_state()
+        except Exception as exc:  # pragma: no cover - log only
+            logger.error("Failed to load HxRun maintenance state: %s", exc)
+            return HxRunMaintenanceState()
+
+    def set_hxrun_maintenance_state(
+        self,
+        enabled: bool,
+        reason: Optional[str],
+        user: str,
+    ) -> HxRunMaintenanceState:
+        """Persist HxRun maintenance mode updates."""
+        try:
+            return self.sqlite_db.set_hxrun_maintenance_state(enabled, reason, user)
+        except Exception as exc:  # pragma: no cover - log only
+            logger.error("Failed to update HxRun maintenance state: %s", exc)
+            return self.sqlite_db.get_hxrun_maintenance_state()
 
     def delete_scheduled_experiment(
         self,

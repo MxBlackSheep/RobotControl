@@ -16,7 +16,7 @@ This guide explains how the FastAPI entry point, logging, static assets, and bui
   Builds rotating file handlers, optional JSON logs, and log rate limiting. Imported early in `main.py`.
 
 - API routers included by `main.py`:
-  - `backend/api/auth`, `backend/api/database`, `backend/api/camera`, `backend/api/monitoring`, `backend/api/scheduling`, `backend/api/admin`, `backend/api/system_config`, `backend/api/system`, `backend/api/experiments`.
+  - `backend/api/auth`, `backend/api/database`, `backend/api/camera`, `backend/api/monitoring`, `backend/api/scheduling`, `backend/api/labware`, `backend/api/maintenance`, `backend/api/admin`, `backend/api/system_config`, `backend/api/system`, `backend/api/experiments`.
 
 - Static asset helpers
   - `backend/services/embedded_resources.py` & generated `backend/embedded_static.py` handle single-exe mode.
@@ -42,6 +42,7 @@ This guide explains how the FastAPI entry point, logging, static assets, and bui
    - Logs startup banner.  
    - Schedules scheduler auto-start after `_SCHEDULER_AUTOSTART_DELAY_SECONDS` (default 60) unless env disables it (`ROBOTCONTROL_SCHEDULER_AUTOSTART_DELAY_SECONDS=disable`).  
    - Starts automatic recording if enabled.
+   - Starts the HxRun maintenance enforcer service so external HxRun launches are blocked whenever the persistent flag is enabled.
 
 4. **App creation**  
    - FastAPI app instantiates with docs at `/docs`, `/redoc`.  
@@ -53,6 +54,7 @@ This guide explains how the FastAPI entry point, logging, static assets, and bui
 
 6. **Shutdown block in lifespan**  
    - Cancels pending auto-start task, clears DB pool, stops monitoring/live streaming/auto-recording/scheduler/camera in a predictable order.
+   - Stops the HxRun maintenance enforcer thread.
 
 ---
 

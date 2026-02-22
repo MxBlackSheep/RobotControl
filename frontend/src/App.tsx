@@ -27,6 +27,8 @@ import MaintenanceDialog from './components/MaintenanceDialog';
 // Lazy load non-critical pages for better initial load performance
 const DatabasePage = loadComponent(() => import('./pages/DatabasePage'));
 const CameraPage = loadComponent(() => import('./pages/CameraPage'));
+const LabwarePage = loadComponent(() => import('./pages/LabwarePage'));
+const MaintenancePage = loadComponent(() => import('./pages/MaintenancePage'));
 const SystemStatusPage = loadComponent(() => import('./pages/MonitoringPage'));
 const SchedulingPage = loadComponent(() => import('./pages/SchedulingPage'));
 const AboutPage = loadComponent(() => import('./pages/AboutPage'));
@@ -69,10 +71,14 @@ const AppContent: React.FC = () => {
       items.push({ label: 'Scheduling', path: '/scheduling' });
     }
 
-    items.push(
-      { label: 'Camera', path: '/camera' },
-      { label: 'System Status', path: '/system-status' },
-    );
+    items.push({ label: 'Camera', path: '/camera' });
+
+    if (['admin', 'user'].includes(user?.role || '')) {
+      items.push({ label: 'Labware', path: '/labware' });
+    }
+
+    items.push({ label: 'Maintenance', path: '/maintenance' });
+    items.push({ label: 'System Status', path: '/system-status' });
 
     if (user?.role === 'admin') {
       items.push({ label: 'Admin', path: '/admin' });
@@ -244,6 +250,10 @@ const AppContent: React.FC = () => {
             <Route path="/" element={<Dashboard />} />
             <Route path="/database" element={<DatabasePage />} />
             <Route path="/camera" element={<CameraPage />} />
+            {(['admin', 'user'].includes(user?.role || '')) && (
+              <Route path="/labware" element={<LabwarePage />} />
+            )}
+            <Route path="/maintenance" element={<MaintenancePage />} />
             <Route path="/system-status" element={<SystemStatusPage />} />
             <Route path="/monitoring" element={<Navigate to="/system-status" replace />} />
             {(['admin', 'user'].includes(user?.role || '')) && (

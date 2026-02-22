@@ -22,7 +22,7 @@ This guide explains the overall React shell: routing, theming, providers, and na
   - `NavigationBreadcrumbs` – renders breadcrumb trail.
   - `MobileDrawer` – collapsible nav on small screens.
   - `SkipLink`, `KeyboardShortcutsHelp` – accessibility helpers.
-  - `MaintenanceDialog` – warns users during backend maintenance windows.
+  - `MaintenanceDialog` – warns users during backend database-restore windows (temporary API pause mode).
   - `ErrorAlert`, `SuccessAlert`, `ServerError` – modal notifications for state-changing flows (password change, delete confirmations). Dashboard-style status messages should use inline cards inside the relevant component.
 
 **Rule of thumb:** All new pages should be registered in `App.tsx` (both the `Routes` block and, if appropriate, the navigation tabs). Ensure they sit inside `AuthProvider` so they can access user data.
@@ -47,7 +47,7 @@ This guide explains the overall React shell: routing, theming, providers, and na
 
 4. **Route definitions**  
    - `'/'` → `Dashboard`  
-   - `/database`, `/camera`, `/system-status`, `/scheduling`, `/admin`, `/about` (lazy-loaded).  
+   - `/database`, `/camera`, `/labware`, `/maintenance`, `/system-status`, `/scheduling`, `/admin`, `/about` (lazy-loaded).  
    - Redirect unknown paths with `<Navigate to="/" />` as needed.
 
 5. **Global dialogs**  
@@ -82,6 +82,7 @@ This guide explains the overall React shell: routing, theming, providers, and na
 | Task | Where | Steps |
 |------|-------|-------|
 | Add a new page (e.g., “Reports”) | `App.tsx`, `BundleOptimizer.ts` | Create `frontend/src/pages/ReportsPage.tsx`, add `const ReportsPage = loadComponent(() => import('./pages/ReportsPage'));`, add a `<Route>` and tab item. |
+| Tune HxRun Maintenance page behavior | `frontend/src/pages/MaintenancePage.tsx` & `frontend/src/services/hxrunMaintenanceApi.ts` | Keep this page separate from `MaintenanceDialog`; this page controls persistent HxRun blocking, not temporary DB restore windows. |
 | Change the theme colors | `frontend/src/theme.ts` | Edit `palette.primary`, `secondary`, typography, etc. Rebuild so Material UI picks up the change. |
 | Show maintenance banner globally | `App.tsx` | Use `<MaintenanceDialog />` (already included). If you need a static banner, add it under the AppBar conditioned on maintenance state. |
 | Modify keyboard shortcuts | `frontend/src/components/KeyboardShortcutsHelp.tsx` & `useKeyboardNavigation` | Update the hook to include/exclude keybindings. Update the help dialog text. |
