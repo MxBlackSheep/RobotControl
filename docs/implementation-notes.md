@@ -1,6 +1,29 @@
 # RobotControl Development Log (Chronological)
 
 ---
+## 2026-02-22 OD Auto-Reschedule Email Notification (Schedule Contacts)
+
+- Added `POST /api/scheduling/notifications/send` to send a custom email through the existing SMTP settings to the active notification contacts attached to a specific schedule (`backend/api/scheduling.py`).
+- Updated `backend/scripts/scheduling_api_cli.py` (OD prediction auto-rescheduler) to send a schedule-contact email only after a successful schedule update, including previous vs updated start time plus OD summary context (last data timestamp and average latest OD per culture).
+- Email delivery failures are logged as warnings in the CLI and do not roll back the successful reschedule.
+- Updated backend scheduling maintenance guide with the new endpoint/CLI behavior (`docs/maintenance/backend/scheduling-maintenance-guide.md`).
+
+---
+## 2026-02-18 Scheduling API CLI Prerequisites Visibility
+
+- Updated `backend/scripts/scheduling_api_cli.py` list/update row rendering to include `prerequisites`, so external operators can identify required pre-execution database flags while selecting target schedules.
+- Updated scheduling backend maintenance guide to document that `list` now shows `prerequisites` (`docs/maintenance/backend/scheduling-maintenance-guide.md`).
+
+---
+## 2026-02-18 Scheduling API Automation CLI (Target + Update Without Frontend)
+
+- Added `backend/scripts/scheduling_api_cli.py`, a small script for backend-only scheduling automation:
+  - `list` command to find target schedules by ID/name.
+  - `update` command to patch one schedule directly through `PUT /api/scheduling/{schedule_id}`.
+- Script performs login (`/api/auth/login`), handles bearer auth, supports optional `X-Forwarded-For`, and uses `expected_updated_at` optimistic locking by default by fetching a fresh schedule snapshot before updating.
+- Updated backend scheduling maintenance guide with a new section documenting external API automation workflow and concrete command examples (`docs/maintenance/backend/scheduling-maintenance-guide.md`).
+
+---
 ## 2026-02-18 Scheduler Blueprint Reconciliation (SCHEDULER_FULL_PICTURE)
 
 - Revalidated `SCHEDULER_FULL_PICTURE.txt` against current scheduling code (`backend/services/scheduling/scheduler_engine.py`, `backend/services/scheduling/experiment_executor.py`, `backend/api/scheduling.py`) and rewrote stale sections so the file can be used as handbook blueprint.

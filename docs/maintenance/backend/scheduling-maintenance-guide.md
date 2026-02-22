@@ -236,4 +236,35 @@ Represent email contacts and SMTP configuration. Hooks appear in `frontend/src/c
 - [ ] Frontend still builds (`npm run build` on Windows).
 - [ ] PyInstaller spec includes any new modules if packaging is required (`RobotControl.spec`).
 
+---
+
+## 11. External API Automation (No Frontend)
+
+You can fully manage schedules from another program using backend APIs only.
+
+Important constraints:
+- You must authenticate first (`POST /api/auth/login`) and send bearer token.
+- Create/update/delete endpoints require local network access (`require_local_access`).
+- For safe writes, send `expected_updated_at` from the latest schedule snapshot.
+
+Recommended CLI helper in this repo:
+- `backend/scripts/scheduling_api_cli.py`
+
+Example workflow:
+1. List schedules to identify the target:
+   `python3 backend/scripts/scheduling_api_cli.py --base-url http://127.0.0.1:8000 --username <user> --password <pass> list --experiment-name "Seed"`
+2. Update by ID with optimistic locking:
+   `python3 backend/scripts/scheduling_api_cli.py --base-url http://127.0.0.1:8000 --username <user> --password <pass> update --schedule-id <id> --update-json '{"estimated_duration": 45}'`
+
+`list` output includes `prerequisites`, so operators can confirm pre-execution flags before choosing a target schedule.
+
+OD auto-reschedule note (`backend/scripts/scheduling_api_cli.py` in current OD-prediction mode):
+- After a successful reschedule (`PUT /api/scheduling/{schedule_id}`), the script now calls `POST /api/scheduling/notifications/send` to email the schedule's active notification contacts.
+- The email is sent only after the schedule update succeeds (not on dry-run / no-reschedule paths).
+- Email body includes previous scheduled time, updated scheduled time, last OD data timestamp, and average OD summary (latest reading per culture).
+- If SMTP delivery fails, the script logs a warning but keeps the reschedule as successful.
+
+If your backend is behind a reverse proxy and local-access checks fail, pass:
+- `--x-forwarded-for 127.0.0.1`
+
 By following the structure above you can extend the scheduling stack without reintroducing the duplication and fragile flows that existed before this cleanup. When in doubt, trace the execution lifecycle in section 2 and ensure your changes respect the same boundaries. Happy scheduling!

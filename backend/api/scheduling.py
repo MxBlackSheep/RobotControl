@@ -105,6 +105,36 @@ def _validate_email_address(value: Any) -> str:
     return email
 
 
+def _collect_schedule_contact_recipients(
+    schedule: ScheduledExperiment,
+    db_mgr,
+) -> Tuple[List[str], List[str], List[str]]:
+    """Resolve active recipient emails for a schedule's notification contacts."""
+    contacts = db_mgr.get_notification_contacts(include_inactive=True)
+    contacts_by_id = {contact.contact_id: contact for contact in contacts}
+
+    recipients: List[str] = []
+    seen = set()
+    missing_contact_ids: List[str] = []
+    inactive_contact_ids: List[str] = []
+
+    for contact_id in schedule.notification_contacts or []:
+        contact = contacts_by_id.get(contact_id)
+        if not contact:
+            missing_contact_ids.append(contact_id)
+            continue
+        if not contact.is_active:
+            inactive_contact_ids.append(contact_id)
+            continue
+        email = (contact.email_address or "").strip()
+        if not email or email in seen:
+            continue
+        recipients.append(email)
+        seen.add(email)
+
+    return recipients, missing_contact_ids, inactive_contact_ids
+
+
 def _timestamps_match(expected: Optional[str], actual: Optional[datetime]) -> bool:
     """Return True when the expected timestamp matches the actual value."""
     if not expected or actual is None:
@@ -416,6 +446,108 @@ async def test_notification_settings_endpoint(
         success=True,
         message=f"Test email sent to {recipient}",
         data={"recipient": recipient},
+    ).to_dict()
+
+
+@router.post("/notifications/send")
+async def send_schedule_notification_email_endpoint(
+    payload: Dict[str, Any],
+    current_user: dict = Depends(get_current_user),
+    connection: ConnectionContext = Depends(require_local_access),
+):
+    """Send a custom email to the active notification contacts attached to a schedule."""
+    actor = current_user.get("username", "unknown")
+    if current_user.get("role") not in ["admin", "user"]:
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+
+    schedule_id_value = payload.get("schedule_id")
+    subject_value = payload.get("subject")
+    body_value = payload.get("body")
+
+    if not isinstance(schedule_id_value, str) or not schedule_id_value.strip():
+        raise HTTPException(status_code=400, detail="schedule_id is required")
+    if not isinstance(subject_value, str) or not subject_value.strip():
+        raise HTTPException(status_code=400, detail="subject is required")
+    if not isinstance(body_value, str) or not body_value.strip():
+        raise HTTPException(status_code=400, detail="body is required")
+
+    schedule_id = schedule_id_value.strip()
+    subject = subject_value.strip()
+    body = body_value
+
+    _, db_mgr, _, _ = get_services()
+    schedule = db_mgr.get_schedule_by_id(schedule_id)
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+
+    recipients, missing_contact_ids, inactive_contact_ids = _collect_schedule_contact_recipients(schedule, db_mgr)
+    if not recipients:
+        details = {
+            "schedule_id": schedule_id,
+            "reason": "no_active_notification_recipients",
+            "missing_contact_ids": missing_contact_ids,
+            "inactive_contact_ids": inactive_contact_ids,
+        }
+        log_action(
+            actor=actor,
+            action="send_schedule_notification_email",
+            scope="scheduling",
+            client_ip=connection.client_ip,
+            success=True,
+            details=details,
+        )
+        return ApiResponse(
+            success=True,
+            message="No active notification recipients configured for this schedule; email skipped",
+            data={
+                "schedule_id": schedule_id,
+                "sent": False,
+                "skipped": True,
+                "recipients": [],
+                "missing_contact_ids": missing_contact_ids,
+                "inactive_contact_ids": inactive_contact_ids,
+            },
+        ).to_dict()
+
+    email_service = EmailNotificationService()
+    if not email_service.send(subject, body, to=recipients):
+        detail = email_service.last_error or "Failed to deliver email; see backend logs for details"
+        log_action(
+            actor=actor,
+            action="send_schedule_notification_email",
+            scope="scheduling",
+            client_ip=connection.client_ip,
+            success=False,
+            details={
+                "schedule_id": schedule_id,
+                "recipient_count": len(recipients),
+                "error": detail,
+            },
+        )
+        raise HTTPException(status_code=502, detail=detail)
+
+    log_action(
+        actor=actor,
+        action="send_schedule_notification_email",
+        scope="scheduling",
+        client_ip=connection.client_ip,
+        success=True,
+        details={
+            "schedule_id": schedule_id,
+            "recipient_count": len(recipients),
+        },
+    )
+    return ApiResponse(
+        success=True,
+        message=f"Notification email sent to {len(recipients)} recipient(s)",
+        data={
+            "schedule_id": schedule_id,
+            "sent": True,
+            "skipped": False,
+            "recipients": recipients,
+            "missing_contact_ids": missing_contact_ids,
+            "inactive_contact_ids": inactive_contact_ids,
+        },
     ).to_dict()
 
 
