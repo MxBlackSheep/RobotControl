@@ -23,6 +23,7 @@ import {
   MonitorHeart as MonitoringIcon,
   Schedule as ScheduleIcon,
   Info as InfoIcon,
+  Description as LogFileIcon,
   NavigateNext as NavigateNextIcon,
 } from '@mui/icons-material';
 
@@ -77,6 +78,11 @@ const routeConfigs: BreadcrumbConfig[] = [
     path: '/maintenance',
     label: 'Maintenance',
     icon: <MaintenanceIcon fontSize="small" />,
+  },
+  {
+    path: '/logfile',
+    label: 'LogFile',
+    icon: <LogFileIcon fontSize="small" />,
   },
   {
     path: '/system-status',

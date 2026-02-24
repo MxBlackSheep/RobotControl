@@ -70,7 +70,7 @@ If you rename labels, keep this distinction obvious.
 
 | Task | Where | What to change |
 |------|-------|----------------|
-| Change tab order | `App.tsx` + `MobileDrawer.tsx` | Keep Maintenance between Labware and System Status. |
+| Change tab order | `App.tsx` + `MobileDrawer.tsx` | Keep Maintenance before `LogFile` and `System Status` so operational pages stay grouped. |
 | Adjust shortcuts | `useKeyboardNavigation.ts` + `KeyboardShortcutsHelp.tsx` | Keep bindings/help text in sync. |
 | Add extra state fields | `hxrunMaintenanceApi.ts` + `MaintenancePage.tsx` | Extend interface and render cards/rows. |
 | Change read-only messaging | `MaintenancePage.tsx` | Edit the info `Alert` copy only. |

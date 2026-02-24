@@ -17,6 +17,7 @@ This guide explains how the FastAPI entry point, logging, static assets, and bui
 
 - API routers included by `main.py`:
   - `backend/api/auth`, `backend/api/database`, `backend/api/camera`, `backend/api/monitoring`, `backend/api/scheduling`, `backend/api/labware`, `backend/api/maintenance`, `backend/api/admin`, `backend/api/system_config`, `backend/api/system`, `backend/api/experiments`.
+  - `backend/api/logfiles` (restricted read-only log browser/preview API for the LogFile frontend page).
 
 - Static asset helpers
   - `backend/services/embedded_resources.py` & generated `backend/embedded_static.py` handle single-exe mode.
@@ -140,6 +141,7 @@ This guide explains how the FastAPI entry point, logging, static assets, and bui
 | Task | Where | Step-by-step |
 |------|-------|--------------|
 | Add a new API router | `backend/main.py` | Import router, `app.include_router(new_router, prefix="/api/new", tags=["new"])`. Ensure package listed in PyInstaller hidden imports. |
+| Update LogFile allowlisted folders | `backend/api/logfiles.py` (`LOGFILE_SOURCES`) | Add/edit source IDs + Windows paths. Keep IDs stable because frontend stores selected source by ID. |
 | Update allowed CORS origins | `app.add_middleware(CORSMiddleware, allow_origins=[...])` | Add your host or port, redeploy backend, confirm browser requests include it. |
 | Change default port | `backend/main.py:main()` | Run `python backend/main.py --port 9000` (dev) or package with `--port`. For service installs, wrap command in a shortcut/batch file. |
 | Disable static serving (reverse proxy handles it) | Set `SERVE_FRONTEND_FROM_BACKEND = False` | Remove or comment out route, ensure proxy serves `frontend/dist`. |

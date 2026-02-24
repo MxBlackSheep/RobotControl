@@ -80,6 +80,12 @@ export const useKeyboardNavigation = ({
       description: 'Go to About (Alt+8)'
     },
     {
+      key: '9',
+      altKey: true,
+      action: () => navigate('/logfile'),
+      description: 'Go to LogFile (Alt+9)'
+    },
+    {
       key: 'h',
       ctrlKey: true,
       action: () => navigate('/'),

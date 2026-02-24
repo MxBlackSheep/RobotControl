@@ -41,6 +41,7 @@ import {
   Person as UserIcon,
   Info as InfoIcon,
   AdminPanelSettings as AdminSettingsIcon,
+  Description as LogFileIcon,
 } from '@mui/icons-material';
 
 import { useAuth } from '../context/AuthContext';
@@ -116,6 +117,11 @@ const MobileDrawer: React.FC<MobileDrawerProps> = ({
       label: 'Maintenance',
       path: '/maintenance',
       icon: <MaintenanceIcon />,
+    },
+    {
+      label: 'LogFile',
+      path: '/logfile',
+      icon: <LogFileIcon />,
     },
     {
       label: 'System Status',

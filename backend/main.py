@@ -70,6 +70,7 @@ from backend.api.scheduling import router as scheduling_router
 from backend.api.system import router as system_router
 from backend.api.labware import router as labware_router
 from backend.api.maintenance import router as maintenance_router
+from backend.api.logfiles import router as logfiles_router
 
 # Import services for initialization
 from backend.services.database import get_database_service
@@ -527,6 +528,7 @@ app.include_router(backup_router, prefix="/api/admin/backup", tags=["backup", "a
 app.include_router(monitoring_router, prefix="/api/monitoring", tags=["monitoring"])
 app.include_router(system_config_router, prefix="/api/admin/system", tags=["admin", "system"])
 app.include_router(system_router, tags=["system"])
+app.include_router(logfiles_router, tags=["logfiles"])
 app.include_router(scheduling_router, tags=["scheduling"])
 app.include_router(labware_router, tags=["labware"])
 app.include_router(maintenance_router, tags=["maintenance"])

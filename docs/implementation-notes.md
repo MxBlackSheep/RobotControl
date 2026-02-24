@@ -1,6 +1,29 @@
 # RobotControl Development Log (Chronological)
 
 ---
+## 2026-02-24 LogFile Remote Access Split (Per Source)
+
+- Removed the frontend’s page-wide local-session block for LogFile and switched to source-level availability messaging/selection state, so remote `user/admin` sessions can use allowed sources (`frontend/src/pages/LogFilePage.tsx`).
+- Added backend per-source access policy (`access_scope`) in `backend/api/logfiles.py`: `Python Log` and `Hamilton LogFiles` are remote-accessible, while `RobotControl Logs` remains local-only.
+- `GET /api/logfiles/sources` now returns per-source `permissions.can_access` and `access_scope`, and browse/preview endpoints enforce access after source resolution.
+
+---
+## 2026-02-24 LogFile Hamilton Source Filter (TRC Only)
+
+- Restricted the `Hamilton LogFiles` LogFile source to `.trc` files only (directories still visible for navigation), so non-log files in that folder no longer appear in the LogFile page and direct preview requests for non-`.trc` files are rejected (`backend/api/logfiles.py`).
+- Added backend tests covering Hamilton source filtering and non-`.trc` preview rejection (`backend/tests/test_logfiles_api.py`).
+
+---
+## 2026-02-24 LogFile Review (Dedicated Tab + Archive-Aware Viewer)
+
+- Added a new top-level **LogFile** page/route (`/logfile`) for read-only log browsing and previewing, with desktop tab/mobile drawer/breadcrumb/keyboard shortcut integration (`frontend/src/App.tsx`, `frontend/src/pages/LogFilePage.tsx`, `frontend/src/components/MobileDrawer.tsx`, `frontend/src/components/NavigationBreadcrumbs.tsx`, `frontend/src/hooks/useKeyboardNavigation.ts`, `frontend/src/components/KeyboardShortcutsHelp.tsx`).
+- Added a dedicated backend API router `backend/api/logfiles.py` (`/api/logfiles/*`) using a fixed allowlist of log roots (Python Log, Hamilton LogFiles, RobotControl logs) instead of arbitrary path browsing.
+- Implemented preview support for normal text logs plus `.gz` history logs and `.zip` archive browsing/preview, with `head`/`tail` modes and server-side preview size caps.
+- Added graceful handling for locked/in-use files by returning a structured `423 FILE_LOCKED` response so the UI can show a warning instead of failing the whole page.
+- Added backend tests covering source listing, traversal rejection, text preview, gzip preview, zip archive browsing/preview, and locked-file error handling (`backend/tests/test_logfiles_api.py`).
+- Added LogFile maintenance guides for backend/frontend and updated main application maintenance guides to include the new router/page (`docs/maintenance/backend/logfile-maintenance-guide.md`, `docs/maintenance/frontend/logfile-frontend-maintenance-guide.md`, `docs/maintenance/backend/main-application-maintenance-guide.md`, `docs/maintenance/frontend/main-application-frontend-maintenance-guide.md`).
+
+---
 ## 2026-02-22 OD Auto-Reschedule Email Notification (Schedule Contacts)
 
 - Added `POST /api/scheduling/notifications/send` to send a custom email through the existing SMTP settings to the active notification contacts attached to a specific schedule (`backend/api/scheduling.py`).

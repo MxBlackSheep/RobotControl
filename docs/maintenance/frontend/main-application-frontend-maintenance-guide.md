@@ -47,7 +47,7 @@ This guide explains the overall React shell: routing, theming, providers, and na
 
 4. **Route definitions**  
    - `'/'` → `Dashboard`  
-   - `/database`, `/camera`, `/labware`, `/maintenance`, `/system-status`, `/scheduling`, `/admin`, `/about` (lazy-loaded).  
+  - `/database`, `/camera`, `/labware`, `/maintenance`, `/logfile`, `/system-status`, `/scheduling`, `/admin`, `/about` (lazy-loaded).  
    - Redirect unknown paths with `<Navigate to="/" />` as needed.
 
 5. **Global dialogs**  
@@ -81,7 +81,8 @@ This guide explains the overall React shell: routing, theming, providers, and na
 
 | Task | Where | Steps |
 |------|-------|-------|
-| Add a new page (e.g., “Reports”) | `App.tsx`, `BundleOptimizer.ts` | Create `frontend/src/pages/ReportsPage.tsx`, add `const ReportsPage = loadComponent(() => import('./pages/ReportsPage'));`, add a `<Route>` and tab item. |
+| Add a new page (e.g., “Reports”) | `App.tsx`, navigation helpers | Create `frontend/src/pages/ReportsPage.tsx`, add `const ReportsPage = loadComponent(() => import('./pages/ReportsPage'));`, add a `<Route>` and tab item, then update `MobileDrawer.tsx`, `NavigationBreadcrumbs.tsx`, and keyboard shortcut/help mappings if it should be globally navigable. |
+| Tune LogFile page behavior | `frontend/src/pages/LogFilePage.tsx` & `frontend/src/services/logFileApi.ts` | Keep it read-only. `.zip` should open archive browsing mode; `.gz` should preview directly. |
 | Tune HxRun Maintenance page behavior | `frontend/src/pages/MaintenancePage.tsx` & `frontend/src/services/hxrunMaintenanceApi.ts` | Keep this page separate from `MaintenanceDialog`; this page controls persistent HxRun blocking, not temporary DB restore windows. |
 | Change the theme colors | `frontend/src/theme.ts` | Edit `palette.primary`, `secondary`, typography, etc. Rebuild so Material UI picks up the change. |
 | Show maintenance banner globally | `App.tsx` | Use `<MaintenanceDialog />` (already included). If you need a static banner, add it under the AppBar conditioned on maintenance state. |

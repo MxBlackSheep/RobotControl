@@ -62,6 +62,7 @@ const KeyboardShortcutsHelp: React.FC<KeyboardShortcutsHelpProps> = ({
     { key: '6', altKey: true, description: 'Go to System Status' },
     { key: '7', altKey: true, description: 'Go to Scheduling' },
     { key: '8', altKey: true, description: 'Go to About' },
+    { key: '9', altKey: true, description: 'Go to LogFile' },
     { key: 'H', ctrlKey: true, description: 'Go to Home/Dashboard' },
     { key: 'B', ctrlKey: true, description: 'Go Back' },
     { key: 'R', ctrlKey: true, shiftKey: true, description: 'Refresh Page' },
