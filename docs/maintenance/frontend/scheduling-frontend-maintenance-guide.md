@@ -1,5 +1,9 @@
 # Frontend Scheduling Maintenance Guide
 
+## Drafts and background refresh
+
+Create/edit and method import use MUI Dialog focus management, not `useModalFocus`. Do not reapply initial focus on polling updates. A schedule draft is initialized once per open session; refreshing method choices or parent props must preserve focus, cursor, scroll, accordion expansion and field values. Only closing/reopening starts a new draft. The edit timestamp is captured at opening; a 409 response keeps entries and asks the operator to cancel, refresh and reopen. Creation/update each refresh the list once. `Email alert recipients` must show a clear warning when no active contact is selected.
+
 Hamilton status and log condition are separate: SQL 1 means Running and 2 means Paused. Runtime rows show both (for example, `Hamilton: Paused · Log inactive`). A paused method remains an active execution occupying the robot, and log inactivity monitoring continues.
 
 Run `npm test` for the focused Vitest suites beside scheduling components/hooks. `vitest.config.ts` deliberately excludes older Jest suites under `__tests__`; those require separate migration. `npm run build` remains the production TypeScript/Vite check.

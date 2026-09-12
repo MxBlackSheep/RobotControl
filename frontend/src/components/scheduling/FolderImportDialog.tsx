@@ -6,7 +6,6 @@
  */
 
 import React, { useState, useRef } from 'react';
-import { useModalFocus } from '../../hooks/useModalFocus';
 import {
   Dialog,
   DialogTitle,
@@ -212,16 +211,6 @@ const FolderImportDialog: React.FC<FolderImportDialogProps> = ({
     }
   };
 
-  // Add modal focus management
-  const { modalRef } = useModalFocus({
-    isOpen: open,
-    onClose: handleClose,
-    initialFocusSelector: importMethod === 'browser' ? 'button[aria-label*="Select Folder"]' : 'input[label="Folder Path"]',
-    restoreFocus: true,
-    trapFocus: true,
-    closeOnEscape: true
-  });
-
   const getSamplePaths = () => {
     // Provide example paths based on platform
     const isWindows = navigator.platform.toLowerCase().includes('win');
@@ -238,8 +227,7 @@ const FolderImportDialog: React.FC<FolderImportDialogProps> = ({
 
   return (
     <Dialog 
-      ref={modalRef}
-      open={open} 
+      open={open} disableEscapeKeyDown={importing}
       onClose={handleClose} 
       maxWidth="md" 
       fullWidth

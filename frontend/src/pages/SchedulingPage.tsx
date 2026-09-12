@@ -127,6 +127,7 @@ const SchedulingPage: React.FC = () => {
   const [folderImportOpen, setFolderImportOpen] = useState(false);
   const [scheduleFormMode, setScheduleFormMode] = useState<'create' | 'edit'>('create');
   const [scheduleFormInitialData, setScheduleFormInitialData] = useState<ScheduleFormValues>({});
+  const [editingVersion, setEditingVersion] = useState<string | undefined>();
   const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [logsLoading, setLogsLoading] = useState(false);
@@ -218,10 +219,9 @@ const SchedulingPage: React.FC = () => {
         },
         prerequisites: Array.isArray(data.prerequisites) ? data.prerequisites : [],
         notification_contacts: Array.isArray(data.notification_contacts) ? data.notification_contacts : [],
-        expected_updated_at: state.selectedSchedule?.updated_at || undefined,
+        expected_updated_at: editingVersion,
       };
       await actions.updateSchedule(editingScheduleId, updatePayload);
-      await actions.loadSchedules(false, editingScheduleId);
     } else {
       const createPayload: CreateScheduleFormData = {
         experiment_name: data.experiment_name,
@@ -249,7 +249,6 @@ const SchedulingPage: React.FC = () => {
         notification_contacts: Array.isArray(data.notification_contacts) ? data.notification_contacts : [],
       };
       await actions.createSchedule(createPayload);
-      await actions.loadSchedules(false);
     }
   };
 
@@ -275,6 +274,7 @@ const SchedulingPage: React.FC = () => {
 
     setScheduleFormMode('edit');
     setEditingScheduleId(selected.schedule_id);
+    setEditingVersion(selected.updated_at || undefined);
     const allowedTypes: Array<'once' | 'interval' | 'daily' | 'weekly'> = ['once', 'interval', 'daily', 'weekly'];
     const scheduleType = allowedTypes.includes(selected.schedule_type as any)
       ? (selected.schedule_type as 'once' | 'interval' | 'daily' | 'weekly')

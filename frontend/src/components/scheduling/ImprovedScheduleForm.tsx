@@ -12,8 +12,8 @@
  * - Responsive layout
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { useModalFocus } from '../../hooks/useModalFocus';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { isAxiosError } from 'axios';
 import StatusDialog, { StatusSeverity } from '../StatusDialog';
 import {
   Dialog,
@@ -248,15 +248,8 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
     setStatusDialog((prev) => ({ ...prev, open: false }));
   };
 
-  // Add modal focus management
-  const { modalRef } = useModalFocus({
-    isOpen: open,
-    onClose,
-    initialFocusSelector: 'select[aria-label*="Select Experiment"]',
-    restoreFocus: true,
-    trapFocus: true,
-    closeOnEscape: !loading // Don't close on escape when loading
-  });
+  const initializedSession = useRef(false);
+  const experimentControlRef = useRef<HTMLDivElement>(null);
 
   const loadExperiments = useCallback(async (rescan: boolean = false) => {
     try {
@@ -300,8 +293,14 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
 
   useEffect(() => {
     if (!open) {
+      initializedSession.current = false;
       return;
     }
+
+    if (initializedSession.current) return;
+    initializedSession.current = true;
+    setExpandedSections({ experiment: true, schedule: true, preparation: false });
+    setStatusDialog(prev => ({ ...prev, open: false }));
 
     const defaultFormData: ScheduleFormData = {
       experiment_name: '',
@@ -494,8 +493,10 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
       onClose();
     } catch (error) {
       showStatusDialog({
-        title: 'Save failed',
-        message: error instanceof Error ? error.message : 'Failed to save schedule',
+        title: isAxiosError(error) && error.response?.status === 409 ? 'Schedule changed' : 'Save failed',
+        message: isAxiosError(error) && error.response?.status === 409
+          ? 'This schedule was changed elsewhere. Your entries are still here. To load the latest version, cancel this form, refresh the schedule list, then reopen Edit Schedule.'
+          : error instanceof Error ? error.message : 'Failed to save schedule',
         severity: 'error',
       });
     } finally {
@@ -513,8 +514,8 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
   return (
     <>
       <Dialog
-      ref={modalRef}
-      open={open} 
+      open={open}
+      TransitionProps={{ onEntered: () => experimentControlRef.current?.querySelector<HTMLElement>('[role="combobox"]')?.focus({ preventScroll: true }) }}
       onClose={!loading ? onClose : undefined}
       maxWidth="md"
       fullWidth
@@ -548,12 +549,12 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
             <AccordionDetails>
               <Stack spacing={2}>
                 <Box display="flex" alignItems="center" gap={1}>
-                  <FormControl fullWidth>
-                    <InputLabel>Select Experiment</InputLabel>
+                  <FormControl fullWidth ref={experimentControlRef}>
+                    <InputLabel id="schedule-method-label">Select Experiment</InputLabel>
                     <Select
                       value={formData.experiment_path}
                       onChange={(e) => handleExperimentSelect(e.target.value)}
-                      label="Select Experiment"
+                      label="Select Experiment" labelId="schedule-method-label"
                       disabled={loading || scanning}
                     >
                       {Object.entries(categorizedExperiments).map(([category, exps]) => [
@@ -828,7 +829,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                     renderInput={(params) => (
                       <TextField
                         {...params}
-                        label="Notification Contacts"
+                        label="Email alert recipients"
                         placeholder={contacts.length ? 'Select contacts' : 'No contacts available'}
                         helperText={selectedContacts.some((contact) => contact.is_active)
                           ? 'Contacts receive alerts for log inactivity, unavailable monitoring, or aborted runs'
@@ -839,6 +840,11 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                   />
                 </Grid>
 
+                {selectedContacts.filter(contact => contact.is_active).length === 0 && (
+                  <Grid item xs={12}>
+                    <Alert severity="warning">Log monitoring will continue, but no alert emails will be sent.</Alert>
+                  </Grid>
+                )}
                 <Grid item xs={12}>
                   <FormControlLabel
                     control={

@@ -1,5 +1,13 @@
 # RobotControl Development Log (Chronological)
 
+## 2026-09-12 Stable schedule form refresh
+
+- Removed duplicate custom focus trapping from create/edit and method import dialogs; MUI manages focus restoration and trapping. Schedule initial focus runs once on entry, and drafts initialize only once per open session. Polling and refreshed props cannot overwrite entered values or expanded sections.
+- Edit saves use the version captured on opening, preserve drafts after conflicts, and explain how to reload. Removed duplicate post-save list fetches. Empty recipient selection now has an explicit warning that observation continues without email delivery.
+- Nine frontend tests passed, including two simulated 30-second refreshes preserving focus/scroll/data, reopening a fresh draft, and retaining entries after a save conflict. TypeScript checks passed. Browser/package acceptance continues on an isolated instance.
+
+---
+
 ## 2026-09-12 Hamilton paused-state consistency
 
 - Confirmed mapping: 1 = Running, 2 = Paused. Shared SQL mapping, experiment enum, dashboard/system display, monitoring API progress and scheduler/email diagnostics now agree. Paused remains an unfinished execution and never invokes recording completion.
