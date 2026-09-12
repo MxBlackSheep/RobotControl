@@ -1,5 +1,14 @@
 # RobotControl Development Log (Chronological)
 
+## 2026-09-12 Hamilton paused-state consistency
+
+- Confirmed mapping: 1 = Running, 2 = Paused. Shared SQL mapping, experiment enum, dashboard/system display, monitoring API progress and scheduler/email diagnostics now agree. Paused remains an unfinished execution and never invokes recording completion.
+- The exact trace is observed in both states. SQL state transitions do not reset inactivity or create a new pause; trace writes do. Observation/status/email context includes the normalized and raw SQL state, with backward-compatible defaults for saved observations.
+- Added regression coverage for state parsing, pause/resume/restart deduplication, terminal priority, progress and completion callbacks, plus a minimal frontend test harness for this and subsequent UI changes. Operator simulator acceptance remains required after packaging.
+- Validation: 79 targeted backend tests, six frontend status tests, and the Windows frontend build passed. The Vitest harness leaves the existing legacy Jest suites unchanged and excludes them pending a separate migration.
+
+---
+
 ## 2026-09-12 Simulator acceptance checkpoint
 
 - Operator testing confirmed real SMTP delivery and one `log_inactive` email. Notification history records that email at 13:04:51, followed by `monitoring_unavailable` emails at 13:09:21 and 13:17:37. Receiving three messages does not yet verify repeated inactivity alerts.

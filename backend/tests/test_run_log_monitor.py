@@ -98,6 +98,55 @@ def test_threshold_and_new_pause_episode(rig):
     assert len(alerts(r)) == 2
 
 
+@pytest.mark.parametrize("raw, expected", [(1, "Running"), ("1", "Running"), (2, "Paused"), ("2", "Paused"), ("Paused", "Paused")])
+def test_hamilton_state_mapping(rig, raw, expected):
+    reader = HamiltonRunReader(None)
+    reader.query = Mock(return_value=[{"RunGUID": GUID, "MethodName": METHOD,
+                                      "EndTime": None, "RunState": raw}])
+    row = reader.find(rig.monitor.snapshot(rig.execution.execution_id))
+    assert row["state"] == expected
+    assert row["raw_state"] == str(raw)
+
+
+def test_paused_run_keeps_timer_and_restart_episode(rig):
+    r = rig
+    first = observe(r)
+    r.clock.advance(120)
+    r.reader.state = "Paused"
+    assert observe(r).episode_id == first.episode_id
+    r.clock.advance(61)
+    paused = observe(r)
+    assert paused.state == "log_inactive"
+    assert alerts(r)[0].metadata["context"]["run_state"] == "Paused"
+    r.db.update_notification_log(paused.active_alert_id, status="sent")
+    r.monitor = RunLogMonitor(r.manager, reader=r.reader, directory=r.directory, clock=r.clock)
+    r.monitor.restore()
+    observe(r)
+    r.clock.advance(181)
+    assert observe(r).episode_id == paused.episode_id
+    assert len(alerts(r)) == 1
+    r.reader.state = "Running"
+    assert observe(r).state == "log_inactive"
+    r.trace.write_text("resumed writes\n")
+    assert observe(r).state == "monitoring"
+    r.reader.state = "Paused"
+    r.clock.advance(181)
+    assert observe(r).state == "log_inactive"
+    assert len(alerts(r)) == 2
+    r.reader.state = "Complete"
+    assert observe(r).state == "terminal"
+
+
+def test_unknown_sql_code_is_reported(rig):
+    rig.reader.find = lambda state: {"guid": GUID, "state": "Unknown", "raw_state": "7", "end_time": None}
+    observe(rig)
+    rig.clock.advance(181)
+    state = observe(rig)
+    assert state.state == "monitoring_unavailable"
+    assert state.reason == "Unrecognized Hamilton SQL state: 7"
+    assert rig.monitor.details(rig.schedule.schedule_id)["raw_run_state"] == "7"
+
+
 def test_growth_resets_timer_even_if_windows_mtime_does_not_change(rig):
     r = rig
     observe(r)

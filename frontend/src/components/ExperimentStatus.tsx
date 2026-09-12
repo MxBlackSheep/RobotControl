@@ -41,14 +41,13 @@ interface ExperimentStatusProps {
 }
 
 // Get appropriate icon, color, and accessibility indicators for run state
-const getRunStateDisplay = (runState: string | number) => {
+export const getRunStateDisplay = (runState: string | number) => {
   const state = String(runState || 'UNKNOWN').toUpperCase();
   
   switch (state) {
     case 'RUNNING':
     case 'ACTIVE':
     case '1':
-    case '2':
       return { 
         icon: <RunningIcon />, 
         label: 'Running',
@@ -83,6 +82,7 @@ const getRunStateDisplay = (runState: string | number) => {
         ariaLabel: 'Experiment failed with errors'
       };
     case 'PAUSED':
+    case '2':
     case 'STOPPED':
       return { 
         icon: <PausedIcon />, 
@@ -90,7 +90,7 @@ const getRunStateDisplay = (runState: string | number) => {
         backgroundColor: '#ff9800',
         borderColor: '#ef6c00',
         textColor: '#212121',
-        ariaLabel: 'Experiment is paused or stopped'
+        ariaLabel: 'Experiment is paused'
       };
     case 'ABORTED':
     case '64':   // Hamilton aborted state

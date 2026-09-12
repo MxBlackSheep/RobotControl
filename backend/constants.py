@@ -39,10 +39,12 @@ SUPPORTED_IMAGE_FORMATS = ['.jpg', '.jpeg', '.png', '.bmp']
 # Maps Hamilton database run state codes to our internal enum values
 HAMILTON_STATE_MAPPING = {
     "1": "Running",        # Experiment running
+    "2": "Paused",         # Experiment paused; still occupies the robot
     "64": "Aborted",       # Experiment aborted/cancelled  
     "128": "Complete",     # Experiment finished/completed
     # String fallbacks for direct matches
     "Running": "Running",
+    "Paused": "Paused",
     "Complete": "Complete", 
     "Aborted": "Aborted",
     "Error": "Error",

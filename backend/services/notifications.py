@@ -533,6 +533,8 @@ class SchedulingNotificationService:
         formatted: List[str] = []
         mapping = [
             ("run_guid", "Hamilton run GUID", False),
+            ("run_state", "Hamilton status", False),
+            ("raw_run_state", "Hamilton SQL state", False),
             ("method_path", "Launched method", False),
             ("trace_filename", "Run trace", False),
             ("inactivity_minutes", "No log activity observed (minutes)", True),

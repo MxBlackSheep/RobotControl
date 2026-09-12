@@ -84,6 +84,7 @@ class HamiltonRunReader:
         if state.run_guid and guid != state.run_guid:
             raise LookupError("SQL returned a different run GUID")
         return {"guid": guid, "state": HAMILTON_STATE_MAPPING.get(str(row["RunState"]), "Unknown"),
+                "raw_state": str(row["RunState"]),
                 "end_time": row["EndTime"].isoformat() if row["EndTime"] else None}
 
 
@@ -105,6 +106,7 @@ class RunObservation:
     legacy: bool = False
     run_guid: Optional[str] = None
     run_state: Optional[str] = None
+    raw_run_state: Optional[str] = None
     end_time: Optional[str] = None
     trace_path: Optional[str] = None
     signature: Optional[list] = None
@@ -238,8 +240,8 @@ class RunLogMonitor:
                 if row["state"] not in TERMINAL_STATES:
                     if row["end_time"]:
                         raise LookupError("SQL end time is recorded; waiting for the final run state")
-                    if row["state"] != "Running":
-                        raise LookupError("SQL run state is unknown")
+                    if row["state"] not in {"Running", "Paused"}:
+                        raise LookupError(f"Unrecognized Hamilton SQL state: {row.get('raw_state', row['state'])}")
                     path, signature = self._trace_signature(state)
             except Exception as exc:
                 reason = str(exc)
@@ -252,6 +254,7 @@ class RunLogMonitor:
                 if row:
                     current.run_guid = row["guid"]
                     current.run_state = row["state"]
+                    current.raw_run_state = row.get("raw_state")
                     current.end_time = row["end_time"]
                 current.observed_at = datetime.now().isoformat()
                 current.active_alert_id = None
@@ -293,6 +296,7 @@ class RunLogMonitor:
         state.active_alert_id = uuid.uuid5(uuid.NAMESPACE_URL, f"robotcontrol/{state.execution_id}/{event_type}/{episode}").hex
         return {"event_type": event_type, "episode_id": episode, "context": {
             "run_guid": state.run_guid, "method_path": state.method_path,
+            "run_state": state.run_state, "raw_run_state": state.raw_run_state,
             "trace_filename": Path(state.trace_path).name if state.trace_path else None,
             "inactivity_minutes" if event_type == "log_inactive" else "unavailable_minutes": round(seconds / 60, 1),
             "threshold_minutes": state.threshold_minutes if event_type == "log_inactive" else 3,
@@ -319,6 +323,7 @@ class RunLogMonitor:
             if state is None:
                 return None
             return {"state": state.state, "run_guid": state.run_guid,
+                    "run_state": state.run_state, "raw_run_state": state.raw_run_state,
                     "trace_filename": Path(state.trace_path).name if state.trace_path else None,
                     "last_activity_at": state.last_activity_at, "observed_at": state.observed_at,
                     "inactivity_seconds": max(0, self.clock() - self._activity_clocks.get(state.execution_id, self.clock())),

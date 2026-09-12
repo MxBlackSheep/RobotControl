@@ -1,5 +1,7 @@
 # Monitoring & Notifications Maintenance Guide
 
+Hamilton status uses the shared mapping: 1 = Running, 2 = Paused, 64 = Aborted, 128 = Complete. `ExperimentState.is_running` is strict; `is_in_progress` includes Running and Paused. Both retain the existing 50% placeholder in the monitoring API. Pause/resume never fires recording completion callbacks. Original SQL status is retained separately for diagnostics.
+
 Use this document whenever you need to touch real-time monitoring, experiment tracking, or email notifications. The goal is to keep WebSockets, polling, and alerts predictable even if you have never built a monitoring system before.
 
 ---

@@ -73,8 +73,8 @@ async def get_current_experiments(current_user: dict = Depends(get_current_user)
                 "StartTime": current_experiment.start_time.isoformat() if current_experiment.start_time else None,
                 "EndTime": current_experiment.end_time.isoformat() if current_experiment.end_time else None,
                 "Status": display_state,
-                "RawState": raw_state,
-                "Progress": 100 if current_experiment.is_complete else (50 if current_experiment.is_running else 0),
+                "RawState": current_experiment.raw_run_state or raw_state,
+                "Progress": 100 if current_experiment.is_complete else (50 if current_experiment.is_in_progress else 0),
                 "IsNewlyCompleted": current_experiment.is_newly_completed,
                 "StateChangeTime": current_experiment.state_change_time.isoformat() if current_experiment.state_change_time else None
             }]

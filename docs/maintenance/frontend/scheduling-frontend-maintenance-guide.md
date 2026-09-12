@@ -1,5 +1,9 @@
 # Frontend Scheduling Maintenance Guide
 
+Hamilton status and log condition are separate: SQL 1 means Running and 2 means Paused. Runtime rows show both (for example, `Hamilton: Paused · Log inactive`). A paused method remains an active execution occupying the robot, and log inactivity monitoring continues.
+
+Run `npm test` for the focused Vitest suites beside scheduling components/hooks. `vitest.config.ts` deliberately excludes older Jest suites under `__tests__`; those require separate migration. `npm run build` remains the production TypeScript/Vite check.
+
 The SMTP test button uses a 60-second request timeout so the backend can return a specific SMTP failure instead of the generic ten-second browser timeout. Its spinner remains active while that request runs; other pages remain usable. The backend uses one send attempt and a ten-second timeout per SMTP operation. Keep the detailed backend error in the failure dialog; it distinguishes connection, TLS and authentication problems.
 
 This document spells out how the scheduling UI is wired together. It assumes you need every instruction spelled out—no prior knowledge required. Follow it exactly so you don’t break experiment management.

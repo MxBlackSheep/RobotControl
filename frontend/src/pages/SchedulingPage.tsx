@@ -1048,6 +1048,7 @@ const SchedulingPage: React.FC = () => {
                               <Typography variant="body2">{item.experiment_name}</Typography>
                               {item.monitoring && (
                                 <Typography variant="caption" color={['log_inactive', 'monitoring_unavailable'].includes(item.monitoring.state) ? 'warning.main' : 'text.secondary'}>
+                                  {item.monitoring.run_state && `Hamilton: ${item.monitoring.run_state} · `}
                                   {{ waiting: 'Waiting for run/log', monitoring: 'Monitoring', log_inactive: 'Log inactive', monitoring_unavailable: 'Monitoring unavailable', terminal: 'Run ended; finalizing' }[item.monitoring.state]}
                                   {` · Alert threshold: ${item.monitoring.threshold_minutes} min`}
                                   {item.monitoring.trace_filename && ` · ${item.monitoring.trace_filename}`}

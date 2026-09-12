@@ -1,5 +1,7 @@
 # Frontend Monitoring Maintenance Guide
 
+Hamilton SQL status 1 is Running and 2 is Paused. Dashboard and system status must display Paused without a running animation. Paused does not mean completed or unavailable; scheduler log observation continues independently. Run `npm test` in `frontend` for status and scheduling UI regression tests.
+
 Use this whenever you change the real-time monitoring dashboard or WebSocket logic. It explains how the React hook, components, and status banners fit together so you do not accidentally kill live telemetry.
 
 ---

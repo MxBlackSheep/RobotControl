@@ -24,6 +24,7 @@ class ExperimentStateType(Enum):
     """Experiment execution states"""
     UNKNOWN = "Unknown"
     RUNNING = "Running"
+    PAUSED = "Paused"
     COMPLETE = "Complete"
     ABORTED = "Aborted" 
     ERROR = "Error"
@@ -92,6 +93,7 @@ class ExperimentState:
     is_newly_completed: bool = False         # Whether completion was newly detected
     previous_state: Optional[ExperimentStateType] = None  # Previous state for change detection
     state_change_time: Optional[datetime] = None  # When state last changed
+    raw_run_state: Optional[str] = None  # Original Hamilton SQL value
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for API responses"""
@@ -99,6 +101,7 @@ class ExperimentState:
             "run_guid": self.run_guid,
             "method_name": self.method_name,
             "run_state": self.run_state.value,
+            "raw_run_state": self.raw_run_state,
             "start_time": self.start_time.isoformat() if self.start_time else None,
             "end_time": self.end_time.isoformat() if self.end_time else None,
             "is_newly_completed": self.is_newly_completed,
@@ -115,6 +118,11 @@ class ExperimentState:
     def is_running(self) -> bool:
         """Check if experiment is currently running"""
         return self.run_state == ExperimentStateType.RUNNING
+
+    @property
+    def is_in_progress(self) -> bool:
+        """Running and paused methods both retain ownership of the robot."""
+        return self.run_state in {ExperimentStateType.RUNNING, ExperimentStateType.PAUSED}
     
     @property
     def duration_minutes(self) -> Optional[float]:

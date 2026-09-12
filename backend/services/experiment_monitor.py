@@ -395,6 +395,7 @@ class ExperimentMonitor:
             run_guid=str(experiment_data.get("run_guid", "")),
             method_name=str(experiment_data.get("method_name", "Unknown")),
             run_state=run_state,
+            raw_run_state=run_state_str,
             start_time=start_time,
             end_time=end_time
         )

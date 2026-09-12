@@ -38,7 +38,8 @@
     "src/**/*.test-utils.ts",
     "src/**/*.test-utils.tsx",
     "src/utils/test-utils.tsx",
-    "src/test-setup.ts"
+    "src/test-setup.ts",
+    "src/vitest-setup.ts"
   ],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

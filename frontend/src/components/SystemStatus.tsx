@@ -52,7 +52,15 @@ const getAccessibleStatus = (status?: string) => {
   const normalizedStatus = (status ?? "unknown").toString().toUpperCase();
   
   switch (normalizedStatus) {
+    case 'PAUSED':
+    case '2':
+      return {
+        type: 'warning' as const,
+        animate: false,
+        ariaLabel: 'Experiment is paused; the robot remains occupied'
+      };
     case 'RUNNING':
+    case '1':
     case 'CONNECTED':
     case 'ACTIVE':
       return {

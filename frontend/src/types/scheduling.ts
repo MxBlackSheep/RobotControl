@@ -196,6 +196,8 @@ export interface RunningJobDetail {
   waiting_reason?: string | null;
   monitoring?: {
     state: 'waiting' | 'monitoring' | 'log_inactive' | 'monitoring_unavailable' | 'terminal';
+    run_state?: string | null;
+    raw_run_state?: string | null;
     run_guid?: string | null;
     trace_filename?: string | null;
     last_activity_at?: string | null;
