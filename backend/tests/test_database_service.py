@@ -1,308 +1,148 @@
-"""
-Database Service Unit Tests
-Tests for the simplified RobotControl database service layer
-"""
+"""Primary-only SQL Server behavior, exercised without a live server."""
+from datetime import datetime
+from unittest.mock import MagicMock
 
+import pyodbc
 import pytest
-import sys
-import os
-from unittest.mock import Mock, patch, MagicMock
-from typing import Dict, List, Any
-
-# Add project root to path
-project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-sys.path.insert(0, project_root)
-
-from backend.services.database import DatabaseService
-from shared.types import ConnectionMode
-
-class TestDatabaseService:
-    """Test suite for DatabaseService"""
-    
-    def setup_method(self):
-        """Setup for each test method"""
-        # Clear any existing singleton instances
-        DatabaseService._instance = None
-        
-    def teardown_method(self):
-        """Cleanup after each test method"""
-        # Reset singleton
-        DatabaseService._instance = None
-    
-    def test_singleton_pattern(self):
-        """Test that DatabaseService follows singleton pattern"""
-        db1 = DatabaseService()
-        db2 = DatabaseService()
-        assert db1 is db2, "DatabaseService should be a singleton"
-    
-    @patch('backend.services.database.pyodbc.connect')
-    def test_primary_connection_success(self, mock_connect):
-        """Test successful connection to primary database"""
-        # Mock successful connection
-        mock_connection = Mock()
-        mock_connect.return_value = mock_connection
-        
-        db = DatabaseService()
-        connection = db._get_connection()
-        
-        assert connection is not None
-        assert db.connection_mode == ConnectionMode.PRIMARY
-        mock_connect.assert_called_once()
-    
-    @patch('backend.services.database.pyodbc.connect')
-    def test_connection_fallback_to_secondary(self, mock_connect):
-        """Test fallback to secondary database when primary fails"""
-        # Mock primary connection failure, secondary success
-        mock_connection = Mock()
-        mock_connect.side_effect = [Exception("Primary connection failed"), mock_connection]
-        
-        db = DatabaseService()
-        connection = db._get_connection()
-        
-        assert connection is not None
-        assert db.connection_mode == ConnectionMode.SECONDARY
-        assert mock_connect.call_count == 2
-    
-    @patch('backend.services.database.pyodbc.connect')
-    def test_connection_fallback_to_mock(self, mock_connect):
-        """Test fallback to mock data when all database connections fail"""
-        # Mock all connections failing
-        mock_connect.side_effect = Exception("All connections failed")
-        
-        db = DatabaseService()
-        connection = db._get_connection()
-        
-        assert connection is None
-        assert db.connection_mode == ConnectionMode.MOCK
-        assert mock_connect.call_count == 2  # Tried both primary and secondary
-    
-    @patch('backend.services.database.pyodbc.connect')
-    def test_get_tables_with_connection(self, mock_connect):
-        """Test getting tables list with active database connection"""
-        # Mock successful connection and cursor
-        mock_connection = Mock()
-        mock_cursor = Mock()
-        mock_connection.cursor.return_value = mock_cursor
-        mock_cursor.fetchall.return_value = [
-            ('Experiments', 'dbo', 100),
-            ('Plates', 'dbo', 50),
-            ('Users', 'dbo', 5)
-        ]
-        mock_connect.return_value = mock_connection
-        
-        db = DatabaseService()
-        tables = db.get_tables()
-        
-        assert len(tables) == 3
-        assert tables[0]['name'] == 'Experiments'
-        assert tables[0]['row_count'] == 100
-        assert tables[1]['name'] == 'Plates'
-        mock_cursor.execute.assert_called_once()
-    
-    @patch('backend.services.database.pyodbc.connect')
-    def test_get_tables_with_mock_data(self, mock_connect):
-        """Test getting tables list with mock data when no connection"""
-        # Mock connection failure to trigger mock mode
-        mock_connect.side_effect = Exception("No connection")
-        
-        db = DatabaseService()
-        tables = db.get_tables()
-        
-        # Should return mock tables
-        assert len(tables) > 0
-        assert db.connection_mode == ConnectionMode.MOCK
-        table_names = [table['name'] for table in tables]
-        assert 'Experiments' in table_names
-    
-    @patch('backend.services.database.pyodbc.connect')
-    def test_get_table_data_with_connection(self, mock_connect):
-        """Test getting table data with active database connection"""
-        # Mock successful connection and cursor
-        mock_connection = Mock()
-        mock_cursor = Mock()
-        mock_connection.cursor.return_value = mock_cursor
-        mock_cursor.description = [('id',), ('name',), ('status',)]
-        mock_cursor.fetchall.return_value = [
-            (1, 'Test Experiment 1', 'completed'),
-            (2, 'Test Experiment 2', 'running')
-        ]
-        mock_cursor.rowcount = 2
-        mock_connect.return_value = mock_connection
-        
-        db = DatabaseService()
-        result = db.get_table_data('Experiments', page=1, limit=10)
-        
-        assert result['total_rows'] == 2
-        assert len(result['data']) == 2
-        assert result['columns'] == ['id', 'name', 'status']
-        assert result['page'] == 1
-        mock_cursor.execute.assert_called()
-    
-    @patch('backend.services.database.pyodbc.connect')
-    def test_get_table_data_with_mock_data(self, mock_connect):
-        """Test getting table data with mock data when no connection"""
-        # Mock connection failure
-        mock_connect.side_effect = Exception("No connection")
-        
-        db = DatabaseService()
-        result = db.get_table_data('Experiments', page=1, limit=5)
-        
-        # Should return mock data
-        assert result['total_rows'] > 0
-        assert len(result['data']) > 0
-        assert len(result['columns']) > 0
-        assert result['page'] == 1
-    
-    @patch('backend.services.database.pyodbc.connect')
-    def test_execute_query_with_connection(self, mock_connect):
-        """Test executing custom query with active database connection"""
-        # Mock successful connection and cursor
-        mock_connection = Mock()
-        mock_cursor = Mock()
-        mock_connection.cursor.return_value = mock_cursor
-        mock_cursor.description = [('count',)]
-        mock_cursor.fetchall.return_value = [(42,)]
-        mock_connect.return_value = mock_connection
-        
-        db = DatabaseService()
-        result = db.execute_query("SELECT COUNT(*) as count FROM Experiments")
-        
-        assert result['success'] is True
-        assert result['data'] == [(42,)]
-        assert result['columns'] == ['count']
-        mock_cursor.execute.assert_called_with("SELECT COUNT(*) as count FROM Experiments")
-    
-    @patch('backend.services.database.pyodbc.connect')
-    def test_execute_query_error_handling(self, mock_connect):
-        """Test query execution error handling"""
-        # Mock connection with query error
-        mock_connection = Mock()
-        mock_cursor = Mock()
-        mock_connection.cursor.return_value = mock_cursor
-        mock_cursor.execute.side_effect = Exception("SQL syntax error")
-        mock_connect.return_value = mock_connection
-        
-        db = DatabaseService()
-        result = db.execute_query("INVALID SQL")
-        
-        assert result['success'] is False
-        assert 'error' in result
-        assert 'SQL syntax error' in result['error']
-    
-    @patch('backend.services.database.pyodbc.connect')
-    def test_connection_pooling(self, mock_connect):
-        """Test that connection pooling reuses connections"""
-        # Mock successful connection
-        mock_connection = Mock()
-        mock_connect.return_value = mock_connection
-        
-        db = DatabaseService()
-        
-        # Get multiple connections
-        conn1 = db._get_connection()
-        conn2 = db._get_connection()
-        
-        # Should reuse the same connection
-        assert conn1 is conn2
-        # Should only create connection once
-        mock_connect.assert_called_once()
-    
-    @patch('backend.services.database.pyodbc.connect')
-    def test_connection_health_check(self, mock_connect):
-        """Test connection health check functionality"""
-        # Mock successful connection
-        mock_connection = Mock()
-        mock_cursor = Mock()
-        mock_connection.cursor.return_value = mock_cursor
-        mock_cursor.fetchone.return_value = (1,)
-        mock_connect.return_value = mock_connection
-        
-        db = DatabaseService()
-        is_healthy = db.check_connection_health()
-        
-        assert is_healthy is True
-        mock_cursor.execute.assert_called_with("SELECT 1")
-    
-    @patch('backend.services.database.pyodbc.connect')
-    def test_connection_health_check_failure(self, mock_connect):
-        """Test connection health check when connection fails"""
-        # Mock connection failure
-        mock_connect.side_effect = Exception("Connection failed")
-        
-        db = DatabaseService()
-        is_healthy = db.check_connection_health()
-        
-        assert is_healthy is False
-    
-    def test_mock_data_tables_structure(self):
-        """Test that mock data has proper structure"""
-        # Force mock mode
-        with patch('backend.services.database.pyodbc.connect', side_effect=Exception("No DB")):
-            db = DatabaseService()
-            tables = db.get_tables()
-            
-            assert len(tables) > 0
-            for table in tables:
-                assert 'name' in table
-                assert 'schema' in table
-                assert 'row_count' in table
-                assert isinstance(table['row_count'], int)
-    
-    def test_mock_data_experiments_table(self):
-        """Test mock data for Experiments table"""
-        # Force mock mode
-        with patch('backend.services.database.pyodbc.connect', side_effect=Exception("No DB")):
-            db = DatabaseService()
-            result = db.get_table_data('Experiments', page=1, limit=10)
-            
-            assert result['total_rows'] > 0
-            assert len(result['data']) > 0
-            assert 'columns' in result
-            assert len(result['columns']) > 0
-            # Should have typical experiment columns
-            expected_columns = ['id', 'method_name', 'start_time', 'status']
-            for col in expected_columns:
-                assert col in [c.lower() for c in result['columns']]
+from backend.services import database
+from backend.services.database import DatabaseConnectionError, DatabaseService
 
 
-class TestDatabaseServicePerformance:
-    """Performance tests for DatabaseService"""
-    
-    @patch('backend.services.database.pyodbc.connect')
-    def test_large_table_pagination(self, mock_connect):
-        """Test pagination with large datasets"""
-        # Mock large dataset
-        mock_connection = Mock()
-        mock_cursor = Mock()
-        mock_connection.cursor.return_value = mock_cursor
-        mock_cursor.description = [('id',), ('name',)]
-        
-        # Simulate large table with 1000 rows
-        large_dataset = [(i, f'Item {i}') for i in range(1, 101)]  # First page of 100
-        mock_cursor.fetchall.return_value = large_dataset
-        mock_cursor.rowcount = 100
-        mock_connect.return_value = mock_connection
-        
-        db = DatabaseService()
-        result = db.get_table_data('LargeTable', page=1, limit=100)
-        
-        assert len(result['data']) == 100
-        assert result['page'] == 1
-        assert result['columns'] == ['id', 'name']
-    
-    @patch('backend.services.database.pyodbc.connect')
-    def test_connection_timeout_handling(self, mock_connect):
-        """Test handling of connection timeouts"""
-        # Mock timeout exception
-        mock_connect.side_effect = Exception("Timeout occurred")
-        
-        db = DatabaseService()
-        # Should gracefully fall back to mock data
-        tables = db.get_tables()
-        
-        assert len(tables) > 0  # Mock data should be returned
-        assert db.connection_mode == ConnectionMode.MOCK
+@pytest.fixture
+def sql(monkeypatch):
+    connection = MagicMock()
+    connect = MagicMock(return_value=connection)
+    monkeypatch.setattr(database.pyodbc, "connect", connect)
+    service = DatabaseService()
+    service._primary_config = {
+        "driver": "{ODBC Driver 18 for SQL Server}", "server": "test-server",
+        "database": "test-database", "trusted_connection": "yes", "timeout": 3,
+    }
+    return service, connect, connection, connection.cursor.return_value
 
 
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+def test_service_factory_reuses_instance(monkeypatch):
+    monkeypatch.setattr(database, "_service_instance", None)
+    assert database.get_database_service() is database.get_database_service()
+
+
+def test_primary_connection_is_closed(sql):
+    service, connect, connection, _ = sql
+    with service.get_connection() as opened:
+        assert opened is connection
+    connect.assert_called_once_with(
+        "DRIVER={ODBC Driver 18 for SQL Server};SERVER=test-server;"
+        "DATABASE=test-database;Trusted_Connection=yes", timeout=3,
+    )
+    connection.close.assert_called_once()
+    assert service.get_pool_stats()["active_mode"] == "primary"
+
+
+def test_connection_is_closed_when_query_fails(sql):
+    service, _, connection, _ = sql
+    with pytest.raises(ValueError, match="query failed"):
+        with service.get_connection():
+            raise ValueError("query failed")
+    connection.close.assert_called_once()
+
+
+def test_connection_failure_has_no_fallback_or_mock_data(sql):
+    service, connect, _, _ = sql
+    connect.side_effect = pyodbc.Error("server unavailable")
+    with pytest.raises(DatabaseConnectionError, match="server unavailable"):
+        with service.get_connection():
+            pytest.fail("A failed connection must not yield")
+    connect.assert_called_once()
+    assert service.get_tables() == []
+    assert service.perform_health_check() is False
+    status = service.get_status()
+    assert status.is_connected is False
+    assert status.mode == "unavailable"
+    assert "server unavailable" in status.error_message
+
+
+def test_status_reports_primary_database(sql):
+    service, _, connection, cursor = sql
+    cursor.fetchone.return_value = ("EvoYeast", "HAMILTON")
+    status = service.get_status()
+    assert status.is_connected is True
+    assert status.mode == "primary"
+    assert (status.database_name, status.server_name) == ("EvoYeast", "HAMILTON")
+    assert status.error_message is None
+    connection.close.assert_called_once()
+
+
+def test_table_metadata(sql, monkeypatch):
+    service, _, _, cursor = sql
+    cursor.fetchall.return_value = [("Experiments",), ("Plates",)]
+    monkeypatch.setattr(service, "_check_table_has_data", lambda name: name == "Experiments")
+    assert service.get_tables() == [
+        {"name": "Experiments", "has_data": True}, {"name": "Plates", "has_data": False},
+    ]
+
+
+@pytest.mark.parametrize("supports_offset", [True, False])
+def test_pagination_filters_and_result_shape(sql, supports_offset):
+    service, _, _, cursor = sql
+    service._table_columns_cache["experiments"] = ["id", "name", "created"]
+    service._supports_offset_fetch = supports_offset
+    cursor.description = [("id",), ("name",), ("created",)]
+    cursor.fetchall.return_value = [(7, "Sample", datetime(2026, 9, 12, 10, 30))]
+    cursor.fetchone.return_value = (12,)
+    result = service.get_table_data(
+        "Experiments", limit=5, offset=5, order_by="id",
+        filters={"name": {"operator": "contains", "value": "Sample"}, "unknown": "ignored"},
+    )
+    query, params = cursor.execute.call_args_list[0].args
+    assert "[name]) LIKE ?" in query
+    assert "unknown" not in query
+    if supports_offset:
+        assert "OFFSET ? ROWS FETCH NEXT ? ROWS ONLY" in query
+        assert params == ("%Sample%", 5, 5)
+    else:
+        assert "ROW_NUMBER()" in query
+        assert params == ("%Sample%", 6, 10)
+    assert result.columns == ["id", "name", "created"]
+    assert result.rows == [{"id": 7, "name": "Sample", "created": "2026-09-12T10:30:00"}]
+    assert (result.total_count, result.limit, result.offset) == (12, 5, 5)
+    assert service.get_performance_stats()["query_count"] == 1
+
+
+def test_unknown_table_is_rejected(sql):
+    service, _, connection, cursor = sql
+    cursor.fetchall.return_value = []
+    with pytest.raises(ValueError, match="not found"):
+        service.get_table_data("Missing")
+    connection.close.assert_called_once()
+
+
+def test_query_parameters_and_dates(sql):
+    service, _, connection, cursor = sql
+    cursor.description = [("created",)]
+    cursor.fetchall.return_value = [(datetime(2026, 9, 12),)]
+    cursor.rowcount = 1
+    result = service.execute_query("SELECT created FROM Experiments WHERE id = ?", (5,))
+    cursor.execute.assert_called_once_with("SELECT created FROM Experiments WHERE id = ?", (5,))
+    assert result["rows"] == [{"created": "2026-09-12T00:00:00"}]
+    assert result["rowcount"] == 1
+    connection.close.assert_called_once()
+
+
+def test_stored_procedure_commits(sql):
+    service, _, connection, cursor = sql
+    cursor.description = None
+    assert service.execute_stored_procedure("UpdatePlate", {"PlateID": 5})["rows"] == []
+    cursor.execute.assert_called_once_with("EXEC [UpdatePlate] @PlateID = ?", (5,))
+    connection.commit.assert_called_once()
+    connection.rollback.assert_not_called()
+
+
+def test_stored_procedure_rolls_back(sql):
+    service, _, connection, cursor = sql
+    cursor.execute.side_effect = pyodbc.Error("procedure failed")
+    with pytest.raises(pyodbc.Error, match="procedure failed"):
+        service.execute_stored_procedure("UpdatePlate", {})
+    connection.rollback.assert_called_once()
+    connection.commit.assert_not_called()
+    cursor.close.assert_called_once()
+    connection.close.assert_called_once()

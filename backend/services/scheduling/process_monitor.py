@@ -121,56 +121,41 @@ class HamiltonProcessMonitor:
         logger.info("Hamilton process monitoring stopped")
     
     def is_hamilton_running(self) -> bool:
-        """
-        Check if Hamilton HxRun.exe is currently running
-        Replicates VBS isProcessRunning functionality
-        
-        Returns:
-            bool: True if HxRun.exe is running, False otherwise
-        """
-        try:
-            # Use WMI to check for HxRun.exe processes if available
-            if self._wmi:
-                processes = self._wmi.Win32_Process(name="HxRun.exe")
-                is_running = len(processes) > 0
-            else:
-                # Fallback method using tasklist command (Windows-specific)
-                if platform.system() == "Windows":
-                    try:
-                        # Suppress tasklist window flashes in packaged apps
-                        startupinfo = None
-                        creationflags = 0
-                        if os.name == "nt":
-                            startupinfo = subprocess.STARTUPINFO()
-                            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                            creationflags = subprocess.CREATE_NO_WINDOW
+        """Return whether HxRun is running; block dispatch if detection fails.
 
-                        result = subprocess.run(
-                            ['tasklist', '/FI', 'IMAGENAME eq HxRun.exe'],
-                            capture_output=True,
-                            text=True,
-                            timeout=5,
-                            startupinfo=startupinfo,
-                            creationflags=creationflags
-                        )
-                        is_running = "HxRun.exe" in result.stdout
-                    except Exception as e:
-                        logger.debug(f"Tasklist fallback failed: {e}")
-                        is_running = False
-                else:
-                    # Non-Windows fallback
-                    is_running = False
-            
-            if self._wmi:
-                logger.debug(f"Hamilton running check: {is_running} ({len(processes)} processes)")
-            else:
-                logger.debug(f"Hamilton running check: {is_running} (using tasklist fallback)")
-            return is_running
-            
-        except Exception as e:
-            logger.error(f"Error checking Hamilton process: {e}")
+        WMI clients are bound to their COM thread. Scheduler workers must fall
+        back to tasklist when querying the main thread's client fails.
+        """
+        if self._wmi is not None:
+            try:
+                return bool(self._wmi.Win32_Process(name="HxRun.exe"))
+            except Exception as exc:
+                logger.debug("WMI process check failed; using tasklist: %s", exc)
+
+        if platform.system() != "Windows":
             return False
-    
+
+        try:
+            startupinfo = None
+            creationflags = 0
+            if os.name == "nt":
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                creationflags = subprocess.CREATE_NO_WINDOW
+            result = subprocess.run(
+                ["tasklist", "/FI", "IMAGENAME eq HxRun.exe"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=True,
+                startupinfo=startupinfo,
+                creationflags=creationflags,
+            )
+            return "hxrun.exe" in result.stdout.lower()
+        except Exception as exc:
+            logger.error("Cannot determine Hamilton availability; blocking dispatch: %s", exc)
+            return True
+
     def get_hamilton_processes(self) -> List[ProcessInfo]:
         """
         Get information about running Hamilton processes

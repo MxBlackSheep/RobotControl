@@ -37,7 +37,7 @@ def _copy_directory_contents(src: Path, dst: Path) -> int:
 
 def build_with_pyinstaller(layout: str = "onedir", console: bool = False) -> bool:
     """Build RobotControl with PyInstaller."""
-    project_root = Path(".").resolve()
+    project_root = Path(__file__).resolve().parent.parent
     backend_main = project_root / "backend" / "main.py"
     
     if not backend_main.exists():
@@ -46,6 +46,10 @@ def build_with_pyinstaller(layout: str = "onedir", console: bool = False) -> boo
 
     if layout not in {"onefile", "onedir"}:
         logger.error("Invalid layout: %s", layout)
+        return False
+
+    if not (project_root / "backend" / "embedded_static.py").is_file():
+        logger.error("Frontend is not embedded. Run uv run --locked python build_scripts/embed_resources.py first.")
         return False
     
     # Preserve existing backups inside dist before cleaning build artifacts
@@ -95,10 +99,8 @@ def build_with_pyinstaller(layout: str = "onedir", console: bool = False) -> boo
         "--paths", ".",
         "--paths", str(project_root),
         
-        # Add the entire backend directory as data
-        "--add-data", f"{project_root / 'backend'};backend",
-        
         # Include hidden imports with full paths
+        "--hidden-import", "backend.main",
         "--hidden-import", "backend.embedded_static",
         "--hidden-import", "backend.services.embedded_resources", 
         "--hidden-import", "backend.utils.browser_launcher",
@@ -124,7 +126,11 @@ def build_with_pyinstaller(layout: str = "onedir", console: bool = False) -> boo
         "--hidden-import", "bcrypt",
         
         # Collect submodules
-        "--collect-submodules", "backend",
+        "--collect-submodules", "backend.api",
+        "--collect-submodules", "backend.services",
+        "--collect-submodules", "backend.utils",
+        "--collect-submodules", "backend.core",
+        "--collect-submodules", "backend.security",
         "--collect-all", "fastapi",
         "--collect-all", "uvicorn",
         "--collect-all", "pydantic",
@@ -139,6 +145,8 @@ def build_with_pyinstaller(layout: str = "onedir", console: bool = False) -> boo
         "--exclude-module", "scipy",
         "--exclude-module", "jupyter",
         "--exclude-module", "IPython",
+        "--exclude-module", "backend.tests",
+        "--exclude-module", "pytest",
         
         # Optimization
         "--optimize", "2",

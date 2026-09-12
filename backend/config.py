@@ -88,7 +88,7 @@ CAMERA_CONFIG = {
 
 # Automatic recording configuration
 AUTO_RECORDING_CONFIG = {
-    "enabled": True,                        # Enable automatic recording on startup
+    "enabled": os.getenv("ROBOTCONTROL_AUTO_RECORDING_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"},
     "startup_delay_seconds": 20,            # Delay before starting recording
     "primary_camera_id": 0,                 # Default camera to use for automatic recording
     "rolling_clips_limit": 120,             # Maximum rolling clips to maintain (mirrors CAMERA_CONFIG)

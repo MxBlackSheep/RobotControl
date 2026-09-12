@@ -120,7 +120,7 @@ def test_scheduler_uses_single_worker_queue(monkeypatch):
     )
     monkeypatch.setattr(executor_module, "ExperimentExecutor", FakeExecutor)
 
-    engine = SchedulerEngine(SchedulerConfig(enable_notifications=False, startup_delay_seconds=0))
+    engine = SchedulerEngine(SchedulerConfig(enable_notifications=False, startup_delay_seconds=0, check_interval_seconds=1))
     current_time = datetime.now()
 
     schedule_a = ScheduledExperiment(
@@ -181,7 +181,7 @@ def test_busy_hamilton_keeps_job_queued_until_available(monkeypatch):
     )
     monkeypatch.setattr(executor_module, "ExperimentExecutor", FakeExecutor)
 
-    engine = SchedulerEngine(SchedulerConfig(enable_notifications=False, startup_delay_seconds=0))
+    engine = SchedulerEngine(SchedulerConfig(enable_notifications=False, startup_delay_seconds=0, check_interval_seconds=1))
     now = datetime.now()
     schedule = ScheduledExperiment(
         schedule_id="sched-busy",
@@ -237,7 +237,7 @@ def test_timeout_cleanup_action_disables_schedule(monkeypatch):
     )
     monkeypatch.setattr(executor_module, "ExperimentExecutor", FakeExecutor)
 
-    engine = SchedulerEngine(SchedulerConfig(enable_notifications=False, startup_delay_seconds=0))
+    engine = SchedulerEngine(SchedulerConfig(enable_notifications=False, startup_delay_seconds=0, check_interval_seconds=1))
     now = datetime.now()
     schedule = ScheduledExperiment(
         schedule_id="sched-timeout",

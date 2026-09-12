@@ -1,35 +1,36 @@
-import os
-import uuid
-
 import pytest
 from fastapi.testclient import TestClient
 
-TEST_DB_NAME = f"test_auth_{uuid.uuid4().hex}.db"
-os.environ["ROBOTCONTROL_AUTH_DB_FILENAME"] = TEST_DB_NAME
-
-from backend.utils.data_paths import get_data_path
 from backend.services import auth as auth_module
+from backend.services import auth_database
 from backend.services.auth import AuthService, DEFAULT_ADMIN_PASSWORD
 from backend.main import app
 
 
-DB_PATH = get_data_path() / TEST_DB_NAME
 client = TestClient(app)
 
 
 @pytest.fixture(autouse=True)
-def reset_auth_service():
-    if DB_PATH.exists():
-        DB_PATH.unlink()
-    auth_module._auth_service = None  # type: ignore[attr-defined]
+def reset_auth_service(tmp_path, monkeypatch):
+    monkeypatch.setenv("ROBOTCONTROL_AUTH_DB_FILENAME", str(tmp_path / "auth.db"))
+    monkeypatch.setattr(auth_module, "_auth_service", None)
+    monkeypatch.setattr(auth_database, "_auth_db_instance", None)
     yield
-    if DB_PATH.exists():
-        DB_PATH.unlink()
-    auth_module._auth_service = None  # type: ignore[attr-defined]
 
 
 def get_service() -> AuthService:
     return AuthService()
+
+
+def test_existing_bcrypt_hash_survives_database_reopen(monkeypatch):
+    service = get_service()
+    legacy_hash = "$2b$12$abcdefghijklmnopqrstuutT3xCB5/lSB26wlKAKdS6Do78LGdmui"
+    service.db.create_user("legacy", "legacy@example.com", legacy_hash, "user")
+    monkeypatch.setattr(auth_database, "_auth_db_instance", None)
+    reopened = get_service()
+    assert reopened.login("legacy", "LegacyPass!123") is not None
+    assert reopened.login("legacy", "WrongPassword!") is None
+    assert reopened.db.get_user_by_username("legacy")["password_hash"] == legacy_hash
 
 
 def test_register_and_login_flow():

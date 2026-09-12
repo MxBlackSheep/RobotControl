@@ -217,7 +217,9 @@ def test_logfiles_preview_locked_file_returns_423(monkeypatch, tmp_path):
     (roots["primary"] / "busy.log").write_text("content", encoding="utf-8")
 
     def _raise_locked(*args, **kwargs):
-        raise PermissionError("locked")
+        error = PermissionError("locked")
+        error.winerror = 32  # Windows sharing violation, distinct from access denied.
+        raise error
 
     monkeypatch.setattr(logfiles_api, "_read_regular_file_preview", _raise_locked)
 

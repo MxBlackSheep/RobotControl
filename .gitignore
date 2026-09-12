@@ -11,6 +11,14 @@ main.py
 # Python cache
 __pycache__/
 *.pyc
+.pytest_cache/
+.build_cache/
+.uv-cache/
+
+# Local configuration (keep the checked-in example)
+.env
+.env.*
+!.env.example
 
 # Virtual environments
 .venv*/

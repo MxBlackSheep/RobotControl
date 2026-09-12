@@ -1,5 +1,16 @@
 # RobotControl Development Log (Chronological)
 
+## 2026-09-12 uv migration and Windows setup
+
+- Replaced both conflicting requirements files with one root uv project and lockfile; pinned managed Python 3.14.7, modernized application dependencies, and separated dev/build groups. Passlib 1.7.4 and bcrypt 4.3.0 remain pinned to preserve existing password hashes. Windows dependencies include pywin32 and WMI.
+- Installed user-local uv and Node.js 24/npm, synchronized `.venv`, and built the frontend. Updated setup, maintenance, and packaging instructions and aligned the existing backend Docker recipe and nginx proxy with port 8005.
+- Repaired stale test imports, property mocks, SQLite singleton isolation, Windows file-lock simulation, and scheduler polling timing. Replaced obsolete failover database tests with primary-only service tests and added stored-password compatibility coverage.
+- Enabled the recording download handler's existing HEAD behavior with separate OpenAPI operation IDs. Moved process-wide shutdown hooks into the entrypoint so test and packaging imports do not register them. Added optional `ROBOTCONTROL_AUTO_RECORDING_ENABLED=0` for interface development; automatic recording remains enabled by default.
+- Fixed Hamilton busy detection when a worker cannot use WMI's COM connection: fall back to `tasklist`, and block dispatch if process detection fails. Regression tests cover COM failures, busy/idle results, timeouts, and command errors.
+- PyInstaller now collects application modules and embedded frontend assets without copying backend tests, local configuration, or runtime data. A fresh `uv sync --locked`, lockfile check, dependency compatibility check, all **141 backend tests**, frontend build, and final Windows onedir build passed. Existing dependency/deprecation warnings remain.
+- Verified source and compiled `/health`, `/openapi.json`, frontend/JavaScript assets, browser login, authenticated profile requests, and refresh-token persistence across restart. Verified graceful shutdown in source and a temporary compiled console build; the tray's Terminate menu was not automated. The independent reviewer completed a follow-up review after both findings were fixed and reported no remaining actionable issues.
+- Live robot actions and camera recording were not exercised. A read-only SQL dashboard query succeeded on this host; full SQL workflows, Linux deployment, and a separate VM remain unverified. The standard executable is retained at `dist/RobotControl/RobotControl.exe`; temporary downloads, test files, and the console smoke build were removed.
+
 ---
 ## 2026-02-24 LogFile Remote Access Split (Per Source)
 

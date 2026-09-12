@@ -19,6 +19,8 @@ This document explains how the scheduling subsystem fits together and how to mod
 - `backend/services/scheduling/process_monitor.py`  
   Watches Hamilton processes so the scheduler knows whether the robot is already busy.
 
+  WMI is installed on Windows. If its COM connection cannot be used from a worker thread, process detection falls back to `tasklist`. A failed or timed-out fallback keeps the robot marked busy, preventing dispatch until detection recovers. Regression tests in `backend/tests/test_process_monitor.py` cover these cases without launching Hamilton software.
+
 - `backend/services/scheduling/database_manager.py`  
   Logical façade that the engine and API call. It hides SQLite details and exposes CRUD operations such as `create_schedule`, `update_schedule`, `store_job_execution`, etc.
 
@@ -247,24 +249,16 @@ Important constraints:
 - Create/update/delete endpoints require local network access (`require_local_access`).
 - For safe writes, send `expected_updated_at` from the latest schedule snapshot.
 
-Recommended CLI helper in this repo:
-- `backend/scripts/scheduling_api_cli.py`
+Start the backend with `uv run --locked python backend/main.py --host 127.0.0.1 --port 8005 --no-browser`.
+Use the interactive API documentation at `http://127.0.0.1:8005/docs` to inspect the
+current scheduling requests and responses. The previously documented
+`backend/scripts/scheduling_api_cli.py` helper is not tracked in this repository
+and is not available in a fresh clone.
 
-Example workflow:
-1. List schedules to identify the target:
-   `python3 backend/scripts/scheduling_api_cli.py --base-url http://127.0.0.1:8000 --username <user> --password <pass> list --experiment-name "Seed"`
-2. Update by ID with optimistic locking:
-   `python3 backend/scripts/scheduling_api_cli.py --base-url http://127.0.0.1:8000 --username <user> --password <pass> update --schedule-id <id> --update-json '{"estimated_duration": 45}'`
-
-`list` output includes `prerequisites`, so operators can confirm pre-execution flags before choosing a target schedule.
-
-OD auto-reschedule note (`backend/scripts/scheduling_api_cli.py` in current OD-prediction mode):
-- After a successful reschedule (`PUT /api/scheduling/{schedule_id}`), the script now calls `POST /api/scheduling/notifications/send` to email the schedule's active notification contacts.
-- The email is sent only after the schedule update succeeds (not on dry-run / no-reschedule paths).
-- Email body includes previous scheduled time, updated scheduled time, last OD data timestamp, and average OD summary (latest reading per culture).
-- If SMTP delivery fails, the script logs a warning but keeps the reschedule as successful.
-
-If your backend is behind a reverse proxy and local-access checks fail, pass:
-- `--x-forwarded-for 127.0.0.1`
+Run scheduling regression tests with `uv run --locked python -m pytest
+backend/tests/test_scheduler_single_worker.py backend/tests/test_scheduler_manual_recovery.py
+backend/tests/test_scheduling_create_guard.py backend/tests/test_scheduling_pipeline.py`.
+The busy-robot test configures a one-second polling interval so its wait deadline
+matches the scheduler's actual dispatch polling.
 
 By following the structure above you can extend the scheduling stack without reintroducing the duplication and fragile flows that existed before this cleanup. When in doubt, trace the execution lifecycle in section 2 and ensure your changes respect the same boundaries. Happy scheduling!

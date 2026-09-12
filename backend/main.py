@@ -511,13 +511,6 @@ def graceful_shutdown(signum=None, frame=None):
         if signum:
             sys.exit(0)
 
-# Register signal handlers for graceful shutdown
-signal.signal(signal.SIGINT, graceful_shutdown)   # Ctrl+C
-signal.signal(signal.SIGTERM, graceful_shutdown)  # Terminate signal
-
-# Register atexit handler as final fallback
-atexit.register(graceful_shutdown)
-
 # Include API routers
 app.include_router(auth_router)
 app.include_router(database_router)
@@ -769,6 +762,12 @@ Examples:
     parser.add_argument('--version', action='version', version='RobotControl 1.0.0')
     
     args = parser.parse_args()
+
+    # Process-wide handlers belong to the executable entrypoint, not app imports
+    # performed by tests, Uvicorn, or PyInstaller's module discovery.
+    signal.signal(signal.SIGINT, graceful_shutdown)
+    signal.signal(signal.SIGTERM, graceful_shutdown)
+    atexit.register(graceful_shutdown)
     
     logger.info("Starting RobotControl Backend Server...")
     

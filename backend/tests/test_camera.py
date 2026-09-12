@@ -10,6 +10,7 @@ Tests cover:
 - Thread safety and resource cleanup
 """
 
+import cv2
 import pytest
 import asyncio
 import threading
@@ -27,7 +28,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from backend.services.camera import CameraService
 from backend.services.storage_manager import StorageManager
-from shared.config import CAMERA_CONFIG
+from backend.config import CAMERA_CONFIG
 
 
 class TestCameraService:
@@ -79,10 +80,10 @@ class TestCameraService:
             # Configure mock camera to simulate working camera
             mock_cap.isOpened.return_value = True
             mock_cap.get.side_effect = lambda prop: {
-                'cv2.CAP_PROP_FRAME_WIDTH': 640,
-                'cv2.CAP_PROP_FRAME_HEIGHT': 480,
-                'cv2.CAP_PROP_FPS': 30
-            }.get(str(prop), 30)
+                cv2.CAP_PROP_FRAME_WIDTH: 640,
+                cv2.CAP_PROP_FRAME_HEIGHT: 480,
+                cv2.CAP_PROP_FPS: 30
+            }.get(prop, 30)
             
             # Mock successful frame reading
             import numpy as np
@@ -283,7 +284,7 @@ class TestLiveStreaming(TestCameraService):
         camera_service.detect_cameras()
         
         test_frame_data = b"fake_jpeg_data"
-        with patch('backend.services.camera.get_live_streaming_service') as mock_get_service:
+        with patch('backend.services.live_streaming.get_live_streaming_service') as mock_get_service:
             mock_streaming_service = Mock()
             mock_streaming_service.get_latest_frame_bytes.return_value = test_frame_data
             mock_get_service.return_value = mock_streaming_service
@@ -294,7 +295,7 @@ class TestLiveStreaming(TestCameraService):
     
     def test_get_live_frame_no_camera(self, camera_service):
         """Test getting live frame from non-existent camera"""
-        with patch('backend.services.camera.get_live_streaming_service') as mock_get_service:
+        with patch('backend.services.live_streaming.get_live_streaming_service') as mock_get_service:
             mock_streaming_service = Mock()
             mock_streaming_service.get_latest_frame_bytes.return_value = None
             mock_get_service.return_value = mock_streaming_service
@@ -304,7 +305,7 @@ class TestLiveStreaming(TestCameraService):
     
     def test_get_live_frame_not_recording(self, camera_service, mock_cv2):
         """Test getting live frame when camera is not recording"""
-        with patch('backend.services.camera.get_live_streaming_service') as mock_get_service:
+        with patch('backend.services.live_streaming.get_live_streaming_service') as mock_get_service:
             mock_streaming_service = Mock()
             mock_streaming_service.get_latest_frame_bytes.return_value = None
             mock_get_service.return_value = mock_streaming_service
@@ -389,7 +390,7 @@ class TestCameraStatus(TestCameraService):
         # Check individual camera status
         camera_status = status["cameras"][0]
         assert camera_status["recording"] is True
-        assert camera_status["has_live_stream"] is False  # No shared frame yet
+        assert camera_status["has_live_stream"] is True  # Streaming integration has a shared buffer.
     
     def test_get_recent_clips(self, camera_service, temp_video_path):
         """Test getting recent clips list"""

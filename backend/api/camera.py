@@ -551,6 +551,7 @@ async def list_recordings(
 
 
 @router.get("/recording/{recording_id}")
+@router.head("/recording/{recording_id}")
 async def download_recording(
     recording_id: str,
     request: Request,

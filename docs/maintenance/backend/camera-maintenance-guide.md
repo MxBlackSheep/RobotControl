@@ -1,5 +1,9 @@
 # Camera Service Maintenance Guide
 
+## uv setup and verification
+
+Install and run Python tools through the root uv project. Run `uv run --locked python -m pytest backend/tests/test_camera.py backend/tests/test_automatic_recording.py backend/tests/test_camera_download_api.py`. Camera tests mock OpenCV using numeric capture-property constants and patch lazy imports at their defining modules. Automation properties require `PropertyMock`; do not assign to read-only properties. Recording downloads accept both GET and HEAD; HEAD returns the same metadata with no body.
+
 This guide demystifies the camera stack. It explains what each file does, how frames move from a physical camera to the UI, and what to touch when you need to add or change behaviour. Everything is written for cautious maintainers who prefer explicit, step-by-step instructions.
 
 ---
@@ -124,7 +128,7 @@ This guide demystifies the camera stack. It explains what each file does, how fr
 - **Streaming availability**: If streaming is disabled (`LIVE_STREAMING_CONFIG["enabled"] = False`), `CameraService.get_live_frame` returns `None`. The frontend already shows a banner, so backend APIs should propagate the `no_frame` message rather than fabricating data.
 - **Disk space**: Rolling clips and archives live under `VIDEO_PATH`. Ensure there’s enough space (check `CameraService.health_check()["free_disk_space_gb"]`) before enabling long recordings.
 - **MJPEG vs WebSocket**: The MJPEG endpoint is a basic fallback. Prefer the WebSocket for modern features (quality switches, error notifications). Keep both in sync when changing frame handling.
-- **Automatic recording**: `AutomaticRecordingService` will start recording the primary camera on startup if enabled. When debugging manual behaviour, disable auto recording in `AUTO_RECORDING_CONFIG` to avoid unexpected threads.
+- **Automatic recording**: `AutomaticRecordingService` will start recording the primary camera on startup if enabled. When debugging manual behaviour, set `ROBOTCONTROL_AUTO_RECORDING_ENABLED=0` before launching the app to avoid unexpected threads. The default remains enabled.
 
 ---
 

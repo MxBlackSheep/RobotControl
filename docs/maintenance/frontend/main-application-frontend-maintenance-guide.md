@@ -1,5 +1,9 @@
 # Frontend Main Application Maintenance Guide
 
+## uv setup and verification
+
+For a fresh Windows clone, use Node.js 24 with npm and run `npm --prefix frontend ci`, then `npm --prefix frontend run build`, from the repository root. Start the Python backend through `uv run --locked python backend/main.py --host 127.0.0.1 --port 8005 --no-browser`; it serves `frontend/dist`. Rebuild and re-embed assets before packaging the executable.
+
 This guide explains the overall React shell: routing, theming, providers, and navigation. Use it whenever you change layout, add new pages, or adjust global providers. It spells everything out so you can’t get lost.
 
 ---

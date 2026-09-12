@@ -1,6 +1,6 @@
 # Main Application Maintenance Guide
 
-This guide explains how the FastAPI entry point, logging, static assets, and build scripts fit together. Use it whenever you touch `backend/main.py`, tweak environment flags, or package the app.
+This guide explains how the FastAPI entry point, logging, static assets, and build scripts fit together. For fresh setup, run `uv sync --locked` from the repository root; Python is managed by uv. The manifest and lockfile are the single dependency source. Use it whenever you touch `backend/main.py`, tweak environment flags, or package the app.
 
 ---
 
@@ -50,7 +50,7 @@ This guide explains how the FastAPI entry point, logging, static assets, and bui
    - CORS allows localhost ports used by Vite (`5173`), CRA (`3000`), and packaged app (`8005`).
 
 5. **Signal & exit handling**  
-   - `graceful_shutdown` handles `SIGINT`/`SIGTERM` and `atexit`, stopping camera, auto-recording, monitoring, etc.
+   - `main()` registers `graceful_shutdown` for `SIGINT`/`SIGTERM` and `atexit`, stopping camera, auto-recording, monitoring, etc. Importing the app for tests does not install process-wide shutdown hooks.
    - In packaged builds the system-tray “Terminate” now toggles `server.should_exit`; avoid calling `sys.exit()` there or pystray will log a handler error.
 
 6. **Shutdown block in lifespan**  
@@ -75,8 +75,8 @@ This guide explains how the FastAPI entry point, logging, static assets, and bui
    - Use this when you host the frontend separately.
 
 4. **Embedding pipeline**  
-   - Run `npm run build` (from `frontend/`).  
-   - Execute `python build_scripts/embed_resources.py` – generates `backend/embedded_static.py`.  
+   - Run `npm --prefix frontend run build` from the repository root.
+   - Execute `uv run --locked python build_scripts/embed_resources.py` – generates `backend/embedded_static.py`.
    - Confirm logs show the number of embedded files; if zero, the script could not find `frontend/dist`.
 
 ---
@@ -94,6 +94,8 @@ This guide explains how the FastAPI entry point, logging, static assets, and bui
   4. Stop live streaming, scheduler, and clear DB pools.
 
 - Startup logs show readiness for each service (lazy loading). If a service fails to import, check logs right after “Backend session starting” for stack traces.
+
+- Set `ROBOTCONTROL_AUTO_RECORDING_ENABLED=0` before startup to disable automatic recordings during interface development. Combine it with the scheduler flag above. Recording remains enabled by default; `1`, `true`, `yes`, and `on` enable it explicitly.
 
 ---
 
@@ -118,14 +120,14 @@ This guide explains how the FastAPI entry point, logging, static assets, and bui
 ## 6. Packaging Pipeline (PyInstaller)
 
 1. **Prepare frontend**  
-   - `cd frontend && npm install && npm run build`.
+   - `npm --prefix frontend ci` followed by `npm --prefix frontend run build` (repository root).
 
 2. **Embed resources**  
-   - `python build_scripts/embed_resources.py` → `backend/embedded_static.py`.
+   - `uv run --locked python build_scripts/embed_resources.py` → `backend/embedded_static.py`.
 
 3. **Build executable**  
-   - `python build_scripts/pyinstaller_build.py --layout onedir` (or `--layout onefile`).  
-   - Script copies `backend/` as data, adds hidden imports (FastAPI routers, passlib, pyodbc, cv2), and preserves existing backups before cleaning `dist`.
+   - `uv run --locked --group build python build_scripts/pyinstaller_build.py --layout onedir` (or `--layout onefile`).
+   - Script collects application modules and embedded assets without copying backend source, local `.env` files, runtime data, or tests into the bundle. PyInstaller runs through the same uv environment as the application.
 
 4. **Output**  
    - `dist/RobotControl/RobotControl.exe` (onedir) or `dist/RobotControl.exe` (onefile).  
@@ -143,7 +145,7 @@ This guide explains how the FastAPI entry point, logging, static assets, and bui
 | Add a new API router | `backend/main.py` | Import router, `app.include_router(new_router, prefix="/api/new", tags=["new"])`. Ensure package listed in PyInstaller hidden imports. |
 | Update LogFile allowlisted folders | `backend/api/logfiles.py` (`LOGFILE_SOURCES`) | Add/edit source IDs + Windows paths. Keep IDs stable because frontend stores selected source by ID. |
 | Update allowed CORS origins | `app.add_middleware(CORSMiddleware, allow_origins=[...])` | Add your host or port, redeploy backend, confirm browser requests include it. |
-| Change default port | `backend/main.py:main()` | Run `python backend/main.py --port 9000` (dev) or package with `--port`. For service installs, wrap command in a shortcut/batch file. |
+| Change default port | `backend/main.py:main()` | Run `uv run --locked python backend/main.py --port 9000` (dev) or package with `--port`. For service installs, wrap command in a shortcut/batch file. |
 | Disable static serving (reverse proxy handles it) | Set `SERVE_FRONTEND_FROM_BACKEND = False` | Remove or comment out route, ensure proxy serves `frontend/dist`. |
 | Adjust log retention | Env vars | Set `ROBOTCONTROL_LOG_RETENTION_DAYS` / `ROBOTCONTROL_LOG_ERROR_RETENTION_DAYS`, restart backend, verify new numbers in startup log. |
 | Force scheduler to stay off | `ROBOTCONTROL_SCHEDULER_AUTOSTART_DELAY_SECONDS=disable` | Set the env var, restart backend, confirm logs say “Scheduler auto-start disabled by configuration.” |
@@ -172,7 +174,7 @@ This guide explains how the FastAPI entry point, logging, static assets, and bui
 
 2. **Static files return 404 in packaged build**  
    - Ensure `backend/embedded_static.py` exists and `EMBEDDED_MODE` is `True` (happens automatically when running as PyInstaller bundle).  
-   - Run `python -c "from backend.services.embedded_resources import get_resource_manager; print(len(get_resource_manager().list_resources()))"` inside the dist folder; count > 0 means resources are embedded.
+   - From the repository root, run `uv run --locked python -c "from backend.services.embedded_resources import get_resource_manager; print(len(get_resource_manager().list_resources()))"` before rebuilding. Then start the executable and check `/` and a JavaScript asset URL to verify the compiled bundle itself.
 
 3. **Scheduler auto-starts when it should not**  
    - Confirm env var is exactly `disable`/`off`/`never`. A blank string resets to default (60 seconds).  

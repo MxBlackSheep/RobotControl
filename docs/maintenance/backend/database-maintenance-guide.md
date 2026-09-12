@@ -1,5 +1,9 @@
 # Database Maintenance Guide
 
+## uv setup and verification
+
+Install pyodbc through `uv sync --locked`; install the Microsoft ODBC driver separately on the host. Run `uv run --locked python -m pytest backend/tests/test_database_service.py` for mocked primary connection, failure handling, pagination, query, and transaction tests. The current service has no secondary-server or mock-data fallback. The tests do not connect to SQL Server.
+
 This guide explains how the database utilities (backup, restore, metadata management, and basic data viewing) fit together. It targets maintainers who prefer explicit instructions and may not remember all the moving parts.
 
 ---

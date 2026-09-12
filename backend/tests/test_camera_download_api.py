@@ -8,6 +8,13 @@ from backend.api import camera as camera_api
 client = TestClient(app)
 
 
+def test_download_methods_have_distinct_openapi_identifiers():
+    operations = app.openapi()["paths"]["/api/camera/recording/{recording_id}"]
+    assert operations["get"]["operationId"].endswith("_get")
+    assert operations["head"]["operationId"].endswith("_head")
+    assert operations["get"]["operationId"] != operations["head"]["operationId"]
+
+
 def setup_function():
     app.dependency_overrides[get_current_user] = lambda: {
         "user_id": "1",

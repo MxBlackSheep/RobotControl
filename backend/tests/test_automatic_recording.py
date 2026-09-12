@@ -11,7 +11,7 @@ import threading
 import time
 import tempfile
 import shutil
-from unittest.mock import Mock, patch, MagicMock, call
+from unittest.mock import Mock, patch, MagicMock, PropertyMock, call
 from pathlib import Path
 from datetime import datetime, timedelta
 from collections import deque
@@ -199,7 +199,7 @@ class TestServiceInitialization(TestAutomaticRecordingService):
         assert service._experiment_monitor is None
         
         # Mock the get functions for lazy loading
-        with patch('backend.services.automatic_recording.get_camera_service') as mock_get_camera:
+        with patch('backend.services.camera.get_camera_service') as mock_get_camera:
             with patch('backend.services.automatic_recording.get_storage_manager') as mock_get_storage:
                 with patch('backend.services.automatic_recording.get_experiment_monitor') as mock_get_experiment:
                     
@@ -230,7 +230,7 @@ class TestServiceInitialization(TestAutomaticRecordingService):
         """Test service handles camera service loading errors gracefully"""
         service = AutomaticRecordingService()
         
-        with patch('backend.services.automatic_recording.get_camera_service') as mock_get_camera:
+        with patch('backend.services.camera.get_camera_service') as mock_get_camera:
             mock_get_camera.side_effect = ImportError("Camera service not available")
             
             # Should return None and not raise exception
@@ -245,7 +245,7 @@ class TestAutomaticRecordingStartup(TestAutomaticRecordingService):
         """Test successful automatic recording startup"""
         service = AutomaticRecordingService()
         
-        with patch.object(service, 'camera_service', mock_camera_service):
+        with patch.object(type(service), 'camera_service', new_callable=PropertyMock, return_value=mock_camera_service):
             success = service.start_automatic_recording()
             
             assert success is True
@@ -254,9 +254,9 @@ class TestAutomaticRecordingStartup(TestAutomaticRecordingService):
             assert service.startup_thread is not None
             assert service.startup_thread.is_alive()
 
-    def test_start_automatic_recording_when_disabled(self):
+    def test_start_automatic_recording_when_disabled(self, mock_config):
         """Test starting automatic recording when disabled in config"""
-        with patch('backend.services.automatic_recording.AUTO_RECORDING_CONFIG', {"enabled": False}):
+        with patch.dict(mock_config, {"enabled": False}):
             service = AutomaticRecordingService()
             
             success = service.start_automatic_recording()
@@ -279,9 +279,9 @@ class TestAutomaticRecordingStartup(TestAutomaticRecordingService):
         service = AutomaticRecordingService()
         
         # Mock all dependencies
-        with patch.object(service, 'camera_service', mock_camera_service):
-            with patch.object(service, 'storage_manager', mock_storage_manager):
-                with patch.object(service, 'experiment_monitor', mock_experiment_monitor):
+        with patch.object(type(service), 'camera_service', new_callable=PropertyMock, return_value=mock_camera_service):
+            with patch.object(type(service), 'storage_manager', new_callable=PropertyMock, return_value=mock_storage_manager):
+                with patch.object(type(service), 'experiment_monitor', new_callable=PropertyMock, return_value=mock_experiment_monitor):
                     
                     start_time = time.time()
                     service.start_automatic_recording()
@@ -338,9 +338,9 @@ class TestCameraRecordingIntegration(TestAutomaticRecordingService):
         service = AutomaticRecordingService()
         
         # Mock all dependencies
-        with patch.object(service, 'camera_service', mock_camera_service):
-            with patch.object(service, 'storage_manager', mock_storage_manager):
-                with patch.object(service, 'experiment_monitor', mock_experiment_monitor):
+        with patch.object(type(service), 'camera_service', new_callable=PropertyMock, return_value=mock_camera_service):
+            with patch.object(type(service), 'storage_manager', new_callable=PropertyMock, return_value=mock_storage_manager):
+                with patch.object(type(service), 'experiment_monitor', new_callable=PropertyMock, return_value=mock_experiment_monitor):
                     
                     success = service._start_camera_recording(0)
                     
@@ -356,7 +356,7 @@ class TestCameraRecordingIntegration(TestAutomaticRecordingService):
         service = AutomaticRecordingService()
         mock_camera_service.detect_cameras.return_value = []
         
-        with patch.object(service, 'camera_service', mock_camera_service):
+        with patch.object(type(service), 'camera_service', new_callable=PropertyMock, return_value=mock_camera_service):
             success = service._start_camera_recording(0)
             
             assert success is False
@@ -366,7 +366,7 @@ class TestCameraRecordingIntegration(TestAutomaticRecordingService):
         """Test camera recording start when requested camera not found"""
         service = AutomaticRecordingService()
         
-        with patch.object(service, 'camera_service', mock_camera_service):
+        with patch.object(type(service), 'camera_service', new_callable=PropertyMock, return_value=mock_camera_service):
             success = service._start_camera_recording(5)  # Camera ID 5 doesn't exist
             
             assert success is False
@@ -377,7 +377,7 @@ class TestCameraRecordingIntegration(TestAutomaticRecordingService):
         service = AutomaticRecordingService()
         mock_camera_service.start_recording.return_value = False
         
-        with patch.object(service, 'camera_service', mock_camera_service):
+        with patch.object(type(service), 'camera_service', new_callable=PropertyMock, return_value=mock_camera_service):
             success = service._start_camera_recording(0)
             
             assert success is False
@@ -388,7 +388,7 @@ class TestCameraRecordingIntegration(TestAutomaticRecordingService):
         service = AutomaticRecordingService()
         
         # No camera service available
-        with patch.object(service, 'camera_service', None):
+        with patch.object(type(service), 'camera_service', new_callable=PropertyMock, return_value=None):
             success = service._start_camera_recording(0)
             
             assert success is False
@@ -404,7 +404,7 @@ class TestManualOverrideScenarios(TestAutomaticRecordingService):
         service.current_state = AutomationState.ACTIVE
         service.recording_camera_id = 0
         
-        with patch.object(service, 'camera_service', mock_camera_service):
+        with patch.object(type(service), 'camera_service', new_callable=PropertyMock, return_value=mock_camera_service):
             result = service.handle_manual_override("stop")
             
             assert result["success"] is True
@@ -418,8 +418,8 @@ class TestManualOverrideScenarios(TestAutomaticRecordingService):
         service = AutomaticRecordingService()
         service.current_state = AutomationState.STOPPED
         
-        with patch.object(service, 'camera_service', mock_camera_service):
-            with patch.object(service, 'experiment_monitor', mock_experiment_monitor):
+        with patch.object(type(service), 'camera_service', new_callable=PropertyMock, return_value=mock_camera_service):
+            with patch.object(type(service), 'experiment_monitor', new_callable=PropertyMock, return_value=mock_experiment_monitor):
                 result = service.handle_manual_override("start", camera_id=1)
                 
                 assert result["success"] is True
@@ -448,12 +448,10 @@ class TestManualOverrideScenarios(TestAutomaticRecordingService):
         assert result["success"] is False
         assert "Unknown manual override action" in result["message"]
 
-    def test_manual_override_error_handling(self, mock_config, mock_camera_service):
+    def test_manual_override_error_handling(self, mock_config):
         """Test manual override error handling"""
         service = AutomaticRecordingService()
-        mock_camera_service.start_recording.side_effect = Exception("Camera error")
-        
-        with patch.object(service, 'camera_service', mock_camera_service):
+        with patch.object(service, '_start_camera_recording', side_effect=RuntimeError("Camera error")):
             result = service.handle_manual_override("start")
             
             assert result["success"] is False
@@ -470,7 +468,7 @@ class TestErrorHandling(TestAutomaticRecordingService):
         service = AutomaticRecordingService()
         mock_camera_service.detect_cameras.side_effect = Exception("Camera detection failed")
         
-        with patch.object(service, 'camera_service', mock_camera_service):
+        with patch.object(type(service), 'camera_service', new_callable=PropertyMock, return_value=mock_camera_service):
             service.start_automatic_recording()
             
             # Wait for startup thread to complete
@@ -479,7 +477,7 @@ class TestErrorHandling(TestAutomaticRecordingService):
             # Should be in error state
             assert service.current_state == AutomationState.ERROR
             assert service.error_count == 1
-            assert "Camera detection failed" in service.error_message
+            assert "Failed to start camera recording" in service.error_message
 
     def test_error_state_tracking(self, mock_config):
         """Test error state tracking and statistics"""
@@ -518,8 +516,8 @@ class TestStatusReporting(TestAutomaticRecordingService):
         """Test automation status when service is stopped"""
         service = AutomaticRecordingService()
         
-        with patch.object(service, 'storage_manager', Mock()) as mock_storage:
-            mock_storage.get_storage_statistics.return_value = {
+        with patch.object(type(service), 'storage_manager', new_callable=PropertyMock, return_value=Mock()) as mock_storage:
+            mock_storage.return_value.get_storage_statistics.return_value = {
                 "rolling_clips_count": 5,
                 "experiment_folders_count": 2
             }
@@ -545,8 +543,8 @@ class TestStatusReporting(TestAutomaticRecordingService):
         mock_stats.last_check_time = datetime.now()
         mock_experiment_monitor.get_monitor_stats.return_value = mock_stats
         
-        with patch.object(service, 'storage_manager', mock_storage_manager):
-            with patch.object(service, 'experiment_monitor', mock_experiment_monitor):
+        with patch.object(type(service), 'storage_manager', new_callable=PropertyMock, return_value=mock_storage_manager):
+            with patch.object(type(service), 'experiment_monitor', new_callable=PropertyMock, return_value=mock_experiment_monitor):
                 status = service.get_automation_status()
                 
                 assert status.is_active is True
@@ -560,7 +558,7 @@ class TestStatusReporting(TestAutomaticRecordingService):
         service = AutomaticRecordingService()
         service._handle_error("Test error")
         
-        with patch.object(service, 'storage_manager', mock_storage_manager):
+        with patch.object(type(service), 'storage_manager', new_callable=PropertyMock, return_value=mock_storage_manager):
             status = service.get_automation_status()
             
             assert status.error_message == "Test error"
@@ -590,7 +588,7 @@ class TestStatusReporting(TestAutomaticRecordingService):
         )
         mock_experiment_monitor.get_current_experiment.return_value = mock_experiment
         
-        with patch.object(service, 'experiment_monitor', mock_experiment_monitor):
+        with patch.object(type(service), 'experiment_monitor', new_callable=PropertyMock, return_value=mock_experiment_monitor):
             current_exp = service.get_current_experiment()
             
             assert current_exp is mock_experiment
@@ -600,7 +598,7 @@ class TestStatusReporting(TestAutomaticRecordingService):
         """Test getting current experiment when monitor not available"""
         service = AutomaticRecordingService()
         
-        with patch.object(service, 'experiment_monitor', None):
+        with patch.object(type(service), 'experiment_monitor', new_callable=PropertyMock, return_value=None):
             current_exp = service.get_current_experiment()
             assert current_exp is None
 
@@ -614,8 +612,8 @@ class TestServiceShutdown(TestAutomaticRecordingService):
         service.current_state = AutomationState.ACTIVE
         service.recording_camera_id = 0
         
-        with patch.object(service, 'camera_service', mock_camera_service):
-            with patch.object(service, 'experiment_monitor', mock_experiment_monitor):
+        with patch.object(type(service), 'camera_service', new_callable=PropertyMock, return_value=mock_camera_service):
+            with patch.object(type(service), 'experiment_monitor', new_callable=PropertyMock, return_value=mock_experiment_monitor):
                 mock_experiment_monitor.is_monitoring_active.return_value = True
                 
                 success = service.stop_automatic_recording()
@@ -662,7 +660,7 @@ class TestServiceShutdown(TestAutomaticRecordingService):
         
         mock_camera_service.stop_recording.side_effect = Exception("Stop error")
         
-        with patch.object(service, 'camera_service', mock_camera_service):
+        with patch.object(type(service), 'camera_service', new_callable=PropertyMock, return_value=mock_camera_service):
             success = service.stop_automatic_recording()
             
             # Should still succeed even with camera stop error
@@ -679,9 +677,9 @@ class TestCompleteInitializationWorkflow(TestAutomaticRecordingService):
         service = AutomaticRecordingService()
         
         # Mock all dependencies
-        with patch.object(service, 'camera_service', mock_camera_service):
-            with patch.object(service, 'storage_manager', mock_storage_manager):
-                with patch.object(service, 'experiment_monitor', mock_experiment_monitor):
+        with patch.object(type(service), 'camera_service', new_callable=PropertyMock, return_value=mock_camera_service):
+            with patch.object(type(service), 'storage_manager', new_callable=PropertyMock, return_value=mock_storage_manager):
+                with patch.object(type(service), 'experiment_monitor', new_callable=PropertyMock, return_value=mock_experiment_monitor):
                     
                     # Start automatic recording
                     success = service.start_automatic_recording()
@@ -712,8 +710,8 @@ class TestCompleteInitializationWorkflow(TestAutomaticRecordingService):
         
         mock_experiment_monitor.is_monitoring_active.return_value = True
         
-        with patch.object(service, 'camera_service', mock_camera_service):
-            with patch.object(service, 'experiment_monitor', mock_experiment_monitor):
+        with patch.object(type(service), 'camera_service', new_callable=PropertyMock, return_value=mock_camera_service):
+            with patch.object(type(service), 'experiment_monitor', new_callable=PropertyMock, return_value=mock_experiment_monitor):
                 
                 success = service.stop_automatic_recording(manual_stop=True)
                 
