@@ -129,6 +129,16 @@ export interface MethodImportSelection {
   relative_paths?: string[];
 }
 
+export interface HostMethodDirectory {
+  current_path: string | null;
+  parent_path: string | null;
+  drives: string[];
+  shortcuts: string[];
+  breadcrumbs: { name: string; path: string }[];
+  folders: { name: string; path: string; linked: boolean }[];
+  methods: { name: string; path: string }[];
+}
+
 export interface MethodImportRow {
   name: string;
   relative_path: string;

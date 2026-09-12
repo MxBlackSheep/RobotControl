@@ -5,7 +5,7 @@ import {
   FormControl, FormControlLabel, FormLabel, LinearProgress, List, ListItem, Radio,
   RadioGroup, Stack, Step, StepLabel, Stepper, TextField, Typography,
 } from '@mui/material';
-import { FolderOpen } from '@mui/icons-material';
+import HostMethodBrowser from './HostMethodBrowser';
 import { schedulingAPI } from '../../services/schedulingApi';
 import { MethodImportPreview, MethodImportResult, MethodImportRow } from '../../types/scheduling';
 
@@ -16,13 +16,6 @@ interface Props {
   onCreateSchedule?: () => void;
   isLocalClient: boolean;
 }
-
-export const browserMethodPaths = (files: File[]) => files
-  .filter(file => file.name.toLowerCase().endsWith('.med'))
-  .map(file => {
-    const parts = (file.webkitRelativePath || file.name).split('/');
-    return parts.length > 1 ? parts.slice(1).join('/') : file.name;
-  });
 
 const errorMessage = (error: unknown) => {
   if (isAxiosError(error)) {
@@ -36,7 +29,6 @@ const errorMessage = (error: unknown) => {
 export default function FolderImportDialog({ open, onClose, onImportComplete, onCreateSchedule, isLocalClient }: Props) {
   const [source, setSource] = useState<'browser' | 'manual'>('browser');
   const [folder, setFolder] = useState('');
-  const [files, setFiles] = useState<File[]>([]);
   const [preview, setPreview] = useState<MethodImportPreview | null>(null);
   const [result, setResult] = useState<MethodImportResult | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
@@ -44,27 +36,23 @@ export default function FolderImportDialog({ open, onClose, onImportComplete, on
   const [stage, setStage] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const fileInput = useRef<HTMLInputElement>(null);
   const initialFocus = useRef<HTMLDivElement>(null);
 
   const reset = () => {
-    setSource('browser'); setFolder(''); setFiles([]); setPreview(null); setResult(null);
+    setSource('browser'); setFolder(''); setPreview(null); setResult(null);
     setSelected([]); setSearch(''); setStage(0); setError(null);
-    if (fileInput.current) fileInput.current.value = '';
   };
   useEffect(() => { if (open) reset(); }, [open]);
   const close = () => { if (!busy) onClose(); };
-  const relativePaths = browserMethodPaths(files);
   const rows = stage === 2 ? result?.methods || [] : preview?.methods || [];
   const visibleRows = rows.filter(row => `${row.name} ${row.path || row.relative_path} ${row.reason || ''}`.toLowerCase().includes(search.toLowerCase()));
   const validRows = preview?.methods.filter(row => row.action !== 'invalid') || [];
 
-  const scan = async () => {
+  const scan = async (chosenFolder = folder) => {
     if (!isLocalClient || busy) return;
-    setBusy(true); setError(null);
+    setFolder(chosenFolder); setBusy(true); setError(null);
     try {
-      const response = await schedulingAPI.previewExperimentImport({ folder_path: folder.trim(),
-        ...(source === 'browser' ? { relative_paths: relativePaths } : {}) });
+      const response = await schedulingAPI.previewExperimentImport({ folder_path: chosenFolder.trim() });
       if (!response.data.success || !response.data.data) throw new Error(response.data.message || 'Unable to preview this folder.');
       setPreview(response.data.data);
       setSelected(response.data.data.methods.filter(row => row.action !== 'invalid').map(row => row.relative_path));
@@ -77,9 +65,7 @@ export default function FolderImportDialog({ open, onClose, onImportComplete, on
     if (!isLocalClient || busy || !preview || !selected.length) return;
     setBusy(true); setError(null);
     try {
-      const response = source === 'browser'
-        ? await schedulingAPI.importExperimentFiles({ folder_path: preview.folder, relative_paths: selected })
-        : await schedulingAPI.importExperimentFolder(preview.folder, selected);
+      const response = await schedulingAPI.importExperimentFolder(preview.folder, selected);
       if (!response.data.data) throw new Error(response.data.message || 'No import results were returned.');
       // Partial/all file failures still have useful per-file results.
       const imported = response.data.data;
@@ -111,21 +97,16 @@ export default function FolderImportDialog({ open, onClose, onImportComplete, on
             <FormControl ref={initialFocus} disabled={busy || !isLocalClient}>
               <FormLabel id="method-source-label">Choose how to select the folder</FormLabel>
               <RadioGroup aria-labelledby="method-source-label" value={source} onChange={event => { setSource(event.target.value as 'browser' | 'manual'); setError(null); }}>
-                <FormControlLabel value="browser" control={<Radio />} label="Browse for a folder" />
+                <FormControlLabel value="browser" control={<Radio />} label="Browse RobotControl folders" />
                 <FormControlLabel value="manual" control={<Radio />} label="Enter a folder path" />
               </RadioGroup>
             </FormControl>
-            {source === 'browser' && <Stack spacing={1}>
-              <input ref={fileInput} type="file" multiple accept=".med" hidden {...({ webkitdirectory: '', directory: '' } as any)}
-                aria-label="Method folder files" onChange={event => { setFiles(Array.from(event.target.files || [])); setError(null); }} />
-              <Button variant="outlined" startIcon={<FolderOpen />} disabled={busy || !isLocalClient} onClick={() => fileInput.current?.click()}>Browse for folder</Button>
-              <Typography variant="body2">{files.length ? `${relativePaths.length} .med files selected from ${files[0].webkitRelativePath.split('/')[0] || 'the selected folder'}.` : 'Select a folder containing Hamilton .med files.'}</Typography>
-              <Typography variant="body2" color="text.secondary">The browser supplies relative paths. Enter the same folder's full path on the RobotControl computer below. Files are not copied or uploaded to the host.</Typography>
-              {files.length > 0 && relativePaths.length === 0 && <Alert severity="warning">No .med files were found in that selection.</Alert>}
-            </Stack>}
-            <TextField fullWidth label="Folder path on RobotControl computer" value={folder} disabled={busy || !isLocalClient}
-              onChange={event => { setFolder(event.target.value); setError(null); }}
-              placeholder={'C:\\Program Files\\HAMILTON\\Methods'} helperText="Copy the full folder path from File Explorer's address bar. Regular subfolders are included; linked folders are not scanned." />
+            {source === 'browser' ? <HostMethodBrowser initialPath={folder || undefined} disabled={busy || !isLocalClient} onSelect={path => { void scan(path); }} /> :
+              <TextField fullWidth required label="Folder path on RobotControl computer" value={folder} disabled={busy || !isLocalClient}
+                onChange={event => { setFolder(event.target.value); setError(null); }}
+                placeholder={'C:\\Program Files\\HAMILTON\\Methods'}
+                helperText={folder.trim() ? 'Regular subfolders are included; linked folders are not scanned.' : 'Enter the full folder path to enable Review methods.'} />}
+
           </>}
           {stage > 0 && <>
             <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>Folder: {preview?.folder}</Typography>
@@ -165,7 +146,7 @@ export default function FolderImportDialog({ open, onClose, onImportComplete, on
       <DialogActions sx={{ flexWrap: 'wrap', gap: 1 }}>
         <Button onClick={close} disabled={busy}>{stage === 2 ? 'Close' : 'Cancel'}</Button>
         {stage === 1 && <Button onClick={() => { setStage(0); setError(null); }} disabled={busy}>Back</Button>}
-        {stage === 0 && <Button variant="contained" onClick={scan} disabled={busy || !isLocalClient || !folder.trim() || (source === 'browser' && !relativePaths.length)}>Review methods</Button>}
+        {stage === 0 && source === 'manual' && <Button variant="contained" onClick={() => scan()} disabled={busy || !isLocalClient || !folder.trim()}>Review methods</Button>}
         {stage === 1 && <Button variant="contained" onClick={importSelected} disabled={busy || !isLocalClient || !selected.length}>Import {selected.length} selected</Button>}
         {stage === 2 && <Button onClick={reset}>Import another folder</Button>}
         {stage === 2 && result && result.new_methods + result.updated_methods > 0 && onCreateSchedule &&

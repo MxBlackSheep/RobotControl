@@ -1852,6 +1852,23 @@ def _require_method_import_role(user):
         raise HTTPException(status_code=403, detail="Insufficient permissions")
 
 
+@router.get("/experiments/browse")
+async def browse_method_folders(
+    path: Optional[str] = None,
+    current_user: dict = Depends(get_current_user),
+    connection: ConnectionContext = Depends(require_local_access),
+):
+    from backend.services.scheduling.method_library import browse_methods
+    _require_method_import_role(current_user)
+    try:
+        data = await run_in_threadpool(browse_methods, get_experiment_discovery_service().db, path)
+        return ApiResponse(success=True, message="Host folder loaded", data=data).to_dict()
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/experiments/import-preview")
 async def preview_experiment_import(
     request: MethodImportRequest,

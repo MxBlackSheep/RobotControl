@@ -1,5 +1,12 @@
 # RobotControl Development Log (Chronological)
 
+## 2026-09-12 Host folder browsing for method import
+
+- Replaced browser uploads with a local host folder browser: breadcrumbs, drives, parent navigation, imported-folder shortcuts and automatic absolute-path selection. Manual entry remains available and explains the missing required path. Failed navigation preserves the last usable folder/selection; linked folders are disabled.
+- Added local-only `/experiments/browse` metadata access and shared directory helpers with the existing system browser, preserving database-restore behavior. Import still uses the existing host validation and per-file outcomes. Targeted backend and frontend tests cover navigation, access failures, linked folders and direct preview handoff.
+
+---
+
 ## 2026-09-12 Verified Hamilton method import
 
 - Replaced the import dialog with Choose folder → Review methods → Import results. Both browser and manual modes require an absolute host folder; selection sends paths only. Valid New/Update rows are selected by default, invalid rows explain failures, and searchable results report actual Added/Updated/Failed outcomes. Creating a schedule remains an explicit next action.

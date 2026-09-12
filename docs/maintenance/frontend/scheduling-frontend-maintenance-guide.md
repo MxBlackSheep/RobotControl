@@ -16,7 +16,7 @@ Save settings first, then send a test. Unsaved changes disable testing; saving n
 
 ## Import Hamilton methods
 
-`FolderImportDialog` has three stages: Choose folder, Review methods, Import results. Import adds catalogue entries only; it never creates schedules or starts Hamilton. Both radio choices require an absolute folder path on the RobotControl computer. Browser selection sends relative file names, not file contents; remove only the browser's top-level folder name, preserving nested paths. Manual selection discovers all regular subfolders. Linked folders are not scanned.
+`FolderImportDialog` has three stages: Choose folder, Review methods, Import results. Import adds catalogue entries only; it never creates schedules or starts Hamilton. `HostMethodBrowser` navigates the RobotControl host and supplies its absolute path directly with Use this folder. Manual absolute-path entry remains available. Both discover regular subfolders; linked folders are not scanned. No browser file upload or second path entry is involved. The same browser supports `.med` selection for path correction. Keep its last usable folder/selection after navigation errors.
 
 Call the read-only preview endpoint first. Display every returned method and full host path, with New/Update/Invalid labels. Select valid rows by default, allow deselection, and disable invalid rows. Search filters the displayed list without silently changing selection. Submit the chosen relative paths with the preview's canonical folder; the server revalidates and returns actual Added/Updated/Failed results. Partial failures still have useful result data: do not discard it just because `success` is false. Lists are scrollable and searchable without a ten-row limit.
 

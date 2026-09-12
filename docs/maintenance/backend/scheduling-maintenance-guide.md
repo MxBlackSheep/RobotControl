@@ -8,6 +8,8 @@ This document explains how the scheduling subsystem fits together and how to mod
 
 ### Method import (catalogue metadata only)
 
+`GET /experiments/browse` provides host metadata for the scheduling folder browser. Omitted path starts at the standard Hamilton Methods directory when present; empty path lists drives. Responses contain canonical current/parent paths, breadcrumbs, folders (with a disabled linked flag), `.med` files and imported-folder shortcuts. Access requires the same local admin/user checks as import. Directory enumeration uses shared helpers with the system browser; do not alter backup-browser behavior when extending it.
+
 All three endpoints below use the scheduling API prefix, require an authenticated admin/user and enforce `require_local_access`. Blocking discovery/database work runs in a thread pool.
 
 - `POST /experiments/import-preview`: `{folder_path, relative_paths?}`; read-only discovery and validation. Omit relative paths to scan regular subfolders; an empty selection is rejected.

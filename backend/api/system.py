@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Dict, Any, List
 from fastapi import APIRouter, HTTPException, Depends, Query
 from pathlib import Path
+from backend.utils.filesystem import restricted_directory, visible_children
 
 from backend.services.auth import get_current_user
 
@@ -59,10 +60,8 @@ async def browse_directory(
         
         # Security check - prevent browsing outside of reasonable bounds
         # Allow browsing most Windows directories but prevent system-critical areas
-        path_str = str(browse_path).lower()
-        forbidden_paths = ['windows\\system32', 'windows\\syswow64', 'program files\\windows']
         
-        if any(forbidden in path_str for forbidden in forbidden_paths):
+        if restricted_directory(browse_path):
             return ResponseFormatter.forbidden(
                 message="Access to this directory is restricted",
                 details="Cannot access system-critical directories"
@@ -84,14 +83,11 @@ async def browse_directory(
         
         try:
             # List directory contents
-            for item in browse_path.iterdir():
+            for item in visible_children(browse_path):
                 try:
                     is_directory = item.is_dir()
                     item_name = item.name
                     
-                    # Skip hidden files and system files
-                    if item_name.startswith('.') or item_name.startswith('$'):
-                        continue
                     
                     item_info = {
                         'name': item_name,

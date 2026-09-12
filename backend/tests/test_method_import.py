@@ -208,3 +208,9 @@ def test_invalid_folder_requests(client, payload):
 def test_empty_selection_is_not_treated_as_import_all(client, methods):
     response = client.post('/api/scheduling/experiments/import-folder', json={'folder_path': str(methods), 'relative_paths': []})
     assert response.status_code == 400
+
+
+def test_browse_endpoint_requires_local_access(client, methods):
+    url = '/api/scheduling/experiments/browse'
+    assert client.get(url, params={'path': str(methods)}).json()['data']['current_path'] == str(methods)
+    assert client.get(url, params={'path': str(methods)}, headers={'x-forwarded-for': '8.8.8.8'}).status_code == 403

@@ -1,4 +1,4 @@
-import { ApiResponse, MethodImportSelection, MethodImportPreview, MethodImportResult } from '../types/scheduling';
+import { ApiResponse, HostMethodDirectory, MethodImportSelection, MethodImportPreview, MethodImportResult } from '../types/scheduling';
 ﻿import { AxiosError, isAxiosError } from 'axios';
 import { api } from './api';
 import {
@@ -345,6 +345,9 @@ export const schedulingAPI = {
 
   previewExperimentImport: (selection: MethodImportSelection) =>
     api.post<ApiResponse<MethodImportPreview>>('/api/scheduling/experiments/import-preview', selection, { timeout: 60000 }),
+
+  browseMethodFolders: (path?: string) =>
+    api.get<ApiResponse<HostMethodDirectory>>('/api/scheduling/experiments/browse', { params: { path }, timeout: 15000 }),
 
   importExperimentFiles: (selection: MethodImportSelection) =>
     api.post<ApiResponse<MethodImportResult>>('/api/scheduling/experiments/import-files', selection, { timeout: 60000 }),
