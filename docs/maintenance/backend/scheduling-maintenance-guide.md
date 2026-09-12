@@ -6,6 +6,18 @@ This document explains how the scheduling subsystem fits together and how to mod
 
 ## 1. High-Level Architecture
 
+### Reviewed method path corrections
+
+Use `/experiments/library/{method_id}/path-preview` with `{new_path}` to validate an absolute `.med` file and list all primary and cleanup references. The response includes `expected_revision` and each reference's `updated_at`, active/archive flags and busy state. Busy means a pending, queued or running execution; a Hamilton Paused run still has the running execution lifecycle state. No preview changes data.
+
+Submit `/experiments/library/{method_id}/change-path` with `{new_path, expected_revision, references: [{schedule_id, role, expected_updated_at}]}`. `role` is `primary` or `cleanup`; an empty list changes only the library. Both routes require a local authenticated admin/user. The server validates the file again, rejects another catalogue entry owning the canonical path, and rechecks every selected schedule. An archived or busy schedule cannot be selected. A conflict returns 409; the operator must review again. Never infer selected references from a method name.
+
+`prepare_path_change` performs filesystem work before scheduler locks. `change_library_method_path` takes `_schedules_lock` then `_jobs_lock`, checks queue/running membership, and calls `apply_method_path_change`. That SQLite transaction uses `BEGIN IMMEDIATE`, checks the prepared catalogue snapshot plus schedule versions and pending executions, updates only selected path columns, and commits the catalogue and schedules together. A failure rolls back everything. Refreshed schedule objects replace the cache before either lock is released. Enqueue uses `_jobs_lock`; dispatch reloads the cached schedule, so an older queued object cannot launch an old selected path.
+
+Ordinary schedule edits recheck their version under the same schedule lock immediately before saving; version timestamps compare exactly, including microseconds. Schedule archive actions also load/save under that lock. Keep this coordination when adding other schedule mutations. Path corrections preserve labels, timing, contacts, cleanup labels, execution history, monitoring associations, archive state and original import provenance. They never move files or relaunch runs. The containing folder in the library derives from the current path.
+
+Run `python -m pytest backend/tests/test_method_library.py backend/tests/test_method_path_change.py -q` for archive/restore, legacy records, selected primary/cleanup changes, stale revisions, transaction rollback, enqueue/edit/archive races and preservation of paused execution observations.
+
 ### Method import (catalogue metadata only)
 
 The method library uses `ExperimentMethods.archived`, `revision`, `path_status`, `last_checked_at` and `validation_reason`; initialization adds missing columns without replacing records or changing old `is_valid` values. `/experiments/library` returns all entries with primary/cleanup schedule references. `/library/check` persists per-method validation outcomes, and `PATCH /library/{id}` archives/restores with an expected revision. These operations require a local admin/user. Path status and archive are independent. New choices use valid, unarchived entries; existing schedules keep their saved paths. Imports increment revisions, preserve archive/provenance and prefer a unique unarchived canonical match. Ambiguous legacy duplicates require explicit review.

@@ -120,7 +120,7 @@ export default function MethodLibraryPanel({ version, onChanged, onImport, onCre
       <DialogContent dividers>{detail && <Stack spacing={1.5} sx={{ overflowWrap: 'anywhere' }}>
         <Typography>{detail.method_name}</Typography><Typography>{detail.file_path}</Typography>
         <Typography>Imported from: {detail.source_folder || 'Not recorded'}</Typography>
-        <Typography>Imported by {detail.imported_by || 'Unknown'} at {detail.imported_at}</Typography>
+        <Typography>Imported by {detail.imported_by || 'Unknown'} at {detail.imported_at} UTC</Typography>
         <Typography>{pathStatusLabel[detail.path_status]} · Last checked: {detail.last_checked_at || 'Not checked'}</Typography>
         {detail.validation_reason && <Alert severity="warning">{detail.validation_reason}</Alert>}
         <Typography variant="h6">Schedules using this path</Typography>

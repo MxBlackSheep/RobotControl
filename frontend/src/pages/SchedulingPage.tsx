@@ -69,6 +69,8 @@ import NotificationContactsPanel from '../components/scheduling/NotificationCont
 import NotificationEmailSettingsPanel from '../components/scheduling/NotificationEmailSettingsPanel';
 import FolderImportDialog from '../components/scheduling/FolderImportDialog';
 import MethodLibraryPanel from '../components/scheduling/MethodLibraryPanel';
+import MethodPathDialog from '../components/scheduling/MethodPathDialog';
+import { LibraryMethod } from '../types/scheduling';
 import ExecutionHistory from '../components/ExecutionHistory';
 import useScheduling from '../hooks/useScheduling';
 import { formatDuration, formatExecutionStatus, ScheduledExperiment, CreateScheduleFormData, UpdateScheduleRequest, SchedulingOperationStatus } from '../types/scheduling';
@@ -126,6 +128,7 @@ const SchedulingPage: React.FC = () => {
   const [currentTab, setCurrentTab] = useState(0);
   const [improvedFormOpen, setImprovedFormOpen] = useState(false);
   const [catalogueVersion, setCatalogueVersion] = useState(0);
+  const [methodToRelink, setMethodToRelink] = useState<LibraryMethod | null>(null);
   const [folderImportOpen, setFolderImportOpen] = useState(false);
   const [scheduleFormMode, setScheduleFormMode] = useState<'create' | 'edit'>('create');
   const [scheduleFormInitialData, setScheduleFormInitialData] = useState<ScheduleFormValues>({});
@@ -1459,6 +1462,7 @@ const SchedulingPage: React.FC = () => {
         )}
         {isLocalClient && <TabPanel value={currentTab} index={6}>
           <MethodLibraryPanel version={catalogueVersion} onChanged={() => setCatalogueVersion(value => value + 1)}
+            onChangePath={setMethodToRelink}
             onImport={() => setFolderImportOpen(true)} onCreateSchedule={method => {
               handleOpenCreateForm();
               setScheduleFormInitialData({ experiment_name: method.method_name, experiment_path: method.file_path, notification_contacts: [] });
@@ -1467,6 +1471,9 @@ const SchedulingPage: React.FC = () => {
       </Paper>
 
       {/* Improved Schedule Form Dialog */}
+      {methodToRelink && <MethodPathDialog method={methodToRelink} onClose={() => setMethodToRelink(null)} onChanged={() => {
+        setCatalogueVersion(value => value + 1); void actions.loadSchedules();
+      }} />}
       <ImprovedScheduleForm
         open={improvedFormOpen}
         onClose={handleScheduleFormClose}

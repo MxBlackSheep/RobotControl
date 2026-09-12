@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from threading import RLock
 from typing import Any, Dict, List, Optional
 
 from fastapi.testclient import TestClient
@@ -12,6 +13,7 @@ from backend.services.auth import get_current_user
 
 class FakeScheduler:
     def __init__(self):
+        self._schedules_lock = RLock()
         self.add_calls: List[ScheduledExperiment] = []
         self.update_calls: List[ScheduledExperiment] = []
 

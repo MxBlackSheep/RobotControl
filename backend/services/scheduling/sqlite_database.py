@@ -1402,6 +1402,52 @@ class SQLiteSchedulingDatabase:
                     references.append({**dict(schedule), 'role': role, 'busy': schedule['schedule_id'] in unfinished})
         return references
 
+    def apply_method_path_change(self, prepared: dict, expected_revision: int, selected: List[dict]):
+        """Atomic catalogue/reference update. Caller holds scheduling locks; no filesystem work here."""
+        method, target = prepared['method'], prepared['target']
+        allowed = {(ref['schedule_id'], ref['role']): ref for ref in prepared['references']}
+        with self._get_connection() as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            current = [tuple(row) for row in conn.execute('SELECT method_id, file_path, revision FROM ExperimentMethods')]
+            if set(current) != set(prepared['catalogue_snapshot']) or method['revision'] != expected_revision:
+                raise ValueError('The method library changed. Preview the path correction again.')
+            by_schedule = {}
+            for reference in selected:
+                pair = (reference['schedule_id'], reference['role'])
+                if pair not in allowed:
+                    raise ValueError('A selected schedule no longer references this method. Preview again.')
+                by_schedule.setdefault(reference['schedule_id'], []).append(reference)
+            updated_schedules = []
+            now = utc_now_as_local_naive().isoformat()
+            for schedule_id, references in by_schedule.items():
+                row = conn.execute('SELECT * FROM ScheduledExperiments WHERE schedule_id = ?', (schedule_id,)).fetchone()
+                if not row or row['archived']:
+                    raise ValueError('A selected schedule is archived or no longer exists. Preview again.')
+                pending = conn.execute("SELECT 1 FROM JobExecutions WHERE schedule_id = ? AND status IN ('pending', 'queued', 'running') LIMIT 1", (schedule_id,)).fetchone()
+                if pending:
+                    raise ValueError('A selected schedule is queued, running or paused. Wait for it to finish.')
+                assignments, values = [], []
+                for reference in references:
+                    field = 'experiment_path' if reference['role'] == 'primary' else 'timeout_cleanup_experiment_path'
+                    snapshot = allowed[(schedule_id, reference['role'])]
+                    if row['updated_at'] != reference['expected_updated_at'] or row[field] != snapshot[field]:
+                        raise ValueError('A selected schedule changed. Preview the path correction again.')
+                    if field not in assignments:
+                        assignments.append(field); values.append(target['path'])
+                conn.execute('UPDATE ScheduledExperiments SET ' + ', '.join(f'{field} = ?' for field in assignments) + ', updated_at = ? WHERE schedule_id = ?',
+                             (*values, now, schedule_id))
+                saved = conn.execute('SELECT * FROM ScheduledExperiments WHERE schedule_id = ?', (schedule_id,)).fetchone()
+                restored = self._row_to_scheduled_experiment(saved, conn)
+                if restored is None:
+                    raise ValueError('Could not reload the selected schedule. No changes were saved.')
+                updated_schedules.append(restored)
+            conn.execute('''UPDATE ExperimentMethods SET file_path = ?, method_name = ?, file_size = ?, file_modified = ?,
+                            path_status = 'available', is_valid = 1, validation_reason = NULL, last_checked_at = ?, revision = revision + 1
+                            WHERE method_id = ?''',
+                         (target['path'], target['method_name'], target['file_size'], target['file_modified'], target['last_checked_at'], method['method_id']))
+            conn.commit()
+        return updated_schedules
+
     def set_method_archived(self, method_id: str, archived: bool, expected_revision: int):
         with self._get_connection() as conn:
             changed = conn.execute('UPDATE ExperimentMethods SET archived = ?, revision = revision + 1 WHERE method_id = ? AND revision = ?',

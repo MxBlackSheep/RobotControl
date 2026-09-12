@@ -157,10 +157,9 @@ def _timestamps_match(expected: Optional[str], actual: Optional[datetime]) -> bo
     except Exception:  # pragma: no cover - defensive
         return False
 
-    if expected_dt == actual:
-        return True
-    delta_seconds = abs((expected_dt - actual).total_seconds())
-    return delta_seconds <= 1
+    # Versions are returned verbatim by the API. A tolerance can accept a stale
+    # draft after a path correction committed within the same second.
+    return expected_dt == actual
 
 
 def _normalize_schedule_request(
@@ -1157,12 +1156,16 @@ async def update_schedule(
 
         updated_schedule.updated_at = utc_now_as_local_naive()
 
-        success = scheduler.update_schedule(updated_schedule)
-        if not success:
-            # Scheduler offline or cache missing; persist directly then clear cache.
-            if not db_mgr.update_scheduled_experiment(updated_schedule):
-                raise HTTPException(status_code=400, detail="Failed to update schedule")
-            scheduler.invalidate_schedule(schedule_id)
+        # A reviewed method-path correction may have committed while this draft
+        # was being validated. Recheck under the same lock before writing it back.
+        with scheduler._schedules_lock:
+            _load_current_schedule(schedule_id, db_mgr, base_schedule.updated_at.isoformat())
+            success = scheduler.update_schedule(updated_schedule)
+            if not success:
+                # Scheduler offline or cache missing; persist directly then clear cache.
+                if not db_mgr.update_scheduled_experiment(updated_schedule):
+                    raise HTTPException(status_code=400, detail="Failed to update schedule")
+                scheduler.invalidate_schedule(schedule_id)
 
         refreshed = db_mgr.get_schedule_by_id(schedule_id) or updated_schedule
 
@@ -1444,35 +1447,37 @@ async def set_schedule_archived(
     archived = bool(archived_flag)
 
     scheduler, db_mgr, _, _ = get_services()
-    schedule = db_mgr.get_schedule_by_id(schedule_id)
-    if not schedule:
-        raise HTTPException(status_code=404, detail="Schedule not found")
+    # Serialize the complete read/write with reviewed method-path changes.
+    with scheduler._schedules_lock:
+        schedule = db_mgr.get_schedule_by_id(schedule_id)
+        if not schedule:
+            raise HTTPException(status_code=404, detail="Schedule not found")
 
-    is_admin = current_user.get("role") == "admin"
-    is_local_owner = (
-        connection.is_local
-        and schedule.created_by
-        and schedule.created_by == current_user.get("username")
-    )
-    if not (is_admin or is_local_owner):
-        raise HTTPException(status_code=403, detail="Admin role required")
+        is_admin = current_user.get("role") == "admin"
+        is_local_owner = (
+            connection.is_local
+            and schedule.created_by
+            and schedule.created_by == current_user.get("username")
+        )
+        if not (is_admin or is_local_owner):
+            raise HTTPException(status_code=403, detail="Admin role required")
 
-    if schedule.archived == archived:
-        return ApiResponse(
-            success=True,
-            message="Schedule archive state unchanged",
-            data=schedule.to_dict(),
-        ).to_dict()
+        if schedule.archived == archived:
+            return ApiResponse(
+                success=True,
+                message="Schedule archive state unchanged",
+                data=schedule.to_dict(),
+            ).to_dict()
 
-    schedule.archived = archived
-    if archived:
-        schedule.is_active = False
-    schedule.updated_at = utc_now_as_local_naive()
+        schedule.archived = archived
+        if archived:
+            schedule.is_active = False
+        schedule.updated_at = utc_now_as_local_naive()
 
-    if not db_mgr.update_scheduled_experiment(schedule):
-        raise HTTPException(status_code=400, detail="Failed to update schedule")
+        if not db_mgr.update_scheduled_experiment(schedule):
+            raise HTTPException(status_code=400, detail="Failed to update schedule")
 
-    scheduler.invalidate_schedule(schedule_id)
+        scheduler.invalidate_schedule(schedule_id)
 
     message = "Schedule archived" if archived else "Schedule unarchived"
     return ApiResponse(
@@ -1876,6 +1881,45 @@ class MethodCheckRequest(BaseModel):
 class MethodArchiveRequest(BaseModel):
     archived: StrictBool
     expected_revision: int = Field(ge=1, strict=True)
+
+
+class MethodPathRequest(BaseModel):
+    new_path: StrictStr = Field(min_length=1)
+
+
+class MethodSelectedReference(BaseModel):
+    schedule_id: StrictStr
+    role: str = Field(pattern='^(primary|cleanup)$')
+    expected_updated_at: StrictStr
+
+
+class MethodChangePathRequest(MethodPathRequest):
+    expected_revision: int = Field(ge=1, strict=True)
+    references: List[MethodSelectedReference] = Field(default_factory=list, max_length=1000)
+
+
+@router.post('/experiments/library/{method_id}/path-preview')
+async def preview_library_path(method_id: str, request: MethodPathRequest, current_user: dict = Depends(get_current_user), connection: ConnectionContext = Depends(require_local_access)):
+    from backend.services.scheduling.method_library import path_change_preview
+    _require_method_import_role(current_user)
+    try:
+        preview = await run_in_threadpool(path_change_preview, get_experiment_discovery_service().db, get_scheduler_engine(), method_id, request.new_path)
+        return ApiResponse(success=True, message='Review affected schedules', data=preview).to_dict()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post('/experiments/library/{method_id}/change-path')
+async def change_library_path(method_id: str, request: MethodChangePathRequest, current_user: dict = Depends(get_current_user), connection: ConnectionContext = Depends(require_local_access)):
+    _require_method_import_role(current_user)
+    try:
+        result = await run_in_threadpool(get_scheduler_engine().change_library_method_path, get_experiment_discovery_service().db,
+                                        method_id, request.new_path, request.expected_revision, [row.model_dump() for row in request.references])
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    log_action(actor=current_user.get('username', 'unknown'), action='change_method_path', scope='scheduling', client_ip=connection.client_ip,
+               success=True, details={**result, 'new_path': request.new_path})
+    return ApiResponse(success=True, message='Method path and selected schedule references updated', data=result).to_dict()
 
 
 @router.get('/experiments/library')

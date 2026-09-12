@@ -163,6 +163,14 @@ export interface LibraryMethod {
   validation_reason: string | null; references: MethodReference[]; schedule_count: number; duplicate_path: boolean;
 }
 
+export interface MethodPathPreview {
+  method_id: string; expected_revision: number; old_path: string; new_path: string; references: MethodReference[];
+}
+export interface MethodPathChange {
+  new_path: string; expected_revision: number;
+  references: { schedule_id: string; role: 'primary' | 'cleanup'; expected_updated_at: string }[];
+}
+
 export interface MethodImportPreview {
   folder: string;
   total_found: number;

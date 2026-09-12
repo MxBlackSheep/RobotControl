@@ -1,4 +1,4 @@
-import { ApiResponse, LibraryMethod, HostMethodDirectory, MethodImportSelection, MethodImportPreview, MethodImportResult } from '../types/scheduling';
+import { ApiResponse, MethodPathPreview, MethodPathChange, LibraryMethod, HostMethodDirectory, MethodImportSelection, MethodImportPreview, MethodImportResult } from '../types/scheduling';
 ﻿import { AxiosError, isAxiosError } from 'axios';
 import { api } from './api';
 import {
@@ -353,6 +353,10 @@ export const schedulingAPI = {
   checkMethodPaths: (method_ids: string[]) => api.post<ApiResponse<{ outcomes: { method_id: string; success: boolean; reason?: string }[] }>>('/api/scheduling/experiments/library/check', { method_ids }, { timeout: 60000 }),
   archiveMethod: (method_id: string, archived: boolean, expected_revision: number) =>
     api.patch(`/api/scheduling/experiments/library/${encodeURIComponent(method_id)}`, { archived, expected_revision }),
+  previewMethodPath: (method_id: string, new_path: string) =>
+    api.post<ApiResponse<MethodPathPreview>>(`/api/scheduling/experiments/library/${encodeURIComponent(method_id)}/path-preview`, { new_path }, { timeout: 30000 }),
+  changeMethodPath: (method_id: string, payload: MethodPathChange) =>
+    api.post<ApiResponse<{ updated_schedule_ids: string[] }>>(`/api/scheduling/experiments/library/${encodeURIComponent(method_id)}/change-path`, payload, { timeout: 30000 }),
 
   importExperimentFiles: (selection: MethodImportSelection) =>
     api.post<ApiResponse<MethodImportResult>>('/api/scheduling/experiments/import-files', selection, { timeout: 60000 }),

@@ -14,6 +14,14 @@ The account address normally supplies both SMTP login and From address. `smtpFor
 
 Save settings first, then send a test. Unsaved changes disable testing; saving never sends mail. Refresh/discard asks before replacing a dirty draft and only replaces it after a successful fetch. Results are persistent inline alerts, not timed dialogs. The SMTP test request still waits up to 60 seconds; the backend uses one send attempt with a ten-second timeout per SMTP operation. Keep detailed backend errors to distinguish connection, TLS and authentication failures. Manual-recovery recipient overrides are separate from the schedule's normal alert recipients.
 
+## Change a method path
+
+Open a method's details in the Methods tab, then choose Change path. `MethodPathDialog` accepts a manual absolute `.med` path or a file selected with `HostMethodBrowser`. Review shows the original/replacement path and separates busy, archived, active and inactive schedule references. Primary and cleanup references have separate checkboxes. All start unchecked, and busy/archived references are disabled. The summary explains how many references retain their old paths.
+
+Save sends the preview's method revision and only the selected schedule references with their exact version strings. Do not round timestamps or preselect matching schedules. A 409/error retains the preview, entries and choices. Review again fetches current references and clears the choices for explicit review. Success reports the actual number of changed schedules and retained references; it refreshes the library, method choices and schedule list. Closing the dialog restores focus using MUI. A catalogue-only correction must leave every existing schedule unchanged.
+
+`MethodPathDialog.test.tsx` covers partial selection, disabled paused/archived references, confirmation results and conflict draft retention. The host-browser tests cover file selection and navigation failures without losing the current folder.
+
 ## Import Hamilton methods
 
 The local Methods tab uses `MethodLibraryPanel`: filters and sorting apply to loaded catalogue rows; changing filters clears bulk selection so hidden entries cannot be changed accidentally. Archive/restore requires explicit selected rows and confirmation, sends each row's revision, and reports partial failures. Check paths refreshes validation; Refresh library reloads stored data. Details include both primary and cleanup schedule references. `catalogueVersion` refreshes choices without resetting schedule drafts. Saved paths absent from current choices remain visible with an explanation. Archiving never stops existing schedules or deletes files.

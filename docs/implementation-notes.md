@@ -1,5 +1,14 @@
 # RobotControl Development Log (Chronological)
 
+## 2026-09-12 Reviewed method path correction
+
+- Added manual/host-browser path correction with validated preview, separate primary/cleanup references, unchecked selection and disabled busy/archived schedules. Save revalidates the file, catalogue revision and selected schedule versions; catalogue and selected paths commit in one SQLite transaction. Scheduler locks coordinate enqueue/dispatch and cache refresh. Ordinary edit/archive writes cannot overwrite a concurrent correction; version checks no longer accept changes within a one-second tolerance.
+- Unselected paths, labels, timing, contacts, archive state, import provenance, execution history and monitoring records stay intact. Canonical path collisions and stale previews fail without partial changes. Conflict messages preserve the draft and require a fresh review.
+- Validation: 260 backend tests and 31 focused frontend tests pass, including rollback, enqueue/edit/archive races and paused monitoring preservation. Browser checks confirmed direct host-folder preview, archive/restore, cleanup-only correction, keyboard focus restoration and desktop/narrow layouts. Frontend build, resource embedding and Windows PyInstaller packaging pass. The isolated packaged app passed host browsing/import, archived reimport/restore, cleanup-only correction, stale-edit rejection, path checks and local-only access with its scheduler stopped.
+- Candidate: `dist/RobotControl-method-library/RobotControl.exe` with its `_internal` directory. Validation data was removed; existing `dist/RobotControl`, `dist/RobotControl-setup` and runtime data were preserved. No Hamilton method was executed or email sent during validation.
+
+---
+
 ## 2026-09-12 Method library management
 
 - Added a local Methods tab with search, folder/status/archive filters, sorting, path checks, usage details (including cleanup references), schedule creation and selected archive/restore actions. Existing schedule paths and files are unchanged by archive; saved form selections remain visible when absent from new choices.

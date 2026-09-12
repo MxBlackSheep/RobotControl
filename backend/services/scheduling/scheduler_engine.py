@@ -515,6 +515,21 @@ class SchedulerEngine:
         """Remove a schedule from the in-memory cache without touching persistence."""
         with self._schedules_lock:
             self._active_schedules.pop(schedule_id, None)
+
+    def change_library_method_path(self, library_db, method_id: str, new_path: str, expected_revision: int, references: list):
+        """Review filesystem state first, then serialize the atomic update with enqueue/dispatch."""
+        from backend.services.scheduling.method_library import prepare_path_change
+        prepared = prepare_path_change(library_db, method_id, new_path)
+        selected_ids = {reference['schedule_id'] for reference in references}
+        # Same lock order as status snapshots. Enqueue and worker transitions use _jobs_lock.
+        with self._schedules_lock, self._jobs_lock:
+            if selected_ids & (self._running_jobs | self._queued_backlog):
+                raise ValueError('A selected schedule is queued, running or paused. Wait for it to finish.')
+            updated = library_db.apply_method_path_change(prepared, expected_revision, references)
+            for schedule in updated:
+                if schedule.is_active or schedule.schedule_id in self._active_schedules:
+                    self._active_schedules[schedule.schedule_id] = schedule
+        return {'method_id': method_id, 'updated_schedule_ids': [schedule.schedule_id for schedule in updated]}
     
     def _refresh_manual_recovery_state(self, force: bool = False) -> ManualRecoveryState:
         """Refresh and return the cached manual recovery state."""

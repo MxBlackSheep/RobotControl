@@ -63,6 +63,41 @@ def check_library_paths(db, method_ids):
     return outcomes
 
 
+def prepare_path_change(db, method_id, new_path):
+    """Perform all filesystem/canonical-path work before taking scheduler locks."""
+    rows = db.get_experiment_methods(valid_only=False)
+    method = next((row for row in rows if row['method_id'] == method_id), None)
+    if not method:
+        raise ValueError('Method no longer exists.')
+    target = check_method_path(new_path.strip().strip('"'))
+    if target['path_status'] != 'available':
+        raise ValueError(target['validation_reason'])
+    key = method_path_key(target['path'])
+    for other in rows:
+        if other['method_id'] == method_id:
+            continue
+        try:
+            collision = method_path_key(other['file_path']) == key
+        except (ValueError, OSError):
+            collision = False
+        if collision:
+            raise ValueError(f"This path belongs to another library entry: {other['method_name']} ({other['method_id']}). Review that entry instead.")
+    target['method_name'] = Path(target['path']).stem
+    return {'method': method, 'target': target, 'references': db.get_method_references(method['file_path']),
+            'catalogue_snapshot': [(row['method_id'], row['file_path'], row['revision']) for row in rows]}
+
+
+def path_change_preview(db, scheduler, method_id, new_path):
+    prepared = prepare_path_change(db, method_id, new_path)
+    with scheduler._jobs_lock:
+        busy = scheduler._running_jobs | scheduler._queued_backlog
+        for reference in prepared['references']:
+            reference['busy'] = reference['busy'] or reference['schedule_id'] in busy
+    return {'method_id': method_id, 'expected_revision': prepared['method']['revision'],
+            'old_path': prepared['method']['file_path'], 'new_path': prepared['target']['path'],
+            'references': prepared['references']}
+
+
 def browse_methods(db, path=None):
     drives = host_drives()
     shortcuts = sorted({str(Path(row['file_path']).parent) for row in db.get_experiment_methods(valid_only=False)
