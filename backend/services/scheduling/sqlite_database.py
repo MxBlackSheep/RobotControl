@@ -13,6 +13,7 @@ import logging
 import threading
 import json
 import uuid
+from backend.utils.filesystem import method_path_key
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime, timedelta
@@ -92,6 +93,16 @@ class SQLiteSchedulingDatabase:
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_method_name ON ExperimentMethods(method_name)")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_method_category ON ExperimentMethods(category)")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_method_valid ON ExperimentMethods(is_valid)")
+                method_columns = {row[1] for row in cursor.execute('PRAGMA table_info(ExperimentMethods)')}
+                for name, definition in (
+                    ('archived', 'INTEGER NOT NULL DEFAULT 0'),
+                    ('revision', 'INTEGER NOT NULL DEFAULT 1'),
+                    ('path_status', "TEXT NOT NULL DEFAULT 'not_checked'"),
+                    ('last_checked_at', 'TEXT'),
+                    ('validation_reason', 'TEXT'),
+                ):
+                    if name not in method_columns:
+                        cursor.execute(f'ALTER TABLE ExperimentMethods ADD COLUMN {name} {definition}')
                 
                 # Create ScheduledExperiments table
                 cursor.execute("""
@@ -1320,18 +1331,19 @@ class SQLiteSchedulingDatabase:
             with self._get_connection() as conn:
                 conn.execute("BEGIN IMMEDIATE")
                 existing_paths = {}
-                for stored in conn.execute("SELECT method_id, file_path FROM ExperimentMethods").fetchall():
+                for stored in conn.execute("SELECT method_id, file_path, archived FROM ExperimentMethods").fetchall():
                     try:
                         path = Path(stored["file_path"])
                         if path.is_absolute():
-                            existing_paths.setdefault(str(path.resolve()).casefold(), []).append(stored["method_id"])
+                            existing_paths.setdefault(method_path_key(str(path)), []).append(dict(stored))
                     except (OSError, ValueError):
                         continue
                 for method in methods:
                     outcome = {"path": method["path"], "status": "failed", "reason": None}
                     try:
-                        key = str(Path(method["path"]).resolve()).casefold()
+                        key = method_path_key(method["path"])
                         existing = existing_paths.get(key, [])
+                        existing = [row for row in existing if not row['archived']] or existing
                         if len(existing) > 1:
                             raise ValueError("Multiple catalogue entries resolve to this method; review the existing records.")
                         values = (method["name"], method.get("category", "Custom"),
@@ -1340,19 +1352,21 @@ class SQLiteSchedulingDatabase:
                         if existing:
                             conn.execute("""
                                 UPDATE ExperimentMethods SET method_name = ?, category = ?, description = ?,
-                                    file_size = ?, file_modified = ?, metadata = ?, is_valid = 1
+                                    file_size = ?, file_modified = ?, metadata = ?, is_valid = 1,
+                                    revision = revision + 1, path_status = 'available',
+                                    last_checked_at = ?, validation_reason = NULL
                                 WHERE method_id = ?
-                            """, (*values, existing[0]))
+                            """, (*values, datetime.now().isoformat(), existing[0]['method_id']))
                             outcome["status"] = "updated"
                         else:
                             method_id = str(uuid.uuid4())
                             conn.execute("""
                                 INSERT INTO ExperimentMethods
                                     (method_name, category, description, file_size, file_modified, metadata,
-                                     method_id, file_path, imported_by, source_folder, is_valid)
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-                            """, (*values, method_id, method["path"], imported_by, method.get("source_folder", "")))
-                            existing_paths[key] = [method_id]
+                                     method_id, file_path, imported_by, source_folder, is_valid, path_status, last_checked_at)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'available', ?)
+                            """, (*values, method_id, method["path"], imported_by, method.get("source_folder", ""), datetime.now().isoformat()))
+                            existing_paths[key] = [{'method_id': method_id, 'archived': False}]
                             outcome["status"] = "added"
                     except Exception as exc:
                         if not conn.in_transaction:
@@ -1368,6 +1382,43 @@ class SQLiteSchedulingDatabase:
             return [{"path": method["path"], "status": "failed",
                      "reason": f"Database transaction failed: {exc}"} for method in methods]
         return results
+
+    def get_method_references(self, path: str) -> List[Dict[str, Any]]:
+        key = method_path_key(path)
+        with self._get_connection() as conn:
+            schedules = conn.execute('SELECT schedule_id, experiment_name, experiment_path, timeout_cleanup_experiment_path, is_active, archived, updated_at FROM ScheduledExperiments').fetchall()
+            unfinished = {row[0] for row in conn.execute("SELECT DISTINCT schedule_id FROM JobExecutions WHERE status IN ('pending', 'queued', 'running')")}
+        references = []
+        for schedule in schedules:
+            for field, role in (('experiment_path', 'primary'), ('timeout_cleanup_experiment_path', 'cleanup')):
+                raw = schedule[field]
+                if not raw:
+                    continue
+                try:
+                    matches = method_path_key(raw) == key
+                except (OSError, ValueError):
+                    matches = raw == path
+                if matches:
+                    references.append({**dict(schedule), 'role': role, 'busy': schedule['schedule_id'] in unfinished})
+        return references
+
+    def set_method_archived(self, method_id: str, archived: bool, expected_revision: int):
+        with self._get_connection() as conn:
+            changed = conn.execute('UPDATE ExperimentMethods SET archived = ?, revision = revision + 1 WHERE method_id = ? AND revision = ?',
+                                   (int(archived), method_id, expected_revision)).rowcount
+            if not changed:
+                raise ValueError('Method changed or was removed. Refresh the library and review it again.')
+            conn.commit()
+
+    def save_method_validation(self, method_id: str, expected_revision: int, result: dict):
+        with self._get_connection() as conn:
+            changed = conn.execute('''UPDATE ExperimentMethods SET path_status = ?, last_checked_at = ?, validation_reason = ?,
+                                     is_valid = ?, revision = revision + 1 WHERE method_id = ? AND revision = ?''',
+                                   (result['path_status'], result['last_checked_at'], result['validation_reason'],
+                                    int(result['path_status'] == 'available'), method_id, expected_revision)).rowcount
+            if not changed:
+                raise ValueError('Method changed during validation. Check its path again.')
+            conn.commit()
 
     def get_experiment_methods(self, category: Optional[str] = None, valid_only: bool = True) -> List[Dict[str, Any]]:
         """
@@ -1388,7 +1439,7 @@ class SQLiteSchedulingDatabase:
                 params = []
                 
                 if valid_only:
-                    query += " AND is_valid = 1"
+                    query += " AND is_valid = 1 AND archived = 0"
                     
                 if category:
                     query += " AND category = ?"

@@ -8,6 +8,8 @@ This document explains how the scheduling subsystem fits together and how to mod
 
 ### Method import (catalogue metadata only)
 
+The method library uses `ExperimentMethods.archived`, `revision`, `path_status`, `last_checked_at` and `validation_reason`; initialization adds missing columns without replacing records or changing old `is_valid` values. `/experiments/library` returns all entries with primary/cleanup schedule references. `/library/check` persists per-method validation outcomes, and `PATCH /library/{id}` archives/restores with an expected revision. These operations require a local admin/user. Path status and archive are independent. New choices use valid, unarchived entries; existing schedules keep their saved paths. Imports increment revisions, preserve archive/provenance and prefer a unique unarchived canonical match. Ambiguous legacy duplicates require explicit review.
+
 `GET /experiments/browse` provides host metadata for the scheduling folder browser. Omitted path starts at the standard Hamilton Methods directory when present; empty path lists drives. Responses contain canonical current/parent paths, breadcrumbs, folders (with a disabled linked flag), `.med` files and imported-folder shortcuts. Access requires the same local admin/user checks as import. Directory enumeration uses shared helpers with the system browser; do not alter backup-browser behavior when extending it.
 
 All three endpoints below use the scheduling API prefix, require an authenticated admin/user and enforce `require_local_access`. Blocking discovery/database work runs in a thread pool.

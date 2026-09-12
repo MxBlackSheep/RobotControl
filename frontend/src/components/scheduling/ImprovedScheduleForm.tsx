@@ -566,6 +566,8 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                       label="Select Experiment" labelId="schedule-method-label"
                       disabled={loading || scanning}
                     >
+                      {!!formData.experiment_path && !experiments.some(exp => exp.path === formData.experiment_path) &&
+                        <MenuItem value={formData.experiment_path} disabled>{formData.experiment_name} (saved path)</MenuItem>}
                       {Object.entries(categorizedExperiments).map(([category, exps]) => [
                         <ListSubheader key={`header-${category}`}>
                           <Stack direction="row" alignItems="center" spacing={1}>
@@ -607,6 +609,8 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                     </Typography>
                   </Alert>
                 )}
+                {!loading && !!formData.experiment_path && !experiments.some(exp => exp.path === formData.experiment_path) &&
+                  <Alert severity="warning">This saved path is not in the current available method library. It may be archived or unavailable. Your selection is preserved; review it in Methods before changing it.</Alert>}
 
                 <TextField
                   label="Estimated Duration (minutes)"
@@ -774,6 +778,8 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                         label="Cleanup Method"
                       >
                         <MenuItem value="">Select cleanup method</MenuItem>
+                        {!!formData.timeout_cleanup_experiment_path && !experiments.some(exp => exp.path === formData.timeout_cleanup_experiment_path) &&
+                          <MenuItem value={formData.timeout_cleanup_experiment_path} disabled>{formData.timeout_cleanup_experiment_name || 'Cleanup method'} (saved path)</MenuItem>}
                         {Object.entries(categorizedExperiments).map(([category, exps]) => [
                           <ListSubheader key={`cleanup-header-${category}`}>
                             <Stack direction="row" alignItems="center" spacing={1}>
@@ -794,6 +800,8 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                         ])}
                       </Select>
                     </FormControl>
+                    {!!formData.timeout_cleanup_experiment_path && !experiments.some(exp => exp.path === formData.timeout_cleanup_experiment_path) &&
+                      <Alert severity="warning">The saved cleanup path is archived, unavailable or absent from the current library. Your selection is preserved.</Alert>}
                   </Grid>
                 )}
 

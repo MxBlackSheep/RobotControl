@@ -6,7 +6,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Header
 from starlette.concurrency import run_in_threadpool
-from pydantic import BaseModel, StrictStr
+from pydantic import BaseModel, StrictStr, StrictBool, Field
 
 from backend.services.auth import get_current_user
 from backend.services.scheduling import (
@@ -1867,6 +1867,42 @@ async def browse_method_folders(
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except (OSError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+class MethodCheckRequest(BaseModel):
+    method_ids: List[StrictStr] = Field(min_length=1, max_length=1000)
+
+
+class MethodArchiveRequest(BaseModel):
+    archived: StrictBool
+    expected_revision: int = Field(ge=1, strict=True)
+
+
+@router.get('/experiments/library')
+async def get_method_library(current_user: dict = Depends(get_current_user), connection: ConnectionContext = Depends(require_local_access)):
+    from backend.services.scheduling.method_library import library_records
+    _require_method_import_role(current_user)
+    rows = await run_in_threadpool(library_records, get_experiment_discovery_service().db)
+    return ApiResponse(success=True, message='Method library loaded', data={'methods': rows}).to_dict()
+
+
+@router.post('/experiments/library/check')
+async def check_method_library(request: MethodCheckRequest, current_user: dict = Depends(get_current_user), connection: ConnectionContext = Depends(require_local_access)):
+    from backend.services.scheduling.method_library import check_library_paths
+    _require_method_import_role(current_user)
+    outcomes = await run_in_threadpool(check_library_paths, get_experiment_discovery_service().db, request.method_ids)
+    return ApiResponse(success=all(row['success'] for row in outcomes), message='Path checks finished', data={'outcomes': outcomes}).to_dict()
+
+
+@router.patch('/experiments/library/{method_id}')
+async def archive_library_method(method_id: str, request: MethodArchiveRequest, current_user: dict = Depends(get_current_user), connection: ConnectionContext = Depends(require_local_access)):
+    _require_method_import_role(current_user)
+    try:
+        await run_in_threadpool(get_experiment_discovery_service().db.set_method_archived, method_id, request.archived, request.expected_revision)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    log_action(actor=current_user.get('username', 'unknown'), action='archive_method' if request.archived else 'restore_method', scope='scheduling', client_ip=connection.client_ip, success=True, details={'method_id': method_id})
+    return ApiResponse(success=True, message='Method archived' if request.archived else 'Method restored', data={'method_id': method_id}).to_dict()
 
 
 @router.post("/experiments/import-preview")

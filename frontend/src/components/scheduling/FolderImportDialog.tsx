@@ -133,7 +133,7 @@ export default function FolderImportDialog({ open, onClose, onImportComplete, on
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block', overflowWrap: 'anywhere' }}>{row.path || row.relative_path}</Typography>
                     {row.reason && <Typography variant="body2" color="error" sx={{ overflowWrap: 'anywhere' }}>{row.reason}</Typography>}
                   </Box>
-                  <Chip size="small" label={rowLabel(row)} color={row.status === 'failed' || row.action === 'invalid' ? 'error' : row.status === 'added' || row.action === 'new' ? 'success' : 'info'} />
+                  <Chip size="small" label={`${rowLabel(row)}${row.archived ? ' (archived)' : ''}`} color={row.status === 'failed' || row.action === 'invalid' ? 'error' : row.status === 'added' || row.action === 'new' ? 'success' : 'info'} />
                 </ListItem>)}</List>
                 {visibleRows.length === 0 && <Typography sx={{ p: 2 }}>No methods match your search.</Typography>}
               </Box>

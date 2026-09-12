@@ -68,6 +68,7 @@ import ImprovedScheduleForm from '../components/scheduling/ImprovedScheduleForm'
 import NotificationContactsPanel from '../components/scheduling/NotificationContactsPanel';
 import NotificationEmailSettingsPanel from '../components/scheduling/NotificationEmailSettingsPanel';
 import FolderImportDialog from '../components/scheduling/FolderImportDialog';
+import MethodLibraryPanel from '../components/scheduling/MethodLibraryPanel';
 import ExecutionHistory from '../components/ExecutionHistory';
 import useScheduling from '../hooks/useScheduling';
 import { formatDuration, formatExecutionStatus, ScheduledExperiment, CreateScheduleFormData, UpdateScheduleRequest, SchedulingOperationStatus } from '../types/scheduling';
@@ -884,6 +885,7 @@ const SchedulingPage: React.FC = () => {
                 }}
               />
             )}
+            {isLocalClient && <Tab value={6} label="Methods" icon={<FolderIcon fontSize="small" />} iconPosition="start" />}
           </Tabs>
         </Box>
 
@@ -1455,6 +1457,13 @@ const SchedulingPage: React.FC = () => {
             </Stack>
           </TabPanel>
         )}
+        {isLocalClient && <TabPanel value={currentTab} index={6}>
+          <MethodLibraryPanel version={catalogueVersion} onChanged={() => setCatalogueVersion(value => value + 1)}
+            onImport={() => setFolderImportOpen(true)} onCreateSchedule={method => {
+              handleOpenCreateForm();
+              setScheduleFormInitialData({ experiment_name: method.method_name, experiment_path: method.file_path, notification_contacts: [] });
+            }} />
+        </TabPanel>}
       </Paper>
 
       {/* Improved Schedule Form Dialog */}

@@ -178,10 +178,12 @@ class ExperimentDiscoveryService:
                 relative_paths.extend(str(Path(directory, name).relative_to(folder))
                                       for name in names if Path(name).suffix.lower() == ".med")
         existing = set()
+        existing_rows = {}
         for stored in self.db.get_experiment_methods(valid_only=False):
             try:
                 if Path(stored["file_path"]).is_absolute():
                     existing.add(self._method_key(stored["file_path"]))
+                    existing_rows.setdefault(self._method_key(stored['file_path']), []).append(stored)
             except (OSError, ValueError):
                 # Leave older unverified catalogue entries unchanged; they must not break preview.
                 logger.warning("Ignoring an unresolvable catalogue path during import preview")
@@ -205,9 +207,13 @@ class ExperimentDiscoveryService:
                 if key in seen:
                     raise ValueError("This method is already included in the selection.")
                 seen.add(key)
+                matches = existing_rows.get(key, [])
+                matches = [item for item in matches if not item.get('archived')] or matches
+                if len(matches) > 1:
+                    raise ValueError('Multiple catalogue entries resolve to this method; archive duplicate entries in the library first.')
                 row.update(name=path.stem, path=str(path), size=stat.st_size,
                            last_modified=datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                           action="update" if key in existing else "new")
+                           action="update" if key in existing else "new", archived=bool(matches and matches[0].get('archived')))
             except (OSError, ValueError) as exc:
                 row["reason"] = str(exc)
             methods.append(row)

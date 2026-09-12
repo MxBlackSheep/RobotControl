@@ -16,3 +16,11 @@ def restricted_directory(folder: Path) -> bool:
 def host_drives():
     return [str(path) for letter in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
             if (path := Path(f'{letter}:\\')).exists()]
+
+
+def method_path_key(value: str) -> str:
+    """Canonical absolute identity, or exact legacy relative identity without guessing a root."""
+    path = Path(value)
+    if path.is_absolute():
+        return str(path.resolve()).casefold()
+    return 'relative:' + str(path).replace('/', '\\').casefold()

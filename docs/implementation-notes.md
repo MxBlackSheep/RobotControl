@@ -1,5 +1,12 @@
 # RobotControl Development Log (Chronological)
 
+## 2026-09-12 Method library management
+
+- Added a local Methods tab with search, folder/status/archive filters, sorting, path checks, usage details (including cleanup references), schedule creation and selected archive/restore actions. Existing schedule paths and files are unchanged by archive; saved form selections remain visible when absent from new choices.
+- Added backward-compatible archive, revision and validation fields. Checks persist Available/Missing/Inaccessible/Invalid/Not checked separately from archive. Revision checks reject stale changes. Reimport preserves archive and provenance and prefers a unique current entry over archived duplicates. Migration and API tests cover legacy validity, access, reimport, references and unchanged schedules.
+
+---
+
 ## 2026-09-12 Host folder browsing for method import
 
 - Replaced browser uploads with a local host folder browser: breadcrumbs, drives, parent navigation, imported-folder shortcuts and automatic absolute-path selection. Manual entry remains available and explains the missing required path. Failed navigation preserves the last usable folder/selection; linked folders are disabled.

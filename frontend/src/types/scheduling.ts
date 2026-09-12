@@ -140,6 +140,7 @@ export interface HostMethodDirectory {
 }
 
 export interface MethodImportRow {
+  archived?: boolean;
   name: string;
   relative_path: string;
   path: string | null;
@@ -148,6 +149,18 @@ export interface MethodImportRow {
   action?: 'new' | 'update' | 'invalid';
   status?: 'added' | 'updated' | 'failed';
   reason?: string | null;
+}
+
+export type MethodPathStatus = 'available' | 'missing' | 'inaccessible' | 'invalid' | 'not_checked';
+export interface MethodReference {
+  schedule_id: string; experiment_name: string; role: 'primary' | 'cleanup';
+  is_active: boolean; archived: boolean; busy: boolean; updated_at: string;
+}
+export interface LibraryMethod {
+  method_id: string; method_name: string; file_path: string; containing_folder: string;
+  source_folder: string | null; imported_at: string; imported_by: string; revision: number;
+  archived: boolean; path_status: MethodPathStatus; last_checked_at: string | null;
+  validation_reason: string | null; references: MethodReference[]; schedule_count: number; duplicate_path: boolean;
 }
 
 export interface MethodImportPreview {
