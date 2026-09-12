@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Header
+from starlette.concurrency import run_in_threadpool
 
 from backend.services.auth import get_current_user
 from backend.services.scheduling import (
@@ -45,6 +46,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/scheduling", tags=["scheduling"])
 
 EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _log_inactivity_threshold(value: Any) -> int:
+    if type(value) is not int or value <= 0:
+        raise HTTPException(status_code=400, detail="Log inactivity threshold must be a positive whole number of minutes")
+    return value
 
 SCHEDULE_INTERVAL_ALIASES: Dict[str, float] = {
     "hourly": 1.0,
@@ -421,7 +428,9 @@ async def test_notification_settings_endpoint(
     ]
     body = "\n".join(body_lines)
 
-    if not email_service.send(subject, body, to=[recipient]):
+    if not await run_in_threadpool(
+        email_service.send, subject, body, to=[recipient], timeout_seconds=10, attempts=1,
+    ):
         detail = email_service.last_error or "Failed to deliver test email; see backend logs for details."
         log_action(
             actor=current_user.get("username", "unknown"),
@@ -510,7 +519,9 @@ async def send_schedule_notification_email_endpoint(
         ).to_dict()
 
     email_service = EmailNotificationService()
-    if not email_service.send(subject, body, to=recipients):
+    if not await run_in_threadpool(
+        email_service.send, subject, body, to=recipients, timeout_seconds=10, attempts=1,
+    ):
         detail = email_service.last_error or "Failed to deliver email; see backend logs for details"
         log_action(
             actor=actor,
@@ -820,6 +831,7 @@ async def create_schedule(
             interval_hours=normalized_interval_hours,
             start_time=start_time,
             estimated_duration=schedule_data.get("estimated_duration", 60),
+            log_inactivity_threshold_minutes=_log_inactivity_threshold(schedule_data.get("log_inactivity_threshold_minutes", 3)),
             created_by=current_user.get("username", "unknown"),
             is_active=schedule_data.get("is_active", True),
             timeout_config=timeout_config,
@@ -1121,6 +1133,8 @@ async def update_schedule(
                 raise HTTPException(status_code=400, detail="Invalid start_time format")
         if "estimated_duration" in update_data:
             updated_schedule.estimated_duration = update_data["estimated_duration"]
+        if "log_inactivity_threshold_minutes" in update_data:
+            updated_schedule.log_inactivity_threshold_minutes = _log_inactivity_threshold(update_data["log_inactivity_threshold_minutes"])
         if "is_active" in update_data:
             updated_schedule.is_active = update_data["is_active"]
         if "prerequisites" in update_data:
@@ -1208,7 +1222,7 @@ async def require_schedule_recovery(
     actor = current_user.get('username') or current_user.get('user_id', 'system')
 
     _load_current_schedule(schedule_id, db_mgr, expected_token)
-    updated = scheduler.require_manual_recovery(schedule_id, note, actor)
+    updated = await run_in_threadpool(scheduler.require_manual_recovery, schedule_id, note, actor)
     if not updated:
         existing = db_mgr.get_schedule_by_id(schedule_id)
         if not existing:
@@ -1271,7 +1285,7 @@ async def resolve_schedule_recovery(
     actor = current_user.get('username') or current_user.get('user_id', 'system')
 
     _load_current_schedule(schedule_id, db_mgr, expected_token)
-    updated = scheduler.resolve_manual_recovery(schedule_id, note, actor)
+    updated = await run_in_threadpool(scheduler.resolve_manual_recovery, schedule_id, note, actor)
     if not updated:
         existing = db_mgr.get_schedule_by_id(schedule_id)
         if not existing:
@@ -1569,6 +1583,7 @@ async def check_conflicts(
                 interval_hours=None,
                 start_time=start_time,
                 estimated_duration=exp_data.get("estimated_duration", 60),
+                log_inactivity_threshold_minutes=_log_inactivity_threshold(exp_data.get("log_inactivity_threshold_minutes", 3)),
                 created_by="system",
                 is_active=True,
                 timeout_config=None,

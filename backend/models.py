@@ -141,6 +141,7 @@ class ScheduledExperiment:
     interval_hours: Optional[int] = None  # 6, 8, 24 for interval schedules
     start_time: Optional[datetime] = None  # Next execution time
     estimated_duration: int = 60  # Duration in minutes
+    log_inactivity_threshold_minutes: int = 3
     created_by: str = "system"
     is_active: bool = True
     archived: bool = False
@@ -158,6 +159,8 @@ class ScheduledExperiment:
     
     def __post_init__(self):
         """Initialize default values after creation"""
+        if type(self.log_inactivity_threshold_minutes) is not int or self.log_inactivity_threshold_minutes <= 0:
+            raise ValueError("Log inactivity threshold must be a positive whole number of minutes")
         if self.prerequisites is None:
             self.prerequisites = []
         if self.notification_contacts is None:
@@ -180,6 +183,7 @@ class ScheduledExperiment:
             "interval_hours": self.interval_hours,
             "start_time": self.start_time.isoformat() if self.start_time else None,
             "estimated_duration": self.estimated_duration,
+            "log_inactivity_threshold_minutes": self.log_inactivity_threshold_minutes,
             "created_by": self.created_by,
             "is_active": self.is_active,
             "archived": self.archived,
@@ -236,6 +240,7 @@ class ScheduledExperiment:
             interval_hours=data.get("interval_hours"),
             start_time=start_time,
             estimated_duration=data.get("estimated_duration", 60),
+            log_inactivity_threshold_minutes=data.get("log_inactivity_threshold_minutes", 3),
             created_by=data.get("created_by", "system"),
             is_active=data.get("is_active", True),
             archived=data.get("archived", False),

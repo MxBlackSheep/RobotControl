@@ -5,21 +5,23 @@ Monitors Hamilton HxRun.exe process status for scheduling system.
 Replicates VBS script functionality for process detection and availability checking.
 
 Features:
-- Windows WMI integration for process monitoring
-- Mock mode for development environments without HxRun.exe
+- Thread-independent process inspection using psutil, with tasklist fallback
 - Process availability detection and waiting
 - Hamilton robot status monitoring
 """
 
+import csv
 import logging
 import time
 import threading
 import subprocess
 import platform
 import os
-from typing import Dict, Any, List, Optional, Tuple, Callable
-from datetime import datetime, timedelta
+from typing import List, Optional, Callable
+from datetime import datetime
 from dataclasses import dataclass
+
+import psutil
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +35,7 @@ class ProcessInfo:
     process_id: int
     process_name: str
     command_line: Optional[str]
-    start_time: datetime
+    start_time: Optional[datetime]
     cpu_percent: float = 0.0
     memory_mb: float = 0.0
 
@@ -57,6 +59,7 @@ class HamiltonProcessMonitor:
         """
         self._monitoring = False
         self._monitor_thread = None
+        self._stop_event = threading.Event()
         self._status_callbacks = []
         self._last_status = HamiltonStatus(
             is_running=False,
@@ -66,18 +69,6 @@ class HamiltonProcessMonitor:
             availability='unknown'
         )
         self._status_lock = threading.Lock()
-        
-        # Windows-specific WMI initialization
-        self._wmi = None
-        if platform.system() == "Windows":
-            try:
-                import wmi
-                self._wmi = wmi.WMI()
-                logger.info("WMI initialized for Hamilton process monitoring")
-            except ImportError:
-                logger.warning("WMI module not available - process monitoring will be limited")
-            except Exception as e:
-                logger.warning(f"WMI initialization failed: {e} - process monitoring will be limited")
         
         logger.info("Hamilton process monitor initialized")
     
@@ -95,7 +86,11 @@ class HamiltonProcessMonitor:
             if self._monitoring:
                 logger.warning("Process monitoring already running")
                 return True
+            if self._monitor_thread and self._monitor_thread.is_alive():
+                logger.warning("Previous process monitor is still stopping")
+                return False
             
+            self._stop_event.clear()
             self._monitoring = True
             self._monitor_thread = threading.Thread(
                 target=self._monitor_loop,
@@ -116,88 +111,66 @@ class HamiltonProcessMonitor:
     def stop_monitoring(self):
         """Stop process monitoring"""
         self._monitoring = False
+        self._stop_event.set()
         if self._monitor_thread and self._monitor_thread.is_alive():
             self._monitor_thread.join(timeout=2.0)
         logger.info("Hamilton process monitoring stopped")
     
     def is_hamilton_running(self) -> bool:
-        """Return whether HxRun is running; block dispatch if detection fails.
-
-        WMI clients are bound to their COM thread. Scheduler workers must fall
-        back to tasklist when querying the main thread's client fails.
-        """
-        if self._wmi is not None:
-            try:
-                return bool(self._wmi.Win32_Process(name="HxRun.exe"))
-            except Exception as exc:
-                logger.debug("WMI process check failed; using tasklist: %s", exc)
-
-        if platform.system() != "Windows":
-            return False
-
+        """Return whether HxRun is running; block dispatch if detection fails."""
         try:
-            startupinfo = None
-            creationflags = 0
-            if os.name == "nt":
-                startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                creationflags = subprocess.CREATE_NO_WINDOW
-            result = subprocess.run(
-                ["tasklist", "/FI", "IMAGENAME eq HxRun.exe"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-                check=True,
-                startupinfo=startupinfo,
-                creationflags=creationflags,
-            )
-            return "hxrun.exe" in result.stdout.lower()
+            return bool(self.get_hamilton_processes())
         except Exception as exc:
             logger.error("Cannot determine Hamilton availability; blocking dispatch: %s", exc)
             return True
 
     def get_hamilton_processes(self) -> List[ProcessInfo]:
-        """
-        Get information about running Hamilton processes
-        
-        Returns:
-            List of ProcessInfo objects for Hamilton processes
-        """
-        try:
-            if not self._wmi:
-                return []
-            
-            processes = []
-            for proc in self._wmi.Win32_Process(name="HxRun.exe"):
-                try:
-                    # Get process creation time
-                    start_time = datetime.now()  # Fallback
-                    if hasattr(proc, 'CreationDate') and proc.CreationDate:
-                        try:
-                            # WMI date format conversion
-                            import datetime as dt
-                            start_time = dt.datetime.strptime(proc.CreationDate[:14], '%Y%m%d%H%M%S')
-                        except:
-                            pass
-                    
-                    process_info = ProcessInfo(
-                        process_id=proc.ProcessId,
-                        process_name=proc.Name,
-                        command_line=proc.CommandLine,
-                        start_time=start_time,
-                        cpu_percent=0.0,  # Would need additional WMI queries
-                        memory_mb=0.0
-                    )
-                    processes.append(process_info)
-                    
-                except Exception as e:
-                    logger.warning(f"Error getting process info for PID {proc.ProcessId}: {e}")
-            
-            return processes
-            
-        except Exception as e:
-            logger.error(f"Error getting Hamilton processes: {e}")
+        """Inspect HxRun from any thread. Raise if neither detector is usable."""
+        if platform.system() != "Windows":
             return []
+        try:
+            return self._read_psutil_processes()
+        except Exception as exc:
+            logger.debug("Process inspection failed; using tasklist: %s", exc)
+            return self._read_tasklist_processes()
+
+    @staticmethod
+    def _read_psutil_processes() -> List[ProcessInfo]:
+        processes = []
+        for proc in psutil.process_iter(["pid", "name"]):
+            info = dict(proc.info)
+            name = info.get("name")
+            if not name:
+                raise RuntimeError(f"Cannot inspect process name for PID {proc.pid}")
+            if name.lower() != "hxrun.exe":
+                continue
+            try:
+                # Access to optional details may be denied even when the name is readable.
+                details = proc.as_dict(attrs=["cmdline", "create_time"], ad_value=None)
+            except psutil.NoSuchProcess:
+                continue
+            command = details.get("cmdline")
+            created = details.get("create_time")
+            processes.append(ProcessInfo(
+                process_id=info["pid"], process_name=name,
+                command_line=subprocess.list2cmdline(command) if command else None,
+                start_time=datetime.fromtimestamp(created) if created is not None else None,
+            ))
+        return processes
+
+    @staticmethod
+    def _read_tasklist_processes() -> List[ProcessInfo]:
+        # Unfiltered CSV avoids localized "no matching tasks" messages.
+        result = subprocess.run(
+            ["tasklist", "/FO", "CSV", "/NH"], capture_output=True, text=True,
+            timeout=5, check=True,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+        )
+        rows = list(csv.reader(result.stdout.splitlines()))
+        if not rows or any(len(row) < 2 or not row[1].isdigit() for row in rows):
+            raise RuntimeError("tasklist returned an unreadable process list")
+        return [ProcessInfo(int(row[1]), row[0], None, None)
+                for row in rows if row[0].lower() == "hxrun.exe"]
     
     def wait_for_hamilton_available(self, timeout_minutes: int = 10) -> bool:
         """
@@ -272,18 +245,16 @@ class HamiltonProcessMonitor:
         while self._monitoring:
             try:
                 # Get current process information
-                is_running = self.is_hamilton_running()
-                processes = self.get_hamilton_processes()
+                try:
+                    processes = self.get_hamilton_processes()
+                    is_running = bool(processes)
+                    availability = 'busy' if is_running else 'available'
+                except Exception as exc:
+                    logger.error("Cannot inspect Hamilton processes; blocking dispatch: %s", exc)
+                    processes = []
+                    is_running = True
+                    availability = 'error'
                 process_count = len(processes)
-                
-                # Determine availability
-                availability = 'available'
-                if is_running:
-                    availability = 'busy'
-                elif process_count == 0:
-                    availability = 'available'
-                else:
-                    availability = 'unknown'
                 
                 # Create new status
                 new_status = HamiltonStatus(
@@ -313,11 +284,11 @@ class HamiltonProcessMonitor:
                         except Exception as e:
                             logger.error(f"Status callback error: {e}")
                 
-                time.sleep(check_interval)
+                self._stop_event.wait(check_interval)
                 
             except Exception as e:
                 logger.error(f"Error in process monitoring loop: {e}")
-                time.sleep(check_interval)
+                self._stop_event.wait(check_interval)
         
         logger.info("Process monitoring loop stopped")
 

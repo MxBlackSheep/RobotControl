@@ -1,5 +1,35 @@
 # RobotControl Development Log (Chronological)
 
+## 2026-09-12 Simulator acceptance checkpoint
+
+- Operator testing confirmed real SMTP delivery and one `log_inactive` email. Notification history records that email at 13:04:51, followed by `monitoring_unavailable` emails at 13:09:21 and 13:17:37. Receiving three messages does not yet verify repeated inactivity alerts.
+- Restart at approximately 13:10 restored the same execution and Hamilton GUID without creating another execution. The unavailable warning also occurred before restart, so it is not specific to restoration.
+- Read-only SQL inspection while the simulator was paused returned `RunState = 2`, with no end time; the matching trace recorded a pause. The current mapping recognizes numeric states 1, 64 and 128 only. State 2 therefore becomes unknown and triggers the unavailable warning instead of continuing trace observation. This is a known limitation of this checkpoint; the next change should handle the observed pause state explicitly, retain terminal-state priority, and report unknown raw states clearly.
+- SMTP delivery now works with the operator's corrected QQ settings. Schedule contacts must be selected separately from creating a global contact; missing recipients appear as delivery errors. Clearer sender/login labels and recipient warnings remain follow-up work.
+- Existing validation remains 205 passing backend tests, successful frontend/resource/Windows builds, and isolated packaged responsiveness checks. Full simulator pause/rearm acceptance, restart during an already-alerted pause, and completion silence remain to be verified after the pause-state correction. This checkpoint changes documentation only after those builds; it does not alter the running application.
+
+---
+
+## 2026-09-12 Email responsiveness and Hamilton process inspection
+
+- Fixed API freezes during test/custom email sending and manual recovery actions by moving blocking work to the request thread pool. Interactive email uses one attempt with a 10-second timeout per SMTP operation; the test-email UI waits up to 60 seconds for the detailed result. Background monitoring delivery retains its retry policy.
+- SMTP failures now identify the host, port and failed step (connection/greeting, TLS, authentication or submission). TLS verifies server certificates, rejected credentials are not repeatedly retried, and socket cleanup cannot cause an accepted email to be resent.
+- Replaced the scheduler process monitor's shared WMI/COM client with the existing psutil dependency. Busy checks and status details share one detection path; a hidden, five-second tasklist fallback handles unavailable inspection. Unusable detection reports an error and blocks dispatch. Background monitoring stops promptly and can restart.
+- All 205 backend tests and the frontend build passed. Tests cover responsive concurrent API requests during stalled email/recovery, SMTP failures/retries and process inspection/recovery from background threads. Native Windows main/worker/background process checks passed. Independent unauthenticated Gmail probes timed out at the greeting on port 587 and TLS handshake on port 465; actual external email delivery remains dependent on resolving SMTP connectivity. Camera behavior was left unchanged as requested.
+- Resource embedding and the standard Windows PyInstaller build passed. The isolated executable sent to a loopback SMTP stub, then returned a deliberate greeting timeout after 10.23 seconds while 14 concurrent health/queue checks remained responsive. Background process monitoring and scheduler restart passed without COM errors. Original runtime data was restored with hash verification, temporary test/build copies were removed, and the user app remains stopped. No external email or Hamilton method was launched during validation.
+
+---
+
+## 2026-09-12 Scheduler run log inactivity monitoring
+
+- Replaced the twice-estimated-duration watchdog with exact SQL RunGUID-to-trace monitoring. Each schedule has a positive whole-minute threshold (default 3); changes apply to the next launch. Actual cleanup targets are tracked. Removed the executor's 120-minute process kill while retaining late-start cleanup behavior.
+- Added durable observation state and per-pause email identifiers. SQL/file outages get a distinct three-minute warning; new trace activity rearms inactivity alerts. Email retries/attachments run on one background delivery worker, with exact trace selection and revalidation before sending.
+- Startup restores observations and preserves alert deduplication. Shared atomic finalization reconciles process/SQL outcomes once, including archived executions. Existing manual recovery acknowledgement can close unowned orphan observations only after HxRun is absent.
+- Added API/model/storage/form wiring, running-job monitoring details, and maintenance guidance. All 181 backend tests passed, covering threshold validation, trace matching, outages, restart, retries, terminal races, archival and unlimited runtime.
+- Frontend build, resource embedding and Windows PyInstaller packaging passed. The isolated executable passed health, OpenAPI, embedded scheduling UI, authenticated queue and disabled-schedule create/update checks (default 3; omitted updates preserve the setting). Read-only live SQL lookup matched an exact local trace. Existing packaged runtime data was restored with file-hash verification; temporary smoke files were removed. Operator-led Hamilton simulator pause/resume/restart and real email delivery remain to be checked.
+
+---
+
 ## 2026-09-12 uv migration and Windows setup
 
 - Replaced both conflicting requirements files with one root uv project and lockfile; pinned managed Python 3.14.7, modernized application dependencies, and separated dev/build groups. Passlib 1.7.4 and bcrypt 4.3.0 remain pinned to preserve existing password hashes. Windows dependencies include pywin32 and WMI.

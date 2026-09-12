@@ -1,6 +1,8 @@
 import os
 import smtplib
+import ssl
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
@@ -27,8 +29,11 @@ class DummySMTP:
     def __exit__(self, exc_type, exc_val, exc_tb):
         return False
 
-    def starttls(self):
+    def starttls(self, context=None):
         return None
+
+    def close(self):
+        self.closed = True
 
     def login(self, username, password):
         self.username = username
@@ -116,6 +121,88 @@ def test_email_service_sends_when_configured(monkeypatch):
 
     sent = service.send("subject", "body")
     assert sent is True
+
+
+@pytest.fixture
+def configured_email(monkeypatch):
+    monkeypatch.setattr("backend.services.notifications._load_notification_settings", lambda: NotificationSettings(
+        host="smtp.test", port=587, sender="sender@example.com", use_tls=True,
+        password_encrypted="test-token", manual_recovery_recipients=["operator@example.com"],
+    ))
+    monkeypatch.setattr("backend.services.notifications.decrypt_secret", lambda token: "test-password")
+    service = EmailNotificationService()
+    service._smtp_retry_delay = 0
+    return service
+
+
+@pytest.mark.parametrize("stage,method", [
+    ("connection / server greeting", None),
+    ("STARTTLS negotiation", "starttls"),
+    ("authentication", "login"),
+    ("message submission", "send_message"),
+])
+def test_interactive_smtp_timeout_reports_stage_without_retry(monkeypatch, configured_email, stage, method):
+    client = Mock()
+    factory = Mock(return_value=client)
+    if method:
+        getattr(client, method).side_effect = TimeoutError("timed out")
+    else:
+        factory.side_effect = smtplib.SMTPServerDisconnected("Connection unexpectedly closed: timed out")
+    monkeypatch.setattr(smtplib, "SMTP", factory)
+    assert not configured_email.send("Test", "Body", timeout_seconds=10, attempts=1)
+    factory.assert_called_once_with("smtp.test", 587, timeout=10)
+    assert stage in configured_email.last_error
+    assert "smtp.test:587" in configured_email.last_error
+    assert "10 seconds" in configured_email.last_error
+    if method:
+        client.close.assert_called_once()
+
+
+def test_smtp_authentication_rejection_does_not_retry_or_log_password(monkeypatch, configured_email, caplog):
+    client = Mock()
+    client.login.side_effect = smtplib.SMTPAuthenticationError(535, b"credentials rejected")
+    factory = Mock(return_value=client)
+    monkeypatch.setattr(smtplib, "SMTP", factory)
+    assert not configured_email.send("Test", "Body")
+    factory.assert_called_once()
+    client.close.assert_called_once()
+    assert "Authentication rejected" in configured_email.last_error
+    assert "test-password" not in caplog.text
+
+
+def test_background_smtp_retries_and_clears_stale_error(monkeypatch, configured_email):
+    failed_client, successful_client = Mock(), Mock()
+    failed_client.starttls.side_effect = TimeoutError("timed out")
+    factory = Mock(side_effect=[failed_client, successful_client])
+    monkeypatch.setattr(smtplib, "SMTP", factory)
+    assert configured_email.send("Test", "Body", message_id="<same-pause@example.com>")
+    assert factory.call_count == 2
+    assert configured_email.last_error is None
+    failed_client.close.assert_called_once()
+    successful_client.close.assert_called_once()
+    assert successful_client.send_message.call_args.args[0]["Message-ID"] == "<same-pause@example.com>"
+
+
+def test_cleanup_failure_does_not_resend_accepted_email(monkeypatch, configured_email):
+    client = Mock()
+    client.close.side_effect = OSError("socket already closed")
+    factory = Mock(return_value=client)
+    monkeypatch.setattr(smtplib, "SMTP", factory)
+    assert configured_email.send("Test", "Body")
+    factory.assert_called_once()
+    client.send_message.assert_called_once()
+
+
+@pytest.mark.parametrize("implicit_ssl", [False, True])
+def test_tls_verifies_server_certificates(monkeypatch, configured_email, implicit_ssl):
+    configured_email.config.use_ssl = implicit_ssl
+    client, factory = Mock(), Mock()
+    factory.return_value = client
+    monkeypatch.setattr(smtplib, "SMTP_SSL" if implicit_ssl else "SMTP", factory)
+    assert configured_email.send("Test", "Body")
+    context = factory.call_args.kwargs["context"] if implicit_ssl else client.starttls.call_args.kwargs["context"]
+    assert context.check_hostname
+    assert context.verify_mode == ssl.CERT_REQUIRED
 
 
 def test_schedule_alert_uses_rolling_clip_fallback(monkeypatch, tmp_path):

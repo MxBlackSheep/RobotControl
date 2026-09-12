@@ -1,5 +1,7 @@
 # Frontend Scheduling Maintenance Guide
 
+The SMTP test button uses a 60-second request timeout so the backend can return a specific SMTP failure instead of the generic ten-second browser timeout. Its spinner remains active while that request runs; other pages remain usable. The backend uses one send attempt and a ten-second timeout per SMTP operation. Keep the detailed backend error in the failure dialog; it distinguishes connection, TLS and authentication problems.
+
 This document spells out how the scheduling UI is wired together. It assumes you need every instruction spelled out—no prior knowledge required. Follow it exactly so you don’t break experiment management.
 
 ---
@@ -179,3 +181,13 @@ Useful derived flags provided by the hook:
    - Call `actions.loadArchivedSchedules()` when the archived tab first opens. The hook sets `archivedInitialized`; use it to avoid duplicate loads.
 
 Stick to this blueprint and the scheduling UI will stay maintainable even for new contributors.
+
+
+## Run log monitoring controls (September 2026)
+
+- The create/edit schedule form includes **Log inactivity threshold (minutes)**, default 3. Enter a positive whole number. It is separate from estimated duration and the optional late-start cleanup timeout. Changes affect the next launch.
+- `ScheduledExperiment`, create/update request types, request normalization and form payloads carry `log_inactivity_threshold_minutes`. Omitted update values preserve the saved setting; older server payloads normalize to 3. Copying schedule data must preserve this field. The older forms in `ScheduleActions` expose it too.
+- Notification Contacts help text explains that an active contact is needed for email. A continuing pause sends one email; new trace activity rearms the monitor for a later pause. A missing SQL connection or trace produces an unavailable-monitoring warning instead of claiming the method stalled.
+- Running jobs display **Waiting for run/log**, **Monitoring**, **Log inactive**, **Monitoring unavailable**, or **Run ended; finalizing**, plus the threshold, trace filename, last observed activity and available diagnostic reason. The queue API's optional `monitoring` object supplies these values. Old payloads without this object still render.
+- Notification history retains historical `long_running` entries and shows new `log_inactive` / `monitoring_unavailable` events. `cancelled` means the condition resolved before an email could be sent. Errors can retry; a sent pause is not repeated after restart.
+- To test, save a non-default threshold, reopen the edit form, and verify it round-trips. Use the backend's controlled trace tests for state transitions; the operator should perform the simulator/email acceptance sequence described in the backend scheduling guide.

@@ -18,8 +18,9 @@ import threading
 import time
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional, Set, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from queue import Queue, Empty
+from pathlib import Path
 from backend.models import (
     ScheduledExperiment,
     JobExecution,
@@ -30,6 +31,7 @@ from backend.models import (
 from backend.services.scheduling.database_manager import get_scheduling_database_manager
 from backend.services.scheduling.process_monitor import get_hamilton_process_monitor
 from backend.services.notifications import get_notification_service
+from backend.services.scheduling.run_log_monitor import RunLogMonitor
 from backend.services.hxrun_maintenance import get_hxrun_maintenance_service
 
 try:
@@ -71,24 +73,6 @@ class SchedulingEvent:
 
 
 @dataclass
-class ExecutionWatch:
-    """Track active execution metadata for watchdog alerts."""
-    execution_id: str
-    schedule_id: str
-    experiment_name: str
-    started_at: datetime
-    expected_minutes: int
-    contact_ids: Set[str] = field(default_factory=set)
-    notified_events: Set[str] = field(default_factory=set)
-
-    def mark_notified(self, event_type: str) -> None:
-        self.notified_events.add(event_type)
-
-    def was_notified(self, event_type: str) -> bool:
-        return event_type in self.notified_events
-
-
-@dataclass
 class QueueRuntimeState:
     """Runtime metadata for a queued/running schedule entry."""
     queued_at: datetime
@@ -107,6 +91,7 @@ class SchedulerEngine:
         """
         self.config = config or SchedulerConfig()
         self._running = False
+        self._stop_event = threading.Event()
         self._scheduler_thread = None
         self._job_worker_thread = None
         self._job_queue = Queue()
@@ -131,8 +116,8 @@ class SchedulerEngine:
         self._jobs_lock = threading.RLock()
         self._contacts_lock = threading.RLock()
         self._notification_contacts: Dict[str, NotificationContact] = {}
-        self._execution_watch_lock = threading.RLock()
-        self._execution_watches: Dict[str, ExecutionWatch] = {}
+        self.run_log_monitor = RunLogMonitor(self.db_manager)
+        self._owned_execution_ids: Set[str] = set()
         
         logger.info("Scheduler engine initialized")
     
@@ -171,6 +156,9 @@ class SchedulerEngine:
             if self._running:
                 logger.warning("Scheduler engine already running")
                 return True
+            if self._scheduler_thread and self._scheduler_thread.is_alive():
+                logger.warning("Previous scheduler loop is still stopping; retry start shortly")
+                return False
             
             # Initialize database schema
             if not self.db_manager.initialize_schema():
@@ -181,6 +169,15 @@ class SchedulerEngine:
             self._load_schedules_from_database()
             self._refresh_manual_recovery_state(force=True)
             self.refresh_notification_contacts(include_inactive=True)
+            for observation in self.run_log_monitor.restore():
+                restored_schedule = self.db_manager.get_schedule_by_id(observation.schedule_id)
+                if restored_schedule:
+                    self._active_schedules[observation.schedule_id] = restored_schedule
+                self._running_jobs.add(observation.schedule_id)
+                self._ensure_queue_runtime_entry(observation.schedule_id)
+            self._evaluate_active_executions(datetime.now())
+            if self.config.enable_notifications:
+                self.run_log_monitor.start_delivery(lambda: self._notification_service)
             
             # Start process monitoring
             if not self.process_monitor.start_monitoring():
@@ -188,6 +185,7 @@ class SchedulerEngine:
             
             # Start scheduler thread
             self._running = True
+            self._stop_event.clear()
             self._start_time = time.time()  # Track when scheduler started
             self._scheduler_thread = threading.Thread(
                 target=self._scheduler_loop,
@@ -195,12 +193,13 @@ class SchedulerEngine:
                 name="SchedulerEngine"
             )
             self._scheduler_thread.start()
-            self._job_worker_thread = threading.Thread(
-                target=self._job_worker_loop,
-                daemon=True,
-                name="SchedulerJobWorker",
-            )
-            self._job_worker_thread.start()
+            if not self._job_worker_thread or not self._job_worker_thread.is_alive():
+                self._job_worker_thread = threading.Thread(
+                    target=self._job_worker_loop,
+                    daemon=True,
+                    name="SchedulerJobWorker",
+                )
+                self._job_worker_thread.start()
             
             logger.info(f"Scheduler engine started with {len(self._active_schedules)} active schedules")
             self._emit_event("scheduler_started", "", "Scheduler", 
@@ -216,6 +215,7 @@ class SchedulerEngine:
         """Stop the scheduler engine"""
         logger.info("Stopping scheduler engine...")
         self._running = False
+        self._stop_event.set()
 
         # Wake worker in case it is blocked waiting on queue.
         self._job_queue.put(None)
@@ -228,6 +228,7 @@ class SchedulerEngine:
         
         # Stop process monitoring
         self.process_monitor.stop_monitoring()
+        self.run_log_monitor.stop_delivery()
         
         # Clear active schedules
         with self._schedules_lock:
@@ -462,6 +463,7 @@ class SchedulerEngine:
                     "queued_time": queued_at.isoformat(),
                     "retry_count": 0,
                     "waiting_reason": entry.waiting_reason if entry else None,
+                    "monitoring": self.run_log_monitor.details(schedule_id),
                 }
 
             running_ids = sorted(self._running_jobs, key=_queue_key)
@@ -576,6 +578,7 @@ class SchedulerEngine:
         if updated:
             with self._schedules_lock:
                 self._active_schedules[updated.schedule_id] = updated
+            self._close_recovered_observations(updated, actor)
             if self.config.enable_notifications and self._notification_service:
                 try:
                     self._notification_service.manual_recovery_cleared(updated, note=note, actor=actor)
@@ -590,6 +593,23 @@ class SchedulerEngine:
             )
         self._refresh_manual_recovery_state(force=True)
         return updated
+
+    def _close_recovered_observations(self, schedule, actor):
+        """An operator can acknowledge an orphan only after HxRun is no longer present."""
+        for observation in self.run_log_monitor.snapshots():
+            if observation.schedule_id != schedule.schedule_id:
+                continue
+            with self._jobs_lock:
+                owned = observation.execution_id in self._owned_execution_ids
+            if owned or self.process_monitor.is_hamilton_running():
+                continue
+            execution = self.run_log_monitor.store.execution(observation.execution_id)
+            if execution and execution.status == "running":
+                execution.status = "cancelled"
+                execution.end_time = datetime.now()
+                execution.error_message = f"Closed after manual recovery acknowledged by {actor}; process no longer running"
+                self.run_log_monitor.process_finished(execution)
+                self._finalize_execution(schedule, execution)
 
     def require_manual_recovery(self, schedule_id: str, note: Optional[str], actor: str) -> Optional[ScheduledExperiment]:
         """Public entrypoint for marking a schedule as requiring manual recovery."""
@@ -657,6 +677,9 @@ class SchedulerEngine:
 
         if schedule.recovery_required:
             return "Schedule requires manual recovery before next run"
+
+        if self.run_log_monitor.snapshots():
+            return "Waiting for the previous scheduled execution to finish or be reconciled"
 
         if self.process_monitor.is_hamilton_running():
             return "Hamilton HxRun.exe is currently busy"
@@ -753,7 +776,7 @@ class SchedulerEngine:
         logger.info("Scheduler loop started")
         
         # Initial startup delay
-        time.sleep(self.config.startup_delay_seconds)
+        self._stop_event.wait(self.config.startup_delay_seconds)
         
         while self._running:
             try:
@@ -776,7 +799,7 @@ class SchedulerEngine:
                 self._cleanup_completed_jobs()
                 
                 # Sleep until next check
-                time.sleep(self.config.check_interval_seconds)
+                self._stop_event.wait(self.config.check_interval_seconds)
                 
             except Exception as e:
                 logger.error(f"Error in scheduler loop: {e}")
@@ -857,137 +880,70 @@ class SchedulerEngine:
                 self._queue_runtime.pop(experiment.schedule_id, None)
 
     def _execute_job(self, experiment: ScheduledExperiment, execution: JobExecution):
-        """Execute a scheduled job"""
+        """Run one method and share completion handling with restart reconciliation."""
+        timeout_context = {}
+        with self._jobs_lock:
+            self._owned_execution_ids.add(execution.execution_id)
         try:
-            # Import experiment executor here to avoid circular imports
             from backend.services.scheduling.experiment_executor import ExperimentExecutor
-            
             executor = ExperimentExecutor()
-            current_time = datetime.now()
-            timeout_context = self._resolve_timeout_context(experiment, current_time)
-            if timeout_context["timed_out"]:
-                logger.warning(
-                    "Schedule %s timed out by %s minute(s); applying timeout action '%s'",
-                    experiment.experiment_name,
-                    timeout_context["lateness_minutes"],
-                    timeout_context["action"],
-                )
-
-            # Update execution status
+            executor.run_log_monitor = self.run_log_monitor
+            timeout_context = self._resolve_timeout_context(experiment, datetime.now())
             execution.status = "running"
-            execution.start_time = current_time
+            execution.start_time = datetime.now()
             self.db_manager.store_job_execution(execution)
-            self._register_execution_watch(experiment, execution)
-            
-            # Execute the experiment
-            success = executor.execute_experiment(
-                experiment,
-                execution,
-                timeout_context=timeout_context,
-            )
-            terminate_due_to_timeout = bool(timeout_context["terminate_schedule"])
-            if terminate_due_to_timeout and experiment.is_active:
-                experiment.is_active = False
-                logger.warning(
-                    "Schedule %s disabled after timeout cleanup action",
-                    experiment.experiment_name,
-                )
-            
-            # Update execution record
-            execution.end_time = datetime.now()
-            if execution.start_time:
-                duration = execution.end_time - execution.start_time
-                execution.duration_minutes = int(duration.total_seconds() / 60)
-            
-            interval_hours = self._resolve_interval_hours(experiment)
-
-            if success:
-                execution.status = "completed"
-
-                # Handle schedule completion based on type
-                if terminate_due_to_timeout:
-                    logger.info(
-                        "Job completed with timeout action for %s; schedule deactivated",
-                        experiment.experiment_name,
-                    )
-                elif experiment.schedule_type == "once":
-                    # Deactivate "once" schedules after successful completion
-                    experiment.is_active = False
-                    logger.info(
-                        "Job completed successfully: %s - Deactivating 'once' schedule",
-                        experiment.experiment_name,
-                    )
-                elif interval_hours:
-                    # Update next execution time for interval schedules
-                    next_time = self._calculate_next_execution_time(experiment)
-                    experiment.start_time = next_time
-                    logger.info(
-                        "Job completed successfully: %s - Next execution: %s",
-                        experiment.experiment_name,
-                        next_time,
-                    )
-                else:
-                    logger.info("Job completed successfully: %s", experiment.experiment_name)
-
-                self._emit_event(
-                    "job_completed",
-                    experiment.schedule_id,
-                    experiment.experiment_name,
-                    "Job completed successfully",
-                )
-            else:
-                execution.status = "failed"
-                logger.error("Job failed: %s", experiment.experiment_name)
-                self._emit_event(
-                    "job_failed",
-                    experiment.schedule_id,
-                    experiment.experiment_name,
-                    "Job execution failed",
-                )
-            
-            # Update database with execution and schedule
-            self.db_manager.store_job_execution(execution)
-            self.db_manager.update_scheduled_experiment(
-                experiment,
-                touch_updated_at=False,
-            )
-
-            if execution.status == "failed":
-                self._handle_failed_execution(experiment, execution)
-
-        except Exception as e:
-            logger.error("Error executing job %s: %s", experiment.experiment_name, e)
+            success = executor.execute_experiment(experiment, execution, timeout_context=timeout_context)
+            execution.status = "completed" if success else "failed"
+        except Exception as exc:
+            logger.exception("Error executing %s", experiment.experiment_name)
             execution.status = "failed"
-            execution.error_message = str(e)
-            execution.end_time = datetime.now()
-            self.db_manager.store_job_execution(execution)
-            self.db_manager.update_scheduled_experiment(
-                experiment,
-                touch_updated_at=False,
-            )
-
-
-            self._handle_failed_execution(experiment, execution)
-            self._emit_event(
-                "job_failed",
-                experiment.schedule_id,
-                experiment.experiment_name,
-                f"Job failed: {str(e)}",
-            )
-        
+            execution.error_message = str(exc)
         finally:
-            self._clear_execution_watch(execution.execution_id)
-            # Remove from running jobs
+            execution.end_time = datetime.now()
+            try:
+                self.run_log_monitor.process_finished(execution)
+                self._finalize_execution(experiment, execution, bool(timeout_context.get("terminate_schedule")))
+            except Exception:
+                # Leave durable observation intact for the next reconciliation attempt.
+                logger.exception("Could not finalize execution %s", execution.execution_id)
             with self._jobs_lock:
-                self._running_jobs.discard(experiment.schedule_id)
-                self._queued_backlog.discard(experiment.schedule_id)
-                self._queue_runtime.pop(experiment.schedule_id, None)
-    
+                self._owned_execution_ids.discard(execution.execution_id)
+
+    def _finalize_execution(self, experiment, execution, terminate_schedule=False):
+        if execution.start_time and execution.end_time:
+            execution.duration_minutes = int((execution.end_time - execution.start_time).total_seconds() / 60)
+        # Keep user edits made while the method was running.
+        schedule = self.db_manager.get_schedule_by_id(experiment.schedule_id) or experiment
+        if terminate_schedule or (execution.status == "completed" and schedule.schedule_type == "once"):
+            schedule.is_active = False
+        elif execution.status == "completed" and self._resolve_interval_hours(schedule):
+            schedule.start_time = self._calculate_next_execution_time(schedule)
+        committed = self.db_manager.finalize_job_execution(execution, schedule)
+        if committed:
+            with self._schedules_lock:
+                if schedule.schedule_id in self._active_schedules:
+                    self._active_schedules[schedule.schedule_id] = schedule
+            self._emit_event("job_completed" if execution.status == "completed" else "job_failed",
+                             schedule.schedule_id, schedule.experiment_name,
+                             "Job completed successfully" if execution.status == "completed" else "Job execution failed")
+        if execution.status == "failed":
+            self._handle_failed_execution(schedule, execution)
+        self.run_log_monitor.finish(execution.execution_id)
+        with self._jobs_lock:
+            self._running_jobs.discard(schedule.schedule_id)
+            self._queued_backlog.discard(schedule.schedule_id)
+            self._queue_runtime.pop(schedule.schedule_id, None)
+
     def _handle_failed_execution(self, experiment: ScheduledExperiment, execution: JobExecution) -> None:
         """Handle logic after a failed execution, including manual recovery enforcement."""
         note: Optional[str] = None
         try:
-            note = self.db_manager.should_block_due_to_abort(experiment)
+            observation = self.run_log_monitor.snapshot(execution.execution_id)
+            if observation:
+                if observation.run_state in {"Aborted", "Error"}:
+                    note = f"Hamilton reported run {observation.run_guid} as {observation.run_state}"
+            else:
+                note = self.db_manager.should_block_due_to_abort(experiment)
         except Exception as exc:
             logger.debug("Abort state lookup failed for %s: %s", experiment.experiment_name, exc)
         message = (execution.error_message or "").lower()
@@ -1208,106 +1164,30 @@ class SchedulerEngine:
     # Execution watchdog helpers
     # ------------------------------------------------------------------
 
-    def _register_execution_watch(self, experiment: ScheduledExperiment, execution: JobExecution) -> None:
-        """Start tracking a running execution for watchdog monitoring."""
-        start_time = execution.start_time or datetime.now()
-        contact_ids = set(experiment.notification_contacts or [])
-        watch = ExecutionWatch(
-            execution_id=execution.execution_id,
-            schedule_id=experiment.schedule_id,
-            experiment_name=experiment.experiment_name,
-            started_at=start_time,
-            expected_minutes=max(1, experiment.estimated_duration or 1),
-            contact_ids=contact_ids,
-        )
-        with self._execution_watch_lock:
-            self._execution_watches[execution.execution_id] = watch
-        logger.debug(
-            "Registered execution watch for %s (%s) with %s contact(s)",
-            execution.execution_id,
-            experiment.experiment_name,
-            len(contact_ids),
-        )
-
-    def _clear_execution_watch(self, execution_id: str) -> None:
-        """Remove execution watch tracking when execution completes."""
-        with self._execution_watch_lock:
-            self._execution_watches.pop(execution_id, None)
-
-    def _get_execution_watch(self, execution_id: str) -> Optional[ExecutionWatch]:
-        with self._execution_watch_lock:
-            return self._execution_watches.get(execution_id)
-
-    def _mark_execution_event(self, execution_id: str, event_type: str) -> None:
-        with self._execution_watch_lock:
-            watch = self._execution_watches.get(execution_id)
-            if watch:
-                watch.mark_notified(event_type)
-
-    def _was_execution_event_notified(self, execution_id: str, event_type: str) -> bool:
-        with self._execution_watch_lock:
-            watch = self._execution_watches.get(execution_id)
-            return watch.was_notified(event_type) if watch else False
-
-    def _snapshot_execution_watches(self) -> List[ExecutionWatch]:
-        with self._execution_watch_lock:
-            return list(self._execution_watches.values())
-
     def _evaluate_active_executions(self, current_time: datetime) -> None:
-        """Check running jobs for watchdog conditions."""
-        watches = self._snapshot_execution_watches()
-        if not watches:
-            return
-
-        for watch in watches:
-            # Skip if already notified or no contacts configured
-            if watch.was_notified("long_running"):
-                continue
-
-            elapsed_minutes = (current_time - watch.started_at).total_seconds() / 60
-            threshold = watch.expected_minutes * 2
-            if elapsed_minutes < threshold:
-                continue
-
-            schedule = self._get_schedule_snapshot(watch.schedule_id)
-            if not schedule or not (schedule.notification_contacts or watch.contact_ids):
-                logger.debug(
-                    "Skipping long-running alert for %s - no contacts configured",
-                    watch.execution_id,
-                )
-                self._mark_execution_event(watch.execution_id, "long_running")
-                continue
-
-            execution = JobExecution(
-                execution_id=watch.execution_id,
-                schedule_id=watch.schedule_id,
-                status="running",
-                start_time=watch.started_at,
-            )
-            context = {
-                "elapsed_minutes": round(elapsed_minutes, 1),
-                "threshold_minutes": round(threshold, 1),
-                "expected_minutes": watch.expected_minutes,
-            }
-            self._dispatch_execution_notification(
-                schedule,
-                execution,
-                event_type="long_running",
-                context=context,
-                contact_ids=watch.contact_ids,
-            )
-            self._mark_execution_event(watch.execution_id, "long_running")
-
-    def _get_schedule_snapshot(self, schedule_id: str) -> Optional[ScheduledExperiment]:
-        with self._schedules_lock:
-            schedule = self._active_schedules.get(schedule_id)
-        if schedule:
-            return schedule
-        try:
-            return self.db_manager.get_schedule_by_id(schedule_id)
-        except Exception as exc:  # pragma: no cover - best effort
-            logger.error("Failed to load schedule snapshot for %s: %s", schedule_id, exc)
-            return None
+        """Observe logs and reconcile scheduler runs surviving an app restart."""
+        for observation in self.run_log_monitor.snapshots():
+            try:
+                state = self.run_log_monitor.check(observation.execution_id)
+                with self._jobs_lock:
+                    owned = observation.execution_id in self._owned_execution_ids
+                if owned or not state:
+                    continue
+                execution = self.run_log_monitor.store.execution(state.execution_id)
+                if execution and execution.status in {"completed", "failed", "cancelled"}:
+                    self._finalize_execution(ScheduledExperiment.from_dict(state.schedule), execution, state.terminate_schedule)
+                elif state.state == "terminal":
+                    if state.process_finished:
+                        execution = JobExecution.from_dict(state.execution)
+                    else:
+                        execution = execution or JobExecution.from_dict(state.execution)
+                        execution.status = "completed" if state.run_state == "Complete" else "failed"
+                        execution.end_time = self._ensure_naive_datetime(datetime.fromisoformat(state.end_time)) if state.end_time else current_time
+                        if execution.status == "failed":
+                            execution.error_message = f"Hamilton reported run {state.run_guid} as {state.run_state}"
+                    self._finalize_execution(ScheduledExperiment.from_dict(state.schedule), execution, state.terminate_schedule)
+            except Exception:
+                logger.exception("Failed to observe execution %s", observation.execution_id)
 
     def _notify_execution_event(
         self,
@@ -1317,10 +1197,6 @@ class SchedulerEngine:
         context: Optional[Dict[str, Any]] = None,
     ) -> None:
         contact_ids = set(experiment.notification_contacts or [])
-        watch = self._get_execution_watch(execution.execution_id)
-        if watch:
-            contact_ids = watch.contact_ids or contact_ids
-            self._mark_execution_event(execution.execution_id, event_type)
         self._dispatch_execution_notification(
             experiment,
             execution,
@@ -1384,12 +1260,15 @@ class SchedulerEngine:
         stored_entry = self.db_manager.create_notification_log(log_entry) or log_entry
 
         try:
+            observation = self.run_log_monitor.snapshot(execution.execution_id)
             result = self._notification_service.schedule_alert(
                 experiment,
                 execution,
                 contacts=contacts,
                 trigger=event_type,
                 context=context,
+                **({"trace_path": Path(observation.trace_path) if observation.trace_path else None,
+                    "exact_trace": True} if observation else {}),
             )
             status = "sent" if result.sent else "error"
             self.db_manager.update_notification_log(

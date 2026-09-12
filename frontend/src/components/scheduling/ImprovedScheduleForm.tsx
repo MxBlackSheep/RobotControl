@@ -78,6 +78,7 @@ interface ScheduleFormData {
   interval_hours: number;
   start_time: string | null;
   estimated_duration: number;
+  log_inactivity_threshold_minutes: number;
   prerequisites: string[];
   notification_contacts: string[];
   is_active: boolean;
@@ -112,6 +113,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
     interval_hours: 6,
     start_time: null,
     estimated_duration: 55,
+    log_inactivity_threshold_minutes: 3,
     prerequisites: initialData?.prerequisites ?? [],
     notification_contacts: initialData?.notification_contacts ?? [],
     is_active: true,
@@ -308,6 +310,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
       interval_hours: 6,
       start_time: null,
       estimated_duration: 55,
+    log_inactivity_threshold_minutes: 3,
       prerequisites: [],
       notification_contacts: [],
       is_active: true,
@@ -433,6 +436,9 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
       newErrors.push('Experiment name is required');
     }
 
+    if (!Number.isInteger(formData.log_inactivity_threshold_minutes) || formData.log_inactivity_threshold_minutes <= 0) {
+      newErrors.push('Log inactivity threshold must be a positive whole number of minutes');
+    }
     if (formData.estimated_duration <= 0) {
       newErrors.push('Estimated duration must be greater than 0');
     }
@@ -782,6 +788,14 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                 )}
 
                 <Grid item xs={12} md={6}>
+                  <TextField fullWidth type="number" label="Log inactivity threshold (minutes)"
+                    value={formData.log_inactivity_threshold_minutes}
+                    onChange={(event) => setFormData({ ...formData, log_inactivity_threshold_minutes: Number(event.target.value) })}
+                    inputProps={{ min: 1, step: 1 }}
+                    helperText="Email after the run log stops updating. Default: 3 minutes. Changes apply to the next run."
+                  />
+                </Grid>
+                <Grid item xs={12} md={6}>
                   <Autocomplete
                     multiple
                     disableCloseOnSelect
@@ -816,7 +830,9 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                         {...params}
                         label="Notification Contacts"
                         placeholder={contacts.length ? 'Select contacts' : 'No contacts available'}
-                        helperText="Contacts receive alerts for long-running or aborted runs"
+                        helperText={selectedContacts.some((contact) => contact.is_active)
+                          ? 'Contacts receive alerts for log inactivity, unavailable monitoring, or aborted runs'
+                          : 'Select an active contact to receive email alerts. Monitoring continues without email recipients.'}
                       />
                     )}
                     disabled={!contacts.length}

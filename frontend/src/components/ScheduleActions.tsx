@@ -101,6 +101,7 @@ const CreateScheduleDialog: React.FC<CreateScheduleDialogProps> = ({
     interval_hours: 6,
     start_time: null,
     estimated_duration: 55,
+    log_inactivity_threshold_minutes: 3,
     is_active: true,
     timeout_minutes: null,
     timeout_action: 'continue',
@@ -149,6 +150,7 @@ const CreateScheduleDialog: React.FC<CreateScheduleDialogProps> = ({
       interval_hours: 6,
       start_time: null,
       estimated_duration: 55,
+    log_inactivity_threshold_minutes: 3,
       is_active: true,
       timeout_minutes: null,
       timeout_action: 'continue',
@@ -224,6 +226,10 @@ const CreateScheduleDialog: React.FC<CreateScheduleDialogProps> = ({
                     />
                   </Grid>
                   <Grid item xs={12} md={6}>
+                    <TextField fullWidth type="number" label="Log inactivity threshold (minutes)"
+                      value={formData.log_inactivity_threshold_minutes ?? 3}
+                      onChange={(event) => setFormData({ ...formData, log_inactivity_threshold_minutes: Number(event.target.value) })}
+                      inputProps={{ min: 1, step: 1 }} sx={{ mb: 2 }} />
                     <TextField
                       label="Estimated Duration (minutes)"
                       type="number"
@@ -419,6 +425,7 @@ const EditScheduleDialog: React.FC<EditScheduleDialogProps> = ({
         interval_hours: schedule.interval_hours,
         start_time: schedule.start_time,
         estimated_duration: schedule.estimated_duration,
+        log_inactivity_threshold_minutes: schedule.log_inactivity_threshold_minutes,
         is_active: schedule.is_active,
         timeout_config: schedule.timeout_config,
         prerequisites: schedule.prerequisites,
@@ -490,6 +497,10 @@ const EditScheduleDialog: React.FC<EditScheduleDialogProps> = ({
               />
             </Grid>
             <Grid item xs={12} md={6}>
+              <TextField fullWidth type="number" label="Log inactivity threshold (minutes)"
+                value={formData.log_inactivity_threshold_minutes ?? 3}
+                onChange={(event) => setFormData({ ...formData, log_inactivity_threshold_minutes: Number(event.target.value) })}
+                inputProps={{ min: 1, step: 1 }} sx={{ mb: 2 }} />
               <TextField
                 label="Estimated Duration (minutes)"
                 type="number"

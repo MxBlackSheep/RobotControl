@@ -7,6 +7,7 @@ import mimetypes
 import os
 import shutil
 import smtplib
+import ssl
 import tempfile
 import time
 import uuid
@@ -14,7 +15,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from email.message import EmailMessage
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 try:
     import cv2  # type: ignore
@@ -137,6 +138,9 @@ class EmailNotificationService:
         *,
         to: Optional[List[str]] = None,
         attachments: Optional[List[Path]] = None,
+        message_id: Optional[str] = None,
+        timeout_seconds: Optional[float] = None,
+        attempts: Optional[int] = None,
     ) -> bool:
         self.last_error = None
         if not self.config.is_enabled:
@@ -160,6 +164,8 @@ class EmailNotificationService:
         message = EmailMessage()
         message["Subject"] = subject
         message["From"] = self.config.sender
+        if message_id:
+            message["Message-ID"] = message_id
         message["To"] = ", ".join(recipients)
         message.set_content(body)
 
@@ -180,34 +186,57 @@ class EmailNotificationService:
             except Exception as exc:  # pragma: no cover - I/O best effort
                 logger.warning("Failed to attach %s: %s", attachment, exc)
 
-        attempts = max(1, self._smtp_retries)
-        for attempt in range(1, attempts + 1):
+        delivery_attempts = max(1, self._smtp_retries if attempts is None else attempts)
+        timeout = self._smtp_timeout if timeout_seconds is None else timeout_seconds
+        for attempt in range(1, delivery_attempts + 1):
+            smtp = None
+            stage = "connection / server greeting"
             try:
                 if self.config.use_ssl:
-                    smtp: Union[smtplib.SMTP, smtplib.SMTP_SSL]
-                    smtp = smtplib.SMTP_SSL(self.config.host, self.config.port, timeout=self._smtp_timeout)
+                    stage = "SSL connection / server greeting"
+                    smtp = smtplib.SMTP_SSL(
+                        self.config.host, self.config.port, timeout=timeout,
+                        context=ssl.create_default_context(),
+                    )
                 else:
-                    smtp = smtplib.SMTP(self.config.host, self.config.port, timeout=self._smtp_timeout)
+                    smtp = smtplib.SMTP(self.config.host, self.config.port, timeout=timeout)
 
-                with smtp as client:
-                    if self.config.use_tls and not self.config.use_ssl:
-                        client.starttls()
-                    if self.config.username and self.config.password:
-                        client.login(self.config.username, self.config.password)
-                    client.send_message(message)
+                if self.config.use_tls and not self.config.use_ssl:
+                    stage = "STARTTLS negotiation"
+                    smtp.starttls(context=ssl.create_default_context())
+                if self.config.username and self.config.password:
+                    stage = "authentication"
+                    smtp.login(self.config.username, self.config.password)
+                stage = "message submission"
+                smtp.send_message(message)
 
-                logger.info("Sent email notification to %s (attempt %s/%s)", message["To"], attempt, attempts)
+                self.last_error = None
+                logger.info("Sent email notification to %s (attempt %s/%s)", message["To"], attempt, delivery_attempts)
                 return True
             except Exception as exc:  # pragma: no cover - network dependent
-                self.last_error = str(exc)
+                detail = str(exc)
+                if isinstance(exc, smtplib.SMTPAuthenticationError):
+                    detail = "Authentication rejected; check the SMTP username and SMTP/app password."
+                elif isinstance(exc, TimeoutError) or "timed out" in detail.lower():
+                    detail = f"No response within {timeout:g} seconds. Check SMTP reachability, port and encryption settings."
+                self.last_error = f"SMTP {stage} failed ({self.config.host}:{self.config.port}): {detail}"
                 logger.warning(
                     "Failed to send email notification (attempt %s/%s): %s",
                     attempt,
-                    attempts,
-                    exc,
+                    delivery_attempts,
+                    self.last_error,
                 )
-                if attempt < attempts:
-                    time.sleep(self._smtp_retry_delay)
+                if isinstance(exc, smtplib.SMTPAuthenticationError):
+                    break  # Repeating unchanged credentials cannot resolve rejection.
+            finally:
+                if smtp is not None:
+                    try:
+                        # A disconnect failure must not retry an already accepted message.
+                        smtp.close()
+                    except Exception as exc:
+                        logger.debug("SMTP socket cleanup failed: %s", exc)
+            if attempt < delivery_attempts:
+                time.sleep(self._smtp_retry_delay)
 
         return False
 
@@ -223,6 +252,7 @@ class ScheduleAlertResult:
     attachments: List[str] = field(default_factory=list)
     attachment_notes: List[str] = field(default_factory=list)
     error: Optional[str] = None
+    cancelled: bool = False
 
 
 class SchedulingNotificationService:
@@ -333,6 +363,10 @@ class SchedulingNotificationService:
         contacts: List[NotificationContact],
         trigger: str,
         context: Dict[str, Any],
+        trace_path: Optional[Path] = None,
+        exact_trace: bool = False,
+        message_id: Optional[str] = None,
+        should_send: Optional[Callable[[], bool]] = None,
     ) -> ScheduleAlertResult:
         """Send an alert for a schedule execution event."""
         recipients = [contact.email_address for contact in contacts if contact.is_active and contact.email_address]
@@ -343,16 +377,18 @@ class SchedulingNotificationService:
         cleanup: List[Path] = []
 
         # Collect TRC file
-        trc_file = self._locate_trc_file(schedule, execution)
+        trc_file = trace_path if exact_trace else self._locate_trc_file(schedule, execution)
         if trc_file:
             converted = self._convert_trc_to_log(trc_file)
             if converted and converted.exists():
                 attachments.append(converted)
                 cleanup.append(converted)
                 attachment_notes.append(f"Hamilton TRC log attached as {converted.name}.")
-            else:
+            elif not exact_trace:
                 attachments.append(trc_file)
                 attachment_notes.append("Hamilton TRC log attached in original .trc format.")
+            else:
+                attachment_notes.append("The exact run trace could not be read; no substitute log was attached.")
         else:
             attachment_notes.append("TRC log not found or unreadable.")
 
@@ -385,11 +421,14 @@ class SchedulingNotificationService:
         body = "\n".join(body_lines)
         send_error: Optional[str] = None
         try:
+            if should_send is not None and not should_send():
+                return ScheduleAlertResult(False, subject, body, recipients, cancelled=True)
             sent = self.email.send(
                 subject,
                 body,
                 to=recipients,
                 attachments=attachments or None,
+                **({"message_id": message_id} if message_id else {}),
             )
             if not sent:
                 send_error = "Email delivery reported failure (see logs for details)."
@@ -430,11 +469,13 @@ class SchedulingNotificationService:
         return Path(override) if override else Path(VIDEO_PATH)
 
     def _resolve_trc_directory(self) -> Path:
-        raw_path = _env("ROBOTCONTROL_HAMILTON_LOG_PATH", r"C:\Program Files\HAMILTON\LogFiles")
-        return Path(raw_path)
+        from backend.services.scheduling.run_log_monitor import hamilton_log_directory
+        return hamilton_log_directory()
 
     def _render_alert_subject(self, schedule: ScheduledExperiment, trigger: str) -> str:
         trigger_label = {
+            "log_inactive": "Run log inactive",
+            "monitoring_unavailable": "Run monitoring unavailable",
             "long_running": "Long-running execution",
             "aborted": "Aborted execution",
             "execution_failed": "Launch failure",
@@ -449,6 +490,8 @@ class SchedulingNotificationService:
         context: Dict[str, Any],
     ) -> Tuple[List[str], List[str]]:
         trigger_label = {
+            "log_inactive": "Run Log Inactive",
+            "monitoring_unavailable": "Run Monitoring Unavailable",
             "long_running": "Long-running Execution",
             "aborted": "Aborted Execution",
             "execution_failed": "Launch Failure",
@@ -489,6 +532,13 @@ class SchedulingNotificationService:
             return []
         formatted: List[str] = []
         mapping = [
+            ("run_guid", "Hamilton run GUID", False),
+            ("method_path", "Launched method", False),
+            ("trace_filename", "Run trace", False),
+            ("inactivity_minutes", "No log activity observed (minutes)", True),
+            ("unavailable_minutes", "Monitoring unavailable (minutes)", True),
+            ("last_activity_at", "Last observed log activity", False),
+            ("observed_at", "Observation time", False),
             ("elapsed_minutes", "Elapsed runtime (minutes)", True),
             ("threshold_minutes", "Alert threshold (minutes)", True),
             ("expected_minutes", "Expected duration (minutes)", True),
@@ -514,10 +564,14 @@ class SchedulingNotificationService:
 
     def _convert_trc_to_log(self, trc_file: Path) -> Optional[Path]:
         try:
-            try:
-                content = trc_file.read_text(encoding="utf-8")
-            except UnicodeDecodeError:
-                content = trc_file.read_text(encoding="latin-1")
+            data = trc_file.read_bytes()
+            if data.startswith((b"\xff\xfe", b"\xfe\xff")):
+                content = data.decode("utf-16")
+            else:
+                try:
+                    content = data.decode("utf-8-sig")
+                except UnicodeDecodeError:
+                    content = data.decode("cp1252", errors="replace")
         except Exception as exc:
             try:
                 data = trc_file.read_bytes()

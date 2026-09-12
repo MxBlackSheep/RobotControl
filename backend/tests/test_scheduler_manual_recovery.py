@@ -89,6 +89,11 @@ class StubDBManager:
         return self.abort_note
 
     # Scheduling persistence stubs --------------------------------------
+    def finalize_job_execution(self, execution, schedule):
+        self.store_job_execution(execution)
+        self.update_scheduled_experiment(schedule, touch_updated_at=False)
+        return True
+
     def store_job_execution(self, execution: JobExecution) -> bool:
         return True
 

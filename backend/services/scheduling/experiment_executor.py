@@ -35,7 +35,6 @@ class ExecutionConfig:
     """Configuration for experiment execution"""
     hxrun_path: str = r"C:\Program Files\HAMILTON\Bin\HxRun.exe"
     method_base_path: str = r"C:\Program Files\HAMILTON\Methods\LabProtocols\Experiments"
-    execution_timeout_minutes: int = 120  # Maximum execution time
 
 
 @dataclass
@@ -95,6 +94,9 @@ class ExperimentExecutor:
         self.pre_execution = PreExecutionPipeline(self.db_manager)
         self._active_executions: Dict[str, subprocess.Popen] = {}
         self._execution_lock = threading.RLock()
+        self.run_log_monitor = None
+        self._monitor_schedule = None
+        self._monitor_terminate_schedule = False
         
         # Validate Hamilton installation
         if not os.path.exists(self.config.hxrun_path):
@@ -125,6 +127,8 @@ class ExperimentExecutor:
                 experiment,
                 timeout_context,
             )
+            self._monitor_schedule = experiment
+            self._monitor_terminate_schedule = bool(effective_timeout_context.get("terminate_schedule"))
             run_target = experiment
             run_pre_execution = True
             if effective_timeout_context.get("timed_out"):
@@ -148,6 +152,7 @@ class ExperimentExecutor:
                         schedule_type="once",
                         interval_hours=None,
                         estimated_duration=experiment.estimated_duration,
+                        log_inactivity_threshold_minutes=experiment.log_inactivity_threshold_minutes,
                         created_by=execution.schedule_id or "scheduler",
                         is_active=True,
                         timeout_config=None,
@@ -171,7 +176,12 @@ class ExperimentExecutor:
             result = self._execute_hamilton_command(run_target, execution)
 
             if result.success:
-                abort_note = self.db_manager.should_block_due_to_abort(experiment)
+                if self.run_log_monitor:
+                    state = self.run_log_monitor.check(execution.execution_id)
+                    abort_note = (f"Hamilton reported run {state.run_guid} as {state.run_state}"
+                                  if state and state.run_state in {"Aborted", "Error"} else None)
+                else:
+                    abort_note = self.db_manager.should_block_due_to_abort(experiment)
                 if abort_note:
                     logger.warning("Hamilton reported last run as aborted for %s: %s", experiment.experiment_name, abort_note)
                     result.success = False
@@ -372,6 +382,9 @@ class ExperimentExecutor:
             logger.info(f"Executing Hamilton command: {command_str}")
             
             # Execute process
+            if self.run_log_monitor:
+                self.run_log_monitor.prepare(self._monitor_schedule or experiment, execution, method_path,
+                                             self._monitor_terminate_schedule)
             process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
@@ -385,16 +398,16 @@ class ExperimentExecutor:
                 self._active_executions[experiment.schedule_id] = process
             
             try:
-                # Wait for completion with timeout
-                timeout_seconds = self.config.execution_timeout_minutes * 60
-                stdout, stderr = process.communicate(timeout=timeout_seconds)
-                return_code = process.returncode
-                
-            except subprocess.TimeoutExpired:
-                logger.warning(f"Execution timeout for {experiment.experiment_name}, terminating process")
-                process.kill()
+                if self.run_log_monitor:
+                    try:
+                        self.run_log_monitor.launched(execution.execution_id, process.pid)
+                    except Exception:
+                        # The process already exists. Continue owning/waiting for it;
+                        # the observer retries persistence during its next check.
+                        logger.exception("Could not persist the process launch observation")
+                # Log inactivity alerts are advisory; runtime never kills HxRun.
                 stdout, stderr = process.communicate()
-                return_code = -1
+                return_code = process.returncode
                 
             finally:
                 # Remove from active executions

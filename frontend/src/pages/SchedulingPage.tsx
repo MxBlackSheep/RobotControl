@@ -85,6 +85,7 @@ type ScheduleFormValues = Partial<{
   interval_hours: number;
   start_time: string | null;
   estimated_duration: number;
+  log_inactivity_threshold_minutes: number;
   prerequisites: string[];
   is_active: boolean;
   timeout_minutes: number | null;
@@ -198,6 +199,7 @@ const SchedulingPage: React.FC = () => {
         interval_hours: data.schedule_type === 'interval' ? Number(data.interval_hours) : undefined,
         start_time: data.start_time ? new Date(data.start_time).toISOString() : undefined,
         estimated_duration: Number(data.estimated_duration),
+        log_inactivity_threshold_minutes: Number(data.log_inactivity_threshold_minutes ?? 3),
         is_active: data.is_active ?? true,
         timeout_config: {
           timeout_minutes:
@@ -228,6 +230,7 @@ const SchedulingPage: React.FC = () => {
         interval_hours: data.schedule_type === 'interval' ? Number(data.interval_hours) : undefined,
         start_time: data.start_time ? new Date(data.start_time) : null,
         estimated_duration: Number(data.estimated_duration),
+        log_inactivity_threshold_minutes: Number(data.log_inactivity_threshold_minutes ?? 3),
         is_active: data.is_active ?? true,
         timeout_minutes:
           data.timeout_minutes === null || data.timeout_minutes === undefined
@@ -283,6 +286,7 @@ const SchedulingPage: React.FC = () => {
       interval_hours: selected.interval_hours ?? undefined,
       start_time: selected.start_time ? formatStartTimeForInput(selected.start_time) : null,
       estimated_duration: selected.estimated_duration,
+      log_inactivity_threshold_minutes: selected.log_inactivity_threshold_minutes,
       is_active: selected.is_active,
       timeout_minutes: selected.timeout_config?.timeout_minutes ?? null,
       timeout_action: selected.timeout_config?.action ?? 'continue',
@@ -1042,6 +1046,15 @@ const SchedulingPage: React.FC = () => {
                           {(state.queueStatus?.running_job_details ?? []).map((item) => (
                             <Stack key={`running-${item.schedule_id}`} spacing={0.25}>
                               <Typography variant="body2">{item.experiment_name}</Typography>
+                              {item.monitoring && (
+                                <Typography variant="caption" color={['log_inactive', 'monitoring_unavailable'].includes(item.monitoring.state) ? 'warning.main' : 'text.secondary'}>
+                                  {{ waiting: 'Waiting for run/log', monitoring: 'Monitoring', log_inactive: 'Log inactive', monitoring_unavailable: 'Monitoring unavailable', terminal: 'Run ended; finalizing' }[item.monitoring.state]}
+                                  {` · Alert threshold: ${item.monitoring.threshold_minutes} min`}
+                                  {item.monitoring.trace_filename && ` · ${item.monitoring.trace_filename}`}
+                                  {item.monitoring.last_activity_at && ` · Last activity observed: ${new Date(item.monitoring.last_activity_at).toLocaleTimeString()}`}
+                                  {item.monitoring.reason && ` · ${item.monitoring.reason}`}
+                                </Typography>
+                              )}
                               {item.waiting_reason && (
                                 <Typography variant="caption" color="text.secondary">
                                   {item.waiting_reason}

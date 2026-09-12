@@ -14,6 +14,7 @@ export interface ScheduledExperiment {
   interval_hours?: number | null;
   start_time?: string | null; // ISO format
   estimated_duration: number; // minutes
+  log_inactivity_threshold_minutes: number;
   created_by: string;
   created_at: string; // ISO format
   updated_at: string; // ISO format
@@ -193,6 +194,16 @@ export interface RunningJobDetail {
   queued_time: string; // ISO format
   retry_count: number;
   waiting_reason?: string | null;
+  monitoring?: {
+    state: 'waiting' | 'monitoring' | 'log_inactive' | 'monitoring_unavailable' | 'terminal';
+    run_guid?: string | null;
+    trace_filename?: string | null;
+    last_activity_at?: string | null;
+    observed_at?: string | null;
+    inactivity_seconds: number;
+    threshold_minutes: number;
+    reason?: string | null;
+  } | null;
 }
 
 export interface ExecutionWindow {
@@ -219,6 +230,7 @@ export interface CreateScheduleRequest {
   interval_hours?: number;
   start_time?: string; // ISO format
   estimated_duration: number;
+  log_inactivity_threshold_minutes?: number;
   is_active?: boolean;
   timeout_config?: {
     timeout_minutes?: number | null;
@@ -237,6 +249,7 @@ export interface UpdateScheduleRequest {
   interval_hours?: number;
   start_time?: string; // ISO format
   estimated_duration?: number;
+  log_inactivity_threshold_minutes?: number;
   is_active?: boolean;
   timeout_config?: {
     timeout_minutes?: number | null;
@@ -344,6 +357,7 @@ export interface CreateScheduleFormData {
   interval_hours?: number;
   start_time?: Date | null;
   estimated_duration: number;
+  log_inactivity_threshold_minutes: number;
   is_active: boolean;
   timeout_minutes?: number | null;
   timeout_action: 'continue' | 'run_cleanup_and_terminate';
@@ -610,6 +624,9 @@ export const validateScheduleFormData = (data: CreateScheduleFormData): string[]
     errors.push(`Experiment path must be ${SCHEDULING_CONSTANTS.EXPERIMENT_PATH_MAX_LENGTH} characters or less`);
   }
   
+  if (!Number.isInteger(data.log_inactivity_threshold_minutes) || data.log_inactivity_threshold_minutes <= 0) {
+    errors.push('Log inactivity threshold must be a positive whole number of minutes');
+  }
   if (data.estimated_duration < SCHEDULING_CONSTANTS.MIN_ESTIMATED_DURATION || 
       data.estimated_duration > SCHEDULING_CONSTANTS.MAX_ESTIMATED_DURATION) {
     errors.push(`Estimated duration must be between ${SCHEDULING_CONSTANTS.MIN_ESTIMATED_DURATION} and ${SCHEDULING_CONSTANTS.MAX_ESTIMATED_DURATION} minutes`);

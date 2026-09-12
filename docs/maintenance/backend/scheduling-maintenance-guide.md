@@ -19,7 +19,7 @@ This document explains how the scheduling subsystem fits together and how to mod
 - `backend/services/scheduling/process_monitor.py`  
   Watches Hamilton processes so the scheduler knows whether the robot is already busy.
 
-  WMI is installed on Windows. If its COM connection cannot be used from a worker thread, process detection falls back to `tasklist`. A failed or timed-out fallback keeps the robot marked busy, preventing dispatch until detection recovers. Regression tests in `backend/tests/test_process_monitor.py` cover these cases without launching Hamilton software.
+  The scheduler uses the existing `psutil` dependency to inspect processes from any thread; it does not share a WMI/COM client. Busy checks and the status loop use the same process list. If names cannot be inspected, a hidden `tasklist /FO CSV /NH` call supplies a fallback with a five-second timeout. Both detectors failing produces `availability=error` and blocks dispatch until detection recovers. Command lines and creation times may be absent when Windows denies access to those optional details. Regression tests in `backend/tests/test_process_monitor.py` cover these cases without launching Hamilton software. Other services may still use WMI for their own purposes.
 
 - `backend/services/scheduling/database_manager.py`  
   Logical façade that the engine and API call. It hides SQLite details and exposes CRUD operations such as `create_schedule`, `update_schedule`, `store_job_execution`, etc.
@@ -54,15 +54,15 @@ This document explains how the scheduling subsystem fits together and how to mod
 5. **Execution** (`ExperimentExecutor.execute_experiment`).  
    Launches HxRun, waits for completion, collects exit code, returns success flag.
 
-6. **Result handling** (`_execute_job`).  
+6. **Result handling** (`_finalize_execution`, shared by the worker and restart reconciliation).
    Updates execution row (`running` → `completed` or `failed`), updates schedule next-run time, triggers notifications.
 
 7. **Failure pathways** (`_handle_failed_execution`).  
    - Abort signals ⇒ schedule marked inactive via `mark_recovery_required`, email alerts sent.  
    - Launch/execution failures ⇒ run logged as failed, schedule rescheduled to the next interval when applicable.
 
-8. **Watcher cleanup** (`_clear_execution_watch`).  
-   Removes timers that detect long-running jobs.
+8. **Watcher cleanup** (`RunLogMonitor.finish`).
+   Saves the finished observation and cancels any unsent monitoring alerts.
 
 ---
 
@@ -86,6 +86,10 @@ Captures each run:
 
 ### NotificationContact & NotificationSettings
 Represent email contacts and SMTP configuration. Hooks appear in `frontend/src/components/scheduling/*Notification*.tsx` and backend manager methods `get_notification_contacts`, `create_notification_log`, etc.
+
+Test and custom email API calls run SMTP in the request thread pool, so a slow mail server does not freeze other pages or health requests. Manual recovery API actions are also offloaded because their scheduler calls can send email. Keep blocking SMTP out of async endpoint bodies. Interactive email sends once, with a 10-second timeout for each blocking SMTP operation; this is not a total request deadline. The frontend test request allows 60 seconds for its result. Background alerts retain the normal delivery retries.
+
+Failure details identify the SMTP host/port and step: connection/server greeting, SSL connection, STARTTLS, authentication, or message submission. A greeting timeout happens before the password is checked: investigate network reachability and the selected port/encryption mode before changing credentials. An authentication rejection requires checking the username and SMTP/app password; repeating the same credentials is not retried. Certificate validation stays enabled. Sockets are closed after each attempt; cleanup failure after a server accepts the message does not trigger duplicate sending. `test_notification_responsiveness.py` verifies concurrent health requests while email and recovery requests are stalled.
 
 ---
 
@@ -165,7 +169,7 @@ Represent email contacts and SMTP configuration. Hooks appear in `frontend/src/c
 ## 6. Extension Points & Gotchas
 
 - **Thread safety**  
-  Locks: `_schedules_lock`, `_jobs_lock`, `_contacts_lock`, `_execution_watch_lock`. Acquire them exactly where the engine currently does. Never hold locks while performing long operations (like network calls).
+  Locks: `_schedules_lock`, `_jobs_lock`, `_contacts_lock`; the log monitor owns its own short state lock and a separate SQL polling gate. Acquire them exactly where the engine currently does. Never hold locks while performing long operations (like network calls).
 
 - **Timezones**  
   Always normalize timestamps with the helpers in `backend.utils.datetime`. `ScheduledExperiment.__post_init__` now calls `utc_now_as_local_naive()`, and the SQLite layer serializes dates through `_serialize_timestamp`, so any new timestamps must follow the same pattern. Never write bare `datetime.utcnow()` values into the database.
@@ -262,3 +266,27 @@ The busy-robot test configures a one-second polling interval so its wait deadlin
 matches the scheduler's actual dispatch polling.
 
 By following the structure above you can extend the scheduling stack without reintroducing the duplication and fragile flows that existed before this cleanup. When in doubt, trace the execution lifecycle in section 2 and ensure your changes respect the same boundaries. Happy scheduling!
+
+
+## Run log inactivity monitoring (September 2026)
+
+The old twice-estimated-duration email is replaced by log inactivity. Estimated duration still controls calendar planning. The executor no longer kills a process after 120 minutes; the optional late-start cleanup action still works.
+
+- `run_log_monitor.py`: `HamiltonRunReader` reads SQL, `RunLogMonitor` observes files and runs one email-delivery thread. The existing scheduler calls the observer every 30 seconds. `run_log_store.py` owns transactional observation/outbox writes and idempotent completion. Keep scheduling decisions in the engine.
+- A schedule's `log_inactivity_threshold_minutes` is a positive integer, default 3. Creation, editing, serialization and SQLite migration preserve it. Launch snapshots the threshold; later edits apply to the next execution. Method-folder imports import method metadata, not schedules; schedules subsequently created from those methods receive the normal default.
+- Before Popen, save the actual method path, original schedule, SQL clock boundary and previous GUID. After successful Popen, confirm the launch. Resolve a unique SQL row for the exact `.hsl`/`.med` path within five minutes of that boundary; delayed visibility of that row is allowed. Missing/ambiguous rows remain unavailable. SQL baseline failure uses the local launch boundary (SQL is local to this host). A bound GUID never changes.
+- Only `<method>_<GUID>_Trace.trc` is considered. `ROBOTCONTROL_HAMILTON_LOG_PATH` overrides the default `C:\Program Files\HAMILTON\LogFiles`. Communication logs and unrelated methods cannot reset the timer. Poll fresh size, modification time and file identity; never read the entire trace during observation. Windows may delay last-write-time changes, so size changes count as activity too.
+- Elapsed inactivity uses a monotonic clock. Three minutes means strictly more than 180 observed seconds; the normal polling delay adds up to roughly 30 seconds. Missing SQL, unknown state, missing/inaccessible trace, or duplicate matching traces instead starts a separate fixed three-minute unavailable timer. File replacement/truncation establishes a new baseline. SQL completion/abort suppresses inactivity immediately.
+- `ExecutionMonitoring` stores one JSON observation per execution. `NotificationLog.log_id` deterministically identifies execution + event + pause. Observation changes, alert enqueueing and cancellation are committed together. `sent` records suppress duplicates, while new file activity creates a new pause. `pending`, `sending`, `error`, `sent`, and `cancelled` are valid notification statuses. Failed monitoring email attempts retry after 60 seconds while still applicable. SMTP's existing internal retries remain; they run off the scheduler thread.
+- The email worker checks SQL/files before claiming an alert and again after preparing attachments. An exact trace is supplied to the notification service; a missing/unreadable trace never causes a substitute attachment. Existing rolling video summaries remain. Stable Message-ID values reduce duplicate delivery after a crash, but SMTP cannot promise exactly-once delivery.
+- Startup restores unfinished observations before dispatch. It preserves pause IDs and file signatures but starts fresh monotonic timers: writes during downtime cannot be reconstructed. Known process outcomes survive retries/restart; otherwise terminal SQL status reconciles completion. Atomic completion updates execution and schedule once, including executions archived after their schedule was deleted. An active restored run continues blocking another launch.
+- Older runs without a launch association show monitoring unavailable instead of adopting a possibly unrelated run. If an orphan cannot be resolved automatically, use the existing manual recovery controls: verify/stop HxRun, mark recovery required, then acknowledge recovery. Acknowledgement can close an unowned execution only when HxRun detection confirms no process remains. Detection failure keeps it blocked.
+- Status includes observation state, GUID, trace name, last activity/observation time, threshold and unavailable reason. No active contacts means observation continues and delivery reports an error in notification history. Clearing a condition cancels unsent monitoring emails.
+
+### Verification
+
+Known limitation from the 12 September 2026 simulator check: Hamilton returned SQL `RunState = 2` while paused, with no end time. The current numeric mapping only recognizes 1 (running), 64 (aborted), and 128 (complete), so this pause produces "SQL run state is unknown" and a `monitoring_unavailable` email. This also happened before an application restart. It is not evidence that the saved run association was lost. Until pause-state handling is added, do not count these warnings as successful inactivity/rearm tests. Inspect the notification event type, not just whether an email arrived. The next correction should continue observing the exact trace for the confirmed paused state, preserve completion/abort priority, and keep genuinely unknown states unavailable.
+
+Run the backend test suite, then build the frontend, embed resources, and build the Windows executable. `test_run_log_monitor.py` uses temporary SQLite databases, trace files, a controllable monotonic clock, fake SQL and fake SMTP. It covers run matching, repeated pauses, outages, replacements, restart, terminal races, delivery retries, archive completion and the removed runtime cap. API tests cover positive-integer validation, default 3 and omitted-update preservation.
+
+For acceptance on the simulator: schedule a verified simulator-only method with an email contact, pause trace writes for at least 3.5 minutes, check one email, resume writes, pause again, and check a second email. Complete and verify silence. Repeat with an application restart during a pause: the same previously sent pause must not send twice; an unalerted pause needs a fresh observation window. Actual Hamilton behavior and SMTP delivery must be checked by the operator; automated tests never launch a laboratory method.

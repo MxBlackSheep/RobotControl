@@ -73,6 +73,7 @@ export const normalizeSchedule = (raw: any): ScheduledExperiment => {
     interval_hours: raw?.interval_hours ?? null,
     start_time: raw?.start_time ?? null,
     estimated_duration: coerceNumber(raw?.estimated_duration, 0),
+    log_inactivity_threshold_minutes: coerceNumber(raw?.log_inactivity_threshold_minutes, 3),
     created_by: coerceString(raw?.created_by || 'system'),
     created_at: coerceString(raw?.created_at || ''),
     updated_at: coerceString(raw?.updated_at || raw?.created_at || ''),
@@ -367,7 +368,7 @@ export const schedulingAPI = {
     api.put('/api/scheduling/notifications/settings', payload),
 
   sendNotificationTestEmail: (recipient: string) =>
-    api.post('/api/scheduling/notifications/settings/test', { recipient }),
+    api.post('/api/scheduling/notifications/settings/test', { recipient }, { timeout: 60000 }),
 
   getNotificationContacts: (includeInactive = true) =>
     api.get('/api/scheduling/contacts', { params: { include_inactive: includeInactive } }),
@@ -392,6 +393,7 @@ const buildScheduleRequest = (data: CreateScheduleFormData): CreateScheduleReque
   interval_hours: data.schedule_type === 'interval' ? data.interval_hours : undefined,
   start_time: serializeMaybeDate(data.start_time),
   estimated_duration: data.estimated_duration,
+  log_inactivity_threshold_minutes: data.log_inactivity_threshold_minutes,
   is_active: data.is_active,
   timeout_config: {
     timeout_minutes: data.timeout_minutes ?? null,

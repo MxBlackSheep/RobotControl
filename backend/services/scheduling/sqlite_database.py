@@ -177,6 +177,15 @@ class SQLiteSchedulingDatabase:
                 cursor.execute("INSERT OR IGNORE INTO SchedulerState (id) VALUES (1)")
 
                 # Create indexes for performance
+                # No execution foreign key: legacy execution writes use INSERT OR REPLACE.
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS ExecutionMonitoring (
+                        execution_id TEXT PRIMARY KEY,
+                        schedule_id TEXT NOT NULL,
+                        finished INTEGER NOT NULL DEFAULT 0,
+                        data TEXT NOT NULL
+                    )
+                """)
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_scheduled_start_time ON ScheduledExperiments(start_time)")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_scheduled_active ON ScheduledExperiments(is_active)")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_executions_status ON JobExecutions(status)")
@@ -270,6 +279,7 @@ class SQLiteSchedulingDatabase:
 
                 existing_columns = {col['name'] for col in cursor.execute("PRAGMA table_info(ScheduledExperiments)")}
                 column_alterations = [
+                    ('log_inactivity_threshold_minutes', "ALTER TABLE ScheduledExperiments ADD COLUMN log_inactivity_threshold_minutes INTEGER NOT NULL DEFAULT 3"),
                     ('recovery_required', "ALTER TABLE ScheduledExperiments ADD COLUMN recovery_required INTEGER NOT NULL DEFAULT 0"),
                     ('recovery_note', "ALTER TABLE ScheduledExperiments ADD COLUMN recovery_note TEXT"),
                     ('recovery_marked_at', "ALTER TABLE ScheduledExperiments ADD COLUMN recovery_marked_at TEXT"),
@@ -374,8 +384,9 @@ class SQLiteSchedulingDatabase:
                         is_active, archived, timeout_minutes, timeout_action,
                         timeout_cleanup_experiment_name, timeout_cleanup_experiment_path, prerequisites,
                         recovery_required, recovery_note, recovery_marked_at, recovery_marked_by,
-                        recovery_resolved_at, recovery_resolved_by, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        recovery_resolved_at, recovery_resolved_by, created_at, updated_at,
+                        log_inactivity_threshold_minutes
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     schedule.schedule_id,
                     schedule.experiment_name,
@@ -400,6 +411,7 @@ class SQLiteSchedulingDatabase:
                     schedule.recovery_resolved_by,
                     self._serialize_timestamp(schedule.created_at),
                     self._serialize_timestamp(schedule.updated_at),
+                    schedule.log_inactivity_threshold_minutes,
                 ))
                 self._replace_schedule_contacts(conn, schedule.schedule_id, schedule.notification_contacts or [])
                 conn.commit()
@@ -524,6 +536,7 @@ class SQLiteSchedulingDatabase:
                     "interval_hours = ?",
                     "start_time = ?",
                     "estimated_duration = ?",
+                    "log_inactivity_threshold_minutes = ?",
                     "is_active = ?",
                     "archived = ?",
                     "timeout_minutes = ?",
@@ -545,6 +558,7 @@ class SQLiteSchedulingDatabase:
                     schedule.interval_hours,
                     self._serialize_timestamp(schedule.start_time),
                     schedule.estimated_duration,
+                    schedule.log_inactivity_threshold_minutes,
                     1 if schedule.is_active else 0,
                     1 if getattr(schedule, "archived", False) else 0,
                     schedule.timeout_config.timeout_minutes if schedule.timeout_config else None,
@@ -1559,6 +1573,7 @@ class SQLiteSchedulingDatabase:
                 interval_hours=row["interval_hours"],
                 start_time=start_time,
                 estimated_duration=row["estimated_duration"],
+                log_inactivity_threshold_minutes=row["log_inactivity_threshold_minutes"],
                 created_by=row["created_by"],
                 is_active=bool(row["is_active"]),
                 archived=bool(row["archived"]) if "archived" in row_keys else False,

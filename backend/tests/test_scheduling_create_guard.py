@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from fastapi.testclient import TestClient
+import pytest
 
 import backend.api.scheduling as scheduling_api
 from backend.main import app
@@ -58,6 +59,37 @@ def setup_function():
 
 def teardown_function():
     app.dependency_overrides.clear()
+
+
+@pytest.mark.parametrize("threshold", [0, -1, 1.5, True, None, "3"])
+def test_create_rejects_invalid_log_inactivity_threshold(monkeypatch, threshold):
+    scheduler = FakeScheduler()
+    monkeypatch.setattr(scheduling_api, "get_services", lambda: (scheduler, FakeDB(), object(), object()))
+    response = client.post("/api/scheduling/create", json={
+        "experiment_name": "test", "experiment_path": "test.med", "schedule_type": "once",
+        "estimated_duration": 30, "log_inactivity_threshold_minutes": threshold,
+    }, headers={"x-forwarded-for": "127.0.0.1"})
+    assert response.status_code == 400
+    assert not scheduler.add_calls
+
+
+def test_threshold_defaults_and_update_omission_preserves_value(monkeypatch):
+    scheduler, db = FakeScheduler(), FakeDB()
+    monkeypatch.setattr(scheduling_api, "get_services", lambda: (scheduler, db, object(), object()))
+    response = client.post("/api/scheduling/create", json={
+        "experiment_name": "test", "experiment_path": "test.med", "schedule_type": "once", "estimated_duration": 30,
+    }, headers={"x-forwarded-for": "127.0.0.1"})
+    assert response.status_code == 200
+    schedule = scheduler.add_calls[0]
+    assert schedule.log_inactivity_threshold_minutes == 3
+    schedule.log_inactivity_threshold_minutes = 7
+    db.schedules[schedule.schedule_id] = schedule
+    response = client.put(f"/api/scheduling/{schedule.schedule_id}", json={"estimated_duration": 45}, headers={"x-forwarded-for": "127.0.0.1"})
+    assert response.status_code == 200
+    assert scheduler.update_calls[0].log_inactivity_threshold_minutes == 7
+    response = client.put(f"/api/scheduling/{schedule.schedule_id}", json={"log_inactivity_threshold_minutes": 9}, headers={"x-forwarded-for": "127.0.0.1"})
+    assert response.status_code == 200
+    assert scheduler.update_calls[-1].log_inactivity_threshold_minutes == 9
 
 
 def test_create_schedule_allows_same_start_minute(monkeypatch):
