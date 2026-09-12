@@ -1,5 +1,13 @@
 # RobotControl Development Log (Chronological)
 
+## 2026-09-12 Clear SMTP account setup
+
+- Reorganized email setup around one account address, with existing custom login/From addresses preserved under Advanced settings. A single security selector replaces mutually exclusive switches and never silently changes ports. Manual recovery correctly falls back to the schedule's active contacts.
+- A shared draft serializer preserves existing API/password semantics. Blank keeps the encrypted password; explicit replacement/removal is sent only on Save, with undo before saving. Refresh/discard requires an explicit choice for dirty drafts and retains entries after failures.
+- Save precedes Test; dirty settings cannot be tested, saves never send email, and test progress/results stay inline. Twenty-one focused frontend tests and TypeScript checks passed. Browser review used an isolated instance; no real credentials were changed and no external email was sent.
+
+---
+
 ## 2026-09-12 Stable schedule form refresh
 
 - Removed duplicate custom focus trapping from create/edit and method import dialogs; MUI manages focus restoration and trapping. Schedule initial focus runs once on entry, and drafts initialize only once per open session. Polling and refreshed props cannot overwrite entered values or expanded sections.

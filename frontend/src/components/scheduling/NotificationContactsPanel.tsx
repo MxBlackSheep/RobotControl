@@ -268,7 +268,7 @@ const NotificationContactsPanel: React.FC<NotificationContactsPanelProps> = ({
       <Card sx={{ borderRadius: 2 }}>
         <CardHeader
           title="Notification Contacts"
-          subheader="Manage who receives scheduling alert emails."
+          subheader="Save recipient contacts here, then select them in each schedule's Email alert recipients field."
           action={
             <Stack direction="row" spacing={1} alignItems="center">
               <FormControlLabel
@@ -310,7 +310,7 @@ const NotificationContactsPanel: React.FC<NotificationContactsPanelProps> = ({
                 }}
               >
                 <Typography variant="body2" color="text.secondary">
-                  No contacts available. Add a contact to begin receiving scheduling notifications.
+                  No contacts available. Add a contact, then select it on each schedule that should send alerts.
                 </Typography>
               </Box>
             ) : (

@@ -8,7 +8,11 @@ Hamilton status and log condition are separate: SQL 1 means Running and 2 means 
 
 Run `npm test` for the focused Vitest suites beside scheduling components/hooks. `vitest.config.ts` deliberately excludes older Jest suites under `__tests__`; those require separate migration. `npm run build` remains the production TypeScript/Vite check.
 
-The SMTP test button uses a 60-second request timeout so the backend can return a specific SMTP failure instead of the generic ten-second browser timeout. Its spinner remains active while that request runs; other pages remain usable. The backend uses one send attempt and a ten-second timeout per SMTP operation. Keep the detailed backend error in the failure dialog; it distinguishes connection, TLS and authentication problems.
+## Email setup
+
+The account address normally supplies both SMTP login and From address. `smtpForm.ts` converts saved settings to a draft and back to the existing API. Keep custom login/From addresses and null-login fallback compatible. Password keep omits the field; update sends the new value; clear sends an empty string. Never return the stored password to the browser. Security is one selector mapped to the existing `use_ssl`/`use_tls` booleans, without automatic port changes.
+
+Save settings first, then send a test. Unsaved changes disable testing; saving never sends mail. Refresh/discard asks before replacing a dirty draft and only replaces it after a successful fetch. Results are persistent inline alerts, not timed dialogs. The SMTP test request still waits up to 60 seconds; the backend uses one send attempt with a ten-second timeout per SMTP operation. Keep detailed backend errors to distinguish connection, TLS and authentication failures. Manual-recovery recipient overrides are separate from the schedule's normal alert recipients.
 
 This document spells out how the scheduling UI is wired together. It assumes you need every instruction spelled out—no prior knowledge required. Follow it exactly so you don’t break experiment management.
 
