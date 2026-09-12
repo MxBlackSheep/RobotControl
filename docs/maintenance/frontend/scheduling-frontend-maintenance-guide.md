@@ -14,6 +14,14 @@ The account address normally supplies both SMTP login and From address. `smtpFor
 
 Save settings first, then send a test. Unsaved changes disable testing; saving never sends mail. Refresh/discard asks before replacing a dirty draft and only replaces it after a successful fetch. Results are persistent inline alerts, not timed dialogs. The SMTP test request still waits up to 60 seconds; the backend uses one send attempt with a ten-second timeout per SMTP operation. Keep detailed backend errors to distinguish connection, TLS and authentication failures. Manual-recovery recipient overrides are separate from the schedule's normal alert recipients.
 
+## Import Hamilton methods
+
+`FolderImportDialog` has three stages: Choose folder, Review methods, Import results. Import adds catalogue entries only; it never creates schedules or starts Hamilton. Both radio choices require an absolute folder path on the RobotControl computer. Browser selection sends relative file names, not file contents; remove only the browser's top-level folder name, preserving nested paths. Manual selection discovers all regular subfolders. Linked folders are not scanned.
+
+Call the read-only preview endpoint first. Display every returned method and full host path, with New/Update/Invalid labels. Select valid rows by default, allow deselection, and disable invalid rows. Search filters the displayed list without silently changing selection. Submit the chosen relative paths with the preview's canonical folder; the server revalidates and returns actual Added/Updated/Failed results. Partial failures still have useful result data: do not discard it just because `success` is false. Lists are scrollable and searchable without a ten-row limit.
+
+Successful imports invalidate method choices through `catalogueVersion`, preserving any open schedule draft. Only the explicit Create a schedule action opens the schedule form. Local-access controls exist in both UI and backend. Component tests cover browser/manual selection, required host paths, deselection, invalid entries, long results and partial failures; backend tests cover filesystem/database validation.
+
 This document spells out how the scheduling UI is wired together. It assumes you need every instruction spelled out—no prior knowledge required. Follow it exactly so you don’t break experiment management.
 
 ---

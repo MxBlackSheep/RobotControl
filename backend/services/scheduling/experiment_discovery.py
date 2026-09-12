@@ -150,105 +150,102 @@ class ExperimentDiscoveryService:
         logger.info(f"Discovered {len(discovered)} experiment files")
         return discovered
         
-    def import_methods_from_folder(self, folder_path: str, imported_by: str = "system") -> Dict[str, Any]:
-        """
-        Import all .med files from a specified folder into the database
-        
-        Args:
-            folder_path: Path to folder containing .med files
-            imported_by: Username of who is importing the methods
-            
-        Returns:
-            Dictionary with import results and statistics
-        """
-        results = {
-            "success": False,
-            "folder": folder_path,
-            "imported_by": imported_by,
-            "imported_at": datetime.now().isoformat(),
-            "new_methods": 0,
-            "updated_methods": 0,
-            "failed_methods": 0,
-            "total_found": 0,
-            "methods": [],
-            "errors": []
-        }
-        
+    @staticmethod
+    def _method_key(path: str) -> str:
+        return os.path.normcase(str(Path(path).resolve())).casefold()
+
+    def preview_methods(self, folder_path: str, relative_paths: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Read host metadata only. Never change the catalogue or discovery cache."""
+        folder = Path(folder_path.strip().strip('"')).expanduser()
+        if not folder.is_absolute():
+            raise ValueError("Enter an absolute folder path on the RobotControl computer.")
         try:
-            folder = Path(folder_path)
-            if not folder.exists():
-                results["errors"].append(f"Folder does not exist: {folder_path}")
-                return results
-                
+            folder = folder.resolve(strict=True)
             if not folder.is_dir():
-                results["errors"].append(f"Path is not a folder: {folder_path}")
-                return results
-            
-            # Find all .med files in the folder (including subdirectories)
-            med_files = list(folder.rglob("*.med"))
-            results["total_found"] = len(med_files)
-            
-            if len(med_files) == 0:
-                results["errors"].append(f"No .med files found in {folder_path}")
-                return results
-            
-            logger.info(f"Found {len(med_files)} .med files in {folder_path}")
-            
-            # Process each file
-            methods_to_import = []
-            for med_file in med_files:
-                try:
-                    stat = med_file.stat()
-                    experiment_name = med_file.stem
-                    
-                    method_data = {
-                        "name": experiment_name,
-                        "path": str(med_file.absolute()),
-                        "category": self._determine_category(experiment_name),
-                        "description": f"Imported from {folder_path}",
-                        "file_size": stat.st_size,
-                        "last_modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                        "source_folder": str(folder.absolute()),
-                        "metadata": {
-                            "relative_path": str(med_file.relative_to(folder)),
-                            "import_timestamp": datetime.now().isoformat()
-                        }
-                    }
-                    
-                    methods_to_import.append(method_data)
-                    results["methods"].append({
-                        "name": experiment_name,
-                        "path": str(med_file.absolute()),
-                        "size": stat.st_size
-                    })
-                    
-                except Exception as e:
-                    results["failed_methods"] += 1
-                    results["errors"].append(f"Failed to process {med_file}: {str(e)}")
-                    logger.warning(f"Failed to process {med_file}: {e}")
-            
-            # Import to database
-            if methods_to_import:
-                new_count, updated_count = self.db.import_experiment_methods(
-                    methods_to_import, 
-                    imported_by
-                )
-                results["new_methods"] = new_count
-                results["updated_methods"] = updated_count
-                results["success"] = True
-                
-                # Clear cache to force refresh
-                self.discovered_experiments = []
-                self._last_scan = None
-                
-                logger.info(f"Imported {new_count} new and {updated_count} updated methods from {folder_path}")
-            
-        except Exception as e:
-            results["errors"].append(f"Import failed: {str(e)}")
-            logger.error(f"Failed to import methods from {folder_path}: {e}")
-            
-        return results
-    
+                raise ValueError("The selected path is not a folder.")
+        except OSError as exc:
+            raise ValueError(f"Cannot access the selected folder: {exc}") from exc
+        if relative_paths is not None and not relative_paths:
+            raise ValueError("Select at least one method to import.")
+        if relative_paths is None:
+            relative_paths = []
+            def scan_error(error):
+                raise ValueError(f"Cannot scan the selected folder: {error}")
+            for directory, subdirs, names in os.walk(folder, followlinks=False, onerror=scan_error):
+                # Do not traverse links/junctions into another tree or a cycle.
+                subdirs[:] = [name for name in subdirs if not Path(directory, name).is_symlink()
+                              and not Path(directory, name).is_junction()]
+                relative_paths.extend(str(Path(directory, name).relative_to(folder))
+                                      for name in names if Path(name).suffix.lower() == ".med")
+        existing = set()
+        for stored in self.db.get_experiment_methods(valid_only=False):
+            try:
+                if Path(stored["file_path"]).is_absolute():
+                    existing.add(self._method_key(stored["file_path"]))
+            except (OSError, ValueError):
+                # Leave older unverified catalogue entries unchanged; they must not break preview.
+                logger.warning("Ignoring an unresolvable catalogue path during import preview")
+        methods, seen = [], set()
+        for relative in sorted(relative_paths, key=str.casefold):
+            row = {"name": Path(relative).stem, "relative_path": relative, "path": None,
+                   "size": None, "last_modified": None, "action": "invalid", "reason": None}
+            try:
+                candidate = Path(relative)
+                if candidate.is_absolute() or candidate.drive or ".." in candidate.parts:
+                    raise ValueError("Use a relative method path inside the selected folder.")
+                if candidate.suffix.lower() != ".med":
+                    raise ValueError("Select a .med method file.")
+                path = (folder / candidate).resolve(strict=True)
+                if not path.is_relative_to(folder):
+                    raise ValueError("Method resolves outside the selected folder.")
+                if path.suffix.lower() != ".med" or not path.is_file():
+                    raise ValueError("Select a .med method file.")
+                stat = path.stat()
+                key = self._method_key(str(path))
+                if key in seen:
+                    raise ValueError("This method is already included in the selection.")
+                seen.add(key)
+                row.update(name=path.stem, path=str(path), size=stat.st_size,
+                           last_modified=datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                           action="update" if key in existing else "new")
+            except (OSError, ValueError) as exc:
+                row["reason"] = str(exc)
+            methods.append(row)
+        return {"folder": str(folder), "total_found": len(methods), "methods": methods}
+
+    def import_methods_from_folder(self, folder_path: str, imported_by: str = "system",
+                                   relative_paths: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Revalidate selected host paths immediately before writing catalogue metadata."""
+        preview = self.preview_methods(folder_path, relative_paths)
+        valid = [row for row in preview["methods"] if row["action"] != "invalid"]
+        metadata = [{"name": row["name"], "path": row["path"], "file_size": row["size"],
+                     "last_modified": row["last_modified"], "category": self._determine_category(row["name"]),
+                     "source_folder": preview["folder"], "description": f"Imported from {preview['folder']}",
+                     "metadata": {"relative_path": row["relative_path"], "import_timestamp": datetime.now().isoformat()}}
+                    for row in valid]
+        outcomes = {self._method_key(row["path"]): row
+                    for row in self.db.import_experiment_methods(metadata, imported_by)} if metadata else {}
+        for row in preview["methods"]:
+            outcome = outcomes.get(self._method_key(row["path"])) if row["action"] != "invalid" else None
+            row["status"] = outcome["status"] if outcome else "failed"
+            row["reason"] = outcome["reason"] if outcome else row["reason"] or "Method was not imported."
+        result = self.import_summary(preview["methods"])
+        result.update(folder=preview["folder"], imported_by=imported_by, imported_at=datetime.now().isoformat())
+        if result["new_methods"] or result["updated_methods"]:
+            self.discovered_experiments = []
+            self._last_scan = None
+        return result
+
+    @staticmethod
+    def import_summary(methods: List[Dict[str, Any]]) -> Dict[str, Any]:
+        failed = sum(row["status"] == "failed" for row in methods)
+        return {"success": bool(methods) and failed == 0, "total_found": len(methods),
+                "new_methods": sum(row["status"] == "added" for row in methods),
+                "updated_methods": sum(row["status"] == "updated" for row in methods),
+                "failed_methods": failed, "methods": methods,
+                "errors": [f"{row.get('relative_path') or row.get('path')}: {row['reason']}"
+                           for row in methods if row["status"] == "failed"]}
+
     def get_available_experiments(self, use_cache: bool = True, use_database: bool = True) -> List[Dict[str, Any]]:
         """
         Get list of available experiments

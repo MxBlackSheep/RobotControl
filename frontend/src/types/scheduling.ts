@@ -124,6 +124,38 @@ export interface NotificationSettings {
   manual_recovery_recipients: string[];
 }
 
+export interface MethodImportSelection {
+  folder_path: string;
+  relative_paths?: string[];
+}
+
+export interface MethodImportRow {
+  name: string;
+  relative_path: string;
+  path: string | null;
+  size?: number | null;
+  last_modified?: string | null;
+  action?: 'new' | 'update' | 'invalid';
+  status?: 'added' | 'updated' | 'failed';
+  reason?: string | null;
+}
+
+export interface MethodImportPreview {
+  folder: string;
+  total_found: number;
+  methods: MethodImportRow[];
+}
+
+export interface MethodImportResult {
+  success: boolean;
+  total_found: number;
+  new_methods: number;
+  updated_methods: number;
+  failed_methods: number;
+  methods: MethodImportRow[];
+  errors: string[];
+}
+
 export interface NotificationSettingsUpdatePayload {
   host: string;
   port: number;

@@ -1,3 +1,4 @@
+import { ApiResponse, MethodImportSelection, MethodImportPreview, MethodImportResult } from '../types/scheduling';
 ﻿import { AxiosError, isAxiosError } from 'axios';
 import { api } from './api';
 import {
@@ -342,10 +343,15 @@ export const schedulingAPI = {
 
   getEvoYeastExperiments: (limit = 100) => api.get('/api/scheduling/experiments/evo-yeast', { params: { limit } }),
 
-  importExperimentFiles: (files: any[]) => api.post('/api/scheduling/experiments/import-files', { files }),
+  previewExperimentImport: (selection: MethodImportSelection) =>
+    api.post<ApiResponse<MethodImportPreview>>('/api/scheduling/experiments/import-preview', selection, { timeout: 60000 }),
 
-  importExperimentFolder: (folderPath: string) =>
-    api.post('/api/scheduling/experiments/import-folder', { folder_path: folderPath }),
+  importExperimentFiles: (selection: MethodImportSelection) =>
+    api.post<ApiResponse<MethodImportResult>>('/api/scheduling/experiments/import-files', selection, { timeout: 60000 }),
+
+  importExperimentFolder: (folderPath: string, relativePaths?: string[]) =>
+    api.post<ApiResponse<MethodImportResult>>('/api/scheduling/experiments/import-folder',
+      { folder_path: folderPath, relative_paths: relativePaths }, { timeout: 60000 }),
 
   getExecutionHistory: (scheduleId?: string, limit = 50) =>
     api.get('/api/scheduling/executions/history', {

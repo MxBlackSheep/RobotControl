@@ -1,568 +1,176 @@
-/**
- * Folder Import Dialog Component
- * 
- * Dialog for importing multiple experiment .med files from a folder.
- * Provides folder path input, import progress, and results display.
- */
-
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { isAxiosError } from 'axios';
 import {
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  TextField,
-  Button,
-  Box,
-  Alert,
-  Typography,
-  Stack,
-  LinearProgress,
-  List,
-  ListItem,
-  ListItemText,
-  Chip,
-  InputAdornment,
-  IconButton,
-  Divider,
-  Card,
-  CardContent
+  Alert, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
+  FormControl, FormControlLabel, FormLabel, LinearProgress, List, ListItem, Radio,
+  RadioGroup, Stack, Step, StepLabel, Stepper, TextField, Typography,
 } from '@mui/material';
-import {
-  FolderOpen as FolderIcon,
-  Upload as UploadIcon,
-  Info as InfoIcon,
-  CloudUpload as BrowserIcon,
-  Edit as ManualIcon
-} from '@mui/icons-material';
-import ErrorAlert, { ServerError, SuccessAlert } from '../ErrorAlert';
+import { FolderOpen } from '@mui/icons-material';
 import { schedulingAPI } from '../../services/schedulingApi';
+import { MethodImportPreview, MethodImportResult, MethodImportRow } from '../../types/scheduling';
 
-interface FolderImportDialogProps {
+interface Props {
   open: boolean;
   onClose: () => void;
   onImportComplete?: () => void;
+  onCreateSchedule?: () => void;
   isLocalClient: boolean;
 }
 
-const FolderImportDialog: React.FC<FolderImportDialogProps> = ({
-  open,
-  onClose,
-  onImportComplete,
-  isLocalClient
-}) => {
-  const [folderPath, setFolderPath] = useState('');
-  const [importing, setImporting] = useState(false);
-  const [importResults, setImportResults] = useState<{
-    success: boolean;
-    new_methods: number;
-    updated_methods: number;
-    failed_methods: number;
-    total_found: number;
-    errors: string[];
-    methods?: Array<{ name: string; path: string; size: number }>;
-  } | null>(null);
+export const browserMethodPaths = (files: File[]) => files
+  .filter(file => file.name.toLowerCase().endsWith('.med'))
+  .map(file => {
+    const parts = (file.webkitRelativePath || file.name).split('/');
+    return parts.length > 1 ? parts.slice(1).join('/') : file.name;
+  });
+
+const errorMessage = (error: unknown) => {
+  if (isAxiosError(error)) {
+    const detail = error.response?.data?.detail;
+    if (typeof detail === 'string') return detail;
+    if (Array.isArray(detail)) return detail.map(item => item.msg).join('\n');
+  }
+  return error instanceof Error ? error.message : 'The request failed. Please try again.';
+};
+
+export default function FolderImportDialog({ open, onClose, onImportComplete, onCreateSchedule, isLocalClient }: Props) {
+  const [source, setSource] = useState<'browser' | 'manual'>('browser');
+  const [folder, setFolder] = useState('');
+  const [files, setFiles] = useState<File[]>([]);
+  const [preview, setPreview] = useState<MethodImportPreview | null>(null);
+  const [result, setResult] = useState<MethodImportResult | null>(null);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [search, setSearch] = useState('');
+  const [stage, setStage] = useState(0);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
-  const [importMethod, setImportMethod] = useState<'browser' | 'manual'>('browser');
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const initialFocus = useRef<HTMLDivElement>(null);
 
-  const handleFolderSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (!isLocalClient) {
-      setError('Folder import is only available from the RobotControl host.');
-      return;
-    }
-    const files = Array.from(event.target.files || []);
-    
-    // Filter for .med files only
-    const medFiles = files.filter(file => 
-      file.name.toLowerCase().endsWith('.med')
-    );
-    
-    setSelectedFiles(medFiles);
-    setError(null);
-    
-    if (medFiles.length === 0) {
-      setError('No .med files found in the selected folder');
-    }
+  const reset = () => {
+    setSource('browser'); setFolder(''); setFiles([]); setPreview(null); setResult(null);
+    setSelected([]); setSearch(''); setStage(0); setError(null);
+    if (fileInput.current) fileInput.current.value = '';
   };
+  useEffect(() => { if (open) reset(); }, [open]);
+  const close = () => { if (!busy) onClose(); };
+  const relativePaths = browserMethodPaths(files);
+  const rows = stage === 2 ? result?.methods || [] : preview?.methods || [];
+  const visibleRows = rows.filter(row => `${row.name} ${row.path || row.relative_path} ${row.reason || ''}`.toLowerCase().includes(search.toLowerCase()));
+  const validRows = preview?.methods.filter(row => row.action !== 'invalid') || [];
 
-  const handleBrowserFolderPicker = () => {
-    if (!isLocalClient) {
-      setError('Folder import is only available from the RobotControl host.');
-      return;
-    }
-    if (fileInputRef.current) {
-      fileInputRef.current.click();
-    }
-  };
-
-  const handleImportFromBrowser = async () => {
-    if (!isLocalClient) {
-      setError('Folder import is only available from the RobotControl host.');
-      return;
-    }
-    if (selectedFiles.length === 0) {
-      setError('Please select a folder containing .med files');
-      return;
-    }
-
-    setImporting(true);
-    setError(null);
-    setImportResults(null);
-
+  const scan = async () => {
+    if (!isLocalClient || busy) return;
+    setBusy(true); setError(null);
     try {
-      // Process selected files and create metadata
-      const fileMetadata = selectedFiles.map(file => {
-        // Extract relative path from file.webkitRelativePath
-        const relativePath = file.webkitRelativePath || file.name;
-        const pathParts = relativePath.split('/');
-        const folderName = pathParts[0] || 'Selected Folder';
-        
-        return {
-          name: file.name.replace('.med', ''),
-          path: relativePath,
-          size: file.size,
-          lastModified: new Date(file.lastModified).toISOString(),
-          sourceFolder: folderName
-        };
-      });
-
-      // Send metadata to backend for import
-      const response = await schedulingAPI.importExperimentFiles(fileMetadata);
-      
-      if (response.data.success) {
-        setImportResults({
-          success: true,
-          new_methods: response.data.data.new_methods,
-          updated_methods: response.data.data.updated_methods,
-          failed_methods: response.data.data.failed_methods || 0,
-          total_found: selectedFiles.length,
-          errors: response.data.data.errors || [],
-          methods: fileMetadata.map(f => ({
-            name: f.name,
-            path: f.path,
-            size: f.size
-          }))
-        });
-        
-        if (onImportComplete && (response.data.data.new_methods > 0 || response.data.data.updated_methods > 0)) {
-          onImportComplete();
-        }
-      } else {
-        setError(response.data.message || 'Import failed');
-      }
-    } catch (err) {
-      console.error('Import error:', err);
-      setError(err instanceof Error ? err.message : 'Failed to import experiments');
-    } finally {
-      setImporting(false);
-    }
+      const response = await schedulingAPI.previewExperimentImport({ folder_path: folder.trim(),
+        ...(source === 'browser' ? { relative_paths: relativePaths } : {}) });
+      if (!response.data.success || !response.data.data) throw new Error(response.data.message || 'Unable to preview this folder.');
+      setPreview(response.data.data);
+      setSelected(response.data.data.methods.filter(row => row.action !== 'invalid').map(row => row.relative_path));
+      setSearch(''); setStage(1);
+    } catch (err) { setError(errorMessage(err)); }
+    finally { setBusy(false); }
   };
 
-  const handleImportFromPath = async () => {
-    if (!isLocalClient) {
-      setError('Folder import is only available from the RobotControl host.');
-      return;
-    }
-    if (!folderPath.trim()) {
-      setError('Please enter a folder path');
-      return;
-    }
-
-    setImporting(true);
-    setError(null);
-    setImportResults(null);
-
+  const importSelected = async () => {
+    if (!isLocalClient || busy || !preview || !selected.length) return;
+    setBusy(true); setError(null);
     try {
-      const response = await schedulingAPI.importExperimentFolder(folderPath);
-      
-      if (response.data.success || response.data.data.new_methods > 0 || response.data.data.updated_methods > 0) {
-        setImportResults(response.data.data);
-        
-        if (onImportComplete && (response.data.data.new_methods > 0 || response.data.data.updated_methods > 0)) {
-          onImportComplete();
-        }
-      } else {
-        setError(response.data.message || 'Import failed');
-        if (response.data.data.errors?.length > 0) {
-          setError(response.data.data.errors[0]);
-        }
-      }
-    } catch (err) {
-      console.error('Import error:', err);
-      setError(err instanceof Error ? err.message : 'Failed to import experiments');
-    } finally {
-      setImporting(false);
-    }
+      const response = source === 'browser'
+        ? await schedulingAPI.importExperimentFiles({ folder_path: preview.folder, relative_paths: selected })
+        : await schedulingAPI.importExperimentFolder(preview.folder, selected);
+      if (!response.data.data) throw new Error(response.data.message || 'No import results were returned.');
+      // Partial/all file failures still have useful per-file results.
+      const imported = response.data.data;
+      setResult(imported); setSearch(''); setStage(2);
+      if (imported.new_methods + imported.updated_methods > 0) onImportComplete?.();
+    } catch (err) { setError(errorMessage(err)); }
+    finally { setBusy(false); }
   };
 
-  const handleClose = () => {
-    if (!importing) {
-      setFolderPath('');
-      setSelectedFiles([]);
-      setImportResults(null);
-      setError(null);
-      setImportMethod('browser');
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
-      onClose();
-    }
-  };
-
-  const getSamplePaths = () => {
-    // Provide example paths based on platform
-    const isWindows = navigator.platform.toLowerCase().includes('win');
-    
-    return isWindows ? [
-      'C:\\Program Files (x86)\\HAMILTON\\Methods',
-      'C:\\Hamilton\\Methods',
-      'D:\\Experiments\\Methods'
-    ] : [
-      '/usr/local/hamilton/methods',
-      '/home/user/hamilton/methods'
-    ];
-  };
+  const toggle = (relative: string) => setSelected(previous => previous.includes(relative)
+    ? previous.filter(value => value !== relative) : [...previous, relative]);
+  const rowLabel = (row: MethodImportRow) => ({ new: 'New', update: 'Update', invalid: 'Invalid', added: 'Added', updated: 'Updated', failed: 'Failed' }[stage === 2 ? row.status! : row.action!] || 'Unknown');
 
   return (
-    <Dialog 
-      open={open} disableEscapeKeyDown={importing}
-      onClose={handleClose} 
-      maxWidth="md" 
-      fullWidth
-      aria-labelledby="folder-import-dialog-title"
-      aria-describedby="folder-import-dialog-description"
-    >
-      <DialogTitle id="folder-import-dialog-title">
-        <Stack direction="row" alignItems="center" spacing={1}>
-          <FolderIcon color="primary" aria-hidden="true" />
-          <Typography variant="h6">Import Experiments from Folder</Typography>
-        </Stack>
-      </DialogTitle>
-
-      <DialogContent dividers id="folder-import-dialog-description">
-        <Stack spacing={3}>
-          {/* Instructions */}
-          <Alert severity="info" variant="outlined">
-            <Typography variant="body2">
-              Import all .med experiment files from a folder into the database.
-              This allows easy selection in scheduling forms without typing paths.
-            </Typography>
-          </Alert>
-
-          {/* Method Selection */}
-          {!importResults && (
-            <Box>
-              <Typography variant="subtitle2" gutterBottom>
-                Choose Import Method:
-              </Typography>
-              <Stack direction="row" spacing={2}>
-                <Card 
-                  variant={importMethod === 'browser' ? 'elevation' : 'outlined'}
-                  sx={{ 
-                    cursor: 'pointer',
-                    border: importMethod === 'browser' ? 2 : 1,
-                    borderColor: importMethod === 'browser' ? 'primary.main' : 'divider'
-                  }}
-                  onClick={() => setImportMethod('browser')}
-                >
-                  <CardContent sx={{ textAlign: 'center', py: 2 }}>
-                    <BrowserIcon color={importMethod === 'browser' ? 'primary' : 'disabled'} sx={{ mb: 1 }} />
-                    <Typography variant="body2" color={importMethod === 'browser' ? 'primary' : 'text.secondary'}>
-                      Browse Folder
-                    </Typography>
-                    <Typography variant="caption" display="block">
-                      Select folder in browser
-                    </Typography>
-                  </CardContent>
-                </Card>
-                <Card 
-                  variant={importMethod === 'manual' ? 'elevation' : 'outlined'}
-                  sx={{ 
-                    cursor: 'pointer',
-                    border: importMethod === 'manual' ? 2 : 1,
-                    borderColor: importMethod === 'manual' ? 'primary.main' : 'divider'
-                  }}
-                  onClick={() => setImportMethod('manual')}
-                >
-                  <CardContent sx={{ textAlign: 'center', py: 2 }}>
-                    <ManualIcon color={importMethod === 'manual' ? 'primary' : 'disabled'} sx={{ mb: 1 }} />
-                    <Typography variant="body2" color={importMethod === 'manual' ? 'primary' : 'text.secondary'}>
-                      Type Path
-                    </Typography>
-                    <Typography variant="caption" display="block">
-                      Enter folder path manually
-                    </Typography>
-                  </CardContent>
-                </Card>
-              </Stack>
-            </Box>
-          )}
-
-          {/* Hidden file input for folder selection */}
-          <input
-            ref={fileInputRef}
-            type="file"
-            // @ts-ignore - webkitdirectory is not in standard HTML types but widely supported
-            webkitdirectory=""
-            multiple
-            accept=".med"
-            onChange={handleFolderSelect}
-            style={{ display: 'none' }}
-          />
-
-          {/* Browser Method - Folder Picker */}
-          {!importResults && importMethod === 'browser' && (
-            <Box>
-              <Button
-                variant="outlined"
-                size="large"
-                fullWidth
-                startIcon={<FolderIcon />}
-                onClick={handleBrowserFolderPicker}
-                disabled={importing}
-                sx={{ py: 2, mb: 2 }}
-              >
-                Select Folder Containing .med Files
-              </Button>
-
-              <Alert severity="info" variant="outlined" sx={{ mb: 2 }}>
-                <Typography variant="body2">
-                  <strong>Browser Folder Selection:</strong>
-                </Typography>
-                <Typography variant="caption" component="div">
-                  • Works in Chrome, Firefox, Edge, Safari (modern browsers)
-                  <br />
-                  • Click button → Select any file in target folder → Browser loads all folder contents
-                  <br />
-                  • Only .med files will be imported to database
-                </Typography>
-              </Alert>
-
-              {selectedFiles.length > 0 && (
-                <>
-                  <SuccessAlert
-                    title="Files Selected"
-                    message={`Selected ${selectedFiles.length} experiment file${selectedFiles.length === 1 ? '' : 's'}. Review the list below before importing.`}
-                    retryable={false}
-                  />
-                  <Card variant="outlined" sx={{ mt: 2 }}>
-                    <CardContent sx={{ pt: 2, pb: 1 }}>
-                      <Typography variant="body2" gutterBottom fontWeight={600}>
-                        Selected files ({selectedFiles.length}):
-                      </Typography>
-                      <Box sx={{ maxHeight: 150, overflow: 'auto' }}>
-                        {selectedFiles.slice(0, 10).map((file, index) => (
-                          <Chip
-                            key={index}
-                            label={file.name}
-                            size="small"
-                            sx={{ m: 0.5 }}
-                          />
-                        ))}
-                        {selectedFiles.length > 10 && (
-                          <Typography variant="caption" color="text.secondary">
-                            ...and {selectedFiles.length - 10} more files
-                          </Typography>
-                        )}
-                      </Box>
-                    </CardContent>
-                  </Card>
-                </>
-              )}
-            </Box>
-          )}
-
-          {/* Manual Method - Path Input */}
-          {!importResults && importMethod === 'manual' && (
-            <>
-              <TextField
-                label="Folder Path"
-                value={folderPath}
-                onChange={(e) => setFolderPath(e.target.value)}
-                fullWidth
-                disabled={importing}
-                placeholder="e.g., C:\Hamilton\Methods or /usr/local/hamilton/methods"
-                helperText="Enter the full path to a folder containing .med files (copy from File Explorer)"
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <FolderIcon />
-                    </InputAdornment>
-                  )
-                }}
-                sx={{ mb: 1 }}
-              />
-              
-              <Alert severity="info" icon={<InfoIcon />} sx={{ mb: 2 }}>
-                <Typography variant="body2">
-                  <strong>How to get folder path:</strong>
-                </Typography>
-                <Typography variant="caption" component="div">
-                  1. Open File Explorer/Finder
-                  <br />
-                  2. Navigate to your Hamilton methods folder
-                  <br />
-                  3. Click the address bar and copy the full path
-                  <br />
-                  4. Paste it into the field above
-                </Typography>
-              </Alert>
-
-              {/* Example Paths */}
-              <Box>
-                <Typography variant="caption" color="text.secondary" gutterBottom>
-                  Common Hamilton method locations:
-                </Typography>
-                <Stack direction="row" spacing={1} flexWrap="wrap" mt={1}>
-                  {getSamplePaths().map((path) => (
-                    <Chip
-                      key={path}
-                      label={path}
-                      size="small"
-                      variant="outlined"
-                      onClick={() => setFolderPath(path)}
-                      sx={{ mb: 1 }}
-                    />
-                  ))}
-                </Stack>
+    <Dialog open={open} onClose={close} disableEscapeKeyDown={busy} fullWidth maxWidth="md"
+      aria-labelledby="method-import-title" aria-describedby="method-import-description"
+      TransitionProps={{ onEntered: () => initialFocus.current?.querySelector<HTMLInputElement>('input:checked')?.focus({ preventScroll: true }) }}>
+      <DialogTitle id="method-import-title">Import Hamilton methods</DialogTitle>
+      <DialogContent dividers>
+        <Stack spacing={2.5}>
+          <Typography id="method-import-description" variant="body2" color="text.secondary">
+            Add .med methods to the experiment list, then create schedules for them. Importing does not run a method or create a schedule.
+          </Typography>
+          <Stepper activeStep={stage} alternativeLabel>
+            {['Choose folder', 'Review methods', 'Import results'].map(label => <Step key={label}><StepLabel>{label}</StepLabel></Step>)}
+          </Stepper>
+          {!isLocalClient && <Alert severity="warning">Open RobotControl locally on the robot computer to import methods.</Alert>}
+          {stage === 0 && <>
+            <FormControl ref={initialFocus} disabled={busy || !isLocalClient}>
+              <FormLabel id="method-source-label">Choose how to select the folder</FormLabel>
+              <RadioGroup aria-labelledby="method-source-label" value={source} onChange={event => { setSource(event.target.value as 'browser' | 'manual'); setError(null); }}>
+                <FormControlLabel value="browser" control={<Radio />} label="Browse for a folder" />
+                <FormControlLabel value="manual" control={<Radio />} label="Enter a folder path" />
+              </RadioGroup>
+            </FormControl>
+            {source === 'browser' && <Stack spacing={1}>
+              <input ref={fileInput} type="file" multiple accept=".med" hidden {...({ webkitdirectory: '', directory: '' } as any)}
+                aria-label="Method folder files" onChange={event => { setFiles(Array.from(event.target.files || [])); setError(null); }} />
+              <Button variant="outlined" startIcon={<FolderOpen />} disabled={busy || !isLocalClient} onClick={() => fileInput.current?.click()}>Browse for folder</Button>
+              <Typography variant="body2">{files.length ? `${relativePaths.length} .med files selected from ${files[0].webkitRelativePath.split('/')[0] || 'the selected folder'}.` : 'Select a folder containing Hamilton .med files.'}</Typography>
+              <Typography variant="body2" color="text.secondary">The browser supplies relative paths. Enter the same folder's full path on the RobotControl computer below. Files are not copied or uploaded to the host.</Typography>
+              {files.length > 0 && relativePaths.length === 0 && <Alert severity="warning">No .med files were found in that selection.</Alert>}
+            </Stack>}
+            <TextField fullWidth label="Folder path on RobotControl computer" value={folder} disabled={busy || !isLocalClient}
+              onChange={event => { setFolder(event.target.value); setError(null); }}
+              placeholder={'C:\\Program Files\\HAMILTON\\Methods'} helperText="Copy the full folder path from File Explorer's address bar. Regular subfolders are included; linked folders are not scanned." />
+          </>}
+          {stage > 0 && <>
+            <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>Folder: {preview?.folder}</Typography>
+            {stage === 1 && <>
+              {validRows.length > 0 && <Alert severity="info">{validRows.filter(row => row.action === 'new').length} new methods; {validRows.filter(row => row.action === 'update').length} existing methods to update. Review full paths before importing.</Alert>}
+              {rows.length === 0 && <Alert severity="info">No .med methods found. Go back and choose another folder.</Alert>}
+              {rows.some(row => row.action === 'invalid') && <Alert severity="warning">Some methods cannot be imported. Their reasons appear below.</Alert>}
+            </>}
+            {stage === 2 && result && <Alert severity={result.failed_methods ? 'warning' : 'success'}>
+              {result.new_methods} added · {result.updated_methods} updated · {result.failed_methods} failed
+            </Alert>}
+            {rows.length > 0 && <>
+              <TextField label="Search methods and paths" fullWidth size="small" value={search} onChange={event => setSearch(event.target.value)} />
+              {stage === 1 && <FormControlLabel label={`Select all valid methods (${validRows.length})`}
+                control={<Checkbox disabled={busy || !validRows.length} checked={validRows.length > 0 && selected.length === validRows.length}
+                  indeterminate={selected.length > 0 && selected.length < validRows.length}
+                  onChange={(_, checked) => setSelected(checked ? validRows.map(row => row.relative_path) : [])} />} />}
+              <Box role="region" aria-label="Method review and results" sx={{ maxHeight: '40vh', overflowY: 'auto', border: 1, borderColor: 'divider', borderRadius: 1 }}>
+                <List disablePadding>{visibleRows.map((row, index) => <ListItem key={`${row.relative_path}-${index}`} divider sx={{ alignItems: 'flex-start', gap: 1 }}>
+                  {stage === 1 && <Checkbox checked={row.action !== 'invalid' && selected.includes(row.relative_path)} disabled={busy || row.action === 'invalid'}
+                    inputProps={{ 'aria-label': `Import ${row.relative_path}` }} onChange={() => toggle(row.relative_path)} />}
+                  <Box sx={{ minWidth: 0, flex: 1 }}>
+                    <Typography variant="subtitle2" sx={{ overflowWrap: 'anywhere' }}>{row.name}</Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', overflowWrap: 'anywhere' }}>{row.path || row.relative_path}</Typography>
+                    {row.reason && <Typography variant="body2" color="error" sx={{ overflowWrap: 'anywhere' }}>{row.reason}</Typography>}
+                  </Box>
+                  <Chip size="small" label={rowLabel(row)} color={row.status === 'failed' || row.action === 'invalid' ? 'error' : row.status === 'added' || row.action === 'new' ? 'success' : 'info'} />
+                </ListItem>)}</List>
+                {visibleRows.length === 0 && <Typography sx={{ p: 2 }}>No methods match your search.</Typography>}
               </Box>
-            </>
-          )}
-
-          {/* Error Display */}
-          {error && (
-            <ServerError
-              title="Import Error"
-              message={error}
-              onClose={() => setError(null)}
-              retryable={false}
-            />
-          )}
-
-          {/* Import Progress */}
-          {importing && (
-            <Box>
-              <Typography variant="body2" gutterBottom>
-                Scanning folder for experiment files...
-              </Typography>
-              <LinearProgress />
-            </Box>
-          )}
-
-          {/* Import Results */}
-          {importResults && (
-            <Box>
-              {importResults.success ? (
-                <SuccessAlert
-                  title="Import Complete"
-                  message={`Import finished successfully. Total files found: ${importResults.total_found}. Review the summary below.`}
-                  retryable={false}
-                />
-              ) : (
-                <ErrorAlert
-                  title="Import Completed With Warnings"
-                  message="Some files could not be imported. Review the summary below for details."
-                  severity="warning"
-                  retryable={false}
-                />
-              )}
-
-              <Card variant="outlined" sx={{ mt: 2 }}>
-                <CardContent sx={{ pt: 2 }}>
-                  <Typography variant="subtitle2" gutterBottom>
-                    Import Summary
-                  </Typography>
-                  <Stack spacing={0.5}>
-                    <Typography variant="body2">
-                      Total files found: <strong>{importResults.total_found}</strong>
-                    </Typography>
-                    <Typography variant="body2" color={importResults.new_methods > 0 ? 'success.main' : 'text.primary'}>
-                      New methods imported: <strong>{importResults.new_methods}</strong>
-                    </Typography>
-                    <Typography variant="body2" color={importResults.updated_methods > 0 ? 'info.main' : 'text.primary'}>
-                      Existing methods updated: <strong>{importResults.updated_methods}</strong>
-                    </Typography>
-                    <Typography variant="body2" color={importResults.failed_methods > 0 ? 'error.main' : 'text.primary'}>
-                      Failed imports: <strong>{importResults.failed_methods}</strong>
-                    </Typography>
-                  </Stack>
-                </CardContent>
-              </Card>
-
-              {/* Method List (show first 10) */}
-              {importResults.methods && importResults.methods.length > 0 && (
-                <Box sx={{ mt: 2 }}>
-                  <Typography variant="subtitle2" gutterBottom>
-                    Imported Methods {importResults.methods.length > 10 && '(showing first 10)'}:
-                  </Typography>
-                  <List dense sx={{ maxHeight: 200, overflow: 'auto' }}>
-                    {importResults.methods.slice(0, 10).map((method, index) => (
-                      <ListItem key={index}>
-                        <ListItemText
-                          primary={method.name}
-                          secondary={`${(method.size / 1024).toFixed(1)} KB`}
-                        />
-                      </ListItem>
-                    ))}
-                  </List>
-                </Box>
-              )}
-
-              {/* Errors */}
-              {importResults.errors && importResults.errors.length > 0 && (
-                <ServerError
-                  title="Import Errors"
-                  message={importResults.errors.map((err) => `• ${err}`).join('\n')}
-                  retryable={false}
-                />
-              )}
-            </Box>
-          )}
+            </>}
+          </>}
+          {error && <Alert severity="error" sx={{ whiteSpace: 'pre-line' }}>{error}</Alert>}
+          {busy && <Box aria-live="polite"><Typography variant="body2">{stage === 0 ? 'Checking host methods…' : 'Importing selected methods…'}</Typography><LinearProgress sx={{ mt: 1 }} /></Box>}
         </Stack>
       </DialogContent>
-
-      <DialogActions>
-        <Button onClick={handleClose} disabled={importing}>
-          {importResults ? 'Close' : 'Cancel'}
-        </Button>
-        {!importResults && importMethod === 'browser' && (
-          <Button
-            onClick={handleImportFromBrowser}
-            variant="contained"
-            disabled={importing || selectedFiles.length === 0}
-            startIcon={<UploadIcon />}
-          >
-            Import {selectedFiles.length} Files
-          </Button>
-        )}
-        {!importResults && importMethod === 'manual' && (
-          <Button
-            onClick={handleImportFromPath}
-            variant="contained"
-            disabled={importing || !folderPath.trim()}
-            startIcon={<UploadIcon />}
-          >
-            Import
-          </Button>
-        )}
-        {importResults && (importResults.new_methods > 0 || importResults.updated_methods > 0) && (
-          <Button
-            onClick={() => {
-              setFolderPath('');
-              setImportResults(null);
-              setError(null);
-            }}
-            variant="outlined"
-            startIcon={<FolderIcon />}
-          >
-            Import Another Folder
-          </Button>
-        )}
+      <DialogActions sx={{ flexWrap: 'wrap', gap: 1 }}>
+        <Button onClick={close} disabled={busy}>{stage === 2 ? 'Close' : 'Cancel'}</Button>
+        {stage === 1 && <Button onClick={() => { setStage(0); setError(null); }} disabled={busy}>Back</Button>}
+        {stage === 0 && <Button variant="contained" onClick={scan} disabled={busy || !isLocalClient || !folder.trim() || (source === 'browser' && !relativePaths.length)}>Review methods</Button>}
+        {stage === 1 && <Button variant="contained" onClick={importSelected} disabled={busy || !isLocalClient || !selected.length}>Import {selected.length} selected</Button>}
+        {stage === 2 && <Button onClick={reset}>Import another folder</Button>}
+        {stage === 2 && result && result.new_methods + result.updated_methods > 0 && onCreateSchedule &&
+          <Button variant="contained" onClick={() => { close(); onCreateSchedule(); }}>Create a schedule</Button>}
       </DialogActions>
     </Dialog>
   );
-};
-
-export default FolderImportDialog;
+}

@@ -6,6 +6,20 @@ This document explains how the scheduling subsystem fits together and how to mod
 
 ## 1. High-Level Architecture
 
+### Method import (catalogue metadata only)
+
+All three endpoints below use the scheduling API prefix, require an authenticated admin/user and enforce `require_local_access`. Blocking discovery/database work runs in a thread pool.
+
+- `POST /experiments/import-preview`: `{folder_path, relative_paths?}`; read-only discovery and validation. Omit relative paths to scan regular subfolders; an empty selection is rejected.
+- `POST /experiments/import-folder`: the same payload, importing the selected paths after fresh validation.
+- `POST /experiments/import-files`: the same payload for browser selections. Legacy lists (or `{files: [...]}`) with absolute file paths remain supported. Relative-only legacy requests fail with guidance to provide the host folder.
+
+`ExperimentDiscoveryService.preview_methods` is the shared validator. Require an existing absolute host folder, case-insensitive `.med` extension, readable filesystem metadata, and a resolved path beneath that folder. Reject traversal, escaping links, invalid files and duplicate canonical paths. Skip linked directories during whole-folder discovery. Host metadata supplies names, sizes and modification times; browser metadata is never trusted. Preview classifies canonical catalogue paths as New or Update without changing records. Existing malformed catalogue paths are left alone.
+
+Import calls preview again, because a file can disappear or change after review. `import_experiment_methods` returns per-file outcomes, rather than optimistic counts. Updates use canonical path identity while retaining the existing method ID/path, including older path spellings; inserts get a new ID. Multiple existing entries resolving to the same file fail explicitly for manual review. Individual write failures can coexist with successes, but a transaction rollback/commit failure makes all affected rows failed. API counts derive from those actual outcomes and include per-file reasons. No import endpoint launches methods, creates schedules, or repairs/deletes old catalogue or schedule records.
+
+Run `python -m pytest backend/tests/test_method_import.py -q` for preview, nested/uppercase files, updates, inaccessible/escaping paths, changed files, database failures, legacy compatibility and local-access enforcement.
+
 - `backend/services/scheduling/scheduler_engine.py`  
   Runs the background thread that decides when jobs should execute. Uses a single-worker in-memory queue to execute one schedule at a time, plus notifications and state transitions.
 

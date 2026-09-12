@@ -6,6 +6,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Header
 from starlette.concurrency import run_in_threadpool
+from pydantic import BaseModel, StrictStr
 
 from backend.services.auth import get_current_user
 from backend.services.scheduling import (
@@ -1705,10 +1706,10 @@ async def scan_default_experiment_paths(
         if discovered:
             # Import discovered experiments
             methods_data = [exp.to_dict() for exp in discovered]
-            new_count, updated_count = discovery_service.db.import_experiment_methods(
-                methods_data, 
-                current_user.get("username", "system")
-            )
+            outcomes = await run_in_threadpool(discovery_service.db.import_experiment_methods,
+                methods_data, current_user.get("username", "system"))
+            new_count = sum(row["status"] == "added" for row in outcomes)
+            updated_count = sum(row["status"] == "updated" for row in outcomes)
             
             response = ApiResponse(
                 success=True,
@@ -1841,128 +1842,94 @@ async def get_available_prerequisites(
         raise HTTPException(status_code=500, detail="Failed to retrieve prerequisites")
 
 
+class MethodImportRequest(BaseModel):
+    folder_path: StrictStr
+    relative_paths: Optional[List[StrictStr]] = None
+
+
+def _require_method_import_role(user):
+    if user.get("role") not in {"admin", "user"}:
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+
+
+@router.post("/experiments/import-preview")
+async def preview_experiment_import(
+    request: MethodImportRequest,
+    current_user: dict = Depends(get_current_user),
+    connection: ConnectionContext = Depends(require_local_access),
+):
+    """Read host method metadata without updating the catalogue or starting methods."""
+    _require_method_import_role(current_user)
+    try:
+        preview = await run_in_threadpool(get_experiment_discovery_service().preview_methods,
+                                         request.folder_path, request.relative_paths)
+        return ApiResponse(success=True, message="Review the methods before importing", data=preview).to_dict()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Method preview failed")
+        raise HTTPException(status_code=500, detail="Could not preview methods; try again.") from exc
+
+
+def _import_method_selection(service, payload, actor):
+    """Accept the new host-root selection and existing absolute-path metadata callers."""
+    if isinstance(payload, dict) and "folder_path" in payload:
+        request = MethodImportRequest.model_validate(payload)
+        return service.import_methods_from_folder(request.folder_path, actor, request.relative_paths)
+    files = payload if isinstance(payload, list) else payload.get("files", [])
+    if not files:
+        raise ValueError("Select at least one method to import.")
+    groups = {}
+    for item in files:
+        raw = item.get("path") if isinstance(item, dict) else None
+        if not isinstance(raw, str) or not Path(raw).is_absolute():
+            raise ValueError("Browser paths are relative. Supply folder_path and relative_paths for the RobotControl computer.")
+        path = Path(raw)
+        groups.setdefault(str(path.parent), []).append(path.name)
+    rows = []
+    for folder, names in groups.items():
+        try:
+            rows.extend(service.import_methods_from_folder(folder, actor, names)["methods"])
+        except ValueError as exc:
+            rows.extend({"name": Path(name).stem, "path": str(Path(folder, name)), "relative_path": name,
+                         "status": "failed", "reason": str(exc)} for name in names)
+    return service.import_summary(rows)
+
+
 @router.post("/experiments/import-files")
 async def import_experiment_files(
     files_data: Union[List[Dict[str, Any]], Dict[str, Any]],
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    connection: ConnectionContext = Depends(require_local_access),
 ):
-    """
-    Import experiment files from browser file selection
-    
-    Takes file metadata from browser folder selection and imports
-    the experiments into the database for easy scheduling access.
-    
-    Requires: admin or user role
-    """
+    _require_method_import_role(current_user)
     try:
-        # Check user permissions
-        if current_user.get("role") not in ["admin", "user"]:
-            raise HTTPException(status_code=403, detail="Insufficient permissions")
-        
-        if isinstance(files_data, list):
-            files_metadata = files_data
-        else:
-            files_metadata = files_data.get("files", [])
-        
-        if not files_metadata:
-            raise HTTPException(status_code=400, detail="No file metadata provided")
-        
-        discovery_service = get_experiment_discovery_service()
-        
-        # Convert browser file metadata to our format
-        methods_to_import = []
-        for file_meta in files_metadata:
-            method_data = {
-                "name": file_meta.get("name", ""),
-                "path": file_meta.get("path", ""),
-                "category": discovery_service._determine_category(file_meta.get("name", "")),
-                "description": f"Imported via browser from {file_meta.get('sourceFolder', 'browser selection')}",
-                "file_size": file_meta.get("size", 0),
-                "last_modified": file_meta.get("lastModified"),
-                "source_folder": file_meta.get("sourceFolder", "Browser Selection"),
-                "metadata": {
-                    "import_method": "browser_selection",
-                    "relative_path": file_meta.get("path", ""),
-                    "import_timestamp": datetime.now().isoformat()
-                }
-            }
-            methods_to_import.append(method_data)
-        
-        # Import to database
-        new_count, updated_count = discovery_service.db.import_experiment_methods(
-            methods_to_import,
-            current_user.get("username", "unknown")
-        )
-        
-        response = ApiResponse(
-            success=True,
-            message=f"Imported {new_count} new and {updated_count} updated methods from {len(files_metadata)} files",
-            data={
-                "new_methods": new_count,
-                "updated_methods": updated_count,
-                "failed_methods": len(files_metadata) - new_count - updated_count,
-                "total_files": len(files_metadata),
-                "errors": []  # Could add validation errors here
-            }
-        )
-        
-        return response.to_dict()
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error importing experiment files: {e}")
-        raise HTTPException(status_code=500, detail="Failed to import experiments")
+        result = await run_in_threadpool(_import_method_selection, get_experiment_discovery_service(),
+                                        files_data, current_user.get("username", "unknown"))
+        return ApiResponse(success=result["success"], message="Method import finished", data=result).to_dict()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Method file import failed")
+        raise HTTPException(status_code=500, detail="Could not import methods; try again.") from exc
 
 
 @router.post("/experiments/import-folder")
 async def import_experiment_folder(
-    import_data: Dict[str, str],
-    current_user: dict = Depends(get_current_user)
+    request: MethodImportRequest,
+    current_user: dict = Depends(get_current_user),
+    connection: ConnectionContext = Depends(require_local_access),
 ):
-    """
-    Import all .med experiment files from a specified folder
-    
-    Scans the folder recursively for .med files and imports them into the database
-    for easy selection in scheduling forms.
-    
-    Requires: admin or user role
-    """
+    _require_method_import_role(current_user)
     try:
-        # Check user permissions
-        if current_user.get("role") not in ["admin", "user"]:
-            raise HTTPException(status_code=403, detail="Insufficient permissions")
-        
-        folder_path = import_data.get("folder_path", "")
-        
-        if not folder_path:
-            raise HTTPException(status_code=400, detail="Folder path is required")
-        
-        discovery_service = get_experiment_discovery_service()
-        
-        # Import methods from the folder
-        results = discovery_service.import_methods_from_folder(
-            folder_path=folder_path,
-            imported_by=current_user.get("username", "unknown")
-        )
-        
-        if not results["success"] and results["errors"]:
-            # If completely failed, return error
-            raise HTTPException(status_code=400, detail=results["errors"][0])
-        
-        response = ApiResponse(
-            success=results["success"],
-            message=f"Imported {results['new_methods']} new and {results['updated_methods']} updated methods from {results['total_found']} files",
-            data=results
-        )
-        
-        return response.to_dict()
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error importing experiment folder: {e}")
-        raise HTTPException(status_code=500, detail="Failed to import experiments")
+        result = await run_in_threadpool(get_experiment_discovery_service().import_methods_from_folder,
+                                        request.folder_path, current_user.get("username", "unknown"), request.relative_paths)
+        return ApiResponse(success=result["success"], message="Method import finished", data=result).to_dict()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Method folder import failed")
+        raise HTTPException(status_code=500, detail="Could not import methods; try again.") from exc
 
 
 @router.post("/experiments/validate-path")

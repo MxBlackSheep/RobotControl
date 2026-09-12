@@ -12,6 +12,7 @@ import sqlite3
 import logging
 import threading
 import json
+import uuid
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime, timedelta
@@ -1312,89 +1313,62 @@ class SQLiteSchedulingDatabase:
             logger.error(f"Failed to create job execution in SQLite: {e}")
             return False
     
-    def import_experiment_methods(self, methods: List[Dict[str, Any]], imported_by: str) -> Tuple[int, int]:
-        """
-        Import discovered experiment methods into the database
-        
-        Args:
-            methods: List of method dictionaries with file info
-            imported_by: Username of who imported the methods
-            
-        Returns:
-            Tuple of (new_methods_count, updated_methods_count)
-        """
-        new_count = 0
-        updated_count = 0
-        
+    def import_experiment_methods(self, methods: List[Dict[str, Any]], imported_by: str) -> List[Dict[str, Any]]:
+        """Write validated method metadata and report only committed per-file outcomes."""
+        results = []
         try:
             with self._get_connection() as conn:
-                cursor = conn.cursor()
-                
-                for method in methods:
+                conn.execute("BEGIN IMMEDIATE")
+                existing_paths = {}
+                for stored in conn.execute("SELECT method_id, file_path FROM ExperimentMethods").fetchall():
                     try:
-                        # Check if method already exists
-                        cursor.execute(
-                            "SELECT method_id FROM ExperimentMethods WHERE file_path = ?",
-                            (method['path'],)
-                        )
-                        existing = cursor.fetchone()
-                        
-                        if existing:
-                            # Update existing method
-                            cursor.execute("""
-                                UPDATE ExperimentMethods
-                                SET method_name = ?, category = ?, description = ?,
-                                    file_size = ?, file_modified = ?, is_valid = 1,
-                                    metadata = ?
-                                WHERE file_path = ?
-                            """, (
-                                method.get('name'),
-                                method.get('category', 'Custom'),
-                                method.get('description', ''),
-                                method.get('file_size', 0),
-                                method.get('last_modified'),
-                                json.dumps(method.get('metadata', {})),
-                                method['path']
-                            ))
-                            updated_count += 1
-                        else:
-                            # Insert new method
-                            import uuid
-                            method_id = str(uuid.uuid4())
-                            
-                            cursor.execute("""
-                                INSERT INTO ExperimentMethods
-                                (method_id, method_name, file_path, category, description,
-                                 file_size, file_modified, imported_by, source_folder,
-                                 is_valid, metadata)
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            """, (
-                                method_id,
-                                method.get('name'),
-                                method['path'],
-                                method.get('category', 'Custom'),
-                                method.get('description', ''),
-                                method.get('file_size', 0),
-                                method.get('last_modified'),
-                                imported_by,
-                                method.get('source_folder', ''),
-                                1,
-                                json.dumps(method.get('metadata', {}))
-                            ))
-                            new_count += 1
-                            
-                    except Exception as e:
-                        logger.warning(f"Failed to import method {method.get('name')}: {e}")
+                        path = Path(stored["file_path"])
+                        if path.is_absolute():
+                            existing_paths.setdefault(str(path.resolve()).casefold(), []).append(stored["method_id"])
+                    except (OSError, ValueError):
                         continue
-                
+                for method in methods:
+                    outcome = {"path": method["path"], "status": "failed", "reason": None}
+                    try:
+                        key = str(Path(method["path"]).resolve()).casefold()
+                        existing = existing_paths.get(key, [])
+                        if len(existing) > 1:
+                            raise ValueError("Multiple catalogue entries resolve to this method; review the existing records.")
+                        values = (method["name"], method.get("category", "Custom"),
+                                  method.get("description", ""), method.get("file_size", 0),
+                                  method.get("last_modified"), json.dumps(method.get("metadata", {})))
+                        if existing:
+                            conn.execute("""
+                                UPDATE ExperimentMethods SET method_name = ?, category = ?, description = ?,
+                                    file_size = ?, file_modified = ?, metadata = ?, is_valid = 1
+                                WHERE method_id = ?
+                            """, (*values, existing[0]))
+                            outcome["status"] = "updated"
+                        else:
+                            method_id = str(uuid.uuid4())
+                            conn.execute("""
+                                INSERT INTO ExperimentMethods
+                                    (method_name, category, description, file_size, file_modified, metadata,
+                                     method_id, file_path, imported_by, source_folder, is_valid)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                            """, (*values, method_id, method["path"], imported_by, method.get("source_folder", "")))
+                            existing_paths[key] = [method_id]
+                            outcome["status"] = "added"
+                    except Exception as exc:
+                        if not conn.in_transaction:
+                            # A trigger/driver may have rolled back earlier successful rows too.
+                            raise
+                        outcome["reason"] = f"Database write failed: {exc}"
+                        logger.warning("Failed to import method %s: %s", method["path"], exc)
+                    results.append(outcome)
                 conn.commit()
-                logger.info(f"Imported {new_count} new methods, updated {updated_count} existing methods")
-                
-        except Exception as e:
-            logger.error(f"Failed to import experiment methods: {e}")
-            
-        return new_count, updated_count
-    
+        except Exception as exc:
+            # A failed commit rolls back all rows; none may be reported as imported.
+            logger.error("Method import transaction failed: %s", exc)
+            return [{"path": method["path"], "status": "failed",
+                     "reason": f"Database transaction failed: {exc}"} for method in methods]
+        return results
+
     def get_experiment_methods(self, category: Optional[str] = None, valid_only: bool = True) -> List[Dict[str, Any]]:
         """
         Get experiment methods from the database

@@ -124,6 +124,7 @@ const SchedulingPage: React.FC = () => {
   const { user } = useAuth();
   const [currentTab, setCurrentTab] = useState(0);
   const [improvedFormOpen, setImprovedFormOpen] = useState(false);
+  const [catalogueVersion, setCatalogueVersion] = useState(0);
   const [folderImportOpen, setFolderImportOpen] = useState(false);
   const [scheduleFormMode, setScheduleFormMode] = useState<'create' | 'edit'>('create');
   const [scheduleFormInitialData, setScheduleFormInitialData] = useState<ScheduleFormValues>({});
@@ -939,7 +940,7 @@ const SchedulingPage: React.FC = () => {
                           }}
                           disabled={state.loading || !isLocalClient}
                         >
-                          Import Experiments from Folder
+                          Import Hamilton methods
                         </Button>
                         {!isLocalClient && (
                           <Typography variant="caption" color="text.secondary">
@@ -1464,6 +1465,7 @@ const SchedulingPage: React.FC = () => {
         initialData={scheduleFormInitialData}
         mode={scheduleFormMode}
         contacts={state.contacts}
+        catalogueVersion={catalogueVersion}
       />
 
   {/* Folder Import Dialog */}
@@ -1481,10 +1483,8 @@ const SchedulingPage: React.FC = () => {
   <FolderImportDialog
     open={folderImportOpen}
     onClose={() => setFolderImportOpen(false)}
-    onImportComplete={() => {
-      // Experiments have been imported, they'll be available in the form now
-          console.log('Experiments imported successfully');
-        }}
+    onImportComplete={() => setCatalogueVersion(version => version + 1)}
+    onCreateSchedule={handleOpenCreateForm}
         isLocalClient={isLocalClient}
       />
     </Container>

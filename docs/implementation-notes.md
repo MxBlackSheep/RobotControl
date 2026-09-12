@@ -1,5 +1,14 @@
 # RobotControl Development Log (Chronological)
 
+## 2026-09-12 Verified Hamilton method import
+
+- Replaced the import dialog with Choose folder → Review methods → Import results. Both browser and manual modes require an absolute host folder; selection sends paths only. Valid New/Update rows are selected by default, invalid rows explain failures, and searchable results report actual Added/Updated/Failed outcomes. Creating a schedule remains an explicit next action.
+- Added a local-only, read-only preview endpoint and shared host filesystem validation for both import routes. Imports revalidate containment, metadata and case-insensitive `.med` files, preserve valid absolute-path callers, and reject unresolved relative requests. Canonical paths identify methods; old records are never automatically repaired or deleted. Database outcomes account for per-file failures and transaction rollback.
+- Validation: all 235 backend tests and 25 focused frontend tests pass; TypeScript/Vite build, resource embedding and Windows PyInstaller packaging pass. Canonical-path regressions cover older path spellings without replacing record IDs and ambiguous legacy duplicates without automatic repair. Browser checks covered draft/focus/scroll stability across polling, keyboard/dropdown behavior, import preview/results/schedule handoff, and SMTP/import at 390px and 1280px widths. The isolated packaged app passed embedded UI/authentication, preview, Added/Updated results and local-access checks using disposable metadata files, never executable Hamilton methods.
+- Candidate build: `dist/RobotControl-setup/RobotControl.exe` with its `_internal` directory. Existing `dist/RobotControl` and runtime data were preserved; the candidate contains no validation data. Operator simulator checks remain: pause/resume alerts, restart during an already-alerted pause without duplicates, and silence after completion. No real email was sent or Hamilton run launched during validation.
+
+---
+
 ## 2026-09-12 Clear SMTP account setup
 
 - Reorganized email setup around one account address, with existing custom login/From addresses preserved under Advanced settings. A single security selector replaces mutually exclusive switches and never silently changes ports. Manual recovery correctly falls back to the schedule's active contacts.

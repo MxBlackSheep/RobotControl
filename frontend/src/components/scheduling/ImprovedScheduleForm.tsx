@@ -95,6 +95,7 @@ interface ImprovedScheduleFormProps {
   initialData?: Partial<ScheduleFormData>;
   mode?: 'create' | 'edit';
   contacts: NotificationContact[];
+  catalogueVersion?: number;
 }
 
 const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
@@ -104,6 +105,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
   initialData,
   mode = 'create',
   contacts,
+  catalogueVersion = 0,
 }) => {
   // Form state
   const [formData, setFormData] = useState<ScheduleFormData>({
@@ -274,6 +276,13 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
       setScanning(false);
     }
   }, []);
+
+  const previousCatalogueVersion = useRef(catalogueVersion);
+  useEffect(() => {
+    if (previousCatalogueVersion.current === catalogueVersion) return;
+    previousCatalogueVersion.current = catalogueVersion;
+    if (open) void loadExperiments();
+  }, [catalogueVersion, open, loadExperiments]);
 
   const loadEvoExperiments = useCallback(async (limit: number = 100) => {
     try {
