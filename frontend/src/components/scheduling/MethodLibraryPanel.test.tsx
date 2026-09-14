@@ -16,6 +16,7 @@ beforeEach(() => {
 });
 it('requires explicit selection and confirmation before archiving', async () => {
   const p = props(); render(<MethodLibraryPanel {...p} />);
+  fireEvent.click(screen.getByRole('button', { name: 'All methods' }));
   await screen.findByRole('button', { name: 'One' });
   expect(screen.queryByRole('button', { name: 'Two' })).toBeNull();
   fireEvent.click(screen.getByRole('checkbox', { name: 'Select C:\\Methods\\One.med' }));
@@ -28,6 +29,7 @@ it('requires explicit selection and confirmation before archiving', async () => 
 });
 it('filters archived entries separately from missing paths and shows schedule usage', async () => {
   render(<MethodLibraryPanel {...props()} />);
+  fireEvent.click(screen.getByRole('button', { name: 'All methods' }));
   fireEvent.click(await screen.findByRole('button', { name: 'One' }));
   expect(await screen.findByText('Original schedule — cleanup method')).toBeTruthy();
   expect(screen.getByText(/Busy \(queued, running or paused\)/)).toBeTruthy();
@@ -40,11 +42,26 @@ it('filters archived entries separately from missing paths and shows schedule us
 });
 it('preserves filter and existing rows after a refresh failure', async () => {
   render(<MethodLibraryPanel {...props()} />);
+  fireEvent.click(screen.getByRole('button', { name: 'All methods' }));
   await screen.findByRole('button', { name: 'One' });
-  fireEvent.change(screen.getByLabelText('Search methods or paths'), { target: { value: 'One' } });
+  fireEvent.change(screen.getByLabelText('Search all methods'), { target: { value: 'One' } });
   vi.mocked(schedulingAPI.getMethodLibrary).mockRejectedValueOnce(new Error('Offline'));
   fireEvent.click(screen.getByRole('button', { name: 'Refresh library' }));
   await screen.findByText('Offline');
-  expect((screen.getByLabelText('Search methods or paths') as HTMLInputElement).value).toBe('One');
+  expect((screen.getByLabelText('Search all methods') as HTMLInputElement).value).toBe('One');
   expect(screen.getByRole('button', { name: 'One' })).toBeTruthy();
+});
+
+it('keeps selections across pages and clears them when search changes', async () => {
+  const lots = Array.from({length: 60}, (_, i) => ({...rows[0], method_id: String(i), method_name: `Method${i}`, file_path: `C:\Methods\Method${i}.med`}));
+  vi.mocked(schedulingAPI.getMethodLibrary).mockResolvedValue({data: {success: true, data: {methods: lots}}} as any);
+  render(<MethodLibraryPanel {...props()} />);
+  fireEvent.click(screen.getByRole('button', {name: 'All methods'}));
+  await screen.findByRole('button', {name: 'Method0'});
+  fireEvent.click(screen.getByRole('checkbox', {name: 'Select this page'}));
+  fireEvent.click(screen.getByRole('button', {name: 'Go to next page'}));
+  fireEvent.click(screen.getByRole('checkbox', {name: 'Select this page'}));
+  expect(screen.getByText(/50 selected/)).toBeTruthy();
+  fireEvent.change(screen.getByLabelText('Search all methods'), {target: {value: 'Method0'}});
+  expect(screen.getByText(/0 selected/)).toBeTruthy();
 });

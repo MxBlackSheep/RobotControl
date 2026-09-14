@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, LinearProgress,
   Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TextField, Typography } from '@mui/material';
+import MethodExplorer from './MethodExplorer';
 import { LibraryMethod } from '../../types/scheduling';
 import { schedulingAPI } from '../../services/schedulingApi';
 import { methodError } from './HostMethodBrowser';
@@ -14,8 +15,6 @@ export default function MethodLibraryPanel({ version, onChanged, onImport, onCre
 }) {
   const [methods, setMethods] = useState<LibraryMethod[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
-  const [query, setQuery] = useState('');
-  const [folder, setFolder] = useState('');
   const [status, setStatus] = useState('');
   const [archiveFilter, setArchiveFilter] = useState('current');
   const [sort, setSort] = useState('name');
@@ -33,12 +32,12 @@ export default function MethodLibraryPanel({ version, onChanged, onImport, onCre
   };
   useEffect(() => { void load(); }, [version]);
   const visible = useMemo(() => methods.filter(method =>
-    `${method.method_name} ${method.file_path}`.toLowerCase().includes(query.toLowerCase()) &&
-    (!folder || method.containing_folder === folder) && (!status || method.path_status === status) &&
+    (!status || method.path_status === status) &&
     (archiveFilter === 'all' || Boolean(method.archived) === (archiveFilter === 'archived')))
     .sort((a, b) => (sort === 'name' ? a.method_name : sort === 'folder' ? a.containing_folder : a.path_status)
-      .localeCompare(sort === 'name' ? b.method_name : sort === 'folder' ? b.containing_folder : b.path_status) || a.file_path.localeCompare(b.file_path)),
-    [methods, query, folder, status, archiveFilter, sort]);
+      .localeCompare(sort === 'name' ? b.method_name : sort === 'folder' ? b.containing_folder : b.path_status) || a.file_path.localeCompare(b.file_path))
+    .map(method => ({ ...method, id: method.method_id, name: method.method_name, path: method.file_path })),
+    [methods, status, archiveFilter, sort]);
   const targets = methods.filter(method => selected.includes(method.method_id));
   const detail = methods.find(method => method.method_id === detailId);
   const clearSelection = () => setSelected([]);
@@ -74,10 +73,6 @@ export default function MethodLibraryPanel({ version, onChanged, onImport, onCre
       <Button disabled={busy || !targets.some(row => row.archived)} onClick={() => setArchiveAction(false)}>Restore selected</Button>
     </Stack>
     <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
-      <TextField label="Search methods or paths" value={query} onChange={e => { setQuery(e.target.value); clearSelection(); }} fullWidth size="small" />
-      <TextField select SelectProps={{ native: true }} label="Folder" InputLabelProps={{ shrink: true }} value={folder} onChange={e => { setFolder(e.target.value); clearSelection(); }} size="small" sx={{ minWidth: 140, maxWidth: { md: 300 } }}>
-        <option value="">All folders</option>{[...new Set(methods.map(row => row.containing_folder))].sort().map(path => <option key={path}>{path}</option>)}
-      </TextField>
       <TextField select SelectProps={{ native: true }} label="Path status" value={status} InputLabelProps={{ shrink: true }} onChange={e => { setStatus(e.target.value); clearSelection(); }} size="small" sx={{ minWidth: 140 }}>
         <option value="">All statuses</option>{Object.entries(pathStatusLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
       </TextField>
@@ -92,21 +87,21 @@ export default function MethodLibraryPanel({ version, onChanged, onImport, onCre
     {!!message && <Alert severity="success">{message}</Alert>}
     {busy && <LinearProgress aria-label="Updating method library" />}
     <Typography variant="caption">{visible.length} methods · {targets.length} selected. Select rows to check, archive or restore them.</Typography>
+    <MethodExplorer items={visible} onViewChange={clearSelection}>{(pageItems, relativePath) => <>
     <TableContainer sx={{ maxHeight: 550 }}><Table size="small" stickyHeader aria-label="Imported methods">
       <TableHead><TableRow>
-        <TableCell padding="checkbox"><Checkbox inputProps={{ 'aria-label': 'Select all visible methods' }} disabled={busy || !visible.length}
-          checked={visible.length > 0 && visible.every(row => selected.includes(row.method_id))}
-          indeterminate={visible.some(row => selected.includes(row.method_id)) && !visible.every(row => selected.includes(row.method_id))}
-          onChange={(_, checked) => setSelected(checked ? visible.map(row => row.method_id) : [])} /></TableCell>
+        <TableCell padding="checkbox"><Checkbox inputProps={{ 'aria-label': 'Select this page' }} disabled={busy || !pageItems.length}
+          checked={pageItems.length > 0 && pageItems.every(row => selected.includes(row.method_id))}
+          indeterminate={pageItems.some(row => selected.includes(row.method_id)) && !pageItems.every(row => selected.includes(row.method_id))}
+          onChange={(_, checked) => setSelected(old => checked ? [...new Set([...old, ...pageItems.map(row => row.method_id)])] : old.filter(id => !pageItems.some(row => row.method_id === id)))} /></TableCell>
         <TableCell>Method and full path</TableCell><TableCell>Path status</TableCell><TableCell>Library</TableCell><TableCell>Schedules</TableCell>
       </TableRow></TableHead>
-      <TableBody>{visible.map(row => <TableRow key={row.method_id} hover>
+      <TableBody>{pageItems.map(row => <TableRow key={row.method_id} hover>
         <TableCell padding="checkbox"><Checkbox inputProps={{ 'aria-label': `Select ${row.file_path}` }} disabled={busy} checked={selected.includes(row.method_id)}
           onChange={(_, checked) => setSelected(old => checked ? [...old, row.method_id] : old.filter(id => id !== row.method_id))} /></TableCell>
         <TableCell sx={{ minWidth: 200, maxWidth: 450, overflowWrap: 'anywhere' }}>
           <Button onClick={() => setDetailId(row.method_id)}>{row.method_name}</Button>
-          <Typography variant="caption" display="block">{row.file_path}</Typography>
-          <Typography variant="caption" color="text.secondary">Folder: {row.containing_folder}</Typography>
+          <Typography variant="caption" display="block">{relativePath(row.file_path)}</Typography>
           {row.duplicate_path && <Typography color="warning.main" variant="caption" display="block">Duplicate path — review entries</Typography>}
         </TableCell>
         <TableCell><Chip size="small" label={pathStatusLabel[row.path_status]} color={row.path_status === 'available' ? 'success' : 'default'} /></TableCell>
@@ -114,7 +109,7 @@ export default function MethodLibraryPanel({ version, onChanged, onImport, onCre
         <TableCell><Button aria-label={`View schedules using ${row.method_name}`} onClick={() => setDetailId(row.method_id)}>{row.schedule_count}</Button></TableCell>
       </TableRow>)}</TableBody>
     </Table></TableContainer>
-    {!visible.length && <Alert severity="info">No methods match this view. Import methods or adjust the filters.</Alert>}
+    </>}</MethodExplorer>
     <Dialog open={!!detail} onClose={() => setDetailId(null)} maxWidth="md" fullWidth>
       <DialogTitle>Method details and schedules</DialogTitle>
       <DialogContent dividers>{detail && <Stack spacing={1.5} sx={{ overflowWrap: 'anywhere' }}>
@@ -132,6 +127,7 @@ export default function MethodLibraryPanel({ version, onChanged, onImport, onCre
       </Stack>}</DialogContent>
       <DialogActions sx={{ flexWrap: 'wrap' }}>
         <Button onClick={() => setDetailId(null)}>Close</Button>
+        <Button onClick={async () => { if (detail) { try { await navigator.clipboard.writeText(detail.file_path); setMessage('Method path copied.'); } catch { setError('Could not copy the path. Select and copy it from method details.'); } } }}>Copy full path</Button>
         {onChangePath && detail && <Button onClick={() => { setDetailId(null); onChangePath(detail); }}>Change path</Button>}
         <Button disabled={!detail || !!detail.archived || detail.path_status !== 'available'} onClick={() => { if (detail) { setDetailId(null); onCreateSchedule(detail); } }}>Create a schedule</Button>
       </DialogActions>

@@ -14,6 +14,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { isAxiosError } from 'axios';
+import MethodPicker from './MethodPicker';
 import StatusDialog, { StatusSeverity } from '../StatusDialog';
 import {
   Dialog,
@@ -40,7 +41,6 @@ import {
   InputAdornment,
   Tooltip,
   IconButton,
-  ListSubheader,
   Radio,
   RadioGroup,
   FormLabel,
@@ -55,7 +55,6 @@ import {
   Settings as SettingsIcon,
   ExpandMore as ExpandMoreIcon,
   Refresh as RefreshIcon,
-  FolderOpen as FolderIcon,
   CheckBoxOutlineBlank as CheckBoxOutlineBlankIcon,
   CheckBox as CheckBoxIcon
 } from '@mui/icons-material';
@@ -214,7 +213,6 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
   const [loading, setLoading] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [experiments, setExperiments] = useState<ExperimentFile[]>([]);
-  const [categorizedExperiments, setCategorizedExperiments] = useState<Record<string, ExperimentFile[]>>({});
   const [evoExperiments, setEvoExperiments] = useState<EvoYeastExperimentOption[]>([]);
   const [evoLoading, setEvoLoading] = useState(false);
   const [selectedExperimentId, setSelectedExperimentId] = useState<string>('');
@@ -260,7 +258,6 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
       
       if (response.data.success) {
         setExperiments(response.data.data.experiments);
-        setCategorizedExperiments(response.data.data.categorized);
       }
     } catch (error) {
       console.error('Failed to load experiments:', error);
@@ -524,7 +521,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
     <>
       <Dialog
       open={open}
-      TransitionProps={{ onEntered: () => experimentControlRef.current?.querySelector<HTMLElement>('[role="combobox"]')?.focus({ preventScroll: true }) }}
+      TransitionProps={{ onEntered: () => experimentControlRef.current?.querySelector<HTMLElement>('button')?.focus({ preventScroll: true }) }}
       onClose={!loading ? onClose : undefined}
       maxWidth="md"
       fullWidth
@@ -558,39 +555,10 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
             <AccordionDetails>
               <Stack spacing={2}>
                 <Box display="flex" alignItems="center" gap={1}>
-                  <FormControl fullWidth ref={experimentControlRef}>
-                    <InputLabel id="schedule-method-label">Select Experiment</InputLabel>
-                    <Select
-                      value={formData.experiment_path}
-                      onChange={(e) => handleExperimentSelect(e.target.value)}
-                      label="Select Experiment" labelId="schedule-method-label"
-                      disabled={loading || scanning}
-                    >
-                      {!!formData.experiment_path && !experiments.some(exp => exp.path === formData.experiment_path) &&
-                        <MenuItem value={formData.experiment_path} disabled>{formData.experiment_name} (saved path)</MenuItem>}
-                      {Object.entries(categorizedExperiments).map(([category, exps]) => [
-                        <ListSubheader key={`header-${category}`}>
-                          <Stack direction="row" alignItems="center" spacing={1}>
-                            <FolderIcon fontSize="small" />
-                            <Typography variant="caption">{category}</Typography>
-                          </Stack>
-                        </ListSubheader>,
-                        ...exps.map(exp => (
-                          <MenuItem key={exp.path} value={exp.path}>
-                            <Box width="100%">
-                              <Typography variant="body2">{exp.name}</Typography>
-                              <Typography variant="caption" color="text.secondary">
-                                {exp.description}
-                              </Typography>
-                            </Box>
-                          </MenuItem>
-                        ))
-                      ])}
-                    </Select>
-                  </FormControl>
-                  <Tooltip title="Rescan for experiments">
+                  <Box ref={experimentControlRef} sx={{ flex: 1 }}><MethodPicker methods={experiments} value={formData.experiment_path} label="Choose method" onChange={handleExperimentSelect} disabled={loading || scanning} /></Box>
+                  <Tooltip title="Refresh method library">
                     <IconButton 
-                      onClick={() => loadExperiments(true)}
+                      onClick={() => loadExperiments()}
                       disabled={scanning}
                     >
                       {scanning ? <CircularProgress size={24} /> : <RefreshIcon />}
@@ -770,36 +738,8 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
 
                 {formData.timeout_action === 'run_cleanup_and_terminate' && (
                   <Grid item xs={12}>
-                    <FormControl fullWidth>
-                      <InputLabel>Cleanup Method</InputLabel>
-                      <Select
-                        value={formData.timeout_cleanup_experiment_path || ''}
-                        onChange={(e) => handleTimeoutCleanupSelect(e.target.value as string)}
-                        label="Cleanup Method"
-                      >
-                        <MenuItem value="">Select cleanup method</MenuItem>
-                        {!!formData.timeout_cleanup_experiment_path && !experiments.some(exp => exp.path === formData.timeout_cleanup_experiment_path) &&
-                          <MenuItem value={formData.timeout_cleanup_experiment_path} disabled>{formData.timeout_cleanup_experiment_name || 'Cleanup method'} (saved path)</MenuItem>}
-                        {Object.entries(categorizedExperiments).map(([category, exps]) => [
-                          <ListSubheader key={`cleanup-header-${category}`}>
-                            <Stack direction="row" alignItems="center" spacing={1}>
-                              <FolderIcon fontSize="small" />
-                              <Typography variant="caption">{category}</Typography>
-                            </Stack>
-                          </ListSubheader>,
-                          ...exps.map((exp) => (
-                            <MenuItem key={`cleanup-${exp.path}`} value={exp.path}>
-                              <Box width="100%">
-                                <Typography variant="body2">{exp.name}</Typography>
-                                <Typography variant="caption" color="text.secondary">
-                                  {exp.path}
-                                </Typography>
-                              </Box>
-                            </MenuItem>
-                          ))
-                        ])}
-                      </Select>
-                    </FormControl>
+                    <MethodPicker methods={experiments} value={formData.timeout_cleanup_experiment_path || ''} label="Choose cleanup method" onChange={handleTimeoutCleanupSelect} disabled={loading || scanning} />
+                    {formData.timeout_cleanup_experiment_path && <Typography variant="body2" sx={{ overflowWrap: 'anywhere', mt: 1 }}>{formData.timeout_cleanup_experiment_name} · {formData.timeout_cleanup_experiment_path}</Typography>}
                     {!!formData.timeout_cleanup_experiment_path && !experiments.some(exp => exp.path === formData.timeout_cleanup_experiment_path) &&
                       <Alert severity="warning">The saved cleanup path is archived, unavailable or absent from the current library. Your selection is preserved.</Alert>}
                   </Grid>

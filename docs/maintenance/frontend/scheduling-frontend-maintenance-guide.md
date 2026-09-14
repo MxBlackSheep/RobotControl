@@ -1,5 +1,13 @@
 # Frontend Scheduling Maintenance Guide
 
+## Catalogue folder navigation
+
+`MethodExplorer` and `methodFolders` derive a case-insensitive folder hierarchy from current catalogue paths only. They do not call the host filesystem browser. Absolute drive and UNC paths are supported; relative or unresolved paths remain in Needs path review. Empty single-child ancestor chains are compressed for display without rewriting saved paths or catalogue records.
+
+`MethodPicker` wraps the explorer for both primary and cleanup fields. Choosing a radio row is provisional until Use this method; Cancel leaves the form unchanged. The picker starts at the saved method's folder/page when reopening. Global search temporarily overrides the folder; clearing it returns to that folder. Keep component identity stable on catalogue refresh to preserve search, focus, expansion and scrolling.
+
+The Methods table uses the same explorer, with 25 rows per page by default (50/100 optional). Header selection affects only that page; selection persists across page changes but clears on folder/search/status/archive filter changes. Full paths remain in details and Copy full path; table rows show paths relative to the selected folder. `MethodExplorer.test.tsx` exercises 1,000 methods and path/keyboard/refresh behavior; library tests cover selection across pages.
+
 ## Drafts and background refresh
 
 Create/edit and method import use MUI Dialog focus management, not `useModalFocus`. Do not reapply initial focus on polling updates. A schedule draft is initialized once per open session; refreshing method choices or parent props must preserve focus, cursor, scroll, accordion expansion and field values. Only closing/reopening starts a new draft. The edit timestamp is captured at opening; a 409 response keeps entries and asks the operator to cancel, refresh and reopen. Creation/update each refresh the list once. `Email alert recipients` must show a clear warning when no active contact is selected.

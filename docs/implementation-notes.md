@@ -1,5 +1,12 @@
 # RobotControl Development Log (Chronological)
 
+## 2026-09-14 Folder-first method selection
+
+- Added a shared catalogue-only folder explorer for primary/cleanup selection and Methods management. It compresses empty ancestor chains, supports drive/UNC roots and global name/path search, and keeps relative legacy paths in Needs path review. Picker confirmation is explicit; cancel and catalogue refresh preserve the schedule draft.
+- Added 25/50/100-row pagination, page-scoped bulk selection that persists across pages, concise relative paths and full-path copying. Folder/search/filter changes clear management selection; refresh retains browsing state. Added 1,000-method, keyboard, cancellation, pagination and refresh regressions. No backend API or database changes.
+
+---
+
 ## 2026-09-12 Reviewed method path correction
 
 - Added manual/host-browser path correction with validated preview, separate primary/cleanup references, unchecked selection and disabled busy/archived schedules. Save revalidates the file, catalogue revision and selected schedule versions; catalogue and selected paths commit in one SQLite transaction. Scheduler locks coordinate enqueue/dispatch and cache refresh. Ordinary edit/archive writes cannot overwrite a concurrent correction; version checks no longer accept changes within a one-second tolerance.
