@@ -430,18 +430,7 @@ const SystemStatus: React.FC<SystemStatusProps> = memo(({
     refreshData,
     resetError,
     connect,
-  } = useMonitoring();
-
-  // Auto refresh timer
-  useEffect(() => {
-    if (autoRefresh && !isConnected) {
-      const interval = setInterval(() => {
-        refreshData();
-      }, refreshInterval * 1000);
-
-      return () => clearInterval(interval);
-    }
-  }, [autoRefresh, refreshInterval, isConnected, refreshData]);
+  } = useMonitoring({ autoRetry: autoRefresh, retryInterval: refreshInterval });
 
   const handleRefresh = async () => {
     resetError();

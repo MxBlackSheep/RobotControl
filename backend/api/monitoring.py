@@ -1,3 +1,5 @@
+from starlette.concurrency import run_in_threadpool
+from backend.services.health_sampler import health_sampler
 """
 RobotControl Monitoring API
 Real-time monitoring endpoints for system status, experiments, and WebSocket connections
@@ -57,8 +59,7 @@ async def get_current_experiments(current_user: dict = Depends(get_current_user)
     
     try:
         # Get experiment data from centralized experiment monitor
-        experiment_monitor = get_experiment_monitor()
-        current_experiment = experiment_monitor.get_current_experiment()
+        current_experiment = await run_in_threadpool(lambda: get_experiment_monitor().get_current_experiment())
         
         experiments = []
         if current_experiment:
@@ -109,14 +110,12 @@ async def get_system_health(current_user: dict = Depends(get_current_user)):
         import psutil
         from datetime import datetime
         
-        # Get system metrics
-        cpu_percent = psutil.cpu_percent(interval=1)
-        memory = psutil.virtual_memory()
-        disk = psutil.disk_usage('C:' if psutil.WINDOWS else '/')
-        
+        metrics = await run_in_threadpool(health_sampler.snapshot)
+        cpu_percent = metrics["cpu_percent"]
+
         # Get database status
         db_service = get_database_service()
-        db_status = db_service.get_status()
+        db_status = await run_in_threadpool(db_service.get_status)
         
         # Get monitoring service stats
         monitoring_service = get_monitoring_service()
@@ -124,15 +123,8 @@ async def get_system_health(current_user: dict = Depends(get_current_user)):
         
         health_data = {
             "timestamp": datetime.now().isoformat(),
-            "system": {
-                "cpu_percent": cpu_percent,
-                "memory_percent": memory.percent,
-                "memory_used_gb": round(memory.used / (1024**3), 2),
-                "memory_total_gb": round(memory.total / (1024**3), 2),
-                "disk_percent": disk.percent,
-                "disk_used_gb": round(disk.used / (1024**3), 2),
-                "disk_total_gb": round(disk.total / (1024**3), 2)
-            },
+            "system": metrics,
+            "sampled_at": metrics["timestamp"],
             "database": {
                 "is_connected": db_status.is_connected,
                 "mode": db_status.mode,
@@ -149,7 +141,7 @@ async def get_system_health(current_user: dict = Depends(get_current_user)):
         metadata.add_metadata("operation", "get_system_health")
         metadata.add_metadata("user_id", current_user.get("user_id"))
         metadata.add_metadata("cpu_percent", cpu_percent)
-        metadata.add_metadata("memory_percent", memory.percent)
+        metadata.add_metadata("memory_percent", metrics["memory_percent"])
         
         return ResponseFormatter.success(
             data=health_data,

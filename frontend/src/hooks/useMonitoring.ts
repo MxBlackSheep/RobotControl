@@ -3,7 +3,8 @@
  * Provides experiment tracking, system health monitoring, and real-time updates
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useCallback } from 'react';
+import { useSerialPolling } from './useSerialPolling';
 import { useAuth } from '../context/AuthContext';
 import { buildApiUrl, buildWsUrl } from '@/utils/apiBase';
 
@@ -90,17 +91,9 @@ const getStreamingStatusUrl = () => buildApiUrl('/api/camera/streaming/status');
 const MAX_RETRIES = 5;
 const RETRY_DELAY = 2000;
 
-export const useMonitoring = (): MonitoringHookReturn => {
+export const useMonitoring = (options: { autoRetry?: boolean; retryInterval?: number } = {}): MonitoringHookReturn => {
   // State
   const [monitoringData, setMonitoringData] = useState<MonitoringData | null>(null);
-  const [isConnected, setIsConnected] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [connectionRetries, setConnectionRetries] = useState(0);
-
-  // Refs for polling cleanup
-  const pollingIntervalRef = useRef<number | null>(null);
-
   // Auth context for API calls
   const { token } = useAuth();
 
@@ -111,7 +104,7 @@ export const useMonitoring = (): MonitoringHookReturn => {
   }), [token]);
 
   // Fetch current monitoring data from REST API
-  const fetchMonitoringData = useCallback(async (): Promise<MonitoringData | null> => {
+  const fetchMonitoringData = useCallback(async (signal: AbortSignal): Promise<MonitoringData | null> => {
     if (!token) {
       console.log('No authentication token available for monitoring');
       throw new Error('Authentication required for monitoring data');
@@ -120,13 +113,13 @@ export const useMonitoring = (): MonitoringHookReturn => {
     try {
       const [experimentsRes, systemHealthRes, streamingStatusRes] = await Promise.all([
         fetch(getMonitoringApiUrl('/experiments'), {
-          headers: getAuthHeaders(),
+          headers: getAuthHeaders(), signal,
         }),
         fetch(getMonitoringApiUrl('/system-health'), {
-          headers: getAuthHeaders(),
+          headers: getAuthHeaders(), signal,
         }),
         fetch(getStreamingStatusUrl(), {
-          headers: getAuthHeaders(),
+          headers: getAuthHeaders(), signal,
         }),
       ]);
 
@@ -189,7 +182,8 @@ export const useMonitoring = (): MonitoringHookReturn => {
 
       const systemPayload = systemHealthData?.data || {};
       const systemTimestamp =
-        systemPayload?.timestamp
+        systemPayload?.sampled_at
+        ?? systemPayload?.timestamp
         ?? systemHealthData?.metadata?.timestamp
         ?? new Date().toISOString();
       const systemMetrics = systemPayload.system
@@ -213,115 +207,22 @@ export const useMonitoring = (): MonitoringHookReturn => {
     }
   }, [token, getAuthHeaders]);
 
-  // Refresh monitoring data
-  const refreshData = useCallback(async () => {
-    // Allow refresh even without token for basic monitoring data
-    
-    setIsLoading(true);
-    setError(null);
-    
-    try {
-      const data = await fetchMonitoringData();
-      setMonitoringData(data);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to refresh monitoring data';
-      setError(errorMessage);
-      console.error('Error refreshing monitoring data:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [token, fetchMonitoringData]);
-
-  // Simplified polling function
-  const pollMonitoringData = useCallback(async () => {
-    // Stop polling if we've exceeded max retries
-    if (connectionRetries >= MAX_RETRIES) {
-      setError(`Max retry attempts reached (${MAX_RETRIES}). Please refresh the page or check authentication.`);
-      setIsConnected(false);
-      return;
-    }
-
-    try {
-      const data = await fetchMonitoringData();
-      setMonitoringData(data);
-      setIsConnected(true);
-      setError(null);
-      setConnectionRetries(0);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch monitoring data';
-      setError(errorMessage);
-      setIsConnected(false);
-      setConnectionRetries(prev => prev + 1);
-      
-      // If authentication error, suggest user to login
-      if (errorMessage.includes('Authentication required')) {
-        setError('Please log in to access monitoring data');
-      }
-    }
-  }, [fetchMonitoringData, connectionRetries]);
-
-  // Start HTTP polling
-  const connect = useCallback(() => {
-    console.log('Starting HTTP polling for monitoring data');
-    
-    // Reset retry counter when starting fresh
-    setConnectionRetries(0);
-    setError(null);
-    
-    // Stop any existing polling
-    if (pollingIntervalRef.current) {
-      clearInterval(pollingIntervalRef.current);
-    }
-    
-    // Initial data fetch
-    pollMonitoringData();
-    
-    // Set up 60-second polling
-    pollingIntervalRef.current = setInterval(() => {
-      // Only continue polling if we haven't exceeded retries
-      if (connectionRetries < MAX_RETRIES) {
-        pollMonitoringData();
-      } else {
-        // Stop polling on max retries
-        if (pollingIntervalRef.current) {
-          clearInterval(pollingIntervalRef.current);
-          pollingIntervalRef.current = null;
-        }
-        console.log('Polling stopped due to max retries reached');
-      }
-    }, 60000); // Poll every 60 seconds
-    
-    console.log('HTTP polling started (60-second interval)');
-  }, [pollMonitoringData, connectionRetries]);
-
-  // Stop HTTP polling
-  const disconnect = useCallback(() => {
-    console.log('Stopping HTTP polling');
-    
-    // Clear polling interval
-    if (pollingIntervalRef.current) {
-      clearInterval(pollingIntervalRef.current);
-      pollingIntervalRef.current = null;
-    }
-
-    setIsConnected(false);
-    setConnectionRetries(0);
-  }, []);
-
-  // Reset error state
-  const resetError = useCallback(() => {
-    setError(null);
-  }, []);
-
-  // Auto-start polling on mount
-  useEffect(() => {
-    connect();
-
-    // Cleanup on unmount
-    return () => {
-      disconnect();
-    };
-  }, [connect, disconnect]);
+  const polling = useSerialPolling({
+    request: fetchMonitoringData,
+    onSuccess: setMonitoringData,
+    identity: token,
+    enabled: Boolean(token),
+    interval: 60000,
+    retryInterval: options.autoRetry === false ? 60000 : (options.retryInterval ?? 30) * 1000,
+    maxRetries: options.autoRetry === false ? MAX_RETRIES : undefined,
+  });
+  const connect = polling.start;
+  const disconnect = polling.stop;
+  const refreshData = polling.refresh;
+  const resetError = polling.resetError;
+  const isLoading = polling.pending;
+  const error = polling.error;
+  const connectionRetries = polling.retries;
 
   // Derived state
   const experiments = monitoringData?.experiments || [];
@@ -338,7 +239,7 @@ export const useMonitoring = (): MonitoringHookReturn => {
     streamingStatus,
     
     // State
-    isConnected,
+    isConnected: polling.active && !error && Boolean(monitoringData) && Boolean(token),
     isLoading,
     error,
     connectionRetries,

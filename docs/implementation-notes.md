@@ -1,5 +1,13 @@
 # RobotControl Development Log (Chronological)
 
+## 2026-09-14 Serialized UI polling and non-blocking status reads
+
+- System Status uses one request/retry owner: 60-second normal refresh, existing 30-second recovery cadence, no overlaps or callback-driven restart loop, and stale/auth-changed response protection. Hidden pages retain polling. History no longer instantiates the entire scheduler hook and its duplicate background requests; it has its own serial history loader. Simultaneous queue/status reads are coalesced only while pending, scoped by login token.
+- Added a shared five-second system-health sampler; REST and monitoring consume its timestamped snapshot instead of blocking for a one-second CPU sample. Blocking SQL calls in Database, Experiments and monitoring readers use the bounded Starlette thread pool. Operational dispatch/run monitoring freshness is unchanged.
+- Added polling, cleanup, read-coalescing, sampler and event-loop responsiveness tests. Public API envelopes and database storage remain compatible.
+
+---
+
 ## 2026-09-14 Streaming and attachment resource ownership
 
 - Pending camera sessions now expire using the existing 60-second timeout; duplicate WebSocket attachments cannot replace live handlers. Failure/disconnect cleanup checks handler identity, detaches under lock and closes sockets outside the lock with an idempotent bounded close.

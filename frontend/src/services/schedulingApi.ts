@@ -1,6 +1,7 @@
 import { ApiResponse, MethodPathPreview, MethodPathChange, LibraryMethod, HostMethodDirectory, MethodImportSelection, MethodImportPreview, MethodImportResult } from '../types/scheduling';
 ﻿import { AxiosError, isAxiosError } from 'axios';
 import { api } from './api';
+import { coalesceRead } from '../utils/coalesceRead';
 import {
   CreateScheduleRequest,
   UpdateScheduleRequest,
@@ -325,9 +326,9 @@ export const schedulingAPI = {
       },
     ),
 
-  getQueueStatus: () => api.get<QueueStatusResponse>('/api/scheduling/status/queue'),
+  getQueueStatus: () => coalesceRead(`queue:${localStorage.getItem('access_token')}`, () => api.get<QueueStatusResponse>('/api/scheduling/status/queue')),
 
-  getSchedulerStatus: () => api.get<SchedulerServiceResponse>('/api/scheduling/status/scheduler'),
+  getSchedulerStatus: () => coalesceRead(`scheduler:${localStorage.getItem('access_token')}`, () => api.get<SchedulerServiceResponse>('/api/scheduling/status/scheduler')),
 
   checkConflicts: (request: ConflictCheckRequest) =>
     api.post<ConflictCheckResponse>('/api/scheduling/conflicts/check', request.experiments),
@@ -365,8 +366,9 @@ export const schedulingAPI = {
     api.post<ApiResponse<MethodImportResult>>('/api/scheduling/experiments/import-folder',
       { folder_path: folderPath, relative_paths: relativePaths }, { timeout: 60000 }),
 
-  getExecutionHistory: (scheduleId?: string, limit = 50) =>
+  getExecutionHistory: (scheduleId?: string, limit = 50, signal?: AbortSignal) =>
     api.get('/api/scheduling/executions/history', {
+      signal,
       params: {
         schedule_id: scheduleId,
         limit,

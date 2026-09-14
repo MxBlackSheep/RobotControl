@@ -1,3 +1,4 @@
+from starlette.concurrency import run_in_threadpool
 """
 Experiments API endpoints
 Provides access to experiment data from Hamilton Vector database
@@ -39,7 +40,7 @@ async def get_latest_experiment(current_user: dict = Depends(get_current_user)):
         """
         
         logger.info("Fetching latest experiment from HamiltonVectorDB")
-        result = db.execute_query(query)
+        result = await run_in_threadpool(db.execute_query, query)
         
         if result.get("error"):
             # Database connection failed - return graceful fallback
@@ -108,7 +109,7 @@ async def experiments_health():
     try:
         db = get_database_service()
         # Simple query to test connection
-        result = db.execute_query("SELECT 1 as test")
+        result = await run_in_threadpool(db.execute_query, "SELECT 1 as test")
         
         if result.get("error"):
             health_data = {

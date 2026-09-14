@@ -175,3 +175,6 @@ Call `get_monitoring_service().stop_monitoring()` (REST `/api/monitoring/stop` d
 
 Treat the services as the single source of truth. Update cached snapshots carefully, keep callbacks quick, and always double-check that the frontend normalises whatever shape you emit.
 
+# System metrics and API responsiveness (September 2026)
+
+`health_sampler` owns one five-second background sampler, started/stopped by application lifespan. `/system-health` includes `sampled_at`; CPU/memory/disk fields preserve their existing names. The first CPU sample is a warm-up value. The frontend uses sample time, not request time, for these metrics. SQL status calls run in Starlette's bounded worker pool, as do blocking Database/Experiments API calls. These display optimizations do not cache scheduler dispatch decisions or Hamilton terminal state.

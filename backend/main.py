@@ -314,6 +314,8 @@ async def lifespan(app: FastAPI):
     logger.info("Backend session starting | pid=%s", os.getpid())
 
     logger.info("Starting RobotControl Backend...")
+    from backend.services.health_sampler import health_sampler
+    health_sampler.start()
 
     diagnostics = None
     if _env_flag("ROBOTCONTROL_RESOURCE_DIAGNOSTICS"):
@@ -376,6 +378,7 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         logger.info("Shutting down RobotControl Backend...")
+        await asyncio.to_thread(health_sampler.stop)
         if diagnostics:
             await asyncio.to_thread(diagnostics.stop)
         

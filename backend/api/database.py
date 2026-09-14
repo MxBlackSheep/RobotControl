@@ -57,7 +57,7 @@ async def get_database_status(
         # Check if we have an active database service to get real status
         try:
             # Try to get actual status if service is already initialized
-            real_status = db_service.get_status() if hasattr(db_service, '_initialized') else None
+            real_status = await run_in_threadpool(db_service.get_status) if hasattr(db_service, '_initialized') else None
             if real_status:
                 status = {
                     "is_connected": real_status.is_connected,
@@ -160,7 +160,7 @@ async def get_tables(
         }
         
         # Get tables from our simplified service
-        all_tables = db_service.get_tables(use_cache=use_cache)
+        all_tables = await run_in_threadpool(db_service.get_tables, use_cache=use_cache)
         
         # Add categorization info to each table
         categorized_tables = []
@@ -313,7 +313,7 @@ async def execute_query(
     
     try:
         # Execute query through our simplified service
-        result = db_service.execute_query(query, tuple(params) if params else None)
+        result = await run_in_threadpool(db_service.execute_query, query, tuple(params) if params else None)
         
         data = {
             "columns": result["columns"],
@@ -365,7 +365,7 @@ async def execute_stored_procedure(
     
     try:
         # Execute procedure through our service
-        result = db_service.execute_stored_procedure(request.procedure_name, request.parameters or {})
+        result = await run_in_threadpool(db_service.execute_stored_procedure, request.procedure_name, request.parameters or {})
         
         data = {
             "procedure_name": request.procedure_name,
@@ -429,7 +429,7 @@ async def get_monitoring_data(
     
     try:
         # Get monitoring data from our simplified service
-        monitoring_data = db_service.get_monitoring_data()
+        monitoring_data = await run_in_threadpool(db_service.get_monitoring_data)
         
         data = {
             "experiments": monitoring_data,
@@ -471,7 +471,7 @@ async def get_stored_procedures(
     
     try:
         # Get stored procedures from our service
-        result = db_service.get_stored_procedures(use_cache=use_cache)
+        result = await run_in_threadpool(db_service.get_stored_procedures, use_cache=use_cache)
         
         # Create metadata
         metadata = ResponseMetadata()
@@ -565,7 +565,7 @@ async def get_performance_stats(
     try:
         # Get performance stats from our simplified service
         stats = db_service.get_performance_stats()
-        status = db_service.get_status()
+        status = await run_in_threadpool(db_service.get_status)
         
         data = {
             "database_status": {
@@ -615,7 +615,7 @@ async def health_check(
     
     try:
         # Get health information
-        status = db_service.get_status()
+        status = await run_in_threadpool(db_service.get_status)
         stats = db_service.get_performance_stats()
         
         # Determine health status
@@ -691,7 +691,7 @@ async def get_table_count(
                 )
         
         # Get minimal data to get count
-        result = db_service.get_table_data(
+        result = await run_in_threadpool(db_service.get_table_data, 
             table_name=table_name,
             limit=1,
             offset=0,
@@ -738,7 +738,7 @@ async def get_table_columns(
     
     try:
         # Get minimal data to get column info
-        result = db_service.get_table_data(
+        result = await run_in_threadpool(db_service.get_table_data, 
             table_name=table_name,
             limit=1,
             offset=0

@@ -238,23 +238,10 @@ class MonitoringService:
     def _update_system_health(self):
         """Update system health metrics"""
         try:
-            import psutil
-            
-            memory = psutil.virtual_memory()
-            disk = psutil.disk_usage('C:' if hasattr(psutil, 'WINDOWS') and psutil.WINDOWS else '/')
-            
-            system_health = {
-                "timestamp": datetime.now().isoformat(),
-                "cpu_percent": psutil.cpu_percent(interval=1),
-                "memory_percent": memory.percent,
-                "memory_used_gb": round(memory.used / (1024**3), 2),
-                "memory_total_gb": round(memory.total / (1024**3), 2),
-                "disk_percent": disk.percent,
-                "disk_used_gb": round(disk.used / (1024**3), 2),
-                "disk_total_gb": round(disk.total / (1024**3), 2),
-                "connections": self.websocket_manager.get_connection_stats()
-            }
-            
+            from backend.services.health_sampler import health_sampler
+            system_health = health_sampler.snapshot()
+            system_health["connections"] = self.websocket_manager.get_connection_stats()
+
             # Check for significant changes (>5% change or every minute)
             if (not self.last_system_health or 
                 abs(system_health["cpu_percent"] - self.last_system_health.get("cpu_percent", 0)) > 5 or

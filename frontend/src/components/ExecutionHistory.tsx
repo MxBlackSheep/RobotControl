@@ -35,7 +35,8 @@ import {
   PlayArrow as RunningIcon,
   Refresh as RefreshIcon
 } from '@mui/icons-material';
-import { useScheduling } from '../hooks/useScheduling';
+import { schedulingAPI } from '../services/schedulingApi';
+import { useSerialPolling } from '../hooks/useSerialPolling';
 import ErrorAlert from './ErrorAlert';
 
 interface ExecutionHistoryProps {
@@ -109,10 +110,7 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
   scheduleId, 
   maxHeight = '600px' 
 }) => {
-  const { actions } = useScheduling();
   const [executions, setExecutions] = useState<ExecutionRecord[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [limit, setLimit] = useState(50);
   const [autoRefresh, setAutoRefresh] = useState(false);
@@ -121,11 +119,10 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
   const [executionFilter, setExecutionFilter] = useState<string>('all');
   const [search, setSearch] = useState<string>('');
 
-  const loadExecutionHistory = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const historyData = await actions.getExecutionHistory(undefined, limit);
+  const fetchHistory = async (signal: AbortSignal) => {
+      const { data } = await schedulingAPI.getExecutionHistory(undefined, limit, signal);
+      if (!data.success) throw new Error(data.message || 'Failed to load execution history');
+      const historyData = data.data ?? [];
       const normalised = Array.isArray(historyData) ? historyData.map((record) => {
         const snapshotName =
           (typeof record.experiment_name_snapshot === 'string' && record.experiment_name_snapshot.trim()) || null;
@@ -153,13 +150,15 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
         return execution;
       }) : [];
 
-      setExecutions(normalised);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load execution history');
-    } finally {
-      setLoading(false);
-    }
+      return normalised;
   };
+  const polling = useSerialPolling({
+    request: fetchHistory, onSuccess: setExecutions, identity: String(limit),
+    interval: autoRefresh ? 30000 : 0,
+  });
+  const loadExecutionHistory = polling.refresh;
+  const loading = polling.pending;
+  const error = polling.error;
 
   const toggleRowExpansion = (executionId: string) => {
     setExpandedRows(prev => {
@@ -185,28 +184,12 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
   };
 
   useEffect(() => {
-    loadExecutionHistory();
-  }, [limit]);
-
-  useEffect(() => {
     if (scheduleId) {
       setExperimentFilter(scheduleId);
     } else {
       setExperimentFilter('all');
     }
   }, [scheduleId]);
-
-  useEffect(() => {
-    let intervalId: number | null = null;
-    
-    if (autoRefresh) {
-      intervalId = setInterval(loadExecutionHistory, 30000); // Refresh every 30 seconds
-    }
-    
-    return () => {
-      if (intervalId) clearInterval(intervalId);
-    };
-  }, [autoRefresh, scheduleId, limit]);
 
   const experimentOptions: FilterOption[] = useMemo(() => {
     const unique = new Map<string, { name: string }>();
@@ -469,7 +452,7 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
           sx={{ mb: 2 }}
           retryable={true}
           onRetry={loadExecutionHistory}
-          onClose={() => setError('')}
+          onClose={polling.resetError}
         />
       )}
 
@@ -617,3 +600,4 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
 };
 
 export default ExecutionHistory;
+
