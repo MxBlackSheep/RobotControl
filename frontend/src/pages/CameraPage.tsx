@@ -1,4 +1,5 @@
-import LiveFrame, { createFrameStore } from '../components/LiveFrame';
+import CameraControls from "../components/CameraControls";
+import LiveFrame, { createFrameStore, FrameFreshness } from '../components/LiveFrame';
 import { useAuth } from '../context/AuthContext';
 import { useModuleSection } from '../components/navigation';
 import SectionPanel from '../components/SectionPanel';
@@ -576,6 +577,23 @@ const CameraPage: React.FC = () => {
     return ws;
   };
 
+  const reconnectLiveView = async () => {
+    if (!mySession || streamingLoading) return;
+    setStreamingLoading(true);
+    closeSocket();
+    setCurrentFrame(null);
+    try {
+      const response = await fetch(buildApiUrl(`/api/camera/streaming/session/${mySession.session_id}`), {
+        method: 'DELETE', headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` },
+      });
+      if (!response.ok && response.status !== 404) throw new Error('Could not release the previous live-view session');
+      setMySession(null);
+      await createStreamingSession();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not reconnect live view');
+    } finally { setStreamingLoading(false); }
+  };
+
   const stopStreamingSession = async () => {
     if (!mySession || streamingLoading) return;
 
@@ -677,6 +695,7 @@ const CameraPage: React.FC = () => {
 
       {/* Live Streaming Tab */}
       <SectionPanel active={currentTab === 1}>
+        <CameraControls admin={user?.role === "admin"} onSourceChange={() => setCurrentFrame(null)} />
         <Card>
           <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
             <Stack spacing={2.5}>
@@ -742,6 +761,9 @@ const CameraPage: React.FC = () => {
                     {streamingLoading ? <ButtonLoading message="" /> : 'Stop My Stream'}
                   </Button>
 
+                  <Button disabled={streamingLoading} onClick={() => void reconnectLiveView()}>
+                    Reconnect live view
+                  </Button>
                   <Divider />
 
                   <Box>
@@ -786,6 +808,7 @@ const CameraPage: React.FC = () => {
                           >
                             <FullscreenIcon fontSize="small" />
                           </IconButton>
+                          <FrameFreshness store={frameStore} />
                           <LiveFrame
                             store={frameStore}
                             alt="Live camera stream"
@@ -946,6 +969,7 @@ const CameraPage: React.FC = () => {
             bgcolor: 'black'
           }}
         >
+          <FrameFreshness store={frameStore} />
           {hasFrame ? (
             <LiveFrame
               store={frameStore}

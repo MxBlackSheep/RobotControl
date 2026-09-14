@@ -24,6 +24,7 @@ def capture_worker(options, stop, pixels, frame_lock, counters, events):
     cap = writer = None
     active_path = None
     frame_count = 0
+    phase = "capture"
     heartbeat_stop = threading.Event()
 
     def heartbeat():
@@ -82,6 +83,7 @@ def capture_worker(options, stop, pixels, frame_lock, counters, events):
         clip_start = next_write = 0.0
         ready = False
         while not stop.is_set():
+            phase = "capture"
             ok, frame = cap.read()
             now = time.monotonic()
             if not ok or frame is None:
@@ -99,6 +101,7 @@ def capture_worker(options, stop, pixels, frame_lock, counters, events):
                 finally:
                     frame_lock.release()
             if options["recording"]:
+                phase = "recording"
                 if target_fps is None:
                     calibrated += 1
                     duration = now - calibration_start
@@ -128,7 +131,7 @@ def capture_worker(options, stop, pixels, frame_lock, counters, events):
         finalize()
     except BaseException as exc:
         try:
-            send("error", error=str(exc), error_kind="recording" if isinstance(exc, OSError) else "capture")
+            send("error", error=str(exc), error_kind=phase)
         except (OSError, EOFError):
             pass
     finally:

@@ -40,6 +40,7 @@ class CameraRuntime:
         self.error = None
         self.error_kind = None
         self.operation = None
+        self.operation_revision = 0
         self.lock = threading.RLock()
         self.operation_lock = threading.Lock()
         self.closed = False
@@ -47,6 +48,7 @@ class CameraRuntime:
         self.counters = [0.] * 6
         self.no_frame_seconds = 10
         self.startup_seconds = 20
+        self.graceful_stop_seconds = 15
         self.on_recording_started = None
 
     def refresh(self):
@@ -56,7 +58,7 @@ class CameraRuntime:
         return devices
 
     def select(self, identity):
-        if self.recording_requested:
+        if self.recording_requested and self.identity is not None:
             raise ValueError("Stop recording before changing the selected camera")
         device = resolve_device(self.refresh(), identity)
         if self.process is not None:
@@ -172,7 +174,7 @@ class CameraRuntime:
         if process is None:
             return
         self.stop_event.set()
-        process.join(15)
+        process.join(self.graceful_stop_seconds)
         forced = process.is_alive()
         if forced:
             process.terminate()
@@ -225,7 +227,9 @@ class CameraRuntime:
         if self.closed:
             self.operation_lock.release()
             raise ValueError("Camera service is shutting down")
-        operation = {"id": uuid.uuid4().hex, "action": action, "state": "pending", "error": None}
+        self.operation_revision += 1
+        operation = {"id": uuid.uuid4().hex, "revision": self.operation_revision,
+                     "action": action, "state": "pending", "error": None}
         self.operation = operation
         def work():
             try:

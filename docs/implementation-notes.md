@@ -1,5 +1,12 @@
 # RobotControl Development Log (Chronological)
 
+## 2026-09-14 Camera controls, stale-frame display and packaged validation
+
+- Live streaming now includes admin camera discovery/selection, connect/reconnect and recording controls. Capture, recording and viewer connection are separate. Selection/focus survives polling; operation errors stay inline and requests abort on navigation. Reconnect live view affects only that viewer.
+- The shared frame store timestamps receipt even for identical images. Inline/fullscreen overlays mark missing frames stale after ten seconds without rerendering the page per frame. No motion/frozen-image detector is introduced.
+- Hardware validation found and fixed a DirectShow COM apartment conflict. First selection after camera-less startup retains recording intent. A spawned blocked-worker regression test verifies termination/reaping. Full backend suite: 283 passing; frontend suite and final focused camera tests pass.
+- Isolated Windows package recording, WebSocket delivery, manual reconnect, preview-only reconnect after stop, readable clips and helper cleanup passed using a redirected Logi C270. See `docs/camera-recovery-validation.md`. Direct USB unplug/replug, actual multi-device/remote workloads and endurance remain unverified. Previous packages/runtime data are preserved.
+
 ## 2026-09-14 Camera health and manual control APIs
 
 Added authenticated cached camera health and admin-only asynchronous discovery, selection, connect/reconnect and recording operations. Existing numeric recording routes execute off the event loop. Automatic startup retains recording intent when no camera is available and the later manual connection reattaches archival monitoring without duplicate callbacks. Health distinguishes frame freshness from recording and reports generations/progress to opt-in diagnostics. Partial clips are excluded from storage cleanup and download. Full backend suite: 281 passing.

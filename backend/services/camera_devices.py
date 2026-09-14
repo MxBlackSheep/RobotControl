@@ -11,7 +11,7 @@ import uuid
 def enumerate_devices():
     if sys.platform != "win32":
         return []
-    ole = C.OleDLL("ole32")
+    ole = C.WinDLL("ole32")
     automation = C.OleDLL("oleaut32")
     pointer = C.c_void_p
     guid = lambda value: (C.c_ubyte * 16).from_buffer_copy(uuid.UUID(value).bytes_le)
@@ -40,8 +40,8 @@ def enumerate_devices():
         finally:
             automation.VariantClear(C.byref(value))
 
-    initialized = ole.CoInitializeEx(None, 0)  # private MTA on the caller's worker
-    if initialized < 0:
+    initialized = ole.CoInitializeEx(None, 2)  # DirectShow may already own this STA.
+    if initialized < 0 and initialized != -2147417850:  # RPC_E_CHANGED_MODE: use existing apartment
         raise RuntimeError("Cannot initialize camera device enumeration")
     enumerator, sequence = pointer(), pointer()
     devices = []
@@ -77,7 +77,8 @@ def enumerate_devices():
     finally:
         release(sequence)
         release(enumerator)
-        ole.CoUninitialize()
+        if initialized >= 0:
+            ole.CoUninitialize()
 
 
 def resolve_device(devices, identity):

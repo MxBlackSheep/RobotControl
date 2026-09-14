@@ -109,9 +109,17 @@ class TestCameraLifecycle(TestCameraService):
 
     def test_selection_cannot_change_recording(self, camera_service):
         runtime = camera_service.runtime
+        runtime.identity = "usb:a"
         runtime.recording_requested = True
         with pytest.raises(ValueError, match="Stop recording"):
             runtime.run("select", identity="usb:b")
+
+    def test_first_selection_preserves_waiting_recording_intent(self, camera_service):
+        runtime = camera_service.runtime
+        runtime.recording_requested = True
+        runtime.run("select", identity="usb:a")
+        assert runtime.identity == "usb:a"
+        assert runtime.recording_requested
 
     def test_concurrent_operations_rejected(self, camera_service):
         runtime = camera_service.runtime
@@ -179,6 +187,21 @@ class TestCameraLifecycle(TestCameraService):
             runtime.run("reconnect")
             connect.assert_called_once_with(camera_id=None)
         assert not runtime.recording_requested
+
+    def test_blocked_helper_is_terminated_and_reaped(self, camera_service):
+        import multiprocessing
+        import time
+        runtime = camera_service.runtime
+        context = multiprocessing.get_context("spawn")
+        process = context.Process(target=time.sleep, args=(60,))
+        process.start()
+        runtime.process = process
+        runtime.stop_event = context.Event()
+        runtime.events = Mock()
+        runtime.graceful_stop_seconds = .1
+        runtime._stop()
+        assert runtime.process is None
+        assert process not in multiprocessing.active_children()
 
     def test_reconcile_preserves_metadata_excludes_partial(self, camera_service):
         import json

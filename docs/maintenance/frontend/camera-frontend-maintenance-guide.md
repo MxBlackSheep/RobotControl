@@ -1,179 +1,25 @@
-# Frontend Camera Maintenance Guide
+# Camera frontend maintenance
 
-## Shared page spacing
+## Active components
 
-This page uses `PageContent` and `PageHeader` from `components/PageLayout.tsx`. The application shell supplies navigation, the breadcrumb and outer padding; do not add another outer Container or Back/breadcrumb row. Keep this module's functional tabs and controls. Operational content fills the space beside the sidebar; Maintenance uses the readable-width variant. See [the main application layout guide](main-application-frontend-maintenance-guide.md#shared-page-layout-september-2026) before changing page spacing.
+The active page is `frontend/src/pages/CameraPage.tsx`. `CameraControls.tsx` owns the camera control panel. `LiveFrame.tsx` owns the current image store and freshness overlay. `components/camera/VideoArchiveTab.tsx` handles archive browsing. Older CameraViewer/LiveCamerasTab components are not the main live page; do not implement recovery only in those legacy components.
 
-If you need to change anything about live video, streaming, or the archive UI, read this first. It walks through every React piece involved so you don’t guess how frames reach the page. Follow the steps in order—skipping one usually breaks the viewer.
+## Controls and status
 
----
+CameraControls uses one serial polling owner: cached health every five seconds, or every second during an operation. Hidden browser pages continue polling. Refresh cameras is an explicit admin action; status refresh never reconnects hardware. Device dropdown drafts survive polling and errors. Save selection is separate from Connect. An existing selected camera cannot be changed while recording is requested; Stop recording explains and unlocks the change. A first selection after camera-less startup preserves waiting intent.
 
-## 1. High-Level Architecture
+Show camera capture and recording separately from Streaming Session's browser connection. Device changes, connect/reconnect and recording controls are admin-only; ordinary users retain live viewing permissions. Errors are persistent inline messages. Operation IDs/revisions prevent a status response from an earlier request prematurely replacing operation progress.
 
-- `frontend/src/pages/CameraPage.tsx`  
-  Container page. Manages the two tab views (Archive vs Streaming), loads experiment folders, downloads clips, and tracks streaming sessions.
+Reconnect camera affects the shared source and can interrupt all viewers. Reconnect live view closes/replaces only that user's streaming session. It never changes recording intent or starts another camera. Stop My Stream remains independent of recording.
 
-- `frontend/src/components/CameraViewer.tsx`  
-  Core live viewer. Handles MJPEG `<img>` feed, optional WebSocket streaming, fullscreen toggles, and state chips.
+## Frames and performance
 
-- `frontend/src/components/camera/LiveCamerasTab.tsx`  
-  Shows the list of detected cameras with status badges. Calls back into the page when the user wants to refresh camera info or open settings.
+The page stores only image availability and dimensions. Actual JPEG data lives in one current-frame store shared by inline and fullscreen LiveFrame components. Never move per-frame images into page state or add per-frame console logs.
 
-- `frontend/src/components/camera/LiveStreamingTab.tsx`  
-  UI for creating/stopping streaming sessions. Displays service stats and allows new session creation.
+FrameFreshness samples monotonic receive time once per second and visibly marks an image stale after ten seconds without a frame. Identical image bytes still refresh receive time: this is not a motion detector. The overlay exists in inline and fullscreen views. Source generation changes clear obsolete images. Socket close/unmount detaches handlers and releases the local frame reference.
 
-- `frontend/src/components/camera/VideoArchiveTab.tsx`  
-  Virtualised archive browser. Lists experiment folders, lazily loads video lists, and triggers downloads/deletes.
+## Archive behavior and checks
 
-- Supporting utilities:  
-  - `frontend/src/utils/apiBase.ts` (`buildApiUrl`, `buildWsUrl`) – builds REST and WS URLs with the correct host.  
-  - `frontend/src/components/LoadingSpinner.tsx` – shared spinner component for loading states.
+Retain existing folder browsing, video preview and resumable downloads. Camera recovery does not change archive metadata or execute Hamilton methods.
 
-**Rule of thumb:** Keep network calls inside `CameraPage` (or the specific tab) and pass data down via props. `CameraViewer` itself should only care about rendering frames, not fetching metadata.
-
----
-
-## 2. How the Camera UI Works (Step-by-Step)
-
-1. **Page mounts** → `CameraPage` sets `currentTab=0` (Archive) and calls `loadRecordings()`.  
-   - Fetches `/api/camera/recordings?recording_type=experiment&limit=100` with the access token.  
-   - Stores `experimentFolders` and clears old errors.
-
-2. **Switch to Streaming tab** → `loadStreamingStatus()` calls `/api/camera/streaming/status`.  
-   - Response populates `streamingStatus` and the “My Session” badge if available.
-
-3. **Starting a streaming session** (LiveStreamingTab):  
-   - User picks a camera ID, clicks “Start New Session”.  
-   - Tab calls `onStartSession(cameraId)` provided by `CameraPage`, which POSTs to `/api/camera/streaming/session`.  
-   - After success the tab refreshes status.
-
-4. **Watching live video** (CameraViewer):  
-   - `startMJPEGStream()` sets `<img src>` to `/api/camera/stream/{cameraId}` so the browser displays MJPEG frames.  
-   - `startWebSocketStream()` (for high-frequency updates) opens `ws://.../api/camera/ws/{cameraId}`. Incoming messages of type `"frame"` update the `<img>` element to `data:image/jpeg;base64,...`.
-
-5. **Archive browsing** (VideoArchiveTab):  
-   - When the user expands a folder, the tab calls `onLoadFolderVideos(folder_name)` which should return video metadata.  
-   - Downloads call `onDownloadVideo(filename)` which now supports resume-aware retries (`Range` headers), live progress updates, and cancellation from the page-level progress panel.
-
-6. **Cleanup**  
-   - `CameraViewer` cleans WebSockets and revokes blob URLs in `cleanup()`, invoked on unmount and tab change.  
-   - `CameraPage` closes its own WebSocket (`wsRef`) on unmount.
-
----
-
-## 3. Key State & Props to Watch
-
-- `CameraPage` state:
-  - `experimentFolders` – data rendered by `VideoArchiveTab`.  
-  - `streamingStatus` – top-level stats provided to `LiveStreamingTab`.  
-  - `mySession` – shows the viewer’s session details (used to gate fullscreen).  
-  - `downloadProgress` – active archive download status (`downloadedBytes`, `totalBytes`, retry attempt, reconnecting state).  
-  - `currentTab`, `error`, `archiveError`, `streamingLoading` – control UI feedback.
-
-- `CameraViewer` state:
-  - `isStreaming`, `connectionStatus`, `error` – control status chips.  
-  - `isRecording` – initialised from `cameraInfo.is_recording`.  
-  - `lastFrameTime`, `frameCount`, `streamQuality` – shown in UI to help debugging.
-
-- Props to pass correctly:
-  - `CameraViewer` needs `cameraId` and optionally `cameraInfo` so it can show resolution/FPS and toggles.  
-  - `VideoArchiveTab` requires `onLoadFolderVideos`; otherwise expanding a folder does nothing.
-
----
-
-## 4. Working With API Calls
-
-1. **Always attach the bearer token** when using `fetch`. `CameraPage` reads `localStorage.getItem('access_token')` before hitting any camera endpoint.
-2. **Use `buildApiUrl` / `buildWsUrl`.** They adapt to different hosts (localhost vs packaged exe). Hardcoding `/api/...` only works in dev.
-3. **Handle error states explicitly.** When a fetch fails, set both `error` and `archiveError`/`streamingLoading` so the correct view shows the inline warning card (the tabs now render in-panel callouts instead of modal alerts).
-4. **Archive downloads now resume automatically.** `CameraPage` retries failed transfers with exponential backoff and sends `Range: bytes=<downloaded>-` for continuation. Keep retry/countdown logic in the page layer, not in `VideoArchiveTab`.
-5. **Remember to `URL.revokeObjectURL`.** When you create download links, revoke them once `click()` completes to avoid memory leaks.
-
----
-
-## 5. Common Maintenance Tasks
-
-| Task | Where | Step-by-step instructions |
-|------|-------|---------------------------|
-| Add a new camera action button | `LiveCamerasTab.tsx` | Extend the card footer; pass a callback from `CameraPage` via props so the page performs the API call. |
-| Change the archive limit | `loadRecordings()` in `CameraPage.tsx` | Tweak the query parameter (`limit=100`). Update backend defaults if you want parity. |
-| Display more streaming stats | `LiveStreamingTab.tsx` | Add fields to the status card. Make sure the backend returns the fields and update the `StreamingStatus` interface. |
-| Customise fullscreen viewer | `CameraViewer.tsx` | Adjust the `fullscreenDialogOpen` logic and the `<Dialog>` contents. Keep the cleanup logic so the WebSocket closes. |
-| Fix letterboxed live feed | `CameraPage.tsx` (streaming card) | The card now stores `frameDimensions` from the `<img>` load event and sets the container `aspectRatio` dynamically—if you tweak the layout, keep that state update and avoid reintroducing fixed heights, while still leaving the placeholder `minHeight` for the spinner and only showing the fullscreen button once a frame is visible. |
-| Delete recordings | Add `onDeleteVideo` to `VideoArchiveTab` | Provide a handler in `CameraPage` that calls `DELETE /api/camera/recording/{filename}` and then refreshes the folder. |
-
----
-
-## 6. Passive vs Active Messaging
-
-- **Passive (dashboard) surfaces** – `LiveCamerasTab`, `LiveStreamingTab`, `VideoArchiveTab`, and `CameraViewer` now render inline warning cards for errors. If you introduce new read-only panels, follow the same pattern: stick the message in the card, include a retry button, and avoid opening modals.
-- **Active operations** – Destructive or state-changing flows (e.g., deleting recordings, starting/stopping sessions) should continue to use modal confirmations. Place the modal in the page-level component so the rest of the UI remains responsive.
-- **Keep titles short** – Inline cards use `Typography` with succinct headings (“Streaming service unavailable”). Reserve long technical details for expandable sections or logs.
-
----
-
-## 7. Extending or Modifying Behaviour
-
-### 6.1 Supporting multiple simultaneous camera feeds
-1. Store an array of selected cameras in `CameraPage` instead of a single `currentFrame`.  
-2. Render multiple `CameraViewer` instances, each with its own `cameraId`.  
-3. Ensure each viewer calls `cleanup()` in `useEffect` so websockets close when a camera is removed.
-
-### 6.2 Integrating thumbnails for archive videos
-1. Extend `VideoFile` with `thumbnail_url`.  
-2. Update `VideoArchiveTab` to render `<img>` inside each row using the new URL.  
-3. Cache-bust thumbnails when a video is deleted (e.g., append `?t=${Date.now()}`).
-
-### 6.3 Allowing users to rename experiment folders
-1. Add a rename button in `VideoArchiveTab`.  
-2. Call a new backend endpoint (`PATCH /api/camera/recordings/{folder}`) from the handler.  
-3. After success, call `onRefresh()` so the latest names re-render.
-
----
-
-## 8. Quick Reference
-
-| Component / Function | Purpose | Notes |
-|----------------------|---------|-------|
-| `CameraPage` | Coordinates tabs, fetches data | Central hub—keep API calls here. |
-| `CameraViewer` | Displays live feed | Works with both MJPEG and WebSocket sources. |
-| `LiveCamerasTab` | Shows camera list + status | Relies on parent to provide `onRefresh`, `onCameraSettings`. |
-| `LiveStreamingTab` | Manage streaming sessions | Needs `streamingStatus` and handlers for start/stop. |
-| `VideoArchiveTab` | Browse recordings | Virtualised list for performance. Requires `onLoadFolderVideos`. |
-| `buildApiUrl`, `buildWsUrl` | Build endpoints | Always use these helpers; they respect Vite env vars. |
-
----
-
-## 9. When Something Goes Wrong
-
-1. **Viewer stuck on “connecting”**  
-   - Check browser dev tools for blocked WebSocket or MJPEG request. Usually the backend isn’t streaming or the token expired. Attempt logout/login to refresh tokens.
-
-2. **Black screen with “Live streaming is not available”**  
-   - `CameraViewer` sets this when the backend responds with an error. Confirm recording is running—otherwise the streaming endpoints send `no_frame`.
-
-3. **Tabs show stale data after actions**  
-   - Make sure you call `handleRefresh()` (which picks the right loader depending on the active tab) once an API action completes.
-
-4. **Fullscreen dialog never closes**  
-   - `CameraPage` automatically closes it if `mySession.websocket_state !== 'connected'`. Ensure you update `mySession` when the session stops.
-
-5. **Archive folders blank after refresh**  
-   - `VideoArchiveTab` keeps per-folder state. If your API returns a different structure, clear `folderState` in `useEffect` or normalise the payload before setting state.
-
-6. **Download progress stalls on unstable VPN**  
-   - Check whether the progress panel shows repeated “Reconnecting...” attempts; if yes, backend resume works and the link is still flapping.  
-   - If every retry restarts from byte 0, verify backend response headers include `Accept-Ranges` and `ETag`.  
-   - Ensure only one archive download is active at a time; the page intentionally serializes downloads to keep recovery logic simple.
-
-Follow these guardrails and the camera UI will stay reliable while you extend it.
-
-
-### September 2026: shared section navigation
-
-`components/navigation.tsx` is the source of section names, URLs and UI permissions. Use `useModuleSection` and `moduleSectionUrl`; do not add another horizontal page tab bar. The sidebar supports expanded links, rail menus and mobile navigation. `SectionPanel` mounts on first visit and retains drafts/scroll within the page session. Components that poll must take an active flag and suspend their timer when hidden. Camera navigation never starts/stops a session. Database Restore remains admin **or** local; Operations and RobotControl logs remain local-only. Backend permissions still apply.
-# Frame rendering and connection ownership (September 2026)
-
-`LiveFrame` subscribes to a single current-frame store shared by inline and fullscreen images. Frames do not live in CameraPage state, so the archive/settings page does not rerender for every JPEG. The page only tracks frame availability and dimensions. There is no frame history and no visibility-based suspension.
-
-CameraPage owns its WebSocket in a ref. Closing/unmounting removes handlers before closing the socket, clears the current frame and aborts pending session creation. A response received after unmount must not open a new socket. Per-frame console logging is removed; connection/errors remain visible. Tests verify 100 image updates without parent renders or lost input focus.
+Run frontend Vitest tests, including CameraControls and LiveFrame. Check admin/user permissions, first selection, recording locks, failed operations, refresh focus, identical-image freshness, and timer cleanup. Review narrow/desktop layouts and keyboard selection. Use a fixture server for UI mutations, and an isolated package/data directory for actual camera checks. Physical disconnect/reconnect and long-duration recording remain hardware acceptance tasks.

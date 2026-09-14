@@ -1,209 +1,46 @@
-# Camera Service Maintenance Guide
+# Camera maintenance
 
-## Camera control API
+## Ownership and recovery
 
-GET /api/camera/control-status reads cached state; it never probes devices. POST /devices/refresh, PATCH /selection with device_identity, POST /connect, POST /reconnect and POST /recording/start or /recording/stop require an administrator and return 202 with an operation ID. Poll control-status for pending/succeeded/failed and inline errors. Conflicting operations return 409. Missing-frame and startup allowances are CAMERA_CONFIG no_frame_seconds (10) and startup_seconds (20); these do not trigger reconnect. Automatic recording may wait for a missing camera, and a later manual connect resumes the existing intent. Manual stop clears intent. Repeated-image detection is deliberately absent.
+`CameraService` is the public coordinator. `camera_runtime.py` serializes device selection, connection, recording and stop requests. `camera_worker.py` is the only code that opens the selected camera or its recording writer. The helper is a Windows spawned process, so a blocked native driver call can be recovered without restarting RobotControl.
 
-## Current capture ownership
+Recovery is manual. Stop requests allow 15 seconds for clip finalization, then may terminate only the helper. Its exit must be verified before replacement. Every helper owns fresh IPC resources and a generation ID. Old frames/events cannot enter a replacement connection. The main application retains scheduling, SQL monitoring, archive coordination and viewer sessions.
 
-CameraService delegates hardware ownership to CameraRuntime. Exactly one spawned camera_worker owns OpenCV capture and writing. Never open hardware from discovery or API handlers. Manual reconnect waits 15 seconds, may terminate only the helper, and verifies exit before replacement. IPC contains one fixed 640x480 preview slot and an acknowledged clip-event pipe. Device identity is stored in data/config/camera_selection.json and resolved to an index on each connection. Partial AVI files are unfinished; only finalized clips and JSON sidecars enter archival. Legacy clips retain unknown metadata. The older thread-based description below is historical and will be replaced in the final frontend integration stage.
+The preview transport has one fixed 640x480 colour frame slot. Recording remains in the helper and does not depend on a browser. Clip events use acknowledgements; completed clips also have durable JSON sidecars so they can be recovered after a parent interruption. Do not introduce frame queues or open devices from API handlers.
 
-## uv setup and verification
+## Selecting and connecting a device
 
-Install and run Python tools through the root uv project. Run `uv run --locked python -m pytest backend/tests/test_camera.py backend/tests/test_automatic_recording.py backend/tests/test_camera_download_api.py`. Camera tests mock OpenCV using numeric capture-property constants and patch lazy imports at their defining modules. Automation properties require `PropertyMock`; do not assign to read-only properties. Recording downloads accept both GET and HEAD; HEAD returns the same metadata with no body.
+DirectShow enumeration reads friendly names and device paths without opening cameras. Numeric indexes are temporary. The selection is saved in `data/config/camera_selection.json`, then resolved and checked around every camera open. Missing/ambiguous identities require explicit selection. Identical model names are distinguished in the UI by the current device number. Changing USB ports can change identity and require reselection.
 
-This guide demystifies the camera stack. It explains what each file does, how frames move from a physical camera to the UI, and what to touch when you need to add or change behaviour. Everything is written for cautious maintainers who prefer explicit, step-by-step instructions.
+On a new installation, automatic startup uses the configured primary index only when it can resolve a unique identity. A missing camera leaves automatic recording waiting. Refresh/select/connect after attaching it; there is no retry loop. First selection can retain waiting recording intent. Changing an existing selection requires stopping recording. Reconnect preserves recording intent; reconnect after an intentional stop supplies preview only.
 
----
+## API and permissions
 
-## 1. High-Level Architecture
+All paths below are beneath `/api/camera`:
 
-- `backend/services/camera.py`  
-  Singleton façade exposed to the rest of the backend. Handles camera discovery, starts/stops recording threads, pushes frames into the shared buffer, archives clips, and exposes health/status helpers.
+- `GET /control-status`: authenticated, cached devices, health and operation state. No hardware probing.
+- `POST /devices/refresh`: admin-only device enumeration.
+- `PATCH /selection`: admin-only, JSON `{ "device_identity": "..." }`.
+- `POST /connect`, `/reconnect`, `/recording/start`, `/recording/stop`: admin-only operations.
 
-- `backend/services/live_streaming.py`  
-  Manages WebSocket sessions and distributes frames to viewers. Pulls frames from `SharedFrameBuffer`, applies quality throttling, and coordinates streaming sessions per user.
+Operations return HTTP 202 with `data.operation.id`. Poll control-status for pending/succeeded/failed and errors. Overlapping operations return 409. The operation revision distinguishes a newer operation initiated by another administrator. Existing numeric recording APIs remain adapters and run blocking operations off the API event loop. The legacy public health endpoint retains limited fields; detailed identities require authentication.
 
-- `backend/services/shared_frame_buffer.py`  
-  Thread-safe ring buffer that records use to publish frames and streaming use to read them. Guarantees recording always wins if there is contention.
+Capture state, recording state, automation state and viewer connection are separate. A live process is not proof of recording. `CAMERA_CONFIG.no_frame_seconds` defaults to 10; `startup_seconds` defaults to 20. Both use monotonic time. Repeated images count as frames and are not analyzed for scene changes. No camera failure changes Hamilton execution status or triggers completion callbacks.
 
-- `backend/services/automatic_recording.py`  
-  Higher-level orchestrator that decides when automatic recording starts/stops based on experiment state; it calls into `CameraService` to do actual work.
+## Clips and storage
 
-- `backend/services/storage_manager.py`  
-  Filesystem helper used when archiving clips for experiments (copies files into experiment-specific folders, cleans up old folders).
+Keep the existing 640x480 capture request, 30 FPS camera setting, MJPEG AVI format, measured rolling recording rate capped at 7.5 FPS, one-minute clips, 120-clip rolling limit and 15-minute archive window. Do not change quality as part of recovery work.
 
-- `backend/api/camera.py` (`/recording/{recording_id}`)  
-  Download endpoint for archived clips. Now supports resumable HTTP byte ranges (`Range`, `If-Range`) so remote users on unstable VPN links can continue interrupted downloads instead of restarting.
+Active or interrupted files end in `.partial.avi`. They are excluded from normal cleanup, archive selection and finalized downloads. They remain available for operator investigation; do not label them complete or delete them automatically. Completed new clips have JSON sidecars containing actual frame counts, elapsed duration, device identity and generation. Legacy clips without sidecars keep unknown counts rather than invented values. Cleanup removes sidecars with expired finalized clips.
 
-- `frontend/src/components/CameraViewer.tsx`  
-  React component that connects to the backend (MJPEG stream + WebSocket), displays status badges, and surfaces errors when streaming is unavailable.
+Archival still follows Hamilton completion, including existing run association and paused-state rules. Registering the same completion callback repeatedly must remain idempotent. A camera reconnect must not register duplicate archival callbacks.
 
-- `frontend/src/components/camera/*Tab.tsx`  
-  UI tabs for live view, streaming management, and archive browsing. They rely on `CameraViewer` for the actual stream widget.
+Recording downloads support GET/HEAD and byte ranges for resumable remote downloads. Preserve archive directory naming and existing API envelopes. Runtime configuration is separate from SQLite; this change requires no database migration.
 
-**Rule of thumb:** Treat `CameraService` as the single entry point for backend camera operations. Other services/components should not open cameras themselves or bypass the shared frame buffer.
+## Troubleshooting and validation
 
----
+Check control-status capture state, frame age, last-write age, heartbeat age, read-failure count, generation and operation error. A fresh heartbeat with old frames can mean a blocked capture/writer call. A repeated still image alone is inconclusive. Opt-in resource diagnostics include these counters without recording image payloads.
 
-## 2. Frame Lifecycle Cheat Sheet
+Run `uv run --locked python -m pytest backend/tests/test_camera.py backend/tests/test_camera_worker.py backend/tests/test_camera_control_api.py backend/tests/test_automatic_recording.py backend/tests/test_camera_download_api.py`. Tests must mock device enumeration and use temporary storage. Never run hardware probes through a production CameraService instance.
 
-1. **Camera discovery** (`CameraService.detect_cameras`).  
-   Opens each camera ID via OpenCV, probes resolution/FPS, and caches the info in `self.cameras`.
-
-2. **Recording start** (`CameraService.start_recording`).  
-   Creates a stop event, spawns a dedicated `_recording_worker` thread, and marks the camera as recording. If streaming integration is not enabled yet, it calls `enable_streaming_integration()` to wire up the shared buffer.
-
-3. **Frame capture** (`_recording_worker`).  
-   Reads frames from OpenCV. Each frame is written to the rolling clip writer *and* pushed into `SharedFrameBuffer.put_frame(frame)` so streaming clients can consume it.
-
-4. **Clip rotation** (`_recording_worker`).  
-   Every `recording_duration_minutes` minutes, releases the current video writer, records metadata (path, timestamp, frame count) in `self.rolling_clips`, and starts a new clip.
-
-5. **Streaming distribution** (`LiveStreamingService._frame_distribution_loop`).  
-   Grabs frames from `SharedFrameBuffer`, sends them to active WebSocket sessions, and keeps statistics about bandwidth/CPU usage.
-
-6. **Frontend display** (`CameraViewer.tsx`).  
-   Requests frames via WebSocket (`request_frame` messages) and updates an `<img>` element with base64 JPEG data. If the backend responds with `no_frame`, the component shows “Live streaming is not available…”, so users know to start recording first.
-
-7. **Archive export** (`CameraService.archive_experiment_videos`).  
-   Uses `StorageManager` to copy recent rolling clips into an experiment folder when experiments complete.
-
-8. **Recording stop** (`CameraService.stop_recording`).  
-   Sets the stop event, joins the recording thread, cleans up clip metadata, and marks the camera as idle.
-
----
-
-## 3. Key Data Structures & Settings
-
-- `CAMERA_CONFIG` (`backend/config.py`)  
-  Dict controlling max cameras, clip length, rolling buffer size, default FPS/resolution. Alter this when you need to adjust recording behaviour.
-
-- `CameraRecordingModel` (`backend/models.py`)  
-  Captures metadata for single clips (camera ID, filename, timestamp, duration, file size, recording type). The archive/REST APIs serialise this model.
-
-- `LIVE_STREAMING_CONFIG` (`backend/config.py`)  
-  Streaming-specific knobs: enable flag, frame buffer size, quality presets, CPU thresholds, bandwidth limits.
-
-- `SharedFrameBuffer.FrameData` (`backend/services/shared_frame_buffer.py`)  
-  Wrapper storing raw frame, timestamp, frame number, and size. Streaming callbacks receive this structure.
-
-- Frontend state (`CameraViewer.tsx`)  
-  `isStreaming`, `connectionStatus`, `error`, `frameCount`, `lastFrameTime`, and `streamQuality`. These fields drive the status chips and error banners.
-
----
-
-## 4. How to Add or Modify Functionality
-
-### 4.1 Add a New Camera Setting
-1. Define the setting in `CAMERA_CONFIG` (or `LIVE_STREAMING_CONFIG`). Give it a sensible default.
-2. Thread the value into `CameraService.__init__` (or `LiveStreamingService.__init__`) and store it as an attribute.
-3. If the setting is user-configurable, expose it via `backend/api/camera.py` and update the frontend forms/types (`frontend/src/types/camera.ts` if you introduce one, otherwise extend existing props).
-4. Document the behaviour in the appropriate maintenance guide and test manually.
-
-### 4.2 Support a New Frame Consumer
-1. If it needs live frames, register a callback with `SharedFrameBuffer.register_streaming_callback` **or** expose a dedicated method on `LiveStreamingService`. Avoid reading the buffer directly from elsewhere.
-2. Ensure the callback is resilient (non-blocking, catches exceptions). Long-running processing should happen in a background task, not in the callback.
-3. If the consumer requires configuration, update `LIVE_STREAMING_CONFIG` and pass the values through `LiveStreamingService`.
-4. Update documentation and add logging so operators know the new consumer is active.
-
-### 4.3 Extend Archiving Logic
-1. Modify `CameraService.archive_experiment_videos`. Always use `StorageManager` helpers instead of raw `shutil` calls, so folder structure stays consistent.
-2. If you need extra metadata in the archive directories, extend `StorageManager.archive_experiment_videos` to include it (e.g., JSON manifest).
-3. Update frontend archive tabs to display the new information.
-4. Make sure the cleanup routines (`_cleanup_old_clips`, `StorageManager` cleanup) are still correct.
-
----
-
-## 5. Common Maintenance Tasks
-
-| Task | Where | Tips |
-|------|-------|------|
-| Detect cameras again | `CameraService.detect_cameras()` | Run this at startup. Re-running will refresh `self.cameras`, but make sure no recordings are active. |
-| Start/stop recording | `CameraService.start_recording(camera_id)` / `stop_recording(camera_id)` | Always call `stop_recording` in `finally` blocks to release the OpenCV handle. |
-| Update stream quality defaults | `CameraViewer.tsx` (`getFps`, stream quality state), `LIVE_STREAMING_CONFIG` | Keep backend and frontend quality options in sync. |
-| Archive clips manually | `CameraService.archive_experiment_videos(experiment_id, method_name)` | Works even if automatic recording is disabled, provided rolling clips exist. |
-| Verify resume download headers | `GET/HEAD /api/camera/recording/{recording_id}` | Expect `Accept-Ranges: bytes`, stable `ETag`, and `206` with `Content-Range` when `Range` is provided. |
-| Clean orphaned clips | `_cleanup_old_clips()` | Called automatically, but you can run it after changing clip limits. |
-| Check health | `CameraService.health_check()` | Returns storage availability, active threads, and a timestamp – use this for monitoring dashboards. |
-
----
-
-## 6. Extension Points & Gotchas
-
-- **OpenCV handles**: Each camera ID maps to a single OpenCV capture. Never open the same ID twice without releasing the old handle; otherwise, you’ll get black frames.
-- **Thread safety**: Stick to the provided locks (`camera_lock`, `clips_lock`, `SharedFrameBuffer` locks). Do not manipulate `rolling_clips` without holding `clips_lock`.
-- **Streaming availability**: If streaming is disabled (`LIVE_STREAMING_CONFIG["enabled"] = False`), `CameraService.get_live_frame` returns `None`. The frontend already shows a banner, so backend APIs should propagate the `no_frame` message rather than fabricating data.
-- **Disk space**: Rolling clips and archives live under `VIDEO_PATH`. Ensure there’s enough space (check `CameraService.health_check()["free_disk_space_gb"]`) before enabling long recordings.
-- **MJPEG vs WebSocket**: The MJPEG endpoint is a basic fallback. Prefer the WebSocket for modern features (quality switches, error notifications). Keep both in sync when changing frame handling.
-- **Automatic recording**: `AutomaticRecordingService` will start recording the primary camera on startup if enabled. When debugging manual behaviour, set `ROBOTCONTROL_AUTO_RECORDING_ENABLED=0` before launching the app to avoid unexpected threads. The default remains enabled.
-
----
-
-## 7. Quick Reference
-
-| Function / Method | Purpose | Notes |
-|-------------------|---------|-------|
-| `CameraService.detect_cameras()` | Probe available cameras | Should be called once during startup. |
-| `CameraService.start_recording(camera_id)` | Spawn recording thread | Returns `False` if already recording or camera missing. |
-| `CameraService.stop_recording(camera_id)` | Stop recording | Joins the worker thread and cleans metadata. |
-| `CameraService.get_live_frame(camera_id)` | Fetch JPEG bytes for UI | Uses `LiveStreamingService`; returns `None` if streaming unavailable. |
-| `CameraService.archive_experiment_videos(experiment_id, method)` | Copy clips for an experiment | Utilises `StorageManager`; returns archive path string. |
-| `LiveStreamingService.create_session(user_id, ...)` | Register a new WebSocket session | Handles capacity checks and returns session metadata. |
-| `SharedFrameBuffer.put_frame(frame)` | Publish frame from recording worker | Should be called for every captured frame. |
-| `SharedFrameBuffer.get_frame_for_streaming()` | Non-blocking frame read | Streaming loops use this to grab the latest frame. |
-
----
-
-## 8. When Something Goes Wrong
-
-1. **Black screen or “stream unavailable” banner**  
-   - Check if the camera is recording (`CameraService.recording_threads`).  
-   - Confirm `LiveStreamingService.enabled` is `True`.  
-   - Ensure the frontend received frames (look for `frame` messages in dev tools).
-
-2. **High CPU usage**  
-   - Inspect `LiveStreamingService` logs for resource limit warnings.  
-   - Reduce `frame_buffer_size` or lower quality defaults.  
-   - Check that no other process is holding camera handles (e.g., Windows camera app).
-
-3. **Clips not archiving**  
-   - Confirm rolling clips exist (`rolling_clips` deque has entries).  
-  - Make sure `StorageManager` paths (`VIDEO_PATH/experiments`) are writable.  
-   - Check logs for “Archive warning” messages to see why copies failed.
-
-4. **Disk fills up quickly**  
-   - Lower `CAMERA_CONFIG["rolling_clips_count"]` or `recording_duration_minutes`.  
-   - Run `_cleanup_old_clips()` manually.  
-   - Schedule a cron job to move archives to long-term storage if needed.
-
-5. **WebSocket disconnects frequently**  
-   - Inspect browser console for `no_frame` events (means recording stopped).  
-   - Check server logs for bandwidth warnings (may need to reduce quality).  
-   - Verify the client’s network (mobile networks are prone to timeouts).
-
-6. **Archive download keeps restarting from 0%**  
-   - Confirm the response includes `Accept-Ranges: bytes` and `ETag`.  
-   - Check reverse proxy/CDN config is not stripping `Range` or `If-Range` headers.  
-   - Re-test with `HEAD /api/camera/recording/{recording_id}` and verify `Content-Length` matches the file size.
-
----
-
-## 9. Adding or Replacing Modules
-
-1. **Starting point**: if you create new camera-related logic, place it under `backend/services/` and expose a clean method on `CameraService` rather than creating ad-hoc global functions.
-2. **Integrate with streaming**: all live viewers should ultimately read from `SharedFrameBuffer`. If your module needs raw frames, register a callback or retrieve frames via the existing buffer interface.
-3. **Document changes**: update this guide, `docs/implementation-notes.md`, and any relevant README sections so future maintainers know how to use the new module.
-4. **Test manually**: because camera/streaming interactions depend on hardware, run at least one end-to-end test (start recording, view stream, archive clips) after major changes.
-
-Keep this guide handy whenever you need to touch the camera stack. Following the stages above will help you avoid race conditions, blank streams, and mysterious file leaks.
-# Session and cleanup ownership (September 2026)
-
-Requested streaming sessions release capacity if no browser attaches within the configured `session_timeout_seconds` (60 seconds). A second socket cannot replace a live socket. Cleanup detaches the exact handler before network I/O; a rejected socket cannot terminate another viewer. Socket close is bounded to five seconds. Recording filesystem cleanup keeps at most one job queued/running, so a slow disk cannot accumulate cleanup jobs. Recording settings and clip retention are unchanged.
-# Bounded frame delivery (September 2026)
-
-Recording publishes into the existing shared buffer. The streaming service subscribes to coalesced new-frame notifications instead of repeatedly reading the same frame. A one-second idle wake-up still services resource/abandoned-session checks.
-
-Each connected viewer owns one delivery task and one latest-frame slot. Slow writes time out after five seconds and close only that viewer. A two-worker encoder shares JPEG/base64 output by source frame, resolution scale and JPEG quality. Admission occurs before creating work; cancelled viewers cannot queue unlimited native jobs. Cache entries cover current frame variants only. Shutdown cancels delivery tasks, removes subscriptions and drains encoding work. The existing quality/FPS choices, resource guard, recording path and WebSocket message shape are retained.
-
-Use `backend/tests/test_frame_delivery.py` for sharing, cancellation, slow-viewer and cleanup checks. Use the performance guide for real camera and endurance acceptance; synthetic tests cannot prove recording continuity.
+Windows packaging must retain early `multiprocessing.freeze_support()` before application imports. Verify packaged recording and reconnect; source tests alone do not exercise frozen child startup. Preserve the previous package and runtime data. See `docs/camera-recovery-validation.md` for measured results and outstanding physical/endurance checks.
