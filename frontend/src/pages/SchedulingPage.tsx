@@ -1,3 +1,5 @@
+import { useContext } from 'react';
+import { SchedulingNavigationContext, useSchedulingSection, isLocalUser } from '../components/navigation';
 /**
  * RobotControl Experiment Scheduling Page
  * 
@@ -125,7 +127,8 @@ const TabPanel: React.FC<TabPanelProps> = ({ children, value, index }) => {
 const SchedulingPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [currentTab, setCurrentTab] = useState(0);
+  const [currentTab, setCurrentTab] = useSchedulingSection(user);
+  const { setRecoveryActive } = useContext(SchedulingNavigationContext);
   const [improvedFormOpen, setImprovedFormOpen] = useState(false);
   const [catalogueVersion, setCatalogueVersion] = useState(0);
   const [methodToRelink, setMethodToRelink] = useState<LibraryMethod | null>(null);
@@ -150,31 +153,9 @@ const SchedulingPage: React.FC = () => {
   const isSmallScreen = useMediaQuery(theme.breakpoints.down('sm'));
   const cardPadding = { xs: 2.75, md: 4 };
   const tabPadding = { xs: 1.75, md: 2.75 };
-  const isLocalSession = useMemo(() => {
-    if (typeof user?.session_is_local === 'boolean') {
-      return user.session_is_local;
-    }
-    if (typeof window !== 'undefined') {
-      const hostname = window.location.hostname.toLowerCase();
-      return (
-        hostname === 'localhost' ||
-        hostname === '127.0.0.1' ||
-        hostname === '::1' ||
-        hostname === '0.0.0.0'
-      );
-    }
-    return false;
-  }, [user?.session_is_local]);
-  const isLocalClient = useMemo(() => {
-    if (isLocalSession) {
-      return true;
-    }
-    if (typeof window === 'undefined') {
-      return false;
-    }
-    const hostname = window.location.hostname.toLowerCase();
-    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '0.0.0.0';
-  }, [isLocalSession]);
+  const isLocalSession = isLocalUser(user);
+  const isLocalClient = isLocalSession;
+  useEffect(() => { setRecoveryActive(!!state.manualRecovery?.active); }, [state.manualRecovery?.active, setRecoveryActive]);
 
   const formatTimestamp = (value?: string | null): string => {
     if (!value) {
@@ -342,7 +323,7 @@ const SchedulingPage: React.FC = () => {
     if (user?.role === 'admin') {
       setCurrentTab(5);
     }
-  }, [user?.role]);
+  }, [user?.role, setCurrentTab]);
 
   useEffect(() => {
     if (user?.role !== 'admin') {
@@ -487,10 +468,6 @@ const SchedulingPage: React.FC = () => {
       />
     );
   }
-
-  const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
-    setCurrentTab(newValue);
-  };
 
   const handleNotificationsTabChange = (_event: React.SyntheticEvent, newValue: number) => {
     setNotificationsTab(newValue);
@@ -767,131 +744,6 @@ const SchedulingPage: React.FC = () => {
 
       {/* Main Content */}
       <Paper elevation={1} sx={{ borderRadius: 2, overflow: 'hidden' }}>
-        {/* Navigation Tabs */}
-        <Box
-          sx={{
-            borderBottom: 1,
-            borderColor: 'divider',
-            overflowX: 'auto',
-            px: { xs: 1.5, md: 2.5 },
-            py: 1,
-            bgcolor: 'background.paper'
-          }}
-        >
-          <Tabs
-            value={currentTab}
-            onChange={handleTabChange}
-            variant="scrollable"
-            scrollButtons="auto"
-            allowScrollButtonsMobile
-            aria-label="scheduling tabs"
-            sx={{
-              minHeight: { xs: 44, md: 48 },
-              '& .MuiTabs-flexContainer': {
-                columnGap: { xs: 0.5, md: 1 }
-              },
-              '& .MuiTabs-indicator': {
-                height: 3,
-                borderRadius: 2
-              }
-            }}
-          >
-            <Tab 
-              label={
-                <Stack direction="row" alignItems="center" spacing={isSmallScreen ? 1 : 1.25}>
-                  <ScheduleIcon fontSize="small" />
-                  <Typography component="span" variant="body2">
-                    Schedules
-                  </Typography>
-                </Stack>
-              }
-              sx={{
-                minHeight: 0,
-                py: { xs: 1, md: 1.25 },
-                px: tabPadding
-              }}
-            />
-            <Tab 
-              label={
-                <Stack direction="row" alignItems="center" spacing={isSmallScreen ? 1 : 1.25}>
-                  <WarningIcon fontSize="small" color={state.manualRecovery?.active ? 'error' : 'disabled'} />
-                  <Typography component="span" variant="body2">
-                    {isSmallScreen ? 'Recovery' : 'Manual Recovery'}
-                  </Typography>
-                </Stack>
-              }
-              sx={{
-                minHeight: 0,
-                py: { xs: 1, md: 1.25 },
-                px: tabPadding
-              }}
-            />
-            <Tab 
-              label={
-                <Stack direction="row" alignItems="center" spacing={isSmallScreen ? 1 : 1.25}>
-                  <CalendarIcon fontSize="small" />
-                  <Typography component="span" variant="body2">
-                    {isSmallScreen ? 'Calendar' : 'Calendar View'}
-                  </Typography>
-                </Stack>
-              }
-              sx={{
-                minHeight: 0,
-                py: { xs: 1, md: 1.25 },
-                px: tabPadding
-              }}
-            />
-            <Tab 
-              label={
-                <Stack direction="row" alignItems="center" spacing={isSmallScreen ? 1 : 1.25}>
-                  <HistoryIcon fontSize="small" />
-                  <Typography component="span" variant="body2">
-                    {isSmallScreen ? 'History' : 'Execution History'}
-                  </Typography>
-                </Stack>
-              }
-              sx={{
-                minHeight: 0,
-                py: { xs: 1, md: 1.25 },
-                px: tabPadding
-              }}
-            />
-            <Tab
-              label={
-                <Stack direction="row" alignItems="center" spacing={isSmallScreen ? 1 : 1.25}>
-                  <ArchiveIcon fontSize="small" />
-                  <Typography component="span" variant="body2">
-                    Archived
-                  </Typography>
-                </Stack>
-              }
-              sx={{
-                minHeight: 0,
-                py: { xs: 1, md: 1.25 },
-                px: tabPadding
-              }}
-            />
-            {user?.role === 'admin' && (
-              <Tab 
-                label={
-                  <Stack direction="row" alignItems="center" spacing={isSmallScreen ? 1 : 1.25}>
-                    <EmailIcon fontSize="small" />
-                    <Typography component="span" variant="body2">
-                      Notifications
-                    </Typography>
-                  </Stack>
-                }
-                sx={{
-                  minHeight: 0,
-                  py: { xs: 1, md: 1.25 },
-                  px: tabPadding
-                }}
-              />
-            )}
-            {isLocalClient && <Tab value={6} label="Methods" icon={<FolderIcon fontSize="small" />} iconPosition="start" />}
-          </Tabs>
-        </Box>
-
         {/* Tab Panels */}
         <TabPanel value={currentTab} index={0}>
           <Grid container spacing={{ xs: 3, lg: 3.5 }}>

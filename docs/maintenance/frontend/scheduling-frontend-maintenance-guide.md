@@ -1,5 +1,9 @@
 # Frontend Scheduling Maintenance Guide
 
+## Section navigation
+
+Scheduling sections live beneath Scheduling in the application sidebar, using the shared `useSchedulingSection` URL mapping. Keep the existing internal panel indices only as implementation details; links use stable section names. Do not add a second horizontal Scheduling section bar. Notifications retains its own Contacts/History/Email settings tabs. Existing polling provides the sidebar's latest recovery warning through context.
+
 ## Catalogue folder navigation
 
 `MethodExplorer` and `methodFolders` derive a case-insensitive folder hierarchy from current catalogue paths only. They do not call the host filesystem browser. Absolute drive and UNC paths are supported; relative or unresolved paths remain in Needs path review. Empty single-child ancestor chains are compressed for display without rewriting saved paths or catalogue records.

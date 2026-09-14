@@ -1,5 +1,13 @@
 # Frontend Main Application Maintenance Guide
 
+## Sidebar and section navigation
+
+`components/navigation.tsx` is the shared source for desktop/mobile navigation and Scheduling sections. Keep existing route guards in App as well as navigation filtering. `AppSidebar` replaces the former MobileDrawer and top-level tabs: 240px expanded, 64px collapsed, overlay below 900px. `useSidebarLayout` defaults expanded at 1440px and remembers explicit desktop choices in `robotcontrol.sidebar.expanded`; unavailable localStorage still permits a session choice.
+
+Scheduling uses `/scheduling?section=methods` (and schedules/calendar/history/archived/recovery/notifications). `useSchedulingSection` maps names to existing panel indices without remounting Scheduling on section changes. Invalid/inaccessible names are removed with history replacement; explicit navigation supports Back/Forward. Methods requires local access; Notifications requires admin. Use the shared section mapping for programmatic navigation. The recovery badge receives the latest Scheduling polling state through SchedulingNavigationContext; it does not add another poller.
+
+MUI owns modal/menu Escape and focus. Global navigation shortcuts must not run while a modal is open. `AppSidebar.test.tsx` covers permissions, history, mobile behavior, stored preference and shortcut isolation.
+
 ## uv setup and verification
 
 For a fresh Windows clone, use Node.js 24 with npm and run `npm --prefix frontend ci`, then `npm --prefix frontend run build`, from the repository root. Start the Python backend through `uv run --locked python backend/main.py --host 127.0.0.1 --port 8005 --no-browser`; it serves `frontend/dist`. Rebuild and re-embed assets before packaging the executable.
@@ -14,7 +22,7 @@ This guide explains the overall React shell: routing, theming, providers, and na
   App entry point. Wraps `<App />` with React Router (`BrowserRouter`), Material UI theme provider, React Query client, and `react-hot-toast`.
 
 - `frontend/src/App.tsx`  
-  Defines the navigation shell. Handles authentication gating, top app bar, tabs, mobile drawer, password change dialog, and route rendering via `<Routes>`.
+  Defines the navigation shell. Handles authentication gating, top app bar, responsive sidebar, password change dialog, and route rendering via `<Routes>`.
 
 - `frontend/src/theme.ts`  
   Central Material UI theme (palette, typography, component overrides). Imported by `main.tsx`.
@@ -24,12 +32,12 @@ This guide explains the overall React shell: routing, theming, providers, and na
 
 - Shared UI components used globally:
   - `NavigationBreadcrumbs` – renders breadcrumb trail.
-  - `MobileDrawer` – collapsible nav on small screens.
+  - `AppSidebar` – shared expanded/collapsed/mobile navigation.
   - `SkipLink`, `KeyboardShortcutsHelp` – accessibility helpers.
   - `MaintenanceDialog` – warns users during backend database-restore windows (temporary API pause mode).
   - `ErrorAlert`, `SuccessAlert`, `ServerError` – modal notifications for state-changing flows (password change, delete confirmations). Dashboard-style status messages should use inline cards inside the relevant component.
 
-**Rule of thumb:** All new pages should be registered in `App.tsx` (both the `Routes` block and, if appropriate, the navigation tabs). Ensure they sit inside `AuthProvider` so they can access user data.
+**Rule of thumb:** All new pages should be registered in `App.tsx` (both the `Routes` block and, if appropriate, the shared navigation definitions). Ensure they sit inside `AuthProvider` so they can access user data.
 
 ---
 
@@ -45,8 +53,8 @@ This guide explains the overall React shell: routing, theming, providers, and na
 
 3. **Layout components** once authenticated:  
    - `AppBar` with user greeting, change password, logout buttons.  
-   - Desktop navigation: `<Tabs>` linked to the route list.  
-   - Mobile navigation: `<MobileDrawer>`, toggled by `MobileMenuButton`.  
+   - Desktop navigation: `<AppSidebar>` linked to the shared route/section list.
+   - Mobile navigation: the same AppSidebar rendered as an overlay drawer.
    - `Routes` inside `<Suspense fallback={<PageLoading />}>` so lazy pages show a spinner while loading.
 
 4. **Route definitions**  

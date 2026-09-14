@@ -1,5 +1,5 @@
 import React, { Suspense } from 'react';
-import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 
 // Optimized Material-UI imports for better tree-shaking
 import Box from '@mui/material/Box';
@@ -7,15 +7,16 @@ import AppBar from '@mui/material/AppBar';
 import Toolbar from '@mui/material/Toolbar';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
-import Tabs from '@mui/material/Tabs';
-import Tab from '@mui/material/Tab';
+import IconButton from '@mui/material/IconButton';
+import MenuIcon from '@mui/icons-material/Menu';
 import useTheme from '@mui/material/styles/useTheme';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { loadComponent } from './utils/BundleOptimizer';
 import NavigationBreadcrumbs from './components/NavigationBreadcrumbs';
 import { PageLoading } from './components/LoadingSpinner';
-import MobileDrawer, { MobileMenuButton } from './components/MobileDrawer';
+import AppSidebar from './components/AppSidebar';
+import { SchedulingNavigationContext, useSidebarLayout } from './components/navigation';
 import SkipLink from './components/SkipLink';
 import KeyboardShortcutsHelp, { useKeyboardShortcutsHelp } from './components/KeyboardShortcutsHelp';
 import { useKeyboardNavigation } from './hooks/useKeyboardNavigation';
@@ -37,14 +38,14 @@ const AdminPage = loadComponent(() => import('./pages/AdminPage'));
 
 const AppContent: React.FC = () => {
   const { isAuthenticated, user, logout } = useAuth();
-  const navigate = useNavigate();
-  const location = useLocation();
   const theme = useTheme();
   
   // Mobile drawer state
   const [mobileDrawerOpen, setMobileDrawerOpen] = React.useState(false);
   const [passwordDialogOpen, setPasswordDialogOpen] = React.useState(false);
-  const isMobile = useMediaQuery(theme.breakpoints.down('md')); // < 768px
+  const { mobile: isMobile, expanded: sidebarExpanded, toggle: toggleSidebar } = useSidebarLayout();
+  const [recoveryActive, setRecoveryActive] = React.useState(false);
+  const navigationContext = React.useMemo(() => ({ recoveryActive, setRecoveryActive }), [recoveryActive]);
   const roleLabel = React.useMemo(() => {
     if (!user?.role) {
       return '';
@@ -62,59 +63,14 @@ const AppContent: React.FC = () => {
     }
   }, [user?.must_reset]);
 
-  const tabItems = React.useMemo(() => {
-    const items = [
-      { label: 'Dashboard', path: '/' },
-      { label: 'Database', path: '/database' },
-    ];
-
-    if (['admin', 'user'].includes(user?.role || '')) {
-      items.push({ label: 'Scheduling', path: '/scheduling' });
-    }
-
-    items.push({ label: 'Camera', path: '/camera' });
-
-    if (['admin', 'user'].includes(user?.role || '')) {
-      items.push({ label: 'Labware', path: '/labware' });
-    }
-
-    items.push({ label: 'Maintenance', path: '/maintenance' });
-    items.push({ label: 'LogFile', path: '/logfile' });
-    items.push({ label: 'System Status', path: '/system-status' });
-
-    if (user?.role === 'admin') {
-      items.push({ label: 'Admin', path: '/admin' });
-    }
-
-    items.push({ label: 'About', path: '/about' });
-
-    return items;
-  }, [user?.role]);
-
-  const tabValue = React.useMemo(() => {
-    const index = tabItems.findIndex(item => location.pathname === item.path);
-    if (index !== -1) {
-      return index;
-    }
-
-    // Fallback for nested routes or unknown paths
-    const fallback = tabItems.findIndex(item => location.pathname.startsWith(item.path) && item.path !== '/');
-    return fallback !== -1 ? fallback : 0;
-  }, [location.pathname, tabItems]);
-
-  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
-    const target = tabItems[newValue];
-    if (target) {
-      navigate(target.path);
-    }
-  };
-
   if (!isAuthenticated) {
     return <LoginPage />;
   }
 
   return (
-    <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }}>
+    <SchedulingNavigationContext.Provider value={navigationContext}><Box sx={{ minHeight: '100vh', bgcolor: 'background.default', display: 'flex' }}>
+      <AppSidebar user={user} mobile={isMobile} expanded={sidebarExpanded} open={mobileDrawerOpen} onClose={() => setMobileDrawerOpen(false)} onToggle={toggleSidebar} />
+      <Box sx={{ flex: 1, minWidth: 0 }}>
       {/* Skip Link for Accessibility */}
       <SkipLink />
       <MaintenanceDialog />
@@ -129,9 +85,7 @@ const AppContent: React.FC = () => {
           }}
         >
           {/* Mobile Menu Button - only visible on mobile */}
-          <MobileMenuButton 
-            onClick={() => setMobileDrawerOpen(true)} 
-          />
+          {isMobile && <IconButton color="inherit" aria-label="Open navigation" onClick={() => setMobileDrawerOpen(true)}><MenuIcon /></IconButton>}
           
           <Typography
             variant="h6"
@@ -199,33 +153,6 @@ const AppContent: React.FC = () => {
         </Toolbar>
       </AppBar>
       
-      {/* Navigation Tabs - only visible on desktop */}
-      <Box 
-        sx={{ 
-          borderBottom: 1, 
-          borderColor: 'divider', 
-          bgcolor: 'background.paper',
-          display: { xs: 'none', md: 'block' } // Hide on mobile (< 768px)
-        }}
-      >
-        <Tabs 
-          value={tabValue} 
-          onChange={handleTabChange}
-          aria-label="navigation tabs"
-          sx={{ px: 2 }}
-        >
-          {tabItems.map(item => (
-            <Tab key={item.path} label={item.label} />
-          ))}
-        </Tabs>
-      </Box>
-      
-      {/* Mobile Drawer */}
-      <MobileDrawer 
-        isOpen={mobileDrawerOpen}
-        onToggle={setMobileDrawerOpen}
-      />
-      
       {/* Navigation Breadcrumbs - more compact on mobile */}
       <Box sx={{ 
         px: { xs: 2, md: 3 }, 
@@ -284,7 +211,8 @@ const AppContent: React.FC = () => {
         onClose={() => setPasswordDialogOpen(false)}
         requireChange={Boolean(user?.must_reset)}
       />
-    </Box>
+      </Box>
+    </Box></SchedulingNavigationContext.Provider>
   );
 };
 

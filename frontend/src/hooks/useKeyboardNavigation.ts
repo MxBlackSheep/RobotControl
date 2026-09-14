@@ -142,7 +142,9 @@ export const useKeyboardNavigation = ({
 
   // Keyboard event handler
   const handleKeyDown = useCallback((event: KeyboardEvent) => {
-    if (!enabled) return;
+    if (!enabled || event.defaultPrevented) return;
+    // MUI owns modal/menu keys and focus restoration. Never navigate away from a draft.
+    if (document.querySelector('.MuiModal-root:not([aria-hidden="true"])')) return;
 
     // Don't trigger shortcuts when user is typing in inputs
     const activeElement = document.activeElement;

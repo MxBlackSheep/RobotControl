@@ -1,5 +1,12 @@
 # RobotControl Development Log (Chronological)
 
+## 2026-09-14 Shared sidebar and Scheduling section links
+
+- Replaced desktop tabs/mobile-only navigation with one responsive AppSidebar and shared permission-aware navigation definitions. Desktop uses a remembered 240px/64px preference (expanded initially at 1440px); below 900px it becomes an overlay. Scheduling exposes its seven sections inline or in a collapsed-rail menu, with the latest observed recovery warning.
+- Scheduling sections now use stable `?section=` links, including creation/recovery/notification handoffs; invalid or inaccessible sections return to Schedules. Added role/local-access, URL history, mobile-close, preference and keyboard tests. Global shortcuts defer to open MUI modals/menus so drafts and focus restoration remain intact.
+
+---
+
 ## 2026-09-14 Folder-first method selection
 
 - Added a shared catalogue-only folder explorer for primary/cleanup selection and Methods management. It compresses empty ancestor chains, supports drive/UNC roots and global name/path search, and keeps relative legacy paths in Needs path review. Picker confirmation is explicit; cancel and catalogue refresh preserve the schedule draft.
