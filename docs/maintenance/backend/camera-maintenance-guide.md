@@ -192,3 +192,10 @@ Keep this guide handy whenever you need to touch the camera stack. Following the
 # Session and cleanup ownership (September 2026)
 
 Requested streaming sessions release capacity if no browser attaches within the configured `session_timeout_seconds` (60 seconds). A second socket cannot replace a live socket. Cleanup detaches the exact handler before network I/O; a rejected socket cannot terminate another viewer. Socket close is bounded to five seconds. Recording filesystem cleanup keeps at most one job queued/running, so a slow disk cannot accumulate cleanup jobs. Recording settings and clip retention are unchanged.
+# Bounded frame delivery (September 2026)
+
+Recording publishes into the existing shared buffer. The streaming service subscribes to coalesced new-frame notifications instead of repeatedly reading the same frame. A one-second idle wake-up still services resource/abandoned-session checks.
+
+Each connected viewer owns one delivery task and one latest-frame slot. Slow writes time out after five seconds and close only that viewer. A two-worker encoder shares JPEG/base64 output by source frame, resolution scale and JPEG quality. Admission occurs before creating work; cancelled viewers cannot queue unlimited native jobs. Cache entries cover current frame variants only. Shutdown cancels delivery tasks, removes subscriptions and drains encoding work. The existing quality/FPS choices, resource guard, recording path and WebSocket message shape are retained.
+
+Use `backend/tests/test_frame_delivery.py` for sharing, cancellation, slow-viewer and cleanup checks. Use the performance guide for real camera and endurance acceptance; synthetic tests cannot prove recording continuity.

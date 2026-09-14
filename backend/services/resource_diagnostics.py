@@ -1,6 +1,7 @@
 """Opt-in, bounded resource measurements; never initialize operational services."""
 
 import json
+import asyncio
 import logging
 from logging.handlers import RotatingFileHandler
 import os
@@ -40,10 +41,11 @@ def runtime_counts():
 class ResourceDiagnostics:
     """One owned thread and a maximum 25 MiB JSONL log set per process."""
 
-    def __init__(self, directory: Path, interval=60, pid=None):
+    def __init__(self, directory: Path, interval=60, pid=None, loop=None):
         self.directory = Path(directory)
         self.interval = interval
         self.pid = pid or os.getpid()
+        self.loop = loop
         self._stop = threading.Event()
         self._thread = None
         self._handler = None
@@ -81,11 +83,21 @@ class ResourceDiagnostics:
                 rows.append({"pid": process.pid, "name": name, "group": group, "unavailable": type(exc).__name__})
         self._processes = retained  # Dead processes must not accumulate across reconnects.
         memory = psutil.virtual_memory()
+        runtime = runtime_counts() if self.pid == os.getpid() else {}
+        if self.loop and self.loop.is_running():
+            async def task_count():
+                return len(asyncio.all_tasks()) - 1
+            future = asyncio.run_coroutine_threadsafe(task_count(), self.loop)
+            try:
+                runtime["asyncio_tasks"] = future.result(timeout=2)
+            except Exception:
+                future.cancel()
+                runtime["asyncio_tasks"] = None
         return {"observed_at": datetime.now(timezone.utc).isoformat(),
                 "root_pid": self.pid, "logical_cpus": psutil.cpu_count(),
                 "system": {"total_bytes": memory.total, "available_bytes": memory.available,
                            "used_bytes": memory.used, "percent": memory.percent},
-                "processes": rows, "runtime": runtime_counts() if self.pid == os.getpid() else {}}
+                "processes": rows, "runtime": runtime}
 
     def start(self):
         if self._thread and self._thread.is_alive():

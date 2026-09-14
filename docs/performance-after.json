@@ -1,0 +1,101 @@
+[
+  {
+    "viewers": 0,
+    "seconds": 10.022,
+    "source_frames": 216,
+    "sent_frames": 0,
+    "cpu_seconds": 0.016,
+    "buffer_reads": 216,
+    "event_loop_delay_p95_ms": 14.22,
+    "working_set_bytes": 69345280,
+    "private_bytes": 221237248
+  },
+  {
+    "viewers": 0,
+    "seconds": 10.013,
+    "source_frames": 217,
+    "sent_frames": 0,
+    "cpu_seconds": 0.016,
+    "buffer_reads": 217,
+    "event_loop_delay_p95_ms": 14.64,
+    "working_set_bytes": 69361664,
+    "private_bytes": 221241344
+  },
+  {
+    "viewers": 0,
+    "seconds": 10.022,
+    "source_frames": 216,
+    "sent_frames": 0,
+    "cpu_seconds": 0.0,
+    "buffer_reads": 216,
+    "event_loop_delay_p95_ms": 14.66,
+    "working_set_bytes": 69431296,
+    "private_bytes": 221306880
+  },
+  {
+    "viewers": 1,
+    "seconds": 10.004,
+    "source_frames": 255,
+    "sent_frames": 129,
+    "cpu_seconds": 0.406,
+    "buffer_reads": 255,
+    "event_loop_delay_p95_ms": 9.99,
+    "working_set_bytes": 71634944,
+    "private_bytes": 222396416
+  },
+  {
+    "viewers": 1,
+    "seconds": 10.003,
+    "source_frames": 255,
+    "sent_frames": 129,
+    "cpu_seconds": 0.609,
+    "buffer_reads": 255,
+    "event_loop_delay_p95_ms": 10.59,
+    "working_set_bytes": 71753728,
+    "private_bytes": 222371840
+  },
+  {
+    "viewers": 1,
+    "seconds": 10.002,
+    "source_frames": 252,
+    "sent_frames": 129,
+    "cpu_seconds": 0.578,
+    "buffer_reads": 252,
+    "event_loop_delay_p95_ms": 13.18,
+    "working_set_bytes": 72634368,
+    "private_bytes": 223367168
+  },
+  {
+    "viewers": 2,
+    "seconds": 10.018,
+    "source_frames": 255,
+    "sent_frames": 258,
+    "cpu_seconds": 0.688,
+    "buffer_reads": 255,
+    "event_loop_delay_p95_ms": 12.7,
+    "working_set_bytes": 71733248,
+    "private_bytes": 222294016
+  },
+  {
+    "viewers": 2,
+    "seconds": 10.007,
+    "source_frames": 254,
+    "sent_frames": 258,
+    "cpu_seconds": 0.594,
+    "buffer_reads": 254,
+    "event_loop_delay_p95_ms": 13.03,
+    "working_set_bytes": 71733248,
+    "private_bytes": 222253056
+  },
+  {
+    "viewers": 2,
+    "seconds": 10.039,
+    "source_frames": 254,
+    "sent_frames": 258,
+    "cpu_seconds": 0.672,
+    "buffer_reads": 254,
+    "event_loop_delay_p95_ms": 12.64,
+    "working_set_bytes": 71753728,
+    "private_bytes": 222253056
+  }
+]

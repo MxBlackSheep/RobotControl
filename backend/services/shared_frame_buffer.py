@@ -50,6 +50,7 @@ class SharedFrameBuffer:
         
         # Callbacks for frame distribution
         self.streaming_callbacks: List[Callable[[FrameData], None]] = []
+        self._async_readers = {}
         
         logger.info(f"SharedFrameBuffer initialized with max_frames={max_frames}")
     
@@ -96,6 +97,7 @@ class SharedFrameBuffer:
             # Distribute to streaming callbacks asynchronously
             if self.streaming_callbacks:
                 self._distribute_to_callbacks(frame_data)
+            self._notify_async_readers()
             
             return True
             
@@ -116,6 +118,35 @@ class SharedFrameBuffer:
             if self.latest_frame:
                 self.frames_read_recording += 1
             return self.latest_frame
+
+    def subscribe_frames(self, loop, event):
+        """One coalesced wake-up per reader; no frame payloads queued on the loop."""
+        with self.streaming_lock:
+            self._async_readers[event] = [loop, False]
+        self._notify_async_readers()
+
+    def unsubscribe_frames(self, event):
+        with self.streaming_lock:
+            self._async_readers.pop(event, None)
+
+    def _notify_async_readers(self):
+        with self.streaming_lock:
+            for event, reader in list(self._async_readers.items()):
+                if reader[1]:
+                    continue
+                reader[1] = True
+                try:
+                    reader[0].call_soon_threadsafe(self._wake_reader, event)
+                except RuntimeError:  # Event loop already closed.
+                    self._async_readers.pop(event, None)
+
+    def _wake_reader(self, event):
+        with self.streaming_lock:
+            reader = self._async_readers.get(event)
+            if reader is None:
+                return
+            reader[1] = False
+        event.set()
     
     def get_frame_for_streaming(self, timeout: float = 0.033) -> Optional[FrameData]:
         """

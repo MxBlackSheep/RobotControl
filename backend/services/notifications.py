@@ -398,11 +398,12 @@ class SchedulingNotificationService:
             fallback_clips = self._collect_recent_rolling_clips(limit=3)
             if fallback_clips:
                 summary_clip = self._transcode_clips_to_mp4(fallback_clips)
+                if summary_clip:
+                    cleanup.append(summary_clip)
                 if summary_clip and summary_clip.exists():
                     size_bytes = summary_clip.stat().st_size
                     if size_bytes <= GMAIL_MESSAGE_SIZE_LIMIT:
                         attachments.append(summary_clip)
-                        cleanup.append(summary_clip)
                         attachment_notes.append(
                             f"Attached rolling clip summary ({self._format_size(size_bytes)})."
                         )
@@ -662,39 +663,44 @@ class SchedulingNotificationService:
         frame_size: Optional[Tuple[int, int]] = None
         target_fps = 7.5
         wrote_frames = False
+        completed = False
 
         try:
             for clip in valid_clips:
                 cap = cv2.VideoCapture(str(clip))
-                if not cap.isOpened():
-                    logger.debug("Skipping rolling clip %s (unable to open)", clip)
-                    continue
+                try:
+                    if not cap.isOpened():
+                        logger.debug("Skipping rolling clip %s (unable to open)", clip)
+                        continue
 
-                clip_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 640)
-                clip_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 480)
-                clip_fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
+                    clip_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 640)
+                    clip_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 480)
+                    clip_fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
 
-                if writer is None:
-                    frame_size = (clip_width, clip_height)
-                    target_fps = float(max(1.0, min(30.0, clip_fps if clip_fps and clip_fps > 0.5 else 7.5)))
-                    writer = self._create_video_writer(str(output_path), frame_size, target_fps)
                     if writer is None:
-                        cap.release()
-                        return None
+                        frame_size = (clip_width, clip_height)
+                        target_fps = float(max(1.0, min(30.0, clip_fps if clip_fps and clip_fps > 0.5 else 7.5)))
+                        writer = self._create_video_writer(str(output_path), frame_size, target_fps)
+                        if writer is None:
+                            return None
 
-                while True:
-                    ret, frame = cap.read()
-                    if not ret:
-                        break
-                    if frame_size and (frame.shape[1], frame.shape[0]) != frame_size:
-                        frame = cv2.resize(frame, frame_size)
-                    writer.write(frame)
-                    wrote_frames = True
+                    while True:
+                        ret, frame = cap.read()
+                        if not ret:
+                            break
+                        if frame_size and (frame.shape[1], frame.shape[0]) != frame_size:
+                            frame = cv2.resize(frame, frame_size)
+                        writer.write(frame)
+                        wrote_frames = True
 
-                cap.release()
+                finally:
+                    cap.release()
+            completed = True
         finally:
             if writer is not None:
                 writer.release()
+            if not completed:
+                output_path.unlink(missing_ok=True)
 
         if not wrote_frames:
             logger.debug("No frames written during rolling clip transcode; removing output")

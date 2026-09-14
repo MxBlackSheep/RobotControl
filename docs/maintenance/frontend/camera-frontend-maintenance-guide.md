@@ -172,3 +172,8 @@ Follow these guardrails and the camera UI will stay reliable while you extend it
 ### September 2026: shared section navigation
 
 `components/navigation.tsx` is the source of section names, URLs and UI permissions. Use `useModuleSection` and `moduleSectionUrl`; do not add another horizontal page tab bar. The sidebar supports expanded links, rail menus and mobile navigation. `SectionPanel` mounts on first visit and retains drafts/scroll within the page session. Components that poll must take an active flag and suspend their timer when hidden. Camera navigation never starts/stops a session. Database Restore remains admin **or** local; Operations and RobotControl logs remain local-only. Backend permissions still apply.
+# Frame rendering and connection ownership (September 2026)
+
+`LiveFrame` subscribes to a single current-frame store shared by inline and fullscreen images. Frames do not live in CameraPage state, so the archive/settings page does not rerender for every JPEG. The page only tracks frame availability and dimensions. There is no frame history and no visibility-based suspension.
+
+CameraPage owns its WebSocket in a ref. Closing/unmounting removes handlers before closing the socket, clears the current frame and aborts pending session creation. A response received after unmount must not open a new socket. Per-frame console logging is removed; connection/errors remain visible. Tests verify 100 image updates without parent renders or lost input focus.

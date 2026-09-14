@@ -1,5 +1,15 @@
 # RobotControl Development Log (Chronological)
 
+## 2026-09-14 Bounded camera delivery and N100 candidate
+
+- Streaming wakes on coalesced frame notifications, shares current-frame JPEG variants in two bounded encoding workers, and gives each viewer one latest-frame slot and an independent delivery task. Slow/disconnected viewers cannot backlog native work or block other viewers. Existing recording/quality settings and resource guard remain intact.
+- Camera images use a shared current-frame store for inline/fullscreen rendering; the containing page no longer rerenders per frame. Pending session creation is aborted on unmount, socket handlers are detached on cleanup, and per-frame console logging is removed. Video attachment preparation now releases captures and partial outputs on failure. Diagnostics also sample event-loop task counts.
+- Final automated validation: 278 backend tests and 69 frontend tests pass; production frontend build, embedding and isolated Windows PyInstaller packaging pass. Package smoke test verified all 22 JavaScript assets, authenticated sampled health, and two diagnostic samples. Candidate: `dist/RobotControl-optimized/RobotControl.exe` with `_internal`; runtime data and previous packages are preserved.
+- Browser checks used an isolated synthetic fixture: a schedule draft/dropdown survived multiple polling cycles; 1,000 methods remained paged at 25; inline/fullscreen video and a separate status view remained usable, including narrow layouts and background streaming. These are not real remote-network/camera endurance results.
+- Three ten-second probe trials per scenario against `d228f51` reduce repeated buffer reads about 61–67% with comparable delivered frames. Two-viewer CPU improves, but one-viewer CPU increases slightly with worker overhead; see `docs/performance-report.md` and raw measurements. N100 real-camera, 24-hour and ten-day acceptance remain pending; no long-term memory-leak resolution is claimed.
+
+---
+
 ## 2026-09-14 Serialized UI polling and non-blocking status reads
 
 - System Status uses one request/retry owner: 60-second normal refresh, existing 30-second recovery cadence, no overlaps or callback-driven restart loop, and stale/auth-changed response protection. Hidden pages retain polling. History no longer instantiates the entire scheduler hook and its duplicate background requests; it has its own serial history loader. Simultaneous queue/status reads are coalesced only while pending, scoped by login token.

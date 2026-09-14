@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 from unittest.mock import Mock
+import pytest
 
 from backend.services.notifications import SchedulingNotificationService
 
@@ -19,4 +20,32 @@ def test_preparation_failure_removes_already_converted_trace(tmp_path):
     assert "disk unavailable" in result.error
     assert not converted.exists()
     service.email.send.assert_not_called()
+
+
+def test_failed_transcode_releases_capture_writer_and_partial_file(tmp_path, monkeypatch):
+    from backend.services import notifications
+    service = object.__new__(SchedulingNotificationService)
+    clip = tmp_path / "source.avi"
+    clip.write_bytes(b"fixture")
+    cap = Mock()
+    cap.isOpened.return_value = True
+    cap.get.return_value = 30
+    cap.read.side_effect = OSError("capture failed")
+    writer = Mock()
+    outputs = []
+    def create_writer(path, *args):
+        from pathlib import Path
+        output = Path(path)
+        output.write_bytes(b"partial")
+        outputs.append(output)
+        return writer
+    monkeypatch.setattr(notifications.tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setattr(notifications.cv2, "VideoCapture", lambda path: cap)
+    service._create_video_writer = create_writer
+    with pytest.raises(OSError, match="capture failed"):
+        service._transcode_clips_to_mp4([clip])
+    cap.release.assert_called_once()
+    writer.release.assert_called_once()
+    assert not outputs[0].exists()
+    assert clip.exists()
 

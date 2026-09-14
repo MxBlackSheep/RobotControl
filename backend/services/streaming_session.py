@@ -20,6 +20,7 @@ from backend.services.streaming_types import (
     StreamControl, StreamFrame
 )
 from backend.config import LIVE_STREAMING_CONFIG
+from backend.services.frame_encoder import encode_jpeg
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +118,7 @@ class StreamingSessionHandler:
         
         logger.info(f"Streaming session {self.session.session_id} stopped")
     
-    async def send_frame(self, frame_data: FrameData) -> bool:
+    async def send_frame(self, frame_data: FrameData, encoder=None) -> bool:
         """
         Send a frame to the client.
         Applies quality settings and frame skipping.
@@ -132,7 +133,7 @@ class StreamingSessionHandler:
             return False
         
         # Check frame rate limiting
-        current_time = time.time()
+        current_time = time.monotonic()
         if current_time - self.last_frame_time < self.frame_interval:
             return False  # Skip frame to maintain target FPS
         
@@ -144,7 +145,8 @@ class StreamingSessionHandler:
         
         try:
             # Encode frame
-            encoded_frame = self._encode_frame(frame_data.frame)
+            encoded_frame = (await encoder(frame_data, self.quality_settings) if encoder
+                             else await asyncio.to_thread(self._encode_frame, frame_data.frame))
             if encoded_frame is None:
                 return False
             
@@ -171,7 +173,7 @@ class StreamingSessionHandler:
             self.last_frame_time = current_time
             
             # Update statistics periodically
-            if current_time - self.last_stats_time >= 1.0:
+            if time.time() - self.last_stats_time >= 1.0:
                 await self._update_statistics()
             
             return True
@@ -263,31 +265,11 @@ class StreamingSessionHandler:
             Base64 encoded JPEG string or None if encoding fails
         """
         try:
-            # Apply resolution scaling if needed
-            if self.quality_settings.resolution_scale < 1.0:
-                height, width = frame.shape[:2]
-                new_width = int(width * self.quality_settings.resolution_scale)
-                new_height = int(height * self.quality_settings.resolution_scale)
-                frame = cv2.resize(frame, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
-            
-            # Encode to JPEG
-            encode_params = [cv2.IMWRITE_JPEG_QUALITY, self.quality_settings.jpeg_quality]
-            success, buffer = cv2.imencode('.jpg', frame, encode_params)
-            
-            if not success:
-                logger.error(f"Failed to encode frame for session {self.session.session_id}")
-                return None
-            
-            # Convert to base64
-            jpeg_bytes = buffer.tobytes()
-            base64_str = base64.b64encode(jpeg_bytes).decode('utf-8')
-            
-            return base64_str
-            
-        except Exception as e:
-            logger.error(f"Error encoding frame for session {self.session.session_id}: {e}")
+            return encode_jpeg(frame, self.quality_settings.resolution_scale, self.quality_settings.jpeg_quality)
+        except Exception as exc:
+            logger.error("Frame encoding failed: %s", exc)
             return None
-    
+
     async def _update_statistics(self) -> None:
         """Update session statistics (FPS, bandwidth, etc.)."""
         current_time = time.time()

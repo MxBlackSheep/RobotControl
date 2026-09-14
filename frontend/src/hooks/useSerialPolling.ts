@@ -22,6 +22,7 @@ export function useSerialPolling<T>(options: {
   const [error, setError] = useState<string | null>(null);
   const [retries, setRetries] = useState(0);
   const [active, setActive] = useState(false);
+  const [succeeded, setSucceeded] = useState(false);
 
   const refresh = useCallback((): Promise<void> => {
     if (flight.current) return flight.current;
@@ -36,12 +37,14 @@ export function useSerialPolling<T>(options: {
       .then(value => {
         if (!current()) return;
         latest.current.onSuccess(value);
+        setSucceeded(true);
         failures.current = 0;
         setRetries(0);
         setError(null);
       }).catch(cause => {
         if (!current()) return;
         failures.current += 1;
+        setSucceeded(false);
         setRetries(failures.current);
         setError(cause instanceof Error ? cause.message : 'Request failed');
       }).finally(() => {
@@ -62,6 +65,7 @@ export function useSerialPolling<T>(options: {
   const stop = useCallback(() => {
     running.current = false;
     setActive(false);
+    setSucceeded(false);
     setPending(false);
     generation.current += 1;
     clearTimeout(timer.current);
@@ -93,5 +97,5 @@ export function useSerialPolling<T>(options: {
   }, [options.interval, options.retryInterval, options.maxRetries, refresh]);
 
   const resetError = useCallback(() => setError(null), []);
-  return { refresh, start, stop, pending, error, retries, active, resetError };
+  return { refresh, start, stop, pending, error, retries, active, succeeded, resetError };
 }

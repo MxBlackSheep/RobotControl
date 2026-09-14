@@ -320,7 +320,7 @@ async def lifespan(app: FastAPI):
     diagnostics = None
     if _env_flag("ROBOTCONTROL_RESOURCE_DIAGNOSTICS"):
         from backend.services.resource_diagnostics import ResourceDiagnostics
-        diagnostics = ResourceDiagnostics(Path(logs_dir) / "diagnostics")
+        diagnostics = ResourceDiagnostics(Path(logs_dir) / "diagnostics", loop=asyncio.get_running_loop())
         try:
             diagnostics.start()
         except Exception as exc:

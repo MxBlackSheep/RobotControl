@@ -239,7 +239,7 @@ export const useMonitoring = (options: { autoRetry?: boolean; retryInterval?: nu
     streamingStatus,
     
     // State
-    isConnected: polling.active && !error && Boolean(monitoringData) && Boolean(token),
+    isConnected: polling.active && polling.succeeded && Boolean(token),
     isLoading,
     error,
     connectionRetries,

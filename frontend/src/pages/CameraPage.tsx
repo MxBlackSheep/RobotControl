@@ -1,3 +1,4 @@
+import LiveFrame, { createFrameStore } from '../components/LiveFrame';
 import { useAuth } from '../context/AuthContext';
 import { useModuleSection } from '../components/navigation';
 import SectionPanel from '../components/SectionPanel';
@@ -11,7 +12,7 @@ import { PageContent, PageHeader } from '../components/PageLayout';
  * - Recording management controls
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   Box,
   Container,
@@ -135,25 +136,42 @@ const CameraPage: React.FC = () => {
   const [streamingStatus, setStreamingStatus] = useState<StreamingStatus | null>(null);
   const [mySession, setMySession] = useState<StreamingSession | null>(null);
   const [streamingLoading, setStreamingLoading] = useState(false);
-  const [currentFrame, setCurrentFrame] = useState<string | null>(null);
+  const frameStore = useMemo(createFrameStore, []);
+  const [hasFrame, setHasFrame] = useState(false);
+  const setCurrentFrame = useCallback((value: string | null) => {
+    const changedAvailability = Boolean(frameStore.getSnapshot()) !== Boolean(value);
+    frameStore.set(value);
+    if (changedAvailability) setHasFrame(Boolean(value));
+  }, [frameStore]);
   const [frameDimensions, setFrameDimensions] = useState<{ width: number; height: number } | null>(null);
   const [fullscreenDialogOpen, setFullscreenDialogOpen] = useState(false);
 
   // Video streaming state
-  const [wsRef, setWsRef] = useState<WebSocket | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const streamRequestRef = useRef<AbortController | null>(null);
+  const mountedRef = useRef(true);
   const [downloadProgress, setDownloadProgress] = useState<DownloadProgressState | null>(null);
   const downloadAbortRef = useRef<AbortController | null>(null);
   const downloadCancelledRef = useRef(false);
   const downloadInFlightRef = useRef(false);
 
-  // Cleanup WebSocket on unmount
+  const closeSocket = useCallback(() => {
+    const socket = wsRef.current;
+    wsRef.current = null;
+    if (socket) {
+      socket.onopen = socket.onmessage = socket.onerror = socket.onclose = null;
+      socket.close();
+    }
+    frameStore.set(null);
+  }, [frameStore]);
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
-      if (wsRef) {
-        wsRef.close();
-      }
+      mountedRef.current = false;
+      streamRequestRef.current?.abort();
+      closeSocket();
     };
-  }, [wsRef]);
+  }, [closeSocket]);
 
   useEffect(() => {
     return () => {
@@ -467,14 +485,16 @@ const CameraPage: React.FC = () => {
   };
 
   const createStreamingSession = async (quality: string = 'adaptive') => {
-    if (streamingLoading) return;
-    
+    if (streamingLoading || streamRequestRef.current) return;
+    const controller = new AbortController();
+    streamRequestRef.current = controller;
     setStreamingLoading(true);
     try {
       const token = localStorage.getItem('access_token');
       
       const response = await fetch(buildApiUrl('/api/camera/streaming/session'), {
         method: 'POST',
+        signal: controller.signal,
         headers: { 
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -485,6 +505,7 @@ const CameraPage: React.FC = () => {
       if (response.ok) {
         const data = await response.json();
         const session = data.data;
+        if (!mountedRef.current || controller.signal.aborted) return;
         setMySession(session);
         setError('');
         
@@ -497,10 +518,12 @@ const CameraPage: React.FC = () => {
         setError(errorData.detail || 'Failed to create streaming session');
       }
     } catch (error) {
+      if (!mountedRef.current || controller.signal.aborted) return;
       console.error('Error creating streaming session:', error);
       setError('Failed to create streaming session');
     } finally {
-      setStreamingLoading(false);
+      if (streamRequestRef.current === controller) streamRequestRef.current = null;
+      if (mountedRef.current) setStreamingLoading(false);
     }
   };
 
@@ -508,7 +531,10 @@ const CameraPage: React.FC = () => {
     const wsUrl = buildWsUrl(`/api/camera/streaming/video/${sessionId}`);
     console.log('Connecting to streaming WebSocket:', wsUrl);
     
+    setCurrentFrame(null);
+    closeSocket();
     const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
     
     ws.onopen = () => {
       console.log('Streaming WebSocket connected');
@@ -519,7 +545,6 @@ const CameraPage: React.FC = () => {
     ws.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data);
-        console.log('Streaming WebSocket message type:', message.type);
 
         if (message.type === 'frame' && message.data) {
           const frameDataUrl = `data:image/jpeg;base64,${message.data}`;
@@ -532,7 +557,6 @@ const CameraPage: React.FC = () => {
         }
       } catch (error) {
         console.error('Error parsing WebSocket message:', error);
-        console.log('Raw message data:', event.data.substring(0, 200), '...');
       }
     };
     
@@ -549,7 +573,6 @@ const CameraPage: React.FC = () => {
       };
     
     // Store WebSocket reference for cleanup
-    setWsRef(ws);
     return ws;
   };
 
@@ -557,10 +580,7 @@ const CameraPage: React.FC = () => {
     if (!mySession || streamingLoading) return;
 
     // Close WebSocket connection
-    if (wsRef) {
-      wsRef.close();
-      setWsRef(null);
-    }
+    closeSocket();
     setCurrentFrame(null);
 
     setStreamingLoading(true);
@@ -588,12 +608,11 @@ const CameraPage: React.FC = () => {
     }
   };
 
-  const hasFrame = Boolean(currentFrame);
   useEffect(() => {
-    if (!currentFrame) {
+    if (!hasFrame) {
       setFrameDimensions(null);
     }
-  }, [currentFrame]);
+  }, [hasFrame]);
 
   const frameMaxHeight = { xs: '70vh', md: '80vh' } as const;
 
@@ -767,9 +786,8 @@ const CameraPage: React.FC = () => {
                           >
                             <FullscreenIcon fontSize="small" />
                           </IconButton>
-                          <Box
-                            component="img"
-                            src={currentFrame}
+                          <LiveFrame
+                            store={frameStore}
                             alt="Live camera stream"
                             onLoad={(event: React.SyntheticEvent<HTMLImageElement>) => {
                               const { naturalWidth, naturalHeight } = event.currentTarget;
@@ -928,9 +946,9 @@ const CameraPage: React.FC = () => {
             bgcolor: 'black'
           }}
         >
-          {currentFrame ? (
-            <img
-              src={currentFrame}
+          {hasFrame ? (
+            <LiveFrame
+              store={frameStore}
               alt="Live camera stream fullscreen"
               style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
             />

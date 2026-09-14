@@ -7,6 +7,8 @@ import asyncio
 import logging
 import threading
 import uuid
+import time
+from backend.services.frame_encoder import FrameEncoder
 from collections import deque
 from datetime import datetime, timedelta
 import psutil
@@ -71,11 +73,17 @@ class LiveStreamingService:
         # Frame distribution
         self.distribution_task: Optional[asyncio.Task] = None
         self.distribution_active = False
+        self._frame_event = asyncio.Event()
+        self._encoder = None
+        self._delivery_tasks = {}
+        self._delivery_events = {}
+        self._pending_frames = {}
 
         self.cpu_soft_limit = self.config.get("cpu_soft_limit_percent", 75)
         self.cpu_hard_limit = self.config.get("cpu_hard_limit_percent", 90)
         self._last_resource_check = datetime.now() - timedelta(seconds=1)
         self._last_cpu_percent = 0.0
+        self._last_cpu_sample_monotonic = 0.0
         self._process = psutil.Process()
         # Prime cpu_percent to avoid the first-call zero artefact
         try:
@@ -129,6 +137,8 @@ class LiveStreamingService:
 
             # Start frame distribution
             self.distribution_active = True
+            self._encoder = FrameEncoder()
+            self.frame_buffer.subscribe_frames(asyncio.get_running_loop(), self._frame_event)
             self.service_started_at = datetime.now()
             self.distribution_task = asyncio.create_task(self._frame_distribution_loop())
 
@@ -144,6 +154,7 @@ class LiveStreamingService:
 
             # Stop frame distribution
             self.distribution_active = False
+            self.frame_buffer.unsubscribe_frames(self._frame_event)
             if self.distribution_task:
                 self.distribution_task.cancel()
                 try:
@@ -153,6 +164,10 @@ class LiveStreamingService:
 
             # Stop all sessions
             await self._terminate_all_sessions("Service shutdown")
+            if self._encoder:
+                await self._encoder.close()
+                self._encoder = None
+            self.distribution_task = None
 
 
             logger.info("Streaming | event=service_stopped")
@@ -267,7 +282,7 @@ class LiveStreamingService:
                 QualitySettings.from_config(previous.session.quality_level, self.config))
             self.sessions[session_id] = handler
         try:
-            await handler.start()
+            await asyncio.wait_for(handler.start(), timeout=self.config.get("session_timeout_seconds", 60))
             if self.sessions.get(session_id) is not handler:
                 await handler.stop()
                 return None
@@ -339,6 +354,12 @@ class LiveStreamingService:
             user_id = handler.session.user_id
             if self.sessions_by_user.get(user_id) == session_id:
                 del self.sessions_by_user[user_id]
+        task = self._delivery_tasks.pop(session_id, None)
+        self._pending_frames.pop(session_id, None)
+        self._delivery_events.pop(session_id, None)
+        if task and task is not asyncio.current_task():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
         await handler.stop()
         return True
 
@@ -384,99 +405,71 @@ class LiveStreamingService:
             return False
     
     async def _frame_distribution_loop(self) -> None:
-        """
-        Main loop for distributing frames to active sessions.
-        Runs in a separate task.
-        """
-        logger.info("Streaming | event=frame_loop_start")
-        
+        last_frame = None
         while self.distribution_active:
             try:
+                try:
+                    async with asyncio.timeout(1):
+                        await self._frame_event.wait()
+                except asyncio.TimeoutError:
+                    pass
+                self._frame_event.clear()
                 await self._apply_resource_guard()
+                frame = self.frame_buffer.get_frame_for_streaming(timeout=0)
+                if frame is not None and frame is not last_frame:
+                    last_frame = frame
+                    await self._distribute_frame(frame)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("Streaming frame distribution failed")
+                await asyncio.sleep(.1)
 
-                # Get frame from buffer
-                frame_data = self.frame_buffer.get_frame_for_streaming(timeout=0.033)
-                
-                if frame_data:
-                    # Debug: Log frame retrieval every 600th frame (every 20 seconds at 30fps) when distributing
-                    if frame_data.frame_number % 600 == 0:
-                        logger.debug(f"Retrieved frame #{frame_data.frame_number} from SharedFrameBuffer for distribution")
-                    
-                    # Distribute to active sessions
-                    await self._distribute_frame(frame_data)
-                
-                # Small delay to prevent tight loop
-                await asyncio.sleep(0.001)
-                
-            except Exception as e:
-                logger.error("Streaming | event=frame_loop_error | error=%s", e)
-                await asyncio.sleep(0.1)
-        
-        logger.info("Streaming | event=frame_loop_stop")
-    
     async def _distribute_frame(self, frame_data: FrameData) -> None:
-        """
-        Distribute a frame to all active sessions.
-        
-        Args:
-            frame_data: Frame to distribute
-        """
-        # Get active sessions
-        async with self.session_lock:
-            total_sessions = len(self.sessions)
-            active_handlers = [
-                handler for handler in self.sessions.values()
-                if handler.session.is_active and not handler.is_paused
-            ]
-            
-            # Debug logging every 300 frames (every 10 seconds at 30fps) to track session status
-            if frame_data.frame_number % 300 == 0:
-                if total_sessions > 0 or len(active_handlers) > 0:
-                    # Only log at INFO level when there are active sessions
-                    logger.info("Streaming | event=frame_loop_status | sessions=%s | active=%s", total_sessions, len(active_handlers))
-                    for session_id, handler in self.sessions.items():
-                        logger.debug("Streaming | session=%s | active=%s | paused=%s", session_id[:8], handler.session.is_active, handler.is_paused)
-                else:
-                    # Log at DEBUG level when no sessions (reduce noise)
-                    logger.debug("Streaming | event=frame_loop_status | sessions=%s | active=%s", total_sessions, len(active_handlers))
-        
-        if not active_handlers:
-            return
-        
-        # Send frame to each session
-        tasks = []
-        for handler in active_handlers:
-            tasks.append(handler.send_frame(frame_data))
-        
-        # Wait for all sends to complete
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        # Update statistics
-        successful_sends = sum(1 for r in results if r is True)
-        if successful_sends > 0:
-            self.total_frames_distributed += successful_sends
-            self.total_bytes_distributed += frame_data.size_bytes * successful_sends
-            # Log only every 300 frames (every 10 seconds at 30fps) when actively distributing to sessions
-            if frame_data.frame_number % 300 == 0:
-                logger.info("Streaming | event=frame_sent | frame=%s | sessions=%s", frame_data.frame_number, successful_sends)
-    
+        # Each viewer has one latest-frame slot, never an accumulating queue.
+        for session_id, handler in list(self.sessions.items()):
+            if not handler.session.is_active or handler.is_paused or not handler.is_running:
+                continue
+            event = self._delivery_events.setdefault(session_id, asyncio.Event())
+            self._pending_frames[session_id] = frame_data
+            if session_id not in self._delivery_tasks:
+                self._delivery_tasks[session_id] = asyncio.create_task(self._deliver(session_id, handler, event))
+            event.set()
+
+    async def _deliver(self, session_id, handler, event):
+        try:
+            while self.sessions.get(session_id) is handler and handler.is_running:
+                await event.wait()
+                event.clear()
+                delay = handler.frame_interval - (time.monotonic() - handler.last_frame_time)
+                if delay > 0:
+                    await asyncio.sleep(delay)
+                frame = self._pending_frames.pop(session_id, None)
+                event.clear()
+                if frame is None:
+                    continue
+                async with asyncio.timeout(5):
+                    sent = await handler.send_frame(frame, self._encoder.encode)
+                if sent:
+                    self.total_frames_distributed += 1
+                    self.total_bytes_distributed += frame.size_bytes
+                frame = None  # Do not retain a superseded raw frame while idle.
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("Streaming delivery ended | session=%s | error=%s", session_id, exc)
+            await self.terminate_session(session_id, expected=handler)
+
     async def _terminate_all_sessions(self, reason: str) -> None:
-        """
-        Terminate all active sessions.
-        
-        Args:
-            reason: Reason for termination
-        """
-        async with self.session_lock:
-            session_items = list(self.sessions.items())
-            self.sessions.clear()
-            self.sessions_by_user.clear()
-        for session_id, handler in session_items:
-            logger.info("Streaming | event=session_terminated | session=%s | reason=%s", session_id, reason)
-            await handler.stop()
-    
+        for session_id, handler in list(self.sessions.items()):
+            await self.terminate_session(session_id, expected=handler)
+
     def _sample_cpu(self) -> float:
         """Return a non-blocking CPU percentage sample."""
+        now = time.monotonic()
+        if now - self._last_cpu_sample_monotonic < 1:
+            return self._last_cpu_percent
+        self._last_cpu_sample_monotonic = now
         try:
             cpu_percent = self._process.cpu_percent(interval=None)
         except Exception:
