@@ -1,5 +1,14 @@
 # RobotControl Development Log (Chronological)
 
+## 2026-09-14 Database browsing and applied queries
+
+- Replaced the cramped table catalogue with a collapsible searchable panel and an explicit narrow-screen list/detail view. Removed fabricated 1,000-row counts. Tables retain rows during refresh, distinguish NULL/empty values, expose keyboard cell details and visible-column controls. Procedure/function browsing now has search and preserves its selection on refresh.
+- Search and filter drafts apply explicitly. One cancellable request lifecycle protects table state from stale responses. Server search uses parameterized literal matches over supported scalar types; count and rows share predicates. Validated sort direction reaches both modern and legacy SQL pagination, with primary-key tie breaks and 30-second SQL command timeouts.
+- Current-page/all-matching CSV and JSON exports use batches of at most 1,000 rows, progress/cancellation and a 50 MB guard. Changed counts and prematurely exhausted results fail explicitly; the UI explains that concurrent writes prevent snapshot guarantees.
+- Validation: 15 SQL service tests and four focused component/export tests pass; TypeScript passes. Browser confirmed a real unmatched query returns zero rows, section Back retains the search draft, and 390px uses a Back-to-tables view without page overflow. No SQL records were changed.
+
+---
+
 ## 2026-09-14 Section navigation across operational functions
 
 - Shared permission-aware section registry now drives Database, Camera, Labware, Logs, Administration and Scheduling sidebar links, rail menus, breadcrumbs and URL selection. Base routes and Scheduling numeric navigation remain compatible; invalid/inaccessible section links fall back safely.

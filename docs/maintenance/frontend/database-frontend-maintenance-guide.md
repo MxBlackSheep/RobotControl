@@ -160,3 +160,12 @@ Follow these instructions and the database UI will stay easy to maintain and har
 ### September 2026: shared section navigation
 
 `components/navigation.tsx` is the source of section names, URLs and UI permissions. Use `useModuleSection` and `moduleSectionUrl`; do not add another horizontal page tab bar. The sidebar supports expanded links, rail menus and mobile navigation. `SectionPanel` mounts on first visit and retains drafts/scroll within the page session. Components that poll must take an active flag and suspend their timer when hidden. Camera navigation never starts/stops a session. Database Restore remains admin **or** local; Operations and RobotControl logs remain local-only. Backend permissions still apply.
+
+
+### September 2026: table browsing and exports
+
+The Tables section has a searchable catalogue, Important-only filter, and a separate selected-table workspace. Catalogue labels mean Has data/Empty, not row counts. On narrow screens Back to tables preserves the selected-table draft. Stored procedures also support name search.
+
+`DatabaseTable` applies search/filter drafts only on Apply or Enter. Its single effect cancels/ignores superseded requests and keeps prior rows during refresh. `search` (maximum 200 characters) and `sort_direction=asc|desc` extend the existing table endpoint. SQL parameters carry values; column names are checked against metadata and identifiers are quoted. Scalar-type metadata excludes binary/complex columns from global search. SQL commands time out after 30 seconds. Primary keys break sorting ties; tables without a unique key cannot promise stable pagination during writes.
+
+`databaseExport.ts` collects all matching rows in 1,000-row batches. Cancellation, count changes, incomplete batches and the 50 MB memory limit stop the download with an explanation. Exports use applied conditions and visible columns. They are not transaction snapshots. NULL is preserved in JSON and rendered as an empty CSV field. Do not replace this with a single unbounded page request. Restore and Operations keep their existing behavior and access rules.

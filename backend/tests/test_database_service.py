@@ -82,8 +82,9 @@ def test_table_metadata(sql, monkeypatch):
 
 
 @pytest.mark.parametrize("supports_offset", [True, False])
-def test_pagination_filters_and_result_shape(sql, supports_offset):
+def test_pagination_filters_and_result_shape(sql, supports_offset, monkeypatch):
     service, _, _, cursor = sql
+    monkeypatch.setattr(service, "_get_browse_metadata", lambda *args: (["id", "name", "created"], ["id"]))
     service._table_columns_cache["experiments"] = ["id", "name", "created"]
     service._supports_offset_fetch = supports_offset
     cursor.description = [("id",), ("name",), ("created",)]
@@ -146,3 +147,30 @@ def test_stored_procedure_rolls_back(sql):
     connection.commit.assert_not_called()
     cursor.close.assert_called_once()
     connection.close.assert_called_once()
+
+
+@pytest.mark.parametrize("supports_offset", [True, False])
+def test_browse_search_sort_and_count_share_predicates(sql, monkeypatch, supports_offset):
+    service, _, connection, cursor = sql
+    service._table_columns_cache["samples"] = ["id", "name", "binary"]
+    service._supports_offset_fetch = supports_offset
+    monkeypatch.setattr(service, "_get_browse_metadata", lambda *args: (["id", "name"], ["id"]))
+    cursor.description = [("id",), ("name",), ("binary",)]
+    cursor.fetchall.return_value = []
+    cursor.fetchone.return_value = (0,)
+    service.get_table_data("Samples", search="100%_['", order_by="name", sort_direction="desc")
+    query, params = cursor.execute.call_args_list[0].args
+    count, count_params = cursor.execute.call_args_list[1].args
+    assert "ORDER BY [name] DESC, [id] DESC" in query
+    assert "CONVERT(NVARCHAR(MAX), [binary])" not in query
+    assert params[:-2] == count_params == ("%100[%][_][[]'%",) * 2
+    assert query.split("WHERE ")[1].split(" ORDER BY")[0].split(") AS row_num")[0] # Rows and count both contain search.
+    assert "CONVERT(NVARCHAR(MAX), [name]) LIKE ?" in count
+    assert connection.timeout == 30
+
+
+def test_browse_rejects_invalid_inputs_before_sql(sql):
+    service, connect, _, _ = sql
+    for kwargs in ({"sort_direction":"desc; DROP TABLE x"}, {"search":"x"*201}, {"filters":[]}):
+        with pytest.raises(ValueError): service.get_table_data("Samples", **kwargs)
+    connect.assert_not_called()

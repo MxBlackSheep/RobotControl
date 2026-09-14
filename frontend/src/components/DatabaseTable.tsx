@@ -1,738 +1,86 @@
-/**
- * Enhanced Database Table Component for RobotControl Simplified Architecture
- * 
- * Features:
- * - Advanced filtering and search
- * - Pagination with configurable page sizes
- * - Data export capabilities (CSV, JSON)
- * - Column sorting and management
- * - Real-time data refresh
- * - Cell value inspection
- */
-
-import React, { useState, useEffect, useMemo } from 'react';
-
-// Optimized Material-UI imports for better tree-shaking
-import Box from '@mui/material/Box';
-import Paper from '@mui/material/Paper';
-import Table from '@mui/material/Table';
-import TableBody from '@mui/material/TableBody';
-import TableCell from '@mui/material/TableCell';
-import TableContainer from '@mui/material/TableContainer';
-import TableHead from '@mui/material/TableHead';
-import TableRow from '@mui/material/TableRow';
-import TablePagination from '@mui/material/TablePagination';
-import TextField from '@mui/material/TextField';
-import Button from '@mui/material/Button';
-import IconButton from '@mui/material/IconButton';
-import Tooltip from '@mui/material/Tooltip';
-import Chip from '@mui/material/Chip';
-import Dialog from '@mui/material/Dialog';
-import DialogTitle from '@mui/material/DialogTitle';
-import DialogContent from '@mui/material/DialogContent';
-import DialogActions from '@mui/material/DialogActions';
-import Typography from '@mui/material/Typography';
-import Drawer from '@mui/material/Drawer';
-import Divider from '@mui/material/Divider';
-import useTheme from '@mui/material/styles/useTheme';
-import useMediaQuery from '@mui/material/useMediaQuery';
-import LoadingSpinner from './LoadingSpinner';
-import Menu from '@mui/material/Menu';
-import MenuItem from '@mui/material/MenuItem';
-import Grid from '@mui/material/Grid';
-import Card from '@mui/material/Card';
-import CardContent from '@mui/material/CardContent';
-import FormControl from '@mui/material/FormControl';
-import InputLabel from '@mui/material/InputLabel';
-import Select from '@mui/material/Select';
-import OutlinedInput from '@mui/material/OutlinedInput';
-import InputAdornment from '@mui/material/InputAdornment';
-import {
-  Search as SearchIcon,
-  Refresh as RefreshIcon,
-  Download as DownloadIcon,
-  FilterList as FilterIcon,
-  Sort as SortIcon,
-  Clear as ClearIcon,
-  Close as CloseIcon,
-  Add as AddIcon
-} from '@mui/icons-material';
-import { databaseAPI } from '../services/api';
-import { useModalFocus } from '../hooks/useModalFocus';
-
-interface DatabaseTableProps {
-  tableName: string;
-  onError?: (error: string) => void;
+import React, {useEffect, useRef, useState} from 'react';
+import {Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, LinearProgress, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TableSortLabel, TextField, Typography} from '@mui/material';
+import {databaseAPI} from '../services/api';
+import {collectMatchingRows, formatExport} from './databaseExport';
+type Filter = {column: string; operator: string; value: string};
+type Query = {page: number; limit: number; search: string; filters: Filter[]; order: string; direction: 'asc'|'desc'};
+const initialQuery: Query = {page:0,limit:25,search:'',filters:[],order:'',direction:'asc'};
+export const queryParams = (query: Query) => ({search:query.search || undefined, order_by:query.order || undefined, sort_direction:query.direction, filters:JSON.stringify(Object.fromEntries(query.filters.filter(f=>f.column && f.value.trim()).map(f=>[f.column,{operator:f.operator,value:f.value}])))});
+const errorText = (error:any) => error.response?.data?.error?.details || error.response?.data?.detail || error.message || 'Unable to load table';
+export default function DatabaseTable(props:{tableName:string; onError?:(message:string)=>void; active?:boolean}) {
+  return <TableView key={props.tableName} {...props} />;
 }
-
-interface TableData {
-  columns: string[];
-  data: any[][];
-  total_rows: number;
-  page: number;
-  total_pages: number;
-}
-
-interface ColumnFilter {
-  column: string;
-  value: string;
-  operator: 'contains' | 'equals' | 'starts_with' | 'ends_with';
-}
-
-const DatabaseTable: React.FC<DatabaseTableProps> = ({ tableName, onError }) => {
-  // State management
-  const [data, setData] = useState<TableData | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(25);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filters, setFilters] = useState<ColumnFilter[]>([]);
-  const [sortColumn, setSortColumn] = useState<string>('');
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
-  const [selectedCell, setSelectedCell] = useState<any>(null);
-  const [exportMenuAnchor, setExportMenuAnchor] = useState<null | HTMLElement>(null);
-  const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
-
-  const theme = useTheme();
-  const isSmallScreen = useMediaQuery(theme.breakpoints.down('sm'));
-
-  // Add modal focus management for cell value dialog
-  const { modalRef: cellDialogRef } = useModalFocus({
-    isOpen: selectedCell !== null,
-    onClose: () => setSelectedCell(null),
-    initialFocusSelector: 'button',
-    restoreFocus: true,
-    trapFocus: true,
-    closeOnEscape: true
-  });
-
-  // Load table data
-  const loadData = async (resetPage = false) => {
-    if (!tableName) return;
-    
-    setLoading(true);
+function TableView({tableName, active=true}:{tableName:string; active?:boolean}) {
+  const [query,setQuery]=useState<Query>(initialQuery), [draft,setDraft]=useState(''), [filterDraft,setFilterDraft]=useState<Filter[]>([]);
+  const [data,setData]=useState<{columns:string[];rows:Record<string,any>[];total_count:number}|null>(null);
+  const [loading,setLoading]=useState(false), [error,setError]=useState(''), [updated,setUpdated]=useState(''), [refresh,setRefresh]=useState(0);
+  const [dialog,setDialog]=useState<'filters'|'columns'|'export'|null>(null), [hidden,setHidden]=useState<string[]>([]), [cell,setCell]=useState<{column:string;value:any}|null>(null);
+  const [scope,setScope]=useState('page'), [format,setFormat]=useState<'csv'|'json'>('csv'), [progress,setProgress]=useState<number|null>(null), [exportMessage,setExportMessage]=useState('');
+  const exportAbort=useRef<AbortController|null>(null);
+  useEffect(()=>()=>exportAbort.current?.abort(),[]);
+  useEffect(()=>{
+    if (!active) return;
+    const abort=new AbortController(); let current=true;
+    setLoading(true); setError('');
+    databaseAPI.getTableData(tableName,query.page+1,query.limit,queryParams(query),abort.signal).then(response=>{
+      if(!current)return; const payload=response.data.data; setData(payload); setUpdated(new Date().toLocaleTimeString());
+    }).catch(error=>{if(current && !abort.signal.aborted)setError(String(errorText(error)));}).finally(()=>{if(current)setLoading(false);});
+    return ()=>{current=false;abort.abort();};
+  },[tableName,query,refresh,active]);
+  const apply=()=>setQuery(q=>({...q,page:0,search:draft.trim(),filters:filterDraft.map(f=>({...f}))}));
+  const exportData=async()=>{
+    if(!data)return; const abort=new AbortController();exportAbort.current=abort;setProgress(0);setExportMessage('');
     try {
-      const currentPage = resetPage ? 1 : page + 1;
-      
-      // Build additional query parameters (page and limit passed separately)
-      const params: any = {};
-      
-      if (sortColumn) {
-        params.order_by = sortColumn;
-      }
-      
-      // Build filters object for backend (JSON format)
-      if (filters.length > 0 || searchTerm) {
-        const filterObj: any = {};
-        
-        // Add column-specific filters with operator support
-        filters.forEach((filter) => {
-          if (filter.value) {
-            filterObj[filter.column] = {
-              value: filter.value,
-              operator: filter.operator
-            };
-          }
-        });
-        
-        // Note: Search across all columns not directly supported by current backend
-        // TODO: Implement search functionality in backend or convert to filters
-        
-        if (Object.keys(filterObj).length > 0) {
-          params.filters = JSON.stringify(filterObj);
-        }
-      }
-      
-      const response = await databaseAPI.getTableData(tableName, currentPage, rowsPerPage, params);
-      
-      // Transform backend response to component format (axios wraps response in .data)
-      const backendData = response.data.data;
-      if (backendData) {
-        const transformedData = {
-          columns: backendData.columns || [],
-          data: backendData.rows ? backendData.rows.map(row => 
-            backendData.columns.map(col => row[col])
-          ) : [],
-          total_rows: backendData.total_count || 0,
-          page: backendData.page || 1,
-          total_pages: backendData.total_pages || 1
-        };
-        setData(transformedData);
-      }
-      
-      if (resetPage) {
-        setPage(0);
-      }
-    } catch (error) {
-      console.error('Error loading table data:', error);
-      onError?.('Failed to load table data');
-    } finally {
-      setLoading(false);
-    }
+      const columns=data.columns.filter(c=>!hidden.includes(c));
+      const rows=scope==='page'?data.rows:await collectMatchingRows(async(page,limit)=>{
+        const response=await databaseAPI.getTableData(tableName,page,limit,queryParams(query),abort.signal);return response.data.data;
+      },abort.signal,setProgress);
+      if(abort.signal.aborted)return;
+      const text=formatExport(columns,rows,format);const url=URL.createObjectURL(new Blob([text],{type:format==='csv'?'text/csv;charset=utf-8':'application/json'}));
+      const link=document.createElement('a');link.href=url;link.download=`${tableName}.${format}`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+      setExportMessage(`Exported ${rows.length.toLocaleString()} rows.`);
+    }catch(error){setExportMessage(abort.signal.aborted?'Export cancelled.':String(errorText(error)));}
+    finally{setProgress(null);exportAbort.current=null;}
   };
-
-  useEffect(() => {
-    setPage(0);
-    setFilters([]);
-    setSearchTerm('');
-    setSortColumn('');
-    setSortDirection('asc');
-    setExportMenuAnchor(null);
-    setFilterDrawerOpen(false);
-  }, [tableName]);
-  // Effects
-  useEffect(() => {
-    loadData(true);
-  }, [tableName, rowsPerPage, searchTerm, filters, sortColumn, sortDirection]);
-
-  useEffect(() => {
-    loadData();
-  }, [page]);
-
-  // Handlers
-  const handlePageChange = (event: unknown, newPage: number) => {
-    setPage(newPage);
-  };
-
-  const handleRowsPerPageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setRowsPerPage(parseInt(event.target.value, 10));
-    setPage(0);
-  };
-
-  const handleSearch = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchTerm(event.target.value);
-    setPage(0);
-  };
-
-  const handleSort = (column: string) => {
-    if (sortColumn === column) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortColumn(column);
-      setSortDirection('asc');
-    }
-    setPage(0);
-  };
-
-  const handleCellClick = (value: any) => {
-    setSelectedCell(value);
-  };
-
-  const handleAddFilter = (column?: string) => {
-    const targetColumn = column ?? data?.columns?.[0];
-    if (!targetColumn) {
-      return;
-    }
-    setFilters([...filters, { column: targetColumn, value: '', operator: 'contains' }]);
-  };
-
-  const handleUpdateFilter = (index: number, field: keyof ColumnFilter, value: string) => {
-    const newFilters = [...filters];
-    newFilters[index] = { ...newFilters[index], [field]: value };
-    setFilters(newFilters);
-  };
-
-  const handleRemoveFilter = (index: number) => {
-    setFilters(filters.filter((_, i) => i !== index));
-  };
-
-  const handleClearFilters = () => {
-    setFilters([]);
-    setSearchTerm('');
-    setSortColumn('');
-    setPage(0);
-  };
-
-  const handleExport = async (format: 'csv' | 'json') => {
-    try {
-      setLoading(true);
-      
-      // Build export parameters
-      const exportParams: any = {};
-      
-      if (sortColumn) {
-        exportParams.order_by = sortColumn;
-      }
-      
-      // Build filters for export
-      if (filters.length > 0) {
-        const filterObj: any = {};
-        filters.forEach((filter) => {
-          if (filter.value) {
-            filterObj[filter.column] = {
-              value: filter.value,
-              operator: filter.operator
-            };
-          }
-        });
-        
-        if (Object.keys(filterObj).length > 0) {
-          exportParams.filters = JSON.stringify(filterObj);
-        }
-      }
-      
-      const response = await databaseAPI.getTableData(tableName, 1, data?.total_rows || 1000, exportParams);
-      const exportData = response.data.data;
-      
-      if (format === 'csv') {
-        // Generate CSV
-        const csvHeader = exportData.columns.join(',');
-        const csvRows = exportData.rows.map(row => 
-          exportData.columns.map(col => {
-            const cellStr = row[col] !== null ? String(row[col]) : '';
-            // Escape quotes and wrap in quotes if contains comma/quote
-            if (cellStr.includes(',') || cellStr.includes('"') || cellStr.includes('\n')) {
-              return `"${cellStr.replace(/"/g, '""')}"`;
-            }
-            return cellStr;
-          }).join(',')
-        );
-        const csvContent = [csvHeader, ...csvRows].join('\n');
-        
-        // Download CSV
-        const blob = new Blob([csvContent], { type: 'text/csv' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${tableName}_export.csv`;
-        a.click();
-        URL.revokeObjectURL(url);
-      } else {
-        // Generate JSON
-        const jsonContent = JSON.stringify({
-          table: tableName,
-          exported_at: new Date().toISOString(),
-          total_rows: exportData.rows.length,
-          columns: exportData.columns,
-          data: exportData.rows
-        }, null, 2);
-        
-        // Download JSON
-        const blob = new Blob([jsonContent], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${tableName}_export.json`;
-        a.click();
-        URL.revokeObjectURL(url);
-      }
-      
-    } catch (error) {
-      console.error('Export error:', error);
-      onError?.('Failed to export data');
-    } finally {
-      setLoading(false);
-      setExportMenuAnchor(null);
-    }
-  };
-
-  // Memoized values
-  const hasActiveFilters = useMemo(() => {
-    return searchTerm || filters.length > 0 || sortColumn;
-  }, [searchTerm, filters, sortColumn]);
-
-  return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      {/* Controls Bar */}
-      <Card sx={{ mb: 2, flexShrink: 0, overflow: 'visible' }}>
-        <CardContent>
-          <Grid container spacing={2} alignItems="center">
-            {/* Search */}
-            <Grid item xs={12} md={4}>
-              <TextField
-                fullWidth
-                size="small"
-                placeholder="Search all columns..."
-                value={searchTerm}
-                onChange={handleSearch}
-                inputProps={{
-                  'aria-label': 'Search all columns in the table'
-                }}
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <SearchIcon aria-hidden="true" />
-                    </InputAdornment>
-                  ),
-                  endAdornment: searchTerm && (
-                    <InputAdornment position="end">
-                      <IconButton 
-                        size="small" 
-                        onClick={() => setSearchTerm('')}
-                        aria-label="Clear search"
-                      >
-                        <ClearIcon />
-                      </IconButton>
-                    </InputAdornment>
-                  )
-                }}
-              />
-            </Grid>
-
-            {/* Action Buttons */}
-            <Grid item xs={12} md={8}>
-              <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
-                <Tooltip title="Refresh Data">
-                  <IconButton onClick={() => loadData(true)} disabled={loading}>
-                    <RefreshIcon />
-                  </IconButton>
-                </Tooltip>
-                
-                <Tooltip title="Manage Filters">
-                  <IconButton 
-                    onClick={() => setFilterDrawerOpen(true)}
-                    disabled={!data?.columns?.length}
-                    aria-label="Open filters panel"
-                  >
-                    <FilterIcon />
-                  </IconButton>
-                </Tooltip>
-                
-                <Tooltip title="Export Data">
-                  <IconButton 
-                    onClick={(e) => setExportMenuAnchor(e.currentTarget)}
-                    disabled={!data?.data?.length}
-                  >
-                    <DownloadIcon />
-                  </IconButton>
-                </Tooltip>
-                
-                {hasActiveFilters && (
-                  <Button
-                    size="small"
-                    startIcon={<ClearIcon />}
-                    onClick={handleClearFilters}
-                  >
-                    Clear All
-                  </Button>
-                )}
-              </Box>
-            </Grid>
-          </Grid>
-
-          {/* Active Filters */}
-          {filters.length > 0 && (
-            <Box sx={{ mt: 2 }}>
-              <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                Active Filters:
-              </Typography>
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                {filters.map((filter, index) => (
-                  <Chip
-                    key={index}
-                    size="small"
-                    label={`${filter.column} ${filter.operator} "${filter.value}"`}
-                    onDelete={() => handleRemoveFilter(index)}
-                    color="primary"
-                    variant="outlined"
-                  />
-                ))}
-              </Box>
-            </Box>
-          )}
-
-        </CardContent>
-      </Card>
-
-      {/* Data Table */}
-      <Box sx={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minHeight: 0 }}>
-        <Paper sx={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: { xs: 320, md: 480 }, overflow: 'hidden' }}>
-          {loading ? (
-            <LoadingSpinner 
-              variant="spinner" 
-              message="Loading table data..." 
-              minHeight={200}
-            />
-          ) : data ? (
-            <TableContainer 
-              sx={{ 
-                flex: 1, 
-                minHeight: { xs: 240, md: 360 },
-                maxHeight: '100%',
-                overflowY: 'auto',
-                overflowX: 'auto'
-              }}
-              role="region"
-              aria-label={`Database table for ${tableName}`}
-            >
-              <Table 
-                stickyHeader 
-                size="small"
-                role="table"
-                aria-label={`Data from ${tableName} table`}
-              >
-                <TableHead role="rowgroup">
-                  <TableRow role="row">
-                    {data.columns.map((column) => (
-                      <TableCell 
-                        key={column}
-                        role="columnheader"
-                        scope="col"
-                        aria-sort={
-                          sortColumn === column 
-                            ? sortDirection === 'asc' ? 'ascending' : 'descending'
-                            : 'none'
-                        }
-                      >
-                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                          <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
-                            {column}
-                          </Typography>
-                          <IconButton
-                            size="small"
-                            onClick={() => handleSort(column)}
-                            sx={{ ml: 1 }}
-                            aria-label={`Sort by ${column} ${sortColumn === column && sortDirection === 'asc' ? 'descending' : 'ascending'}`}
-                          >
-                            <SortIcon 
-                              fontSize="small"
-                              color={sortColumn === column ? 'primary' : 'disabled'}
-                            />
-                          </IconButton>
-                        </Box>
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                </TableHead>
-                <TableBody role="rowgroup">
-                  {data.data.map((row, rowIndex) => (
-                    <TableRow key={rowIndex} hover role="row">
-                      {row.map((cell, cellIndex) => (
-                        <TableCell 
-                          key={cellIndex}
-                          onClick={() => handleCellClick(cell)}
-                          sx={{ cursor: 'pointer' }}
-                          role="gridcell"
-                          aria-describedby={`cell-${rowIndex}-${cellIndex}-desc`}
-                        >
-                          {cell !== null ? (
-                            <Box sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                              {String(cell)}
-                            </Box>
-                          ) : (
-                            <Typography variant="body2" color="textSecondary" fontStyle="italic">
-                              NULL
-                            </Typography>
-                          )}
-                        </TableCell>
-                      ))}
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          ) : (
-            <Box sx={{ textAlign: 'center', py: 4 }}>
-              <Typography color="textSecondary">
-                No data available
-              </Typography>
-            </Box>
-          )}
-        </Paper>
-
-        {!loading && data && (
-          <Box sx={{ flexShrink: 0, borderTop: 1, borderColor: 'divider', bgcolor: 'background.paper' }}>
-            <TablePagination
-              component="div"
-              count={data.total_rows}
-              page={page}
-              onPageChange={handlePageChange}
-              rowsPerPage={rowsPerPage}
-              onRowsPerPageChange={handleRowsPerPageChange}
-              rowsPerPageOptions={[10, 25, 50, 100]}
-              showFirstButton
-              showLastButton
-              sx={{
-                '.MuiTablePagination-toolbar': {
-                  flexWrap: 'wrap',
-                  rowGap: 1.5,
-                  columnGap: { xs: 1, sm: 2 },
-                  justifyContent: { xs: 'center', md: 'space-between' },
-                  px: { xs: 1, sm: 2 }
-                },
-                '.MuiTablePagination-selectLabel, .MuiTablePagination-displayedRows': {
-                  fontSize: { xs: '0.85rem', sm: '0.9rem' }
-                },
-                '.MuiTablePagination-selectRoot': {
-                  marginRight: { xs: 0, md: 3 }
-                },
-                '.MuiInputBase-root': {
-                  minWidth: 120,
-                  fontSize: { xs: '0.9rem', sm: '1rem' }
-                },
-                '.MuiTablePagination-actions': {
-                  marginLeft: { xs: 0, md: 1 }
-                }
-              }}
-            />
-          </Box>
-        )}
+  const columns=data?.columns.filter(c=>!hidden.includes(c)) || [];
+  return <Paper variant="outlined" sx={{minWidth:0,overflow:'hidden'}}>
+    <Stack spacing={1} sx={{p:1.5}}>
+      <Typography variant="h6" sx={{overflowWrap:'anywhere'}}>{tableName}</Typography>
+      <Box component="form" onSubmit={event=>{event.preventDefault();apply();}} sx={{display:'flex',gap:1,flexWrap:'wrap'}}>
+        <TextField size="small" label="Search all supported columns" value={draft} onChange={e=>setDraft(e.target.value)} inputProps={{maxLength:200}} sx={{flex:'1 1 240px'}} />
+        <Button type="submit" variant="contained">Apply</Button>
+        <Button onClick={()=>{setDraft('');setFilterDraft([]);setQuery(q=>({...q,page:0,search:'',filters:[]}));}}>Clear</Button>
+        <Button onClick={()=>setDialog('filters')}>Filters ({query.filters.filter(f=>f.value).length})</Button>
+        <Button onClick={()=>setDialog('columns')} disabled={!data}>Columns</Button>
+        <Button onClick={()=>setRefresh(v=>v+1)} disabled={loading}>Refresh</Button>
+        <Button onClick={()=>{setExportMessage('');setDialog('export');}} disabled={!data || loading || !!error}>Export</Button>
       </Box>
-
-      <Drawer
-        anchor={isSmallScreen ? 'bottom' : 'right'}
-        open={filterDrawerOpen}
-        onClose={() => setFilterDrawerOpen(false)}
-        ModalProps={{ keepMounted: true }}
-        PaperProps={{
-          sx: {
-            width: isSmallScreen ? '100%' : 360,
-            maxWidth: '100%',
-            height: isSmallScreen ? '60vh' : '100%',
-            display: 'flex',
-            flexDirection: 'column'
-          }
-        }}
-      >
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 2 }}>
-          <Typography variant="h6">
-            Filters
-          </Typography>
-          <IconButton onClick={() => setFilterDrawerOpen(false)} aria-label="Close filters panel">
-            <CloseIcon />
-          </IconButton>
-        </Box>
-        <Divider />
-        <Box sx={{ flexGrow: 1, overflowY: 'auto', p: 2, pt: 1 }}>
-          {filters.length === 0 ? (
-            <Typography variant="body2" color="textSecondary">
-              No filters applied. Use "Add condition" to create one.
-            </Typography>
-          ) : (
-            filters.map((filter, index) => (
-              <Grid container spacing={1.5} key={index} sx={{ mb: 2, alignItems: 'flex-start' }}>
-                <Grid item xs={12} sm={12}>
-                  <Typography variant="subtitle2" color="textSecondary">
-                    Condition {index + 1}
-                  </Typography>
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <FormControl fullWidth size="small">
-                    <InputLabel>Column</InputLabel>
-                    <Select
-                      value={filter.column}
-                      onChange={(e) => handleUpdateFilter(index, 'column', e.target.value)}
-                      input={<OutlinedInput label="Column" />}
-                    >
-                      {data?.columns.map(col => (
-                        <MenuItem key={col} value={col}>{col}</MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <FormControl fullWidth size="small">
-                    <InputLabel>Operator</InputLabel>
-                    <Select
-                      value={filter.operator}
-                      onChange={(e) => handleUpdateFilter(index, 'operator', e.target.value)}
-                      input={<OutlinedInput label="Operator" />}
-                    >
-                      <MenuItem value="contains">Contains</MenuItem>
-                      <MenuItem value="equals">Equals</MenuItem>
-                      <MenuItem value="starts_with">Starts With</MenuItem>
-                      <MenuItem value="ends_with">Ends With</MenuItem>
-                    </Select>
-                  </FormControl>
-                </Grid>
-                <Grid item xs={12}>
-                  <TextField
-                    fullWidth
-                    size="small"
-                    label="Value"
-                    value={filter.value}
-                    onChange={(e) => handleUpdateFilter(index, 'value', e.target.value)}
-                  />
-                </Grid>
-                <Grid item xs={12}>
-                  <Button
-                    size="small"
-                    color="error"
-                    onClick={() => handleRemoveFilter(index)}
-                    sx={{ justifyContent: 'flex-start' }}
-                  >
-                    Remove condition
-                  </Button>
-                </Grid>
-              </Grid>
-            ))
-          )}
-        </Box>
-        <Divider />
-        <Box sx={{ p: 2, display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-          <Button
-            variant="contained"
-            size="small"
-            startIcon={<AddIcon />}
-            onClick={() => handleAddFilter()}
-            disabled={!data?.columns?.length}
-          >
-            Add condition
-          </Button>
-          {filters.length > 0 && (
-            <Button
-              size="small"
-              color="error"
-              startIcon={<ClearIcon />}
-              onClick={handleClearFilters}
-            >
-              Clear all
-            </Button>
-          )}
-        </Box>
-      </Drawer>
-
-      {/* Export Menu */}
-      <Menu
-        anchorEl={exportMenuAnchor}
-        open={Boolean(exportMenuAnchor)}
-        onClose={() => setExportMenuAnchor(null)}
-      >
-        <MenuItem onClick={() => handleExport('csv')}>
-          Export as CSV
-        </MenuItem>
-        <MenuItem onClick={() => handleExport('json')}>
-          Export as JSON
-        </MenuItem>
-      </Menu>
-
-      {/* Cell Value Dialog */}
-      <Dialog
-        ref={cellDialogRef}
-        open={selectedCell !== null}
-        onClose={() => setSelectedCell(null)}
-        maxWidth="md"
-        fullWidth
-        aria-labelledby="cell-value-dialog-title"
-        aria-describedby="cell-value-dialog-content"
-      >
-        <DialogTitle id="cell-value-dialog-title">Cell Value</DialogTitle>
-        <DialogContent id="cell-value-dialog-content">
-          <Box sx={{ mt: 1 }}>
-            <Typography variant="body2" color="textSecondary" gutterBottom>
-              Full cell content:
-            </Typography>
-            <Paper sx={{ p: 2, bgcolor: 'grey.50', maxHeight: 300, overflow: 'auto' }}>
-              <Typography variant="body2" component="pre" sx={{ whiteSpace: 'pre-wrap' }}>
-                {selectedCell !== null ? String(selectedCell) : 'NULL'}
-              </Typography>
-            </Paper>
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setSelectedCell(null)} autoFocus>
-            Close
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </Box>
-  );
-};
-
-export default DatabaseTable;
-
-
-
-
-
-
+      <Typography variant="caption" color="text.secondary">{data ? `${data.total_count.toLocaleString()} matching rows`:'Select search and filters, then Apply.'}{updated && ` · Updated ${updated}`}. Search applies to text, numeric and date columns; binary and complex columns are excluded.</Typography>
+      {error && <Alert severity="error">{error}{data && ' Previous rows are shown; refresh to retry.'}</Alert>}
+    </Stack>
+    {loading && <LinearProgress aria-label="Loading table" />}
+    <TableContainer sx={{maxHeight:'min(65vh, 720px)',minHeight:160}} tabIndex={0} aria-label={`${tableName} rows`}>
+      <Table size="small" stickyHeader><TableHead><TableRow>{columns.map(column=><TableCell key={column} sortDirection={query.order===column?query.direction:false}><TableSortLabel active={query.order===column} direction={query.order===column?query.direction:'asc'} onClick={()=>setQuery(q=>({...q,page:0,order:column,direction:q.order===column && q.direction==='asc'?'desc':'asc'}))}>{column}</TableSortLabel></TableCell>)}</TableRow></TableHead>
+        <TableBody>{data?.rows.map((row,index)=><TableRow key={index} hover>{columns.map(column=><TableCell key={column}><Box component="button" onClick={()=>setCell({column,value:row[column]})} aria-label={`View ${column}, row ${index+1}`} sx={{display:'block',border:0,bgcolor:'transparent',color:row[column]==null?'text.secondary':'inherit',textAlign:'left',font:'inherit',cursor:'pointer',minHeight:32,maxWidth:260,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{row[column]==null?'NULL':row[column]===''?'(empty string)':String(row[column])}</Box></TableCell>)}</TableRow>)}
+        {!loading && !data?.rows.length && <TableRow><TableCell colSpan={Math.max(columns.length,1)}>{error?'Table unavailable.':query.search || query.filters.length?'No rows match the applied search and filters.':'This table is empty.'}</TableCell></TableRow>}</TableBody>
+      </Table>
+    </TableContainer>
+    <TablePagination component="div" count={data?.total_count||0} page={query.page} rowsPerPage={query.limit} rowsPerPageOptions={[25,50,100]} onPageChange={(_,page)=>setQuery(q=>({...q,page}))} onRowsPerPageChange={e=>setQuery(q=>({...q,page:0,limit:Number(e.target.value)}))} sx={{'& .MuiTablePagination-toolbar':{flexWrap:'wrap',px:1}}} />
+    <Dialog open={!!cell} onClose={()=>setCell(null)} fullWidth maxWidth="md"><DialogTitle>{cell?.column}</DialogTitle><DialogContent dividers><Box component="pre" sx={{whiteSpace:'pre-wrap',overflowWrap:'anywhere',m:0}}>{cell?.value==null?'NULL':cell.value===''?'(empty string)':String(cell.value)}</Box></DialogContent><DialogActions><Button autoFocus onClick={()=>setCell(null)}>Close</Button></DialogActions></Dialog>
+    <Dialog open={dialog==='columns'} onClose={()=>setDialog(null)} fullWidth maxWidth="xs"><DialogTitle>Visible columns</DialogTitle><DialogContent dividers>{data?.columns.map(column=><FormControlLabel key={column} sx={{display:'flex'}} label={column} control={<Checkbox checked={!hidden.includes(column)} disabled={columns.length===1 && !hidden.includes(column)} onChange={(_,checked)=>setHidden(h=>checked?h.filter(c=>c!==column):[...h,column])} />} />)}</DialogContent><DialogActions><Button onClick={()=>setDialog(null)}>Done</Button></DialogActions></Dialog>
+    <Dialog open={dialog==='filters'} onClose={()=>setDialog(null)} fullWidth maxWidth="sm"><DialogTitle>Column filters</DialogTitle><DialogContent dividers><Stack spacing={2}>
+      <Typography variant="body2">All conditions must match. Changes apply only when you choose Apply filters.</Typography>
+      {filterDraft.map((filter,index)=><Stack key={index} spacing={1}>
+        <TextField select size="small" label="Column" value={filter.column} onChange={e=>setFilterDraft(f=>f.map((v,i)=>i===index?{...v,column:e.target.value}:v))}>{data?.columns.map(c=><MenuItem key={c} value={c} disabled={filterDraft.some((f,i)=>i!==index && f.column===c)}>{c}</MenuItem>)}</TextField>
+        <TextField select size="small" label="Condition" value={filter.operator} onChange={e=>setFilterDraft(f=>f.map((v,i)=>i===index?{...v,operator:e.target.value}:v))}>{['contains','equals','starts_with','ends_with'].map(op=><MenuItem key={op} value={op}>{op.replace(/_/g,' ')}</MenuItem>)}</TextField>
+        <TextField size="small" label="Value" value={filter.value} onChange={e=>setFilterDraft(f=>f.map((v,i)=>i===index?{...v,value:e.target.value}:v))} /><Button onClick={()=>setFilterDraft(f=>f.filter((_,i)=>i!==index))}>Remove condition</Button>
+      </Stack>)}<Button onClick={()=>setFilterDraft(f=>[...f,{column:'',operator:'contains',value:''}])}>Add condition</Button>
+    </Stack></DialogContent><DialogActions><Button onClick={()=>setDialog(null)}>Keep draft</Button><Button variant="contained" onClick={()=>{apply();setDialog(null);}}>Apply filters</Button></DialogActions></Dialog>
+    <Dialog open={dialog==='export'} onClose={()=>{if(progress===null)setDialog(null);}} fullWidth maxWidth="sm"><DialogTitle>Export table data</DialogTitle><DialogContent dividers><Stack spacing={2}>
+      <TextField select label="Rows" value={scope} disabled={progress!==null} onChange={e=>setScope(e.target.value)}><MenuItem value="page">Current page</MenuItem><MenuItem value="all">All matching rows</MenuItem></TextField>
+      <TextField select label="Format" value={format} disabled={progress!==null} onChange={e=>setFormat(e.target.value as 'csv'|'json')}><MenuItem value="csv">CSV</MenuItem><MenuItem value="json">JSON</MenuItem></TextField>
+      <Alert severity="info">Uses the applied search, filters, sort and visible columns. Concurrent database writes may change rows during export; this is not a database snapshot. Exports exceeding 50 MB must be narrowed with filters.</Alert>
+      {progress!==null && <><LinearProgress /><Typography>{progress.toLocaleString()} rows collected</Typography></>}{exportMessage && <Alert severity="info">{exportMessage}</Alert>}
+    </Stack></DialogContent><DialogActions>{progress!==null?<Button onClick={()=>exportAbort.current?.abort()}>Cancel export</Button>:<><Button onClick={()=>setDialog(null)}>Close</Button><Button variant="contained" onClick={exportData}>Download</Button></>}</DialogActions></Dialog>
+  </Paper>;
+}

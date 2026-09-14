@@ -316,6 +316,22 @@ class DatabaseService:
             self._table_columns_cache[cache_key] = columns
         return columns
 
+    def _get_browse_metadata(self, conn, table_name: str):
+        """Only scalar SQL types support text search; primary keys stabilize paging ties."""
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = ?", table_name)
+            scalar_types = {"char", "varchar", "nchar", "nvarchar", "text", "ntext", "int", "bigint", "smallint", "tinyint", "bit", "decimal", "numeric", "money", "smallmoney", "float", "real", "date", "datetime", "datetime2", "smalldatetime", "datetimeoffset", "time", "uniqueidentifier"}
+            searchable = [row[0] for row in cursor.fetchall() if row[1].lower() in scalar_types]
+            cursor.execute("""SELECT c.name FROM sys.indexes i
+                JOIN sys.index_columns ic ON ic.object_id=i.object_id AND ic.index_id=i.index_id
+                JOIN sys.columns c ON c.object_id=ic.object_id AND c.column_id=ic.column_id
+                WHERE i.object_id=OBJECT_ID(?) AND i.is_primary_key=1 AND ic.key_ordinal>0
+                ORDER BY ic.key_ordinal""", table_name)
+            return searchable, [row[0] for row in cursor.fetchall()]
+        finally:
+            cursor.close()
+
     def _execute_row_number_pagination(
         self,
         cursor,
@@ -328,13 +344,14 @@ class DatabaseService:
         limit: int,
     ) -> Tuple[List[str], List[Dict[str, Any]]]:
         """Execute ROW_NUMBER pagination for servers without OFFSET support."""
+        safe_table = table_name.replace("]", "]]")
         start_row = max(1, offset + 1)
         page_size = max(1, limit)
         end_row = start_row + page_size - 1
 
         base_query = (
             f"SELECT {select_columns}, ROW_NUMBER() OVER (ORDER BY {order_expression}) AS row_num "
-            f"FROM [{table_name}] {where_sql}"
+            f"FROM [{safe_table}] {where_sql}"
         )
         paged_query = (
             f"SELECT {select_columns} FROM ({base_query}) AS paged "
@@ -355,15 +372,26 @@ class DatabaseService:
         order_by: Optional[str] = None,
         filters: Optional[Dict[str, Any]] = None,
         use_cache: bool = True,
+        search: Optional[str] = None,
+        sort_direction: str = "asc",
     ) -> QueryResult:
+        if sort_direction not in ("asc", "desc"):
+            raise ValueError("sort_direction must be asc or desc")
+        if search is not None and (not isinstance(search, str) or len(search) > 200):
+            raise ValueError("search must contain at most 200 characters")
+        if filters is not None and not isinstance(filters, dict):
+            raise ValueError("filters must be a JSON object keyed by column")
+        quote = lambda name: "[" + name.replace("]", "]]") + "]"
         start = time.perf_counter()
         with self.get_connection() as conn:
+            conn.timeout = 30  # Applies to metadata, row and count queries.
             cursor = conn.cursor()
 
             columns_info = self._get_table_columns(conn, table_name)
             if not columns_info:
                 raise ValueError(f"Table '{table_name}' not found")
 
+            searchable, unique_key = self._get_browse_metadata(conn, table_name)
             where_clauses: List[str] = []
             params: List[Any] = []
             if filters:
@@ -389,15 +417,15 @@ class DatabaseService:
 
                     if operator == "contains":
                         value_str = str(normalized_value)
-                        where_clauses.append(f"CONVERT(NVARCHAR(MAX), [{column}]) LIKE ?")
+                        where_clauses.append(f"CONVERT(NVARCHAR(MAX), {quote(column)}) LIKE ?")
                         params.append(f"%{value_str}%")
                     elif operator == "starts_with":
                         value_str = str(normalized_value)
-                        where_clauses.append(f"CONVERT(NVARCHAR(MAX), [{column}]) LIKE ?")
+                        where_clauses.append(f"CONVERT(NVARCHAR(MAX), {quote(column)}) LIKE ?")
                         params.append(f"{value_str}%")
                     elif operator == "ends_with":
                         value_str = str(normalized_value)
-                        where_clauses.append(f"CONVERT(NVARCHAR(MAX), [{column}]) LIKE ?")
+                        where_clauses.append(f"CONVERT(NVARCHAR(MAX), {quote(column)}) LIKE ?")
                         params.append(f"%{value_str}")
                     else:
                         if operator != "equals":
@@ -406,21 +434,30 @@ class DatabaseService:
                                 operator,
                                 column,
                             )
-                        where_clauses.append(f"[{column}] = ?")
+                        where_clauses.append(f"{quote(column)} = ?")
                         params.append(normalized_value)
+            if search and search.strip():
+                search_columns = [column for column in searchable if column in columns_info]
+                if search_columns:
+                    where_clauses.append("(" + " OR ".join(f"CONVERT(NVARCHAR(MAX), {quote(column)}) LIKE ?" for column in search_columns) + ")")
+                    literal = search.strip().replace("[", "[[]").replace("%", "[%]").replace("_", "[_]")
+                    params.extend([f"%{literal}%"] * len(search_columns))
+                else:
+                    where_clauses.append("1 = 0")
             where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
 
-            if order_by and order_by in columns_info:
-                order_expression = f"[{order_by}]"
-            else:
-                order_expression = f"[{columns_info[0]}]"
+            if order_by and order_by not in columns_info:
+                raise ValueError("Unknown sort column")
+            first = order_by or next(iter(unique_key), columns_info[0])
+            order_columns = [first] + [col for col in unique_key if col != first and col in columns_info]
+            order_expression = ", ".join(f"{quote(col)} {sort_direction.upper()}" for col in order_columns)
             order_clause = f"ORDER BY {order_expression}"
 
             page_size = limit if isinstance(limit, int) and limit > 0 else 100
 
             self._ensure_capabilities(conn)
 
-            select_columns = ", ".join(f"[{col}]" for col in columns_info)
+            select_columns = ", ".join(f"{quote(col)}" for col in columns_info)
             supports_offset = self._supports_offset_fetch is not False
             page_cursor = cursor
 
@@ -430,7 +467,7 @@ class DatabaseService:
             if supports_offset:
                 try:
                     query = (
-                        f"SELECT {select_columns} FROM [{table_name}] {where_sql} {order_clause} "
+                        f"SELECT {select_columns} FROM {quote(table_name)} {where_sql} {order_clause} "
                         f"OFFSET ? ROWS FETCH NEXT ? ROWS ONLY"
                     )
                     page_cursor.execute(query, (*params, offset, page_size))
@@ -473,10 +510,10 @@ class DatabaseService:
             cursor = page_cursor
 
             if where_clauses:
-                count_query = f"SELECT COUNT(*) FROM [{table_name}] {where_sql}"
+                count_query = f"SELECT COUNT(*) FROM {quote(table_name)} {where_sql}"
                 cursor.execute(count_query, tuple(params))
             else:
-                cursor.execute(f"SELECT COUNT(*) FROM [{table_name}]")
+                cursor.execute(f"SELECT COUNT(*) FROM {quote(table_name)}")
             total_count = int(cursor.fetchone()[0])
             cursor.close()
 

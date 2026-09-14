@@ -7,6 +7,7 @@ Consolidates functionality from web_app/api/v1/database.py into a simplified int
 
 from fastapi import APIRouter, HTTPException, Query, Depends
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel
 import logging
@@ -208,6 +209,8 @@ async def get_table_data(
     page: int = Query(1, ge=1, description="Page number (1-based)"),
     limit: int = Query(25, ge=1, le=1000, description="Number of rows per page"),
     order_by: Optional[str] = Query(None, description="Column name to sort by"),
+    search: Optional[str] = Query(None, max_length=200, description="Literal search across supported scalar columns"),
+    sort_direction: str = Query("asc", pattern="^(asc|desc)$"),
     filters: Optional[str] = Query(None, description="JSON string of column filters"),
     use_cache: bool = Query(True, description="Use cached results if available"),
     db_service: DatabaseService = Depends(get_db_service)
@@ -244,13 +247,13 @@ async def get_table_data(
         offset = (page - 1) * limit
         
         # Get data from our simplified service
-        result = db_service.get_table_data(
+        result = await run_in_threadpool(db_service.get_table_data,
             table_name=table_name,
             limit=limit,
             offset=offset,
             order_by=order_by,
             filters=parsed_filters,
-            use_cache=use_cache
+            use_cache=use_cache, search=search, sort_direction=sort_direction
         )
         
         data = {
@@ -262,7 +265,8 @@ async def get_table_data(
             "page": page,
             "limit": limit,
             "order_by": order_by,
-            "filters_applied": parsed_filters
+            "filters_applied": parsed_filters,
+            "search": search, "sort_direction": sort_direction
         }
         
         # Create paginated response
@@ -276,6 +280,8 @@ async def get_table_data(
             items_count=len(result.rows)
         )
         
+    except ValueError as e:
+        return ResponseFormatter.validation_error(message=str(e))
     except Exception as e:
         logger.error(f"Error getting data from table '{table_name}': {e}")
         return ResponseFormatter.server_error(

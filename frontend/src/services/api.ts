@@ -179,10 +179,10 @@ export const databaseAPI = {
 
   getStatus: () => api.get('/api/database/status'),
 
-  getTableData: (tableName: string, page = 1, limit = 50, additionalParams = {}) =>
-    api.get(`/api/database/tables/${tableName}`,
+  getTableData: (tableName: string, page = 1, limit = 50, additionalParams = {}, signal?: AbortSignal) =>
+    api.get(`/api/database/tables/${encodeURIComponent(tableName)}`,
       {
-        params: { page, limit, ...additionalParams },
+        params: { page, limit, ...additionalParams }, signal,
       }),
 
   getTableSchema: (tableName: string) =>

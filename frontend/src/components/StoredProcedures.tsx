@@ -18,7 +18,7 @@ import {
   IconButton,
   Tooltip,
   Divider,
-  Grid
+  Grid, TextField
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import CodeIcon from '@mui/icons-material/Code';
@@ -76,6 +76,7 @@ const normalizeStoredItem = (item: RawStoredItem | undefined): StoredProcedure =
 });
 
 const StoredProcedures: React.FC<StoredProceduresProps> = ({ onError }) => {
+  const [search,setSearch] = useState('');
   const [procedures, setProcedures] = useState<StoredProcedure[]>([]);
   const [functions, setFunctions] = useState<StoredProcedure[]>([]);
   const [loading, setLoading] = useState(true);
@@ -106,7 +107,9 @@ const StoredProcedures: React.FC<StoredProceduresProps> = ({ onError }) => {
       setProcedures(normalizedProcedures);
       setFunctions(normalizedFunctions);
 
-      if (normalizedProcedures.length > 0) {
+      if (selectedItem) {
+        setSelectedItem([...normalizedProcedures,...normalizedFunctions].find(item=>item.name===selectedItem.name && item.type===selectedItem.type) || selectedItem);
+      } else if (normalizedProcedures.length > 0) {
         setSelectedItem(normalizedProcedures[0]);
       } else if (normalizedFunctions.length > 0) {
         setSelectedItem(normalizedFunctions[0]);
@@ -151,7 +154,7 @@ const StoredProcedures: React.FC<StoredProceduresProps> = ({ onError }) => {
     setExpandedAccordion(isExpanded ? panel : false);
   };
 
-  if (loading) {
+  if (loading && !procedures.length && !functions.length) {
     return (
       <Card sx={{ minHeight: 320, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <CardContent>
@@ -181,7 +184,8 @@ const StoredProcedures: React.FC<StoredProceduresProps> = ({ onError }) => {
 
       <Grid container spacing={2}>
         {/* Left Panel - List of Procedures and Functions */}
-        <Grid item xs={12} md={3}>
+        <Grid item xs={12} md={4}>
+        <TextField fullWidth size="small" label="Find a procedure or function" value={search} onChange={e=>setSearch(e.target.value)} sx={{mb:1}} />
           <Card sx={{ height: 'calc(100vh - 280px)', minHeight: '600px', display: 'flex', flexDirection: 'column' }}>
             <CardContent sx={{ flex: 1, overflow: 'auto', p: 1 }}>
               {/* Procedures Accordion */}
@@ -203,7 +207,7 @@ const StoredProcedures: React.FC<StoredProceduresProps> = ({ onError }) => {
                 </AccordionSummary>
                 <AccordionDetails sx={{ p: 0 }}>
                   <List dense sx={{ maxHeight: 'calc(40vh - 150px)', minHeight: 200, overflow: 'auto' }}>
-                    {procedures.map((proc) => {
+                    {procedures.filter(item=>item.name.toLowerCase().includes(search.toLowerCase())).map((proc) => {
                       const parameterCount = Array.isArray(proc.parameters) ? proc.parameters.length : 0;
                       return (
                         <ListItem key={proc.name} disablePadding>
@@ -254,7 +258,7 @@ const StoredProcedures: React.FC<StoredProceduresProps> = ({ onError }) => {
                 </AccordionSummary>
                 <AccordionDetails sx={{ p: 0 }}>
                   <List dense sx={{ maxHeight: 'calc(40vh - 150px)', minHeight: 200, overflow: 'auto' }}>
-                    {functions.map((func) => {
+                    {functions.filter(item=>item.name.toLowerCase().includes(search.toLowerCase())).map((func) => {
                       const parameterCount = Array.isArray(func.parameters) ? func.parameters.length : 0;
                       return (
                         <ListItem key={func.name} disablePadding>
@@ -290,7 +294,7 @@ const StoredProcedures: React.FC<StoredProceduresProps> = ({ onError }) => {
         </Grid>
 
         {/* Right Panel - Selected Item Details */}
-        <Grid item xs={12} md={9}>
+        <Grid item xs={12} md={8}>
           {selectedItem ? (
             <Card sx={{ height: 'calc(100vh - 280px)', minHeight: '600px', display: 'flex', flexDirection: 'column' }}>
               <CardContent sx={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
