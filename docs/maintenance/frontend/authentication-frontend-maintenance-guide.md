@@ -128,3 +128,8 @@ Read this before you touch anything related to login, registration, or password 
    - Update `normalizeUser` whenever backend responses change. If you forget, components will display `Unknown` or `undefined`.
 
 Stick to these steps and the auth experience will stay predictable for everyone, including your future self.
+
+
+### September 2026: shared section navigation
+
+`components/navigation.tsx` is the source of section names, URLs and UI permissions. Use `useModuleSection` and `moduleSectionUrl`; do not add another horizontal page tab bar. The sidebar supports expanded links, rail menus and mobile navigation. `SectionPanel` mounts on first visit and retains drafts/scroll within the page session. Components that poll must take an active flag and suspend their timer when hidden. Camera navigation never starts/stops a session. Database Restore remains admin **or** local; Operations and RobotControl logs remain local-only. Backend permissions still apply.

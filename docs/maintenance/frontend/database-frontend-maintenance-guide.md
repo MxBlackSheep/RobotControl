@@ -155,3 +155,8 @@ This write-up explains every moving part of the database browser UI. It is desig
    - Check the `/health` poll in dev tools. If the request is missing `X-Allow-Maintenance: true`, the Axios interceptor cancels it and maintenance only clears after the 60-second timer expires.
 
 Follow these instructions and the database UI will stay easy to maintain and hard to break.
+
+
+### September 2026: shared section navigation
+
+`components/navigation.tsx` is the source of section names, URLs and UI permissions. Use `useModuleSection` and `moduleSectionUrl`; do not add another horizontal page tab bar. The sidebar supports expanded links, rail menus and mobile navigation. `SectionPanel` mounts on first visit and retains drafts/scroll within the page session. Components that poll must take an active flag and suspend their timer when hidden. Camera navigation never starts/stops a session. Database Restore remains admin **or** local; Operations and RobotControl logs remain local-only. Backend permissions still apply.

@@ -1,3 +1,5 @@
+import { useModuleSection } from '../components/navigation';
+import SectionPanel from '../components/SectionPanel';
 import { PageContent, PageHeader } from '../components/PageLayout';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
@@ -70,7 +72,7 @@ const DatabasePage: React.FC = () => {
   const [error, setError] = useState('');
   const [showImportantOnly, setShowImportantOnly] = useState(true);
   const [tableStats, setTableStats] = useState({ importantCount: 0, allCount: 0 });
-  const [activeTab, setActiveTab] = useState(0);
+  const [activeTab, setActiveTab] = useModuleSection('/database', user);
   const theme = useTheme();
   const isSmallScreen = useMediaQuery(theme.breakpoints.down('sm'));
 
@@ -117,7 +119,7 @@ const DatabasePage: React.FC = () => {
     setError(errorMessage);
   };
 
-  if (loading) {
+  if (loading && !tables.length) {
     return <PageLoading message="Loading database tables..." />;
   }
 
@@ -160,25 +162,8 @@ const DatabasePage: React.FC = () => {
         />
       )}
 
-      {/* Tabs for different database features */}
-      <Paper sx={{ mb: 2, overflowX: 'auto' }}>
-        <Tabs
-          value={activeTab}
-          onChange={(_, v) => setActiveTab(v)}
-          aria-label="database tabs"
-          variant="scrollable"
-          scrollButtons="auto"
-          allowScrollButtonsMobile
-        >
-          <Tab icon={<TableChartIcon />} label="Tables" iconPosition="start" />
-          <Tab icon={<CodeIcon />} label={isSmallScreen ? 'Procedures' : 'Stored Procedures'} iconPosition="start" />
-          <Tab icon={<RestoreIcon />} label="Restore" iconPosition="start" />
-          <Tab icon={<SettingsIcon />} label={isSmallScreen ? 'Ops' : 'Operations'} iconPosition="start" />
-        </Tabs>
-      </Paper>
-
       {/* Tab Panel 0: Tables */}
-      {activeTab === 0 && (
+      <SectionPanel active={activeTab === 0}>
         <Grid container spacing={{ xs: 1, sm: 2 }}>
           {/* Tables List */}
           <Grid item xs={12} md={3} lg={2}>
@@ -350,17 +335,17 @@ const DatabasePage: React.FC = () => {
             )}
           </Grid>
         </Grid>
-      )}
+      </SectionPanel>
 
       {/* Tab Panel 1: Stored Procedures */}
-      {activeTab === 1 && (
+      <SectionPanel active={activeTab === 1}>
         <Box>
           <StoredProcedures onError={handleError} />
         </Box>
-      )}
+      </SectionPanel>
 
       {/* Tab Panel 2: Database Restore */}
-      {activeTab === 2 && (
+      <SectionPanel active={activeTab === 2}>
         <Box>
           {canUseRestoreTools ? (
             <DatabaseRestore onError={handleError} />
@@ -402,10 +387,10 @@ const DatabasePage: React.FC = () => {
             </Paper>
           )}
         </Box>
-      )}
+      </SectionPanel>
 
       {/* Tab Panel 3: Database Operations */}
-      {activeTab === 3 && (
+      <SectionPanel active={activeTab === 3}>
         <Box>
           {isLocalSession ? (
             <DatabaseOperations onError={handleError} />
@@ -433,7 +418,7 @@ const DatabasePage: React.FC = () => {
             </Card>
           )}
         </Box>
-      )}
+      </SectionPanel>
     </PageContent>
   );
 };

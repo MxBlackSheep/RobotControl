@@ -27,7 +27,7 @@ import { CytomatRowState, CytomatSnapshot, labwareApi } from '../../services/lab
 
 const DEFAULT_AUTO_REFRESH_MS = 15000;
 
-const CytomatPanel: React.FC = () => {
+const CytomatPanel: React.FC<{active?: boolean}> = ({active = true}) => {
   const [snapshot, setSnapshot] = useState<CytomatSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -81,7 +81,7 @@ const CytomatPanel: React.FC = () => {
   const pendingCount = Object.keys(pendingByPos).length;
 
   useEffect(() => {
-    if (!snapshot || pendingCount > 0) {
+    if (!active || !snapshot || pendingCount > 0) {
       return;
     }
 
@@ -93,7 +93,7 @@ const CytomatPanel: React.FC = () => {
     return () => {
       window.clearInterval(interval);
     };
-  }, [loadSnapshot, pendingCount, snapshot]);
+  }, [active, loadSnapshot, pendingCount, snapshot]);
 
   const getSavedPlateId = useCallback((cytomatPos: string): string => {
     return rowMap[cytomatPos]?.plate_id || '';

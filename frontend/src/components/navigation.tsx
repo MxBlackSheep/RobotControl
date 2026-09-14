@@ -10,33 +10,49 @@ export const schedulingSections = [
   { id: 'archived', label: 'Archived', index: 4 }, { id: 'recovery', label: 'Recovery', index: 1 },
   { id: 'notifications', label: 'Notifications', index: 5, admin: true },
 ];
-export const allowedSchedulingSections = (user: NavigationUser) => ['admin', 'user'].includes(user?.role || '') ? schedulingSections.filter(section => (!section.admin || user?.role === 'admin') && (!section.local || isLocalUser(user))) : [];
-export const sectionUrl = (index: number) => index === 0 ? '/scheduling' : `/scheduling?section=${schedulingSections.find(section => section.index === index)?.id || 'schedules'}`;
+export type Section = {id: string; label: string; index: number; local?: boolean; admin?: boolean; adminOrLocal?: boolean};
+export const sectionRegistry: Record<string, Section[]> = {
+  '/scheduling': schedulingSections,
+  '/database': [{id: 'tables', label: 'Tables', index: 0}, {id: 'procedures', label: 'Stored procedures', index: 1}, {id: 'restore', label: 'Restore', index: 2, adminOrLocal: true}, {id: 'operations', label: 'Operations', index: 3, local: true}],
+  '/camera': [{id: 'archive', label: 'Video archive', index: 0}, {id: 'live', label: 'Live streaming', index: 1}],
+  '/labware': [{id: 'tips', label: 'Tip tracking', index: 0}, {id: 'cytomat', label: 'Cytomat', index: 1}],
+  '/logfile': [{id: 'python', label: 'Python logs', index: 0}, {id: 'hamilton', label: 'Hamilton traces', index: 1}, {id: 'robotcontrol', label: 'RobotControl logs', index: 2, local: true}],
+  '/admin': [{id: 'users', label: 'User accounts', index: 0}, {id: 'password-resets', label: 'Password reset requests', index: 1}],
+};
+export const allowedSections = (path: string, user: NavigationUser) => {
+  if ((['/scheduling', '/labware'].includes(path) && !['admin', 'user'].includes(user?.role || '')) || (path === '/admin' && user?.role !== 'admin')) return [];
+  return (sectionRegistry[path] || []).filter(section => (!section.admin || user?.role === 'admin') && (!section.local || isLocalUser(user)) && (!section.adminOrLocal || user?.role === 'admin' || isLocalUser(user)));
+};
+export const allowedSchedulingSections = (user: NavigationUser) => allowedSections('/scheduling', user);
+export const moduleSectionUrl = (path: string, index: number) => index === 0 ? path : `${path}?section=${sectionRegistry[path]?.find(section => section.index === index)?.id || ''}`;
+export const sectionUrl = (index: number) => moduleSectionUrl('/scheduling', index);
 export const navigationItems = [
   { label: 'Dashboard', path: '/', icon: Dashboard }, { label: 'Database', path: '/database', icon: Storage },
   { label: 'Scheduling', path: '/scheduling', icon: Schedule, roles: ['admin', 'user'] },
   { label: 'Camera', path: '/camera', icon: Videocam }, { label: 'Labware', path: '/labware', icon: Science, roles: ['admin', 'user'] },
-  { label: 'Maintenance', path: '/maintenance', icon: Build }, { label: 'LogFile', path: '/logfile', icon: Description },
+  { label: 'Maintenance', path: '/maintenance', icon: Build }, { label: 'Logs', path: '/logfile', icon: Description },
   { label: 'System Status', path: '/system-status', icon: MonitorHeart }, { label: 'Admin', path: '/admin', icon: AdminPanelSettings, roles: ['admin'] },
   { label: 'About', path: '/about', icon: Info },
 ];
 export const visibleNavigation = (user: NavigationUser) => navigationItems.filter(item => !item.roles || item.roles.includes(user?.role || ''));
 export const SchedulingNavigationContext = createContext({ recoveryActive: false, setRecoveryActive: (_active: boolean) => {} });
-export function useSchedulingSection(user: NavigationUser) {
+export function useModuleSection(path: string, user: NavigationUser) {
   const [params, setParams] = useSearchParams();
   const value = params.get('section');
-  const selected = allowedSchedulingSections(user).find(section => section.id === value);
+  const permitted = allowedSections(path, user);
+  const selected = permitted.find(section => section.id === value);
   useEffect(() => {
     if (value && !selected) setParams(previous => { const next = new URLSearchParams(previous); next.delete('section'); return next; }, {replace: true});
   }, [value, selected?.id, setParams]);
   const change = useCallback((index: number) => setParams(previous => {
     const next = new URLSearchParams(previous);
-    const section = schedulingSections.find(section => section.index === index);
+    const section = allowedSections(path, user).find(section => section.index === index);
     if (!section || index === 0) next.delete('section'); else next.set('section', section.id);
     return next;
-  }), [setParams]);
-  return [selected?.index || 0, change] as const;
+  }), [path, user?.role, user?.session_is_local, setParams]);
+  return [selected?.index ?? permitted[0]?.index ?? 0, change] as const;
 }
+export const useSchedulingSection = (user: NavigationUser) => useModuleSection('/scheduling', user);
 
 export function useSidebarLayout() {
   const mobile = useMediaQuery('(max-width:899.95px)');

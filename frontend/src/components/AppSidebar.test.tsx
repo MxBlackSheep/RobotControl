@@ -4,7 +4,7 @@ import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import { beforeEach, expect, it, vi } from 'vitest';
 import AppSidebar from './AppSidebar';
 import useKeyboardNavigation from '../hooks/useKeyboardNavigation';
-import { allowedSchedulingSections, SchedulingNavigationContext, useSchedulingSection, useSidebarLayout, visibleNavigation } from './navigation';
+import { allowedSections, useModuleSection, allowedSchedulingSections, SchedulingNavigationContext, useSchedulingSection, useSidebarLayout, visibleNavigation } from './navigation';
 import useMediaQuery from '@mui/material/useMediaQuery';
 vi.mock('@mui/material/useMediaQuery', () => ({default: vi.fn(() => false)}));
 const admin = {role: 'admin', session_is_local: true};
@@ -53,4 +53,16 @@ it('preserves navigation shortcuts and leaves open dialogs in control', () => {
   fireEvent.keyDown(document, {key: '1', altKey: true});
   expect(screen.getByLabelText('Location').textContent).toBe('/scheduling'); modal.remove();
   fireEvent.keyDown(document, {key: '1', altKey: true}); expect(screen.getByLabelText('Location').textContent).toBe('/');
+});
+
+it('keeps Database restore admin-or-local and operations local-only', () => {
+  expect(allowedSections('/database', {role:'admin', session_is_local:false}).map(s=>s.id)).toEqual(['tables','procedures','restore']);
+  expect(allowedSections('/database', {role:'viewer', session_is_local:false}).map(s=>s.id)).toEqual(['tables','procedures']);
+  expect(allowedSections('/logfile', {role:'user', session_is_local:false}).map(s=>s.id)).toEqual(['python','hamilton']);
+});
+it.each([['/database','Database','Stored procedures','procedures'],['/camera','Camera','Live streaming','live'],['/labware','Labware','Cytomat','cytomat'],['/logfile','Logs','Hamilton traces','hamilton'],['/admin','Admin','Password reset requests','password-resets']])('navigates %s sections from the rail with URL history', async (path,label,child,id) => {
+  function State() { const location=useLocation(); useModuleSection(path,admin); return <output>{location.pathname}{location.search}</output>; }
+  render(<MemoryRouter initialEntries={[path]}><AppSidebar user={admin} mobile={false} expanded={false} open={false} onClose={vi.fn()} onToggle={vi.fn()} /><State /></MemoryRouter>);
+  fireEvent.click(screen.getByRole('button',{name:label})); fireEvent.click(screen.getByRole('menuitem',{name:child}));
+  await waitFor(()=>expect(screen.getByRole('status').textContent).toBe(`${path}?section=${id}`));
 });

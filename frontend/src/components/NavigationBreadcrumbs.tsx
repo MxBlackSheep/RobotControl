@@ -1,4 +1,4 @@
-import { schedulingSections } from './navigation';
+import { sectionRegistry } from './navigation';
 /**
  * NavigationBreadcrumbs Component
  * 
@@ -82,7 +82,7 @@ const routeConfigs: BreadcrumbConfig[] = [
   },
   {
     path: '/logfile',
-    label: 'LogFile',
+    label: 'Logs',
     icon: <LogFileIcon fontSize="small" />,
   },
   {
@@ -159,8 +159,8 @@ const NavigationBreadcrumbs: React.FC<NavigationBreadcrumbsProps> = ({
   // Generate breadcrumb trail based on current location
   const breadcrumbTrail = useMemo(() => {
     const trail = getBreadcrumbTrail(location.pathname);
-    if (location.pathname === '/scheduling') {
-      const section = schedulingSections.find(item => item.id === (new URLSearchParams(location.search).get('section') || 'schedules'));
+    if (sectionRegistry[location.pathname]) {
+      const section = sectionRegistry[location.pathname].find(item => item.id === (new URLSearchParams(location.search).get('section') || sectionRegistry[location.pathname][0].id));
       if (section) trail.push({path: location.pathname + '?section=' + section.id, label: section.label});
     }
     return trail;

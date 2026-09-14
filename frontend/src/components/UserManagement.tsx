@@ -54,6 +54,7 @@ interface PasswordResetRequest {
 }
 
 interface UserManagementProps {
+  section?: number;
   onError?: (error: string) => void;
 }
 
@@ -76,7 +77,7 @@ const coerceArray = <T,>(payload: any): T[] => {
   return [];
 };
 
-const UserManagement: React.FC<UserManagementProps> = ({ onError }) => {
+const UserManagement: React.FC<UserManagementProps> = ({ onError, section }) => {
   const [users, setUsers] = useState<UserSummary[]>([]);
   const [userLoading, setUserLoading] = useState(false);
   const [resetRequests, setResetRequests] = useState<PasswordResetRequest[]>([]);
@@ -249,7 +250,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ onError }) => {
 
   return (
     <Stack spacing={3}>
-      <Card>
+      <Card sx={{display: section === 1 ? 'none' : undefined}}>
         <CardContent>
           <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
             <Stack direction="row" spacing={1} alignItems="center">
@@ -338,7 +339,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ onError }) => {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card sx={{display: section === 0 ? 'none' : undefined}}>
         <CardContent>
           <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
             <Stack direction="row" spacing={1} alignItems="center">

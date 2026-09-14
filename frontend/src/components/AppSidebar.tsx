@@ -2,18 +2,19 @@ import React, { useContext, useEffect, useState } from 'react';
 import { Box, Drawer, IconButton, List, ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Tooltip, Typography } from '@mui/material';
 import { ChevronLeft, ChevronRight, ExpandLess, ExpandMore, WarningAmber } from '@mui/icons-material';
 import { Link, useLocation } from 'react-router-dom';
-import { allowedSchedulingSections, NavigationUser, SchedulingNavigationContext, sectionUrl, visibleNavigation } from './navigation';
+import { allowedSections, NavigationUser, SchedulingNavigationContext, moduleSectionUrl, visibleNavigation } from './navigation';
 export default function AppSidebar({ user, mobile, expanded, open, onClose, onToggle }: {
   user: NavigationUser; mobile: boolean; expanded: boolean; open: boolean; onClose: () => void; onToggle: () => void;
 }) {
-  const location = useLocation(); const scheduling = location.pathname === '/scheduling';
-  const [sectionsOpen, setSectionsOpen] = useState(scheduling);
+  const location = useLocation();
+  const [sectionsOpen, setSectionsOpen] = useState<Record<string, boolean>>({[location.pathname]: true});
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const { recoveryActive } = useContext(SchedulingNavigationContext);
-  const sections = allowedSchedulingSections(user);
-  const section = new URLSearchParams(location.search).get('section') || 'schedules';
+  const [menuPath, setMenuPath] = useState('/scheduling');
+  const sections = allowedSections(menuPath, user);
+  const section = new URLSearchParams(location.search).get('section') || allowedSections(location.pathname, user)[0]?.id;
   const wide = mobile || expanded;
-  useEffect(() => { if (scheduling) setSectionsOpen(true); }, [scheduling]);
+  useEffect(() => { setSectionsOpen(previous => ({...previous, [location.pathname]: true})); }, [location.pathname]);
   const finish = () => { setAnchor(null); if (mobile) onClose(); };
   const sectionLabel = (id: string, label: string) => <>{label}{id === 'recovery' && recoveryActive && <WarningAmber color="error" fontSize="small" aria-label="Recovery requires attention" sx={{ ml: 1 }} />}</>;
   return <>
@@ -25,29 +26,29 @@ export default function AppSidebar({ user, mobile, expanded, open, onClose, onTo
           <IconButton aria-label={mobile ? 'Close navigation' : wide ? 'Collapse navigation' : 'Expand navigation'} onClick={mobile ? onClose : onToggle}>{wide ? <ChevronLeft /> : <ChevronRight />}</IconButton>
         </Box>
         <List sx={{ flex: 1, overflowY: 'auto', px: 1 }}>
-          {visibleNavigation(user).map(item => <React.Fragment key={item.path}>
+          {visibleNavigation(user).map(item => { const children = allowedSections(item.path, user); const grouped = children.length > 0; return <React.Fragment key={item.path}>
             <Box sx={{ display: 'flex', alignItems: 'center' }}>
-              <Tooltip title={wide ? '' : item.label} placement="right"><ListItemButton component={item.path === '/scheduling' && !wide ? 'button' : Link}
-                to={item.path === '/scheduling' && !wide ? undefined : item.path} aria-label={item.label}
-                aria-haspopup={item.path === '/scheduling' && !wide ? 'menu' : undefined} aria-expanded={item.path === '/scheduling' && !wide ? !!anchor : undefined}
-                selected={location.pathname === item.path} onClick={event => { if (item.path === '/scheduling' && !wide) setAnchor(event.currentTarget); else finish(); }}
+              <Tooltip title={wide ? '' : item.label} placement="right"><ListItemButton component={grouped && !wide ? 'button' : Link}
+                to={grouped && !wide ? undefined : item.path} aria-label={item.label}
+                aria-haspopup={grouped && !wide ? 'menu' : undefined} aria-expanded={grouped && !wide ? !!anchor : undefined}
+                selected={location.pathname === item.path} onClick={event => { if (grouped && !wide) { setMenuPath(item.path); setAnchor(event.currentTarget); } else finish(); }}
                 sx={{ minHeight: 44, px: 1.5, borderRadius: 1, flex: 1 }}>
                 <ListItemIcon sx={{ minWidth: wide ? 36 : 24 }}><item.icon color={item.path === '/scheduling' && recoveryActive ? 'error' : 'inherit'} /></ListItemIcon>
                 {wide && <ListItemText primary={item.label} />}
               </ListItemButton></Tooltip>
-              {wide && item.path === '/scheduling' && <IconButton aria-label={sectionsOpen ? "Collapse Scheduling sections" : "Expand Scheduling sections"} aria-expanded={sectionsOpen} onClick={() => setSectionsOpen(value => !value)}>{sectionsOpen ? <ExpandLess /> : <ExpandMore />}</IconButton>}
+              {wide && grouped && <IconButton aria-label={`${sectionsOpen[item.path] ? 'Collapse' : 'Expand'} ${item.label} sections`} aria-expanded={!!sectionsOpen[item.path]} onClick={() => setSectionsOpen(value => ({...value, [item.path]: !value[item.path]}))}>{sectionsOpen[item.path] ? <ExpandLess /> : <ExpandMore />}</IconButton>}
             </Box>
-            {wide && item.path === '/scheduling' && sectionsOpen && <List component="div" disablePadding aria-label="Scheduling sections">
-              {sections.map(child => <ListItemButton key={child.id} component={Link} to={sectionUrl(child.index)} selected={scheduling && section === child.id} onClick={finish} sx={{ pl: 5, minHeight: 44, borderRadius: 1 }}>
+            {wide && grouped && sectionsOpen[item.path] && <List component="div" disablePadding aria-label={`${item.label} sections`}>
+              {children.map(child => <ListItemButton key={child.id} component={Link} to={moduleSectionUrl(item.path, child.index)} selected={location.pathname === item.path && section === child.id} onClick={finish} sx={{ pl: 5, minHeight: 44, borderRadius: 1 }}>
                 <ListItemText primary={sectionLabel(child.id, child.label)} />
               </ListItemButton>)}
             </List>}
-          </React.Fragment>)}
+          </React.Fragment>; })}
         </List>
       </Box>
     </Drawer>
-    <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)} MenuListProps={{'aria-label': 'Scheduling sections'}}>
-      {sections.map(child => <MenuItem key={child.id} component={Link} to={sectionUrl(child.index)} selected={scheduling && section === child.id} onClick={finish}>{sectionLabel(child.id, child.label)}</MenuItem>)}
+    <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)} MenuListProps={{'aria-label': `${visibleNavigation(user).find(item => item.path === menuPath)?.label} sections`}}>
+      {sections.map(child => <MenuItem key={child.id} component={Link} to={moduleSectionUrl(menuPath, child.index)} selected={location.pathname === menuPath && section === child.id} onClick={finish}>{sectionLabel(child.id, child.label)}</MenuItem>)}
     </Menu>
   </>;
 }

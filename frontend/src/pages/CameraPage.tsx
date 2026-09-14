@@ -1,3 +1,6 @@
+import { useAuth } from '../context/AuthContext';
+import { useModuleSection } from '../components/navigation';
+import SectionPanel from '../components/SectionPanel';
 import { PageContent, PageHeader } from '../components/PageLayout';
 ﻿/**
  * Camera Management Page for RobotControl Simplified Architecture
@@ -125,7 +128,8 @@ const CameraPage: React.FC = () => {
   const [archiveLoading, setArchiveLoading] = useState(true);
   const [archiveError, setArchiveError] = useState('');
   const [error, setError] = useState('');
-  const [currentTab, setCurrentTab] = useState(0);
+  const { user } = useAuth();
+  const [currentTab, setCurrentTab] = useModuleSection('/camera', user);
   
   // Streaming state
   const [streamingStatus, setStreamingStatus] = useState<StreamingStatus | null>(null);
@@ -639,47 +643,8 @@ const CameraPage: React.FC = () => {
         </Paper>
       )}
 
-      {/* Tabs */}
-      <Paper sx={{ mb: { xs: 2, md: 3 } }}>
-        <Tabs 
-          value={currentTab} 
-          onChange={(e, newValue) => setCurrentTab(newValue)}
-          sx={{ 
-            borderBottom: 1, 
-            borderColor: 'divider',
-            '& .MuiTabs-flexContainer': {
-              flexWrap: { xs: 'wrap', sm: 'nowrap' }
-            }
-          }}
-          variant="scrollable"
-          scrollButtons="auto"
-          allowScrollButtonsMobile
-        >
-          <Tab 
-            label={`Video Archive (${experimentFolders.length})`}
-            icon={<VideoLibraryIcon />}
-            iconPosition="start"
-            sx={{ 
-              minHeight: { xs: 72, sm: 48 },
-              fontSize: { xs: '0.75rem', sm: '0.875rem' },
-              minWidth: { xs: 120, sm: 160 }
-            }}
-          />
-          <Tab 
-            label={`Live Streaming ${streamingStatus ? `(${streamingStatus.active_session_count}/${streamingStatus.max_sessions})` : ''}`}
-            icon={<StreamIcon />}
-            iconPosition="start"
-            sx={{ 
-              minHeight: { xs: 72, sm: 48 },
-              fontSize: { xs: '0.75rem', sm: '0.875rem' },
-              minWidth: { xs: 120, sm: 160 }
-            }}
-          />
-        </Tabs>
-      </Paper>
-
       {/* Video Archive Tab */}
-      <TabPanel value={currentTab} index={0}>
+      <SectionPanel active={currentTab === 0}>
         <VideoArchiveTab
           experimentFolders={experimentFolders}
           loading={archiveLoading}
@@ -689,10 +654,10 @@ const CameraPage: React.FC = () => {
           downloadingFilename={downloadProgress?.filename ?? null}
           downloadBusy={Boolean(downloadProgress)}
         />
-      </TabPanel>
+      </SectionPanel>
 
       {/* Live Streaming Tab */}
-      <TabPanel value={currentTab} index={1}>
+      <SectionPanel active={currentTab === 1}>
         <Card>
           <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
             <Stack spacing={2.5}>
@@ -912,7 +877,7 @@ const CameraPage: React.FC = () => {
             </Stack>
           </CardContent>
         </Card>
-      </TabPanel>
+      </SectionPanel>
 
       </PageContent>
 

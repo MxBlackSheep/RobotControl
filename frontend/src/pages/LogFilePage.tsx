@@ -1,3 +1,4 @@
+import { useModuleSection } from '../components/navigation';
 import { PageContent, PageHeader } from '../components/PageLayout';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -99,7 +100,8 @@ const LogFilePage: React.FC = () => {
   const isLocalSession = useMemo(() => isLocalSessionFromUser(user), [user]);
 
   const [sources, setSources] = useState<LogFileSource[]>([]);
-  const [selectedSourceId, setSelectedSourceId] = useState<string>('');
+  const [sourceSection, setSourceSection] = useModuleSection('/logfile', user);
+  const selectedSourceId = ['python_log', 'hamilton_logfiles', 'robotcontrol_logs'][sourceSection];
   const [browserMode, setBrowserMode] = useState<BrowserMode>('filesystem');
   const [filesystemRelativePath, setFilesystemRelativePath] = useState<string>('');
   const [archiveRelativePath, setArchiveRelativePath] = useState<string>('');
@@ -139,18 +141,7 @@ const LogFilePage: React.FC = () => {
     try {
       const data = await logFileApi.getSources();
       setSources(data);
-      setSelectedSourceId((current) => {
-        if (current && data.some((source) => source.id === current)) {
-          return current;
-        }
-        const preferred =
-          data.find(
-            (source) => source.exists && source.accessible && (source.permissions?.can_access ?? true),
-          ) ??
-          data.find((source) => source.exists && source.accessible) ??
-          data[0];
-        return preferred?.id ?? '';
-      });
+
     } catch (err: any) {
       setError(getErrorMessage(err));
     } finally {
@@ -381,7 +372,7 @@ const LogFilePage: React.FC = () => {
 
   return (
     <PageContent>
-      <PageHeader title="LogFile" description="Read-only log file browser and previewer (plain text, .gz history, and .zip archives)." />
+      <PageHeader title="Logs" description="Read-only log file browser and previewer (plain text, .gz history, and .zip archives)." />
 
       <Stack spacing={2}>
           {!isLocalSession && (
@@ -405,33 +396,7 @@ const LogFilePage: React.FC = () => {
                     spacing={2}
                     alignItems={{ xs: 'stretch', md: 'center' }}
                   >
-                    <FormControl size="small" sx={{ minWidth: { xs: '100%', md: 420 } }}>
-                      <InputLabel id="logfile-source-label">Log Source</InputLabel>
-                      <Select
-                        labelId="logfile-source-label"
-                        value={selectedSourceId}
-                        label="Log Source"
-                        onChange={(event) => setSelectedSourceId(event.target.value)}
-                      >
-                        {sources.map((source) => {
-                          const canAccess = source.permissions?.can_access ?? true;
-                          const existsAndAccessible = source.exists && source.accessible;
-                          const disabled = !existsAndAccessible || !canAccess;
-                          const availabilityLabel = !existsAndAccessible
-                            ? 'unavailable'
-                            : !canAccess
-                              ? 'local only'
-                              : 'available';
-
-                          return (
-                            <MenuItem key={source.id} value={source.id} disabled={disabled}>
-                              {source.label} ({availabilityLabel})
-                            </MenuItem>
-                          );
-                        })}
-                      </Select>
-                    </FormControl>
-
+                    <Typography variant="h6">{selectedSource?.label || 'Logs'}</Typography>
                     <ToggleButtonGroup
                       size="small"
                       exclusive

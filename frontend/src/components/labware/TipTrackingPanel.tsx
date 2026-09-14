@@ -49,7 +49,7 @@ const parsePendingKey = (value: string): SelectedTip | null => {
   return { labwareId, positionId };
 };
 
-const TipTrackingPanel: React.FC = () => {
+const TipTrackingPanel: React.FC<{active?: boolean}> = ({active = true}) => {
   const [snapshot, setSnapshot] = useState<TipTrackingSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -138,7 +138,7 @@ const TipTrackingPanel: React.FC = () => {
   const pendingCount = Object.keys(currentFamilyPending).length;
 
   useEffect(() => {
-    if (!snapshot || !activeFamily) {
+    if (!active || !snapshot || !activeFamily) {
       return;
     }
     if (pendingCount > 0) {
@@ -153,7 +153,7 @@ const TipTrackingPanel: React.FC = () => {
     return () => {
       window.clearInterval(interval);
     };
-  }, [activeFamily, loadSnapshot, pendingCount, snapshot]);
+  }, [active, activeFamily, loadSnapshot, pendingCount, snapshot]);
 
   const getSavedStatus = useCallback((labwareId: string, positionId: number): string => {
     if (!activeFamily) {

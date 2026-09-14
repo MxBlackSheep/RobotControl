@@ -1,3 +1,4 @@
+import { useModuleSection } from '../components/navigation';
 import { PageContent, PageHeader } from '../components/PageLayout';
 import React, { useState } from 'react';
 import Box from '@mui/material/Box';
@@ -9,6 +10,7 @@ import UserManagement from '../components/UserManagement';
 
 const AdminPage: React.FC = () => {
   const { user } = useAuthContext();
+  const [section] = useModuleSection('/admin', user);
   const [error, setError] = useState<string | null>(null);
 
   if (user?.role !== 'admin') {
@@ -37,7 +39,7 @@ const AdminPage: React.FC = () => {
         />
       )}
 
-      <UserManagement onError={setError} />
+      <UserManagement section={section} onError={setError} />
     </PageContent>
   );
 };

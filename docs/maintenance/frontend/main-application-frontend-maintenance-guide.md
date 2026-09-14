@@ -174,3 +174,8 @@ This guide explains the overall React shell: routing, theming, providers, and na
    - After editing `theme.ts`, restart Vite (or rebuild the packaged app). Material UI caches the theme; hot module reload usually works but not during some production builds.
 
 Stick to this playbook and the main shell will stay tidy, predictable, and easy to extend.
+
+
+### September 2026: shared section navigation
+
+`components/navigation.tsx` is the source of section names, URLs and UI permissions. Use `useModuleSection` and `moduleSectionUrl`; do not add another horizontal page tab bar. The sidebar supports expanded links, rail menus and mobile navigation. `SectionPanel` mounts on first visit and retains drafts/scroll within the page session. Components that poll must take an active flag and suspend their timer when hidden. Camera navigation never starts/stops a session. Database Restore remains admin **or** local; Operations and RobotControl logs remain local-only. Backend permissions still apply.

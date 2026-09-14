@@ -1,5 +1,13 @@
 # RobotControl Development Log (Chronological)
 
+## 2026-09-14 Section navigation across operational functions
+
+- Shared permission-aware section registry now drives Database, Camera, Labware, Logs, Administration and Scheduling sidebar links, rail menus, breadcrumbs and URL selection. Base routes and Scheduling numeric navigation remain compatible; invalid/inaccessible section links fall back safely.
+- Removed duplicate page tabs/source selection. Visited Database/Camera/Labware panels retain their local state; hidden Labware panels stop polling, preserving pending edits. Section navigation does not start/stop camera sessions or execute database operations.
+- Navigation tests cover new rail menus and the distinct admin-or-local Restore/local-only Operations and RobotControl log rules. TypeScript checks pass. Browser integration and Windows packaging follow with the browsing changes.
+
+---
+
 ## 2026-09-14 Compact application pages and layout validation
 
 - Added shared page content/headers, one compact account/breadcrumb bar, fluid operational widths and bounded settings/readable content. Scheduling now has heading actions and a service strip; list/runtime columns follow actual available width. At 1280×720, normal operational content begins around 190px. Removed duplicate page navigation rows and the duplicate system-monitoring title.
