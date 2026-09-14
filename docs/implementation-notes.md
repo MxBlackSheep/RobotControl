@@ -1,5 +1,13 @@
 # RobotControl Development Log (Chronological)
 
+## 2026-09-14 Resource baseline for N100 optimization
+
+- Added opt-in 60-second JSONL diagnostics with bounded rotation, process-tree/private versus resident memory, SQL/browser separation, CPU/I/O and existing-service counts. Disabled by default; no allocation tracing, SQL tuning or operational service initialization.
+- Added an isolated deterministic 720p streaming probe (zero/one/two viewers, three trials). Baseline from `d228f51` is in `docs/performance-baseline.json`; this is synthetic, not N100/camera/endurance evidence.
+- Validation: 267 backend tests pass. See the performance maintenance guide for matched workload measurements and the required 24-hour/ten-day operator tests.
+
+---
+
 ## 2026-09-14 Paged Logs workspace and Windows delivery
 
 - Added per-source sidebar navigation, 50-entry paging (25/100 options), filename search across each directory/ZIP before pagination, metadata filters and deterministic sorting. Existing API callers retain the 200-entry default. Root/extension/local-session restrictions remain enforced, including direct archive requests.

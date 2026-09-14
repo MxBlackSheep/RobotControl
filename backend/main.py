@@ -315,6 +315,15 @@ async def lifespan(app: FastAPI):
 
     logger.info("Starting RobotControl Backend...")
 
+    diagnostics = None
+    if _env_flag("ROBOTCONTROL_RESOURCE_DIAGNOSTICS"):
+        from backend.services.resource_diagnostics import ResourceDiagnostics
+        diagnostics = ResourceDiagnostics(Path(logs_dir) / "diagnostics")
+        try:
+            diagnostics.start()
+        except Exception as exc:
+            logger.warning("Resource diagnostics unavailable: %s", exc)
+
     logger.info("All services configured for lazy loading")
     logger.info("Authentication: ready (will initialize on first login)")
     logger.info("Database: ready (will connect on first query)")
@@ -367,6 +376,8 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         logger.info("Shutting down RobotControl Backend...")
+        if diagnostics:
+            await asyncio.to_thread(diagnostics.stop)
         
         if _scheduler_autostart_task:
             if not _scheduler_autostart_task.done():
