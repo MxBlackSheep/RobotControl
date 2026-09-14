@@ -189,3 +189,6 @@ This guide demystifies the camera stack. It explains what each file does, how fr
 4. **Test manually**: because camera/streaming interactions depend on hardware, run at least one end-to-end test (start recording, view stream, archive clips) after major changes.
 
 Keep this guide handy whenever you need to touch the camera stack. Following the stages above will help you avoid race conditions, blank streams, and mysterious file leaks.
+# Session and cleanup ownership (September 2026)
+
+Requested streaming sessions release capacity if no browser attaches within the configured `session_timeout_seconds` (60 seconds). A second socket cannot replace a live socket. Cleanup detaches the exact handler before network I/O; a rejected socket cannot terminate another viewer. Socket close is bounded to five seconds. Recording filesystem cleanup keeps at most one job queued/running, so a slow disk cannot accumulate cleanup jobs. Recording settings and clip retention are unchanged.

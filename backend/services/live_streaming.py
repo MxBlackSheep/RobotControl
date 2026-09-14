@@ -189,6 +189,7 @@ class LiveStreamingService:
             StreamingSession object or None if cannot create
         """
         await self.ensure_service_started()
+        await self._expire_pending_sessions()
 
         async with self.session_lock:
             # Check if service can accept new session
@@ -257,42 +258,23 @@ class LiveStreamingService:
         await self.ensure_service_started()
 
         async with self.session_lock:
-            # Find the session (created earlier)
-            session = None
-            for handler in self.sessions.values():
-                if handler.session.session_id == session_id:
-                    session = handler.session
-                    break
-
-            if not session:
-                # Create session from ID (for reconnection)
-                logger.warning("Streaming | event=websocket_missing | session=%s", session_id)
+            previous = self.sessions.get(session_id)
+            # Reserve this attachment before any network await. A second socket
+            # must never replace a live handler and orphan its delivery task.
+            if previous is None or previous.websocket is not None:
                 return None
-
-            # Create session handler
-            quality_settings = QualitySettings.from_config(
-                session.quality_level,
-                self.config
-            )
-
-            handler = StreamingSessionHandler(
-                session=session,
-                websocket=websocket,
-                quality_settings=quality_settings
-            )
-
-            # Start the handler
-            await handler.start()
-
-            # Replace the existing handler
+            handler = StreamingSessionHandler(previous.session, websocket,
+                QualitySettings.from_config(previous.session.quality_level, self.config))
             self.sessions[session_id] = handler
-            self.sessions_by_user[session.user_id] = session_id
-            session.websocket_state = "connected"
-            session.is_active = True
-
-            logger.info("Streaming | event=websocket_connected | session=%s", session_id)
-
+        try:
+            await handler.start()
+            if self.sessions.get(session_id) is not handler:
+                await handler.stop()
+                return None
             return handler
+        except BaseException:
+            await self.terminate_session(session_id, expected=handler)
+            raise
 
     async def handle_websocket_session(
         self,
@@ -328,8 +310,7 @@ class LiveStreamingService:
         finally:
             # Clean up session
             if handler:
-                await handler.stop()
-            await self.terminate_session(session_id)
+                await self.terminate_session(session_id, expected=handler)
     
     async def stop_session(self, session_id: str, user_id: str) -> bool:
         """
@@ -343,44 +324,31 @@ class LiveStreamingService:
             True if session was stopped successfully
         """
         async with self.session_lock:
-            if session_id in self.sessions:
-                handler = self.sessions[session_id]
-                # Security check - ensure user owns the session
-                if handler.session.user_id != user_id:
-                    logger.warning("Streaming | event=session_stop_denied | session=%s | requester=%s | owner=%s", session_id, user_id, handler.session.user_id)
-                    return False
-                
-                await handler.stop()
-                del self.sessions[session_id]
-                if self.sessions_by_user.get(user_id) == session_id:
-                    del self.sessions_by_user[user_id]
-                logger.info("Streaming | event=session_stopped | session=%s | user=%s", session_id, user_id)
-                return True
-            logger.warning("Streaming | event=session_missing | session=%s | user=%s", session_id, user_id)
-            return False
-    
-    async def terminate_session(self, session_id: str) -> bool:
-        """
-        Terminate a streaming session (admin/system operation).
-        
-        Args:
-            session_id: Session identifier
-            
-        Returns:
-            True if session was terminated
-        """
+            handler = self.sessions.get(session_id)
+            if handler is None or handler.session.user_id != user_id:
+                return False
+        return await self.terminate_session(session_id, expected=handler)
+
+    async def terminate_session(self, session_id: str, expected=None) -> bool:
+        """Detach atomically; never hold the registry lock across socket I/O."""
         async with self.session_lock:
-            if session_id in self.sessions:
-                handler = self.sessions[session_id]
-                await handler.stop()
-                user_id = handler.session.user_id
-                del self.sessions[session_id]
-                if self.sessions_by_user.get(user_id) == session_id:
-                    del self.sessions_by_user[user_id]
-                logger.info("Streaming | event=session_terminated | session=%s", session_id)
-                return True
-            return False
-    
+            handler = self.sessions.get(session_id)
+            if handler is None or (expected is not None and handler is not expected):
+                return False
+            del self.sessions[session_id]
+            user_id = handler.session.user_id
+            if self.sessions_by_user.get(user_id) == session_id:
+                del self.sessions_by_user[user_id]
+        await handler.stop()
+        return True
+
+    async def _expire_pending_sessions(self):
+        """A requested session whose browser never attaches must release capacity."""
+        timeout = self.config.get("session_timeout_seconds", 60)
+        for session_id, handler in list(self.sessions.items()):
+            if handler.websocket is None and handler.session.is_timed_out(timeout):
+                await self.terminate_session(session_id, expected=handler)
+
     async def get_active_sessions(self) -> List[StreamingSession]:
         """
         Get list of active streaming sessions.
@@ -529,6 +497,7 @@ class LiveStreamingService:
         if (now - self._last_resource_check).total_seconds() < 1:
             return
         self._last_resource_check = now
+        await self._expire_pending_sessions()
 
         cpu_percent = self._sample_cpu()
 

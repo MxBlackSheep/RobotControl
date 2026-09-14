@@ -112,6 +112,7 @@ class CameraService:
         
         # Thread pool for async operations
         self.executor = ThreadPoolExecutor(max_workers=4)
+        self._cleanup_future = None
 
         # Lazy-loaded storage manager for experiment archiving
         self._storage_manager = None
@@ -517,10 +518,11 @@ class CameraService:
                     # Also check for periodic cleanup (every 1 minute) for any orphaned files
                     current_time = time.time()
                     with self.cleanup_lock:
-                        if current_time - self.last_cleanup_time >= self.cleanup_interval:
+                        if (current_time - self.last_cleanup_time >= self.cleanup_interval
+                                and (self._cleanup_future is None or self._cleanup_future.done())):
                             self.last_cleanup_time = current_time
                             # Run filesystem cleanup in background
-                            self.executor.submit(self._cleanup_orphaned_files)
+                            self._cleanup_future = self.executor.submit(self._cleanup_orphaned_files)
                             logger.info("Triggered 1-minute filesystem cleanup check")
                 elif frame_count > 0:
                     # If file doesn't exist but we have frames, log warning

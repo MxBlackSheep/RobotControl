@@ -376,51 +376,52 @@ class SchedulingNotificationService:
         attachments: List[Path] = []
         cleanup: List[Path] = []
 
-        # Collect TRC file
-        trc_file = trace_path if exact_trace else self._locate_trc_file(schedule, execution)
-        if trc_file:
-            converted = self._convert_trc_to_log(trc_file)
-            if converted and converted.exists():
-                attachments.append(converted)
-                cleanup.append(converted)
-                attachment_notes.append(f"Hamilton TRC log attached as {converted.name}.")
-            elif not exact_trace:
-                attachments.append(trc_file)
-                attachment_notes.append("Hamilton TRC log attached in original .trc format.")
-            else:
-                attachment_notes.append("The exact run trace could not be read; no substitute log was attached.")
-        else:
-            attachment_notes.append("TRC log not found or unreadable.")
-
-        # Rolling clip summary (always attempt for operator context)
-        fallback_clips = self._collect_recent_rolling_clips(limit=3)
-        if fallback_clips:
-            summary_clip = self._transcode_clips_to_mp4(fallback_clips)
-            if summary_clip and summary_clip.exists():
-                size_bytes = summary_clip.stat().st_size
-                if size_bytes <= GMAIL_MESSAGE_SIZE_LIMIT:
-                    attachments.append(summary_clip)
-                    cleanup.append(summary_clip)
-                    attachment_notes.append(
-                        f"Attached rolling clip summary ({self._format_size(size_bytes)})."
-                    )
-                else:
-                    summary_clip.unlink(missing_ok=True)
-                    attachment_notes.append(
-                        f"Rolling clip summary skipped (size {self._format_size(size_bytes)} exceeds limit)."
-                    )
-            else:
-                attachment_notes.append("Rolling clip summary unavailable (transcode failed).")
-        else:
-            attachment_notes.append("Rolling clip summary unavailable (no recent clips).")
-
-        if attachment_notes:
-            body_lines.extend(["", "Attachment notes:"])
-            body_lines.extend(f"  - {note}" for note in attachment_notes)
-
         body = "\n".join(body_lines)
-        send_error: Optional[str] = None
         try:
+            # Collect TRC file
+            trc_file = trace_path if exact_trace else self._locate_trc_file(schedule, execution)
+            if trc_file:
+                converted = self._convert_trc_to_log(trc_file)
+                if converted and converted.exists():
+                    attachments.append(converted)
+                    cleanup.append(converted)
+                    attachment_notes.append(f"Hamilton TRC log attached as {converted.name}.")
+                elif not exact_trace:
+                    attachments.append(trc_file)
+                    attachment_notes.append("Hamilton TRC log attached in original .trc format.")
+                else:
+                    attachment_notes.append("The exact run trace could not be read; no substitute log was attached.")
+            else:
+                attachment_notes.append("TRC log not found or unreadable.")
+
+            # Rolling clip summary (always attempt for operator context)
+            fallback_clips = self._collect_recent_rolling_clips(limit=3)
+            if fallback_clips:
+                summary_clip = self._transcode_clips_to_mp4(fallback_clips)
+                if summary_clip and summary_clip.exists():
+                    size_bytes = summary_clip.stat().st_size
+                    if size_bytes <= GMAIL_MESSAGE_SIZE_LIMIT:
+                        attachments.append(summary_clip)
+                        cleanup.append(summary_clip)
+                        attachment_notes.append(
+                            f"Attached rolling clip summary ({self._format_size(size_bytes)})."
+                        )
+                    else:
+                        summary_clip.unlink(missing_ok=True)
+                        attachment_notes.append(
+                            f"Rolling clip summary skipped (size {self._format_size(size_bytes)} exceeds limit)."
+                        )
+                else:
+                    attachment_notes.append("Rolling clip summary unavailable (transcode failed).")
+            else:
+                attachment_notes.append("Rolling clip summary unavailable (no recent clips).")
+
+            if attachment_notes:
+                body_lines.extend(["", "Attachment notes:"])
+                body_lines.extend(f"  - {note}" for note in attachment_notes)
+
+            body = "\n".join(body_lines)
+            send_error: Optional[str] = None
             if should_send is not None and not should_send():
                 return ScheduleAlertResult(False, subject, body, recipients, cancelled=True)
             sent = self.email.send(

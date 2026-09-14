@@ -69,6 +69,7 @@ class StreamingSessionHandler:
         
         # Control flags
         self.is_running = False
+        self._stopped = False
         self.is_paused = False
         
         logger.info(f"StreamingSessionHandler initialized for session {session.session_id}")
@@ -101,12 +102,16 @@ class StreamingSessionHandler:
         Stop the streaming session.
         Closes WebSocket connection and cleans up resources.
         """
+        if self._stopped:
+            return
+        self._stopped = True
         self.is_running = False
         self.session.is_active = False
         self.session.websocket_state = "disconnected"
         
         try:
-            await self.websocket.close()
+            if self.websocket is not None:
+                await asyncio.wait_for(self.websocket.close(), timeout=5)
         except Exception as e:
             logger.debug(f"Error closing WebSocket for session {self.session.session_id}: {e}")
         

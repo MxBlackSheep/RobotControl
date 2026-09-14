@@ -1,5 +1,13 @@
 # RobotControl Development Log (Chronological)
 
+## 2026-09-14 Streaming and attachment resource ownership
+
+- Pending camera sessions now expire using the existing 60-second timeout; duplicate WebSocket attachments cannot replace live handlers. Failure/disconnect cleanup checks handler identity, detaches under lock and closes sockets outside the lock with an idempotent bounded close.
+- Camera filesystem cleanup permits only one queued/running job. Alert attachment cleanup now covers preparation failures as well as SMTP failures.
+- Added accelerated 100-session abandonment and duplicate/failed attachment tests. These fixes address demonstrated lifecycle defects; they do not establish the cause of the reported total-machine RAM growth.
+
+---
+
 ## 2026-09-14 Resource baseline for N100 optimization
 
 - Added opt-in 60-second JSONL diagnostics with bounded rotation, process-tree/private versus resident memory, SQL/browser separation, CPU/I/O and existing-service counts. Disabled by default; no allocation tracing, SQL tuning or operational service initialization.
