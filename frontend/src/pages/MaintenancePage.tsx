@@ -1,3 +1,4 @@
+import { PageContent, PageHeader } from '../components/PageLayout';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -109,18 +110,8 @@ const MaintenancePage: React.FC = () => {
   }, [loadState]);
 
   return (
-    <Container maxWidth="lg" sx={{ py: { xs: 2, md: 3 } }}>
-      <Box sx={{ mb: 3 }}>
-        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-          <BuildIcon color="primary" />
-          <Typography variant="h4" sx={{ fontWeight: 700 }}>
-            Maintenance
-          </Typography>
-        </Stack>
-        <Typography variant="body2" color="text.secondary">
-          Manage HxRun Maintenance Mode.
-        </Typography>
-      </Box>
+    <PageContent reading>
+      <PageHeader title="Maintenance" description="Manage HxRun Maintenance Mode." />
 
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
@@ -215,7 +206,7 @@ const MaintenancePage: React.FC = () => {
           </Button>
         </DialogActions>
       </Dialog>
-    </Container>
+    </PageContent>
   );
 };
 

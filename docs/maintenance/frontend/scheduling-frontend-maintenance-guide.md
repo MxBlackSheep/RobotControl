@@ -1,5 +1,13 @@
 # Frontend Scheduling Maintenance Guide
 
+## Compact workspace layout
+
+Scheduling uses the shared PageContent/PageHeader shell and sidebar section URLs. The heading owns Create schedule and Import methods; MethodLibraryPanel receives `showImportAction={false}` here to avoid duplicating the import button. The service strip reports the scheduler service, while Runtime Queue retains separate Hamilton run and log conditions. Scheduling content starts around 190px at 1280×720 without alerts.
+
+The list and runtime queue use a named CSS container query: two columns only when at least 1100px remains after navigation and outer gutters. Do not replace this with a viewport-only breakpoint. The Methods table uses page scrolling, not another vertical table scrollbar; its tree can scroll independently. Folder breadcrumbs retain original path case. All/search views shorten paths relative to the sole imported root when one exists, display that root once, and retain full paths in details/tooltips and Copy full path. Multiple roots and legacy entries remain distinguishable. Method selection and library refresh do not scan the filesystem.
+
+Tests use 1,000 methods and cover folder/search state, paging, page-only checkboxes, saved unavailable paths and cancelled choices. Browser validation additionally keeps a dropdown open across two 30-second polls and checks focus restoration after primary/cleanup selection. See the main application guide for shared spacing and the zoom-test limitation.
+
 ## Section navigation
 
 Scheduling sections live beneath Scheduling in the application sidebar, using the shared `useSchedulingSection` URL mapping. Keep the existing internal panel indices only as implementation details; links use stable section names. Do not add a second horizontal Scheduling section bar. Notifications retains its own Contacts/History/Email settings tabs. Existing polling provides the sidebar's latest recovery warning through context.

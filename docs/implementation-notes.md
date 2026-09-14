@@ -1,5 +1,14 @@
 # RobotControl Development Log (Chronological)
 
+## 2026-09-14 Compact application pages and layout validation
+
+- Added shared page content/headers, one compact account/breadcrumb bar, fluid operational widths and bounded settings/readable content. Scheduling now has heading actions and a service strip; list/runtime columns follow actual available width. At 1280×720, normal operational content begins around 190px. Removed duplicate page navigation rows and the duplicate system-monitoring title.
+- Browser integration polished folder breadcrumbs, common-root relative paths, method-table scrolling and sidebar expansion labels. Create/cleanup pickers preserve drafts and restore focus; a dropdown remained open with its draft and scroll through two polling cycles. Reviewed narrow and desktop layouts with 1,000 disposable imported methods. In-app browser zoom shortcuts are unavailable; checked the equivalent 640×360 layout for 200% zoom, with native zoom still requiring an operator check.
+- Validation: 50 focused frontend tests and the full 260-test backend suite pass. Windows frontend build, resource embedding and isolated PyInstaller packaging pass. Packaged UI checks covered the 1,000-method library, page-only selection across two pages, search clearing selection, refresh retention and opening the saved method folder. Embedded JavaScript matches the final build.
+- Candidate: `dist/RobotControl-layout/RobotControl.exe` with `_internal`. Removed disposable package data and validation fixtures; preserved the running installation and earlier candidates. No API, SQLite, scheduling/execution or live runtime-data changes.
+
+---
+
 ## 2026-09-14 Shared sidebar and Scheduling section links
 
 - Replaced desktop tabs/mobile-only navigation with one responsive AppSidebar and shared permission-aware navigation definitions. Desktop uses a remembered 240px/64px preference (expanded initially at 1440px); below 900px it becomes an overlay. Scheduling exposes its seven sections inline or in a collapsed-rail menu, with the latest observed recovery warning.

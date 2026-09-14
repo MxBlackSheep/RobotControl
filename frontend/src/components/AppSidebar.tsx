@@ -1,5 +1,5 @@
 import React, { useContext, useEffect, useState } from 'react';
-import { Box, Button, Drawer, IconButton, List, ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Tooltip, Typography } from '@mui/material';
+import { Box, Drawer, IconButton, List, ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Tooltip, Typography } from '@mui/material';
 import { ChevronLeft, ChevronRight, ExpandLess, ExpandMore, WarningAmber } from '@mui/icons-material';
 import { Link, useLocation } from 'react-router-dom';
 import { allowedSchedulingSections, NavigationUser, SchedulingNavigationContext, sectionUrl, visibleNavigation } from './navigation';
@@ -35,7 +35,7 @@ export default function AppSidebar({ user, mobile, expanded, open, onClose, onTo
                 <ListItemIcon sx={{ minWidth: wide ? 36 : 24 }}><item.icon color={item.path === '/scheduling' && recoveryActive ? 'error' : 'inherit'} /></ListItemIcon>
                 {wide && <ListItemText primary={item.label} />}
               </ListItemButton></Tooltip>
-              {wide && item.path === '/scheduling' && <IconButton aria-label="Expand Scheduling sections" aria-expanded={sectionsOpen} onClick={() => setSectionsOpen(value => !value)}>{sectionsOpen ? <ExpandLess /> : <ExpandMore />}</IconButton>}
+              {wide && item.path === '/scheduling' && <IconButton aria-label={sectionsOpen ? "Collapse Scheduling sections" : "Expand Scheduling sections"} aria-expanded={sectionsOpen} onClick={() => setSectionsOpen(value => !value)}>{sectionsOpen ? <ExpandLess /> : <ExpandMore />}</IconButton>}
             </Box>
             {wide && item.path === '/scheduling' && sectionsOpen && <List component="div" disablePadding aria-label="Scheduling sections">
               {sections.map(child => <ListItemButton key={child.id} component={Link} to={sectionUrl(child.index)} selected={scheduling && section === child.id} onClick={finish} sx={{ pl: 5, minHeight: 44, borderRadius: 1 }}>

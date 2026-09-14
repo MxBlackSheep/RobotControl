@@ -1,3 +1,4 @@
+import { PageContent, PageHeader } from '../components/PageLayout';
 import React, { useState } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
@@ -22,13 +23,8 @@ const AdminPage: React.FC = () => {
   }
 
   return (
-    <Box sx={{ p: { xs: 2, md: 4 }, maxWidth: 1200, mx: 'auto' }}>
-      <Typography variant="h4" sx={{ fontWeight: 700, mb: 1 }}>
-        Administration
-      </Typography>
-      <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
-        Update user email addresses or remove accounts that should no longer have access.
-      </Typography>
+    <PageContent>
+      <PageHeader title="Administration" description="Update user email addresses or remove accounts that should no longer have access." />
 
       {error && (
         <ErrorAlert
@@ -42,7 +38,7 @@ const AdminPage: React.FC = () => {
       )}
 
       <UserManagement onError={setError} />
-    </Box>
+    </PageContent>
   );
 };
 

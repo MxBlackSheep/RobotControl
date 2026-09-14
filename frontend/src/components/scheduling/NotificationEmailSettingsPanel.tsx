@@ -115,7 +115,7 @@ export default function NotificationEmailSettingsPanel({ settings, loading, onRe
       : 'Use the SMTP or app password supplied by your email provider.';
 
   return (
-    <Card sx={{ borderRadius: 2 }}>
+    <Card sx={{ borderRadius: 2, width: '100%', maxWidth: 1000, mx: 'auto' }}>
       <CardHeader title="Email delivery settings" subheader="Choose the account RobotControl uses to send scheduling alerts."
         action={<Button startIcon={<Refresh />} disabled={disabled} onClick={() => dirty ? setConfirmDiscard(true) : void refresh()}>Refresh</Button>} />
       <Divider />

@@ -1,3 +1,4 @@
+import { PageContent, PageHeader } from '../components/PageLayout';
 ﻿/**
  * Camera Management Page for RobotControl Simplified Architecture
  * 
@@ -594,58 +595,8 @@ const CameraPage: React.FC = () => {
 
   return (
     <>
-      <Container 
-        maxWidth="xl" 
-        sx={{ 
-          mt: { xs: 2, md: 4 }, 
-          mb: { xs: 2, md: 4 },
-          px: { xs: 1, sm: 2 }
-        }}
-      >
-      {/* Header */}
-      <Box sx={{ 
-        display: 'flex', 
-        alignItems: 'center', 
-        mb: { xs: 2, md: 3 },
-        flexWrap: 'wrap',
-        gap: 1
-      }}>
-        <Button
-          startIcon={<ArrowBackIcon />}
-          onClick={() => navigate('/')}
-          sx={{ 
-            mr: { xs: 0, sm: 2 },
-            minHeight: { xs: 44, sm: 36 }
-          }}
-        >
-          Back to Dashboard
-        </Button>
-        <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: 1 }}>
-          <VideocamIcon sx={{ 
-            mr: 1, 
-            color: 'primary.main',
-            fontSize: { xs: 24, sm: 28 }
-          }} />
-          <Typography 
-            variant="h4" 
-            sx={{ flexGrow: 1 }}
-          >
-            Camera System
-          </Typography>
-        </Box>
-        
-        <Button
-          variant="outlined"
-          startIcon={<RefreshIcon />}
-          onClick={handleRefresh}
-          sx={{ 
-            minHeight: { xs: 44, sm: 36 },
-            fontSize: { xs: '0.875rem', sm: '0.875rem' }
-          }}
-        >
-          Refresh
-        </Button>
-      </Box>
+      <PageContent>
+      <PageHeader title="Camera" actions={<Button variant="outlined" startIcon={<RefreshIcon />} onClick={handleRefresh}>Refresh</Button>} />
 
       {/* Error Display */}
       {error && (
@@ -963,7 +914,7 @@ const CameraPage: React.FC = () => {
         </Card>
       </TabPanel>
 
-      </Container>
+      </PageContent>
 
       <Dialog
       fullScreen

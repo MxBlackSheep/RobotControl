@@ -1,3 +1,4 @@
+import { schedulingSections } from './navigation';
 /**
  * NavigationBreadcrumbs Component
  * 
@@ -95,6 +96,7 @@ const routeConfigs: BreadcrumbConfig[] = [
     icon: <ScheduleIcon fontSize="small" />,
     requiresRole: ['admin', 'user'],
   },
+  { path: '/admin', label: 'Administration' },
   {
     path: '/about',
     label: 'About',
@@ -156,8 +158,13 @@ const NavigationBreadcrumbs: React.FC<NavigationBreadcrumbsProps> = ({
   
   // Generate breadcrumb trail based on current location
   const breadcrumbTrail = useMemo(() => {
-    return getBreadcrumbTrail(location.pathname);
-  }, [location.pathname]);
+    const trail = getBreadcrumbTrail(location.pathname);
+    if (location.pathname === '/scheduling') {
+      const section = schedulingSections.find(item => item.id === (new URLSearchParams(location.search).get('section') || 'schedules'));
+      if (section) trail.push({path: location.pathname + '?section=' + section.id, label: section.label});
+    }
+    return trail;
+  }, [location.pathname, location.search]);
   
   // Handle breadcrumb click navigation
   const handleBreadcrumbClick = (path: string) => (event: React.MouseEvent) => {
@@ -165,10 +172,8 @@ const NavigationBreadcrumbs: React.FC<NavigationBreadcrumbsProps> = ({
     navigate(path);
   };
   
-  // Don't render breadcrumbs if there's only one item (current page)
-  if (breadcrumbTrail.length <= 1) {
-    return null;
-  }
+  // Keep one location indicator even on Dashboard.
+  if (!breadcrumbTrail.length) return null;
   
   return (
     <Box 
@@ -191,7 +196,7 @@ const NavigationBreadcrumbs: React.FC<NavigationBreadcrumbsProps> = ({
       >
         {breadcrumbTrail.map((config, index) => {
           const isLast = index === breadcrumbTrail.length - 1;
-          const isClickable = !isLast && config.path !== location.pathname;
+          const isClickable = !isLast;
           
           const breadcrumbContent = (
             <Box 
@@ -215,7 +220,7 @@ const NavigationBreadcrumbs: React.FC<NavigationBreadcrumbsProps> = ({
                 sx={{
                   color: isLast ? 'text.primary' : 'text.secondary',
                   fontWeight: isLast ? 500 : 400,
-                  fontSize: compact ? '0.75rem' : undefined,
+                  fontSize: compact ? '0.875rem' : undefined,
                 }}
               >
                 {config.label}

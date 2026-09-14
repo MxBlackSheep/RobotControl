@@ -1,3 +1,4 @@
+import { PageContent, PageHeader } from '../components/PageLayout';
 import { useContext } from 'react';
 import { SchedulingNavigationContext, useSchedulingSection, isLocalUser } from '../components/navigation';
 /**
@@ -110,7 +111,7 @@ const TabPanel: React.FC<TabPanelProps> = ({ children, value, index }) => {
   return (
     <div role="tabpanel" hidden={value !== index}>
         {value === index && (
-          <Box sx={{ py: { xs: 3, md: 4 }, px: { xs: 1.75, md: 3.75 } }}>
+          <Box sx={{ p: { xs: 1.5, md: 2 }, minWidth: 0 }}>
             {children}
           </Box>
         )}
@@ -151,7 +152,7 @@ const SchedulingPage: React.FC = () => {
   const { state, actions } = useScheduling();
   const theme = useTheme();
   const isSmallScreen = useMediaQuery(theme.breakpoints.down('sm'));
-  const cardPadding = { xs: 2.75, md: 4 };
+  const cardPadding = { xs: 2, md: 2 };
   const tabPadding = { xs: 1.75, md: 2.75 };
   const isLocalSession = isLocalUser(user);
   const isLocalClient = isLocalSession;
@@ -473,48 +474,6 @@ const SchedulingPage: React.FC = () => {
     setNotificationsTab(newValue);
   };
 
-  // Status summary component
-  const SchedulingStatusSummary: React.FC = () => {
-    // Use the existing state from parent component instead of creating new hook instance
-
-    return (
-      <Grid container spacing={{ xs: 2, md: 2.5 }} sx={{ mb: { xs: 2.5, md: 3 } }}>
-        <Grid item xs={12} md={6}>
-          <Card sx={{ borderRadius: 2, height: '100%' }}>
-            <CardContent sx={{ p: cardPadding }}>
-              <Stack direction="row" alignItems="center" spacing={1}>
-                <ScheduleIcon color="primary" />
-                <Box>
-                  <Typography variant="h6">{state.schedules.length}</Typography>
-                  <Typography variant="body2" color="textSecondary">
-                    Total Schedules
-                  </Typography>
-                </Box>
-              </Stack>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={12} md={6}>
-          <Card sx={{ borderRadius: 2, height: '100%' }}>
-            <CardContent sx={{ p: cardPadding }}>
-              <Stack direction="row" alignItems="center" spacing={1}>
-                <PlayArrowIcon color={state.schedulerRunning ? 'success' : 'disabled'} />
-                <Box>
-                  <Typography variant="h6">
-                    {state.schedulerRunning ? 'Running' : 'Stopped'}
-                  </Typography>
-                  <Typography variant="body2" color="textSecondary">
-                    Scheduler Status
-                  </Typography>
-                </Box>
-              </Stack>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
-    );
-  };
-
   // Calendar view component
   const CalendarView: React.FC = () => {
     const [calendarData, setCalendarData] = useState<any[]>([]);
@@ -674,80 +633,24 @@ const SchedulingPage: React.FC = () => {
   };
 
   return (
-    <Container
-      maxWidth="xl"
-      sx={{
-        mt: { xs: 1.5, md: 2 },
-        mb: { xs: 3.5, md: 5 },
-        px: { xs: 2.5, md: 4 },
-        py: { xs: 3, md: 4 }
-      }}
-    >
-      {/* Page Header with Navigation */}
-      <Box sx={{ mb: { xs: 3, md: 4 } }}>
-        {/* Navigation Controls */}
-        <Stack
-          direction={{ xs: 'column', sm: 'row' }}
-          alignItems={{ xs: 'flex-start', sm: 'center' }}
-          spacing={2}
-          sx={{ mb: { xs: 2.5, md: 3 } }}
-        >
-          <Button
-            startIcon={<ArrowBackIcon />}
-            onClick={() => navigate(-1)}
-            variant="outlined"
-            size="small"
-          >
-            Back
-          </Button>
-
-          {/* Breadcrumb Navigation */}
-          <Breadcrumbs aria-label="scheduling page breadcrumb">
-            <Link
-              component={RouterLink}
-              to="/"
-              underline="hover"
-              color="inherit"
-              sx={{ display: 'flex', alignItems: 'center' }}
-            >
-              <HomeIcon sx={{ mr: 0.5, fontSize: 18 }} />
-              Dashboard
-            </Link>
-            <Typography
-              color="text.primary"
-              sx={{ display: 'flex', alignItems: 'center' }}
-            >
-              <ScheduleIcon sx={{ mr: 0.5, fontSize: 18 }} />
-              Experiment Scheduling
-            </Typography>
-          </Breadcrumbs>
-        </Stack>
-
-        {/* Page Title */}
-        <Typography variant="h4" component="h1" sx={{ fontWeight: 700 }}>
-          Experiment Scheduling
-        </Typography>
-        {/* Status Summary */}
-        <Box sx={{ mt: { xs: 3, md: 4 } }}>
-          <SchedulingStatusSummary />
-        </Box>
-
-        {/* Error Display */}
-        {state.error && (
-          <ServerError
-            message={state.error}
-            onClose={actions.clearError}
-            retryable={false}
-          />
-        )}
-      </Box>
+    <PageContent>
+      <PageHeader title="Scheduling" actions={isLocalSession && <>
+        <Button variant="contained" startIcon={<AddIcon />} onClick={handleOpenCreateForm} disabled={state.loading}>Create schedule</Button>
+        <Button variant="outlined" startIcon={<FolderIcon />} onClick={() => setFolderImportOpen(true)} disabled={state.loading}>Import methods</Button>
+      </>} />
+      <Stack direction="row" gap={1} flexWrap="wrap" sx={{ mb: 2 }} aria-label="Scheduler service summary">
+        <Chip size="small" label={`Scheduler service: ${state.schedulerRunning ? 'Running' : 'Stopped'}`} color={state.schedulerRunning ? 'success' : 'default'} />
+        <Chip size="small" variant="outlined" label={`${state.schedules.length} schedules`} />
+        {!!state.manualRecovery?.active && <Chip size="small" color="error" label="Recovery requires attention" onClick={() => setCurrentTab(1)} />}
+      </Stack>
+      {state.error && <ServerError message={state.error} onClose={actions.clearError} retryable={false} />}
 
       {/* Main Content */}
       <Paper elevation={1} sx={{ borderRadius: 2, overflow: 'hidden' }}>
         {/* Tab Panels */}
         <TabPanel value={currentTab} index={0}>
-          <Grid container spacing={{ xs: 3, lg: 3.5 }}>
-            <Grid item xs={12} lg={8}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2, '@container workspace (min-width: 1100px)': { gridTemplateColumns: 'minmax(0, 2fr) minmax(280px, 1fr)' } }}>
+            <Box sx={{ minWidth: 0 }}>
               <ScheduleList
                 schedules={state.schedules}
                 selectedSchedule={state.selectedSchedule}
@@ -761,50 +664,17 @@ const SchedulingPage: React.FC = () => {
                 error={state.error}
                 initialized={state.initialized}
               />
-            </Grid>
-            <Grid item xs={12} lg={4}>
+            </Box>
+            <Box sx={{ minWidth: 0 }}>
               <Stack spacing={2.5}>
                 {/* Action Buttons */}
-                <Card sx={{ borderRadius: 2 }}>
+                {(state.selectedSchedule || !isLocalSession) && <Card sx={{ borderRadius: 2 }}>
                   <CardContent sx={{ p: cardPadding }}>
                     <Typography variant="h6" gutterBottom>
                       Actions
                     </Typography>
                     {isLocalSession ? (
                       <Stack spacing={2}>
-                        {/* Create New Schedule Button */}
-                        <Button
-                          variant="contained"
-                          fullWidth
-                          startIcon={<AddIcon />}
-                          onClick={handleOpenCreateForm}
-                          disabled={state.loading}
-                        >
-                          Create New Schedule
-                        </Button>
-                        
-                        {/* Import Experiments Button */}
-                        <Button
-                          variant="outlined"
-                          fullWidth
-                          startIcon={<FolderIcon />}
-                          onClick={() => {
-                            if (!isLocalClient) {
-                              window.alert('Import from folder is only available when accessing RobotControl locally.');
-                              return;
-                            }
-                            setFolderImportOpen(true);
-                          }}
-                          disabled={state.loading || !isLocalClient}
-                        >
-                          Import Hamilton methods
-                        </Button>
-                        {!isLocalClient && (
-                          <Typography variant="caption" color="text.secondary">
-                            Available only when using RobotControl directly on the host machine.
-                          </Typography>
-                        )}
-
                         {/* Edit/Delete for selected schedule */}
                         {state.selectedSchedule && (
                           <>
@@ -873,7 +743,7 @@ const SchedulingPage: React.FC = () => {
                       </Stack>
                     )}
                   </CardContent>
-                </Card>
+                </Card>}
 
                 <Card sx={{ borderRadius: 2 }}>
                   <CardContent sx={{ p: cardPadding }}>
@@ -1020,8 +890,8 @@ const SchedulingPage: React.FC = () => {
                   </Alert>
                 )}
               </Stack>
-            </Grid>
-          </Grid>
+            </Box>
+          </Box>
         </TabPanel>
 
         <TabPanel value={currentTab} index={1}>
@@ -1313,7 +1183,7 @@ const SchedulingPage: React.FC = () => {
           </TabPanel>
         )}
         {isLocalClient && <TabPanel value={currentTab} index={6}>
-          <MethodLibraryPanel version={catalogueVersion} onChanged={() => setCatalogueVersion(value => value + 1)}
+          <MethodLibraryPanel showImportAction={false} version={catalogueVersion} onChanged={() => setCatalogueVersion(value => value + 1)}
             onChangePath={setMethodToRelink}
             onImport={() => setFolderImportOpen(true)} onCreateSchedule={method => {
               handleOpenCreateForm();
@@ -1355,7 +1225,7 @@ const SchedulingPage: React.FC = () => {
     onCreateSchedule={handleOpenCreateForm}
         isLocalClient={isLocalClient}
       />
-    </Container>
+    </PageContent>
   );
 };
 

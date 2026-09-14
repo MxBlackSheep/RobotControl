@@ -45,6 +45,19 @@ describe('schedule draft sessions', () => {
     expect((screen.getByRole('spinbutton', { name: 'Estimated Duration (minutes)' }) as HTMLInputElement).value).toBe('72');
   });
 
+  it('keeps unavailable primary and cleanup paths visible when the catalogue refreshes', async () => {
+    const initialData = { experiment_name: 'Saved method', experiment_path: 'C:\\Old\\Saved.med', timeout_cleanup_experiment_path: 'C:\\Old\\Cleanup.med', timeout_action: 'run_cleanup_and_terminate' as any };
+    const props = { open: true, mode: 'edit' as const, onClose: vi.fn(), onSubmit: vi.fn(), contacts: [], initialData };
+    const view = render(<ImprovedScheduleForm {...props} catalogueVersion={0} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    view.rerender(<ImprovedScheduleForm {...props} catalogueVersion={1} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(screen.getByText(/This saved path is not in the current available method library/)).toBeTruthy();
+    expect(screen.getByText(/The saved cleanup path is archived/)).toBeTruthy();
+    expect(screen.getByText(/C:\\Old\\Saved.med/)).toBeTruthy();
+    expect(screen.getByText(/C:\\Old\\Cleanup.med/)).toBeTruthy();
+  });
+
   it('retains the draft when an edit conflicts and explains how to reload', async () => {
     const onClose = vi.fn();
     const onSubmit = vi.fn().mockRejectedValue({ isAxiosError: true, response: { status: 409 } });

@@ -183,14 +183,11 @@ const MonitoringDashboard: React.FC = memo(() => {
           gap: { xs: 2, md: 0 }
         }}
       >
-        <Typography variant="h5">
-          Real-time System Monitoring
-        </Typography>
         <Box
           sx={{
             display: 'flex',
-            flexDirection: { xs: 'column', sm: 'row' },
-            alignItems: { xs: 'flex-start', sm: 'center' },
+            flexDirection: 'row', flexWrap: 'wrap',
+            alignItems: 'center',
             gap: { xs: 1, sm: 2 }
           }}
         >
@@ -204,7 +201,7 @@ const MonitoringDashboard: React.FC = memo(() => {
             Last update: {lastUpdate ?? '--'}
           </Typography>
           <Tooltip title="Refresh data">
-            <IconButton onClick={handleRefresh} disabled={isLoading}>
+            <IconButton aria-label="Refresh monitoring data" onClick={handleRefresh} disabled={isLoading}>
               <RefreshIcon />
             </IconButton>
           </Tooltip>

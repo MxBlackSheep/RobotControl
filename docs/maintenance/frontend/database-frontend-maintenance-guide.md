@@ -1,5 +1,9 @@
 # Frontend Database Maintenance Guide
 
+## Shared page spacing
+
+This page uses `PageContent` and `PageHeader` from `components/PageLayout.tsx`. The application shell supplies navigation, the breadcrumb and outer padding; do not add another outer Container or Back/breadcrumb row. Keep this module's functional tabs and controls. Operational content fills the space beside the sidebar; Maintenance uses the readable-width variant. See [the main application layout guide](main-application-frontend-maintenance-guide.md#shared-page-layout-september-2026) before changing page spacing.
+
 This write-up explains every moving part of the database browser UI. It is designed for maintainers with minimal React experience—follow the exact steps and you will avoid breaking the admin workflow.
 
 ---

@@ -9,9 +9,9 @@ import { methodError } from './HostMethodBrowser';
 export const pathStatusLabel = { available: 'Available', missing: 'Missing', inaccessible: 'Inaccessible', invalid: 'Invalid path', not_checked: 'Not checked' };
 export const referenceLabel = (ref: LibraryMethod['references'][number]) => ref.archived ? 'Archived schedule' : ref.busy ? 'Busy (queued, running or paused)' : ref.is_active ? 'Active schedule' : 'Inactive schedule';
 
-export default function MethodLibraryPanel({ version, onChanged, onImport, onCreateSchedule, onChangePath }: {
+export default function MethodLibraryPanel({ version, onChanged, onImport, onCreateSchedule, onChangePath, showImportAction = true }: {
   version: number; onChanged: () => void; onImport: () => void; onCreateSchedule: (method: LibraryMethod) => void;
-  onChangePath?: (method: LibraryMethod) => void;
+  onChangePath?: (method: LibraryMethod) => void; showImportAction?: boolean;
 }) {
   const [methods, setMethods] = useState<LibraryMethod[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
@@ -66,7 +66,7 @@ export default function MethodLibraryPanel({ version, onChanged, onImport, onCre
     <Typography variant="h6">Method library</Typography>
     <Typography variant="body2">Manage the paths available when creating schedules. Archiving a method hides it from new selections; existing schedules keep their saved paths.</Typography>
     <Stack direction="row" flexWrap="wrap" gap={1}>
-      <Button variant="contained" onClick={onImport}>Import methods</Button>
+      {showImportAction && <Button variant="contained" onClick={onImport}>Import methods</Button>}
       <Button disabled={busy} onClick={() => { setError(''); void load(); }}>Refresh library</Button>
       <Button disabled={busy || !targets.length} onClick={check}>Check paths</Button>
       <Button disabled={busy || !targets.some(row => !row.archived)} onClick={() => setArchiveAction(true)}>Archive selected</Button>
@@ -88,20 +88,20 @@ export default function MethodLibraryPanel({ version, onChanged, onImport, onCre
     {busy && <LinearProgress aria-label="Updating method library" />}
     <Typography variant="caption">{visible.length} methods · {targets.length} selected. Select rows to check, archive or restore them.</Typography>
     <MethodExplorer items={visible} onViewChange={clearSelection}>{(pageItems, relativePath) => <>
-    <TableContainer sx={{ maxHeight: 550 }}><Table size="small" stickyHeader aria-label="Imported methods">
+    <TableContainer><Table size="small" stickyHeader aria-label="Imported methods">
       <TableHead><TableRow>
         <TableCell padding="checkbox"><Checkbox inputProps={{ 'aria-label': 'Select this page' }} disabled={busy || !pageItems.length}
           checked={pageItems.length > 0 && pageItems.every(row => selected.includes(row.method_id))}
           indeterminate={pageItems.some(row => selected.includes(row.method_id)) && !pageItems.every(row => selected.includes(row.method_id))}
           onChange={(_, checked) => setSelected(old => checked ? [...new Set([...old, ...pageItems.map(row => row.method_id)])] : old.filter(id => !pageItems.some(row => row.method_id === id)))} /></TableCell>
-        <TableCell>Method and full path</TableCell><TableCell>Path status</TableCell><TableCell>Library</TableCell><TableCell>Schedules</TableCell>
+        <TableCell>Method and path</TableCell><TableCell>Path status</TableCell><TableCell>Library</TableCell><TableCell>Schedules</TableCell>
       </TableRow></TableHead>
       <TableBody>{pageItems.map(row => <TableRow key={row.method_id} hover>
         <TableCell padding="checkbox"><Checkbox inputProps={{ 'aria-label': `Select ${row.file_path}` }} disabled={busy} checked={selected.includes(row.method_id)}
           onChange={(_, checked) => setSelected(old => checked ? [...old, row.method_id] : old.filter(id => id !== row.method_id))} /></TableCell>
         <TableCell sx={{ minWidth: 200, maxWidth: 450, overflowWrap: 'anywhere' }}>
           <Button onClick={() => setDetailId(row.method_id)}>{row.method_name}</Button>
-          <Typography variant="caption" display="block">{relativePath(row.file_path)}</Typography>
+          <Typography variant="caption" display="block" title={row.file_path}>{relativePath(row.file_path)}</Typography>
           {row.duplicate_path && <Typography color="warning.main" variant="caption" display="block">Duplicate path — review entries</Typography>}
         </TableCell>
         <TableCell><Chip size="small" label={pathStatusLabel[row.path_status]} color={row.path_status === 'available' ? 'success' : 'default'} /></TableCell>

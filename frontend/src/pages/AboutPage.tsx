@@ -1,3 +1,4 @@
+import { PageContent, PageHeader } from '../components/PageLayout';
 import React from 'react';
 
 import Container from '@mui/material/Container';
@@ -13,13 +14,7 @@ const GITHUB_URL = 'https://github.com/MxBlackSheep/Shou_OrchestrationSoftware';
 
 const AboutPage: React.FC = () => {
   return (
-    <Container
-      maxWidth="lg"
-      sx={{
-        py: { xs: 3, md: 4 },
-        px: { xs: 2, md: 3 },
-      }}
-    >
+    <PageContent reading>
       <Box
         sx={{
           display: 'flex',
@@ -27,9 +22,7 @@ const AboutPage: React.FC = () => {
           gap: { xs: 2.5, md: 3 },
         }}
       >
-        <Typography variant="h4" fontWeight={700}>
-          About
-        </Typography>
+        <PageHeader title="About" />
 
         <Card sx={{ width: '100%' }}>
           <CardContent
@@ -64,7 +57,7 @@ const AboutPage: React.FC = () => {
           </CardContent>
         </Card>
       </Box>
-    </Container>
+    </PageContent>
   );
 };
 

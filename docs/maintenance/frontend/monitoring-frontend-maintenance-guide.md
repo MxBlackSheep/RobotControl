@@ -1,5 +1,9 @@
 # Frontend Monitoring Maintenance Guide
 
+## Shared page spacing
+
+This page uses `PageContent` and `PageHeader` from `components/PageLayout.tsx`. The application shell supplies navigation, the breadcrumb and outer padding; do not add another outer Container or Back/breadcrumb row. Keep this module's functional tabs and controls. Operational content fills the space beside the sidebar; Maintenance uses the readable-width variant. See [the main application layout guide](main-application-frontend-maintenance-guide.md#shared-page-layout-september-2026) before changing page spacing.
+
 Hamilton SQL status 1 is Running and 2 is Paused. Dashboard and system status must display Paused without a running animation. Paused does not mean completed or unavailable; scheduler log observation continues independently. Run `npm test` in `frontend` for status and scheduling UI regression tests.
 
 Use this whenever you change the real-time monitoring dashboard or WebSocket logic. It explains how the React hook, components, and status banners fit together so you do not accidentally kill live telemetry.

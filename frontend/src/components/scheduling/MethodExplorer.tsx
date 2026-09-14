@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Box, Button, IconButton, Stack, TablePagination, TextField, Typography } from '@mui/material';
+import { Box, Breadcrumbs, Button, IconButton, Stack, TablePagination, TextField, Typography } from '@mui/material';
 import { ChevronRight, ExpandMore, FolderOutlined } from '@mui/icons-material';
 import { folderKey, inFolder, MethodFolder, MethodItem, methodFolders, relativeMethodPath } from './methodFolders';
 
@@ -15,9 +15,22 @@ export default function MethodExplorer<T extends MethodItem>({ items, initialPat
   const [page, setPage] = useState(() => Math.max(0, Math.floor(items.filter(item => inFolder(item.path, folderKey(initialPath))).findIndex(item => item.path === initialPath) / 25)));
   const [pageSize, setPageSize] = useState(25);
   const folders = useMemo(() => methodFolders(items), [items]);
+  const folderTrail = useMemo(() => {
+    const find = (nodes: MethodFolder[], parents: MethodFolder[] = []): MethodFolder[] => {
+      for (const node of nodes) {
+        if (node.key === folder) return [...parents, node];
+        const found = find(node.children, [...parents, node]);
+        if (found.length) return found;
+      }
+      return [];
+    };
+    return find(folders);
+  }, [folders, folder]);
   const shown = useMemo(() => items.filter(item => query.trim()
     ? `${item.name} ${item.path}`.toLowerCase().includes(query.trim().toLowerCase())
     : !!folder && inFolder(item.path, folder)), [items, query, folder]);
+  const absoluteRoots = folders.filter(node => node.key !== '!review');
+  const resultFolder = query.trim() || folder === '*' ? (absoluteRoots.length === 1 ? absoluteRoots[0].key : '*') : folder;
   const safePage = Math.min(page, Math.max(0, Math.ceil(shown.length / pageSize) - 1));
   const rows = shown.slice(safePage * pageSize, (safePage + 1) * pageSize);
   const choose = (key: string) => { setFolder(key); setQuery(''); setPage(0); setMobileResults(true); onViewChange?.(); };
@@ -53,7 +66,11 @@ export default function MethodExplorer<T extends MethodItem>({ items, initialPat
       <TextField fullWidth size="small" label="Search all methods" value={query} onChange={event => { setQuery(event.target.value); setPage(0); setMobileResults(!!event.target.value || !!folder); onViewChange?.(); }} />
       <Stack direction="row" gap={1} alignItems="center">
         <Button size="small" onClick={() => { setFoldersOpen(value => !value); setMobileResults(false); }}>Folders</Button>
-        <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>{query.trim() ? 'Search results — all folders' : folder === '*' ? 'All methods' : folder === '!review' ? 'Needs path review' : folder ? items.find(item => folderKey(item.path) === folder)?.path.replace(/[\\/][^\\/]+$/, '') || folder : 'Choose a folder'}</Typography>
+        {folderTrail.length && !query.trim() ? <Breadcrumbs aria-label="Selected method folder" sx={{ minWidth: 0 }}>
+          {folderTrail.map((node, index) => index === folderTrail.length - 1
+            ? <Typography key={node.key} variant="body2" title={node.path} sx={{ overflowWrap: 'anywhere' }}>{index ? node.name : node.path}</Typography>
+            : <Button key={node.key} size="small" title={node.path} onClick={() => choose(node.key)} sx={{ textTransform: 'none', overflowWrap: 'anywhere' }}>{index ? node.name : node.path}</Button>)}
+        </Breadcrumbs> : <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>{query.trim() ? 'Search results — all folders' : folder === '*' ? 'All methods' : folder === '!review' ? 'Needs path review' : folder || 'Choose a folder'}</Typography>}
       </Stack>
       <Box sx={{ display: 'grid', gap: 2, minWidth: 0, '@container (min-width: 900px)': { gridTemplateColumns: foldersOpen ? '240px minmax(0, 1fr)' : 'minmax(0, 1fr)' } }}>
         <Box sx={{ display: mobileResults ? 'none' : 'block', '@container (min-width: 900px)': { display: foldersOpen ? 'block' : 'none' }, maxHeight: '55vh', overflow: 'auto' }}>
@@ -65,7 +82,8 @@ export default function MethodExplorer<T extends MethodItem>({ items, initialPat
           <Button size="small" sx={{ '@container (min-width: 900px)': { display: 'none' } }} onClick={() => setMobileResults(false)}>Back to folders</Button>
           {!folder && !query.trim() ? <Typography sx={{ p: 2 }}>Select a folder to see its methods, or search all methods above.</Typography> : <>
             <Typography variant="caption">{shown.length} methods</Typography>
-            {children(rows, path => relativeMethodPath(path, query.trim() ? '*' : folder))}
+            {resultFolder !== folder && resultFolder !== '*' && <Typography variant="caption" display="block" sx={{ overflowWrap: 'anywhere' }}>Paths relative to {absoluteRoots[0].path}</Typography>}
+            {children(rows, path => relativeMethodPath(path, inFolder(path, resultFolder) ? resultFolder : '*'))}
             {!shown.length && <Typography sx={{ py: 2 }}>No methods match this view.</Typography>}
             <TablePagination component="div" count={shown.length} page={safePage} rowsPerPage={pageSize} rowsPerPageOptions={[25, 50, 100]}
               onPageChange={(_, next) => setPage(next)} onRowsPerPageChange={event => { setPageSize(Number(event.target.value)); setPage(0); }}

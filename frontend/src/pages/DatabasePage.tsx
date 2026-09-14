@@ -1,3 +1,4 @@
+import { PageContent, PageHeader } from '../components/PageLayout';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Box,
@@ -121,49 +122,8 @@ const DatabasePage: React.FC = () => {
   }
 
   return (
-    <Container 
-      maxWidth="xl" 
-      sx={{ 
-        mt: { xs: 1, sm: 2 }, 
-        mb: { xs: 1, sm: 2 },
-        px: { xs: 1, sm: 2 }
-      }}
-    >
-      {/* Header */}
-      <Box sx={{ 
-        display: 'flex', 
-        alignItems: 'center', 
-        mb: { xs: 1, sm: 2 },
-        flexWrap: 'wrap',
-        gap: 1
-      }}>
-        <Button
-          startIcon={<ArrowBackIcon />}
-          onClick={() => navigate('/')}
-          size="small"
-          sx={{ 
-            mr: { xs: 0, sm: 2 },
-            minHeight: { xs: 44, sm: 36 }
-          }}
-        >
-          Back
-        </Button>
-        <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: 1 }}>
-          <StorageIcon sx={{ 
-            mr: 1, 
-            color: 'primary.main', 
-            fontSize: { xs: 24, sm: 28 }
-          }} />
-          <Typography 
-            variant="h5"
-            sx={{ flexGrow: 1 }}
-          >
-            Database Browser
-          </Typography>
-        </Box>
-        
-        {/* Important tables filter */}
-        <Stack
+    <PageContent>
+      <PageHeader title="Database" actions={        <Stack
           direction={{ xs: 'column', sm: 'row' }}
           spacing={{ xs: 1, sm: 2 }}
           alignItems={{ xs: 'stretch', sm: 'center' }}
@@ -188,8 +148,7 @@ const DatabasePage: React.FC = () => {
               }}
             />
           </Tooltip>
-        </Stack>
-      </Box>
+        </Stack>} />
 
       {error && (
         <ServerError
@@ -475,7 +434,7 @@ const DatabasePage: React.FC = () => {
           )}
         </Box>
       )}
-    </Container>
+    </PageContent>
   );
 };
 

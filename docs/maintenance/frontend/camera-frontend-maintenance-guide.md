@@ -1,5 +1,9 @@
 # Frontend Camera Maintenance Guide
 
+## Shared page spacing
+
+This page uses `PageContent` and `PageHeader` from `components/PageLayout.tsx`. The application shell supplies navigation, the breadcrumb and outer padding; do not add another outer Container or Back/breadcrumb row. Keep this module's functional tabs and controls. Operational content fills the space beside the sidebar; Maintenance uses the readable-width variant. See [the main application layout guide](main-application-frontend-maintenance-guide.md#shared-page-layout-september-2026) before changing page spacing.
+
 If you need to change anything about live video, streaming, or the archive UI, read this first. It walks through every React piece involved so you don’t guess how frames reach the page. Follow the steps in order—skipping one usually breaks the viewer.
 
 ---

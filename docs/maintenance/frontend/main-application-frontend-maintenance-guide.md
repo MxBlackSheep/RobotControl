@@ -1,5 +1,15 @@
 # Frontend Main Application Maintenance Guide
 
+## Shared page layout (September 2026)
+
+`components/PageLayout.tsx` provides `PageContent` and `PageHeader` for authenticated pages. App owns the only outer gutter (16px small / 24px desktop), a 56px account header, and the single breadcrumb location. Do not add another outer MUI Container, Back row, or breadcrumb row inside a page. Put its title and actions in PageHeader; retain functional local tabs outside Scheduling.
+
+Operational pages use all available width. Set `reading` on PageContent for explanatory/settings pages (960px maximum); the email settings card has its own 1000px limit. These limits do not constrain operational tables. PageContent is the named `workspace` CSS container: use its available width, rather than the whole browser width, for layouts that sit beside the sidebar.
+
+Scheduling places Create schedule and Import methods beside its title and uses a compact scheduler-service strip. Its list/runtime columns stack below 1100px of content width. The method explorer switches to sequential folder/results views below 900px of its own width. MUI Dialog retains fixed title/actions with a scrolling body. Preserve input sizes and readable typography when adjusting spacing.
+
+Validation: `PageLayout.test.tsx` checks heading/actions and section breadcrumbs; sidebar and scheduling component tests cover navigation and draft preservation. Browser review uses 390, 1280 and 1920px widths. The in-app browser does not apply zoom shortcuts: 640×360 checks equivalent layout space for 1280×720 at 200%, but is not a native browser-zoom test.
+
 ## Sidebar and section navigation
 
 `components/navigation.tsx` is the shared source for desktop/mobile navigation and Scheduling sections. Keep existing route guards in App as well as navigation filtering. `AppSidebar` replaces the former MobileDrawer and top-level tabs: 240px expanded, 64px collapsed, overlay below 900px. `useSidebarLayout` defaults expanded at 1440px and remembers explicit desktop choices in `robotcontrol.sidebar.expanded`; unavailable localStorage still permits a session choice.

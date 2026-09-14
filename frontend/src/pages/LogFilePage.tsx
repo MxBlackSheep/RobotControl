@@ -1,3 +1,4 @@
+import { PageContent, PageHeader } from '../components/PageLayout';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -379,18 +380,8 @@ const LogFilePage: React.FC = () => {
   );
 
   return (
-    <Container maxWidth="xl" sx={{ py: { xs: 2, md: 3 } }}>
-      <Box sx={{ mb: 3 }}>
-        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-          <DescriptionIcon color="primary" />
-          <Typography variant="h4" sx={{ fontWeight: 700 }}>
-            LogFile
-          </Typography>
-        </Stack>
-        <Typography variant="body2" color="text.secondary">
-          Read-only log file browser and previewer (plain text, .gz history, and .zip archives).
-        </Typography>
-      </Box>
+    <PageContent>
+      <PageHeader title="LogFile" description="Read-only log file browser and previewer (plain text, .gz history, and .zip archives)." />
 
       <Stack spacing={2}>
           {!isLocalSession && (
@@ -679,7 +670,7 @@ const LogFilePage: React.FC = () => {
             </Card>
           </Stack>
       </Stack>
-    </Container>
+    </PageContent>
   );
 };
 

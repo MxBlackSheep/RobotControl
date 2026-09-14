@@ -1,5 +1,9 @@
 # Frontend LogFile Page Maintenance Guide
 
+## Shared page spacing
+
+This page uses `PageContent` and `PageHeader` from `components/PageLayout.tsx`. The application shell supplies navigation, the breadcrumb and outer padding; do not add another outer Container or Back/breadcrumb row. Keep this module's functional tabs and controls. Operational content fills the space beside the sidebar; Maintenance uses the readable-width variant. See [the main application layout guide](main-application-frontend-maintenance-guide.md#shared-page-layout-september-2026) before changing page spacing.
+
 This guide explains the **LogFile** page (top-level tab) used to browse and preview log files from fixed backend-approved folders.
 
 Important: this page is **read-only**. Do not add file edit/delete actions casually.

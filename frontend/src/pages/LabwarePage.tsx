@@ -1,3 +1,4 @@
+import { PageContent, PageHeader } from '../components/PageLayout';
 import React, { useState } from 'react';
 import {
   Box,
@@ -40,36 +41,8 @@ const LabwarePage: React.FC = () => {
   const [tabIndex, setTabIndex] = useState(0);
 
   return (
-    <Container
-      maxWidth="xl"
-      sx={{
-        mt: { xs: 2, md: 4 },
-        mb: { xs: 2, md: 4 },
-        px: { xs: 1, sm: 2 },
-      }}
-    >
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 1,
-          mb: 2,
-          flexWrap: 'wrap',
-        }}
-      >
-        <Button
-          startIcon={<ArrowBackIcon />}
-          onClick={() => navigate('/')}
-          sx={{ minHeight: { xs: 44, sm: 36 } }}
-        >
-          Back
-        </Button>
-
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <LabwareIcon color="primary" />
-          <Typography variant="h5">Labware</Typography>
-        </Box>
-      </Box>
+    <PageContent>
+      <PageHeader title="Labware" />
 
       <Paper sx={{ p: 1.5 }}>
         <Tabs
@@ -91,7 +64,7 @@ const LabwarePage: React.FC = () => {
       <TabPanel value={tabIndex} index={1}>
         <CytomatPanel />
       </TabPanel>
-    </Container>
+    </PageContent>
   );
 };
 

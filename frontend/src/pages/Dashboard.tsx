@@ -1,3 +1,4 @@
+import { PageContent, PageHeader } from '../components/PageLayout';
 import React, { Suspense, Component, ErrorInfo, ReactNode, memo } from 'react';
 
 // Optimized Material-UI imports for better tree-shaking
@@ -66,21 +67,8 @@ ExperimentSkeleton.displayName = 'ExperimentSkeleton';
 
 const Dashboard: React.FC = memo(() => {
   return (
-    <Container 
-      maxWidth="lg" 
-      sx={{ 
-        mt: { xs: 2, md: 4 }, 
-        mb: { xs: 2, md: 4 },
-        px: { xs: 2, sm: 3 }
-      }}
-    >
-      <Typography 
-        variant="h4" 
-        gutterBottom
-        sx={{ mb: { xs: 2, md: 3 } }}
-      >
-        System Dashboard
-      </Typography>
+    <PageContent>
+      <PageHeader title="Dashboard" />
 
       <Grid container spacing={{ xs: 2, md: 3 }}>
         <Grid item xs={12}>
@@ -91,7 +79,7 @@ const Dashboard: React.FC = memo(() => {
           </SimpleErrorBoundary>
         </Grid>
       </Grid>
-    </Container>
+    </PageContent>
   );
 });
 

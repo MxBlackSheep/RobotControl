@@ -53,7 +53,7 @@ it('preserves filter and existing rows after a refresh failure', async () => {
 });
 
 it('keeps selections across pages and clears them when search changes', async () => {
-  const lots = Array.from({length: 60}, (_, i) => ({...rows[0], method_id: String(i), method_name: `Method${i}`, file_path: `C:\Methods\Method${i}.med`}));
+  const lots = Array.from({length: 1000}, (_, i) => ({...rows[0], method_id: String(i), method_name: `Method${i}`, file_path: `C:\Methods\Method${i}.med`}));
   vi.mocked(schedulingAPI.getMethodLibrary).mockResolvedValue({data: {success: true, data: {methods: lots}}} as any);
   render(<MethodLibraryPanel {...props()} />);
   fireEvent.click(screen.getByRole('button', {name: 'All methods'}));
