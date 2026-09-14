@@ -1,5 +1,7 @@
 import { api } from './api';
 
+export type BrowseOptions = {search?:string;file_type?:string;modified_from?:string;modified_to?:string;sort_by?:string;sort_direction?:string;page?:number;limit?:number};
+
 export type PreviewMode = 'head' | 'tail';
 
 export interface LogFileSource {
@@ -100,9 +102,9 @@ export const logFileApi = {
     return unwrapData<LogFileSource[]>(response);
   },
 
-  browse: async (sourceId: string, relativePath = ''): Promise<LogFileBrowseResponse> => {
+  browse: async (sourceId: string, relativePath = '', options:BrowseOptions = {}, signal?:AbortSignal): Promise<LogFileBrowseResponse> => {
     const response = await api.get('/api/logfiles/browse', {
-      params: {
+      signal, params: { ...options,
         source_id: sourceId,
         relative_path: relativePath,
       },
@@ -115,9 +117,10 @@ export const logFileApi = {
     relativePath: string,
     mode: PreviewMode = 'tail',
     maxBytes = 1024 * 1024,
+    signal?:AbortSignal,
   ): Promise<LogFilePreview> => {
     const response = await api.get('/api/logfiles/preview', {
-      params: {
+      signal, params: {
         source_id: sourceId,
         relative_path: relativePath,
         mode,
@@ -130,10 +133,10 @@ export const logFileApi = {
   browseArchive: async (
     sourceId: string,
     archiveRelativePath: string,
-    entryPath = '',
+    entryPath = '', options:BrowseOptions = {}, signal?:AbortSignal,
   ): Promise<LogFileArchiveBrowseResponse> => {
     const response = await api.get('/api/logfiles/archive/browse', {
-      params: {
+      signal, params: { ...options,
         source_id: sourceId,
         archive_relative_path: archiveRelativePath,
         entry_path: entryPath,
@@ -148,9 +151,10 @@ export const logFileApi = {
     entryPath: string,
     mode: PreviewMode = 'tail',
     maxBytes = 1024 * 1024,
+    signal?:AbortSignal,
   ): Promise<LogFilePreview> => {
     const response = await api.get('/api/logfiles/archive/preview', {
-      params: {
+      signal, params: {
         source_id: sourceId,
         archive_relative_path: archiveRelativePath,
         entry_path: entryPath,

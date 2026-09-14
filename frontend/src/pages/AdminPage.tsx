@@ -26,7 +26,7 @@ const AdminPage: React.FC = () => {
 
   return (
     <PageContent>
-      <PageHeader title="Administration" description="Update user email addresses or remove accounts that should no longer have access." />
+      <PageHeader title="Administration" description={section === 0 ? "Update user email addresses or remove accounts that should no longer have access." : "Review and resolve password reset requests."} />
 
       {error && (
         <ErrorAlert

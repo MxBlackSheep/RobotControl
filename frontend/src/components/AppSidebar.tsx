@@ -30,7 +30,7 @@ export default function AppSidebar({ user, mobile, expanded, open, onClose, onTo
             <Box sx={{ display: 'flex', alignItems: 'center' }}>
               <Tooltip title={wide ? '' : item.label} placement="right"><ListItemButton component={grouped && !wide ? 'button' : Link}
                 to={grouped && !wide ? undefined : item.path} aria-label={item.label}
-                aria-haspopup={grouped && !wide ? 'menu' : undefined} aria-expanded={grouped && !wide ? !!anchor : undefined}
+                aria-haspopup={grouped && !wide ? 'menu' : undefined} aria-expanded={grouped && !wide ? !!anchor && menuPath === item.path : undefined}
                 selected={location.pathname === item.path} onClick={event => { if (grouped && !wide) { setMenuPath(item.path); setAnchor(event.currentTarget); } else finish(); }}
                 sx={{ minHeight: 44, px: 1.5, borderRadius: 1, flex: 1 }}>
                 <ListItemIcon sx={{ minWidth: wide ? 36 : 24 }}><item.icon color={item.path === '/scheduling' && recoveryActive ? 'error' : 'inherit'} /></ListItemIcon>

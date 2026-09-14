@@ -317,3 +317,41 @@ def test_logfiles_remote_can_access_allowed_source_but_not_local_only(monkeypatc
         headers={"x-forwarded-for": "8.8.8.8"},
     )
     assert remote_blocked_response.status_code == 403
+
+
+def test_paged_search_reaches_old_files_and_has_deterministic_ties(monkeypatch, tmp_path):
+    roots = _set_test_sources(monkeypatch, tmp_path)
+    for i in range(251):
+        path = roots["primary"] / f"file_{i:03d}.TRC"
+        path.write_text("data", encoding="utf-8")
+        os.utime(path, (1700000000, 1700000000))
+    headers = {"x-forwarded-for": "127.0.0.1"}
+    params = {"source_id":"primary", "limit":25, "sort_by":"name", "sort_direction":"asc"}
+    response = client.get("/api/logfiles/browse", params={**params,"page":11}, headers=headers).json()["data"]
+    assert response["items"][0]["name"] == "file_250.TRC"
+    assert response["relative_path"] == ""
+    found = client.get("/api/logfiles/browse", params={**params,"search":"FILE_250","file_type":"traces"}, headers=headers).json()["data"]
+    assert found["total_items"] == 1
+    assert client.get("/api/logfiles/browse", params={**params,"limit":201}, headers=headers).status_code == 422
+    assert client.get("/api/logfiles/browse", params={**params,"modified_from":"2026-01-02","modified_to":"2026-01-01"}, headers=headers).status_code == 400
+
+
+def test_zip_search_and_paging_beyond_200(monkeypatch, tmp_path):
+    roots = _set_test_sources(monkeypatch, tmp_path)
+    with zipfile.ZipFile(roots["primary"] / "many.zip", "w") as archive:
+        for i in range(225): archive.writestr(f"nested/run_{i:03d}.log", "hello")
+    headers = {"x-forwarded-for":"127.0.0.1"}
+    params = {"source_id":"primary","archive_relative_path":"many.zip","entry_path":"nested","limit":25,"sort_by":"name","sort_direction":"asc"}
+    data = client.get("/api/logfiles/archive/browse", params={**params,"page":9}, headers=headers).json()["data"]
+    assert data["items"][0]["name"] == "run_200.log"
+    data = client.get("/api/logfiles/archive/browse", params={**params,"search":"224"}, headers=headers).json()["data"]
+    assert data["total_items"] == 1 and data["items"][0]["name"] == "run_224.log"
+
+
+def test_archive_routes_preserve_source_extension_restrictions(monkeypatch, tmp_path):
+    roots = _set_test_sources(monkeypatch, tmp_path)
+    with zipfile.ZipFile(roots["primary"] / "hidden.zip", "w") as archive: archive.writestr("secret.txt", "not a trace")
+    logfiles_api.LOGFILE_SOURCES["primary"]["allowed_extensions"] = [".trc"]
+    for endpoint in ["browse", "preview"]:
+        response = client.get(f"/api/logfiles/archive/{endpoint}", params={"source_id":"primary","archive_relative_path":"hidden.zip","entry_path":"secret.txt"}, headers={"x-forwarded-for":"127.0.0.1"})
+        assert response.status_code == 400

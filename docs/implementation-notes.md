@@ -1,5 +1,14 @@
 # RobotControl Development Log (Chronological)
 
+## 2026-09-14 Paged Logs workspace and Windows delivery
+
+- Added per-source sidebar navigation, 50-entry paging (25/100 options), filename search across each directory/ZIP before pagination, metadata filters and deterministic sorting. Existing API callers retain the 200-entry default. Root/extension/local-session restrictions remain enforced, including direct archive requests.
+- Replaced the bulky browser with a file panel and text reader: separate file/preview refresh, Latest/Beginning, preview-only Find, wrap, details/copy path, full-screen expansion and a narrow-screen Back/Reading tools flow. Successful folder/preview snapshots survive errors with stale explanations; superseded requests cannot replace newer content. Follow latest is opt-in, plain-file-only, waits for each request, stops when hidden/on error, and respects reading position.
+- Browser validation covered 390/1280/1920 widths, source selection and Find retention, Escape/focus restoration, all new sidebar sections, a Cytomat draft retained across sections then discarded, and no streaming session started by Camera navigation. The packaged UI reached entries 201–250 of 1,816 logs. Tested 640×360 as the layout equivalent of 200% at 1280×720; native browser zoom remains an operator check.
+- Validation: 65 focused frontend tests and 266 backend tests pass. Windows frontend build, resource embedding and isolated PyInstaller packaging succeed. SQL search and paged log reads were checked through the package. Candidate: `dist/RobotControl-browsing/RobotControl.exe` with `_internal`. Runtime data and earlier packages are preserved; disposable validation files and package-generated test data are removed after checks.
+
+---
+
 ## 2026-09-14 Database browsing and applied queries
 
 - Replaced the cramped table catalogue with a collapsible searchable panel and an explicit narrow-screen list/detail view. Removed fabricated 1,000-row counts. Tables retain rows during refresh, distinguish NULL/empty values, expose keyboard cell details and visible-column controls. Procedure/function browsing now has search and preserves its selection on refresh.

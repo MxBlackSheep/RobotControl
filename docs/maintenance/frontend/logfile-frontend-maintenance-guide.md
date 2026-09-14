@@ -138,3 +138,18 @@ Do not convert this into a fatal modal. Locked files are expected during robot o
 ### September 2026: shared section navigation
 
 `components/navigation.tsx` is the source of section names, URLs and UI permissions. Use `useModuleSection` and `moduleSectionUrl`; do not add another horizontal page tab bar. The sidebar supports expanded links, rail menus and mobile navigation. `SectionPanel` mounts on first visit and retains drafts/scroll within the page session. Components that poll must take an active flag and suspend their timer when hidden. Camera navigation never starts/stops a session. Database Restore remains admin **or** local; Operations and RobotControl logs remain local-only. Backend permissions still apply.
+
+
+### September 2026: paged log browsing and reader
+
+Use the Logs sidebar sections (Python logs, Hamilton traces, RobotControl logs). Source permissions still come from the backend; RobotControl logs require a local session. Missing/inaccessible sources show a retryable explanation. Each visited source keeps its own folder, search, page, selection and reading state until the page is left.
+
+The file list defaults to 50 entries and offers 25/100. Filename search is submitted explicitly and applies to the **whole current directory before pagination**, including ZIP directories. It does not search file contents or recurse through the disk. Sort by Name/Modified/Size; type/date filters affect files while retaining reachable folders. The list retains its last successful folder/results if a request fails. New responses cannot overwrite later navigation.
+
+The existing browse endpoints accept optional `search` (up to 200 characters), `file_type=all|text|traces|archives`, `modified_from`, `modified_to` (ISO dates), `sort_by=name|modified|size`, `sort_direction=asc|desc`, `page` and `limit` (up to 200). Calls omitting these options retain the old newest-first, first-200 behavior. Filesystem and ZIP routes share filtering/paging and deterministic name ties. The API remains read-only, uses configured roots and extension restrictions, and executes blocking filesystem work in FastAPI's worker pool.
+
+Refresh files updates the directory list. Refresh in the reader updates the selected preview. Latest/Beginning remain limited to 1 MB; Find in preview searches only returned text (up to 500 highlighted matches), not the rest of the file. Details exposes the full path, Copy path and technical metadata. On narrow screens use Back to files and Reading tools. Expand opens a full-screen reader; Escape restores focus to Expand.
+
+Follow latest is off by default. When enabled it refreshes a selected plain file every five seconds **after the preceding request settles**. It stops on source/file changes, hidden sections/documents and errors, and is unavailable for ZIP/gzip previews. Reading above the bottom keeps the scroll position; Jump to latest is offered when new content arrives. Failed same-file reads retain an explicitly stale preview. Source/path/archive-entry identity prevents same-name files from sharing previews.
+
+Tests: `backend/tests/test_logfiles_api.py` covers large folders/ZIPs, sorting, filters, permissions and preview formats. `frontend/src/components/LogSourceBrowser.test.tsx` covers request races, refresh separation, stale retention, follow lifecycle and expanded-reader accessibility. Browser checks use read-only access; do not enable camera streaming or run methods merely to validate these views.

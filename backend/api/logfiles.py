@@ -12,7 +12,7 @@ import logging
 import time
 import zipfile
 from collections import deque
-from datetime import datetime
+from datetime import datetime, date
 import errno
 from pathlib import Path, PurePosixPath
 from typing import Any, BinaryIO, Deque, Dict, List, Literal, Optional, Tuple
@@ -182,23 +182,35 @@ def _serialize_fs_item(item: Path) -> Optional[Dict[str, Any]]:
     return payload
 
 
-def _sort_and_limit_items(items: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], int, bool]:
-    def _sort_key(item: Dict[str, Any]):
+def _sort_and_limit_items(items: List[Dict[str, Any]], *, search: str = "", file_type: str = "all", modified_from: Optional[date] = None, modified_to: Optional[date] = None, sort_by: str = "modified", sort_direction: str = "desc", page: int = 1, limit: int = MAX_BROWSE_ITEMS) -> Tuple[List[Dict[str, Any]], int, bool]:
+    """Filter the entire current directory before paging; retain legacy 200-item defaults."""
+    def matches(item):
+        if search.casefold() not in item.get("name", "").casefold():
+            return False
         if item.get("is_directory"):
-            return (0, item.get("name", "").lower())
-        modified_ts = float(item.get("modified_timestamp") or 0.0)
-        # Files: newest first, then name
-        return (1, -modified_ts, item.get("name", "").lower())
-
-    items.sort(key=_sort_key)
-    total_items = len(items)
-    truncated = total_items > MAX_BROWSE_ITEMS
-    visible_items = items[:MAX_BROWSE_ITEMS]
-
-    for item in visible_items:
-        item.pop("modified_timestamp", None)
-
-    return visible_items, total_items, truncated
+            return True  # Keep folders reachable while narrowing file metadata.
+        ext = item.get("extension", "").lower()
+        if file_type == "archives" and ext not in {".zip", ".gz"}:
+            return False
+        if file_type == "text" and ext in {".zip", ".gz"}:
+            return False
+        if file_type == "traces" and ext != ".trc":
+            return False
+        modified = str(item.get("modified_date") or "")[:10]
+        return not ((modified_from and modified < modified_from.isoformat()) or (modified_to and (not modified or modified > modified_to.isoformat())))
+    filtered = [item for item in items if matches(item)]
+    # Stable case-sensitive identity breaks equal names, timestamps and sizes.
+    filtered.sort(key=lambda item: (item.get("name", "").casefold(), item.get("name", ""), item.get("entry_path", item.get("path", ""))))
+    def key(item):
+        if sort_by == "name": return item.get("name", "").casefold()
+        if sort_by == "size": return item.get("size") or 0
+        return item.get("modified_timestamp") or 0
+    folders = sorted((item for item in filtered if item.get("is_directory")), key=lambda item: (item["name"].casefold(), item["name"]))
+    files = sorted((item for item in filtered if not item.get("is_directory")), key=key, reverse=sort_direction == "desc")
+    ordered = folders + files
+    offset = (page - 1) * limit
+    result = ordered[offset:offset + limit]
+    return result, len(ordered), len(result) < len(ordered)
 
 
 def _looks_binary(data: bytes) -> bool:
@@ -441,7 +453,7 @@ def _response_metadata(start_time: float, operation: str, current_user: Dict[str
 
 
 @router.get("/sources")
-async def list_logfile_sources(
+def list_logfile_sources(
     current_user: Dict[str, Any] = Depends(get_current_user),
     connection: ConnectionContext = Depends(get_connection_context),
 ):
@@ -489,13 +501,23 @@ async def list_logfile_sources(
 
 
 @router.get("/browse")
-async def browse_logfiles(
+def browse_logfiles(
     source_id: str = Query(..., description="Configured source identifier"),
     relative_path: str = Query("", description="Path relative to the selected source"),
+    search: str = Query("", max_length=200),
+    file_type: Literal["all", "text", "traces", "archives"] = Query("all"),
+    modified_from: Optional[date] = Query(None),
+    modified_to: Optional[date] = Query(None),
+    sort_by: Literal["name", "modified", "size"] = Query("modified"),
+    sort_direction: Literal["asc", "desc"] = Query("desc"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(MAX_BROWSE_ITEMS, ge=1, le=MAX_BROWSE_ITEMS),
     current_user: Dict[str, Any] = Depends(get_current_user),
     connection: ConnectionContext = Depends(get_connection_context),
 ):
     start_time = time.time()
+    if modified_from and modified_to and modified_from > modified_to:
+        return ResponseFormatter.bad_request(message="Modified-from date must not be later than modified-to date")
 
     try:
         source_config, root = _resolve_source_root(source_id)
@@ -529,7 +551,7 @@ async def browse_logfiles(
     except OSError as exc:
         return ResponseFormatter.server_error(message="Failed to browse directory", details=str(exc))
 
-    items, total_items, truncated = _sort_and_limit_items(items)
+    items, total_items, truncated = _sort_and_limit_items(items, search=search, file_type=file_type, modified_from=modified_from, modified_to=modified_to, sort_by=sort_by, sort_direction=sort_direction, page=page, limit=limit)
 
     relative_current = ""
     try:
@@ -545,12 +567,12 @@ async def browse_logfiles(
                 "path": source_config["path"],
             },
             "current_path": _path_to_str(target),
-            "relative_path": relative_current,
+            "relative_path": "" if relative_current == "." else relative_current,
             "items": items,
             "total_items": total_items,
             "returned_items": len(items),
             "truncated": truncated,
-            "max_items": MAX_BROWSE_ITEMS,
+            "max_items": limit, "page": page, "limit": limit,
         },
         metadata=_response_metadata(
             start_time,
@@ -561,14 +583,14 @@ async def browse_logfiles(
             item_count=total_items,
             returned_items=len(items),
             truncated=truncated,
-            max_items=MAX_BROWSE_ITEMS,
+            max_items=limit,
         ),
         message="Log directory listed",
     )
 
 
 @router.get("/preview")
-async def preview_logfile(
+def preview_logfile(
     source_id: str = Query(..., description="Configured source identifier"),
     relative_path: str = Query(..., description="File path relative to source"),
     mode: str = Query("tail", description="Preview mode: head or tail"),
@@ -677,14 +699,24 @@ async def preview_logfile(
 
 
 @router.get("/archive/browse")
-async def browse_archive_entries(
+def browse_archive_entries(
     source_id: str = Query(...),
     archive_relative_path: str = Query(..., description="ZIP archive path relative to source"),
     entry_path: str = Query("", description="Directory path inside archive"),
+    search: str = Query("", max_length=200),
+    file_type: Literal["all", "text", "traces", "archives"] = Query("all"),
+    modified_from: Optional[date] = Query(None),
+    modified_to: Optional[date] = Query(None),
+    sort_by: Literal["name", "modified", "size"] = Query("modified"),
+    sort_direction: Literal["asc", "desc"] = Query("desc"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(MAX_BROWSE_ITEMS, ge=1, le=MAX_BROWSE_ITEMS),
     current_user: Dict[str, Any] = Depends(get_current_user),
     connection: ConnectionContext = Depends(get_connection_context),
 ):
     start_time = time.time()
+    if modified_from and modified_to and modified_from > modified_to:
+        return ResponseFormatter.bad_request(message="Modified-from date must not be later than modified-to date")
 
     try:
         source_config, root = _resolve_source_root(source_id)
@@ -699,6 +731,8 @@ async def browse_archive_entries(
     if access_error:
         return access_error
 
+    if not _is_allowed_file_for_source(source_config, archive_path):
+        return ResponseFormatter.bad_request(message="This archive type is not enabled for the selected log source")
     if not archive_path.exists() or not archive_path.is_file():
         return ResponseFormatter.not_found(message="Archive not found", details={"archive_relative_path": archive_relative_path})
     if archive_path.suffix.lower() != ".zip":
@@ -770,7 +804,7 @@ async def browse_archive_entries(
     except OSError as exc:
         return ResponseFormatter.server_error(message="Failed to read archive", details=str(exc))
 
-    items, total_items, truncated = _sort_and_limit_items(list(children.values()))
+    items, total_items, truncated = _sort_and_limit_items(list(children.values()), search=search, file_type=file_type, modified_from=modified_from, modified_to=modified_to, sort_by=sort_by, sort_direction=sort_direction, page=page, limit=limit)
 
     return ResponseFormatter.success(
         data={
@@ -789,7 +823,7 @@ async def browse_archive_entries(
             "total_items": total_items,
             "returned_items": len(items),
             "truncated": truncated,
-            "max_items": MAX_BROWSE_ITEMS,
+            "max_items": limit, "page": page, "limit": limit,
         },
         metadata=_response_metadata(
             start_time,
@@ -801,14 +835,14 @@ async def browse_archive_entries(
             item_count=total_items,
             returned_items=len(items),
             truncated=truncated,
-            max_items=MAX_BROWSE_ITEMS,
+            max_items=limit,
         ),
         message="Archive entries listed",
     )
 
 
 @router.get("/archive/preview")
-async def preview_archive_entry(
+def preview_archive_entry(
     source_id: str = Query(...),
     archive_relative_path: str = Query(..., description="ZIP archive path relative to source"),
     entry_path: str = Query(..., description="File path inside zip archive"),
@@ -835,6 +869,8 @@ async def preview_archive_entry(
     if access_error:
         return access_error
 
+    if not _is_allowed_file_for_source(source_config, archive_path):
+        return ResponseFormatter.bad_request(message="This archive type is not enabled for the selected log source")
     if not archive_path.exists() or not archive_path.is_file():
         return ResponseFormatter.not_found(message="Archive not found", details={"archive_relative_path": archive_relative_path})
     if archive_path.suffix.lower() != ".zip":

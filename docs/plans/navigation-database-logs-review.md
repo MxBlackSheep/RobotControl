@@ -1,6 +1,6 @@
 # Extend section navigation and improve Database / LogFile browsing
 
-Status: approved; implementation started 14 September 2026. Delivered in navigation, Database and Logs commits.
+Status: implemented 14 September 2026 in separate navigation, Database and Logs commits. See implementation notes for validation and the packaged candidate.
 
 ## Findings
 
