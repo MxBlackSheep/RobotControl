@@ -5,6 +5,11 @@ Main FastAPI application that consolidates all simplified services.
 Replaces the complex web_app structure with a clean, unified backend.
 """
 
+# Divert packaged camera children before importing services with startup side effects.
+if __name__ == "__main__":
+    import multiprocessing
+    multiprocessing.freeze_support()
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, HTMLResponse

@@ -1,5 +1,9 @@
 # Camera Service Maintenance Guide
 
+## Current capture ownership
+
+CameraService delegates hardware ownership to CameraRuntime. Exactly one spawned camera_worker owns OpenCV capture and writing. Never open hardware from discovery or API handlers. Manual reconnect waits 15 seconds, may terminate only the helper, and verifies exit before replacement. IPC contains one fixed 640x480 preview slot and an acknowledged clip-event pipe. Device identity is stored in data/config/camera_selection.json and resolved to an index on each connection. Partial AVI files are unfinished; only finalized clips and JSON sidecars enter archival. Legacy clips retain unknown metadata. The older thread-based description below is historical and will be replaced in the final frontend integration stage.
+
 ## uv setup and verification
 
 Install and run Python tools through the root uv project. Run `uv run --locked python -m pytest backend/tests/test_camera.py backend/tests/test_automatic_recording.py backend/tests/test_camera_download_api.py`. Camera tests mock OpenCV using numeric capture-property constants and patch lazy imports at their defining modules. Automation properties require `PropertyMock`; do not assign to read-only properties. Recording downloads accept both GET and HEAD; HEAD returns the same metadata with no body.

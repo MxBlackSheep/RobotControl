@@ -1,5 +1,9 @@
 # RobotControl Development Log (Chronological)
 
+## 2026-09-14 Camera process ownership and device identity
+
+Camera capture and MJPEG writing now run in one spawned helper. The parent owns serialized operations, fixed-size preview IPC, generation checks and clip acknowledgements. Manual reconnect verifies helper exit before replacement. DirectShow metadata enumeration replaces capture probing; selection is saved by device identity. Finalized clips carry actual metadata sidecars; interrupted clips remain partial. Packaged children divert before application startup. Lifecycle and worker tests use isolated storage and mocked devices (22 passing).
+
 ## 2026-09-14 Bounded camera delivery and N100 candidate
 
 - Streaming wakes on coalesced frame notifications, shares current-frame JPEG variants in two bounded encoding workers, and gives each viewer one latest-frame slot and an independent delivery task. Slow/disconnected viewers cannot backlog native work or block other viewers. Existing recording/quality settings and resource guard remain intact.

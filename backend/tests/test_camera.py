@@ -1,318 +1,33 @@
-"""
-Comprehensive tests for the simplified camera service
-
-Tests cover:
-- Camera detection and initialization
-- Recording functionality with mocked hardware
-- Live streaming capabilities
-- Archive management
-- Error handling and edge cases
-- Thread safety and resource cleanup
-"""
-
-import cv2
-import pytest
-import asyncio
-import threading
-import time
-import tempfile
-import shutil
-from unittest.mock import Mock, patch, MagicMock, call
-from pathlib import Path
-from datetime import datetime, timedelta
+"""Camera tests use isolated storage and never enumerate or open physical devices."""
 from collections import deque
-
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-
+from datetime import datetime, timedelta
+from pathlib import Path
+from unittest.mock import Mock, patch
+import pytest
 from backend.services.camera import CameraService
-from backend.services.storage_manager import StorageManager
-from backend.config import CAMERA_CONFIG
+from backend.services.camera_runtime import CameraRuntime
+from backend.services.camera_devices import resolve_device
 
+DEVICES = [{"id": 0, "name": "USB camera", "device_identity": "usb:a", "status": "available"},
+           {"id": 3, "name": "USB camera", "device_identity": "usb:b", "status": "available"}]
 
 class TestCameraService:
-    """Test suite for CameraService"""
-    
     @pytest.fixture
-    def temp_video_path(self):
-        """Create temporary directory for video storage during tests"""
-        temp_dir = tempfile.mkdtemp()
-        yield Path(temp_dir)
-        shutil.rmtree(temp_dir, ignore_errors=True)
-    
+    def temp_video_path(self, tmp_path):
+        return tmp_path / "videos"
+
     @pytest.fixture
     def camera_service(self, temp_video_path):
-        """Create camera service instance with mocked video path"""
-        with patch('backend.services.camera.VIDEO_PATH', str(temp_video_path)), \
-             patch('backend.services.storage_manager.VIDEO_PATH', str(temp_video_path)):
-            import backend.services.storage_manager as storage_manager_module
-            storage_manager_module._storage_manager_instance = None
+        with patch("backend.services.camera.VIDEO_PATH", str(temp_video_path)), patch(
+                "backend.services.camera_runtime.enumerate_devices", return_value=DEVICES):
             CameraService._instance = None
-
             service = CameraService()
-            service.video_path = temp_video_path
-            service.rolling_clips_path = temp_video_path / "rolling_clips"
-            service.experiments_path = temp_video_path / "experiments"
-            service._create_directories()
-
-            storage_manager = StorageManager()
-            storage_manager.video_path = temp_video_path
-            storage_manager.rolling_clips_path = service.rolling_clips_path
-            storage_manager.experiments_path = service.experiments_path
-            storage_manager._ensure_directories_exist()
-            service._storage_manager = storage_manager
-
-            try:
-                yield service
-            finally:
-                service.shutdown()
-                CameraService._instance = None
-                storage_manager_module._storage_manager_instance = None
-    
-    @pytest.fixture
-    def mock_cv2(self):
-        """Mock OpenCV for testing without hardware"""
-        with patch('cv2.VideoCapture') as mock_cap_class:
-            mock_cap = Mock()
-            mock_cap_class.return_value = mock_cap
-            
-            # Configure mock camera to simulate working camera
-            mock_cap.isOpened.return_value = True
-            mock_cap.get.side_effect = lambda prop: {
-                cv2.CAP_PROP_FRAME_WIDTH: 640,
-                cv2.CAP_PROP_FRAME_HEIGHT: 480,
-                cv2.CAP_PROP_FPS: 30
-            }.get(prop, 30)
-            
-            # Mock successful frame reading
-            import numpy as np
-            fake_frame = np.zeros((480, 640, 3), dtype=np.uint8)
-            mock_cap.read.return_value = (True, fake_frame)
-            
-            yield mock_cap_class, mock_cap
-
-
-class TestCameraDetection(TestCameraService):
-    """Tests for camera detection functionality"""
-    
-    def test_detect_cameras_with_working_cameras(self, camera_service, mock_cv2):
-        """Test detection of working cameras"""
-        mock_cap_class, mock_cap = mock_cv2
-        
-        # Test detection
-        cameras = camera_service.detect_cameras()
-        
-        # Verify results
-        assert len(cameras) == CAMERA_CONFIG["max_cameras"]
-        for i, camera in enumerate(cameras):
-            assert camera["id"] == i
-            assert camera["name"] == f"Camera {i}"
-            assert camera["width"] == 640
-            assert camera["height"] == 480
-            assert camera["fps"] == 30
-            assert camera["status"] == "available"
-        
-        # Verify cameras are stored in service
-        assert len(camera_service.cameras) == CAMERA_CONFIG["max_cameras"]
-    
-    def test_detect_cameras_with_no_cameras(self, camera_service):
-        """Test detection when no cameras are available"""
-        with patch('cv2.VideoCapture') as mock_cap_class:
-            mock_cap = Mock()
-            mock_cap_class.return_value = mock_cap
-            mock_cap.isOpened.return_value = False
-            
-            cameras = camera_service.detect_cameras()
-            
-            assert len(cameras) == 0
-            assert len(camera_service.cameras) == 0
-    
-    def test_detect_cameras_with_partial_failure(self, camera_service):
-        """Test detection with some cameras failing"""
-        with patch('cv2.VideoCapture') as mock_cap_class:
-            def mock_camera_open(camera_id, backend=None):
-                mock_cap = Mock()
-                # Only camera 0 works
-                mock_cap.isOpened.return_value = (camera_id == 0)
-                if camera_id == 0:
-                    mock_cap.get.side_effect = lambda prop: 640 if 'WIDTH' in str(prop) else 480 if 'HEIGHT' in str(prop) else 30
-                return mock_cap
-            
-            mock_cap_class.side_effect = mock_camera_open
-            
-            cameras = camera_service.detect_cameras()
-            
-            assert len(cameras) == 1
-            assert cameras[0]["id"] == 0
-
-
-class TestCameraRecording(TestCameraService):
-    """Tests for camera recording functionality"""
-    
-    def test_start_recording_success(self, camera_service, mock_cv2):
-        """Test successful recording start"""
-        mock_cap_class, mock_cap = mock_cv2
-        
-        # Setup cameras
-        camera_service.detect_cameras()
-        
-        # Start recording
-        success = camera_service.start_recording(0)
-        
-        assert success is True
-        assert 0 in camera_service.recording_threads
-        assert 0 in camera_service.stop_events
-        assert camera_service.recording_threads[0].is_alive()
-    
-    def test_start_recording_camera_not_found(self, camera_service):
-        """Test recording start with invalid camera"""
-        success = camera_service.start_recording(999)
-        assert success is False
-    
-    def test_start_recording_already_recording(self, camera_service, mock_cv2):
-        """Test starting recording on already recording camera"""
-        mock_cap_class, mock_cap = mock_cv2
-        camera_service.detect_cameras()
-        
-        # Start recording first time
-        success1 = camera_service.start_recording(0)
-        assert success1 is True
-        
-        # Try to start again
-        success2 = camera_service.start_recording(0)
-        assert success2 is False
-    
-    def test_stop_recording_success(self, camera_service, mock_cv2):
-        """Test successful recording stop"""
-        mock_cap_class, mock_cap = mock_cv2
-        camera_service.detect_cameras()
-        
-        # Start then stop recording
-        camera_service.start_recording(0)
-        success = camera_service.stop_recording(0)
-        
-        assert success is True
-        assert 0 not in camera_service.recording_threads
-        assert 0 not in camera_service.stop_events
-    
-    def test_stop_recording_not_recording(self, camera_service, mock_cv2):
-        """Test stopping recording on camera that's not recording"""
-        mock_cap_class, mock_cap = mock_cv2
-        camera_service.detect_cameras()
-        
-        success = camera_service.stop_recording(0)
-        assert success is False
-    
-    def test_stop_recording_camera_not_found(self, camera_service):
-        """Test stopping recording on invalid camera"""
-        success = camera_service.stop_recording(999)
-        assert success is False
-
-
-class TestRecordingWorker(TestCameraService):
-    """Tests for the recording worker thread"""
-    
-    @patch('cv2.VideoWriter')
-    @patch('cv2.imencode')
-    def test_recording_worker_frame_processing(self, mock_imencode, mock_writer_class, camera_service, mock_cv2):
-        """Test that recording worker processes frames correctly"""
-        mock_cap_class, mock_cap = mock_cv2
-        
-        # Setup video writer mock
-        mock_writer = Mock()
-        mock_writer_class.return_value = mock_writer
-        mock_writer.isOpened.return_value = True
-        
-        # Setup frame encoding mock
-        import numpy as np
-        mock_imencode.return_value = (True, np.array([1, 2, 3]))
-        
-        camera_service.detect_cameras()
-        
-        # Start recording for short duration
-        camera_service.start_recording(0)
-        
-        # Wait a bit for frames to be processed
-        time.sleep(0.5)
-        
-        # Stop recording
-        camera_service.stop_recording(0)
-
-        # Verify the video writer was configured for 7.5fps rolling clips
-        assert mock_writer_class.call_args is not None
-        fps_arg = mock_writer_class.call_args[0][2]
-        assert pytest.approx(fps_arg, rel=0.01) == 7.5
-        
-        # Verify video writer was called
-        assert mock_writer.write.called
-        assert mock_writer.release.called
-    
-    def test_recording_worker_cleanup_old_clips(self, camera_service, mock_cv2):
-        """Test that old clips are cleaned up properly"""
-        mock_cap_class, mock_cap = mock_cv2
-        
-        # Reduce rolling clips count for testing
-        camera_service.rolling_clips_count = 3
-        camera_service.rolling_clips = deque(maxlen=3)
-        
-        # Add some mock clips
-        for i in range(5):
-            clip_path = camera_service.rolling_clips_path / f"test_clip_{i}.mp4"
-            clip_path.touch()  # Create empty file
-            
-            camera_service.rolling_clips.append({
-                "path": str(clip_path),
-                "timestamp": datetime.now(),
-                "camera_id": 0,
-                "frame_count": 100
-            })
-        
-        # Trigger cleanup
-        camera_service._cleanup_old_clips()
-        
-        # Check that clips were limited
-        assert len(camera_service.rolling_clips) <= camera_service.rolling_clips_count
-
-
-class TestLiveStreaming(TestCameraService):
-    """Tests for live streaming functionality"""
-    
-    def test_get_live_frame_success(self, camera_service, mock_cv2):
-        """Test getting live frame when camera is recording"""
-        mock_cap_class, mock_cap = mock_cv2
-        camera_service.detect_cameras()
-        
-        test_frame_data = b"fake_jpeg_data"
-        with patch('backend.services.live_streaming.get_live_streaming_service') as mock_get_service:
-            mock_streaming_service = Mock()
-            mock_streaming_service.get_latest_frame_bytes.return_value = test_frame_data
-            mock_get_service.return_value = mock_streaming_service
-
-            frame = camera_service.get_live_frame(0)
-            assert frame == test_frame_data
-            mock_streaming_service.get_latest_frame_bytes.assert_called()
-    
-    def test_get_live_frame_no_camera(self, camera_service):
-        """Test getting live frame from non-existent camera"""
-        with patch('backend.services.live_streaming.get_live_streaming_service') as mock_get_service:
-            mock_streaming_service = Mock()
-            mock_streaming_service.get_latest_frame_bytes.return_value = None
-            mock_get_service.return_value = mock_streaming_service
-
-            frame = camera_service.get_live_frame(999)
-            assert frame is None
-    
-    def test_get_live_frame_not_recording(self, camera_service, mock_cv2):
-        """Test getting live frame when camera is not recording"""
-        with patch('backend.services.live_streaming.get_live_streaming_service') as mock_get_service:
-            mock_streaming_service = Mock()
-            mock_streaming_service.get_latest_frame_bytes.return_value = None
-            mock_get_service.return_value = mock_streaming_service
-
-            frame = camera_service.get_live_frame(0)
-            assert frame is None
-
+            from backend.services.storage_manager import StorageManager
+            with patch("backend.services.storage_manager.VIDEO_PATH", str(temp_video_path)):
+                service._storage_manager = StorageManager()
+            yield service
+            service.shutdown()
+            CameraService._instance = None
 
 class TestExperimentArchiving(TestCameraService):
     """Tests for experiment video archiving"""
@@ -369,242 +84,122 @@ class TestExperimentArchiving(TestCameraService):
         assert len(archived_files) < 5
 
 
-class TestCameraStatus(TestCameraService):
-    """Tests for camera status and health monitoring"""
-    
-    def test_get_camera_status(self, camera_service, mock_cv2):
-        """Test getting comprehensive camera status"""
-        mock_cap_class, mock_cap = mock_cv2
-        camera_service.detect_cameras()
-        camera_service.start_recording(0)
-        
-        status = camera_service.get_camera_status()
-        
-        assert "cameras_detected" in status
-        assert "cameras_recording" in status
-        assert "rolling_clips_count" in status
-        assert "cameras" in status
-        assert status["cameras_detected"] == CAMERA_CONFIG["max_cameras"]
-        assert status["cameras_recording"] == 1
-        
-        # Check individual camera status
-        camera_status = status["cameras"][0]
-        assert camera_status["recording"] is True
-        assert camera_status["has_live_stream"] is True  # Streaming integration has a shared buffer.
-    
-    def test_get_recent_clips(self, camera_service, temp_video_path):
-        """Test getting recent clips list"""
-        # Add some mock clips
-        for i in range(5):
-            clip_path = camera_service.rolling_clips_path / f"clip_{i}.mp4"
-            clip_path.write_bytes(b"fake video data")
-            
-            camera_service.rolling_clips.append({
-                "path": str(clip_path),
-                "timestamp": datetime.now(),
-                "camera_id": 0,
-                "frame_count": 100 + i
-            })
-        
-        clips = camera_service.get_recent_clips(limit=3)
-        
-        assert len(clips) == 3
-        for clip in clips:
-            assert "filename" in clip
-            assert "timestamp" in clip
-            assert "camera_id" in clip
-            assert "frame_count" in clip
-            assert "size_bytes" in clip
-    
-    def test_health_check_healthy(self, camera_service, mock_cv2):
-        """Test health check when system is healthy"""
-        mock_cap_class, mock_cap = mock_cv2
-        camera_service.detect_cameras()
-        camera_service.start_recording(0)
-        
-        health = camera_service.health_check()
-        
-        assert "healthy" in health
-        assert "storage_accessible" in health
-        assert "active_recording_threads" in health
-        assert "total_cameras" in health
-        assert "free_disk_space_gb" in health
-        assert "rolling_clips_count" in health
-    
-    def test_health_check_unhealthy_storage(self, camera_service):
-        """Test health check with storage issues"""
-        # Make video path inaccessible
-        camera_service.video_path = Path("/nonexistent/path")
-        
-        health = camera_service.health_check()
-        
-        assert health["healthy"] is False
-        assert health["storage_accessible"] is False
 
+class TestCameraLifecycle(TestCameraService):
+    def test_discovery_replaces_stale_entries_without_capture(self, camera_service):
+        with patch("cv2.VideoCapture") as capture:
+            assert len(camera_service.detect_cameras()) == 2
+            with patch("backend.services.camera_runtime.enumerate_devices", return_value=[]):
+                assert camera_service.detect_cameras() == []
+            assert camera_service.cameras == {}
+            capture.assert_not_called()
 
-class TestThreadSafety(TestCameraService):
-    """Tests for thread safety and concurrent operations"""
-    
-    def test_concurrent_camera_operations(self, camera_service, mock_cv2):
-        """Test concurrent camera start/stop operations"""
-        mock_cap_class, mock_cap = mock_cv2
-        camera_service.detect_cameras()
-        
-        def start_stop_camera(camera_id):
-            camera_service.start_recording(camera_id)
-            time.sleep(0.1)
-            camera_service.stop_recording(camera_id)
-        
-        # Start multiple threads doing camera operations
-        threads = []
-        for i in range(2):  # Use available cameras
-            thread = threading.Thread(target=start_stop_camera, args=(i,))
-            threads.append(thread)
-            thread.start()
-        
-        # Wait for all threads to complete
-        for thread in threads:
-            thread.join(timeout=5)
-        
-        # Verify clean state
-        assert len(camera_service.recording_threads) == 0
-        assert len(camera_service.stop_events) == 0
-    
-    def test_concurrent_clip_access(self, camera_service):
-        """Test concurrent access to rolling clips"""
-        def add_clips():
-            for i in range(10):
-                camera_service.rolling_clips.append({
-                    "path": f"clip_{i}.mp4",
-                    "timestamp": datetime.now(),
-                    "camera_id": 0,
-                    "frame_count": 100
-                })
-        
-        def read_clips():
-            for _ in range(10):
-                camera_service.get_recent_clips(limit=5)
-                time.sleep(0.01)
-        
-        # Start concurrent operations
-        threads = [
-            threading.Thread(target=add_clips),
-            threading.Thread(target=read_clips),
-            threading.Thread(target=read_clips)
-        ]
-        
-        for thread in threads:
-            thread.start()
-        
-        for thread in threads:
-            thread.join(timeout=5)
-        
-        # Verify no exceptions occurred and clips exist
-        assert len(camera_service.rolling_clips) > 0
+    def test_selected_identity_survives_index_changes(self, camera_service):
+        runtime = camera_service.runtime
+        runtime.run("select", identity="usb:b")
+        assert runtime.identity == "usb:b"
+        assert resolve_device([{**DEVICES[1], "id": 0}], runtime.identity)["id"] == 0
+        restored = CameraRuntime(runtime.folder, 60, Mock(), Mock())
+        assert restored.identity == "usb:b"
 
+    @pytest.mark.parametrize("devices", [[], [DEVICES[0], DEVICES[0]]])
+    def test_missing_or_ambiguous_identity_rejected(self, devices):
+        with pytest.raises(ValueError, match="missing or ambiguous"):
+            resolve_device(devices, "usb:a")
 
-class TestErrorHandling(TestCameraService):
-    """Tests for error handling and edge cases"""
-    
-    def test_recording_with_camera_failure(self, camera_service, mock_cv2):
-        """Test recording behavior when camera fails during operation"""
-        mock_cap_class, mock_cap = mock_cv2
-        camera_service.detect_cameras()
-        
-        # Start recording
-        camera_service.start_recording(0)
-        
-        # Simulate camera failure
-        mock_cap.read.return_value = (False, None)
-        
-        # Wait for error handling
-        time.sleep(0.5)
-        
-        # Recording should still be running (error tolerant)
-        assert 0 in camera_service.recording_threads
-    
-    def test_cleanup_with_missing_files(self, camera_service):
-        """Test cleanup when clip files are missing"""
-        # Add clips with non-existent files
-        for i in range(3):
-            camera_service.rolling_clips.append({
-                "path": f"/nonexistent/clip_{i}.mp4",
-                "timestamp": datetime.now(),
-                "camera_id": 0,
-                "frame_count": 100
-            })
-        
-        # Should not raise exception
-        camera_service._cleanup_old_clips()
-    
-    def test_shutdown_with_active_recordings(self, camera_service, mock_cv2):
-        """Test service shutdown with active recordings"""
-        mock_cap_class, mock_cap = mock_cv2
-        camera_service.detect_cameras()
-        
-        # Start recordings
-        camera_service.start_recording(0)
-        if len(camera_service.cameras) > 1:
-            camera_service.start_recording(1)
-        
-        # Shutdown should stop all recordings
-        camera_service.shutdown()
-        
-        assert len(camera_service.recording_threads) == 0
-        assert len(camera_service.stop_events) == 0
+    def test_selection_cannot_change_recording(self, camera_service):
+        runtime = camera_service.runtime
+        runtime.recording_requested = True
+        with pytest.raises(ValueError, match="Stop recording"):
+            runtime.run("select", identity="usb:b")
 
+    def test_concurrent_operations_rejected(self, camera_service):
+        runtime = camera_service.runtime
+        runtime.operation_lock.acquire()
+        try:
+            with pytest.raises(ValueError, match="in progress"):
+                runtime.submit("reconnect")
+            with pytest.raises(ValueError, match="in progress"):
+                runtime.run("start", camera_id=0)
+        finally:
+            runtime.operation_lock.release()
 
-class TestSingletonBehavior:
-    """Tests for singleton pattern behavior"""
-    
-    def test_singleton_instance(self):
-        """Test that CameraService follows singleton pattern"""
-        # Reset singleton
-        CameraService._instance = None
-        
-        # Create two instances
-        service1 = CameraService()
-        service2 = CameraService()
-        
-        # Should be the same instance
-        assert service1 is service2
-        
-        # Cleanup
-        service1.shutdown()
-        CameraService._instance = None
-    
-    def test_get_camera_service_function(self):
-        """Test the get_camera_service helper function"""
-        from backend.services.camera import get_camera_service
-        
-        # Reset singleton
-        CameraService._instance = None
-        
-        service1 = get_camera_service()
-        service2 = get_camera_service()
-        
-        assert service1 is service2
-        assert isinstance(service1, CameraService)
-        
-        # Cleanup
-        service1.shutdown()
-        CameraService._instance = None
+    def test_failed_start_never_reports_recording(self, camera_service):
+        with patch.object(camera_service.runtime, "connect", side_effect=RuntimeError("open failed")):
+            assert not camera_service.start_recording(0)
+        assert camera_service.get_camera_status()["cameras_recording"] == 0
 
+    def test_second_camera_rejected_without_changing_intent(self, camera_service):
+        runtime = camera_service.runtime
+        runtime.process = Mock()
+        runtime.camera_id = 0
+        runtime.recording_requested = True
+        try:
+            with pytest.raises(ValueError, match="Only one"):
+                runtime.connect(True, camera_id=3)
+            assert runtime.recording_requested
+        finally:
+            runtime.process = None
 
-# Pytest configuration and fixtures
-@pytest.fixture(scope="session", autouse=True)
-def setup_test_environment():
-    """Setup test environment"""
-    # Ensure test directories exist
-    test_data_dir = Path(__file__).parent.parent.parent / "data"
-    test_data_dir.mkdir(exist_ok=True)
-    
-    yield
-    
-    # Cleanup after all tests
-    CameraService._instance = None
+    @pytest.mark.parametrize("age,state", [(0, "connected"), (9.99, "connected"), (10, "no_frames"), (80, "no_frames")])
+    def test_freshness_boundary_not_pixel_content(self, camera_service, age, state):
+        runtime = camera_service.runtime
+        runtime.process = Mock()
+        runtime.process.is_alive.return_value = True
+        runtime.ready = runtime.recording_requested = True
+        runtime.counters[1] = 100
+        try:
+            with patch("backend.services.camera_runtime.time.monotonic", return_value=100+age):
+                assert runtime.status()["capture_state"] == state
+                assert (runtime.status()["recording_state"] == "recording") == (state == "connected")
+        finally:
+            runtime.process = None
 
+    def test_force_stop_verifies_exit_before_forgetting_worker(self, camera_service):
+        runtime = camera_service.runtime
+        process = runtime.process = Mock()
+        runtime.stop_event, runtime.monitor, runtime.events = Mock(), Mock(), Mock()
+        runtime.monitor.is_alive.return_value = False
+        process.is_alive.side_effect = [True, True]
+        with pytest.raises(RuntimeError, match="could not be stopped"):
+            runtime._stop()
+        assert runtime.process is process
+        process.close.assert_not_called()
+        process.is_alive.side_effect = [True, False]
+        runtime._stop()
+        assert runtime.process is None
+        process.close.assert_called_once()
 
-if __name__ == "__main__":
-    # Run tests directly with pytest
-    pytest.main([__file__, "-v", "--tb=short"])
+    def test_manual_stop_clears_recording_intent(self, camera_service):
+        runtime = camera_service.runtime
+        runtime.recording_requested = True
+        with patch.object(runtime, "_stop"):
+            runtime.run("stop")
+        with patch.object(runtime, "connect") as connect:
+            runtime.run("reconnect")
+            connect.assert_called_once_with(camera_id=None)
+        assert not runtime.recording_requested
+
+    def test_reconcile_preserves_metadata_excludes_partial(self, camera_service):
+        import json
+        folder = camera_service.rolling_clips_path
+        final = folder / "clip_new.avi"
+        final.write_bytes(b"video")
+        final.with_suffix(".json").write_text(json.dumps({"timestamp": datetime.now().isoformat(),
+            "camera_id": 3, "frame_count": 42, "actual_duration": 7, "device_identity": "usb:b"}))
+        partial = folder / "clip_failed.partial.avi"
+        partial.write_bytes(b"partial")
+        camera_service._sync_memory_with_filesystem()
+        assert len(camera_service.rolling_clips) == 1
+        assert camera_service.rolling_clips[0]["frame_count"] == 42
+        assert camera_service.rolling_clips[0]["camera_id"] == 3
+        camera_service._cleanup_orphaned_files()
+        assert partial.exists()
+
+    def test_legacy_metadata_is_unknown(self, camera_service):
+        (camera_service.rolling_clips_path / "clip_20260101_120000.avi").touch()
+        camera_service._sync_memory_with_filesystem()
+        assert camera_service.rolling_clips[0]["frame_count"] is None
+
+    def test_health_when_disconnected_is_not_healthy(self, camera_service):
+        assert not camera_service.health_check()["healthy"]
