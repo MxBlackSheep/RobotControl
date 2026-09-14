@@ -178,7 +178,8 @@ class ExperimentMonitor:
         Args:
             callback: Function that takes ExperimentState as parameter
         """
-        self.completion_callbacks.append(callback)
+        if callback not in self.completion_callbacks:
+            self.completion_callbacks.append(callback)
         logger.debug(f"Added experiment completion callback: {callback.__name__}")
     
     def remove_completion_callback(self, callback: Callable[[ExperimentState], None]):

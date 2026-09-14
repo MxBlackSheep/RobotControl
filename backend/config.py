@@ -78,6 +78,8 @@ class Settings:
 
 # Camera system configuration
 CAMERA_CONFIG = {
+    "no_frame_seconds": 10,
+    "startup_seconds": 20,
     "max_cameras": 2,                       # Maximum number of cameras to detect
     "recording_duration_minutes": 1,        # Duration of each video segment in minutes
     "archive_duration_minutes": 15,         # Minutes of clips to archive per experiment

@@ -109,7 +109,7 @@ class StorageManager:
                     # Look for both mp4 and avi files (camera can create either format)
                     for pattern in ["*.mp4", "*.avi"]:
                         for clip_file in self.rolling_clips_path.glob(pattern):
-                            if clip_file.is_file():
+                            if clip_file.is_file() and ".partial." not in clip_file.name:
                                 try:
                                     stat = clip_file.stat()
                                     clips.append((clip_file, stat.st_mtime, stat.st_size))
@@ -127,6 +127,7 @@ class StorageManager:
                     for clip_file, _, size_bytes in clips[:clips_to_remove]:
                         try:
                             clip_file.unlink()
+                            clip_file.with_suffix(".json").unlink(missing_ok=True)
                             result.rolling_clips_removed += 1
                             result.storage_freed_bytes += size_bytes
                             logger.debug(f"Removed old rolling clip: {clip_file.name}")
@@ -260,7 +261,7 @@ class StorageManager:
                 
                 # Collect clips within archive window
                 for clip in list(rolling_clips):
-                    if clip.get("timestamp") and clip["timestamp"] >= cutoff_time:
+                    if clip.get("timestamp") and clip["timestamp"] >= cutoff_time and ".partial." not in Path(clip["path"]).name:
                         clips_to_archive.append(clip)
                 
                 # Sort clips by timestamp for organized archiving

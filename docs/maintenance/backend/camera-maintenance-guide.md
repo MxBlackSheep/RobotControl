@@ -1,5 +1,9 @@
 # Camera Service Maintenance Guide
 
+## Camera control API
+
+GET /api/camera/control-status reads cached state; it never probes devices. POST /devices/refresh, PATCH /selection with device_identity, POST /connect, POST /reconnect and POST /recording/start or /recording/stop require an administrator and return 202 with an operation ID. Poll control-status for pending/succeeded/failed and inline errors. Conflicting operations return 409. Missing-frame and startup allowances are CAMERA_CONFIG no_frame_seconds (10) and startup_seconds (20); these do not trigger reconnect. Automatic recording may wait for a missing camera, and a later manual connect resumes the existing intent. Manual stop clears intent. Repeated-image detection is deliberately absent.
+
 ## Current capture ownership
 
 CameraService delegates hardware ownership to CameraRuntime. Exactly one spawned camera_worker owns OpenCV capture and writing. Never open hardware from discovery or API handlers. Manual reconnect waits 15 seconds, may terminate only the helper, and verifies exit before replacement. IPC contains one fixed 640x480 preview slot and an acknowledged clip-event pipe. Device identity is stored in data/config/camera_selection.json and resolved to an index on each connection. Partial AVI files are unfinished; only finalized clips and JSON sidecars enter archival. Legacy clips retain unknown metadata. The older thread-based description below is historical and will be replaced in the final frontend integration stage.

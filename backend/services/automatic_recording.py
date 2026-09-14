@@ -297,7 +297,7 @@ class AutomaticRecordingService:
                 
             elif action == "start":
                 # Manual start - override delay and start immediately
-                target_camera_id = camera_id or self.primary_camera_id
+                target_camera_id = self.primary_camera_id if camera_id is None else camera_id
                 
                 with self.state_lock:
                     if self.current_state == AutomationState.ACTIVE:
@@ -392,7 +392,7 @@ class AutomaticRecordingService:
                 self._handle_error(error_msg)
                 
                 with self.state_lock:
-                    self.current_state = AutomationState.ERROR
+                    self.current_state = AutomationState.WAITING if getattr(self, "_waiting_for_camera", False) else AutomationState.ERROR
                     
         except Exception as e:
             error_msg = f"Error in automatic recording startup: {e}"
@@ -412,20 +412,27 @@ class AutomaticRecordingService:
         Returns:
             True if recording started successfully
         """
+        self._waiting_for_camera = False
         try:
             if not self.camera_service:
                 logger.error("Camera service not available")
                 return False
+
+            self.camera_service.prepare_automatic_recording(self._on_camera_started)
             
             # Detect cameras if not already done
             cameras = self.camera_service.detect_cameras()
             if not cameras:
+                self._waiting_for_camera = True
                 logger.warning("AutoRecording | event=recording_start_failed | reason=no_cameras")
                 return False
+
+            camera_id = self.camera_service.automatic_camera_id(camera_id)
             
             # Check if specified camera exists
             camera_found = any(cam["id"] == camera_id for cam in cameras)
             if not camera_found:
+                self._waiting_for_camera = True
                 logger.error("AutoRecording | event=recording_start_failed | reason=camera_missing | camera_id=%s", camera_id)
                 return False
             
@@ -445,6 +452,14 @@ class AutomaticRecordingService:
             logger.error("AutoRecording | event=recording_start_exception | camera_id=%s | error=%s", camera_id, e)
             return False
     
+    def _on_camera_started(self, camera_id):
+        # Also called when an operator connects a camera after failed startup.
+        with self.state_lock:
+            self.recording_camera_id = camera_id
+            self.current_state = AutomationState.ACTIVE
+            self.error_message = None
+        self._setup_experiment_monitoring()
+
     def _setup_experiment_monitoring(self):
         """Setup experiment monitoring with completion callback"""
         try:

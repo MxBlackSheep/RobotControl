@@ -15,6 +15,7 @@ class AutomationState(Enum):
     """Automation service states"""
     STOPPED = "stopped"
     STARTING = "starting"
+    WAITING = "waiting_for_camera"
     ACTIVE = "active"
     STOPPING = "stopping"
     ERROR = "error"

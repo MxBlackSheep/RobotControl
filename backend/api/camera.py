@@ -20,6 +20,8 @@ import time
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 from pathlib import Path
+from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 from email.utils import formatdate
 from urllib.parse import quote
 
@@ -60,6 +62,54 @@ logger = logging.getLogger(__name__)
 # Create API router
 router = APIRouter(prefix="/camera", tags=["camera"])
 
+
+class CameraSelectionRequest(BaseModel):
+    device_identity: str = Field(min_length=1, max_length=4096)
+
+
+def _camera_operation(action, **kwargs):
+    try:
+        operation = get_camera_service().runtime.submit(action, **kwargs)
+        return {"success": True, "data": {"operation": operation}}
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.get("/control-status")
+async def camera_control_status(current_user: UserModel = Depends(get_current_user)):
+    # Read cached state only: status polling never opens or reconnects hardware.
+    return {"success": True, "data": get_camera_service().get_camera_status()}
+
+
+@router.post("/devices/refresh", status_code=202)
+async def refresh_camera_devices(current_user: UserModel = Depends(get_current_admin_user)):
+    return _camera_operation("refresh")
+
+
+@router.patch("/selection", status_code=202)
+async def select_camera(body: CameraSelectionRequest, current_user: UserModel = Depends(get_current_admin_user)):
+    return _camera_operation("select", identity=body.device_identity)
+
+
+@router.post("/connect", status_code=202)
+async def connect_camera(current_user: UserModel = Depends(get_current_admin_user)):
+    return _camera_operation("connect")
+
+
+@router.post("/reconnect", status_code=202)
+async def reconnect_camera(current_user: UserModel = Depends(get_current_admin_user)):
+    return _camera_operation("reconnect")
+
+
+@router.post("/recording/start", status_code=202)
+async def start_selected_camera(current_user: UserModel = Depends(get_current_admin_user)):
+    return _camera_operation("start")
+
+
+@router.post("/recording/stop", status_code=202)
+async def stop_selected_camera(current_user: UserModel = Depends(get_current_admin_user)):
+    return _camera_operation("stop")
+
 # Camera system paths
 VIDEO_BASE_PATH = Path(VIDEO_PATH)
 ROLLING_CLIPS_PATH = VIDEO_BASE_PATH / "rolling_clips"
@@ -76,6 +126,9 @@ def _resolve_recording_file_path(recording_id: str) -> Optional[Path]:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid recording ID"
         )
+
+    if ".partial." in recording_id:
+        raise HTTPException(status_code=409, detail="Recording is incomplete and is not available as a finalized clip")
 
     # Check rolling clips first
     rolling_path = ROLLING_CLIPS_PATH / recording_id
@@ -207,7 +260,7 @@ async def list_cameras(current_user: UserModel = Depends(get_current_user)):
         
         # Detect available cameras if not already done
         if not camera_service.cameras:
-            camera_service.detect_cameras()
+            await run_in_threadpool(camera_service.detect_cameras)
         
         camera_status = camera_service.get_camera_status()
         
@@ -346,7 +399,7 @@ async def start_camera_recording(
         
         # Detect cameras if not already done
         if not camera_service.cameras:
-            camera_service.detect_cameras()
+            await run_in_threadpool(camera_service.detect_cameras)
         
         # Validate camera exists
         if camera_id not in camera_service.cameras:
@@ -356,7 +409,7 @@ async def start_camera_recording(
             )
         
         # Start recording
-        success = camera_service.start_recording(camera_id)
+        success = await run_in_threadpool(camera_service.start_recording, camera_id)
         
         if not success:
             raise HTTPException(
@@ -364,7 +417,7 @@ async def start_camera_recording(
                 detail=f"Failed to start recording on camera {camera_id}. It may already be recording."
             )
         
-        logger.info(f"Recording started on camera {camera_id} by user {current_user.username}")
+        logger.info(f"Recording started on camera {camera_id} by user {(current_user.get("username", "unknown") if isinstance(current_user, dict) else current_user.username)}")
         
         return ApiResponse(
             success=True,
@@ -372,7 +425,7 @@ async def start_camera_recording(
             data={
                 "camera_id": camera_id,
                 "status": "recording",
-                "started_by": current_user.username,
+                "started_by": (current_user.get("username", "unknown") if isinstance(current_user, dict) else current_user.username),
                 "start_time": datetime.utcnow().isoformat()
             }
         )
@@ -406,7 +459,7 @@ async def stop_camera_recording(
             )
         
         # Stop recording
-        success = camera_service.stop_recording(camera_id)
+        success = await run_in_threadpool(camera_service.stop_recording, camera_id)
         
         if not success:
             raise HTTPException(
@@ -414,7 +467,7 @@ async def stop_camera_recording(
                 detail=f"Failed to stop recording on camera {camera_id}. It may not be recording."
             )
         
-        logger.info(f"Recording stopped on camera {camera_id} by user {current_user.username}")
+        logger.info(f"Recording stopped on camera {camera_id} by user {(current_user.get("username", "unknown") if isinstance(current_user, dict) else current_user.username)}")
         
         return ApiResponse(
             success=True,
@@ -422,7 +475,7 @@ async def stop_camera_recording(
             data={
                 "camera_id": camera_id,
                 "status": "stopped",
-                "stopped_by": current_user.username,
+                "stopped_by": (current_user.get("username", "unknown") if isinstance(current_user, dict) else current_user.username),
                 "stop_time": datetime.utcnow().isoformat()
             }
         )
@@ -687,13 +740,13 @@ async def delete_recording(
         file_path.unlink()
 
         if file_path.parent == ROLLING_CLIPS_PATH:
-            logger.info(f"Deleted rolling clip '{recording_id}' by user {current_user.username}")
+            logger.info(f"Deleted rolling clip '{recording_id}' by user {(current_user.get("username", "unknown") if isinstance(current_user, dict) else current_user.username)}")
         else:
             logger.info(
                 "Deleted experiment recording '%s' from '%s' by user %s",
                 recording_id,
                 file_path.parent,
-                current_user.username
+                (current_user.get("username", "unknown") if isinstance(current_user, dict) else current_user.username)
             )
         
         return ApiResponse(
@@ -701,7 +754,7 @@ async def delete_recording(
             message=f"Recording '{recording_id}' deleted successfully",
             data={
                 "recording_id": recording_id,
-                "deleted_by": current_user.username,
+                "deleted_by": (current_user.get("username", "unknown") if isinstance(current_user, dict) else current_user.username),
                 "delete_time": datetime.utcnow().isoformat()
             }
         )
@@ -926,7 +979,8 @@ async def camera_health_check():
     """
     try:
         camera_service = get_camera_service()
-        health_info = camera_service.health_check()
+        health_info = await run_in_threadpool(camera_service.health_check)
+        health_info = {key: value for key, value in health_info.items() if key in ("healthy", "storage_accessible", "active_recording_threads", "total_cameras", "free_disk_space_gb", "rolling_clips_count")}
         
         if health_info["healthy"]:
             return ApiResponse(
@@ -1019,7 +1073,7 @@ async def start_automation(
         result = auto_recording_service.handle_manual_override("start", camera_id)
         
         if result["success"]:
-            logger.info(f"Manual automation start by user {current_user.username}: {result}")
+            logger.info(f"Manual automation start by user {(current_user.get("username", "unknown") if isinstance(current_user, dict) else current_user.username)}: {result}")
             
             return ApiResponse(
                 success=True,
@@ -1028,7 +1082,7 @@ async def start_automation(
                     "action": result["action"],
                     "camera_id": result.get("camera_id"),
                     "manual_override": result.get("manual_override", False),
-                    "started_by": current_user.username,
+                    "started_by": (current_user.get("username", "unknown") if isinstance(current_user, dict) else current_user.username),
                     "start_time": datetime.utcnow().isoformat()
                 }
             )
@@ -1071,7 +1125,7 @@ async def stop_automation(current_user: UserModel = Depends(get_current_admin_us
         result = auto_recording_service.handle_manual_override("stop")
         
         if result["success"]:
-            logger.info(f"Manual automation stop by user {current_user.username}: {result}")
+            logger.info(f"Manual automation stop by user {(current_user.get("username", "unknown") if isinstance(current_user, dict) else current_user.username)}: {result}")
             
             return ApiResponse(
                 success=True,
@@ -1079,7 +1133,7 @@ async def stop_automation(current_user: UserModel = Depends(get_current_admin_us
                 data={
                     "action": result["action"],
                     "manual_override": result.get("manual_override", False),
-                    "stopped_by": current_user.username,
+                    "stopped_by": (current_user.get("username", "unknown") if isinstance(current_user, dict) else current_user.username),
                     "stop_time": datetime.utcnow().isoformat()
                 }
             )

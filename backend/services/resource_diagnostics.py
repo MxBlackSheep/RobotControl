@@ -35,6 +35,12 @@ def runtime_counts():
                 counts["frames.bytes"] = sum(frame.size_bytes for frame in service.buffer)
         if prefix == "streaming":
             counts["streaming.delivery_tasks"] = len(getattr(service, "_delivery_tasks", {}))
+    camera = getattr(sys.modules.get("backend.services.camera"), "_camera_service", None)
+    if camera is not None:
+        health = camera.runtime.status()
+        for field in ("generation", "capture_state", "recording_state", "frame_sequence",
+                      "last_frame_age_seconds", "last_write_age_seconds", "heartbeat_age_seconds", "read_failures"):
+            counts[f"camera.{field}"] = health[field]
     return counts
 
 

@@ -64,6 +64,7 @@ class TestAutomaticRecordingService:
         mock_service = Mock()
         
         # Mock camera detection
+        mock_service.automatic_camera_id.side_effect = lambda fallback: fallback
         mock_service.detect_cameras.return_value = [
             {"id": 0, "name": "Camera 0", "width": 640, "height": 480, "fps": 30, "status": "available"},
             {"id": 1, "name": "Camera 1", "width": 640, "height": 480, "fps": 30, "status": "available"}

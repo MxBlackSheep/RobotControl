@@ -1,5 +1,9 @@
 # RobotControl Development Log (Chronological)
 
+## 2026-09-14 Camera health and manual control APIs
+
+Added authenticated cached camera health and admin-only asynchronous discovery, selection, connect/reconnect and recording operations. Existing numeric recording routes execute off the event loop. Automatic startup retains recording intent when no camera is available and the later manual connection reattaches archival monitoring without duplicate callbacks. Health distinguishes frame freshness from recording and reports generations/progress to opt-in diagnostics. Partial clips are excluded from storage cleanup and download. Full backend suite: 281 passing.
+
 ## 2026-09-14 Camera process ownership and device identity
 
 Camera capture and MJPEG writing now run in one spawned helper. The parent owns serialized operations, fixed-size preview IPC, generation checks and clip acknowledgements. Manual reconnect verifies helper exit before replacement. DirectShow metadata enumeration replaces capture probing; selection is saved by device identity. Finalized clips carry actual metadata sidecars; interrupted clips remain partial. Packaged children divert before application startup. Lifecycle and worker tests use isolated storage and mocked devices (22 passing).

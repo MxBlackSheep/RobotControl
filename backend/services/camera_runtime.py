@@ -47,6 +47,7 @@ class CameraRuntime:
         self.counters = [0.] * 6
         self.no_frame_seconds = 10
         self.startup_seconds = 20
+        self.on_recording_started = None
 
     def refresh(self):
         devices = enumerate_devices()
@@ -126,6 +127,8 @@ class CameraRuntime:
             raise RuntimeError(self.error)
         if self.identity is None:
             self._save_identity(identity)
+        if self.recording_requested and self.on_recording_started:
+            self.on_recording_started(self.camera_id)
 
     def _observe(self, process, generation, events):
         last_sequence = 0
@@ -184,6 +187,8 @@ class CameraRuntime:
         process.close()
         self.process = self.monitor = None
         self.ready = False
+        self.counters = list(self.counters)
+        self.pixels = self.frame_lock = None
         self.publish(None)
         if forced:
             logger.warning("Camera helper terminated; its current clip remains incomplete")
@@ -235,7 +240,11 @@ class CameraRuntime:
 
     def status(self):
         now = time.monotonic()
-        alive = self.process is not None and self.process.is_alive()
+        process = self.process
+        try:
+            alive = process is not None and process.is_alive()
+        except ValueError:  # A concurrent completed stop has closed the handle.
+            alive = False
         age = now - self.counters[1] if alive and self.counters[1] else None
         state = "connected" if alive and self.ready else "disconnected"
         if alive and not self.ready and not self.error:

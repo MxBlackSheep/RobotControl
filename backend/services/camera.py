@@ -119,6 +119,8 @@ class CameraService:
         
         self.runtime = CameraRuntime(self.rolling_clips_path, self.recording_duration,
                                      self._publish_frame, self._accept_clip)
+        self.runtime.no_frame_seconds = CAMERA_CONFIG.get("no_frame_seconds", 10)
+        self.runtime.startup_seconds = CAMERA_CONFIG.get("startup_seconds", 20)
         logger.info("CameraService initialized")
     
     def enable_streaming_integration(self):
@@ -220,6 +222,16 @@ class CameraService:
         except Exception as exc:
             logger.error("Camera recording start failed: %s", exc)
             return False
+
+    def prepare_automatic_recording(self, callback):
+        self.runtime.recording_requested = True
+        self.runtime.on_recording_started = callback
+
+    def automatic_camera_id(self, fallback):
+        if self.runtime.identity:
+            from backend.services.camera_devices import resolve_device
+            return resolve_device(self.runtime.devices, self.runtime.identity)["id"]
+        return fallback
 
     def stop_recording(self, camera_id):
         if camera_id != self.runtime.camera_id or not self.runtime.recording_requested:
