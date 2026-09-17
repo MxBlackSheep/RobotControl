@@ -21,7 +21,7 @@ class FakeScheduler:
         self.add_calls.append(experiment)
         return True
 
-    def update_schedule(self, experiment: ScheduledExperiment) -> bool:
+    def update_schedule(self, experiment: ScheduledExperiment, **kwargs) -> bool:
         self.update_calls.append(experiment)
         return True
 
@@ -39,7 +39,7 @@ class FakeDB:
     def get_schedule_by_id(self, schedule_id: str) -> Optional[ScheduledExperiment]:
         return self.schedules.get(schedule_id)
 
-    def update_scheduled_experiment(self, schedule: ScheduledExperiment) -> bool:
+    def update_scheduled_experiment(self, schedule: ScheduledExperiment, **kwargs) -> bool:
         self.schedules[schedule.schedule_id] = schedule
         return True
 

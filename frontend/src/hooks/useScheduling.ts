@@ -236,7 +236,7 @@ const useScheduling = () => {
       setOperationStatus(SchedulingOperationStatus.Updating);
       setError(null);
       try {
-        const result = await schedulingService.archiveSchedule(schedule.schedule_id, archived);
+        const result = await schedulingService.archiveSchedule(schedule.schedule_id, archived, schedule.updated_at || undefined);
         if (result.error) {
           setError(result.error);
           setOperationStatus(SchedulingOperationStatus.Error);
@@ -414,13 +414,16 @@ const useScheduling = () => {
 
   const resolveRecovery = useCallback(
     async (scheduleId: string, note?: string): Promise<void> => {
+      if (!window.confirm('Confirm the robot is ready and HxRun is closed. Acknowledgement keeps queued jobs paused until you choose Resume queued jobs.')) return;
       setOperationStatus(SchedulingOperationStatus.Updating);
       setError(null);
       const scheduleFromState = schedules.find((schedule) => schedule.schedule_id === scheduleId);
       const expected = scheduleFromState?.updated_at;
       try {
-        const result = await schedulingService.resolveRecovery(scheduleId, note, expected);
+        const result = await schedulingService.resolveRecovery(scheduleId, note, expected, manualRecovery?.safety_revision);
         if (result.error) {
+          const refreshed = await schedulingService.getQueueStatus();
+          if (refreshed.manualRecovery) setManualRecovery(refreshed.manualRecovery);
           setError(result.error);
           setOperationStatus(SchedulingOperationStatus.Error);
           return;
@@ -438,7 +441,7 @@ const useScheduling = () => {
         setOperationStatus(SchedulingOperationStatus.Error);
       }
     },
-    [loadSchedules, schedules],
+    [loadSchedules, schedules, manualRecovery],
   );
 
   const getQueueStatus = useCallback(async (): Promise<void> => {

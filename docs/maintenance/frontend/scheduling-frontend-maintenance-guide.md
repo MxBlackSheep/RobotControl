@@ -1,5 +1,11 @@
 # Frontend Scheduling Maintenance Guide
 
+## Recovery acknowledgement and Resume (2026-09-14)
+
+`RecoverySafetyPanel` lists all pending incidents, including missing and archived schedules. Acknowledgement requires the displayed safety revision and robot-ready confirmation; missing schedules also require a note. It never resumes jobs. The separate Resume button warns that due jobs may start immediately. Remote sessions have no mutation controls. Refresh after conflicts; do not retry automatically with a newer revision. Storage errors remain visible and keep controls disabled. Deletion and archive controls also respect schedule recovery flags; the backend is authoritative.
+
+The local Administration page includes `SQLiteHealthPanel` for administrator-reviewed repairs and separate abandoned-run reconciliation. Preview first; apply submits the reviewed token and reports the retained backup. See the [SQLite safety guide](../backend/sqlite-safety-maintenance-guide.md).
+
 ## Compact workspace layout
 
 Scheduling uses the shared PageContent/PageHeader shell and sidebar section URLs. The heading owns Create schedule and Import methods; MethodLibraryPanel receives `showImportAction={false}` here to avoid duplicating the import button. The service strip reports the scheduler service, while Runtime Queue retains separate Hamilton run and log conditions. Scheduling content starts around 190px at 1280×720 without alerts.

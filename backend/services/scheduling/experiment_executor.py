@@ -13,6 +13,7 @@ Features:
 """
 
 import logging
+from contextlib import nullcontext
 import subprocess
 import time
 import threading
@@ -385,13 +386,15 @@ class ExperimentExecutor:
             if self.run_log_monitor:
                 self.run_log_monitor.prepare(self._monitor_schedule or experiment, execution, method_path,
                                              self._monitor_terminate_schedule)
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == 'nt' else 0
-            )
+            guard = getattr(self, 'launch_guard', None)
+            with guard(self._monitor_schedule or experiment, execution) if guard else nullcontext():
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == 'nt' else 0
+                )
             
             # Track active execution
             with self._execution_lock:

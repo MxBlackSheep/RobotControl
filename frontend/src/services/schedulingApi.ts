@@ -117,6 +117,13 @@ export const normalizeManualRecovery = (payload: unknown): ManualRecoveryState |
   const data = payload as Record<string, unknown>;
   return {
     active: Boolean(data.active),
+    safety_revision: typeof data.safety_revision === 'number' ? data.safety_revision : undefined,
+    resume_required: Boolean(data.resume_required),
+    pending_recoveries: Array.isArray(data.pending_recoveries) ? data.pending_recoveries as import('../types/scheduling').PendingRecovery[] : [],
+    schedule_missing: Boolean(data.schedule_missing),
+    storage_healthy: data.storage_healthy === true,
+    storage_error: coerceOptionalString(data.storage_error),
+    resume_block_reason: coerceOptionalString(data.resume_block_reason),
     note: coerceOptionalString(data.note),
     schedule_id: coerceOptionalString(data.schedule_id),
     experiment_name: coerceOptionalString(data.experiment_name),
@@ -285,8 +292,8 @@ export const schedulingAPI = {
     return api.delete<ScheduleResponse>(`/api/scheduling/${scheduleId}`, config);
   },
 
-  archiveSchedule: (scheduleId: string, archived: boolean) =>
-    api.post<ScheduleResponse>(`/api/scheduling/${scheduleId}/archive`, { archived }),
+  archiveSchedule: (scheduleId: string, archived: boolean, expectedUpdatedAt?: string) =>
+    api.post<ScheduleResponse>(`/api/scheduling/${scheduleId}/archive`, { archived, expected_updated_at: expectedUpdatedAt }),
 
   requireRecovery: (scheduleId: string, note?: string, options?: { expectedUpdatedAt?: string | null }) => {
     const expected = options?.expectedUpdatedAt ?? undefined;
@@ -300,17 +307,11 @@ export const schedulingAPI = {
     return api.post<RecoveryActionResponse>(`/api/scheduling/${scheduleId}/recovery/require`, payload, config);
   },
 
-  resolveRecovery: (scheduleId: string, note?: string, options?: { expectedUpdatedAt?: string | null }) => {
-    const expected = options?.expectedUpdatedAt ?? undefined;
-    const payload =
-      note != null
-        ? { note, ...(expected ? { expected_updated_at: expected } : {}) }
-        : expected
-        ? { expected_updated_at: expected }
-        : {};
-    const config = expected ? { headers: { 'If-Unmodified-Since': expected } } : undefined;
-    return api.post<RecoveryActionResponse>(`/api/scheduling/${scheduleId}/recovery/resolve`, payload, config);
-  },
+  resolveRecovery: (scheduleId: string, note?: string, options?: { expectedUpdatedAt?: string | null; expectedRevision?: number }) =>
+    api.post<RecoveryActionResponse>('/api/scheduling/recovery/resolve', {
+      schedule_id: scheduleId, note, expected_updated_at: options?.expectedUpdatedAt,
+      expected_revision: options?.expectedRevision, robot_ready: true,
+    }),
 
   getUpcomingSchedules: (hoursAhead = 48) =>
     api.get<ScheduleListResponse>('/api/scheduling/upcoming', { params: { hours_ahead: hoursAhead } }),
@@ -501,9 +502,10 @@ export const schedulingService = {
   async archiveSchedule(
     scheduleId: string,
     archived: boolean,
+    expectedUpdatedAt?: string,
   ): Promise<{ schedule?: ScheduledExperiment; error?: string }> {
     try {
-      const { data } = await schedulingAPI.archiveSchedule(scheduleId, archived);
+      const { data } = await schedulingAPI.archiveSchedule(scheduleId, archived, expectedUpdatedAt);
       if (!data.success || !data.data) {
         return { error: data.message || 'Failed to update archive state' };
       }
@@ -665,9 +667,10 @@ export const schedulingService = {
     scheduleId: string,
     note?: string,
     expectedUpdatedAt?: string,
+    expectedRevision?: number,
   ): Promise<{ schedule?: ScheduledExperiment; manualRecovery?: ManualRecoveryState | null; error?: string }> {
     try {
-      const { data } = await schedulingAPI.resolveRecovery(scheduleId, note, { expectedUpdatedAt });
+      const { data } = await schedulingAPI.resolveRecovery(scheduleId, note, { expectedUpdatedAt, expectedRevision });
       if (!data.success || !data.data) {
         return { error: data.message || 'Failed to resolve recovery' };
       }

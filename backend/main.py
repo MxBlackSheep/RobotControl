@@ -72,6 +72,7 @@ from backend.api.backup import router as backup_router
 from backend.api.system_config import router as system_config_router
 from backend.api.camera import router as camera_router
 from backend.api.scheduling import router as scheduling_router
+from backend.api.sqlite_health import router as sqlite_health_router
 from backend.api.system import router as system_router
 from backend.api.labware import router as labware_router
 from backend.api.maintenance import router as maintenance_router
@@ -275,13 +276,13 @@ async def _auto_start_scheduler_after_delay(delay_seconds: int) -> None:
         await asyncio.sleep(max(0, delay_seconds))
         from backend.services.scheduling import get_scheduler_engine
 
-        scheduler = get_scheduler_engine()
-        status = scheduler.get_status()
+        scheduler = await asyncio.to_thread(get_scheduler_engine)
+        status = await asyncio.to_thread(scheduler.get_status)
         if status.get("is_running"):
             logger.info("Scheduler auto-start skipped because it is already running")
             return
 
-        if scheduler.start():
+        if await asyncio.to_thread(scheduler.start):
             logger.info(
                 "Scheduler auto-started successfully after %s seconds",
                 delay_seconds,
@@ -542,6 +543,7 @@ app.include_router(system_config_router, prefix="/api/admin/system", tags=["admi
 app.include_router(system_router, tags=["system"])
 app.include_router(logfiles_router, tags=["logfiles"])
 app.include_router(scheduling_router, tags=["scheduling"])
+app.include_router(sqlite_health_router)
 app.include_router(labware_router, tags=["labware"])
 app.include_router(maintenance_router, tags=["maintenance"])
 

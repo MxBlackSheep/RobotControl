@@ -1,5 +1,9 @@
 # Authentication Maintenance Guide
 
+## SQLite relationship enforcement (2026-09-14)
+
+Each authentication connection enables foreign keys and uses a two-second lock timeout. Deleting a user removes refresh tokens and clears the user link in retained password-reset history. Existing dangling links require local administrator preview and repair with a verified backup. See the [SQLite safety guide](sqlite-safety-maintenance-guide.md); never log password hashes or refresh-token contents in diagnostics.
+
 ## uv setup and verification
 
 Python dependencies now come from the root uv project. Keep Passlib 1.7.4 and bcrypt 4.3.0 pinned together; bcrypt 5 is incompatible with the current Passlib backend. Existing bcrypt hashes remain unchanged. Run `uv run --locked python -m pytest backend/tests/test_auth.py` to check login, password changes, refresh tokens, and reopening an existing password database. Test fixtures reset both service and database singletons and use temporary SQLite files.

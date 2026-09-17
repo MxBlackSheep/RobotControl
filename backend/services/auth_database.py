@@ -9,6 +9,7 @@ both in development and when the application is packaged with PyInstaller.
 import logging
 import os
 import sqlite3
+from backend.services.sqlite_safety import configure_connection
 import threading
 from contextlib import contextmanager
 from datetime import datetime, timedelta
@@ -42,6 +43,7 @@ class AuthDatabase:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
             with self._get_connection() as conn:
+                conn.execute("BEGIN IMMEDIATE")
                 cursor = conn.cursor()
                 cursor.execute(
                     """
@@ -118,16 +120,19 @@ class AuthDatabase:
                     ON password_reset_requests(username)
                     """
                 )
+                cursor.execute("CREATE TABLE IF NOT EXISTS SchemaMigrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)")
+                cursor.execute("INSERT OR IGNORE INTO SchemaMigrations VALUES (1, CURRENT_TIMESTAMP)")
                 conn.commit()
+                self._integrity_error = None if [row[0] for row in conn.execute('PRAGMA quick_check')] == ['ok'] else 'SQLite integrity check failed; restore a verified backup'
 
             self._initialised = True
             logger.info("Auth database initialised at %s", self.db_path)
 
     @contextmanager
     def _get_connection(self) -> Iterable[sqlite3.Connection]:
-        conn = sqlite3.connect(self.db_path, timeout=30.0, check_same_thread=False)
-        conn.row_factory = sqlite3.Row
+        conn = sqlite3.connect(self.db_path, timeout=2.0, check_same_thread=False)
         try:
+            configure_connection(conn)
             yield conn
         finally:
             conn.close()

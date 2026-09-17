@@ -47,11 +47,13 @@ class RunLogStore:
                   AND status IN ('pending', 'error') AND log_id != ?
             """, (datetime.now().isoformat(), data["execution_id"], *MONITOR_EVENTS, active_id))
             if alert:
+                schedule_id = data['schedule_id'] if conn.execute('SELECT 1 FROM ScheduledExperiments WHERE schedule_id = ?', (data['schedule_id'],)).fetchone() else None
+                alert = {**alert, 'original_schedule_id': data['schedule_id']}
                 conn.execute("""
                     INSERT OR IGNORE INTO NotificationLog
                     (log_id, schedule_id, execution_id, event_type, status, recipients, triggered_at, metadata)
                     VALUES (?, ?, ?, ?, 'pending', '[]', ?, ?)
-                """, (active_id, data["schedule_id"], data["execution_id"], alert["event_type"],
+                """, (active_id, schedule_id, data["execution_id"], alert["event_type"],
                       datetime.now().isoformat(), json.dumps(alert)))
                 # The episode may have been briefly unobservable, but has not resumed writing.
                 conn.execute("UPDATE NotificationLog SET status = 'pending' WHERE log_id = ? AND status = 'cancelled'", (active_id,))
@@ -91,9 +93,9 @@ class RunLogStore:
             if not count:
                 return False
             # Do not overwrite settings or contacts edited while the method was running.
-            conn.execute("UPDATE ScheduledExperiments SET is_active = ?, start_time = ? WHERE schedule_id = ?",
+            conn.execute("UPDATE ScheduledExperiments SET is_active = CASE WHEN is_active = 0 OR recovery_required = 1 OR archived = 1 THEN 0 ELSE ? END, start_time = ? WHERE schedule_id = ? AND updated_at = ?",
                          (int(schedule.is_active), schedule.start_time.isoformat() if schedule.start_time else None,
-                          schedule.schedule_id))
+                          schedule.schedule_id, self.database._serialize_timestamp(schedule.updated_at)))
             conn.commit()
             return True
 

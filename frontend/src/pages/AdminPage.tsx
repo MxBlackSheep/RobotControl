@@ -7,6 +7,8 @@ import Typography from '@mui/material/Typography';
 import { useAuthContext } from '../context/AuthContext';
 import ErrorAlert, { AuthorizationError } from '../components/ErrorAlert';
 import UserManagement from '../components/UserManagement';
+import SQLiteHealthPanel from '../components/SQLiteHealthPanel';
+import { isLocalUser } from '../components/navigation';
 
 const AdminPage: React.FC = () => {
   const { user } = useAuthContext();
@@ -40,6 +42,7 @@ const AdminPage: React.FC = () => {
       )}
 
       <UserManagement section={section} onError={setError} />
+      {isLocalUser(user) && <SQLiteHealthPanel />}
     </PageContent>
   );
 };

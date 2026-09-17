@@ -10,7 +10,7 @@ import pytest
 from fastapi import FastAPI
 
 from backend.api import scheduling
-from backend.models import ScheduledExperiment, NotificationContact
+from backend.models import ScheduledExperiment, NotificationContact, ManualRecoveryState
 from backend.services.auth import get_current_user
 
 
@@ -18,7 +18,7 @@ from backend.services.auth import get_current_user
     ("/notifications/settings/test", {"recipient": "operator@example.com"}),
     ("/notifications/send", {"schedule_id": "schedule", "subject": "Test", "body": "Test"}),
     ("/schedule/recovery/require", {}),
-    ("/schedule/recovery/resolve", {}),
+    ("/schedule/recovery/resolve", {"expected_revision": 0, "robot_ready": True}),
 ])
 @pytest.mark.parametrize("delivery_succeeds", [True, False])
 def test_health_responds_while_email_or_recovery_is_waiting(monkeypatch, route, payload, delivery_succeeds):
@@ -52,7 +52,7 @@ def test_health_responds_while_email_or_recovery_is_waiting(monkeypatch, route, 
         wait_for_delivery()
         return schedule  # Recovery succeeds even when its notification fails.
 
-    engine = SimpleNamespace(require_manual_recovery=recovery, resolve_manual_recovery=recovery, get_manual_recovery_state=lambda: None)
+    engine = SimpleNamespace(require_manual_recovery=recovery, resolve_manual_recovery=recovery, get_manual_recovery_state=lambda: ManualRecoveryState())
     monkeypatch.setattr(scheduling, "get_services", lambda: (engine, db, None, None))
 
     async def scenario():

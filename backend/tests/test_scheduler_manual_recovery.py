@@ -1,4 +1,5 @@
 import datetime
+from types import SimpleNamespace
 from typing import List, Optional
 
 import pytest
@@ -9,6 +10,9 @@ from backend.services.scheduling.scheduler_engine import SchedulerEngine, Schedu
 
 
 class StubMonitor:
+    def get_hamilton_processes(self):
+        return []
+
     def start_monitoring(self) -> bool:
         return True
 
@@ -29,6 +33,7 @@ class StubNotifications:
 
 class StubDBManager:
     def __init__(self, schedule: ScheduledExperiment, abort_note: Optional[str] = None):
+        self.sqlite_db = SimpleNamespace(validate_recovery_resolution=lambda *args: None)
         self.schedule = schedule
         self.abort_note = abort_note or "Hamilton reported last run as Aborted"
         self.manual_state = ManualRecoveryState()
@@ -46,7 +51,7 @@ class StubDBManager:
         return None
 
     # Recovery helpers --------------------------------------------------
-    def mark_recovery_required(self, schedule_id: str, note: Optional[str], user: str) -> Optional[ScheduledExperiment]:
+    def mark_recovery_required(self, schedule_id: str, note: Optional[str], user: str, **kwargs) -> Optional[ScheduledExperiment]:
         if schedule_id != self.schedule.schedule_id:
             return None
         now = datetime.datetime.now()
@@ -66,7 +71,7 @@ class StubDBManager:
         )
         return self.schedule
 
-    def resolve_recovery_required(self, schedule_id: str, note: Optional[str], user: str) -> Optional[ScheduledExperiment]:
+    def resolve_recovery_required(self, schedule_id: str, note: Optional[str], user: str, expected_revision, **kwargs) -> Optional[ScheduledExperiment]:
         if schedule_id != self.schedule.schedule_id:
             return None
         now = datetime.datetime.now()
@@ -136,7 +141,7 @@ def test_require_and_resolve_manual_recovery(monkeypatch, sample_schedule):
     assert engine._manual_recovery_cache.active is True
     assert notifications and notifications[0][0] == "required"
 
-    cleared = engine.resolve_manual_recovery(sample_schedule.schedule_id, "Resolved", "tester")
+    cleared = engine.resolve_manual_recovery(sample_schedule.schedule_id, "Resolved", "tester", engine.get_manual_recovery_state().safety_revision)
     assert cleared is not None
     assert cleared.recovery_required is False
     assert engine._manual_recovery_cache.active is False

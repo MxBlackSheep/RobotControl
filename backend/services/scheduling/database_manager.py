@@ -12,6 +12,8 @@ import logging
 import json
 import os
 import threading
+import sqlite3
+from backend.services.sqlite_safety import SafetyConflict, StorageUnavailable
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
@@ -91,6 +93,8 @@ class SchedulingDatabaseManager:
         """Retrieve a scheduled experiment by ID from SQLite."""
         try:
             return self.sqlite_db.get_schedule_by_id(schedule_id)
+        except (SafetyConflict, StorageUnavailable, sqlite3.Error):
+            raise
         except Exception as exc:  # pragma: no cover - log only
             logger.error("Error retrieving scheduled experiment %s: %s", schedule_id, exc)
             return None
@@ -99,6 +103,8 @@ class SchedulingDatabaseManager:
         """Get all active scheduled experiments from SQLite."""
         try:
             return self.sqlite_db.get_active_schedules()
+        except (SafetyConflict, StorageUnavailable, sqlite3.Error):
+            raise
         except Exception as exc:  # pragma: no cover - log only
             logger.error("Error getting active schedules: %s", exc)
             return []
@@ -107,6 +113,8 @@ class SchedulingDatabaseManager:
         """Get schedules filtered by active/archive state."""
         try:
             return self.sqlite_db.get_schedules(active_only=active_only, archived_only=archived_only)
+        except (SafetyConflict, StorageUnavailable, sqlite3.Error):
+            raise
         except Exception as exc:  # pragma: no cover - log only
             logger.error("Error getting schedules: %s", exc)
             return []
@@ -116,90 +124,36 @@ class SchedulingDatabaseManager:
         experiment: ScheduledExperiment,
         *,
         touch_updated_at: bool = True,
+        expected_updated_at: Optional[str] = None,
     ) -> bool:
         """Update a scheduled experiment in the SQLite database."""
         try:
-            return self.sqlite_db.update_schedule(experiment, touch_updated_at=touch_updated_at)
+            return self.sqlite_db.update_schedule(experiment, touch_updated_at=touch_updated_at, expected_updated_at=expected_updated_at)
+        except (SafetyConflict, StorageUnavailable, sqlite3.Error):
+            raise
         except Exception as exc:  # pragma: no cover - log only
             logger.error("Error updating scheduled experiment: %s", exc)
             return False
 
-    def mark_recovery_required(
-        self,
-        schedule_id: str,
-        note: Optional[str],
-        user: str,
-    ) -> Optional[ScheduledExperiment]:
-        """Mark a schedule as requiring manual recovery and return the updated record."""
-        schedule = self.get_schedule_by_id(schedule_id)
-        if not schedule:
-            return None
+    def mark_recovery_required(self, schedule_id, note, user, *, expected_updated_at=None, snapshot=None):
+        return self.sqlite_db.mark_recovery_atomic(schedule_id, note, user, expected_updated_at=expected_updated_at, snapshot=snapshot)
 
-        success = self.sqlite_db.set_recovery_required(schedule_id, note, user)
-        if not success:
-            return None
+    def resolve_recovery_required(self, schedule_id, note, user, expected_revision, *, expected_updated_at=None):
+        return self.sqlite_db.resolve_recovery_atomic(schedule_id, note, user, expected_revision, expected_updated_at=expected_updated_at)
 
-        updated = self.get_schedule_by_id(schedule_id)
-        schedule_for_state = updated or schedule
-        try:
-            self.sqlite_db.set_global_recovery_required(schedule_for_state, note, user)
-        except Exception as exc:  # pragma: no cover - log only
-            logger.warning("Failed to update global recovery state: %s", exc)
+    def get_manual_recovery_state(self):
+        return self.sqlite_db.get_manual_recovery_state()
 
-        return updated or schedule
 
-    def resolve_recovery_required(
-        self,
-        schedule_id: str,
-        note: Optional[str],
-        user: str,
-    ) -> Optional[ScheduledExperiment]:
-        """Clear the manual recovery flag for a schedule and return the updated record."""
-        success = self.sqlite_db.resolve_recovery_required(schedule_id, note, user)
-        if not success:
-            return None
 
-        schedule = self.get_schedule_by_id(schedule_id)
-        try:
-            self.sqlite_db.clear_global_recovery(note, user)
-        except Exception as exc:  # pragma: no cover - log only
-            logger.warning("Failed to clear global recovery state: %s", exc)
 
-        return schedule
-
-    def get_manual_recovery_state(self) -> ManualRecoveryState:
-        """Return the global manual recovery state."""
-        try:
-            return self.sqlite_db.get_manual_recovery_state()
-        except Exception as exc:  # pragma: no cover - log only
-            logger.error("Failed to load manual recovery state: %s", exc)
-            return ManualRecoveryState()
-
-    def set_global_recovery_required(
-        self,
-        schedule: Optional[ScheduledExperiment],
-        note: Optional[str],
-        user: str,
-    ) -> ManualRecoveryState:
-        """Set the global manual recovery flag."""
-        try:
-            return self.sqlite_db.set_global_recovery_required(schedule, note, user)
-        except Exception as exc:  # pragma: no cover - log only
-            logger.error("Failed to update global recovery state: %s", exc)
-            return self.sqlite_db.get_manual_recovery_state()
-
-    def clear_global_recovery(self, note: Optional[str], user: str) -> ManualRecoveryState:
-        """Clear the global manual recovery flag."""
-        try:
-            return self.sqlite_db.clear_global_recovery(note, user)
-        except Exception as exc:  # pragma: no cover - log only
-            logger.error("Failed to clear global recovery state: %s", exc)
-            return self.sqlite_db.get_manual_recovery_state()
 
     def get_hxrun_maintenance_state(self) -> HxRunMaintenanceState:
         """Return the persistent HxRun maintenance mode state."""
         try:
             return self.sqlite_db.get_hxrun_maintenance_state()
+        except (SafetyConflict, StorageUnavailable, sqlite3.Error):
+            raise
         except Exception as exc:  # pragma: no cover - log only
             logger.error("Failed to load HxRun maintenance state: %s", exc)
             return HxRunMaintenanceState()
@@ -213,6 +167,8 @@ class SchedulingDatabaseManager:
         """Persist HxRun maintenance mode updates."""
         try:
             return self.sqlite_db.set_hxrun_maintenance_state(enabled, reason, user)
+        except (SafetyConflict, StorageUnavailable, sqlite3.Error):
+            raise
         except Exception as exc:  # pragma: no cover - log only
             logger.error("Failed to update HxRun maintenance state: %s", exc)
             return self.sqlite_db.get_hxrun_maintenance_state()
@@ -221,6 +177,7 @@ class SchedulingDatabaseManager:
         self,
         schedule_id: str,
         schedule: Optional[ScheduledExperiment] = None,
+        expected_updated_at: Optional[str] = None,
     ) -> bool:
         """Delete a scheduled experiment and its associated job executions from SQLite."""
         try:
@@ -228,7 +185,10 @@ class SchedulingDatabaseManager:
                 schedule_id,
                 name_snapshot=schedule.experiment_name if schedule else None,
                 path_snapshot=schedule.experiment_path if schedule else None,
+                expected_updated_at=expected_updated_at,
             )
+        except (SafetyConflict, StorageUnavailable, sqlite3.Error):
+            raise
         except Exception as exc:  # pragma: no cover - log only
             logger.error("Error deleting scheduled experiment: %s", exc)
             return False

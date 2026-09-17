@@ -422,9 +422,25 @@ class ManualRecoveryState:
     resolved_by: Optional[str] = None
     resolved_at: Optional[datetime] = None
 
+    safety_revision: int = 0
+    resume_required: bool = False
+    pending_recoveries: List[Dict[str, Any]] = field(default_factory=list)
+    schedule_missing: bool = False
+    storage_healthy: bool = True
+    storage_error: Optional[str] = None
+    resume_block_reason: Optional[str] = None
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "active": self.active,
+            "safety_revision": self.safety_revision,
+            "resume_required": self.resume_required,
+            "pending_recoveries": self.pending_recoveries,
+            "schedule_missing": self.schedule_missing,
+            "storage_healthy": self.storage_healthy,
+            "storage_error": self.storage_error,
+            "resume_block_reason": self.resume_block_reason,
+
             "note": self.note,
             "schedule_id": self.schedule_id,
             "experiment_name": self.experiment_name,
@@ -438,6 +454,14 @@ class ManualRecoveryState:
     def from_dict(cls, data: Dict[str, Any]) -> "ManualRecoveryState":
         return cls(
             active=bool(data.get("active", False)),
+            safety_revision=data.get("safety_revision", 0),
+            resume_required=data.get("resume_required", False),
+            pending_recoveries=data.get("pending_recoveries", []),
+            schedule_missing=data.get("schedule_missing", False),
+            storage_healthy=data.get("storage_healthy", True),
+            storage_error=data.get("storage_error", None),
+            resume_block_reason=data.get("resume_block_reason"),
+
             note=data.get("note"),
             schedule_id=data.get("schedule_id"),
             experiment_name=data.get("experiment_name"),

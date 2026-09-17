@@ -592,6 +592,7 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
                     size="small"
                     color="error"
                     startIcon={<DeleteIcon fontSize="small" />}
+                    disabled={schedule.recovery_required}
                     onClick={(event) => handleDeleteClick(event, schedule)}
                   >
                     Delete
@@ -876,6 +877,7 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
                               <IconButton
                                 size="small"
                                 color="error"
+                                disabled={schedule.recovery_required}
                                 onClick={(e) => handleDeleteClick(e, schedule)}
                                 sx={{ ml: 0.5 }}
                               >

@@ -1,11 +1,13 @@
 from typing import Dict, Any, List, Optional, Union, Tuple
 import logging
+import sqlite3
+from fastapi.routing import APIRoute
+from backend.services.sqlite_safety import SafetyConflict, StorageUnavailable
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Header
-from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, StrictStr, StrictBool, Field
 
 from backend.services.auth import get_current_user
@@ -44,7 +46,21 @@ except ImportError:  # pragma: no cover - fallback
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/scheduling", tags=["scheduling"])
+class SafetyRoute(APIRoute):
+    def get_route_handler(self):
+        original = super().get_route_handler()
+        async def handler(request):
+            try:
+                return await original(request)
+            except SafetyConflict as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            except (StorageUnavailable, sqlite3.Error) as exc:
+                logger.exception('Scheduling storage unavailable')
+                raise HTTPException(status_code=503, detail='Scheduler safety state unavailable. Review SQLite storage health and retry.') from exc
+        return handler
+
+
+router = APIRouter(prefix="/api/scheduling", tags=["scheduling"], route_class=SafetyRoute)
 
 EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -272,7 +288,7 @@ def _normalize_timeout_config(raw_timeout: Optional[Any]) -> TimeoutConfig:
 
 
 @router.get("/notifications/settings")
-async def get_notification_settings_endpoint(
+def get_notification_settings_endpoint(
     current_user: dict = Depends(get_current_user),
 ):
     """Return the global SMTP settings (admin only)."""
@@ -291,7 +307,7 @@ async def get_notification_settings_endpoint(
 
 
 @router.put("/notifications/settings")
-async def update_notification_settings_endpoint(
+def update_notification_settings_endpoint(
     payload: Dict[str, Any],
     current_user: dict = Depends(get_current_user),
     connection: ConnectionContext = Depends(require_local_access),
@@ -399,7 +415,7 @@ async def update_notification_settings_endpoint(
 
 
 @router.post("/notifications/settings/test")
-async def test_notification_settings_endpoint(
+def test_notification_settings_endpoint(
     payload: Dict[str, Any],
     current_user: dict = Depends(get_current_user),
     connection: ConnectionContext = Depends(require_local_access),
@@ -428,9 +444,7 @@ async def test_notification_settings_endpoint(
     ]
     body = "\n".join(body_lines)
 
-    if not await run_in_threadpool(
-        email_service.send, subject, body, to=[recipient], timeout_seconds=10, attempts=1,
-    ):
+    if not email_service.send(subject, body, to=[recipient], timeout_seconds=10, attempts=1):
         detail = email_service.last_error or "Failed to deliver test email; see backend logs for details."
         log_action(
             actor=current_user.get("username", "unknown"),
@@ -459,7 +473,7 @@ async def test_notification_settings_endpoint(
 
 
 @router.post("/notifications/send")
-async def send_schedule_notification_email_endpoint(
+def send_schedule_notification_email_endpoint(
     payload: Dict[str, Any],
     current_user: dict = Depends(get_current_user),
     connection: ConnectionContext = Depends(require_local_access),
@@ -519,9 +533,7 @@ async def send_schedule_notification_email_endpoint(
         ).to_dict()
 
     email_service = EmailNotificationService()
-    if not await run_in_threadpool(
-        email_service.send, subject, body, to=recipients, timeout_seconds=10, attempts=1,
-    ):
+    if not email_service.send(subject, body, to=recipients, timeout_seconds=10, attempts=1):
         detail = email_service.last_error or "Failed to deliver email; see backend logs for details"
         log_action(
             actor=actor,
@@ -563,7 +575,7 @@ async def send_schedule_notification_email_endpoint(
 
 
 @router.get("/contacts")
-async def list_notification_contacts(
+def list_notification_contacts(
     include_inactive: bool = Query(False, description="Include inactive contacts"),
     current_user: dict = Depends(get_current_user)
 ):
@@ -577,13 +589,15 @@ async def list_notification_contacts(
             data=[contact.to_dict() for contact in contacts]
         )
         return response.to_dict()
+    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
+        raise
     except Exception as exc:
         logger.error(f"Error listing notification contacts: {exc}")
         raise HTTPException(status_code=500, detail="Failed to load contacts")
 
 
 @router.post("/contacts")
-async def create_notification_contact_endpoint(
+def create_notification_contact_endpoint(
     contact_data: Dict[str, Any],
     current_user: dict = Depends(get_current_user),
     connection: ConnectionContext = Depends(require_local_access),
@@ -632,7 +646,7 @@ async def create_notification_contact_endpoint(
 
 
 @router.put("/contacts/{contact_id}")
-async def update_notification_contact_endpoint(
+def update_notification_contact_endpoint(
     contact_id: str,
     contact_data: Dict[str, Any],
     current_user: dict = Depends(get_current_user),
@@ -688,7 +702,7 @@ async def update_notification_contact_endpoint(
 
 
 @router.delete("/contacts/{contact_id}")
-async def delete_notification_contact_endpoint(
+def delete_notification_contact_endpoint(
     contact_id: str,
     current_user: dict = Depends(get_current_user),
     connection: ConnectionContext = Depends(require_local_access),
@@ -731,7 +745,7 @@ async def delete_notification_contact_endpoint(
 
 
 @router.get("/notifications/logs")
-async def list_notification_logs(
+def list_notification_logs(
     limit: int = Query(50, description="Maximum number of notification entries to return"),
     schedule_id: Optional[str] = Query(None, description="Filter by schedule ID"),
     event_type: Optional[str] = Query(None, description="Filter by event type"),
@@ -764,13 +778,15 @@ async def list_notification_logs(
                 "status": status_filter,
             },
         ).to_dict()
+    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
+        raise
     except Exception as exc:
         logger.error("Error retrieving notification logs: %s", exc)
         raise HTTPException(status_code=500, detail="Failed to load notification logs")
 
 
 @router.post("/create")
-async def create_schedule(
+def create_schedule(
     schedule_data: Dict[str, Any],
     current_user: dict = Depends(get_current_user),
     connection: ConnectionContext = Depends(require_local_access),
@@ -877,6 +893,8 @@ async def create_schedule(
             details={"error": "http_exception", "data": schedule_data},
         )
         raise
+    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
+        raise
     except Exception as e:
         logger.error(f"Error creating schedule: {e}")
         log_action(
@@ -891,7 +909,7 @@ async def create_schedule(
 
 
 @router.get("/list")
-async def list_schedules(
+def list_schedules(
     active_only: bool = Query(True, description="Return only active schedules"),
     archived_only: bool = Query(False, description="Return only archived schedules"),
     current_user: dict = Depends(get_current_user)
@@ -945,13 +963,15 @@ async def list_schedules(
         
         return response.to_dict()
         
+    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
+        raise
     except Exception as e:
         logger.error(f"Error listing schedules: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get("/upcoming")
-async def get_upcoming_schedules(
+def get_upcoming_schedules(
     hours_ahead: int = Query(48, description="Hours to look ahead"),
     current_user: dict = Depends(get_current_user)
 ):
@@ -987,13 +1007,15 @@ async def get_upcoming_schedules(
         
     except HTTPException:
         raise
+    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
+        raise
     except Exception as e:
         logger.error(f"Error getting upcoming schedules: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get("/calendar")
-async def get_calendar_data(
+def get_calendar_data(
     start_date: Optional[str] = Query(None, description="Start date (ISO format)"),
     end_date: Optional[str] = Query(None, description="End date (ISO format)"),
     current_user: dict = Depends(get_current_user)
@@ -1054,13 +1076,15 @@ async def get_calendar_data(
         
     except HTTPException:
         raise
+    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
+        raise
     except Exception as e:
         logger.error(f"Error getting calendar data: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get("/{schedule_id}")
-async def get_schedule(
+def get_schedule(
     schedule_id: str,
     current_user: dict = Depends(get_current_user)
 ):
@@ -1087,13 +1111,15 @@ async def get_schedule(
         
     except HTTPException:
         raise
+    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
+        raise
     except Exception as e:
         logger.error(f"Error getting schedule {schedule_id}: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.put("/{schedule_id}")
-async def update_schedule(
+def update_schedule(
     schedule_id: str,
     update_data: Dict[str, Any],
     current_user: dict = Depends(get_current_user),
@@ -1160,10 +1186,10 @@ async def update_schedule(
         # was being validated. Recheck under the same lock before writing it back.
         with scheduler._schedules_lock:
             _load_current_schedule(schedule_id, db_mgr, base_schedule.updated_at.isoformat())
-            success = scheduler.update_schedule(updated_schedule)
+            success = scheduler.update_schedule(updated_schedule, expected_updated_at=base_schedule.updated_at.isoformat())
             if not success:
                 # Scheduler offline or cache missing; persist directly then clear cache.
-                if not db_mgr.update_scheduled_experiment(updated_schedule):
+                if not db_mgr.update_scheduled_experiment(updated_schedule, expected_updated_at=base_schedule.updated_at.isoformat()):
                     raise HTTPException(status_code=400, detail="Failed to update schedule")
                 scheduler.invalidate_schedule(schedule_id)
 
@@ -1195,6 +1221,8 @@ async def update_schedule(
             details={"schedule_id": schedule_id, "error": "http_exception"},
         )
         raise
+    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
+        raise
     except Exception as e:
         logger.error(f"Error updating schedule {schedule_id}: {e}")
         log_action(
@@ -1209,7 +1237,7 @@ async def update_schedule(
 
 
 @router.post("/{schedule_id}/recovery/require")
-async def require_schedule_recovery(
+def require_schedule_recovery(
     schedule_id: str,
     payload: Dict[str, Any] = None,
     current_user: dict = Depends(get_current_user),
@@ -1226,7 +1254,7 @@ async def require_schedule_recovery(
     actor = current_user.get('username') or current_user.get('user_id', 'system')
 
     _load_current_schedule(schedule_id, db_mgr, expected_token)
-    updated = await run_in_threadpool(scheduler.require_manual_recovery, schedule_id, note, actor)
+    updated = scheduler.require_manual_recovery(schedule_id, note, actor, expected_token)
     if not updated:
         existing = db_mgr.get_schedule_by_id(schedule_id)
         if not existing:
@@ -1271,71 +1299,64 @@ async def require_schedule_recovery(
     return response.to_dict()
 
 
-@router.post("/{schedule_id}/recovery/resolve")
-async def resolve_schedule_recovery(
-    schedule_id: str,
-    payload: Dict[str, Any] = None,
-    current_user: dict = Depends(get_current_user),
-    connection: ConnectionContext = Depends(require_local_access),
-    if_unmodified_since: Optional[str] = Header(None, alias="If-Unmodified-Since"),
-):
-    # Clear manual recovery requirement and resume scheduling.
-    if current_user.get('role') not in ['admin', 'user']:
+class RecoveryResolution(BaseModel):
+    schedule_id: Optional[str] = None
+    expected_revision: int = Field(strict=True, ge=0)
+    robot_ready: StrictBool
+    note: Optional[str] = None
+    expected_updated_at: Optional[str] = None
+
+
+class DispatchResume(BaseModel):
+    expected_revision: int = Field(strict=True, ge=0)
+
+
+def _resolve_recovery_request(payload, current_user, connection):
+    if current_user.get('role') not in ('admin', 'user'):
         raise HTTPException(status_code=403, detail='Insufficient permissions')
+    if not payload.robot_ready:
+        raise HTTPException(status_code=400, detail='Confirm the robot is ready before acknowledging recovery.')
+    scheduler, _, _, _ = get_services()
+    actor = current_user.get('username') or 'unknown'
+    updated = scheduler.resolve_manual_recovery(payload.schedule_id, payload.note, actor,
+                    payload.expected_revision, payload.expected_updated_at)
+    state = scheduler.get_manual_recovery_state()
+    log_action(actor=actor, action='resolve_manual_recovery', scope='scheduling', client_ip=connection.client_ip,
+               success=True, details={'schedule_id': payload.schedule_id, 'note': payload.note, 'revision': state.safety_revision})
+    return ApiResponse(success=True, message='Recovery acknowledged. Use Resume queued jobs when ready.',
+                       data={'schedule': updated.to_dict() if updated else None, 'manual_recovery': state.to_dict()}).to_dict()
 
-    scheduler, db_mgr, _, _ = get_services()
-    note = (payload or {}).get('note') if payload else None
-    expected_token = (payload or {}).get('expected_updated_at') or if_unmodified_since
-    actor = current_user.get('username') or current_user.get('user_id', 'system')
 
-    _load_current_schedule(schedule_id, db_mgr, expected_token)
-    updated = await run_in_threadpool(scheduler.resolve_manual_recovery, schedule_id, note, actor)
-    if not updated:
-        existing = db_mgr.get_schedule_by_id(schedule_id)
-        if not existing:
-            log_action(
-                actor=actor,
-                action="resolve_schedule_recovery",
-                scope="scheduling",
-                client_ip=connection.client_ip,
-                success=False,
-                details={"schedule_id": schedule_id, "error": "not_found"},
-            )
-            raise HTTPException(status_code=404, detail='Schedule not found')
-        log_action(
-            actor=actor,
-            action="resolve_schedule_recovery",
-            scope="scheduling",
-            client_ip=connection.client_ip,
-            success=False,
-            details={"schedule_id": schedule_id, "error": "transition_failed"},
-        )
-        raise HTTPException(status_code=500, detail='Failed to resolve manual recovery state')
+@router.post('/recovery/resolve')
+def resolve_global_recovery(payload: RecoveryResolution, current_user: dict = Depends(get_current_user),
+                            connection: ConnectionContext = Depends(require_local_access)):
+    return _resolve_recovery_request(payload, current_user, connection)
 
-    manual_state = scheduler.get_manual_recovery_state()
 
-    log_action(
-        actor=actor,
-        action="resolve_schedule_recovery",
-        scope="scheduling",
-        client_ip=connection.client_ip,
-        success=True,
-        details={"schedule_id": schedule_id},
-    )
+@router.post('/{schedule_id}/recovery/resolve')
+def resolve_schedule_recovery(schedule_id: str, payload: RecoveryResolution,
+                              current_user: dict = Depends(get_current_user),
+                              connection: ConnectionContext = Depends(require_local_access),
+                              if_unmodified_since: Optional[str] = Header(None, alias='If-Unmodified-Since')):
+    return _resolve_recovery_request(payload.model_copy(update={'schedule_id': schedule_id,
+                                    'expected_updated_at': payload.expected_updated_at or if_unmodified_since}), current_user, connection)
 
-    response = ApiResponse(
-        success=True,
-        message='Manual recovery cleared',
-        data={
-            'schedule': updated.to_dict(),
-            'manual_recovery': manual_state.to_dict() if manual_state else None,
-        },
-    )
-    return response.to_dict()
+
+@router.post('/dispatch/resume')
+def resume_queued_jobs(payload: DispatchResume, current_user: dict = Depends(get_current_user),
+                       connection: ConnectionContext = Depends(require_local_access)):
+    if current_user.get('role') not in ('admin', 'user'):
+        raise HTTPException(status_code=403, detail='Insufficient permissions')
+    scheduler, _, _, _ = get_services()
+    actor = current_user.get('username') or 'unknown'
+    state = scheduler.resume_queued_jobs(payload.expected_revision, actor)
+    log_action(actor=actor, action='resume_queued_jobs', scope='scheduling', client_ip=connection.client_ip,
+               success=True, details={'revision': state.safety_revision})
+    return ApiResponse(success=True, message='Queued dispatch resumed', data={'manual_recovery': state.to_dict()}).to_dict()
 
 
 @router.delete("/{schedule_id}")
-async def delete_schedule(
+def delete_schedule(
     schedule_id: str,
     current_user: dict = Depends(get_current_user),
     connection: ConnectionContext = Depends(require_local_access),
@@ -1375,13 +1396,14 @@ async def delete_schedule(
         success = False
 
         if schedule_from_engine:
-            success = scheduler.remove_schedule(schedule_id)
+            success = scheduler.remove_schedule(schedule_id, expected_updated_at=expected_token)
 
         if not success:
             # Either the scheduler is not running or removal failed; fall back to direct DB removal
             fallback_deleted = db_mgr.delete_scheduled_experiment(
                 schedule_id,
                 schedule=existing_schedule,
+                expected_updated_at=expected_token,
             )
             if not fallback_deleted:
                 raise HTTPException(status_code=400, detail="Failed to delete schedule")
@@ -1421,6 +1443,8 @@ async def delete_schedule(
             details={"schedule_id": schedule_id, "error": "http_exception"},
         )
         raise
+    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
+        raise
     except Exception as e:
         logger.error(f"Error deleting schedule {schedule_id}: {e}")
         log_action(
@@ -1435,7 +1459,7 @@ async def delete_schedule(
 
 
 @router.post("/{schedule_id}/archive")
-async def set_schedule_archived(
+def set_schedule_archived(
     schedule_id: str,
     payload: Dict[str, Any],
     current_user: dict = Depends(get_current_user),
@@ -1469,12 +1493,13 @@ async def set_schedule_archived(
                 data=schedule.to_dict(),
             ).to_dict()
 
+        expected_updated_at = payload.get("expected_updated_at") or schedule.updated_at.isoformat()
         schedule.archived = archived
         if archived:
             schedule.is_active = False
         schedule.updated_at = utc_now_as_local_naive()
 
-        if not db_mgr.update_scheduled_experiment(schedule):
+        if not db_mgr.update_scheduled_experiment(schedule, expected_updated_at=expected_updated_at):
             raise HTTPException(status_code=400, detail="Failed to update schedule")
 
         scheduler.invalidate_schedule(schedule_id)
@@ -1488,7 +1513,7 @@ async def set_schedule_archived(
 
 
 @router.get("/status/scheduler")
-async def get_scheduler_status(
+def get_scheduler_status(
     current_user: dict = Depends(get_current_user)
 ):
     """
@@ -1510,13 +1535,15 @@ async def get_scheduler_status(
         
         return response.to_dict()
         
+    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
+        raise
     except Exception as e:
         logger.error(f"Error getting scheduler status: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get("/status/queue")
-async def get_queue_status(
+def get_queue_status(
     current_user: dict = Depends(get_current_user)
 ):
     """
@@ -1552,13 +1579,15 @@ async def get_queue_status(
 
         return response.to_dict()
         
+    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
+        raise
     except Exception as e:
         logger.error(f"Error getting queue status: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post("/conflicts/check")
-async def check_conflicts(
+def check_conflicts(
     experiments_data: List[Dict[str, Any]],
     current_user: dict = Depends(get_current_user)
 ):
@@ -1614,13 +1643,15 @@ async def check_conflicts(
         
         return response.to_dict()
         
+    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
+        raise
     except Exception as e:
         logger.error(f"Error checking conflicts: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post("/start-scheduler")
-async def start_scheduler_service(
+def start_scheduler_service(
     current_user: dict = Depends(get_current_user)
 ):
     """
@@ -1650,13 +1681,15 @@ async def start_scheduler_service(
         
     except HTTPException:
         raise
+    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
+        raise
     except Exception as e:
         logger.error(f"Error starting scheduler service: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post("/stop-scheduler")
-async def stop_scheduler_service(
+def stop_scheduler_service(
     current_user: dict = Depends(get_current_user)
 ):
     """
@@ -1681,13 +1714,15 @@ async def stop_scheduler_service(
         
         return response.to_dict()
         
+    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
+        raise
     except Exception as e:
         logger.error(f"Error stopping scheduler service: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post("/experiments/scan-defaults")
-async def scan_default_experiment_paths(
+def scan_default_experiment_paths(
     current_user: dict = Depends(get_current_user)
 ):
     """
@@ -1711,8 +1746,7 @@ async def scan_default_experiment_paths(
         if discovered:
             # Import discovered experiments
             methods_data = [exp.to_dict() for exp in discovered]
-            outcomes = await run_in_threadpool(discovery_service.db.import_experiment_methods,
-                methods_data, current_user.get("username", "system"))
+            outcomes = discovery_service.db.import_experiment_methods(methods_data, current_user.get('username', 'system'))
             new_count = sum(row["status"] == "added" for row in outcomes)
             updated_count = sum(row["status"] == "updated" for row in outcomes)
             
@@ -1739,13 +1773,15 @@ async def scan_default_experiment_paths(
         
         return response.to_dict()
         
+    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
+        raise
     except Exception as e:
         logger.error(f"Error scanning default paths: {e}")
         raise HTTPException(status_code=500, detail="Failed to scan for experiments")
 
 
 @router.get("/experiments/available")
-async def get_available_experiments(
+def get_available_experiments(
     rescan: bool = Query(False, description="Force rescan of experiment files"),
     current_user: dict = Depends(get_current_user)
 ):
@@ -1783,13 +1819,15 @@ async def get_available_experiments(
         
         return response.to_dict()
         
+    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
+        raise
     except Exception as e:
         logger.error(f"Error getting available experiments: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve experiments")
 
 
 @router.get("/experiments/evo-yeast")
-async def get_evo_yeast_experiments(
+def get_evo_yeast_experiments(
     limit: int = Query(100, ge=1, le=500, description="Maximum number of experiments to return"),
     current_user: dict = Depends(get_current_user)
 ):
@@ -1809,13 +1847,15 @@ async def get_evo_yeast_experiments(
 
         return response.to_dict()
 
+    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
+        raise
     except Exception as e:
         logger.error(f"Error getting EvoYeast experiments: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve EvoYeast experiments")
 
 
 @router.get("/experiments/prerequisites")
-async def get_available_prerequisites(
+def get_available_prerequisites(
     current_user: dict = Depends(get_current_user)
 ):
     """
@@ -1842,6 +1882,8 @@ async def get_available_prerequisites(
         
         return response.to_dict()
         
+    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
+        raise
     except Exception as e:
         logger.error(f"Error getting prerequisites: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve prerequisites")
@@ -1858,7 +1900,7 @@ def _require_method_import_role(user):
 
 
 @router.get("/experiments/browse")
-async def browse_method_folders(
+def browse_method_folders(
     path: Optional[str] = None,
     current_user: dict = Depends(get_current_user),
     connection: ConnectionContext = Depends(require_local_access),
@@ -1866,7 +1908,7 @@ async def browse_method_folders(
     from backend.services.scheduling.method_library import browse_methods
     _require_method_import_role(current_user)
     try:
-        data = await run_in_threadpool(browse_methods, get_experiment_discovery_service().db, path)
+        data = browse_methods(get_experiment_discovery_service().db, path)
         return ApiResponse(success=True, message="Host folder loaded", data=data).to_dict()
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
@@ -1899,22 +1941,21 @@ class MethodChangePathRequest(MethodPathRequest):
 
 
 @router.post('/experiments/library/{method_id}/path-preview')
-async def preview_library_path(method_id: str, request: MethodPathRequest, current_user: dict = Depends(get_current_user), connection: ConnectionContext = Depends(require_local_access)):
+def preview_library_path(method_id: str, request: MethodPathRequest, current_user: dict = Depends(get_current_user), connection: ConnectionContext = Depends(require_local_access)):
     from backend.services.scheduling.method_library import path_change_preview
     _require_method_import_role(current_user)
     try:
-        preview = await run_in_threadpool(path_change_preview, get_experiment_discovery_service().db, get_scheduler_engine(), method_id, request.new_path)
+        preview = path_change_preview(get_experiment_discovery_service().db, get_scheduler_engine(), method_id, request.new_path)
         return ApiResponse(success=True, message='Review affected schedules', data=preview).to_dict()
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post('/experiments/library/{method_id}/change-path')
-async def change_library_path(method_id: str, request: MethodChangePathRequest, current_user: dict = Depends(get_current_user), connection: ConnectionContext = Depends(require_local_access)):
+def change_library_path(method_id: str, request: MethodChangePathRequest, current_user: dict = Depends(get_current_user), connection: ConnectionContext = Depends(require_local_access)):
     _require_method_import_role(current_user)
     try:
-        result = await run_in_threadpool(get_scheduler_engine().change_library_method_path, get_experiment_discovery_service().db,
-                                        method_id, request.new_path, request.expected_revision, [row.model_dump() for row in request.references])
+        result = get_scheduler_engine().change_library_method_path(get_experiment_discovery_service().db, method_id, request.new_path, request.expected_revision, [row.model_dump() for row in request.references])
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     log_action(actor=current_user.get('username', 'unknown'), action='change_method_path', scope='scheduling', client_ip=connection.client_ip,
@@ -1923,26 +1964,26 @@ async def change_library_path(method_id: str, request: MethodChangePathRequest, 
 
 
 @router.get('/experiments/library')
-async def get_method_library(current_user: dict = Depends(get_current_user), connection: ConnectionContext = Depends(require_local_access)):
+def get_method_library(current_user: dict = Depends(get_current_user), connection: ConnectionContext = Depends(require_local_access)):
     from backend.services.scheduling.method_library import library_records
     _require_method_import_role(current_user)
-    rows = await run_in_threadpool(library_records, get_experiment_discovery_service().db)
+    rows = library_records(get_experiment_discovery_service().db)
     return ApiResponse(success=True, message='Method library loaded', data={'methods': rows}).to_dict()
 
 
 @router.post('/experiments/library/check')
-async def check_method_library(request: MethodCheckRequest, current_user: dict = Depends(get_current_user), connection: ConnectionContext = Depends(require_local_access)):
+def check_method_library(request: MethodCheckRequest, current_user: dict = Depends(get_current_user), connection: ConnectionContext = Depends(require_local_access)):
     from backend.services.scheduling.method_library import check_library_paths
     _require_method_import_role(current_user)
-    outcomes = await run_in_threadpool(check_library_paths, get_experiment_discovery_service().db, request.method_ids)
+    outcomes = check_library_paths(get_experiment_discovery_service().db, request.method_ids)
     return ApiResponse(success=all(row['success'] for row in outcomes), message='Path checks finished', data={'outcomes': outcomes}).to_dict()
 
 
 @router.patch('/experiments/library/{method_id}')
-async def archive_library_method(method_id: str, request: MethodArchiveRequest, current_user: dict = Depends(get_current_user), connection: ConnectionContext = Depends(require_local_access)):
+def archive_library_method(method_id: str, request: MethodArchiveRequest, current_user: dict = Depends(get_current_user), connection: ConnectionContext = Depends(require_local_access)):
     _require_method_import_role(current_user)
     try:
-        await run_in_threadpool(get_experiment_discovery_service().db.set_method_archived, method_id, request.archived, request.expected_revision)
+        get_experiment_discovery_service().db.set_method_archived(method_id, request.archived, request.expected_revision)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     log_action(actor=current_user.get('username', 'unknown'), action='archive_method' if request.archived else 'restore_method', scope='scheduling', client_ip=connection.client_ip, success=True, details={'method_id': method_id})
@@ -1950,7 +1991,7 @@ async def archive_library_method(method_id: str, request: MethodArchiveRequest, 
 
 
 @router.post("/experiments/import-preview")
-async def preview_experiment_import(
+def preview_experiment_import(
     request: MethodImportRequest,
     current_user: dict = Depends(get_current_user),
     connection: ConnectionContext = Depends(require_local_access),
@@ -1958,11 +1999,12 @@ async def preview_experiment_import(
     """Read host method metadata without updating the catalogue or starting methods."""
     _require_method_import_role(current_user)
     try:
-        preview = await run_in_threadpool(get_experiment_discovery_service().preview_methods,
-                                         request.folder_path, request.relative_paths)
+        preview = get_experiment_discovery_service().preview_methods(request.folder_path, request.relative_paths)
         return ApiResponse(success=True, message="Review the methods before importing", data=preview).to_dict()
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
+        raise
     except Exception as exc:
         logger.exception("Method preview failed")
         raise HTTPException(status_code=500, detail="Could not preview methods; try again.") from exc
@@ -1994,43 +2036,45 @@ def _import_method_selection(service, payload, actor):
 
 
 @router.post("/experiments/import-files")
-async def import_experiment_files(
+def import_experiment_files(
     files_data: Union[List[Dict[str, Any]], Dict[str, Any]],
     current_user: dict = Depends(get_current_user),
     connection: ConnectionContext = Depends(require_local_access),
 ):
     _require_method_import_role(current_user)
     try:
-        result = await run_in_threadpool(_import_method_selection, get_experiment_discovery_service(),
-                                        files_data, current_user.get("username", "unknown"))
+        result = _import_method_selection(get_experiment_discovery_service(), files_data, current_user.get('username', 'unknown'))
         return ApiResponse(success=result["success"], message="Method import finished", data=result).to_dict()
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
+        raise
     except Exception as exc:
         logger.exception("Method file import failed")
         raise HTTPException(status_code=500, detail="Could not import methods; try again.") from exc
 
 
 @router.post("/experiments/import-folder")
-async def import_experiment_folder(
+def import_experiment_folder(
     request: MethodImportRequest,
     current_user: dict = Depends(get_current_user),
     connection: ConnectionContext = Depends(require_local_access),
 ):
     _require_method_import_role(current_user)
     try:
-        result = await run_in_threadpool(get_experiment_discovery_service().import_methods_from_folder,
-                                        request.folder_path, current_user.get("username", "unknown"), request.relative_paths)
+        result = get_experiment_discovery_service().import_methods_from_folder(request.folder_path, current_user.get('username', 'unknown'), request.relative_paths)
         return ApiResponse(success=result["success"], message="Method import finished", data=result).to_dict()
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
+        raise
     except Exception as exc:
         logger.exception("Method folder import failed")
         raise HTTPException(status_code=500, detail="Could not import methods; try again.") from exc
 
 
 @router.post("/experiments/validate-path")
-async def validate_experiment_path(
+def validate_experiment_path(
     path_data: Dict[str, str],
     current_user: dict = Depends(get_current_user)
 ):
@@ -2064,13 +2108,15 @@ async def validate_experiment_path(
         
     except HTTPException:
         raise
+    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
+        raise
     except Exception as e:
         logger.error(f"Error validating path: {e}")
         raise HTTPException(status_code=500, detail="Failed to validate path")
 
 
 @router.get("/executions/history")
-async def get_execution_history(
+def get_execution_history(
     schedule_id: Optional[str] = Query(None, description="Schedule ID to filter by"),
     limit: int = Query(50, description="Maximum number of results"),
     current_user: dict = Depends(get_current_user)
@@ -2110,13 +2156,15 @@ async def get_execution_history(
         
     except HTTPException:
         raise
+    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
+        raise
     except Exception as e:
         logger.error(f"Error getting execution history: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get("/executions/summary/{schedule_id}")
-async def get_schedule_execution_summary(
+def get_schedule_execution_summary(
     schedule_id: str,
     current_user: dict = Depends(get_current_user)
 ):
@@ -2152,13 +2200,15 @@ async def get_schedule_execution_summary(
         
     except HTTPException:
         raise
+    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
+        raise
     except Exception as e:
         logger.error(f"Error getting execution summary: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get("/executions/recent")
-async def get_recent_executions(
+def get_recent_executions(
     hours: int = Query(24, description="Hours to look back"),
     current_user: dict = Depends(get_current_user)
 ):
@@ -2192,6 +2242,8 @@ async def get_recent_executions(
         return response.to_dict()
         
     except HTTPException:
+        raise
+    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
         raise
     except Exception as e:
         logger.error(f"Error getting recent executions: {e}")

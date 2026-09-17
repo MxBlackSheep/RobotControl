@@ -1,5 +1,9 @@
 # Backend HxRun Maintenance Mode Guide
 
+## SQLite failures (2026-09-14)
+
+A missing or unreadable scheduler-state row is unavailable, not maintenance-disabled. The enforcement worker remains alive and retries after a storage failure without terminating a method because of that failure alone. The scheduler independently blocks new dispatch. See the [SQLite safety guide](sqlite-safety-maintenance-guide.md).
+
 This guide explains the backend pieces that enforce **HxRun Maintenance Mode**.  
 Purpose: when the mode is enabled, RobotControl blocks HxRun launches everywhere it can control.
 

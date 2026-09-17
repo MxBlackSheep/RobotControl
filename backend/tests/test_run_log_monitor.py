@@ -1,4 +1,5 @@
 import os
+from backend.services.sqlite_safety import SafetyConflict
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -384,7 +385,7 @@ def test_completion_during_attachment_preparation_cancels_email(rig, monkeypatch
 def make_engine(r, monkeypatch):
     from backend.services.scheduling import scheduler_engine
     monkeypatch.setattr(scheduler_engine, "get_scheduling_database_manager", lambda: r.manager)
-    monkeypatch.setattr(scheduler_engine, "get_hamilton_process_monitor", lambda: SimpleNamespace(is_hamilton_running=lambda: False))
+    monkeypatch.setattr(scheduler_engine, "get_hamilton_process_monitor", lambda: SimpleNamespace(is_hamilton_running=lambda: False, get_hamilton_processes=lambda: []))
     monkeypatch.setattr(scheduler_engine, "get_hxrun_maintenance_service", lambda: SimpleNamespace(
         get_state=lambda **kwargs: SimpleNamespace(enabled=False)))
     engine = scheduler_engine.SchedulerEngine(scheduler_engine.SchedulerConfig(enable_notifications=False))
@@ -511,18 +512,24 @@ def test_process_completion_racing_sql_poll_cannot_reopen_alert(rig):
 def test_operator_recovery_can_close_orphan_but_not_running_process(rig, monkeypatch):
     r = rig
     engine = make_engine(r, monkeypatch)
-    engine.process_monitor.is_hamilton_running = lambda: True
-    engine._close_recovered_observations(r.schedule, "operator")
+    engine.process_monitor.get_hamilton_processes = lambda: [object()]
+    with pytest.raises(SafetyConflict):
+        engine._close_recovered_observations(r.schedule.schedule_id, "operator")
     assert r.monitor.store.execution("execution").status == "running"
-    engine.process_monitor.is_hamilton_running = lambda: False
-    engine._close_recovered_observations(r.schedule, "operator")
+    engine.process_monitor.get_hamilton_processes = lambda: []
+    engine._close_recovered_observations(r.schedule.schedule_id, "operator")
     assert r.monitor.store.execution("execution").status == "cancelled"
     assert r.monitor.snapshots() == []
 
 
 def test_deleted_schedule_execution_is_finalized_in_archive(rig):
     r = rig
-    assert r.db.delete_schedule("schedule")
+    # Reproduce an old database, where deletion was allowed during a run.
+    import sqlite3
+    with sqlite3.connect(r.db.db_path) as conn:
+        r.db._archive_job_executions(conn.cursor(), 'schedule')
+        conn.execute("DELETE FROM JobExecutions WHERE schedule_id = 'schedule'")
+        conn.execute("DELETE FROM ScheduledExperiments WHERE schedule_id = 'schedule'")
     r.execution.status = "completed"
     r.execution.end_time = datetime.now()
     assert r.monitor.store.finalize(r.execution, r.schedule)

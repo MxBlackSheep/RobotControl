@@ -1,5 +1,9 @@
 # Scheduling Service Maintenance Guide
 
+## SQLite recovery safety (2026-09-14)
+
+Recovery acknowledgement and queued dispatch resumption are separate. Recovery, running executions and unfinished monitoring block schedule deletion/archive inside the database transaction. Ordinary edits must never write recovery columns. Schedule/global recovery changes use one transaction with a safety revision. Use the [SQLite safety guide](sqlite-safety-maintenance-guide.md) for the missing-schedule path, API contracts, lock order, repair workflow and rollback instructions.
+
 This document explains how the scheduling subsystem fits together and how to modify it safely. It is written for developers who are new to the codebase and prefer explicit, step‑by‑step directions.
 
 ---

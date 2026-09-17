@@ -1,4 +1,5 @@
 import threading
+from types import SimpleNamespace
 import time
 from datetime import datetime, timedelta
 from typing import List, Optional
@@ -10,6 +11,9 @@ import backend.services.scheduling.experiment_executor as executor_module
 
 
 class StubMonitor:
+    def get_hamilton_processes(self):
+        return [object()] if self.is_hamilton_running() else []
+
     def start_monitoring(self) -> bool:
         return True
 
@@ -51,6 +55,8 @@ class StubHxRunMaintenanceService:
 class StubDBManager:
     def __init__(self):
         self.manual_state = ManualRecoveryState()
+        self.schedules = {}
+        self.sqlite_db = SimpleNamespace(_connection_lock=threading.RLock())
 
     def initialize_schema(self) -> bool:
         return True
@@ -59,7 +65,10 @@ class StubDBManager:
         return []
 
     def get_schedule_by_id(self, schedule_id: str) -> Optional[ScheduledExperiment]:
-        return None
+        return self.schedules.get(schedule_id)
+
+    def get_hxrun_maintenance_state(self):
+        return StubHxRunMaintenanceService._State()
 
     def get_manual_recovery_state(self) -> ManualRecoveryState:
         return self.manual_state
@@ -126,6 +135,7 @@ def test_scheduler_uses_single_worker_queue(monkeypatch):
     monkeypatch.setattr(executor_module, "ExperimentExecutor", FakeExecutor)
 
     engine = SchedulerEngine(SchedulerConfig(enable_notifications=False, startup_delay_seconds=0, check_interval_seconds=1))
+    engine.db_manager.schedules = engine._active_schedules
     current_time = datetime.now()
 
     schedule_a = ScheduledExperiment(
@@ -187,6 +197,7 @@ def test_busy_hamilton_keeps_job_queued_until_available(monkeypatch):
     monkeypatch.setattr(executor_module, "ExperimentExecutor", FakeExecutor)
 
     engine = SchedulerEngine(SchedulerConfig(enable_notifications=False, startup_delay_seconds=0, check_interval_seconds=1))
+    engine.db_manager.schedules = engine._active_schedules
     now = datetime.now()
     schedule = ScheduledExperiment(
         schedule_id="sched-busy",
@@ -243,6 +254,7 @@ def test_timeout_cleanup_action_disables_schedule(monkeypatch):
     monkeypatch.setattr(executor_module, "ExperimentExecutor", FakeExecutor)
 
     engine = SchedulerEngine(SchedulerConfig(enable_notifications=False, startup_delay_seconds=0, check_interval_seconds=1))
+    engine.db_manager.schedules = engine._active_schedules
     now = datetime.now()
     schedule = ScheduledExperiment(
         schedule_id="sched-timeout",

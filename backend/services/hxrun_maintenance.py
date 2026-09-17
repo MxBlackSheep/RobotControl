@@ -62,7 +62,10 @@ class HxRunMaintenanceService:
         self._last_popup_at = 0.0
 
         # Prime cache once to avoid first-call latency.
-        self.get_state(force_refresh=True)
+        try:
+            self.get_state(force_refresh=True)
+        except Exception:
+            logger.exception('Maintenance state unavailable at startup; storage review remains accessible')
 
     def start(self) -> None:
         """Start background enforcement thread if not already running."""
@@ -131,7 +134,12 @@ class HxRunMaintenanceService:
         next_poll_at = 0.0
 
         while not self._stop_event.is_set():
-            state = self.get_state(force_refresh=False)
+            try:
+                state = self.get_state(force_refresh=False)
+            except Exception:
+                logger.exception('Maintenance storage unavailable; keeping enforcement worker alive')
+                self._stop_event.wait(self.config.idle_sleep_seconds)
+                continue
             if not state.enabled:
                 self._process_start_watcher = None
                 self._stop_event.wait(self.config.idle_sleep_seconds)

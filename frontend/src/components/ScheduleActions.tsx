@@ -624,7 +624,7 @@ const DeleteConfirmationDialog: React.FC<DeleteConfirmationDialogProps> = ({
           onClick={handleConfirm}
           variant="contained"
           color="error"
-          disabled={loading}
+          disabled={loading || Boolean(schedule?.recovery_required)}
           startIcon={loading ? <CircularProgress size={16} /> : <DeleteIcon />}
         >
           {loading ? 'Deleting...' : 'Delete Schedule'}
@@ -765,7 +765,7 @@ const ScheduleActions: React.FC<ScheduleActionsProps> = ({
           color="error"
           startIcon={<DeleteIcon />}
           onClick={() => openDialog('delete')}
-          disabled={disabled || !selectedSchedule || isOperationInProgress}
+          disabled={disabled || !selectedSchedule || selectedSchedule.recovery_required || isOperationInProgress}
         >
           Delete Schedule
         </Button>

@@ -91,7 +91,24 @@ export interface ConflictCheckRequest {
 }
 
 // Manual recovery state
+export interface PendingRecovery {
+  schedule_id: string | null;
+  experiment_name?: string | null;
+  note?: string | null;
+  triggered_by?: string | null;
+  triggered_at?: string | null;
+  schedule_missing: boolean;
+  archived: boolean;
+}
+
 export interface ManualRecoveryState {
+  safety_revision?: number;
+  resume_required?: boolean;
+  pending_recoveries?: PendingRecovery[];
+  schedule_missing?: boolean;
+  storage_healthy?: boolean;
+  storage_error?: string | null;
+  resume_block_reason?: string | null;
   active: boolean;
   note?: string | null;
   schedule_id?: string | null;

@@ -1,3 +1,18 @@
+## 2026-09-17 Deployment recovery guidance and GitHub validation
+
+- Documented full executable/support-folder replacement and reviewed offline reconciliation of conflicting live/archive run history, preserving originals and explicit scheduler resume.
+- Excluded local `recovery/` databases and reports from Git. Deployment data and generated binaries remain local.
+- Validation: 316 backend tests passed with temporary data paths; all 80 frontend tests and the production frontend build passed. Frontend embedding and Windows PyInstaller compilation passed into `dist/github-validation-20260917/RobotControl`; the new executable was not launched against robot hardware.
+
+## 2026-09-14 SQLite safety and explicit scheduler resume
+
+- Recovery now commits schedule/global flags, revision and audit together. Database guards reject recovery/running-run deletion and archive; queued deletion preserves cancelled history. Ordinary edits no longer overwrite recovery fields.
+- Added missing-schedule acknowledgement and a separate persisted Resume action. Local operators must confirm robot readiness; stale revisions and unknown HxRun state block changes. Storage failures pause dispatch and retain monitoring.
+- Enabled SQLite foreign keys, replaced execution REPLACE writes with upsert, preserved orphan notification metadata, and added reviewed administrator health/repair with verified retained backups for scheduling/authentication databases.
+- Validation: 191 backend tests and 80 frontend tests passed. Frontend embedding and Windows PyInstaller compilation passed. The final executable passed isolated clean/legacy SQLite smoke checks, reviewed repair, missing-schedule acknowledgement, restart persistence and explicit Resume, with automation disabled and no robot methods launched.
+- Built into `dist/sqlite-safety-release/RobotControl` using the new optional `--output-dir`, preserving the existing executable folder and its runtime databases.
+- See `docs/maintenance/backend/sqlite-safety-maintenance-guide.md` for APIs, locking, reviewed repairs and offline restore. Tests use isolated databases and mocked robot execution.
+
 # RobotControl Development Log (Chronological)
 
 ## 2026-09-14 Camera controls, stale-frame display and packaged validation

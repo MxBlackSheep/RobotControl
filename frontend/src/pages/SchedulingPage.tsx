@@ -67,6 +67,7 @@ import { useAuth } from '../context/AuthContext';
 
 // Import scheduling components
 import ScheduleList from '../components/ScheduleList';
+import RecoverySafetyPanel from '../components/scheduling/RecoverySafetyPanel';
 import ImprovedScheduleForm from '../components/scheduling/ImprovedScheduleForm';
 import NotificationContactsPanel from '../components/scheduling/NotificationContactsPanel';
 import NotificationEmailSettingsPanel from '../components/scheduling/NotificationEmailSettingsPanel';
@@ -400,36 +401,6 @@ const SchedulingPage: React.FC = () => {
     [],
   );
 
-  const handleViewRecoverySchedule = async () => {
-    if (!isLocalSession) {
-      return;
-    }
-    const scheduleId = state.manualRecovery?.schedule_id;
-    if (!scheduleId) {
-      return;
-    }
-    await actions.loadSchedules(false, scheduleId);
-    setCurrentTab(0);
-  };
-
-  const handleResolveManualRecovery = async () => {
-    if (!isLocalSession) {
-      return;
-    }
-    const scheduleId = state.manualRecovery?.schedule_id;
-    if (!scheduleId) {
-      window.alert('Manual recovery is active, but the originating schedule could not be identified.');
-      return;
-    }
-    const noteInput = window.prompt('Optional note when resolving manual recovery', state.manualRecovery?.note || '');
-    if (noteInput === null) {
-      return;
-    }
-    const note = noteInput.trim() ? noteInput.trim() : undefined;
-    await actions.resolveRecovery(scheduleId, note);
-    await actions.getQueueStatus();
-  };
-
   // Access control - users and admins can view, only admins can control scheduler service
   if (!user) {
     return (
@@ -716,7 +687,7 @@ const SchedulingPage: React.FC = () => {
                               !state.selectedSchedule.archived,
                             );
                           }}
-                          disabled={state.loading || !state.selectedSchedule}
+                          disabled={state.loading || !state.selectedSchedule || (!state.selectedSchedule.archived && state.selectedSchedule.recovery_required)}
                         >
                           {state.selectedSchedule?.archived ? 'Unarchive Schedule' : 'Archive Schedule'}
                         </Button>
@@ -726,7 +697,7 @@ const SchedulingPage: React.FC = () => {
                           fullWidth
                           startIcon={<DeleteIcon />}
                           onClick={() => setDeleteDialogOpen(true)}
-                          disabled={state.loading}
+                          disabled={state.loading || state.selectedSchedule.recovery_required}
                         >
                           Delete Schedule
                         </Button>
@@ -776,12 +747,12 @@ const SchedulingPage: React.FC = () => {
                               <Typography variant="body2">{item.experiment_name}</Typography>
                               {item.monitoring && (
                                 <Typography variant="caption" color={['log_inactive', 'monitoring_unavailable'].includes(item.monitoring.state) ? 'warning.main' : 'text.secondary'}>
-                                  {item.monitoring.run_state && `Hamilton: ${item.monitoring.run_state} · `}
+                                  {item.monitoring.run_state && `Hamilton: ${item.monitoring.run_state} Â· `}
                                   {{ waiting: 'Waiting for run/log', monitoring: 'Monitoring', log_inactive: 'Log inactive', monitoring_unavailable: 'Monitoring unavailable', terminal: 'Run ended; finalizing' }[item.monitoring.state]}
-                                  {` · Alert threshold: ${item.monitoring.threshold_minutes} min`}
-                                  {item.monitoring.trace_filename && ` · ${item.monitoring.trace_filename}`}
-                                  {item.monitoring.last_activity_at && ` · Last activity observed: ${new Date(item.monitoring.last_activity_at).toLocaleTimeString()}`}
-                                  {item.monitoring.reason && ` · ${item.monitoring.reason}`}
+                                  {` Â· Alert threshold: ${item.monitoring.threshold_minutes} min`}
+                                  {item.monitoring.trace_filename && ` Â· ${item.monitoring.trace_filename}`}
+                                  {item.monitoring.last_activity_at && ` Â· Last activity observed: ${new Date(item.monitoring.last_activity_at).toLocaleTimeString()}`}
+                                  {item.monitoring.reason && ` Â· ${item.monitoring.reason}`}
                                 </Typography>
                               )}
                               {item.waiting_reason && (
@@ -895,77 +866,8 @@ const SchedulingPage: React.FC = () => {
         </TabPanel>
 
         <TabPanel value={currentTab} index={1}>
-          <Stack spacing={2.5}>
-            <Alert severity={state.manualRecovery?.active ? 'warning' : 'info'}>
-              {state.manualRecovery?.active
-                ? 'Manual recovery is required. Automatic scheduling is paused until it is resolved.'
-                : 'No manual recovery is currently required.'}
-            </Alert>
-            {state.manualRecovery && (
-              <Card sx={{ borderRadius: 2 }}>
-                <CardContent sx={{ p: cardPadding }}>
-                  <Stack spacing={1.25}>
-                    <Typography variant="subtitle1">
-                      Status: {state.manualRecovery.active ? 'Requires recovery' : 'Cleared'}
-                    </Typography>
-                    <Typography variant="body2">
-                      <strong>Schedule ID:</strong> {state.manualRecovery.schedule_id || 'N/A'}
-                    </Typography>
-                    {state.manualRecovery.experiment_name && (
-                      <Typography variant="body2">
-                        <strong>Experiment:</strong> {state.manualRecovery.experiment_name}
-                      </Typography>
-                    )}
-                    {state.manualRecovery.note && (
-                      <Typography variant="body2">
-                        <strong>Note:</strong> {state.manualRecovery.note}
-                      </Typography>
-                    )}
-                    <Typography variant="body2">
-                      <strong>Triggered by:</strong> {state.manualRecovery.triggered_by || 'N/A'}
-                    </Typography>
-                    <Typography variant="body2">
-                      <strong>Triggered at:</strong> {formatTimestamp(state.manualRecovery.triggered_at)}
-                    </Typography>
-                    {state.manualRecovery.resolved_by && (
-                      <Typography variant="body2">
-                        <strong>Resolved by:</strong> {state.manualRecovery.resolved_by}
-                      </Typography>
-                    )}
-                    {state.manualRecovery.resolved_at && (
-                      <Typography variant="body2">
-                        <strong>Resolved at:</strong> {formatTimestamp(state.manualRecovery.resolved_at)}
-                      </Typography>
-                    )}
-                  </Stack>
-                  {isLocalSession ? (
-                    <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
-                      <Button
-                        variant="outlined"
-                        onClick={handleViewRecoverySchedule}
-                        disabled={!state.manualRecovery.schedule_id}
-                      >
-                        View Schedule
-                      </Button>
-                      {state.manualRecovery.active && (
-                        <Button
-                          variant="contained"
-                          color="primary"
-                          onClick={handleResolveManualRecovery}
-                        >
-                          Resolve Manual Recovery
-                        </Button>
-                      )}
-                    </Stack>
-                  ) : (
-                    <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-                      Manual recovery controls are available only on the local robot control workstation.
-                    </Typography>
-                  )}
-                </CardContent>
-              </Card>
-            )}
-          </Stack>
+          <RecoverySafetyPanel state={state.manualRecovery} isLocal={isLocalSession}
+            onChanged={async () => { await actions.getQueueStatus(); await actions.loadSchedules(false); }} />
         </TabPanel>
 
         <TabPanel value={currentTab} index={2}>

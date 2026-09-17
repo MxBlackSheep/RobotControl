@@ -3,6 +3,7 @@ build/
 dist/
 frontend/dist/
 data/
+recovery/
 tools/
 backend/embedded_static.py
 *.spec

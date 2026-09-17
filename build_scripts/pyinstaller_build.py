@@ -35,7 +35,7 @@ def _copy_directory_contents(src: Path, dst: Path) -> int:
             copied += 1
     return copied
 
-def build_with_pyinstaller(layout: str = "onedir", console: bool = False) -> bool:
+def build_with_pyinstaller(layout: str = "onedir", console: bool = False, output_dir: Optional[str] = None) -> bool:
     """Build RobotControl with PyInstaller."""
     project_root = Path(__file__).resolve().parent.parent
     backend_main = project_root / "backend" / "main.py"
@@ -53,7 +53,7 @@ def build_with_pyinstaller(layout: str = "onedir", console: bool = False) -> boo
         return False
     
     # Preserve existing backups inside dist before cleaning build artifacts
-    dist_root = project_root / "dist"
+    dist_root = (project_root / output_dir).resolve() if output_dir else project_root / "dist"
     backup_candidates = [
         dist_root / "RobotControl" / "data" / "backups",
         dist_root / "data" / "backups",
@@ -152,7 +152,7 @@ def build_with_pyinstaller(layout: str = "onedir", console: bool = False) -> boo
         "--optimize", "2",
         
         # Output directory
-        "--distpath", "dist",
+        "--distpath", str(dist_root),
         "--workpath", "build",
     ]
 
@@ -246,7 +246,8 @@ if __name__ == "__main__":
         action="store_true",
         help="Keep console window open",
     )
+    parser.add_argument('--output-dir', help='Separate release directory; defaults to dist')
     args = parser.parse_args()
 
-    success = build_with_pyinstaller(layout=args.layout, console=args.console)
+    success = build_with_pyinstaller(layout=args.layout, console=args.console, output_dir=args.output_dir)
     sys.exit(0 if success else 1)

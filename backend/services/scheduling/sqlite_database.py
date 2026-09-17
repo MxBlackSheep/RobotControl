@@ -46,7 +46,11 @@ except ImportError:  # pragma: no cover - fallback
 logger = logging.getLogger(__name__)
 
 
-class SQLiteSchedulingDatabase:
+from backend.services.scheduling.safety_store import SchedulerSafetyStore
+from backend.services.sqlite_safety import SafetyConflict, StorageUnavailable, configure_connection, check_timestamp
+
+
+class SQLiteSchedulingDatabase(SchedulerSafetyStore):
     """SQLite database manager for scheduling system"""
     
     def __init__(self, db_name: str = "robotcontrol_scheduling.db"):
@@ -59,6 +63,8 @@ class SQLiteSchedulingDatabase:
         self.db_path = get_data_path() / db_name
         self._connection_lock = threading.RLock()
         self._schema_initialized = False
+        self._safety_fault = False
+        self._integrity_error = None
         
         logger.info(f"SQLite scheduling database: {self.db_path}")
         self._initialize_database()
@@ -67,6 +73,8 @@ class SQLiteSchedulingDatabase:
         """Initialize database schema"""
         try:
             with self._get_connection() as conn:
+                conn.execute("BEGIN IMMEDIATE")
+                state_table_existed = conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'SchedulerState'").fetchone() is not None
                 cursor = conn.cursor()
                 
                 # Create ExperimentMethods table to track all discovered .med files
@@ -186,7 +194,9 @@ class SQLiteSchedulingDatabase:
                         hxrun_maintenance_updated_at TEXT
                     )
                 """)
-                cursor.execute("INSERT OR IGNORE INTO SchedulerState (id) VALUES (1)")
+                if not state_table_existed:
+                    cursor.execute("INSERT INTO SchedulerState (id) VALUES (1)")
+
 
                 # Create indexes for performance
                 # No execution foreign key: legacy execution writes use INSERT OR REPLACE.
@@ -310,12 +320,14 @@ class SQLiteSchedulingDatabase:
                             cursor.execute(alter_sql)
                             logger.info("SQLite scheduling database: added column %s", column_name)
                         except Exception as alter_exc:
-                            logger.warning("SQLite scheduling database: unable to add column %s (%s)", column_name, alter_exc)
+                            raise StorageUnavailable(f"Unable to migrate scheduling column {column_name}") from alter_exc
 
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_scheduled_recovery_required ON ScheduledExperiments(recovery_required)")
 
                 scheduler_state_columns = {col["name"] for col in cursor.execute("PRAGMA table_info(SchedulerState)")}
                 scheduler_state_alterations = [
+                    ('safety_revision', 'ALTER TABLE SchedulerState ADD COLUMN safety_revision INTEGER NOT NULL DEFAULT 0'),
+                    ('resume_required', 'ALTER TABLE SchedulerState ADD COLUMN resume_required INTEGER NOT NULL DEFAULT 0'),
                     (
                         "hxrun_maintenance_enabled",
                         "ALTER TABLE SchedulerState ADD COLUMN hxrun_maintenance_enabled INTEGER NOT NULL DEFAULT 0",
@@ -330,11 +342,15 @@ class SQLiteSchedulingDatabase:
                             cursor.execute(alter_sql)
                             logger.info("SQLite scheduling database: added SchedulerState column %s", column_name)
                         except Exception as alter_exc:
-                            logger.warning(
-                                "SQLite scheduling database: unable to add SchedulerState column %s (%s)",
-                                column_name,
-                                alter_exc,
-                            )
+                            raise StorageUnavailable(f"Unable to migrate scheduler state {column_name}") from alter_exc
+                cursor.execute("CREATE TABLE IF NOT EXISTS SchemaMigrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)")
+                cursor.execute("CREATE TABLE IF NOT EXISTS SchedulerSafetyEvents (revision INTEGER PRIMARY KEY, action TEXT NOT NULL, actor TEXT NOT NULL, note TEXT, state TEXT NOT NULL, created_at TEXT NOT NULL)")
+                if not cursor.execute('SELECT 1 FROM SchemaMigrations WHERE version = 1').fetchone():
+                    cursor.execute('UPDATE SchedulerState SET resume_required = 1 WHERE recovery_required = 1 OR EXISTS(SELECT 1 FROM ScheduledExperiments WHERE recovery_required = 1)')
+                    cursor.execute("INSERT INTO SchemaMigrations VALUES (1, CURRENT_TIMESTAMP)")
+                conn.commit()
+                checks = [row[0] for row in conn.execute('PRAGMA quick_check')]
+                self._integrity_error = None if checks == ['ok'] else 'SQLite integrity check failed; restore a verified backup'
 
                 # Test database access
                 cursor.execute("SELECT COUNT(*) FROM ScheduledExperiments")
@@ -349,15 +365,21 @@ class SQLiteSchedulingDatabase:
     
     @contextmanager
     def _get_connection(self):
-        """Get a thread-safe database connection"""
+        """Bounded connections; storage failures latch a scheduler hold."""
         with self._connection_lock:
-            conn = sqlite3.connect(str(self.db_path), timeout=30.0)
-            conn.row_factory = sqlite3.Row  # Enable dict-like access
+            conn = None
             try:
+                conn = sqlite3.connect(str(self.db_path), timeout=2.0)
+                configure_connection(conn)
                 yield conn
+            except (sqlite3.Error, StorageUnavailable):
+                self._safety_fault = True
+                if conn:
+                    conn.rollback()
+                raise
             finally:
-                conn.close()
-    
+                if conn:
+                    conn.close()
 
     @staticmethod
     def _parse_timestamp(value: Optional[str]) -> Optional[datetime]:
@@ -460,6 +482,8 @@ class SQLiteSchedulingDatabase:
                     if schedule:
                         schedules.append(schedule)
                         
+        except (sqlite3.Error, StorageUnavailable):
+            raise
         except Exception as e:
             logger.error(f"Failed to get active schedules from SQLite: {e}")
         
@@ -493,6 +517,8 @@ class SQLiteSchedulingDatabase:
                     schedule = self._row_to_scheduled_experiment(row, conn)
                     if schedule:
                         schedules.append(schedule)
+        except (sqlite3.Error, StorageUnavailable):
+            raise
         except Exception as exc:
             logger.error("Failed to get schedules: %s", exc)
         return schedules
@@ -517,6 +543,8 @@ class SQLiteSchedulingDatabase:
                 if row:
                     return self._row_to_scheduled_experiment(row, conn)
                     
+        except (sqlite3.Error, StorageUnavailable):
+            raise
         except Exception as e:
             logger.error(f"Failed to get schedule {schedule_id} from SQLite: {e}")
         
@@ -527,6 +555,7 @@ class SQLiteSchedulingDatabase:
         schedule: ScheduledExperiment,
         *,
         touch_updated_at: bool = True,
+        expected_updated_at: Optional[str] = None,
     ) -> bool:
         """
         Update an existing scheduled experiment
@@ -539,6 +568,15 @@ class SQLiteSchedulingDatabase:
         """
         try:
             with self._get_connection() as conn:
+                conn.execute('BEGIN IMMEDIATE')
+                current = conn.execute('SELECT * FROM ScheduledExperiments WHERE schedule_id = ?', (schedule.schedule_id,)).fetchone()
+                if not current:
+                    raise SafetyConflict('Schedule no longer exists')
+                check_timestamp(expected_updated_at, current['updated_at'])
+                if schedule.archived and not current['archived']:
+                    self._guard_schedule_removal(conn, schedule.schedule_id)
+                if schedule.is_active and current['recovery_required']:
+                    raise SafetyConflict('Resolve manual recovery before activating this schedule.')
                 cursor = conn.cursor()
                 
                 set_clauses = [
@@ -549,19 +587,13 @@ class SQLiteSchedulingDatabase:
                     "start_time = ?",
                     "estimated_duration = ?",
                     "log_inactivity_threshold_minutes = ?",
-                    "is_active = ?",
+                    "is_active = CASE WHEN recovery_required = 1 OR archived = 1 THEN 0 ELSE ? END",
                     "archived = ?",
                     "timeout_minutes = ?",
                     "timeout_action = ?",
                     "timeout_cleanup_experiment_name = ?",
                     "timeout_cleanup_experiment_path = ?",
                     "prerequisites = ?",
-                    "recovery_required = ?",
-                    "recovery_note = ?",
-                    "recovery_marked_at = ?",
-                    "recovery_marked_by = ?",
-                    "recovery_resolved_at = ?",
-                    "recovery_resolved_by = ?",
                 ]
                 params: List[Any] = [
                     schedule.experiment_name,
@@ -578,12 +610,6 @@ class SQLiteSchedulingDatabase:
                     schedule.timeout_config.cleanup_experiment_name if schedule.timeout_config else None,
                     schedule.timeout_config.cleanup_experiment_path if schedule.timeout_config else None,
                     json.dumps(schedule.prerequisites) if schedule.prerequisites else None,
-                    1 if schedule.recovery_required else 0,
-                    schedule.recovery_note,
-                    self._serialize_timestamp(schedule.recovery_marked_at),
-                    schedule.recovery_marked_by,
-                    self._serialize_timestamp(schedule.recovery_resolved_at),
-                    schedule.recovery_resolved_by,
                 ]
 
                 if touch_updated_at:
@@ -613,6 +639,8 @@ class SQLiteSchedulingDatabase:
                     logger.warning(f"No schedule found to update: {schedule.schedule_id}")
                     return False
                     
+        except (SafetyConflict, StorageUnavailable, sqlite3.Error):
+            raise
         except Exception as e:
             logger.error(f"Failed to update schedule in SQLite: {e}")
             return False
@@ -812,6 +840,9 @@ class SQLiteSchedulingDatabase:
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
+                if entry.schedule_id and not conn.execute('SELECT 1 FROM ScheduledExperiments WHERE schedule_id = ?', (entry.schedule_id,)).fetchone():
+                    entry.metadata = {**(entry.metadata or {}), 'original_schedule_id': entry.schedule_id}
+                    entry.schedule_id = None
                 cursor.execute(
                     """
                     INSERT INTO NotificationLog (
@@ -960,144 +991,6 @@ class SQLiteSchedulingDatabase:
             logger.error("Failed to load notification logs: %s", exc)
         return logs
     
-    def set_recovery_required(
-        self, schedule_id: str, note: Optional[str], user: str
-    ) -> bool:
-        """Mark a schedule as requiring manual recovery."""
-        timestamp = self._serialize_timestamp(utc_now_as_local_naive()) or datetime.now().isoformat()
-        try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    UPDATE ScheduledExperiments SET
-                        is_active = 0,
-                        recovery_required = 1,
-                        recovery_note = COALESCE(?, recovery_note),
-                        recovery_marked_at = ?,
-                        recovery_marked_by = ?,
-                        recovery_resolved_at = NULL,
-                        recovery_resolved_by = NULL,
-                        updated_at = ?
-                    WHERE schedule_id = ?
-                """, (note, timestamp, user, timestamp, schedule_id))
-                conn.commit()
-                return cursor.rowcount > 0
-        except Exception as exc:
-            logger.error(f"Failed to mark schedule {schedule_id} for recovery: {exc}")
-            return False
-
-    def resolve_recovery_required(
-        self, schedule_id: str, note: Optional[str], user: str
-    ) -> bool:
-        """Clear the manual recovery requirement for a schedule."""
-        timestamp = self._serialize_timestamp(utc_now_as_local_naive()) or datetime.now().isoformat()
-        try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    UPDATE ScheduledExperiments SET
-                        recovery_required = 0,
-                        recovery_note = COALESCE(?, recovery_note),
-                        recovery_resolved_at = ?,
-                        recovery_resolved_by = ?,
-                        updated_at = ?
-                    WHERE schedule_id = ?
-                """, (note, timestamp, user, timestamp, schedule_id))
-                conn.commit()
-                return cursor.rowcount > 0
-        except Exception as exc:
-            logger.error(f"Failed to resolve recovery for schedule {schedule_id}: {exc}")
-            return False
-
-
-
-    def get_manual_recovery_state(self) -> ManualRecoveryState:
-        try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    "SELECT recovery_required, recovery_note, recovery_schedule_id, "
-                    "recovery_experiment_name, recovery_triggered_by, recovery_triggered_at, "
-                    "recovery_resolved_by, recovery_resolved_at FROM SchedulerState WHERE id = 1"
-                )
-                row = cursor.fetchone()
-        except Exception as exc:
-            logger.error(f"Failed to load manual recovery state: {exc}")
-            row = None
-
-        if not row:
-            return ManualRecoveryState()
-
-        return ManualRecoveryState(
-            active=bool(row["recovery_required"]),
-            note=row["recovery_note"],
-            schedule_id=row["recovery_schedule_id"],
-            experiment_name=row["recovery_experiment_name"],
-            triggered_by=row["recovery_triggered_by"],
-            triggered_at=self._parse_timestamp(row["recovery_triggered_at"]),
-            resolved_by=row["recovery_resolved_by"],
-            resolved_at=self._parse_timestamp(row["recovery_resolved_at"]),
-        )
-
-    def set_global_recovery_required(
-        self,
-        schedule: Optional[ScheduledExperiment],
-        note: Optional[str],
-        user: str,
-    ) -> ManualRecoveryState:
-        timestamp = self._serialize_timestamp(utc_now_as_local_naive()) or datetime.now().isoformat()
-        schedule_id = schedule.schedule_id if schedule else None
-        experiment_name = schedule.experiment_name if schedule else None
-        try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    """
-                    UPDATE SchedulerState SET
-                        recovery_required = 1,
-                        recovery_note = COALESCE(?, recovery_note),
-                        recovery_schedule_id = ?,
-                        recovery_experiment_name = ?,
-                        recovery_triggered_by = ?,
-                        recovery_triggered_at = ?,
-                        recovery_resolved_by = NULL,
-                        recovery_resolved_at = NULL
-                    WHERE id = 1
-                    """,
-                    (note, schedule_id, experiment_name, user, timestamp),
-                )
-                conn.commit()
-        except Exception as exc:
-            logger.error(f"Failed to update scheduler recovery state: {exc}")
-
-        return self.get_manual_recovery_state()
-
-    def clear_global_recovery(
-        self,
-        note: Optional[str],
-        user: str,
-    ) -> ManualRecoveryState:
-        timestamp = self._serialize_timestamp(utc_now_as_local_naive()) or datetime.now().isoformat()
-        try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    """
-                    UPDATE SchedulerState SET
-                        recovery_required = 0,
-                        recovery_note = COALESCE(?, recovery_note),
-                        recovery_resolved_by = ?,
-                        recovery_resolved_at = ?
-                    WHERE id = 1
-                    """,
-                    (note, user, timestamp),
-                )
-                conn.commit()
-        except Exception as exc:
-            logger.error(f"Failed to clear scheduler recovery state: {exc}")
-
-        return self.get_manual_recovery_state()
-
     def get_hxrun_maintenance_state(self) -> HxRunMaintenanceState:
         """Return the persisted HxRun maintenance mode flag and metadata."""
         try:
@@ -1109,12 +1002,14 @@ class SQLiteSchedulingDatabase:
                     "FROM SchedulerState WHERE id = 1"
                 )
                 row = cursor.fetchone()
+        except (sqlite3.Error, StorageUnavailable):
+            raise
         except Exception as exc:
             logger.error(f"Failed to load HxRun maintenance state: {exc}")
             row = None
 
         if not row:
-            return HxRunMaintenanceState()
+            raise StorageUnavailable("Scheduler maintenance state is missing; review SQLite storage health")
 
         return HxRunMaintenanceState(
             enabled=bool(row["hxrun_maintenance_enabled"]),
@@ -1148,6 +1043,8 @@ class SQLiteSchedulingDatabase:
                     (1 if enabled else 0, normalized_reason, user, timestamp),
                 )
                 conn.commit()
+        except (sqlite3.Error, StorageUnavailable):
+            raise
         except Exception as exc:
             logger.error(f"Failed to persist HxRun maintenance state: {exc}")
 
@@ -1213,6 +1110,7 @@ class SQLiteSchedulingDatabase:
         *,
         name_snapshot: Optional[str] = None,
         path_snapshot: Optional[str] = None,
+        expected_updated_at: Optional[str] = None,
     ) -> bool:
         """
         Delete a scheduled experiment
@@ -1225,9 +1123,11 @@ class SQLiteSchedulingDatabase:
         """
         try:
             with self._get_connection() as conn:
+                conn.execute("BEGIN IMMEDIATE")
+                self._guard_schedule_removal(conn, schedule_id)
                 cursor = conn.cursor()
                 cursor.execute(
-                    "SELECT experiment_name, experiment_path FROM ScheduledExperiments WHERE schedule_id = ?",
+                    "SELECT experiment_name, experiment_path, updated_at FROM ScheduledExperiments WHERE schedule_id = ?",
                     (schedule_id,)
                 )
                 schedule_row = cursor.fetchone()
@@ -1235,6 +1135,8 @@ class SQLiteSchedulingDatabase:
                     logger.warning(f"No schedule found to delete: {schedule_id}")
                     return False
 
+                check_timestamp(expected_updated_at, schedule_row['updated_at'])
+                cursor.execute("UPDATE JobExecutions SET status = 'cancelled', end_time = ?, error_message = 'Schedule deleted before dispatch' WHERE schedule_id = ? AND status IN ('pending', 'queued')", (utc_now_as_local_naive().isoformat(), schedule_id))
                 if not name_snapshot:
                     name_snapshot = schedule_row["experiment_name"]
                 if not path_snapshot:
@@ -1281,48 +1183,42 @@ class SQLiteSchedulingDatabase:
                     logger.warning(f"No schedule found to delete: {schedule_id}")
                     return False
                     
+        except (SafetyConflict, StorageUnavailable, sqlite3.Error):
+            raise
         except Exception as e:
             logger.error(f"Failed to delete schedule from SQLite: {e}")
             return False
     
     def create_job_execution(self, execution: JobExecution) -> bool:
-        """
-        Create a job execution record
-        
-        Args:
-            execution: JobExecution to create
-            
-        Returns:
-            bool: True if created successfully
-        """
-        try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                
-                cursor.execute("""
-                    INSERT OR REPLACE INTO JobExecutions (
-                        execution_id, schedule_id, status, start_time, end_time,
-                        duration_minutes, retry_count, error_message, hamilton_command
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    execution.execution_id,
-                    execution.schedule_id,
-                    execution.status,
-                    execution.start_time.isoformat() if execution.start_time else None,
-                    execution.end_time.isoformat() if execution.end_time else None,
-                    execution.duration_minutes,
-                    execution.retry_count,
-                    execution.error_message,
-                    execution.hamilton_command
-                ))
-                
+        """Upsert live runs; late callbacks only update existing archived history."""
+        with self._get_connection() as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            schedule_exists = conn.execute('SELECT 1 FROM ScheduledExperiments WHERE schedule_id = ?', (execution.schedule_id,)).fetchone()
+            if execution.status == 'running':
+                state = self._safety_row(conn)
+                current = conn.execute('SELECT is_active, archived, recovery_required FROM ScheduledExperiments WHERE schedule_id = ?', (execution.schedule_id,)).fetchone()
+                if not current or not current['is_active'] or current['archived'] or current['recovery_required'] or state['recovery_required'] or state['resume_required'] or state['hxrun_maintenance_enabled']:
+                    raise SafetyConflict('Scheduler safety state blocks this execution from starting')
+                if self._safety_fault or self._integrity_error or conn.execute('PRAGMA foreign_key_check').fetchone():
+                    raise StorageUnavailable('Scheduler safety state unavailable; execution was not started')
+            values = (execution.status, self._serialize_timestamp(execution.start_time), self._serialize_timestamp(execution.end_time),
+                      execution.duration_minutes, execution.retry_count, execution.error_message, execution.hamilton_command)
+            if not schedule_exists:
+                if execution.status in ('pending', 'queued', 'running'):
+                    raise SafetyConflict('Cannot start an execution for a deleted schedule')
+                count = conn.execute("""UPDATE JobExecutionsArchive SET status = ?, start_time = ?, end_time = ?,
+                    duration_minutes = ?, retry_count = ?, error_message = ?, hamilton_command = ?
+                    WHERE execution_id = ? AND status IN ('pending', 'queued', 'running')""", (*values, execution.execution_id)).rowcount
                 conn.commit()
-                logger.info(f"Created job execution in SQLite: {execution.execution_id}")
-                return True
-                
-        except Exception as e:
-            logger.error(f"Failed to create job execution in SQLite: {e}")
-            return False
+                return bool(count) or conn.execute('SELECT 1 FROM JobExecutionsArchive WHERE execution_id = ?', (execution.execution_id,)).fetchone() is not None
+            conn.execute("""INSERT INTO JobExecutions (execution_id, schedule_id, status, start_time, end_time,
+                duration_minutes, retry_count, error_message, hamilton_command) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(execution_id) DO UPDATE SET status = excluded.status, start_time = excluded.start_time,
+                end_time = excluded.end_time, duration_minutes = excluded.duration_minutes, retry_count = excluded.retry_count,
+                error_message = excluded.error_message, hamilton_command = excluded.hamilton_command
+                WHERE JobExecutions.status IN ('pending', 'queued', 'running')""", (execution.execution_id, execution.schedule_id, *values))
+            conn.commit()
+            return True
     
     def import_experiment_methods(self, methods: List[Dict[str, Any]], imported_by: str) -> List[Dict[str, Any]]:
         """Write validated method metadata and report only committed per-file outcomes."""
@@ -1587,6 +1483,9 @@ class SQLiteSchedulingDatabase:
 
     def _replace_schedule_contacts(self, conn: sqlite3.Connection, schedule_id: str, contact_ids: List[str]) -> None:
         cursor = conn.cursor()
+        for contact_id in set(contact_ids):
+            if not conn.execute('SELECT 1 FROM NotificationContacts WHERE contact_id = ?', (contact_id,)).fetchone():
+                raise SafetyConflict('A selected notification contact was deleted. Refresh the schedule and review its contacts.')
         cursor.execute("DELETE FROM ScheduleNotificationContacts WHERE schedule_id = ?", (schedule_id,))
         if contact_ids:
             timestamp = datetime.now().isoformat()
@@ -1670,7 +1569,7 @@ class SQLiteSchedulingDatabase:
 
         except Exception as exc:
             logger.error("Failed to convert row to ScheduledExperiment: %s", exc)
-            return None
+            raise StorageUnavailable('A stored schedule could not be read. Review SQLite storage health.') from exc
 
     def _row_to_notification_log(self, row: sqlite3.Row) -> NotificationLogEntry:
         """Convert database row to NotificationLogEntry."""

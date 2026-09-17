@@ -14,6 +14,9 @@ Features:
 """
 
 import logging
+import sqlite3
+from contextlib import contextmanager
+from backend.services.sqlite_safety import SafetyConflict, StorageUnavailable
 import threading
 import time
 from datetime import datetime, timedelta
@@ -288,7 +291,7 @@ class SchedulerEngine:
             logger.error(f"Error adding schedule: {e}")
             return False
     
-    def remove_schedule(self, schedule_id: str) -> bool:
+    def remove_schedule(self, schedule_id: str, expected_updated_at=None) -> bool:
         """
         Remove a scheduled experiment
         
@@ -299,7 +302,7 @@ class SchedulerEngine:
             bool: True if removed successfully, False otherwise
         """
         try:
-            with self._schedules_lock:
+            with self._schedules_lock, self._jobs_lock:
                 # Check if schedule exists
                 if schedule_id not in self._active_schedules:
                     logger.warning(f"Schedule not found: {schedule_id}")
@@ -311,6 +314,7 @@ class SchedulerEngine:
                 if not self.db_manager.delete_scheduled_experiment(
                     schedule_id,
                     schedule=experiment,
+                    expected_updated_at=expected_updated_at,
                 ):
                     logger.error(f"Failed to delete schedule from database: {schedule_id}")
                     return False
@@ -323,11 +327,13 @@ class SchedulerEngine:
                                experiment.experiment_name, "Schedule removed")
                 return True
                 
+        except (SafetyConflict, StorageUnavailable, sqlite3.Error):
+            raise
         except Exception as e:
             logger.error(f"Error removing schedule: {e}")
             return False
     
-    def update_schedule(self, experiment: ScheduledExperiment) -> bool:
+    def update_schedule(self, experiment: ScheduledExperiment, expected_updated_at=None) -> bool:
         """
         Update an existing scheduled experiment
         
@@ -352,7 +358,7 @@ class SchedulerEngine:
                     return False
                 
                 # Update in database
-                if not self.db_manager.update_scheduled_experiment(experiment):
+                if not self.db_manager.update_scheduled_experiment(experiment, expected_updated_at=expected_updated_at):
                     logger.error(f"Failed to update schedule in database: {experiment.schedule_id}")
                     return False
                 
@@ -364,6 +370,8 @@ class SchedulerEngine:
                                experiment.experiment_name, "Schedule updated")
                 return True
                 
+        except (SafetyConflict, StorageUnavailable, sqlite3.Error):
+            raise
         except Exception as e:
             logger.error(f"Error updating schedule: {e}")
             return False
@@ -439,8 +447,12 @@ class SchedulerEngine:
             }
         manual_state = self.get_manual_recovery_state()
         status["manual_recovery"] = manual_state.to_dict() if manual_state else None
-        hxrun_state = self.hxrun_maintenance_service.get_state(force_refresh=False)
-        status["hxrun_maintenance"] = hxrun_state.to_dict()
+        try:
+            status['hxrun_maintenance'] = self.hxrun_maintenance_service.get_state(force_refresh=True).to_dict()
+        except Exception:
+            status['hxrun_maintenance'] = None
+            status['manual_recovery']['storage_healthy'] = False
+            status['manual_recovery']['storage_error'] = 'Scheduler safety state unavailable'
         return status
 
     def get_runtime_queue_status(self) -> Dict[str, Any]:
@@ -541,7 +553,11 @@ class SchedulerEngine:
                 state = self.db_manager.get_manual_recovery_state()
             except Exception as exc:
                 logger.warning("Failed to refresh manual recovery state: %s", exc)
-                state = self._manual_recovery_cache
+                if hasattr(self.db_manager, 'sqlite_db'):
+                    self.db_manager.sqlite_db._safety_fault = True
+                from dataclasses import replace
+                state = replace(self._manual_recovery_cache, storage_healthy=False,
+                                storage_error='Scheduler safety state unavailable', resume_required=True)
             self._manual_recovery_cache = state
             self._manual_state_last_check = time.time()
             if state.active and not self._manual_state_logged_active:
@@ -551,82 +567,113 @@ class SchedulerEngine:
                 )
                 self._manual_state_logged_active = True
             elif not state.active and self._manual_state_logged_active:
-                logger.info("Manual recovery cleared; queued dispatch can resume")
+                logger.info("Manual recovery acknowledged; explicit Resume is required")
                 self._manual_state_logged_active = False
             return state
 
-    def _apply_manual_recovery(self, schedule: ScheduledExperiment, note: Optional[str], actor: str) -> Optional[ScheduledExperiment]:
-        """Mark a schedule as requiring manual recovery and emit related side effects."""
-        try:
-            updated = self.db_manager.mark_recovery_required(schedule.schedule_id, note, actor)
-        except Exception as exc:
-            logger.error("Failed to mark manual recovery for %s: %s", schedule.schedule_id, exc)
-            return None
-        if not updated:
-            logger.error("Manual recovery update returned no schedule for %s", schedule.schedule_id)
-            return None
-        updated.is_active = False
-        with self._schedules_lock:
-            self._active_schedules[updated.schedule_id] = updated
+    def _apply_manual_recovery(self, schedule, note, actor, expected_updated_at=None):
+        with self._schedules_lock, self._jobs_lock:
+            updated = self.db_manager.mark_recovery_required(schedule.schedule_id, note, actor,
+                        expected_updated_at=expected_updated_at, snapshot=schedule)
+            if updated:
+                updated.is_active = False
+                self._active_schedules[updated.schedule_id] = updated
         self._refresh_manual_recovery_state(force=True)
         if self.config.enable_notifications and self._notification_service:
             try:
-                self._notification_service.manual_recovery_required(updated, note=note, actor=actor)
-            except Exception as exc:
-                logger.warning("Manual recovery notification failed: %s", exc)
-        self._emit_event(
-            "manual_recovery_required",
-            updated.schedule_id,
-            updated.experiment_name,
-            note or "Manual recovery required",
-            data={"note": note, "actor": actor},
-        )
+                self._notification_service.manual_recovery_required(updated or schedule, note=note, actor=actor)
+            except Exception:
+                logger.exception('Manual recovery notification failed')
+        self._emit_event('manual_recovery_required', schedule.schedule_id, schedule.experiment_name,
+                         note or 'Manual recovery required', data={'note': note, 'actor': actor})
         return updated
 
-    def _clear_manual_recovery(self, schedule_id: str, note: Optional[str], actor: str) -> Optional[ScheduledExperiment]:
-        """Clear manual recovery state for a schedule."""
-        try:
-            updated = self.db_manager.resolve_recovery_required(schedule_id, note, actor)
-        except Exception as exc:
-            logger.error("Failed to clear manual recovery for %s: %s", schedule_id, exc)
-            updated = None
-        if updated:
-            with self._schedules_lock:
-                self._active_schedules[updated.schedule_id] = updated
-            self._close_recovered_observations(updated, actor)
-            if self.config.enable_notifications and self._notification_service:
-                try:
-                    self._notification_service.manual_recovery_cleared(updated, note=note, actor=actor)
-                except Exception as exc:
-                    logger.warning("Manual recovery clear notification failed: %s", exc)
-            self._emit_event(
-                "manual_recovery_cleared",
-                updated.schedule_id,
-                updated.experiment_name,
-                note or "Manual recovery cleared",
-                data={"note": note, "actor": actor},
-            )
+    def _clear_manual_recovery(self, schedule_id, note, actor, expected_revision, expected_updated_at=None):
+        with self._schedules_lock, self._jobs_lock:
+            self._require_robot_absent()
+            self.db_manager.sqlite_db.validate_recovery_resolution(schedule_id, note, expected_revision)
+            if self._owned_execution_ids:
+                raise SafetyConflict("The scheduler still owns this run. Wait for it to finish before acknowledging recovery.")
+            self._close_recovered_observations(schedule_id, actor)
+            updated = self.db_manager.resolve_recovery_required(schedule_id, note, actor, expected_revision,
+                                                               expected_updated_at=expected_updated_at)
+            if updated:
+                self._active_schedules[schedule_id] = updated
         self._refresh_manual_recovery_state(force=True)
+        if updated and self.config.enable_notifications and self._notification_service:
+            try:
+                self._notification_service.manual_recovery_cleared(updated, note=note, actor=actor)
+            except Exception:
+                logger.exception('Manual recovery acknowledgement notification failed')
+        self._emit_event('manual_recovery_cleared', schedule_id, updated.experiment_name if updated else 'Deleted schedule',
+                         'Recovery acknowledged; explicit Resume required', data={'note': note, 'actor': actor})
         return updated
 
-    def _close_recovered_observations(self, schedule, actor):
-        """An operator can acknowledge an orphan only after HxRun is no longer present."""
+    def _close_recovered_observations(self, schedule_id, actor):
+        self._require_robot_absent()
         for observation in self.run_log_monitor.snapshots():
-            if observation.schedule_id != schedule.schedule_id:
+            if observation.schedule_id != schedule_id:
                 continue
-            with self._jobs_lock:
-                owned = observation.execution_id in self._owned_execution_ids
-            if owned or self.process_monitor.is_hamilton_running():
-                continue
+            if observation.execution_id in self._owned_execution_ids:
+                raise SafetyConflict('An execution is still owned by the scheduler. Wait for it to finish.')
             execution = self.run_log_monitor.store.execution(observation.execution_id)
-            if execution and execution.status == "running":
-                execution.status = "cancelled"
+            if execution is None:
+                raise SafetyConflict('Execution history is missing. Review SQLite storage health before acknowledging recovery.')
+            if execution.status in ('running', 'pending', 'queued'):
+                execution.status = 'cancelled'
                 execution.end_time = datetime.now()
-                execution.error_message = f"Closed after manual recovery acknowledged by {actor}; process no longer running"
+                execution.error_message = f'Closed after manual recovery acknowledged by {actor}; process no longer running'
                 self.run_log_monitor.process_finished(execution)
-                self._finalize_execution(schedule, execution)
+                snapshot = ScheduledExperiment.from_dict(observation.schedule)
+                self._finalize_execution(snapshot, execution)
+            else:
+                self.run_log_monitor.finish(execution.execution_id)
 
-    def require_manual_recovery(self, schedule_id: str, note: Optional[str], actor: str) -> Optional[ScheduledExperiment]:
+    def _require_robot_absent(self):
+        try:
+            if self.process_monitor.get_hamilton_processes():
+                raise SafetyConflict('HxRun is running. Close it and confirm the robot is ready before continuing.')
+        except SafetyConflict:
+            raise
+        except Exception as exc:
+            raise SafetyConflict('HxRun state could not be established. Retry after process monitoring is available.') from exc
+
+    def resume_queued_jobs(self, expected_revision, actor):
+        with self._schedules_lock, self._jobs_lock:
+            self._require_robot_absent()
+            if self._owned_execution_ids or self.run_log_monitor.snapshots():
+                raise SafetyConflict('Reconcile unfinished executions before resuming.')
+            state = self.db_manager.sqlite_db.resume_dispatch(expected_revision, actor)
+        self._refresh_manual_recovery_state(force=True)
+        return state
+
+    @contextmanager
+    def launch_guard(self, experiment, execution):
+        # Hold these only for the final state check, durable write and Popen, never the run.
+        with self._schedules_lock, self._jobs_lock:
+            state = self._refresh_manual_recovery_state(force=True)
+            if not state.storage_healthy:
+                raise StorageUnavailable('Scheduler safety state unavailable')
+            if state.active or state.resume_required:
+                raise SafetyConflict('Manual recovery or explicit Resume is required before dispatch.')
+            maintenance = self.db_manager.get_hxrun_maintenance_state()
+            if maintenance.enabled:
+                raise SafetyConflict('HxRun maintenance is enabled')
+            self._require_robot_absent()
+            # Serialize other in-process safety writers through Popen. The running-row
+            # transaction below independently rechecks flags, including maintenance.
+            with self.db_manager.sqlite_db._connection_lock:
+                current = self.db_manager.get_schedule_by_id(execution.schedule_id)
+                if not current or not current.is_active or current.archived or current.recovery_required:
+                    raise SafetyConflict('The schedule is no longer eligible to run')
+                execution.status = 'running'
+                execution.start_time = execution.start_time or datetime.now()
+                if not self.db_manager.store_job_execution(execution):
+                    self.db_manager.sqlite_db._safety_fault = True
+                    raise StorageUnavailable('Could not persist execution; launch was blocked')
+                yield
+
+    def require_manual_recovery(self, schedule_id: str, note: Optional[str], actor: str, expected_updated_at=None) -> Optional[ScheduledExperiment]:
         """Public entrypoint for marking a schedule as requiring manual recovery."""
         schedule = self.get_schedule(schedule_id)
         if not schedule:
@@ -634,21 +681,20 @@ class SchedulerEngine:
             if not schedule:
                 logger.error("Schedule %s not found when marking manual recovery", schedule_id)
                 return None
-        return self._apply_manual_recovery(schedule, note, actor)
+        return self._apply_manual_recovery(schedule, note, actor, expected_updated_at)
 
-    def resolve_manual_recovery(self, schedule_id: str, note: Optional[str], actor: str) -> Optional[ScheduledExperiment]:
-        """Clear manual recovery; returns the updated schedule if successful."""
-        updated = self._clear_manual_recovery(schedule_id, note, actor)
-        if updated:
-            return updated
-        schedule = self.get_schedule(schedule_id)
-        if schedule:
-            return schedule
-        return self.db_manager.get_schedule_by_id(schedule_id)
+    def resolve_manual_recovery(self, schedule_id, note, actor, expected_revision, expected_updated_at=None):
+        return self._clear_manual_recovery(schedule_id, note, actor, expected_revision, expected_updated_at)
 
     def get_manual_recovery_state(self) -> ManualRecoveryState:
         """Return the current manual recovery state."""
-        return self._refresh_manual_recovery_state(force=True)
+        state = self._refresh_manual_recovery_state(force=True)
+        if state.resume_required and not state.resume_block_reason:
+            try:
+                self._require_robot_absent()
+            except SafetyConflict as exc:
+                state.resume_block_reason = str(exc)
+        return state
 
     def _ensure_queue_runtime_entry(
         self,
@@ -680,7 +726,13 @@ class SchedulerEngine:
 
     def _resolve_dispatch_block_reason(self, schedule: ScheduledExperiment) -> Optional[str]:
         """Return a human-readable reason when worker dispatch should pause."""
-        hxrun_state = self.hxrun_maintenance_service.get_state(force_refresh=False)
+        manual_state = self._refresh_manual_recovery_state(force=True)
+        if not manual_state.storage_healthy:
+            return 'Scheduler safety state unavailable'
+        try:
+            hxrun_state = self.hxrun_maintenance_service.get_state(force_refresh=True)
+        except Exception:
+            return 'Scheduler safety state unavailable'
         if hxrun_state.enabled:
             detail = hxrun_state.reason or "maintenance mode is enabled"
             return f"HxRun maintenance enabled: {detail}"
@@ -689,6 +741,9 @@ class SchedulerEngine:
         if manual_state.active:
             detail = manual_state.experiment_name or manual_state.schedule_id or "another schedule"
             return f"Manual recovery active: {detail}"
+
+        if manual_state.resume_required:
+            return 'Recovery acknowledged; waiting for explicit Resume queued jobs'
 
         if schedule.recovery_required:
             return "Schedule requires manual recovery before next run"
@@ -903,10 +958,12 @@ class SchedulerEngine:
             from backend.services.scheduling.experiment_executor import ExperimentExecutor
             executor = ExperimentExecutor()
             executor.run_log_monitor = self.run_log_monitor
+            executor.launch_guard = self.launch_guard
             timeout_context = self._resolve_timeout_context(experiment, datetime.now())
             execution.status = "running"
             execution.start_time = datetime.now()
-            self.db_manager.store_job_execution(execution)
+            with self.launch_guard(experiment, execution):
+                pass
             success = executor.execute_experiment(experiment, execution, timeout_context=timeout_context)
             execution.status = "completed" if success else "failed"
         except Exception as exc:
