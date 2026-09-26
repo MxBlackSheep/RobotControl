@@ -235,6 +235,7 @@ test('initial Labware errors are recoverable and read-only sessions have no edit
 test('Cytomat contextual editor retains failed empty assignment and protects save',async({page},info)=>{
   const state=await fixtures(page);state.failSave=true;
   await page.goto('/labware?section=cytomat');
+  await page.getByRole('button',{name:'Edit position A1',exact:true}).click();
   await page.getByRole('combobox',{name:'Plate at A1'}).click();
   await page.getByRole('option',{name:'Empty',exact:true}).click();
   await page.getByRole('button',{name:/Save changes/}).click();

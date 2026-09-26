@@ -14,21 +14,33 @@ const validSnapshot = (value: CytomatSnapshot) => Boolean(value &&
 
 export default function CytomatPanel({ active = true }: { active?: boolean }) {
   const [pending, setPending] = useState<Record<string, string>>({});
+  const [editing, setEditing] = useState<string | null>(null);
+  const editButtons = useRef(new Map<string, HTMLButtonElement>());
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const [writeError, setWriteError] = useState('');
   const [notice, setNotice] = useState('');
   const count = Object.keys(pending).length;
-  const { snapshot, setSnapshot, pending: reading, error: readError, refresh } = useLabwareSnapshot(labwareApi.getCytomatSnapshot, active, saving || count > 0, validSnapshot);
+  const { snapshot, setSnapshot, pending: reading, error: readError, refresh, suspend } = useLabwareSnapshot(labwareApi.getCytomatSnapshot, active, saving || count > 0 || editing !== null, validSnapshot);
   const rows = snapshot?.rows || [];
   const groups = new Map<string, CytomatRowState[]>();
   rows.forEach(row => groups.set(row.cytomat_pos, [...(groups.get(row.cytomat_pos) || []), row]));
   const byPosition = new Map([...groups].filter(([, entries]) => entries.length === 1).map(([position, entries]) => [position, entries[0]]));
   const canUpdate = Boolean(snapshot?.permissions.can_update);
   const options = [...new Set(['', ...(snapshot?.plate_options || []), ...rows.map(row => row.plate_id)])];
+  const closeEditor = (position: string) => {
+    if (savingRef.current) return;
+    setEditing(null);
+    editButtons.current.get(position)?.focus({ preventScroll: true });
+  };
+  const openEditor = (position: string) => {
+    if (!active || !byPosition.has(position) || unusedPositions.includes(position) || !canUpdate || savingRef.current) return;
+    suspend();
+    setEditing(position);
+  };
   const queue = (position: string, plate: string) => {
     const row = byPosition.get(position);
-    if (!active || !row || unusedPositions.includes(position) || !canUpdate || savingRef.current || reading) return;
+    if (!active || editing !== position || !row || unusedPositions.includes(position) || !canUpdate || savingRef.current) return;
     setPending(previous => {
       const next = { ...previous };
       if (plate === row.plate_id) delete next[position]; else next[position] = plate;
@@ -37,7 +49,7 @@ export default function CytomatPanel({ active = true }: { active?: boolean }) {
     setNotice(''); setWriteError('');
   };
   const save = async () => {
-    if (!canUpdate || !count || savingRef.current) return;
+    if (!active || !canUpdate || !count || savingRef.current) return;
     const submitted = { ...pending };
     savingRef.current = true; setSaving(true); setWriteError(''); setNotice('');
     try {
@@ -54,46 +66,60 @@ export default function CytomatPanel({ active = true }: { active?: boolean }) {
   };
   if (!snapshot) return readError ? <Alert severity="error" action={<Button onClick={() => void refresh()}>Retry</Button>}>{readError}</Alert> : <LinearProgress aria-label="Loading positions" />;
 
+  const focusStyle = { '&.Mui-focusVisible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 } };
+  const columns = { xs: '76px minmax(0, 1fr) auto', sm: '100px minmax(0, 1fr) auto' };
   const renderPosition = (position: string, unused = false) => {
     const row = byPosition.get(position);
     const unsaved = Object.prototype.hasOwnProperty.call(pending, position);
     const plate = pending[position] ?? row?.plate_id ?? '';
-    return <Paper variant="outlined" role="group" aria-label={'Position ' + position} data-testid={'cytomat-position-' + position}
-      sx={{ p: 1, minWidth: 0, borderBottomWidth: unused ? 1 : 3, borderStyle: unsaved ? 'dashed' : 'solid', bgcolor: unused ? 'action.hover' : 'background.paper' }}>
-      <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(76px, 1fr) minmax(0, 3fr)', alignItems: 'center', gap: 1 }}>
-        <Stack gap={0.5} alignItems="flex-start" sx={{ minWidth: 0 }}>
-          <Typography component="h3" variant="subtitle2" sx={{ overflowWrap: 'anywhere' }}>Position {position}</Typography>
-          {unused && <Chip label="Unused" size="small" />}
+    const open = editing === position && canUpdate && row && !unused;
+    return <Box role="group" aria-label={'Position ' + position} data-testid={'cytomat-position-' + position}
+      onKeyDown={event => { if (open && event.key === 'Escape') { event.preventDefault(); closeEditor(position); } }}
+      sx={{ minWidth: 0, px: { xs: 1.25, sm: 2 }, bgcolor: open ? 'action.selected' : undefined, borderBottom: 1, borderColor: 'divider', '&:last-child': { borderBottom: 0 } }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: columns, alignItems: 'center', gap: 1, minHeight: 'clamp(48px, 6vh, 60px)', py: 0.25 }}>
+        <Typography component="h3" variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>Position {position}</Typography>
+        <Stack gap={0.25} sx={{ minWidth: 0 }}>
+          <Typography variant="body2" color={!row || !plate ? 'text.secondary' : 'text.primary'} sx={{ overflowWrap: 'anywhere' }}>
+            {!row ? (groups.get(position)?.length || 0) > 1 ? 'Unavailable · duplicate position' : 'Unavailable' : plate || 'Empty'}
+          </Typography>
           {unsaved && <Typography variant="caption" color="warning.main">Unsaved</Typography>}
         </Stack>
-        {!row ? <Typography color="text.secondary">{(groups.get(position)?.length || 0) > 1 ? 'Unavailable · duplicate position' : 'Unavailable'}</Typography>
-          : canUpdate && !unused ? <TextField select fullWidth size="small" label={'Plate at ' + position} value={plate}
-            onChange={event => queue(position, event.target.value)} disabled={saving || reading}
+        {unused ? <Typography variant="caption" color="text.secondary">Unused</Typography> : row && canUpdate ?
+          <Button size="small" disableRipple ref={element => { if (element) editButtons.current.set(position, element); else editButtons.current.delete(position); }}
+            aria-label={(open ? 'Done editing position ' : 'Edit position ') + position} aria-expanded={Boolean(open)}
+            disabled={saving} onClick={() => open ? closeEditor(position) : openEditor(position)} sx={{ minWidth: 44, minHeight: 44, ...focusStyle }}>{open ? 'Done' : 'Edit'}</Button> : null}
+      </Box>
+      {open && <Box sx={{ pb: 1.5, pl: { xs: 0, sm: '108px' } }}>
+          <TextField select fullWidth autoFocus size="small" label={'Plate at ' + position} value={plate}
+            onChange={event => queue(position, event.target.value)} disabled={saving}
             InputLabelProps={{ shrink: true }} SelectProps={{ displayEmpty: true, SelectDisplayProps: { 'aria-label': 'Plate at ' + position, 'aria-labelledby': undefined }, renderValue: value => <Box component="span" sx={{ display: 'block', whiteSpace: 'normal', overflowWrap: 'anywhere' }}>{String(value) || 'Empty'}</Box> }}>
             {options.map(option => <MenuItem key={option || '__empty__'} value={option} sx={{ whiteSpace: 'normal', overflowWrap: 'anywhere' }}>{option || 'Empty'}</MenuItem>)}
           </TextField>
-            : <Typography sx={{ overflowWrap: 'anywhere' }}>{plate || 'Empty'}</Typography>}
-      </Box>
-    </Paper>;
+      </Box>}
+    </Box>;
   };
   const otherPositions = [...groups.keys()].filter(position => !configuredPositions.has(position));
-  return <Stack spacing={1} sx={{ minWidth: 0, maxWidth: 800 }}>
+  return <Stack spacing={1} sx={{ minWidth: 0, width: '100%', maxWidth: 800, mx: 'auto' }}>
     <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap">
-      <Button onClick={() => void refresh()} disabled={saving || reading || count > 0}>Refresh</Button>
+      <Button disableRipple aria-busy={reading} onClick={() => { if (!reading) void refresh(); }} disabled={saving || count > 0 || editing !== null} sx={focusStyle}>Refresh</Button>
       {canUpdate ? <><Button variant="contained" onClick={() => void save()} disabled={saving || !count}>Save changes ({count})</Button>{count > 0 && <Button disabled={saving} onClick={() => { setPending({}); setWriteError(''); }}>Discard</Button>}</> : <Chip label="Read only" size="small" />}
     </Stack>
-    {(readError || writeError) && <Alert severity="error" action={!count && !saving ? <Button onClick={() => void refresh()}>Retry</Button> : undefined}>{writeError || readError}{readError && ' Previous data is shown.'}</Alert>}
-    <Typography variant="caption" color="text.secondary" role="status">{saving ? 'Saving…' : count ? count + ' unsaved' : notice || 'Updated ' + new Date(snapshot.refreshed_at).toLocaleTimeString()}</Typography>
-    {reading && <LinearProgress aria-label="Refreshing positions" />}
-    <Stack component="ol" aria-label="Cytomat shelves" spacing={0.75} sx={{ m: 0, p: 0, listStyle: 'none' }}>
-      {shelves.map(position => <Box component="li" key={position} data-position={position}>{renderPosition(position)}</Box>)}
-    </Stack>
-    <Stack component="section" aria-label="Unused positions" spacing={0.75}>
-      {unusedPositions.map(position => <Box key={position}>{renderPosition(position, true)}</Box>)}
-    </Stack>
-    {otherPositions.length > 0 && <Stack component="section" aria-label="Other positions" spacing={0.75}>
-      <Typography component="h2" variant="subtitle1" sx={{ pt: 1 }}>Other positions</Typography>
-      {otherPositions.map(position => <Box key={position}>{renderPosition(position)}</Box>)}
-    </Stack>}
+    {(readError || writeError) && <Alert severity="error" action={!count && !saving && editing === null ? <Button onClick={() => void refresh()}>Retry</Button> : undefined}>{writeError || readError}{readError && ' Previous data is shown.'}</Alert>}
+    <Typography variant="caption" color="text.secondary" role="status" sx={{ minHeight: 20 }}>{saving ? 'Saving…' : count ? count + ' unsaved' : reading ? 'Updating…' : notice || 'Updated ' + new Date(snapshot.refreshed_at).toLocaleTimeString()}</Typography>
+    <Paper variant="outlined" sx={{ overflow: 'hidden' }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: columns, gap: 1, px: { xs: 1.25, sm: 2 }, py: 1.25, bgcolor: 'action.hover', borderBottom: 1, borderColor: 'divider' }}>
+        <Typography variant="caption" color="text.secondary">Position</Typography><Typography variant="caption" color="text.secondary">Plate</Typography>
+      </Box>
+      <Box component="ol" aria-label="Cytomat shelves" sx={{ m: 0, p: 0, listStyle: 'none' }}>
+        {shelves.map(position => <Box component="li" key={position} data-position={position} sx={{ '&:not(:last-child)': { borderBottom: 1, borderColor: 'divider' } }}>{renderPosition(position)}</Box>)}
+      </Box>
+      <Box component="section" aria-label="Unused positions" sx={{ borderTop: 1, borderColor: 'divider', bgcolor: 'action.hover' }}>
+        {unusedPositions.map(position => <React.Fragment key={position}>{renderPosition(position, true)}</React.Fragment>)}
+      </Box>
+      {otherPositions.length > 0 && <Box component="section" aria-label="Other positions" sx={{ borderTop: 1, borderColor: 'divider' }}>
+        <Typography component="h2" variant="subtitle2" sx={{ px: { xs: 1.25, sm: 2 }, py: 1.25, bgcolor: 'action.hover', borderBottom: 1, borderColor: 'divider' }}>Other positions</Typography>
+        {otherPositions.map(position => <React.Fragment key={position}>{renderPosition(position)}</React.Fragment>)}
+      </Box>}
+    </Paper>
   </Stack>;
 }

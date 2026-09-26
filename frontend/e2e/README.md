@@ -34,8 +34,8 @@ candidate directory; preserve any existing runtime data before building another.
 
 ```powershell
 & ./.venv/Scripts/python.exe build_scripts/embed_resources.py
-& ./.venv/Scripts/python.exe build_scripts/pyinstaller_build.py --output-dir dist/labware-layout-20260926
-& ./.venv/Scripts/python.exe backend/e2e/packaged_viewer_smoke.py dist/labware-layout-20260926/RobotControl
+& ./.venv/Scripts/python.exe build_scripts/pyinstaller_build.py --output-dir dist/labware-workbench-20260926
+& ./.venv/Scripts/python.exe backend/e2e/packaged_viewer_smoke.py dist/labware-workbench-20260926/RobotControl
 ```
 
 The packaged check copies the candidate into a temporary folder with a different
@@ -99,8 +99,8 @@ and closes both processes. Do not run it alongside Playwright. A viewport-size
 check is not a substitute for this native zoom check.
 
 The 26 September automated desktop-control attempt timed out waiting for app access,
-so native 200% zoom is not certified by this run. Its 100% screenshot and incomplete
-trace are retained; `native-zoom.json` records this limit. No actual phone keyboard
+so native 200% zoom is not certified by this run. The earlier report preserves its 100% screenshot and incomplete
+trace; native zoom remains unverified in this refinement. No actual phone keyboard
 or hardware was used.
 
 Camera and database data are fixtures; this does not certify a physical camera,
@@ -119,3 +119,7 @@ rotate the screen. Fit should retain all image edges; Fill should say Cropped vi
 ### Rack sizing and selection revision
 
 The preceding spatial report is preserved at `recovery/spatial-labware-20260926-verification`. The current matrix adds 3840×2160, 1366×768, 1024×768/600 and 1920 CSS pixels at 2× device scale. It checks one bulk-selection interaction, Set entire rack, resize cancellation, and responsive geometry. Read `labware-spatial-failure-scenarios.md` and `cytomat-spatial-scenarios.md` for the pre-implementation failure cases. Packaged checks also capture 4K rack scaling and desktop/phone Cytomat order.
+
+### Quiet workbench refinement
+
+The preceding integrated report is preserved at `recovery/labware-layout-20260926-verification`. Read `labware-read-race-scenarios.md` and `labware-layout-stability-scenarios.md` before changing background reads or responsive sizing. Run `npx playwright test labware-layout-stability.spec.ts labware.spec.ts cytomat-spatial.spec.ts` for focused checks, then `npx playwright test` for the final suite. The scenarios cover delayed GET responses arriving after editing begins, stable refresh geometry/focus, static keyboard focus and the connected deck/editor at multiple available widths and heights.

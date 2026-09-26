@@ -23,5 +23,9 @@ export function useLabwareSnapshot<T extends { auto_refresh_ms: number }>(read: 
     interval: Math.max(1000, snapshot?.auto_refresh_ms || 15000),
     enabled: active && !paused,
   });
-  return { snapshot, setSnapshot, ...polling };
+  // Call before entering an edit: invalidate any in-flight result synchronously,
+  // rather than waiting for the next render's paused effect. The caller must
+  // then enter a paused state (selection, editor, draft or write); leaving that
+  // state lets useSerialPolling resume automatically.
+  return { snapshot, setSnapshot, ...polling, suspend: polling.stop };
 }

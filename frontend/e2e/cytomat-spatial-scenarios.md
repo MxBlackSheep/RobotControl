@@ -1,5 +1,16 @@
 # Cytomat shelf failures (before implementation)
 
+## Continuous register refinement (recorded before implementation)
+
+- The initial successful view shows a continuous shelf register, not seven open selectors; an explicit Edit position action opens exactly one inline selector without hiding other shelf assignments.
+- Keyboard and phone users can open, change and close a shelf editor with at least 44px action targets. Closing an editor leaves its draft visible in the register; opening another row preserves that draft.
+- Opening an editor during a slow GET synchronously invalidates that read. A late response must not replace the working snapshot, revoke the displayed editing controls, or clear a draft.
+- Polling pauses while an editor is open, even before its value changes; closing the editor resumes polling only when no drafts or writes remain.
+- Background polling must not move shelf rows, temporarily disable Edit controls, remove keyboard focus from Refresh, or replace the last good view with loading content. Initial loading remains explicitly visible.
+- Save freezes the single open selector and row actions. A failed save preserves the current editor and all submitted drafts; success clears only matching drafts.
+- Empty, missing, duplicate, unused and unexpected position semantics remain unchanged. No generic HTTP 503 behavior is changed by this layout refinement.
+- At 1280×720, the normal nine-position register fits vertically without scrolling to see unused positions 8/9. Compact rows still provide 44px Edit targets; unexpected extra positions and an open editor may extend below the viewport.
+
 - Database order must not change the physical shelf order: position 1 stays at the top, position 7 at the bottom on 4K, medium, low-resolution desktop and phones.
 - Positions 8/9 remain visible as Unused and never offer editing, even when the database reports a saved plate there.
 - Missing active positions read Unavailable, not Empty, and never produce fabricated update targets.

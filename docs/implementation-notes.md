@@ -1,3 +1,10 @@
+## 2026-09-26 Quiet Labware workbench and stable refresh
+
+- Applied the selected A direction as a layout refinement: a joined deck/rack surface, aligned bounded heading/actions, quieter tip wells and a compact Cytomat shelf register with one inline editor. Width and height fitting retain the physical layout and readable phone targets.
+- Background reads use fixed-space status text instead of moving progress bars or repeatedly disabling controls. Static keyboard focus replaces the pulsing tip ripple. Starting an edit synchronously invalidates an unfinished read before React pauses polling; draft, Undo and Save safeguards remain.
+
+- Verification: all 92 integrated browser checks passed; two specialists reviewed the final desktop/phone screenshots. Frontend build, resource embedding, Windows compilation and relocated-package checks passed. Candidate: `dist/labware-workbench-20260926/RobotControl`; repeat commands, HTML reports, screenshots, traces and hashes: `recovery/viewer-verification`. Disposable fixtures/processes were removed. Native zoom, actual phones and physical equipment remain VM checks.
+
 ## 2026-09-26 Labware visual alternatives awaiting selection
 
 - Prepared three isolated interactive concepts for Tip tracking and Cytomat: Quiet workbench, Rack tray and Deck first. Two frontend specialists reviewed the alternatives and investigated reported flashing. Production integration and packaging wait for the user's visual choice.

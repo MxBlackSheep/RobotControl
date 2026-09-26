@@ -72,6 +72,10 @@ const path = require('node:path');
     const firstRight = page.getByRole('button', { name: `Open rack ${right[0]}`, exact: true });
     expect((await firstLeft.boundingBox()).x).toBeLessThan((await firstRight.boundingBox()).x);
     await expect(page.getByText('Read only', { exact: true })).toBeVisible();
+    // Failure case: packaging restores the old repeating focus ripple.
+    const focusedTip = page.locator('[data-tip="2"]');
+    await focusedTip.focus();
+    expect(await focusedTip.evaluate(element => element.getAnimations({ subtree: true }).some(animation => animation.effect?.getTiming().iterations === Infinity))).toBe(false);
     await page.screenshot({ path: path.join(output, 'packaged-deck-desktop.png'), fullPage: true, animations: 'disabled' });
     // Failure case: a 4K candidate keeps the old tiny fixed-size rack inside a huge card.
     const desktopTipSize = (await page.locator('[data-tip="1"]').boundingBox()).width;
