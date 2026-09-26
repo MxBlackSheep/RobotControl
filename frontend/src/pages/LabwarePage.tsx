@@ -8,7 +8,7 @@ import CytomatPanel from '../components/labware/CytomatPanel';
 export default function LabwarePage() {
   const {user} = useAuth();
   const [section] = useModuleSection('/labware', user);
-  return <PageContent><PageHeader title="Labware" />
+  return <PageContent variant="spatial"><PageHeader title="Labware" />
     <SectionPanel active={section === 0}><TipTrackingPanel active={section === 0} /></SectionPanel>
     <SectionPanel active={section === 1}><CytomatPanel active={section === 1} /></SectionPanel>
   </PageContent>;

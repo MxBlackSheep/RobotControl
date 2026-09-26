@@ -17,11 +17,11 @@ Pass these props:
 
 The component measures the actual space below the page heading and above the application's bottom padding. A ResizeObserver updates it when the available width or header changes. Do not add another `65vh` height or subtract a guessed header height inside a viewer. A 320-pixel minimum lets controls remain usable in very short windows; the page can scroll in that case.
 
-Below 900 pixels of **workspace width**, the catalogue and detail alternate. This is different from the browser width because the app sidebar takes some space. At wider widths the catalogue is 300 pixels and can be hidden or shown. Both catalogue and detail remain mounted, so Back and resizing retain state. Selecting another table intentionally resets that table's query through its React key.
+Below 900 pixels of **workspace width**, the catalogue and detail alternate. This is different from the browser width because the app sidebar takes some space. At wider widths the catalogue starts at 300 pixels and can be resized from 240–480 pixels using the divider (drag or Left/Right keys). Hide/Show is on the divider, so it consumes no content toolbar row. Both catalogue and detail remain mounted, so Back and resizing retain state. Selecting another table intentionally resets that table's query through its React key.
 
 ## SQL text reader
 
-`InspectionTextViewer` accepts `text`, `label`, optional `kind` (default `SQL`) and optional `preferenceKey` (default `sql`). It displays read-only text with line numbers, Find, previous/next match, wrapping, Copy and Expand.
+`InspectionTextViewer` accepts `text`, `label`, optional `kind` (default `SQL`) and optional `preferenceKey` (default `sql`). Its compact toolbar keeps Find, Copy, Expand and More visible. Find reveals its field and match controls; More contains Wrap and Go to line. Top and Bottom stay at the footer. Code surfaces and highlights use semantic palette colors for both appearances.
 
 Find searches the supplied definition only, highlighting up to 1,000 matches. Enter moves forward; Shift+Enter moves backward. Ctrl/Cmd+F while the reader has focus opens its Find field. Copy preserves the original text. If browser clipboard permission is unavailable, the reader tells the operator to select and copy the text.
 

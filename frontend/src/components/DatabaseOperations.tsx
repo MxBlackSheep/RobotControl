@@ -154,7 +154,7 @@ const DatabaseOperations: React.FC<DatabaseOperationsProps> = ({ onError }) => {
             </FormControl>
 
             {selectedExpDetails && (
-              <Card variant="outlined" sx={{ p: 2, bgcolor: 'grey.50' }}>
+              <Card variant="outlined" sx={{ p: 2, bgcolor: 'background.default' }}>
                 <Typography variant="subtitle2" gutterBottom>Selected Experiment Details:</Typography>
                 <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                   <Chip label={`ID: ${selectedExpDetails.ExperimentID}`} size="small" color="primary" />
@@ -216,18 +216,6 @@ const DatabaseOperations: React.FC<DatabaseOperationsProps> = ({ onError }) => {
         </CardContent>
       </Card>
 
-      {/* Future Operations Placeholder */}
-      <Card sx={{ bgcolor: 'grey.50' }}>
-        <CardContent>
-          <Typography variant="subtitle2" color="textSecondary">
-            Future Database Operations
-          </Typography>
-          <Typography variant="body2" color="textSecondary">
-            This section can be expanded to include other stored procedure executions and database operations as needed.
-          </Typography>
-        </CardContent>
-      </Card>
-
       {/* Delete Confirmation Dialog */}
       <Dialog
         open={deleteDialogOpen}
@@ -268,7 +256,7 @@ const DatabaseOperations: React.FC<DatabaseOperationsProps> = ({ onError }) => {
               <Typography variant="body2" gutterBottom>
                 You are about to delete the following experiment:
               </Typography>
-              <Paper sx={{ p: 2, mt: 1, bgcolor: 'grey.100' }}>
+              <Paper sx={{ p: 2, mt: 1, bgcolor: 'background.default' }}>
                 <Typography variant="body2"><strong>Experiment ID:</strong> {selectedExpDetails.ExperimentID}</Typography>
                 {selectedExpDetails.UserDefinedID && (
                   <Typography variant="body2"><strong>User Defined ID:</strong> {selectedExpDetails.UserDefinedID}</Typography>
@@ -350,7 +338,7 @@ const DatabaseOperations: React.FC<DatabaseOperationsProps> = ({ onError }) => {
           {executionResult?.data?.result && (
             <Box>
               <Typography variant="subtitle2" gutterBottom>Execution Details:</Typography>
-              <Paper sx={{ p: 2, bgcolor: 'grey.50', fontFamily: 'monospace', fontSize: '0.9rem' }}>
+              <Paper sx={{ p: 2, bgcolor: 'background.default', fontFamily: 'monospace', fontSize: '0.9rem' }}>
                 {JSON.stringify(executionResult.data.result, null, 2)}
               </Paper>
             </Box>

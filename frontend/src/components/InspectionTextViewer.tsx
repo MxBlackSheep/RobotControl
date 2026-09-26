@@ -10,13 +10,19 @@ import {
   Box,
   Button,
   Dialog,
-  FormControlLabel,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  IconButton,
+  Menu,
+  MenuItem,
   Paper,
   Stack,
-  Switch,
   TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
+import { Search, ContentCopy, OpenInFull, CloseFullscreen, MoreVert, Close, KeyboardArrowUp, KeyboardArrowDown } from "@mui/icons-material";
 
 interface InspectionTextViewerProps {
   text: string;
@@ -33,6 +39,10 @@ export default function InspectionTextViewer({
   preferenceKey = "sql",
 }: InspectionTextViewerProps) {
   const [find, setFind] = useState("");
+  const [findOpen, setFindOpen] = useState(false);
+  const [menu, setMenu] = useState<HTMLElement | null>(null);
+  const [jumpOpen, setJumpOpen] = useState(false);
+  const [lineDraft, setLineDraft] = useState("1");
   const [matchIndex, setMatchIndex] = useState(0);
   const [wrap, setWrap] = useState(() => {
     try {
@@ -49,6 +59,9 @@ export default function InspectionTextViewer({
   const expandButton = useRef<HTMLButtonElement>(null);
   const scroll = useRef({ top: 0, left: 0 });
   const searchInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (findOpen) searchInput.current?.focus();
+  }, [findOpen]);
 
   const matches = useMemo(() => {
     if (!find) return [];
@@ -132,6 +145,13 @@ export default function InspectionTextViewer({
         gap={0.5}
         sx={{ p: 1, flexShrink: 0 }}
       >
+        <Tooltip title="Find"><IconButton aria-label={`Find in ${kind}`} aria-expanded={findOpen} onClick={() => setFindOpen(value => !value)}><Search /></IconButton></Tooltip>
+        <Tooltip title="Copy"><IconButton aria-label={`Copy ${kind}`} onClick={copy}><ContentCopy /></IconButton></Tooltip>
+        <Tooltip title={expanded ? "Close expanded view" : "Expand"}><IconButton ref={expanded ? undefined : expandButton} aria-label={expanded ? `Close expanded ${kind}` : `Expand ${kind}`} onClick={() => setExpanded(value => !value)}>{expanded ? <CloseFullscreen /> : <OpenInFull />}</IconButton></Tooltip>
+        <Tooltip title="More"><IconButton aria-label={`More ${kind} options`} aria-haspopup="menu" onClick={event => setMenu(event.currentTarget)}><MoreVert /></IconButton></Tooltip>
+        <Typography variant="caption" color="text.secondary" sx={{ ml: "auto" }} role="status">{copied || `${lines.length} lines`}</Typography>
+      </Stack>
+      {findOpen && <Stack direction="row" alignItems="center" flexWrap="wrap" gap={0.5} sx={{ px: 1, pb: 1, flexShrink: 0 }}>
         <TextField
           inputRef={searchInput}
           size="small"
@@ -163,42 +183,15 @@ export default function InspectionTextViewer({
         >
           Next
         </Button>
-        <Button onClick={copy}>Copy {kind}</Button>
-        <Button
-          ref={expanded ? undefined : expandButton}
-          onClick={() => setExpanded((value) => !value)}
-        >
-          {expanded ? `Close expanded ${kind}` : `Expand ${kind}`}
-        </Button>
-        <FormControlLabel
-          sx={{ minHeight: 44, mr: 0, ml: 0 }}
-          control={
-            <Switch
-              size="small"
-              checked={wrap}
-              onChange={(_, value) => setWrap(value)}
-            />
-          }
-          label="Wrap lines"
-        />
-      </Stack>
-      <Stack
-        direction="row"
-        gap={1}
-        flexWrap="wrap"
-        sx={{ px: 1.5, pb: 0.5, flexShrink: 0 }}
-      >
+        <IconButton aria-label="Close find" onClick={() => setFindOpen(false)}><Close /></IconButton>
         <Typography variant="caption" color="text.secondary" aria-live="polite">
           {find
             ? matches.length
               ? `${Math.min(matchIndex + 1, matches.length)} of ${matches.length}${matches.length === 1000 ? "+" : ""} matches`
               : `No matches in this ${kind} definition`
-            : `${lines.length} lines · Read only`}
+            : ""}
         </Typography>
-        <Typography variant="caption" role="status">
-          {copied}
-        </Typography>
-      </Stack>
+      </Stack>}
       <Box
         ref={attachReader}
         role="region"
@@ -217,6 +210,7 @@ export default function InspectionTextViewer({
             event.key.toLowerCase() === "f"
           ) {
             event.preventDefault();
+            setFindOpen(true);
             searchInput.current?.focus();
           }
         }}
@@ -226,7 +220,7 @@ export default function InspectionTextViewer({
           overflow: "auto",
           borderTop: 1,
           borderColor: "divider",
-          bgcolor: "grey.50",
+          bgcolor: "background.default",
           p: 1,
           font: "14px/1.6 Consolas, monospace",
         }}
@@ -240,16 +234,16 @@ export default function InspectionTextViewer({
             const local = offset - line.start;
             parts.push(
               line.text.slice(position, local),
-              <mark
+              <Box component="mark"
                 data-match={index}
                 key={offset}
-                style={{
-                  background: matchIndex === index ? "#ffb74d" : "#fff59d",
-                  color: "#111",
+                sx={{
+                  bgcolor: matchIndex === index ? "warning.main" : "warning.light",
+                  color: "warning.contrastText",
                 }}
               >
                 {line.text.slice(local, local + find.length)}
-              </mark>,
+              </Box>,
             );
             position = local + find.length;
           });
@@ -257,6 +251,7 @@ export default function InspectionTextViewer({
           return (
             <Box
               key={line.number}
+              data-line={line.number}
               sx={{ display: "flex", minWidth: wrap ? 0 : "max-content" }}
             >
               <Box
@@ -288,6 +283,11 @@ export default function InspectionTextViewer({
           );
         })}
       </Box>
+      <Stack direction="row" gap={0.5} alignItems="center" sx={{ px: 1, flexShrink: 0, borderTop: 1, borderColor: "divider" }}>
+        <Button aria-label="Go to top" startIcon={<KeyboardArrowUp />} onClick={() => reader.current?.scrollTo({ top: 0 })}>Top</Button>
+        <Button aria-label="Go to bottom" startIcon={<KeyboardArrowDown />} onClick={() => { if (reader.current) reader.current.scrollTop = reader.current.scrollHeight; }}>Bottom</Button>
+        <Typography variant="caption" color="text.secondary" sx={{ ml: "auto" }}>Read only</Typography>
+      </Stack>
     </Box>
   );
   return (
@@ -320,6 +320,23 @@ export default function InspectionTextViewer({
         TransitionProps={{ onExited: () => expandButton.current?.focus() }}
       >
         {expanded && body}
+      </Dialog>
+      <Menu anchorEl={menu} open={Boolean(menu)} onClose={() => setMenu(null)}>
+        <MenuItem onClick={() => { setWrap(value => !value); setMenu(null); }}>{wrap ? "Turn wrapping off" : "Wrap lines"}</MenuItem>
+        <MenuItem onClick={() => { setJumpOpen(true); setMenu(null); }}>Go to line</MenuItem>
+      </Menu>
+      <Dialog open={jumpOpen} onClose={() => setJumpOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle>Go to line</DialogTitle>
+        <Box component="form" onSubmit={event => {
+          event.preventDefault();
+          const line = Number(lineDraft);
+          if (!Number.isInteger(line) || line < 1 || line > lines.length) return;
+          setJumpOpen(false);
+          reader.current?.querySelector<HTMLElement>(`[data-line="${line}"]`)?.scrollIntoView({ block: "start", inline: "nearest" });
+        }}>
+          <DialogContent><TextField autoFocus fullWidth type="number" label="Line number" value={lineDraft} onChange={event => setLineDraft(event.target.value)} inputProps={{ min: 1, max: lines.length, step: 1 }} helperText={`1–${lines.length}`} /></DialogContent>
+          <DialogActions><Button onClick={() => setJumpOpen(false)}>Cancel</Button><Button type="submit" aria-label="Go to line" disabled={!Number.isInteger(Number(lineDraft)) || Number(lineDraft) < 1 || Number(lineDraft) > lines.length}>Go</Button></DialogActions>
+        </Box>
       </Dialog>
     </>
   );

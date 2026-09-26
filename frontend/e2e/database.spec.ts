@@ -76,6 +76,7 @@ for (const size of [{ width: 390, height: 844 }, { width: 1280, height: 720 }, {
     await page.goto('/database?section=procedures');
     await page.getByRole('button', { name: /InspectSamples/ }).click();
     await expect(page.getByRole('region', { name: 'SQL definition' })).toContainText('CREATE PROCEDURE');
+    await page.getByRole('button', { name: 'Find in SQL', exact: true }).click();
     await page.getByRole('textbox', { name: 'Find in SQL' }).fill('SELECT');
     await expect(page.getByText('1 of 2 matches', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Next match' }).click();

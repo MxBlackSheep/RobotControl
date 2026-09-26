@@ -137,7 +137,7 @@ export default function DatabasePage() {
   );
 
   return (
-    <PageContent>
+    <PageContent variant="inspection">
       <PageHeader title="Database" />
       {error && (
         <Alert severity="error" sx={{ mb: 1 }}>

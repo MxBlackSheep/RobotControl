@@ -86,6 +86,8 @@ function TableView({
   const [query, setQuery] = useState<Query>(initialQuery),
     [draft, setDraft] = useState(""),
     [filterDraft, setFilterDraft] = useState<Filter[]>([]);
+  const [displayedQuery, setDisplayedQuery] = useState<Query>(initialQuery);
+  const [pageDraft, setPageDraft] = useState("1");
   const [data, setData] = useState<{
     columns: string[];
     rows: Record<string, any>[];
@@ -157,7 +159,18 @@ function TableView({
       .then((response) => {
         if (!current) return;
         const payload = response.data.data;
+        const lastPage = Math.max(0, Math.ceil(payload.total_count / query.limit) - 1);
+        if (query.page > lastPage) {
+          setQuery((previous) => ({ ...previous, page: lastPage }));
+          return;
+        }
         setData(payload);
+        setDisplayedQuery(query);
+        setPageDraft(String(query.page + 1));
+        if (query !== displayedQuery) {
+          scroll.current.top = 0;
+          if (tableScroll.current) tableScroll.current.scrollTop = 0;
+        }
         setUpdated(new Date().toLocaleTimeString());
       })
       .catch((error) => {
@@ -196,7 +209,7 @@ function TableView({
                   tableName,
                   page,
                   limit,
-                  queryParams(query),
+                   queryParams(displayedQuery),
                   abort.signal,
                 );
                 return response.data.data;
@@ -228,6 +241,9 @@ function TableView({
     }
   };
   const columns = data?.columns.filter((c) => !hidden.includes(c)) || [];
+  const pageCount = Math.max(1, Math.ceil((data?.total_count || 0) / displayedQuery.limit));
+  const targetPage = Number(pageDraft);
+  const validPage = Number.isInteger(targetPage) && targetPage >= 1 && targetPage <= pageCount;
   const view = (
     <Paper
       variant="outlined"
@@ -292,7 +308,7 @@ function TableView({
             Apply
           </Button>
           <Button onClick={() => setDialog("filters")}>
-            Filters ({query.filters.filter((f) => f.value).length})
+            Filters ({displayedQuery.filters.filter((f) => f.value).length})
           </Button>
           <Button onClick={() => setRefresh((v) => v + 1)} disabled={loading}>
             Refresh
@@ -362,27 +378,27 @@ function TableView({
                 <TableCell
                   key={column}
                   sortDirection={
-                    query.order === column ? query.direction : false
+                      displayedQuery.order === column ? displayedQuery.direction : false
                   }
                 >
                   <TableSortLabel
-                    active={query.order === column}
-                    direction={query.order === column ? query.direction : "asc"}
+                    active={displayedQuery.order === column}
+                    direction={displayedQuery.order === column ? displayedQuery.direction : "asc"}
                     sx={{
                       minHeight: 44,
                       maxWidth: 260,
                       overflowWrap: "anywhere",
                     }}
                     onClick={() =>
-                      setQuery((q) => ({
-                        ...q,
+                      setQuery({
+                        ...displayedQuery,
                         page: 0,
                         order: column,
                         direction:
-                          q.order === column && q.direction === "asc"
+                          displayedQuery.order === column && displayedQuery.direction === "asc"
                             ? "desc"
                             : "asc",
-                      }))
+                      })
                     }
                   >
                     {column}
@@ -403,16 +419,16 @@ function TableView({
                   }}
                 >
                   <Button
-                    aria-label={`Inspect row ${query.page * query.limit + index + 1}`}
+                    aria-label={`Inspect row ${displayedQuery.page * displayedQuery.limit + index + 1}`}
                     onClick={() => {
                       setRecord({
                         row,
-                        number: query.page * query.limit + index + 1,
+                        number: displayedQuery.page * displayedQuery.limit + index + 1,
                       });
                       setCopied("");
                     }}
                   >
-                    {query.page * query.limit + index + 1}
+                    {displayedQuery.page * displayedQuery.limit + index + 1}
                   </Button>
                 </TableCell>
                 {columns.map((column) => (
@@ -423,7 +439,7 @@ function TableView({
                         setCell({ column, value: row[column] });
                         setCopied("");
                       }}
-                      aria-label={`View ${column}, row ${index + 1}`}
+                      aria-label={`View ${column}, row ${displayedQuery.page * displayedQuery.limit + index + 1}`}
                       sx={{
                         display: "block",
                         border: 0,
@@ -453,7 +469,7 @@ function TableView({
                 <TableCell colSpan={columns.length + 1}>
                   {error
                     ? "Table unavailable."
-                    : query.search || query.filters.length
+                    : displayedQuery.search || displayedQuery.filters.length
                       ? "No rows match the applied search and filters."
                       : "This table is empty."}
                 </TableCell>
@@ -462,24 +478,34 @@ function TableView({
           </TableBody>
         </Table>
       </TableContainer>
+      <Stack direction="row" alignItems="center" flexWrap="wrap" gap={0.5} sx={{ flexShrink: 0, borderTop: 1, borderColor: "divider", px: 1 }}>
       <TablePagination
         component="div"
         count={data?.total_count || 0}
-        page={query.page}
-        rowsPerPage={query.limit}
+        page={displayedQuery.page}
+        rowsPerPage={displayedQuery.limit}
         rowsPerPageOptions={[25, 50, 100]}
-        onPageChange={(_, page) => setQuery((q) => ({ ...q, page }))}
+        showFirstButton
+        showLastButton
+        disabled={loading || !data}
+        onPageChange={(_, page) => setQuery({ ...displayedQuery, page })}
         onRowsPerPageChange={(e) =>
-          setQuery((q) => ({ ...q, page: 0, limit: Number(e.target.value) }))
+          setQuery({ ...displayedQuery, page: 0, limit: Number(e.target.value) })
         }
         sx={{
-          flexShrink: 0,
-          borderTop: 1,
-          borderColor: "divider",
+          flex: "1 1 330px",
+          minWidth: 0,
           "& .MuiTablePagination-toolbar": { flexWrap: "wrap", px: 1 },
           "& .MuiTablePagination-spacer": { display: "none" },
+          "& .MuiTablePagination-actions": { ml: 0 },
         }}
       />
+      <Box component="form" onSubmit={(event) => { event.preventDefault(); if (validPage && !loading) setQuery({ ...displayedQuery, page: targetPage - 1 }); }} sx={{ display: "flex", alignItems: "center", gap: 0.5, flexWrap: "wrap", py: 0.5 }}>
+        <Typography variant="caption" sx={{ mr: 0.5 }}>Page {displayedQuery.page + 1} of {pageCount}</Typography>
+        <TextField type="number" size="small" label="Page" value={pageDraft} onChange={(event) => setPageDraft(event.target.value)} inputProps={{ min: 1, max: pageCount, step: 1 }} disabled={loading || !data?.total_count} sx={{ width: 78 }} />
+        <Button type="submit" aria-label="Go to page" disabled={loading || !data?.total_count || !validPage}>Go</Button>
+      </Box>
+      </Stack>
     </Paper>
   );
   return (

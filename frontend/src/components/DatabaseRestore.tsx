@@ -647,7 +647,7 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
 
               {/* Metadata Details for Selected BAK */}
               {selectedBackup && (
-                <Card variant="outlined" sx={{ bgcolor: 'grey.50' }}>
+                <Card variant="outlined" sx={{ bgcolor: 'background.default' }}>
                   <CardContent sx={{ pb: 1 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1, mb: 1 }}>
                       <Typography variant="subtitle2">
@@ -679,7 +679,7 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
                       {selectedBackup.description && (
                         <Stack spacing={0.5}>
                           <Typography variant="body2" color="textSecondary" gutterBottom>Description:</Typography>
-                          <Typography variant="body2" sx={{ fontStyle: 'italic', pl: 1, borderLeft: 2, borderColor: 'grey.300' }}>
+                          <Typography variant="body2" sx={{ fontStyle: 'italic', pl: 1, borderLeft: 2, borderColor: 'divider' }}>
                             {selectedBackup.description}
                           </Typography>
                         </Stack>

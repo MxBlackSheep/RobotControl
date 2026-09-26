@@ -236,19 +236,13 @@ export default function StoredProcedures({
               overflow: "hidden",
             }}
           >
-            <Box sx={{ px: 1.5, pt: 1.5, minWidth: 0 }}>
+            <Box sx={{ px: 1.5, pt: 1, minWidth: 0 }}>
               <Typography
-                variant="h6"
+                variant="subtitle1"
                 component="h2"
                 sx={{ overflowWrap: "anywhere" }}
               >
                 {selected.name}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                {selected.type === "PROCEDURE"
-                  ? "Stored procedure"
-                  : "Function"}{" "}
-                · Read only
               </Typography>
             </Box>
             <Tabs

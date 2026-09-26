@@ -1,600 +1,184 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  Alert,
-  Box,
-  Button,
-  Card,
-  CardContent,
-  Chip,
-  Divider,
-  FormControl,
-  Grid,
-  InputLabel,
-  MenuItem,
-  Paper,
-  Select,
-  Stack,
-  Typography,
-} from '@mui/material';
-import {
-  Refresh as RefreshIcon,
-  Save as SaveIcon,
-  DeleteSweep as DiscardIcon,
-  RestartAlt as ResetIcon,
-  CheckCircleOutline as ApplyIcon,
-} from '@mui/icons-material';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, Box, Button, Chip, LinearProgress, List, ListItemButton, ListItemText, Menu, MenuItem, Paper, Stack, TextField, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
+import InspectionWorkspace from '../InspectionWorkspace';
+import { labwareApi, TipTrackingSnapshot, TipTrackingUpdate } from '../../services/labwareApi';
+import { useLabwareSnapshot } from './useLabwareSnapshot';
 
-import { labwareApi, TipTrackingFamilyState, TipTrackingSnapshot, TipTrackingUpdate } from '../../services/labwareApi';
+type Pending = Record<string, Record<string, string>>;
+const keyFor = (rack: string, position: number) => JSON.stringify([rack, position]);
+const message = (error: any) => error?.response?.data?.error?.message || error?.response?.data?.message || error?.message || 'Unable to save changes.';
+const stringArray = (value: unknown): value is string[] => Array.isArray(value) && value.every(item => typeof item === 'string');
+const validSnapshot = (value: TipTrackingSnapshot) => Boolean(value &&
+  typeof value.permissions?.can_update === 'boolean' && value.grid &&
+  [value.grid.rows, value.grid.cols, value.grid.positions_per_rack].every(size => Number.isInteger(size) && size > 0) &&
+  stringArray(value.status_order) && typeof value.unknown_status === 'string' && value.status_colors &&
+  Array.isArray(value.families) && value.families.every(family => family &&
+    typeof family.family_id === 'string' && typeof family.display_name === 'string' &&
+    stringArray(family.left_racks) && stringArray(family.right_racks) && family.tips && typeof family.tips === 'object'));
 
-const DEFAULT_AUTO_REFRESH_MS = 15000;
-const DEFAULT_GRID_ROWS = 8;
-const DEFAULT_GRID_COLS = 12;
-
-interface SelectedTip {
-  labwareId: string;
-  positionId: number;
-}
-
-const pendingKey = (labwareId: string, positionId: number): string => `${labwareId}::${positionId}`;
-
-const parsePendingKey = (value: string): SelectedTip | null => {
-  const [labwareId, positionRaw] = value.split('::');
-  if (!labwareId || !positionRaw) {
-    return null;
-  }
-  const positionId = Number(positionRaw);
-  if (!Number.isFinite(positionId)) {
-    return null;
-  }
-  return { labwareId, positionId };
-};
-
-const TipTrackingPanel: React.FC<{active?: boolean}> = ({active = true}) => {
-  const [snapshot, setSnapshot] = useState<TipTrackingSnapshot | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-
-  const [selectedFamilyId, setSelectedFamilyId] = useState('');
-  const [selectedTip, setSelectedTip] = useState<SelectedTip | null>(null);
-
-  const [tipStatusChoice, setTipStatusChoice] = useState('clean');
-  const [rackChoice, setRackChoice] = useState('');
-  const [rackStatusChoice, setRackStatusChoice] = useState('clean');
-
-  const [saving, setSaving] = useState(false);
-  const [resetting, setResetting] = useState(false);
-
-  const [pendingByFamily, setPendingByFamily] = useState<Record<string, Record<string, string>>>({});
-
-  const loadSnapshot = useCallback(async (showLoader = false) => {
-    if (showLoader) {
-      setLoading(true);
-    }
-    try {
-      const payload = await labwareApi.getTipTrackingSnapshot();
-      setSnapshot(payload);
-      setError('');
-
-      if (payload.families.length > 0) {
-        setSelectedFamilyId(prev => prev || payload.families[0].family_id);
-      }
-
-      if (payload.status_order.length > 0) {
-        const firstStatus = payload.status_order[0];
-        setTipStatusChoice(prev => (payload.status_order.includes(prev) ? prev : firstStatus));
-        setRackStatusChoice(prev => (payload.status_order.includes(prev) ? prev : firstStatus));
-      }
-    } catch (err: any) {
-      const message = err?.response?.data?.message || err?.message || 'Failed to load tip tracking data';
-      setError(message);
-    } finally {
-      if (showLoader) {
-        setLoading(false);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadSnapshot(true);
-  }, [loadSnapshot]);
-
+export default function TipTrackingPanel({ active = true }: { active?: boolean }) {
+  const [familyId, setFamilyId] = useState('');
+  const [rack, setRack] = useState('');
+  const [rackOpen, setRackOpen] = useState(false);
+  const [position, setPosition] = useState(1);
+  const [statusChoice, setStatusChoice] = useState('clean');
+  const [scope, setScope] = useState('tip');
+  const [view, setView] = useState<'map' | 'list'>(() => window.innerWidth < 900 ? 'list' : 'map');
+  const [pending, setPending] = useState<Pending>({});
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const [writeError, setWriteError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [menu, setMenu] = useState<HTMLElement | null>(null);
+  const map = useRef<HTMLDivElement>(null);
+  const totalPending = Object.values(pending).reduce((total, entries) => total + Object.keys(entries).length, 0);
+  const { snapshot, setSnapshot, pending: reading, error: readError, refresh } = useLabwareSnapshot(labwareApi.getTipTrackingSnapshot, active, busy || totalPending > 0, validSnapshot);
   const families = snapshot?.families || [];
-
-  const activeFamily = useMemo<TipTrackingFamilyState | null>(() => {
-    if (!families.length) {
-      return null;
-    }
-    return families.find(family => family.family_id === selectedFamilyId) || families[0];
-  }, [families, selectedFamilyId]);
-
+  const family = families.find(item => item.family_id === familyId) || families[0];
+  const racks = useMemo(() => family ? [...family.left_racks, ...family.right_racks] : [], [family]);
+  const currentPending = pending[family?.family_id || ''] || {};
+  const count = Object.keys(currentPending).length;
+  const canUpdate = Boolean(snapshot?.permissions.can_update);
+  const rows = snapshot?.grid.rows || 8;
+  const columns = snapshot?.grid.cols || 12;
+  const positions = snapshot?.grid.positions_per_rack || rows * columns;
+  const statuses = snapshot?.status_order || [];
+  const unknown = snapshot?.unknown_status || 'unclear';
+  const savedStatus = (rackId: string, tip: number) => family?.tips[rackId]?.[String(tip)] || unknown;
+  const shownStatus = (rackId: string, tip: number) => currentPending[keyFor(rackId, tip)] ?? savedStatus(rackId, tip);
   useEffect(() => {
-    if (activeFamily && activeFamily.family_id !== selectedFamilyId) {
-      setSelectedFamilyId(activeFamily.family_id);
-    }
-  }, [activeFamily, selectedFamilyId]);
+    if (!family) return;
+    if (familyId !== family.family_id) setFamilyId(family.family_id);
+    if (!racks.includes(rack)) { setRack(racks[0] || ''); setPosition(1); }
+    if (!statuses.includes(statusChoice)) setStatusChoice(statuses[0] || unknown);
+  }, [family, familyId, rack, racks, statuses, statusChoice, unknown]);
 
-  const statusOrder = snapshot?.status_order || ['clean', 'empty', 'dirty', 'rinsed', 'washed', 'reserved', 'unclear'];
-  const statusColors = snapshot?.status_colors || {};
-  const unknownStatus = snapshot?.unknown_status || 'unclear';
-
-  const canUpdate = Boolean(snapshot?.permissions?.can_update);
-
-  useEffect(() => {
-    if (!activeFamily) {
-      return;
-    }
-
-    const allRacks = [...activeFamily.left_racks, ...activeFamily.right_racks];
-    if (!rackChoice || !allRacks.includes(rackChoice)) {
-      setRackChoice(allRacks[0] || '');
-    }
-
-    if (selectedTip && !allRacks.includes(selectedTip.labwareId)) {
-      setSelectedTip(null);
-    }
-  }, [activeFamily, rackChoice, selectedTip]);
-
-  const currentFamilyPending = pendingByFamily[activeFamily?.family_id || ''] || {};
-  const pendingCount = Object.keys(currentFamilyPending).length;
-
-  useEffect(() => {
-    if (!active || !snapshot || !activeFamily) {
-      return;
-    }
-    if (pendingCount > 0) {
-      return;
-    }
-
-    const intervalMs = Number(snapshot.auto_refresh_ms || DEFAULT_AUTO_REFRESH_MS);
-    const interval = window.setInterval(() => {
-      void loadSnapshot(false);
-    }, intervalMs);
-
-    return () => {
-      window.clearInterval(interval);
-    };
-  }, [active, activeFamily, loadSnapshot, pendingCount, snapshot]);
-
-  const getSavedStatus = useCallback((labwareId: string, positionId: number): string => {
-    if (!activeFamily) {
-      return unknownStatus;
-    }
-    const rackTips = activeFamily.tips[labwareId] || {};
-    return rackTips[String(positionId)] || unknownStatus;
-  }, [activeFamily, unknownStatus]);
-
-  const getDisplayStatus = useCallback((labwareId: string, positionId: number): string => {
-    if (!activeFamily) {
-      return unknownStatus;
-    }
-    const queued = pendingByFamily[activeFamily.family_id]?.[pendingKey(labwareId, positionId)];
-    if (queued) {
-      return queued;
-    }
-    return getSavedStatus(labwareId, positionId);
-  }, [activeFamily, getSavedStatus, pendingByFamily, unknownStatus]);
-
-  const queueStatusChange = useCallback((labwareId: string, positionId: number, status: string) => {
-    if (!activeFamily) {
-      return;
-    }
-
-    const targetKey = pendingKey(labwareId, positionId);
-    const savedStatus = getSavedStatus(labwareId, positionId);
-
-    setPendingByFamily(prev => {
-      const next = { ...prev };
-      const familyPending = { ...(next[activeFamily.family_id] || {}) };
-
-      if (status === savedStatus) {
-        delete familyPending[targetKey];
-      } else {
-        familyPending[targetKey] = status;
+  const selectPosition = (next: number) => {
+    if (!Number.isInteger(next) || next < 1 || next > positions) return;
+    setPosition(next); setStatusChoice(shownStatus(rack, next));
+  };
+  const apply = () => {
+    if (!family || !rack || !canUpdate || busyRef.current || reading) return;
+    const first = scope === 'rack' ? 1 : scope === 'column' ? Math.floor((position - 1) / rows) * rows + 1 : position;
+    const length = scope === 'rack' ? positions : scope === 'column' ? rows : 1;
+    setPending(previous => {
+      const edits = { ...previous[family.family_id] };
+      for (let tip = first; tip < Math.min(first + length, positions + 1); tip++) {
+        const key = keyFor(rack, tip);
+        if (statusChoice === savedStatus(rack, tip)) delete edits[key]; else edits[key] = statusChoice;
       }
-
-      next[activeFamily.family_id] = familyPending;
-      return next;
+      return { ...previous, [family.family_id]: edits };
     });
-  }, [activeFamily, getSavedStatus]);
-
-  const applyToTip = () => {
-    if (!selectedTip) {
-      setError('Select a tip first to apply a status.');
-      return;
-    }
-    queueStatusChange(selectedTip.labwareId, selectedTip.positionId, tipStatusChoice);
+    setWriteError(''); setNotice('');
   };
-
-  const applyToColumn = () => {
-    if (!selectedTip) {
-      setError('Select a tip first to apply a status to its column.');
-      return;
-    }
-
-    const rows = snapshot?.grid?.rows || DEFAULT_GRID_ROWS;
-    const columnIndex = Math.floor((selectedTip.positionId - 1) / rows);
-    const start = columnIndex * rows + 1;
-
-    for (let pos = start; pos < start + rows; pos += 1) {
-      queueStatusChange(selectedTip.labwareId, pos, tipStatusChoice);
-    }
-  };
-
-  const applyToRack = () => {
-    if (!activeFamily || !rackChoice) {
-      setError('Select a rack first.');
-      return;
-    }
-
-    const positions = snapshot?.grid?.positions_per_rack || DEFAULT_GRID_ROWS * DEFAULT_GRID_COLS;
-    for (let pos = 1; pos <= positions; pos += 1) {
-      queueStatusChange(rackChoice, pos, rackStatusChoice);
-    }
-  };
-
-  const discardPending = () => {
-    if (!activeFamily || pendingCount === 0) {
-      return;
-    }
-    setPendingByFamily(prev => {
-      const next = { ...prev };
-      next[activeFamily.family_id] = {};
-      return next;
+  const save = async () => {
+    if (!family || !canUpdate || !count || busyRef.current) return;
+    const submittedFamily = family.family_id;
+    const submitted = { ...currentPending };
+    const updates: TipTrackingUpdate[] = Object.entries(submitted).map(([key, status]) => {
+      const [labware_id, position_id] = JSON.parse(key) as [string, number];
+      return { labware_id, position_id, status };
     });
-  };
-
-  const savePending = async () => {
-    if (!activeFamily || pendingCount === 0) {
-      return;
-    }
-
-    setSaving(true);
-    setError('');
-
+    busyRef.current = true; setBusy(true); setWriteError(''); setNotice('');
     try {
-      const updates: TipTrackingUpdate[] = Object.entries(currentFamilyPending)
-        .map(([key, status]) => {
-          const parsed = parsePendingKey(key);
-          if (!parsed) {
-            return null;
-          }
-          return {
-            labware_id: parsed.labwareId,
-            position_id: parsed.positionId,
-            status,
-          };
-        })
-        .filter((item): item is TipTrackingUpdate => Boolean(item));
-
-      await labwareApi.updateTipTracking(activeFamily.family_id, updates);
-
-      setPendingByFamily(prev => {
-        const next = { ...prev };
-        next[activeFamily.family_id] = {};
-        return next;
+      await labwareApi.updateTipTracking(submittedFamily, updates);
+      setSnapshot(previous => previous && ({ ...previous, families: previous.families.map(item => {
+        if (item.family_id !== submittedFamily) return item;
+        const tips = { ...item.tips };
+        updates.forEach(edit => { tips[edit.labware_id] = { ...tips[edit.labware_id], [edit.position_id]: edit.status }; });
+        return { ...item, tips };
+      }) }));
+      setPending(previous => {
+        const remaining = { ...previous[submittedFamily] };
+        Object.entries(submitted).forEach(([key, value]) => { if (remaining[key] === value) delete remaining[key]; });
+        return { ...previous, [submittedFamily]: remaining };
       });
-
-      await loadSnapshot(false);
-    } catch (err: any) {
-      const message = err?.response?.data?.message || err?.message || 'Failed to save tip tracking changes';
-      setError(message);
-    } finally {
-      setSaving(false);
-    }
+      setNotice('Changes saved.');
+    } catch (error) { setWriteError(message(error)); }
+    finally { busyRef.current = false; setBusy(false); }
   };
-
-  const resetFamily = async () => {
-    if (!activeFamily) {
-      return;
-    }
-
-    const confirmed = window.confirm(`Reset ${activeFamily.display_name} to its default state?`);
-    if (!confirmed) {
-      return;
-    }
-
-    setResetting(true);
-    setError('');
-
-    try {
-      await labwareApi.resetTipTracking(activeFamily.family_id);
-      setPendingByFamily(prev => {
-        const next = { ...prev };
-        next[activeFamily.family_id] = {};
-        return next;
-      });
-      await loadSnapshot(false);
-    } catch (err: any) {
-      const message = err?.response?.data?.message || err?.message || 'Failed to reset tip family';
-      setError(message);
-    } finally {
-      setResetting(false);
-    }
+  const reset = async () => {
+    setMenu(null);
+    if (!family || !canUpdate || busyRef.current || totalPending || !window.confirm(`Reset ${family.display_name} to its default state?`)) return;
+    busyRef.current = true; setBusy(true); setWriteError(''); setNotice('');
+    try { await labwareApi.resetTipTracking(family.family_id); setNotice('Family reset.'); }
+    catch (error) { setWriteError(message(error)); }
+    finally { busyRef.current = false; setBusy(false); }
   };
+  if (!snapshot) return readError ? <Alert severity="error" action={<Button onClick={() => void refresh()}>Retry</Button>}>{readError}</Alert> : <LinearProgress aria-label="Loading tips" />;
+  if (!family) return <Alert severity="info" action={<Button onClick={() => void refresh()}>Refresh</Button>}>No tip families found.</Alert>;
 
-  const renderRack = (labwareId: string) => {
-    const rows = snapshot?.grid?.rows || DEFAULT_GRID_ROWS;
-    const cols = snapshot?.grid?.cols || DEFAULT_GRID_COLS;
-    const positions = snapshot?.grid?.positions_per_rack || rows * cols;
-
-    return (
-      <Card key={labwareId} variant="outlined" sx={{ mb: 1.5 }}>
-        <CardContent sx={{ p: 1.5 }}>
-          <Typography variant="subtitle2" sx={{ mb: 1, fontFamily: 'monospace' }}>
-            {labwareId}
-          </Typography>
-
-          <Box
-            sx={{
-              display: 'grid',
-              gridTemplateColumns: `repeat(${cols}, minmax(10px, 1fr))`,
-              gridTemplateRows: `repeat(${rows}, 14px)`,
-              gap: 0.5,
-            }}
-          >
-            {Array.from({ length: positions }, (_, index) => {
-              const positionId = index + 1;
-              const row = index % rows;
-              const col = Math.floor(index / rows);
-
-              const targetStatus = getDisplayStatus(labwareId, positionId);
-              const dotColor = statusColors[targetStatus] || statusColors[unknownStatus] || '#9ca3af';
-
-              const tipIsSelected =
-                selectedTip?.labwareId === labwareId && selectedTip?.positionId === positionId;
-
-              const key = pendingKey(labwareId, positionId);
-              const tipIsPending = Boolean(currentFamilyPending[key]);
-
-              return (
-                <Box
-                  key={`${labwareId}-${positionId}`}
-                  onClick={() => setSelectedTip({ labwareId, positionId })}
-                  title={`${labwareId} / ${positionId}: ${targetStatus}`}
-                  sx={{
-                    gridColumn: col + 1,
-                    gridRow: row + 1,
-                    width: 12,
-                    height: 12,
-                    borderRadius: '50%',
-                    backgroundColor: dotColor,
-                    border: tipIsSelected ? '2px solid #111827' : '1px solid #ffffff',
-                    boxShadow: tipIsPending ? '0 0 0 2px rgba(245, 158, 11, 0.5)' : 'none',
-                    cursor: 'pointer',
-                    transition: 'transform 0.12s ease',
-                    '&:hover': {
-                      transform: 'scale(1.15)',
-                    },
-                  }}
-                />
-              );
-            })}
-          </Box>
-        </CardContent>
-      </Card>
-    );
+  const selector = <Paper variant="outlined" sx={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'auto' }}>
+    <Typography variant="subtitle2" sx={{ p: 1.5 }}>{racks.length} racks</Typography>
+    <List aria-label="Tip racks" sx={{ flex: 1, minHeight: 120, overflow: 'auto', pt: 0 }}>
+      {racks.map(rackId => {
+        const summary = statuses.map(status => { const total = Array.from({ length: positions }, (_, i) => shownStatus(rackId, i + 1)).filter(value => value === status).length; return total ? `${total} ${status}` : ''; }).filter(Boolean).join(' · ');
+        const edits = Object.keys(currentPending).filter(key => (JSON.parse(key) as [string, number])[0] === rackId).length;
+        return <ListItemButton key={rackId} selected={rack === rackId} aria-current={rack === rackId ? 'true' : undefined} aria-label={`Open rack ${rackId}`} onClick={() => { setRack(rackId); setPosition(1); setRackOpen(true); setStatusChoice(shownStatus(rackId, 1)); }}>
+          <ListItemText primary={rackId} secondary={`${family.left_racks.includes(rackId) ? 'Col A' : 'Col B'} · ${summary}${edits ? ` · ${edits} unsaved` : ''}`} primaryTypographyProps={{ sx: { overflowWrap: 'anywhere' } }} />
+        </ListItemButton>;
+      })}
+    </List>
+  </Paper>;
+  const editDisabled = busy || reading;
+  const tipButton = (tip: number, spatial: boolean) => {
+    const status = shownStatus(rack, tip);
+    const unsaved = Object.prototype.hasOwnProperty.call(currentPending, keyFor(rack, tip));
+    return <Button key={tip} data-tip={tip} aria-label={`Tip ${tip}, ${status}`} aria-pressed={position === tip} variant={position === tip ? 'contained' : 'outlined'} tabIndex={spatial && position !== tip ? -1 : 0} onClick={() => selectPosition(tip)} onKeyDown={event => {
+      if (!spatial) return;
+      if ((event.key === 'ArrowDown' && tip % rows === 0) || (event.key === 'ArrowUp' && (tip - 1) % rows === 0)) { event.preventDefault(); return; }
+      const next = event.key === 'ArrowDown' ? tip + 1 : event.key === 'ArrowUp' ? tip - 1 : event.key === 'ArrowRight' ? tip + rows : event.key === 'ArrowLeft' ? tip - rows : event.key === 'Home' ? 1 : event.key === 'End' ? positions : null;
+      if (next === null) return;
+      event.preventDefault();
+      if (next < 1 || next > positions) return;
+      selectPosition(next); map.current?.querySelector<HTMLButtonElement>(`[data-tip="${next}"]`)?.focus();
+    }} sx={{ minWidth: 44, minHeight: 44, px: 0.5, gap: 0.5, justifyContent: spatial ? 'center' : 'flex-start', gridColumn: spatial ? Math.floor((tip - 1) / rows) + 1 : undefined, gridRow: spatial ? ((tip - 1) % rows) + 1 : undefined, borderStyle: unsaved ? 'dashed' : 'solid' }}>
+      <Box component="span" aria-hidden="true" sx={{ width: 10, height: 10, flexShrink: 0, borderRadius: '50%', bgcolor: snapshot.status_colors[status] || 'text.disabled', border: 1, borderColor: position === tip ? 'primary.contrastText' : 'divider' }} />
+      {spatial ? `${tip}${unsaved ? '*' : ''}` : `Tip ${tip} · ${status}${unsaved ? ' · Unsaved' : ''}`}
+    </Button>;
   };
-
-  if (loading) {
-    return (
-      <Paper sx={{ p: 3 }}>
-        <Typography>Loading tip tracking data...</Typography>
-      </Paper>
-    );
-  }
-
-  if (!activeFamily) {
-    return (
-      <Alert severity="warning">
-        No tip tracking families were returned by the backend.
-      </Alert>
-    );
-  }
-
-  const selectedTipStatus = selectedTip ? getDisplayStatus(selectedTip.labwareId, selectedTip.positionId) : '-';
-
-  return (
-    <Stack spacing={2}>
-      {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
-
-      {!canUpdate && (
-        <Alert severity="info">
-          You are in read-only mode because this session is remote. Tip status updates and reset are available only
-          from a local session.
-        </Alert>
-      )}
-
-      <Paper sx={{ p: 1.5 }}>
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ sm: 'center' }}>
-          <FormControl size="small" sx={{ minWidth: 180 }}>
-            <InputLabel id="tip-family-select-label">Tip Family</InputLabel>
-            <Select
-              labelId="tip-family-select-label"
-              label="Tip Family"
-              value={activeFamily.family_id}
-              onChange={(event) => setSelectedFamilyId(String(event.target.value))}
-            >
-              {families.map(family => (
-                <MenuItem key={family.family_id} value={family.family_id}>
-                  {family.display_name}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-
-          <Chip label={`Pending: ${pendingCount}`} color={pendingCount > 0 ? 'warning' : 'default'} />
-
-          <Button
-            variant="outlined"
-            startIcon={<RefreshIcon />}
-            onClick={() => void loadSnapshot(false)}
-          >
-            Refresh
-          </Button>
-
-          <Button
-            variant="contained"
-            startIcon={<SaveIcon />}
-            onClick={() => void savePending()}
-            disabled={!canUpdate || pendingCount === 0 || saving}
-          >
-            Save
-          </Button>
-
-          <Button
-            variant="outlined"
-            startIcon={<DiscardIcon />}
-            onClick={discardPending}
-            disabled={!canUpdate || pendingCount === 0 || saving}
-          >
-            Discard
-          </Button>
-
-          <Button
-            variant="outlined"
-            color="warning"
-            startIcon={<ResetIcon />}
-            onClick={() => void resetFamily()}
-            disabled={!canUpdate || resetting}
-          >
-            Reset
-          </Button>
-        </Stack>
-      </Paper>
-
-      <Grid container spacing={2}>
-        <Grid item xs={12} md={9}>
-          <Grid container spacing={2}>
-            <Grid item xs={12} md={6}>
-              <Paper sx={{ p: 1.5 }}>
-                <Typography variant="subtitle1" sx={{ mb: 1 }}>ColA</Typography>
-                {activeFamily.left_racks.map(rack => renderRack(rack))}
-              </Paper>
-            </Grid>
-
-            <Grid item xs={12} md={6}>
-              <Paper sx={{ p: 1.5 }}>
-                <Typography variant="subtitle1" sx={{ mb: 1 }}>ColB</Typography>
-                {activeFamily.right_racks.map(rack => renderRack(rack))}
-              </Paper>
-            </Grid>
-          </Grid>
-        </Grid>
-
-        <Grid item xs={12} md={3}>
-          <Paper sx={{ p: 2 }}>
-            <Stack spacing={2}>
-              <Box>
-                <Typography variant="subtitle1">Selected Tip</Typography>
-                <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
-                  Rack: {selectedTip?.labwareId || '-'}
-                </Typography>
-                <Typography variant="body2">Position: {selectedTip?.positionId || '-'}</Typography>
-                <Typography variant="body2">Status: {selectedTipStatus}</Typography>
-              </Box>
-
-              <Divider />
-
-              <Typography variant="subtitle2">Apply to Tip / Column</Typography>
-
-              <FormControl size="small" fullWidth>
-                <InputLabel id="tip-status-select-label">Status</InputLabel>
-                <Select
-                  labelId="tip-status-select-label"
-                  label="Status"
-                  value={tipStatusChoice}
-                  onChange={(event) => setTipStatusChoice(String(event.target.value))}
-                >
-                  {statusOrder.map(statusValue => (
-                    <MenuItem key={statusValue} value={statusValue}>{statusValue}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-
-              <Button
-                variant="outlined"
-                startIcon={<ApplyIcon />}
-                onClick={applyToTip}
-                disabled={!canUpdate}
-              >
-                Apply to Tip
-              </Button>
-
-              <Button
-                variant="outlined"
-                startIcon={<ApplyIcon />}
-                onClick={applyToColumn}
-                disabled={!canUpdate}
-              >
-                Apply to Column (8)
-              </Button>
-
-              <Divider />
-
-              <Typography variant="subtitle2">Apply to Rack</Typography>
-
-              <FormControl size="small" fullWidth>
-                <InputLabel id="rack-select-label">Rack</InputLabel>
-                <Select
-                  labelId="rack-select-label"
-                  label="Rack"
-                  value={rackChoice}
-                  onChange={(event) => setRackChoice(String(event.target.value))}
-                >
-                  {[...activeFamily.left_racks, ...activeFamily.right_racks].map(rack => (
-                    <MenuItem key={rack} value={rack}>{rack}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-
-              <FormControl size="small" fullWidth>
-                <InputLabel id="rack-status-select-label">Status</InputLabel>
-                <Select
-                  labelId="rack-status-select-label"
-                  label="Status"
-                  value={rackStatusChoice}
-                  onChange={(event) => setRackStatusChoice(String(event.target.value))}
-                >
-                  {statusOrder.map(statusValue => (
-                    <MenuItem key={statusValue} value={statusValue}>{statusValue}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-
-              <Button
-                variant="outlined"
-                startIcon={<ApplyIcon />}
-                onClick={applyToRack}
-                disabled={!canUpdate}
-              >
-                Apply to Whole Rack
-              </Button>
-            </Stack>
-          </Paper>
-
-          <Paper sx={{ p: 2, mt: 2 }}>
-            <Typography variant="subtitle2" sx={{ mb: 1 }}>Legend</Typography>
-            <Stack spacing={1}>
-              {statusOrder.map(statusValue => (
-                <Stack key={statusValue} direction="row" spacing={1} alignItems="center">
-                  <Box
-                    sx={{
-                      width: 12,
-                      height: 12,
-                      borderRadius: '50%',
-                      backgroundColor: statusColors[statusValue] || '#9ca3af',
-                      border: '1px solid #ffffff',
-                    }}
-                  />
-                  <Typography variant="body2">{statusValue}</Typography>
-                </Stack>
-              ))}
-            </Stack>
-          </Paper>
-        </Grid>
-      </Grid>
+  return <Stack spacing={1} sx={{ minWidth: 0 }}>
+    <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap">
+      <TextField select size="small" label="Tip family" value={family.family_id} disabled={busy} onChange={event => { setFamilyId(event.target.value); setRack(''); setRackOpen(false); }} sx={{ minWidth: 190, maxWidth: '100%' }}>
+        {families.map(item => <MenuItem key={item.family_id} value={item.family_id}>{item.display_name}{Object.keys(pending[item.family_id] || {}).length ? ' · Unsaved' : ''}</MenuItem>)}
+      </TextField>
+      <Button onClick={() => void refresh()} disabled={busy || reading || totalPending > 0}>Refresh</Button>
+      {canUpdate ? <>
+        <Button variant="contained" onClick={() => void save()} disabled={busy || !count}>Save changes ({count})</Button>
+        {count > 0 && <Button disabled={busy} onClick={() => { setPending(previous => ({ ...previous, [family.family_id]: {} })); setWriteError(''); }}>Discard</Button>}
+        <Button aria-haspopup="menu" aria-label="More tip options" onClick={event => setMenu(event.currentTarget)} disabled={busy}>More</Button>
+      </> : <Chip label="Read only" size="small" />}
     </Stack>
-  );
-};
-
-export default TipTrackingPanel;
+    {(readError || writeError) && <Alert severity="error" action={!totalPending && !busy ? <Button onClick={() => void refresh()}>Retry</Button> : undefined}>{writeError || readError}{readError && ' Previous data is shown.'}</Alert>}
+    <Typography variant="caption" color="text.secondary" role="status">{busy ? 'Saving…' : totalPending ? `Refresh paused · ${totalPending} unsaved${totalPending > count ? ` (${totalPending - count} in other families)` : ''}` : notice || `Updated ${new Date(snapshot.refreshed_at).toLocaleTimeString()}`}</Typography>
+    {reading && <LinearProgress aria-label="Refreshing tips" />}
+    <InspectionWorkspace label="Tip workspace" selector={selector} selectorLabel="Racks" detailOpen={rackOpen} onBack={() => setRackOpen(false)}>
+      {rack ? <Paper variant="outlined" sx={{ p: 1.5, minHeight: 0, overflow: 'auto', flex: 1, containerType: 'inline-size', containerName: 'rack' }}>
+        <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap" sx={{ mb: 1 }}>
+          <Typography component="h2" variant="h6" sx={{ mr: 'auto', overflowWrap: 'anywhere' }}>{rack}</Typography>
+          <ToggleButtonGroup size="small" exclusive value={view} onChange={(_, value) => value && setView(value)} aria-label="Tip view"><ToggleButton value="map">Map</ToggleButton><ToggleButton value="list">List</ToggleButton></ToggleButtonGroup>
+        </Stack>
+        <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 1.5, '@container rack (min-width: 880px)': { gridTemplateColumns: 'minmax(0, 1fr) 250px' } }}>
+          <Paper variant="outlined" sx={{ p: 1.5, minWidth: 0, '@container rack (min-width: 880px)': { gridColumn: 2, gridRow: 1 } }}>
+            <Stack gap={1}>
+              <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap"><TextField type="number" size="small" label="Tip position" value={position} onChange={event => selectPosition(Number(event.target.value))} inputProps={{ min: 1, max: positions }} sx={{ width: 112 }} /><Typography>{shownStatus(rack, position)}</Typography></Stack>
+              {canUpdate && <>
+                <TextField select size="small" label="New status" value={statusChoice} disabled={editDisabled} onChange={event => setStatusChoice(event.target.value)}>{statuses.map(status => <MenuItem key={status} value={status}>{status}</MenuItem>)}</TextField>
+                <TextField select size="small" label="Apply to" value={scope} disabled={editDisabled} onChange={event => setScope(event.target.value)}><MenuItem value="tip">This tip</MenuItem><MenuItem value="column">Column ({rows} tips)</MenuItem><MenuItem value="rack">Whole rack ({positions} tips)</MenuItem></TextField>
+                <Button onClick={apply} disabled={editDisabled} variant="outlined">Apply status</Button>
+              </>}
+            </Stack>
+          </Paper>
+          <Box sx={{ minWidth: 0, '@container rack (min-width: 880px)': { gridColumn: 1, gridRow: 1 } }}>
+            <Box ref={map} role="group" aria-label={`${rack} tips`} sx={view === 'map' ? { overflow: 'auto', pb: 1 } : { display: 'grid', gap: 0.5, maxHeight: 420, overflow: 'auto' }}>
+              {view === 'map' ? <Box sx={{ display: 'grid', gridTemplateColumns: `repeat(${columns}, minmax(44px, 1fr))`, gridTemplateRows: `repeat(${rows}, 44px)`, gap: 0.5, minWidth: columns * 48 - 4 }}>{Array.from({ length: positions }, (_, index) => tipButton(index + 1, true))}</Box> : Array.from({ length: positions }, (_, index) => tipButton(index + 1, false))}
+            </Box>
+            {view === 'map' && <Typography variant="caption" color="text.secondary">Arrow keys move between tips. * Unsaved</Typography>}
+            <Stack direction="row" flexWrap="wrap" gap={1} sx={{ mt: 1 }} aria-label="Tip status legend">{statuses.map(status => <Stack key={status} direction="row" gap={0.5} alignItems="center"><Box aria-hidden="true" sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: snapshot.status_colors[status] || 'text.disabled', border: 1, borderColor: 'divider' }} /><Typography variant="caption">{status}</Typography></Stack>)}</Stack>
+          </Box>
+        </Box>
+      </Paper> : <Alert severity="info">No racks found.</Alert>}
+    </InspectionWorkspace>
+    <Menu anchorEl={menu} open={Boolean(menu)} onClose={() => setMenu(null)}><MenuItem disabled={busy || totalPending > 0} onClick={() => void reset()}>Reset family</MenuItem></Menu>
+  </Stack>;
+}

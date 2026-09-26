@@ -1,99 +1,38 @@
-# Labware Frontend Maintenance Guide
+# Labware frontend maintenance
 
-## Shared page spacing
+Labware uses the shared spatial page layout and sidebar sections. It has two independent workspaces: Tip tracking and Cytomat. Browsing a position does not write anything. Changes are sent only with Save changes, or the existing confirmed Reset family action.
 
-This page uses `PageContent` and `PageHeader` from `components/PageLayout.tsx`. The application shell supplies navigation, the breadcrumb and outer padding; do not add another outer Container or Back/breadcrumb row. Keep this module's functional tabs and controls. Operational content fills the space beside the sidebar; Maintenance uses the readable-width variant. See [the main application layout guide](main-application-frontend-maintenance-guide.md#shared-page-layout-september-2026) before changing page spacing.
+## Files
 
-This guide explains the Labware UI module (`TipTracking` + `Cytomat`).
+- `pages/LabwarePage.tsx`: authorized route and retained section panels.
+- `components/labware/TipTrackingPanel.tsx`: family/rack summaries, selected rack, tip editor, drafts and writes.
+- `components/labware/CytomatPanel.tsx`: position list and selected-position editor.
+- `components/labware/useLabwareSnapshot.ts`: snapshot reading and draft protection using the existing serial polling hook.
+- `services/labwareApi.ts`: unchanged request/response types and endpoints.
+- `components/InspectionWorkspace.tsx`: responsive list/detail layout. See the shared workspace guide before changing widths or scrolling.
 
----
+## Tip tracking
 
-## 1. Where The Code Lives
+Choose a family, then a rack. The rack list retains Col A/Col B placement and status counts. Only the selected rack renders individual tips; this avoids hundreds of tiny controls across every rack.
 
-- Page shell + sub-tabs: `frontend/src/pages/LabwarePage.tsx`
-- TipTracking panel: `frontend/src/components/labware/TipTrackingPanel.tsx`
-- Cytomat panel: `frontend/src/components/labware/CytomatPanel.tsx`
-- API client: `frontend/src/services/labwareApi.ts`
-- App navigation wiring:
-  - Desktop tabs: `frontend/src/App.tsx`
-  - Mobile drawer: `frontend/src/components/MobileDrawer.tsx`
-  - Breadcrumbs: `frontend/src/components/NavigationBreadcrumbs.tsx`
-  - Keyboard shortcuts/help: `frontend/src/hooks/useKeyboardNavigation.ts`, `frontend/src/components/KeyboardShortcutsHelp.tsx`
+Map preserves the server's column-major position order: position 1 is at the first row/column, position 8 is the bottom of that column for an eight-row rack. Each tip is a labelled button at least 44 pixels square. Arrow keys move spatially and stop at column edges; Home/End reach the first/last tip. Map scrolling stays inside its pane. List is the phone default and provides readable statuses; Tip position also selects a coordinate directly. Color swatches retain server colors, while labels, selected state and unsaved asterisks provide non-color information.
 
----
+The contextual editor chooses a new status and a scope: this tip, its column, or its rack. Apply status creates drafts; it does not call the backend. `pending` is keyed by family and a JSON `[rack, position]` key. Returning to the saved status removes that draft. Family changes retain other families' drafts and show their pending count. Save changes saves the selected family's drafts.
 
-## 2. What The User Sees
+Save captures the family and submitted edits before awaiting the PUT. A synchronous busy guard prevents duplicate submissions; mutation controls and family changes are disabled. Success patches the displayed snapshot, removes only submitted entries that still match, and resumes reading when no drafts remain. Failure retains drafts with an error. Discard affects the current family only. Reset family lives in More, requires the original confirmation, and is disabled while any drafts or writes are pending.
 
-1. Top-level `LABWARE` page.
-2. Secondary tabs:
-   - `TipTracking`
-   - `Cytomat`
-3. TipTracking supports family/rack/tip status operations.
-4. Cytomat shows a row list of `CytomatPos` and editable `PlateID` dropdowns.
+## Cytomat
 
----
+Search positions or plate IDs, then choose a position. The detail shows its saved plate and, for an editable session, one labelled plate selector. Empty is a valid pending value; use property presence or nullish fallback, never a truthiness check. The selector uses `displayEmpty` and a render label so an empty string visibly reads Empty. Save submits all pending positions. A failed save retains them. The selector and Discard are disabled during Save.
 
-## 3. Read-Only vs Editable Rules
+## Permissions, reading and errors
 
-- Backend returns `permissions.can_update` for each labware snapshot.
-- In both panels:
-  - `can_update=false`: show info alert and disable write controls.
-  - `can_update=true`: allow edit/save operations.
-- Backend locality checks are authoritative. Frontend disabling is guidance only.
+`permissions.can_update` is authoritative for displaying editors. Read-only sessions keep lists, maps and selection but do not show mutation controls. Backend permissions still enforce each write.
 
----
+Serial polling performs one read at a time. Inactive sections, pending edits in **any** family, and writes pause polling and invalidate late results. Existing browser-tab visibility behavior is preserved. A successful response replaces the snapshot only while reading is enabled. Each panel validates the collections and permissions it renders; malformed payloads show an unavailable error instead of crashing or claiming the inventory is empty. The last good data remains after read failures and is explicitly labelled. Initial failures show Error + Retry before any empty state; empty means a successful response actually had no entries.
 
-## 4. Cytomat Data Flow
+SectionPanel retains drafts and selection when switching Labware sections. Back, resizing and appearance changes do not recreate the workspace. Reload/close warns while drafts or writes exist. Drafts are not stored in browser storage and are not shared across logins. Leaving the Labware route unmounts its local state; this is not cross-route draft persistence.
 
-1. `CytomatPanel` loads `labwareApi.getCytomatSnapshot()`.
-2. Snapshot includes:
-   - `rows` (`cytomat_pos`, `plate_id`)
-   - `plate_options` (empty first, then descending IDs)
-   - `permissions`
-   - `auto_refresh_ms`
-3. Edits are stored in `pendingByPos` and not sent immediately.
-4. `Save` sends only changed rows via `labwareApi.updateCytomat(...)`.
-5. Auto-refresh runs only when there are no pending edits.
+## Repeatable browser checks
 
----
-
-## 5. Cytomat Internal State
-
-- `snapshot`: latest backend Cytomat payload.
-- `pendingByPos`: map of unsaved changes (`cytomat_pos -> plate_id`).
-- `saving`: disables controls during PUT request.
-
-If edits look missing, inspect `pendingByPos` first.
-
----
-
-## 6. Extension Pattern
-
-For any new labware sub-module:
-
-1. Create a dedicated panel component under `frontend/src/components/labware/`.
-2. Add a separate tab in `LabwarePage.tsx`.
-3. Add explicit API types and functions in `labwareApi.ts`.
-4. Keep state and interactions isolated per module.
-
-Do not merge unrelated modules into `TipTrackingPanel.tsx` or `CytomatPanel.tsx`.
-
----
-
-## 7. Troubleshooting
-
-1. `LABWARE` tab missing:
-   - Confirm route/tab guards for user role in `frontend/src/App.tsx`.
-
-2. Cytomat dropdown cannot save:
-   - Check `permissions.can_update`.
-   - Confirm session is local.
-   - Confirm selected `PlateID` still exists in backend `plate_options`.
-
-3. Cytomat list does not refresh:
-   - Verify `pendingByPos` is empty (auto-refresh pauses while pending edits exist).
-
-
-### September 2026: shared section navigation
-
-`components/navigation.tsx` is the source of section names, URLs and UI permissions. Use `useModuleSection` and `moduleSectionUrl`; do not add another horizontal page tab bar. The sidebar supports expanded links, rail menus and mobile navigation. `SectionPanel` mounts on first visit and retains drafts/scroll within the page session. Components that poll must take an active flag and suspend their timer when hidden. Camera navigation never starts/stops a session. Database Restore remains admin **or** local; Operations and RobotControl logs remain local-only. Backend permissions still apply.
+Failure cases were recorded in `frontend/e2e/inspection-labware-failure-scenarios.md` before implementation. Run `npm run test:e2e -- labware.spec.ts` from `frontend` after a build. The tests intercept Labware GET/PUT endpoints with synthetic snapshots, so no robot data changes. They cover keyboard map edges, 320px list editing, delayed/failed saves, polling pause, subsection retention, reload warnings, read failure recovery, malformed responses and read-only permissions. Screenshots and traces are retained in `recovery/viewer-verification`.
