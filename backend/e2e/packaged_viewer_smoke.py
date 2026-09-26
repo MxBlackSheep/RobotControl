@@ -94,6 +94,8 @@ with tempfile.TemporaryDirectory(prefix='relocated-viewer-',dir=ROOT/'recovery')
         subprocess.run(['node',str(ROOT/'frontend/e2e/packaged-smoke.cjs')],
             cwd=ROOT/'frontend',env={**environment,'VIEWER_SMOKE_TOKEN':token},check=True)
         result['checks'].append('packaged desktop/phone archive viewer and expansion')
+        result['checks'].append('embedded ten-rack deck preserves carrier order on desktop and phone with read-only fixtures')
+        result['checks'].append('embedded compact connection details omit ambiguous metrics')
         time.sleep(.2)
         assert not list((relocated/'data/temp/log-readers').rglob('*.txt'))
         result['checks'].append('reader temporary file released')

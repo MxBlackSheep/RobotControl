@@ -34,8 +34,8 @@ candidate directory; preserve any existing runtime data before building another.
 
 ```powershell
 & ./.venv/Scripts/python.exe build_scripts/embed_resources.py
-& ./.venv/Scripts/python.exe build_scripts/pyinstaller_build.py --output-dir dist/ui-redesign-20260926
-& ./.venv/Scripts/python.exe backend/e2e/packaged_viewer_smoke.py dist/ui-redesign-20260926/RobotControl
+& ./.venv/Scripts/python.exe build_scripts/pyinstaller_build.py --output-dir dist/spatial-labware-20260926
+& ./.venv/Scripts/python.exe backend/e2e/packaged_viewer_smoke.py dist/spatial-labware-20260926/RobotControl
 ```
 
 The packaged check copies the candidate into a temporary folder with a different
@@ -47,6 +47,9 @@ scheduler autostart disabled, and a nonproduction SQL address. It verifies:
 - A gzip archive larger than one section is reconstructed through authenticated HTTP.
 - Edge can navigate and expand the packaged history reader at desktop and phone widths, switch appearance, and verify default reading height and full-screen phone sizing.
 - Released readers leave no decoded temporary files.
+- The embedded ten-rack deck retains both carrier columns on desktop and phone,
+  using intercepted read-only Labware data; compact connection details omit
+  misleading utilization/bandwidth values.
 
 The process and relocated copy are removed afterward. Results are saved in
 `packaged-smoke.json`, `packaged-desktop.png`, `packaged-phone.png`, and
@@ -72,6 +75,20 @@ The log space check requires at least 60% of the 1280×720 window height for tex
 
 The prior viewer-only report is preserved at `recovery/viewer-verification-baseline`.
 The main report is the latest complete integrated run.
+
+### Spatial Labware revision
+
+The previous whole-application report is preserved at
+`recovery/ui-redesign-20260926-verification`. Rebuild and run
+`npx playwright test labware.spec.ts system-pages.spec.ts` for the deck painting
+and compact connection-details checks, or `npx playwright test` for the full
+regression run. The tests record failure scenarios before their production
+changes and exercise only disposable intercepted Labware writes.
+
+Check the realistic ten-rack screenshots as well as pass/fail results: Col A and
+Col B must remain side by side, and their racks must retain the API order.
+The physical Cytomat rack/shelf mapping is not present in the API; it must be
+confirmed before claiming a matching physical Cytomat map.
 
 ### Native browser zoom (interactive, optional after automated checks)
 

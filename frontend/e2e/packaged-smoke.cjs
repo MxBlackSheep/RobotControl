@@ -42,6 +42,52 @@ const path = require('node:path');
     });
     await expect(page.getByLabel('Log content')).toHaveCount(0);
     await released;
+
+    // Failure case: a candidate embeds the old rack list or loses carrier order.
+    // This fixture intercepts every Labware request, including writes; no real SQL
+    // or robot inventory is read or changed by this packaged UI check.
+    const left = ['VER_HT_0005', 'VER_HT_0001', 'VER_HT_0002', 'VER_HT_0006', 'VER_HT_0009'];
+    const right = ['VER_HT_0003', 'VER_HT_0004', 'VER_HT_0007', 'VER_HT_0008', 'VER_HT_0010'];
+    const states = ['clean', 'empty', 'dirty', 'rinsed', 'washed', 'reserved', 'unclear'];
+    await page.route('**/api/labware/**', route => {
+      if (route.request().method() !== 'GET') return route.fulfill({ status: 403, json: { message: 'Read-only packaged fixture' } });
+      return route.fulfill({ json: { data: {
+        grid: { rows: 8, cols: 12, positions_per_rack: 96 }, auto_refresh_ms: 60000,
+        status_order: states, status_colors: { clean: '#22c55e', empty: '#d1d5db', dirty: '#ef4444', rinsed: '#3b82f6', washed: '#a855f7', reserved: '#f59e0b', unclear: '#6b7280' },
+        unknown_status: 'unclear', refreshed_at: '2026-09-26T12:00:00Z',
+        permissions: { role: 'admin', is_local_session: false, can_update: false },
+        families: [{ family_id: '1000ul', display_name: '1000ul Tips', left_racks: left, right_racks: right, reset_map: {},
+          tips: Object.fromEntries([...left, ...right].map((rack, index) => [rack, Object.fromEntries(Array.from({ length: 96 }, (_, tip) => [tip + 1, states[(index + Math.floor(tip / 8)) % states.length]]))])) }],
+      } } });
+    });
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto('http://127.0.0.1:8017/labware');
+    await expect(page.getByRole('button', { name: /^Open rack / })).toHaveCount(10);
+    const firstLeft = page.getByRole('button', { name: `Open rack ${left[0]}`, exact: true });
+    const firstRight = page.getByRole('button', { name: `Open rack ${right[0]}`, exact: true });
+    expect((await firstLeft.boundingBox()).x).toBeLessThan((await firstRight.boundingBox()).x);
+    await expect(page.getByText('Read only', { exact: true })).toBeVisible();
+    await page.screenshot({ path: path.join(output, 'packaged-deck-desktop.png'), fullPage: true, animations: 'disabled' });
+    await page.setViewportSize({ width: 320, height: 740 });
+    expect((await firstLeft.boundingBox()).x).toBeLessThan((await firstRight.boundingBox()).x);
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+    await page.screenshot({ path: path.join(output, 'packaged-deck-phone.png'), fullPage: true, animations: 'disabled' });
+    await page.route('**/api/monitoring/experiments', route => route.fulfill({ json: { data: [] } }));
+    await page.route('**/api/monitoring/system-health', route => route.fulfill({ json: { data: {
+      sampled_at: '2026-09-26T12:00:00Z', system: { cpu_percent: 4, memory_percent: 25, disk_percent: 50 },
+      database: { is_connected: true, database_name: 'Fixture DB', server_name: 'Fixture server', mode: 'primary' },
+    } } }));
+    await page.route('**/api/camera/streaming/status', route => route.fulfill({ json: { data: {
+      enabled: true, active_session_count: 0, max_sessions: 10, resource_usage_percent: 45, total_bandwidth_mbps: 7,
+    } } }));
+    await page.goto('http://127.0.0.1:8017/system-status');
+    const details = page.getByRole('button', { name: 'Connection details', exact: true });
+    await expect(details).toHaveAttribute('aria-expanded', 'false');
+    await details.click();
+    await expect(page.getByText('0 of 10 slots in use', { exact: true })).toBeVisible();
+    await expect(page.getByText(/Utilization|Bandwidth/)).toHaveCount(0);
+    await page.screenshot({ path: path.join(output, 'packaged-connections-phone.png'), fullPage: true, animations: 'disabled' });
+    expect(errors).toEqual([]);
   } finally {
     await context.tracing.stop({ path: path.join(output, 'packaged-trace.zip') });
     await browser.close();

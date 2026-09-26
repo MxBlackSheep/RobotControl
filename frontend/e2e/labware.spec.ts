@@ -62,7 +62,7 @@ test('selected rack has keyboard access and saves cannot lose newer edits',async
   await expect(page.getByRole('button',{name:/Save changes/})).toBeDisabled();
   await expect(page.getByRole('button',{name:'Tip 2, dirty',exact:true})).toBeVisible();
   expect(state.writes[0]).toEqual({family:'tips300',updates:[{labware_id:'Rack A',position_id:2,status:'dirty'}]});
-  await info.attach('rack-keyboard-save',{body:await page.screenshot(),contentType:'image/png'});
+  await info.attach('rack-keyboard-save',{body:await page.screenshot({animations:'disabled'}),contentType:'image/png'});
 });
 
 test('phone rack painting keeps drafts across section changes and failed saves',async({page},info)=>{
@@ -83,7 +83,7 @@ test('phone rack painting keeps drafts across section changes and failed saves',
   const warning=await leaving;expect(warning.type()).toBe('beforeunload');await warning.dismiss();
   await expect(page.getByRole('button',{name:'Tip 1, dirty',exact:true})).toBeVisible();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
-  await info.attach('rack-phone-draft',{body:await page.screenshot(),contentType:'image/png'});
+  await info.attach('rack-phone-draft',{body:await page.screenshot({animations:'disabled'}),contentType:'image/png'});
 });
 
 for (const width of [1280,320]) test(`deck preserves both carrier columns and all ten racks at ${width}px`,async({page},info)=>{
@@ -93,7 +93,7 @@ for (const width of [1280,320]) test(`deck preserves both carrier columns and al
   await expect(left.getByRole('button')).toHaveCount(5);await expect(right.getByRole('button')).toHaveCount(5);
   expect(await left.getByRole('button').evaluateAll(items=>items.map(item=>item.getAttribute('aria-label')))).toEqual(['VER_ST_0001','VER_ST_0002','VER_ST_0003','VER_ST_0006','VER_ST_0009'].map(rack=>`Open rack ${rack}`));
   const a=await left.boundingBox();const b=await right.boundingBox();expect(b!.x).toBeGreaterThan(a!.x);expect(Math.abs(a!.y-b!.y)).toBeLessThan(2);
-  await info.attach(`full-deck-${width}`,{body:await page.screenshot(),contentType:'image/png'});
+  await info.attach(`full-deck-${width}`,{body:await page.screenshot({animations:'disabled'}),contentType:'image/png'});
   await page.getByRole('button',{name:'Open rack VER_ST_0002',exact:true}).click();
   await expect(page.getByRole('heading',{name:'VER_ST_0002',exact:true})).toBeVisible();
   if(width===320){await page.getByRole('button',{name:'Back to deck',exact:true}).click();await expect(page.getByRole('button',{name:'Open rack VER_ST_0002',exact:true})).toBeFocused();}
@@ -122,7 +122,7 @@ test('rectangle paints coordinates once, cancels safely and Undo restores prior 
   await page.mouse.move(start!.x+22,start!.y+22);await page.mouse.down();await page.mouse.move(end!.x+22,end!.y+22,{steps:4});await page.mouse.move(5,5);await page.mouse.up();
   await expect(page.getByRole('button',{name:'Tip 1, clean',exact:true})).toBeVisible();expect(state.writes).toEqual([]);
   await page.getByRole('button',{name:'Undo',exact:true}).click();await expect(page.getByRole('button',{name:/Save changes/})).toBeDisabled();
-  await info.attach('rectangle-undo-cancel',{body:await page.screenshot(),contentType:'image/png'});
+  await info.attach('rectangle-undo-cancel',{body:await page.screenshot({animations:'disabled'}),contentType:'image/png'});
 });
 
 test.describe('touch editing',()=>{
@@ -145,7 +145,7 @@ test('phone rectangle uses two corners and Back preserves paint and orientation'
   await expect(page.getByRole('button',{name:'Paint dirty',exact:true})).toHaveAttribute('aria-pressed','true');
   await page.getByRole('button',{name:'Back to deck',exact:true}).click();await page.getByRole('button',{name:'Open rack Rack A',exact:true}).click();
   await expect(page.getByRole('button',{name:'Tip 10, dirty',exact:true})).toBeVisible();
-  await info.attach('phone-two-corner-paint',{body:await page.screenshot(),contentType:'image/png'});
+  await info.attach('phone-two-corner-paint',{body:await page.screenshot({animations:'disabled'}),contentType:'image/png'});
 });
 });
 
@@ -153,7 +153,7 @@ test('read-only tip deck permits inspection and never exposes painting',async({p
   const state=await fixtures(page,false);await page.goto('/labware');await page.getByRole('button',{name:'Open rack Rack A',exact:true}).click();
   await page.getByRole('button',{name:'Tip 1, clean',exact:true}).click();await expect(page.getByRole('button',{name:'Paint dirty',exact:true})).toHaveCount(0);
   await expect(page.getByRole('button',{name:/Save changes/})).toHaveCount(0);expect(state.writes).toEqual([]);
-  await info.attach('read-only-tip-deck',{body:await page.screenshot(),contentType:'image/png'});
+  await info.attach('read-only-tip-deck',{body:await page.screenshot({animations:'disabled'}),contentType:'image/png'});
 });
 
 test('initial Labware errors are recoverable and read-only sessions have no editor',async({page},info)=>{
@@ -166,7 +166,7 @@ test('initial Labware errors are recoverable and read-only sessions have no edit
   await expect(page.getByText('Read only',{exact:true})).toBeVisible();
   await expect(page.getByRole('combobox',{name:'Plate at A1'})).toHaveCount(0);
   expect(state.writes).toEqual([]);
-  await info.attach('cytomat-read-only',{body:await page.screenshot(),contentType:'image/png'});
+  await info.attach('cytomat-read-only',{body:await page.screenshot({animations:'disabled'}),contentType:'image/png'});
 });
 
 test('Cytomat contextual editor retains failed empty assignment and protects save',async({page},info)=>{
@@ -184,7 +184,7 @@ test('Cytomat contextual editor retains failed empty assignment and protects sav
   await expect(page.getByRole('combobox',{name:'Plate at A1'})).toBeDisabled();
   release();await expect(page.getByRole('button',{name:/Save changes/})).toBeDisabled();
   expect(state.writes[1]).toEqual({updates:[{cytomat_pos:'A1',plate_id:''}]});
-  await info.attach('cytomat-context-editor',{body:await page.screenshot(),contentType:'image/png'});
+  await info.attach('cytomat-context-editor',{body:await page.screenshot({animations:'disabled'}),contentType:'image/png'});
 });
 
 test('malformed Labware snapshots show an error without crashing the page',async({page},info)=>{
@@ -197,5 +197,5 @@ test('malformed Labware snapshots show an error without crashing the page',async
   await page.goto('/labware');
   await expect(page.getByRole('alert')).toContainText('Labware data unavailable');
   await expect(page.getByRole('heading',{name:'Labware',exact:true})).toBeVisible();
-  await info.attach('malformed-labware-recovery',{body:await page.screenshot(),contentType:'image/png'});
+  await info.attach('malformed-labware-recovery',{body:await page.screenshot({animations:'disabled'}),contentType:'image/png'});
 });

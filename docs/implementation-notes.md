@@ -1,3 +1,10 @@
+## 2026-09-26 Physical tip deck and clearer System Status
+
+- Restored the two-carrier tip overview in backend rack order, with all rack patterns visible and an enlarged editor for state-first click/tap and rectangular painting. Undo, cancellation, batch Save and failed-save drafts preserve deliberate control; phone Back returns to the same deck selection. Two frontend specialists reviewed geometry and interaction behavior against the original layout and professional deck-map patterns.
+- Replaced System Status's two technical cards with one compact Connection details disclosure. Database errors remain visible; live-view session capacity no longer appears alongside ambiguous bandwidth/utilization measures.
+- The Cytomat API contains position names but no physical rack/shelf mapping. A matching physical map awaits the operator's mapping; existing Cytomat reading/editing remains available. See `docs/labware-spatial-review-2026-09-26.md`.
+- Verification: all 58 integrated browser checks passed, plus a focused touch-editor screenshot rerun with animations completed. Frontend build, resource embedding and PyInstaller succeeded; the relocated candidate passed embedded deck/status, real log-root, archive checksum and cleanup checks. Candidate: `dist/spatial-labware-20260926/RobotControl`; reports, screenshots, traces and checksums: `recovery/viewer-verification`. Fixtures and temporary processes were removed. Physical equipment mapping, native zoom and actual-phone behavior remain VM/operator checks.
+
 ## 2026-09-26 Unified responsive frontend and appearance
 
 - Added persistent System/Light/Dark appearance, compact shared page patterns, keyboard-resizable inspection selectors and readable phone navigation. Logs now use one reader toolbar with Find on demand and folder controls inside the selector.
