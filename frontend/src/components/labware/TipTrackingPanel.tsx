@@ -54,7 +54,7 @@ export default function TipTrackingPanel({ active = true }: { active?: boolean }
 
   useLayoutEffect(() => {
     const element = container.current; if (!element) return;
-    const measure = () => { if (element.clientWidth) setNarrow(element.clientWidth < 1000); };
+    const measure = () => { if (element.clientWidth) setNarrow(element.clientWidth < 900); };
     measure(); const observer = new ResizeObserver(measure); observer.observe(element);
     return () => observer.disconnect();
   }, [Boolean(snapshot)]);
@@ -131,7 +131,7 @@ export default function TipTrackingPanel({ active = true }: { active?: boolean }
 
   const actions = <Stack gap={0.5}>
     <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap">
-      <TextField select size="small" label="Tip family" value={family.family_id} disabled={busy} onChange={event => { setFamilyId(event.target.value); setRackOpen(false); }} sx={{ minWidth: 160, maxWidth: '100%' }}>
+      <TextField select size="small" label="Tip family" value={family.family_id} disabled={busy} onChange={event => { setFamilyId(event.target.value); setRackOpen(false); }} SelectProps={{ SelectDisplayProps: { 'aria-label': 'Tip family', 'aria-labelledby': undefined } }} sx={{ minWidth: 160, maxWidth: '100%' }}>
         {families.map(item => <MenuItem key={item.family_id} value={item.family_id}>{item.display_name}{Object.keys(pending[item.family_id] || {}).length ? ' · Unsaved' : ''}</MenuItem>)}
       </TextField>
       <Button onClick={() => void refresh()} disabled={busy || reading || totalPending > 0 || gesture}>Refresh</Button>
@@ -143,18 +143,18 @@ export default function TipTrackingPanel({ active = true }: { active?: boolean }
       </> : <Chip label="Read only" size="small" />}
     </Stack>
     {(readError || writeError) && <Alert severity="error" action={!totalPending && !busy && !gesture ? <Button onClick={() => void refresh()}>Retry</Button> : undefined}>{writeError || readError}{readError && ' Previous data is shown.'}</Alert>}
-    <Typography variant="caption" color="text.secondary" role="status">{busy ? 'Saving…' : gesture ? 'Rectangle in progress · Refresh paused' : totalPending ? `Refresh paused · ${totalPending} unsaved${totalPending > count ? ` (${totalPending - count} in other families)` : ''}` : notice || `Updated ${new Date(snapshot.refreshed_at).toLocaleTimeString()}`}</Typography>
+    <Typography variant="caption" color="text.secondary" role="status">{busy ? 'Saving…' : gesture ? 'Selection in progress' : totalPending ? `${totalPending} unsaved${totalPending > count ? ` (${totalPending - count} in other families)` : ''}` : notice || `Updated ${new Date(snapshot.refreshed_at).toLocaleTimeString()}`}</Typography>
   </Stack>;
   const editor = rack ? <TipRackEditor rack={rack} headingId="selected-tip-rack-heading" side={family.left_racks.includes(rack) ? 'Col A' : 'Col B'} rows={rows} columns={columns} position={position} statuses={statuses} colors={snapshot.status_colors}
     statusAt={tip => shownStatus(rack, tip)} pendingAt={tip => Object.prototype.hasOwnProperty.call(currentPending, keyFor(rack, tip))}
     canUpdate={canUpdate} disabled={busy || reading} active={active && (!narrow || rackOpen)} paint={paint} onPaintChange={setPaint}
     onSelect={tip => setSelectedTips(previous => ({ ...previous, [`${family.family_id}:${rack}`]: tip }))} onApply={apply} onGestureChange={setGesture} /> : <Alert severity="info">No racks found.</Alert>;
 
-  return <Box ref={container} sx={{ minWidth: 0 }}>
+  return <Box ref={container} sx={{ minWidth: 0, maxWidth: 2200, mx: 'auto' }}>
     <Stack gap={1}>
       {actions}
       {reading && <LinearProgress aria-label="Refreshing tips" />}
-      <Box sx={{ display: 'grid', gridTemplateColumns: narrow ? 'minmax(0, 1fr)' : 'minmax(280px, 340px) minmax(0, 1fr)', gap: 1.5, alignItems: 'start' }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: narrow ? 'minmax(0, 1fr)' : 'clamp(280px, 24%, 480px) minmax(0, 1fr)', gap: 1.5, alignItems: 'start' }}>
         <TipDeckOverview family={family} rows={rows} columns={columns} selected={rack} colors={snapshot.status_colors} statusAt={shownStatus}
           pendingAt={rackId => Object.keys(currentPending).filter(key => (JSON.parse(key) as [string, number])[0] === rackId).length}
           onOpen={rackId => { setSelectedRacks(previous => ({ ...previous, [family.family_id]: rackId })); setRackOpen(true); }} />
@@ -164,7 +164,7 @@ export default function TipTrackingPanel({ active = true }: { active?: boolean }
     <Dialog open={narrow && rackOpen && active} fullScreen aria-labelledby="selected-tip-rack-heading" onClose={() => setRackOpen(false)} PaperProps={{ sx: { height: '100dvh', maxHeight: '100dvh' } }} TransitionProps={{ onExited: () => container.current?.querySelector<HTMLButtonElement>('[aria-current="true"]')?.focus({ preventScroll: true }) }}>
       <DialogTitle id="tip-rack-dialog-actions" sx={{ p: 1 }}><Stack direction="row" gap={1} justifyContent="space-between" flexWrap="wrap"><Button onClick={() => setRackOpen(false)}>Back to deck</Button>{canUpdate && <Button variant="contained" onClick={() => void save()} disabled={busy || !count || gesture}>Save changes ({count})</Button>}</Stack></DialogTitle>
       <DialogContent sx={{ p: 1, minWidth: 0, overflow: 'auto' }}><Stack gap={1}>
-        {canUpdate && <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap"><Button onClick={undo} disabled={busy || gesture || reading || !(history[family.family_id]?.length)}>Undo</Button>{count > 0 && <Button disabled={busy || gesture} onClick={() => { setPending(previous => ({ ...previous, [family.family_id]: {} })); setHistory(previous => ({ ...previous, [family.family_id]: [] })); setWriteError(''); }}>Discard</Button>}<Typography variant="caption" color="text.secondary" role="status">{busy ? 'Saving…' : gesture ? 'Rectangle in progress' : totalPending ? `${totalPending} unsaved · Refresh paused` : notice}</Typography></Stack>}
+        {canUpdate && <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap"><Button onClick={undo} disabled={busy || gesture || reading || !(history[family.family_id]?.length)}>Undo</Button>{count > 0 && <Button disabled={busy || gesture} onClick={() => { setPending(previous => ({ ...previous, [family.family_id]: {} })); setHistory(previous => ({ ...previous, [family.family_id]: [] })); setWriteError(''); }}>Discard</Button>}<Typography variant="caption" color="text.secondary" role="status">{busy ? 'Saving…' : gesture ? 'Selection in progress' : totalPending ? `${totalPending} unsaved${totalPending > count ? ` (${totalPending - count} in other families)` : ''}` : notice}</Typography></Stack>}
         {(readError || writeError) && <Alert severity="error">{writeError || readError}{readError && ' Previous data is shown.'}</Alert>}
         {editor}
       </Stack></DialogContent>

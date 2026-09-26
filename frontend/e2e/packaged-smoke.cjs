@@ -51,6 +51,11 @@ const path = require('node:path');
     const states = ['clean', 'empty', 'dirty', 'rinsed', 'washed', 'reserved', 'unclear'];
     await page.route('**/api/labware/**', route => {
       if (route.request().method() !== 'GET') return route.fulfill({ status: 403, json: { message: 'Read-only packaged fixture' } });
+      if (route.request().url().endsWith('/cytomat')) return route.fulfill({ json: { data: {
+        rows: Array.from({ length: 9 }, (_, index) => ({ cytomat_pos: String(index + 1), plate_id: index % 2 ? '' : `Plate-${index + 1}` })),
+        plate_options: ['', 'Plate-1', 'Plate-3', 'Plate-5', 'Plate-7', 'Plate-9'], auto_refresh_ms: 60000,
+        refreshed_at: '2026-09-26T12:00:00Z', permissions: { role: 'admin', is_local_session: false, can_update: false },
+      } } });
       return route.fulfill({ json: { data: {
         grid: { rows: 8, cols: 12, positions_per_rack: 96 }, auto_refresh_ms: 60000,
         status_order: states, status_colors: { clean: '#22c55e', empty: '#d1d5db', dirty: '#ef4444', rinsed: '#3b82f6', washed: '#a855f7', reserved: '#f59e0b', unclear: '#6b7280' },
@@ -68,10 +73,28 @@ const path = require('node:path');
     expect((await firstLeft.boundingBox()).x).toBeLessThan((await firstRight.boundingBox()).x);
     await expect(page.getByText('Read only', { exact: true })).toBeVisible();
     await page.screenshot({ path: path.join(output, 'packaged-deck-desktop.png'), fullPage: true, animations: 'disabled' });
+    // Failure case: a 4K candidate keeps the old tiny fixed-size rack inside a huge card.
+    const desktopTipSize = (await page.locator('[data-tip="1"]').boundingBox()).width;
+    await page.setViewportSize({ width: 3840, height: 2160 });
+    await expect.poll(async () => (await page.locator('[data-tip="1"]').boundingBox()).width).toBeGreaterThan(desktopTipSize * 1.25);
+    await page.screenshot({ path: path.join(output, 'packaged-deck-4k.png'), fullPage: true, animations: 'disabled' });
     await page.setViewportSize({ width: 320, height: 740 });
     expect((await firstLeft.boundingBox()).x).toBeLessThan((await firstRight.boundingBox()).x);
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
     await page.screenshot({ path: path.join(output, 'packaged-deck-phone.png'), fullPage: true, animations: 'disabled' });
+    // Failure case: physical shelves are reordered, omitted, or unused positions become editable.
+    await page.goto('http://127.0.0.1:8017/labware?section=cytomat');
+    const topShelf = page.getByRole('group', { name: 'Position 1', exact: true });
+    const bottomShelf = page.getByRole('group', { name: 'Position 7', exact: true });
+    await expect(topShelf).toBeVisible();
+    expect((await topShelf.boundingBox()).y).toBeLessThan((await bottomShelf.boundingBox()).y);
+    await expect(page.getByRole('group', { name: 'Position 8', exact: true })).toContainText('Unused');
+    await expect(page.getByRole('group', { name: 'Position 9', exact: true })).toContainText('Unused');
+    await expect(page.getByRole('combobox', { name: 'Plate at 8', exact: true })).toHaveCount(0);
+    await page.screenshot({ path: path.join(output, 'packaged-cytomat-phone.png'), fullPage: true, animations: 'disabled' });
+    await page.setViewportSize({ width: 1920, height: 1080 });
+    await page.screenshot({ path: path.join(output, 'packaged-cytomat-desktop.png'), fullPage: true, animations: 'disabled' });
+    await page.setViewportSize({ width: 320, height: 740 });
     await page.route('**/api/monitoring/experiments', route => route.fulfill({ json: { data: [] } }));
     await page.route('**/api/monitoring/system-health', route => route.fulfill({ json: { data: {
       sampled_at: '2026-09-26T12:00:00Z', system: { cpu_percent: 4, memory_percent: 25, disk_percent: 50 },

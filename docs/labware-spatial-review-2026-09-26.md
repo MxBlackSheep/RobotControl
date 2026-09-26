@@ -10,15 +10,17 @@ Selecting a rack opens an enlarged editor while keeping the deck visible on wide
 
 This is consistent with the [Opentrons deck map and slot spotlight](https://docs.opentrons.com/flex/opentrons-app/protocol-viz/): physical position remains the navigation context while a selected slot gets more detail. RobotControl must retain its own configured rack geometry.
 
-Select the intended state first. Click a tip or drag a rectangular selection to apply that state to a draft. Keyboard movement changes focus without painting; activation paints. Cancellation must leave the draft unchanged. Provide whole-row, column and rack actions, Undo, Discard and Save changes. Preserve the selected state when moving between tips and racks.
+The operator's follow-up removes the separate Paint/Rectangle modes. Choose a state in **Set tips to**, then drag a block or choose two corners; choose the same tip twice for a one-tip selection. Keyboard arrows move focus and Enter/Space chooses a corner. Selection creates an undoable draft. **Set entire rack** is the one additional bulk action. Retain Undo, Discard and Save changes; remove the separate row, column and numeric-range editors.
 
-The existing batch PUT already validates rack IDs, positions and states and commits both carrier tables in one database transaction. Painting therefore needs no new write endpoint. Keep server permissions authoritative and send edits only when Save changes is used. Failed writes retain drafts; drafts and writes suspend polling.
+Size square tip controls from both available width and available height, with a 44px minimum and a bounded maximum. Measure the real content area and footer rather than assuming a screen resolution maps directly to CSS pixels. The rack surface should follow the grid size instead of growing into an empty card. Center and bound the whole workspace on very wide screens; retain both carrier columns on smaller screens. Freeze geometry during a selection gesture. Verify 4K at 100% scaling and a high-DPI equivalent, medium desktops, low-height laptops and phones.
+
+The existing batch PUT already validates rack IDs, positions and states and commits both carrier tables in one database transaction. Bulk selection therefore needs no new write endpoint. Keep server permissions authoritative and send edits only when Save changes is used. Failed writes retain drafts; drafts and writes suspend polling.
 
 ## Cytomat
 
-The API currently supplies only `cytomat_pos` and `plate_id`, sorted by the database position string. There is no physical rack, shelf or orientation metadata. A faithful map requires the operator's position-to-rack/shelf mapping. Do not infer a physical layout from names such as A1 or from alphabetical ordering. The current editor remains functional until this mapping is established.
+The operator confirmed that position 1 is at the top, position 7 at the bottom, and positions 8 and 9 are currently unused. Display positions 1–7 as one vertical shelf stack, independent of API sort order. Show 8–9 separately as Unused, with any existing plate visible, and without assignment controls.
 
-The intended design uses stable rack/shelf positions with occupied/empty plate slots, the same selection outline and local draft/save behavior as the deck, and an enlarged assignment control. Finding a plate should highlight its original slot rather than rearranging the storage map.
+Use compact inline plate assignment controls beside the active shelf positions, preserving local drafts and batch Save. A missing API row means Unavailable, not Empty; it cannot be edited. Unexpected IDs remain visible under Other positions without inventing a physical location. Keep their exact IDs for existing permission-checked updates. Do not merge names such as A1 or 01 into a numbered shelf. The backend contract and local-only write permissions remain unchanged.
 
 ## System Status
 
@@ -26,4 +28,4 @@ Keep service availability and CPU, memory and disk readings. Move technical conn
 
 ## Verification
 
-Record failure scenarios and browser checks before implementation. Use disposable API fixtures for state painting, physical ordering, undo/cancel, save failure and read-only behavior. Preserve screenshots and traces for desktop and phone sizes. These checks establish UI behavior, not agreement with a physical robot; the configured order still needs operator confirmation on the VM.
+Record failure scenarios and browser checks before implementation. Use disposable API fixtures for state selection, physical ordering, undo/cancel, save failure and read-only behavior. Preserve screenshots and traces for desktop and phone sizes. These checks establish UI behavior, not agreement with a physical robot; the configured order still needs operator confirmation on the VM.

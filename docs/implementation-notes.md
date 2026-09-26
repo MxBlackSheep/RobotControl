@@ -1,3 +1,9 @@
+## 2026-09-26 Responsive tip selection and Cytomat shelves
+
+- Sized the selected tip rack to both available width and height, with scalable dots/labels, a bounded workspace for 4K displays and readable minimum targets on short screens. Replaced Paint/Rectangle modes and row/column/range tools with Set tips to, block selection and Set entire rack; Undo and batch Save remain.
+- Applied the operator-confirmed Cytomat order: positions 1–7 from top to bottom, with 8–9 marked Unused and noneditable. Plate assignments sit beside their shelves. Missing/duplicate positions remain unavailable; unexpected IDs retain their exact names separately.
+- Two frontend specialists independently reviewed geometry, input behavior and screenshots across desktop/high-DPI/phone sizes. Their cross-review also identified and corrected stable dropdown naming and selection across horizontally scrolled phone columns. Updated the repeatable browser scenarios and Labware maintenance guide; no unit tests added.
+
 ## 2026-09-26 Physical tip deck and clearer System Status
 
 - Restored the two-carrier tip overview in backend rack order, with all rack patterns visible and an enlarged editor for state-first click/tap and rectangular painting. Undo, cancellation, batch Save and failed-save drafts preserve deliberate control; phone Back returns to the same deck selection. Two frontend specialists reviewed geometry and interaction behavior against the original layout and professional deck-map patterns.

@@ -34,8 +34,8 @@ candidate directory; preserve any existing runtime data before building another.
 
 ```powershell
 & ./.venv/Scripts/python.exe build_scripts/embed_resources.py
-& ./.venv/Scripts/python.exe build_scripts/pyinstaller_build.py --output-dir dist/spatial-labware-20260926
-& ./.venv/Scripts/python.exe backend/e2e/packaged_viewer_smoke.py dist/spatial-labware-20260926/RobotControl
+& ./.venv/Scripts/python.exe build_scripts/pyinstaller_build.py --output-dir dist/labware-layout-20260926
+& ./.venv/Scripts/python.exe backend/e2e/packaged_viewer_smoke.py dist/labware-layout-20260926/RobotControl
 ```
 
 The packaged check copies the candidate into a temporary folder with a different
@@ -80,15 +80,14 @@ The main report is the latest complete integrated run.
 
 The previous whole-application report is preserved at
 `recovery/ui-redesign-20260926-verification`. Rebuild and run
-`npx playwright test labware.spec.ts system-pages.spec.ts` for the deck painting
+`npx playwright test labware.spec.ts cytomat-spatial.spec.ts system-pages.spec.ts` for the deck selection
 and compact connection-details checks, or `npx playwright test` for the full
 regression run. The tests record failure scenarios before their production
 changes and exercise only disposable intercepted Labware writes.
 
 Check the realistic ten-rack screenshots as well as pass/fail results: Col A and
 Col B must remain side by side, and their racks must retain the API order.
-The physical Cytomat rack/shelf mapping is not present in the API; it must be
-confirmed before claiming a matching physical Cytomat map.
+The operator-confirmed Cytomat mapping shows positions 1–7 top to bottom; 8–9 are unused. Missing and duplicate rows remain unavailable, and unexpected IDs are preserved separately.
 
 ### Native browser zoom (interactive, optional after automated checks)
 
@@ -116,3 +115,7 @@ directory intact. Open the application and verify tables, procedures, current an
 historical logs, and a live camera using the VM's normal setup. Check normal and
 200% browser zoom; on a phone, open Find with the keyboard visible, use Back, and
 rotate the screen. Fit should retain all image edges; Fill should say Cropped view.
+
+### Rack sizing and selection revision
+
+The preceding spatial report is preserved at `recovery/spatial-labware-20260926-verification`. The current matrix adds 3840×2160, 1366×768, 1024×768/600 and 1920 CSS pixels at 2× device scale. It checks one bulk-selection interaction, Set entire rack, resize cancellation, and responsive geometry. Read `labware-spatial-failure-scenarios.md` and `cytomat-spatial-scenarios.md` for the pre-implementation failure cases. Packaged checks also capture 4K rack scaling and desktop/phone Cytomat order.
