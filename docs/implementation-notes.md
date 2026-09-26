@@ -4,6 +4,8 @@
 - Applied the operator-confirmed Cytomat order: positions 1–7 from top to bottom, with 8–9 marked Unused and noneditable. Plate assignments sit beside their shelves. Missing/duplicate positions remain unavailable; unexpected IDs retain their exact names separately.
 - Two frontend specialists independently reviewed geometry, input behavior and screenshots across desktop/high-DPI/phone sizes. Their cross-review also identified and corrected stable dropdown naming and selection across horizontally scrolled phone columns. Updated the repeatable browser scenarios and Labware maintenance guide; no unit tests added.
 
+- Verification: all 76 integrated browser checks passed, including native touch selection across offscreen columns. The regression was reproduced before the fix and passed afterward. Frontend build, resource embedding, Windows compilation and relocated-package checks passed. Candidate: `dist/labware-layout-20260926/RobotControl`; repeat commands, HTML reports, screenshots, traces and checksums: `recovery/viewer-verification`. Temporary fixtures/processes were removed. Native browser zoom, actual phones and physical equipment remain VM checks.
+
 ## 2026-09-26 Physical tip deck and clearer System Status
 
 - Restored the two-carrier tip overview in backend rack order, with all rack patterns visible and an enlarged editor for state-first click/tap and rectangular painting. Undo, cancellation, batch Save and failed-save drafts preserve deliberate control; phone Back returns to the same deck selection. Two frontend specialists reviewed geometry and interaction behavior against the original layout and professional deck-map patterns.
