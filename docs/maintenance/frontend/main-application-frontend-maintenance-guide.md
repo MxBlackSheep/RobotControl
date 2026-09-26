@@ -16,6 +16,13 @@ from 240–480px with dragging or arrow keys, and collapses from its divider. Ke
 both sides mounted to preserve selection, scroll and drafts. Forms and overview
 pages scroll as documents; they do not need to fill the window vertically.
 
+Spatial pages need the equipment's geometry, not a mandatory list/detail layout.
+Tip tracking keeps Col A and Col B and the configured rack order visible in its
+deck overview, with a larger editor for accurate input. Preserve physical context
+when narrowing the screen; use an overview and return path rather than stacking
+or sorting physical columns. Never derive equipment coordinates from display
+names unless the backend contract explicitly defines that mapping.
+
 `AppearanceProvider` wraps the application and login. Its System/Light/Dark menu
 stores `robotcontrol-appearance`, follows OS changes in System mode and syncs
 between browser tabs. Storage failure falls back to an in-memory preference.

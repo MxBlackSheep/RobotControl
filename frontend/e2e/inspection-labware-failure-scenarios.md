@@ -12,4 +12,4 @@ Written before the implementation. Browser checks use the full application and i
 - Cytomat edits apply to the selected position, preserve empty values, retain pending changes on failed saves, and block new edits while saving.
 - Inactive module sections do not poll. Existing browser-tab refresh behavior is preserved. Theme changes and responsive reflow retain selection and drafts; reload/close warns while edits are pending.
 
-Repeat with `npm run test:e2e -- inspection-pagination.spec.ts labware.spec.ts`. Playwright traces and screenshots are retained under `recovery/viewer-verification`.
+Repeat with `npx playwright test inspection-pagination.spec.ts labware.spec.ts`. Playwright traces and screenshots are retained under `recovery/viewer-verification`. The later spatial Labware revision is covered by `labware-spatial-failure-scenarios.md`.

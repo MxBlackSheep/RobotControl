@@ -1,12 +1,17 @@
 import { expect, Page, test } from '@playwright/test';
 
-async function fixtures(page:Page, canUpdate=true) {
+async function fixtures(page:Page, canUpdate=true, realDeck=false) {
   await page.addInitScript(()=>localStorage.setItem('access_token','viewer-admin'));
   const permissions={role:'admin',is_local_session:canUpdate,can_update:canUpdate};
-  const tips={grid:{rows:8,cols:12,positions_per_rack:96},auto_refresh_ms:1000,status_order:['clean','dirty','empty'],status_colors:{clean:'#2e7d32',dirty:'#c62828',empty:'#607d8b'},unknown_status:'empty',refreshed_at:'2026-09-26T12:00:00Z',permissions,families:[
-    {family_id:'tips300',display_name:'300 µL tips',left_racks:['Rack A'],right_racks:['Rack B'],reset_map:{},tips:{'Rack A':Object.fromEntries(Array.from({length:96},(_,i)=>[String(i+1),'clean'])),'Rack B':{}}},
+  const statuses=['clean','empty','dirty','rinsed','washed','reserved','unclear'];
+  const tips={grid:{rows:8,cols:12,positions_per_rack:96},auto_refresh_ms:1000,status_order:statuses,status_colors:{clean:'#22c55e',empty:'#d1d5db',dirty:'#ef4444',rinsed:'#3b82f6',washed:'#a855f7',reserved:'#f59e0b',unclear:'#6b7280'},unknown_status:'unclear',refreshed_at:'2026-09-26T12:00:00Z',permissions,families:[
+    {family_id:'tips300',display_name:'300 µL tips',left_racks:['Rack A','Rack A5','Rack A2','Rack A8','Rack A9'],right_racks:['Rack B','Rack B4','Rack B7','Rack B3','Rack B10'],reset_map:{},tips:{'Rack A':Object.fromEntries(Array.from({length:96},(_,i)=>[String(i+1),'clean'])),'Rack B':{}}},
     {family_id:'tips1000',display_name:'1000 µL tips',left_racks:['Rack C'],right_racks:[],reset_map:{},tips:{'Rack C':{}}},
   ]};
+  if(realDeck){
+    const family=tips.families[0];family.left_racks=['VER_ST_0001','VER_ST_0002','VER_ST_0003','VER_ST_0006','VER_ST_0009'];family.right_racks=['VER_ST_0004','VER_ST_0005','VER_ST_0007','VER_ST_0008','VER_ST_0010'];
+    family.tips=Object.fromEntries([...family.left_racks,...family.right_racks].map((rack,rackIndex)=>[rack,Object.fromEntries(Array.from({length:96},(_,i)=>[String(i+1),statuses[(Math.floor(i/8)+rackIndex)%statuses.length]]))])) as typeof family.tips;
+  }
   const cytomat={rows:[{cytomat_pos:'A1',plate_id:'P100'},{cytomat_pos:'A2',plate_id:''}],plate_options:['','P100','P200'],auto_refresh_ms:1000,permissions,refreshed_at:'2026-09-26T12:00:00Z'};
   const state={reads:0,writes:[] as any[],failRead:false,failSave:false,saveGate:null as Promise<void>|null};
   await page.route('**/api/labware/tip-tracking', async route=>{
@@ -38,23 +43,20 @@ async function fixtures(page:Page, canUpdate=true) {
 test('selected rack has keyboard access and saves cannot lose newer edits',async({page},info)=>{
   const state=await fixtures(page);
   await page.goto('/labware');
-  await page.getByRole('button',{name:'Open rack Rack A'}).click();
-  await page.getByRole('button',{name:'Map',exact:true}).click();
+  await page.getByRole('button',{name:'Open rack Rack A',exact:true}).click();
   const first=page.getByRole('button',{name:'Tip 1, clean',exact:true});
   await first.focus();await first.press('ArrowDown');
   await expect(page.getByRole('button',{name:'Tip 2, clean',exact:true})).toBeFocused();
   const bottom=page.getByRole('button',{name:'Tip 8, clean',exact:true});
   await bottom.focus();await bottom.press('ArrowDown');
   await expect(bottom).toBeFocused();
+  await page.getByRole('button',{name:'Paint dirty',exact:true}).click();
   await page.getByRole('button',{name:'Tip 2, clean',exact:true}).click();
-  await page.getByRole('combobox',{name:'New status'}).click();
-  await page.getByRole('option',{name:'dirty',exact:true}).click();
-  await page.getByRole('button',{name:'Apply status',exact:true}).click();
   const reads=state.reads;await page.waitForTimeout(1200);expect(state.reads).toBe(reads);
   let release!:()=>void;state.saveGate=new Promise<void>(resolve=>release=resolve);
   await page.getByRole('button',{name:/Save changes/}).click();
   await expect.poll(()=>state.writes.length).toBe(1);
-  await expect(page.getByRole('button',{name:'Apply status',exact:true})).toBeDisabled();
+  await expect(page.getByRole('button',{name:'Paint dirty',exact:true})).toBeDisabled();
   await expect(page.getByRole('combobox',{name:'Tip family'})).toBeDisabled();
   release();
   await expect(page.getByRole('button',{name:/Save changes/})).toBeDisabled();
@@ -63,16 +65,13 @@ test('selected rack has keyboard access and saves cannot lose newer edits',async
   await info.attach('rack-keyboard-save',{body:await page.screenshot(),contentType:'image/png'});
 });
 
-test('phone rack list keeps drafts across section changes and failed saves',async({page},info)=>{
+test('phone rack painting keeps drafts across section changes and failed saves',async({page},info)=>{
   const state=await fixtures(page);state.failSave=true;
   await page.setViewportSize({width:320,height:740});
   await page.goto('/labware');
-  await page.getByRole('button',{name:'Open rack Rack A'}).click();
-  await page.getByRole('button',{name:'List',exact:true}).click();
+  await page.getByRole('button',{name:'Open rack Rack A',exact:true}).click();
+  await page.getByRole('button',{name:'Paint dirty',exact:true}).click();
   await page.getByRole('button',{name:'Tip 1, clean',exact:true}).click();
-  await page.getByRole('combobox',{name:'New status'}).click();
-  await page.getByRole('option',{name:'dirty',exact:true}).click();
-  await page.getByRole('button',{name:'Apply status',exact:true}).click();
   await page.getByRole('button',{name:/Save changes/}).click();
   await expect(page.getByRole('alert').filter({hasText:'Save failed'})).toBeVisible();
   await page.evaluate(()=>{history.pushState(null,'','/labware?section=cytomat');dispatchEvent(new PopStateEvent('popstate'));});
@@ -85,6 +84,76 @@ test('phone rack list keeps drafts across section changes and failed saves',asyn
   await expect(page.getByRole('button',{name:'Tip 1, dirty',exact:true})).toBeVisible();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
   await info.attach('rack-phone-draft',{body:await page.screenshot(),contentType:'image/png'});
+});
+
+for (const width of [1280,320]) test(`deck preserves both carrier columns and all ten racks at ${width}px`,async({page},info)=>{
+  await fixtures(page,true,true);await page.setViewportSize({width,height:720});await page.goto('/labware');
+  const deck=page.getByRole('region',{name:'Tip deck'});
+  const left=deck.getByRole('group',{name:'Col A',exact:true});const right=deck.getByRole('group',{name:'Col B',exact:true});
+  await expect(left.getByRole('button')).toHaveCount(5);await expect(right.getByRole('button')).toHaveCount(5);
+  expect(await left.getByRole('button').evaluateAll(items=>items.map(item=>item.getAttribute('aria-label')))).toEqual(['VER_ST_0001','VER_ST_0002','VER_ST_0003','VER_ST_0006','VER_ST_0009'].map(rack=>`Open rack ${rack}`));
+  const a=await left.boundingBox();const b=await right.boundingBox();expect(b!.x).toBeGreaterThan(a!.x);expect(Math.abs(a!.y-b!.y)).toBeLessThan(2);
+  await info.attach(`full-deck-${width}`,{body:await page.screenshot(),contentType:'image/png'});
+  await page.getByRole('button',{name:'Open rack VER_ST_0002',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'VER_ST_0002',exact:true})).toBeVisible();
+  if(width===320){await page.getByRole('button',{name:'Back to deck',exact:true}).click();await expect(page.getByRole('button',{name:'Open rack VER_ST_0002',exact:true})).toBeFocused();}
+  else await expect(deck).toBeVisible();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
+});
+
+test('rectangle paints coordinates once, cancels safely and Undo restores prior drafts',async({page},info)=>{
+  const state=await fixtures(page);await page.setViewportSize({width:1440,height:1100});await page.goto('/labware');
+  await page.getByRole('button',{name:'Open rack Rack A',exact:true}).click();await page.getByRole('button',{name:'Paint dirty',exact:true}).click();
+  const first=page.getByRole('button',{name:'Tip 1, clean',exact:true});await first.focus();await first.press('ArrowDown');
+  await expect(page.getByRole('button',{name:'Tip 2, clean',exact:true})).toBeFocused();await expect(page.getByRole('button',{name:/Save changes/})).toBeDisabled();
+  await page.getByRole('button',{name:'Tip 2, clean',exact:true}).press('Enter');
+  await page.getByRole('button',{name:'Rectangle',exact:true}).click();
+  const start=await first.boundingBox();const end=await page.getByRole('button',{name:'Tip 10, clean',exact:true}).boundingBox();
+  await page.mouse.move(start!.x+22,start!.y+22);await page.mouse.down();await page.mouse.move(end!.x+22,end!.y+22,{steps:5});
+  await expect(page.getByRole('button',{name:'Tip 1, clean',exact:true})).toBeVisible();
+  await page.mouse.up();for(const tip of[1,2,9,10])await expect(page.getByRole('button',{name:`Tip ${tip}, dirty`,exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Undo',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Tip 2, dirty',exact:true})).toBeVisible();for(const tip of[1,9,10])await expect(page.getByRole('button',{name:`Tip ${tip}, clean`,exact:true})).toBeVisible();
+  await page.mouse.move(start!.x+22,start!.y+22);await page.mouse.down();await page.mouse.move(end!.x+22,end!.y+22,{steps:4});await page.keyboard.press('Escape');await page.mouse.up();
+  await expect(page.getByRole('button',{name:'Tip 1, clean',exact:true})).toBeVisible();
+  await first.dispatchEvent('pointerdown',{pointerId:7,pointerType:'pen',button:0,buttons:1,clientX:start!.x+22,clientY:start!.y+22});
+  await first.dispatchEvent('pointercancel',{pointerId:7,pointerType:'pen'});
+  await expect(page.getByRole('button',{name:'Cancel rectangle',exact:true})).toHaveCount(0);
+  await page.mouse.move(start!.x+22,start!.y+22);await page.mouse.down();await page.mouse.move(end!.x+22,end!.y+22,{steps:4});await page.mouse.move(5,5);await page.mouse.up();
+  await expect(page.getByRole('button',{name:'Tip 1, clean',exact:true})).toBeVisible();expect(state.writes).toEqual([]);
+  await page.getByRole('button',{name:'Undo',exact:true}).click();await expect(page.getByRole('button',{name:/Save changes/})).toBeDisabled();
+  await info.attach('rectangle-undo-cancel',{body:await page.screenshot(),contentType:'image/png'});
+});
+
+test.describe('touch editing',()=>{
+test.use({hasTouch:true,isMobile:true});
+test('phone rectangle uses two corners and Back preserves paint and orientation',async({page},info)=>{
+  const state=await fixtures(page);await page.setViewportSize({width:320,height:800});await page.goto('/labware');await page.getByRole('button',{name:'Open rack Rack A',exact:true}).click();
+  await expect(page.getByRole('dialog',{name:'Rack A',exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Paint dirty',exact:true}).tap();
+  const first=page.getByRole('button',{name:'Tip 1, clean',exact:true});await first.scrollIntoViewIfNeeded();const bounds=await first.boundingBox();
+  const touch=await page.context().newCDPSession(page);
+  await touch.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:bounds!.x+22,y:bounds!.y+22}]});
+  await touch.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:bounds!.x+22,y:bounds!.y-90}]});
+  await touch.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+  await expect(page.getByRole('button',{name:/Save changes/})).toBeDisabled();
+  await page.getByRole('button',{name:'Rectangle',exact:true}).tap();
+  await first.tap();await expect(page.getByRole('button',{name:'Cancel rectangle',exact:true})).toBeVisible();
+  const reads=state.reads;await page.waitForTimeout(1200);expect(state.reads).toBe(reads);
+  await page.getByRole('button',{name:'Tip 10, clean',exact:true}).tap();for(const tip of[1,2,9,10])await expect(page.getByRole('button',{name:`Tip ${tip}, dirty`,exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Back to deck',exact:true}).click();await page.getByRole('button',{name:'Open rack Rack B',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Paint dirty',exact:true})).toHaveAttribute('aria-pressed','true');
+  await page.getByRole('button',{name:'Back to deck',exact:true}).click();await page.getByRole('button',{name:'Open rack Rack A',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Tip 10, dirty',exact:true})).toBeVisible();
+  await info.attach('phone-two-corner-paint',{body:await page.screenshot(),contentType:'image/png'});
+});
+});
+
+test('read-only tip deck permits inspection and never exposes painting',async({page},info)=>{
+  const state=await fixtures(page,false);await page.goto('/labware');await page.getByRole('button',{name:'Open rack Rack A',exact:true}).click();
+  await page.getByRole('button',{name:'Tip 1, clean',exact:true}).click();await expect(page.getByRole('button',{name:'Paint dirty',exact:true})).toHaveCount(0);
+  await expect(page.getByRole('button',{name:/Save changes/})).toHaveCount(0);expect(state.writes).toEqual([]);
+  await info.attach('read-only-tip-deck',{body:await page.screenshot(),contentType:'image/png'});
 });
 
 test('initial Labware errors are recoverable and read-only sessions have no editor',async({page},info)=>{
