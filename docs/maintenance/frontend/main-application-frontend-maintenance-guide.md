@@ -1,14 +1,49 @@
 # Frontend Main Application Maintenance Guide
 
-## Shared page layout (September 2026)
+## Shared page layout and appearance (September 2026)
 
-`components/PageLayout.tsx` provides `PageContent` and `PageHeader` for authenticated pages. App owns the only outer gutter (16px small / 24px desktop), a 56px account header, and the single breadcrumb location. Do not add another outer MUI Container, Back row, or breadcrumb row inside a page. Put its title and actions in PageHeader; retain functional local tabs outside Scheduling.
+`PageLayout.tsx` supplies four PageContent variants: overview for dashboards,
+inspection for viewers, spatial for labware and task for forms. The task variant
+(and legacy `reading`) caps width at 1120px. Other variants use the available
+content width. PageContent is the named `workspace` CSS container. App owns the
+outer gutter (8px phone, 12px small desktop, 16px large desktop) and 56px account
+header. Use one PageHeader; avoid another outer Container or breadcrumb row.
 
-Operational pages use all available width. Set `reading` on PageContent for explanatory/settings pages (960px maximum); the email settings card has its own 1000px limit. These limits do not constrain operational tables. PageContent is the named `workspace` CSS container: use its available width, rather than the whole browser width, for layouts that sit beside the sidebar.
+InspectionWorkspace allocates remaining viewport height, with a 320px minimum
+that permits page scrolling on short screens. Collection/detail views switch at
+900px of actual content width. The desktop selector starts at 300px, can resize
+from 240–480px with dragging or arrow keys, and collapses from its divider. Keep
+both sides mounted to preserve selection, scroll and drafts. Forms and overview
+pages scroll as documents; they do not need to fill the window vertically.
 
-Scheduling places Create schedule and Import methods beside its title and uses a compact scheduler-service strip. Its list/runtime columns stack below 1100px of content width. The method explorer switches to sequential folder/results views below 900px of its own width. MUI Dialog retains fixed title/actions with a scrolling body. Preserve input sizes and readable typography when adjusting spacing.
+`AppearanceProvider` wraps the application and login. Its System/Light/Dark menu
+stores `robotcontrol-appearance`, follows OS changes in System mode and syncs
+between browser tabs. Storage failure falls back to an in-memory preference.
+`index.html` sets the initial background before React mounts. `createAppTheme`
+supplies semantic light/dark colors; do not hardcode light gray card surfaces or
+black text. Theme changes update existing components without remounting them.
+Desktop buttons remain compact; touch/coarse-pointer and narrow-screen controls
+have 44px targets. Full-screen dialogs must bypass ordinary dialog margins.
 
-Validation: `PageLayout.test.tsx` checks heading/actions and section breadcrumbs; sidebar and scheduling component tests cover navigation and draft preservation. Browser review uses 390, 1280 and 1920px widths. The in-app browser does not apply zoom shortcuts: 640×360 checks equivalent layout space for 1280×720 at 200%, but is not a native browser-zoom test.
+Visible labels should identify content or the next action. Keep technical details
+in Details, More or diagnostics. Keep permission limits, errors, unsaved changes,
+recording and recovery state visible. Never replace unknown state with success.
+
+### Adding a future page or tab
+
+1. Choose one PageContent pattern and a single owner for its requests.
+2. Register route/section labels and permissions in `navigation.tsx`, then add the
+   guarded route to App. Breadcrumbs read the same registry.
+3. Put primary actions in PageHeader or the content toolbar. Move secondary actions
+   to More; retain a visible Find button when its field is collapsed.
+4. State what persists through Back, resize, expansion and visited sections. Pass
+   explicit active state to retained panels when requests should stop; hiding a
+   component with CSS alone does not stop its effects.
+5. Use semantic palette colors, labelled controls, keyboard operation and focus
+   restoration. Do not shrink text or touch targets to make a layout fit.
+6. Record failures before implementation and extend the browser E2E matrix. Save
+   screenshots/traces for 320/390px phones and 1280/1920px desktops, light/dark,
+   short screens and browser zoom. See `frontend/e2e/README.md`.
 
 ## Sidebar and section navigation
 
@@ -35,7 +70,7 @@ This guide explains the overall React shell: routing, theming, providers, and na
   Defines the navigation shell. Handles authentication gating, top app bar, responsive sidebar, password change dialog, and route rendering via `<Routes>`.
 
 - `frontend/src/theme.ts`  
-  Central Material UI theme (palette, typography, component overrides). Imported by `main.tsx`.
+  Theme factory (palette, typography, component overrides), used by AppearanceProvider.
 
 - `frontend/src/utils/BundleOptimizer.ts` (`loadComponent`)  
   Lazy-load helper for page components (Database, Camera, Monitoring, etc.) to keep the initial bundle small.
@@ -55,7 +90,7 @@ This guide explains the overall React shell: routing, theming, providers, and na
 
 1. **App bootstrap** (`main.tsx`):  
    - Creates a `QueryClient` (retry=2, no refetch on focus).  
-   - Wraps `<App />` with providers in this order: `<QueryClientProvider>` → `<BrowserRouter>` → `<ThemeProvider>` → `<CssBaseline>` → `<App />` → `<Toaster>`.
+   - Wraps `<App />` with providers in this order: `<QueryClientProvider>` → `<BrowserRouter>` → `<AppearanceProvider>` (ThemeProvider, CssBaseline and Toaster) → `<App />`.
 
 2. **Authentication check** (`App.tsx`):  
    - `const { isAuthenticated, user, logout } = useAuth();`  
@@ -81,7 +116,7 @@ This guide explains the overall React shell: routing, theming, providers, and na
 
 ## 3. Key Providers & Hooks
 
-- `AuthProvider` (from `context/AuthContext.tsx`) – wraps `<App />` in `main.tsx`. Every component uses `useAuth()` to read user info and tokens.
+- `AuthProvider` (from `context/AuthContext.tsx`) – wraps AppContent inside `App.tsx`. Every component uses `useAuth()` to read user info and tokens.
 - `QueryClientProvider` – allows future components to use React Query. Currently most data still relies on custom hooks, but the provider is ready.
 - `ThemeProvider` + `CssBaseline` – ensures consistent Material UI styling.
 - `BrowserRouter` – handles routing. If you need hash routing (for environments without server support), swap it here.

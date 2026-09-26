@@ -1,5 +1,7 @@
 import React, { ReactNode, useLayoutEffect, useRef, useState } from "react";
-import { Box, Button } from "@mui/material";
+import { Box, Button, IconButton, Tooltip } from "@mui/material";
+import ChevronLeft from '@mui/icons-material/ChevronLeft';
+import ChevronRight from '@mui/icons-material/ChevronRight';
 
 interface InspectionWorkspaceProps {
   label: string;
@@ -28,6 +30,9 @@ export default function InspectionWorkspace({
   const [height, setHeight] = useState<number>();
   const [narrow, setNarrow] = useState(false);
   const [selectorVisible, setSelectorVisible] = useState(true);
+  const [selectorWidth, setSelectorWidth] = useState(300);
+  const resizeStart = useRef<{ x: number; width: number } | null>(null);
+  const resize = (value: number) => setSelectorWidth(Math.max(240, Math.min(480, value)));
   const detailVisible = !selector || !narrow || detailOpen;
 
   useLayoutEffect(() => {
@@ -90,13 +95,7 @@ export default function InspectionWorkspace({
         minWidth: 0,
         width: "100%",
         display: "flex",
-        gap: 1.5,
-        "& .MuiButton-root, & .MuiIconButton-root": {
-          minHeight: 44,
-          minWidth: 44,
-        },
-        "& .MuiInputBase-root": { minHeight: 44 },
-        "& .MuiFormControlLabel-root": { minHeight: 44 },
+        gap: narrow ? 0 : 0.5,
       }}
     >
       {selector && (
@@ -107,7 +106,7 @@ export default function InspectionWorkspace({
           sx={{
             display: (narrow ? !detailOpen : selectorVisible) ? "flex" : "none",
             flexDirection: "column",
-            width: narrow ? "100%" : 300,
+            width: narrow ? "100%" : selectorWidth,
             flexShrink: 0,
             minWidth: 0,
             minHeight: 0,
@@ -116,6 +115,19 @@ export default function InspectionWorkspace({
           {selector}
         </Box>
       )}
+      {selector && !narrow && <Box sx={{ width: 28, flexShrink: 0, position: 'relative' }}>
+        <Tooltip title={`${selectorVisible ? 'Hide' : 'Show'} ${selectorLabel.toLowerCase()}`}>
+          <IconButton size="small" aria-label={`${selectorVisible ? 'Hide' : 'Show'} ${selectorLabel.toLowerCase()}`} aria-expanded={selectorVisible} onClick={() => setSelectorVisible(value => !value)} sx={{ position: 'relative', zIndex: 1, width: 28 }}>
+            {selectorVisible ? <ChevronLeft fontSize="small" /> : <ChevronRight fontSize="small" />}
+          </IconButton>
+        </Tooltip>
+        {selectorVisible && <Box role="separator" aria-label={`Resize ${selectorLabel.toLowerCase()}`} aria-orientation="vertical" aria-valuenow={selectorWidth} aria-valuemin={240} aria-valuemax={480} tabIndex={0}
+          onKeyDown={event => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); resize(selectorWidth + (event.key === 'ArrowLeft' ? -20 : 20)); } }}
+          onPointerDown={event => { resizeStart.current = { x: event.clientX, width: selectorWidth }; event.currentTarget.setPointerCapture(event.pointerId); }}
+          onPointerMove={event => { if (resizeStart.current) resize(resizeStart.current.width + event.clientX - resizeStart.current.x); }}
+          onPointerUp={() => { resizeStart.current = null; }} onPointerCancel={() => { resizeStart.current = null; }}
+          sx={{ position: 'absolute', top: 44, bottom: 0, left: 4, right: 4, cursor: 'col-resize', touchAction: 'none', '&:hover, &:focus-visible': { bgcolor: 'action.hover' }, '&::after': { content: '""', position: 'absolute', left: '50%', top: 0, bottom: 0, borderLeft: 1, borderColor: 'divider' } }} />}
+      </Box>}
       <Box
         ref={detail}
         tabIndex={-1}
@@ -128,21 +140,11 @@ export default function InspectionWorkspace({
           outline: "none",
         }}
       >
-        {selector && (
+        {selector && narrow && (
           <Box sx={{ flexShrink: 0, pb: 0.5 }}>
-            {narrow ? (
               <Button onClick={onBack}>
                 Back to {selectorLabel.toLowerCase()}
               </Button>
-            ) : (
-              <Button
-                onClick={() => setSelectorVisible((value) => !value)}
-                aria-expanded={selectorVisible}
-              >
-                {selectorVisible ? "Hide" : "Show"}{" "}
-                {selectorLabel.toLowerCase()}
-              </Button>
-            )}
           </Box>
         )}
         <Box

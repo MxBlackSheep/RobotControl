@@ -42,6 +42,7 @@ test('phone history reader, section search and expansion retain selected file', 
   await expect(page.getByLabel('Log content')).toContainText('END-MARKER');
   await page.getByRole('button',{name:'Beginning',exact:true}).click();
   await expect(page.getByLabel('Log content')).toContainText('START-MARKER');
+  await page.getByRole('button', { name: 'Find', exact: true }).click();
   await page.getByLabel('Find in this section').fill('START-MARKER');
   await expect(page.getByText(/1 match/).first()).toBeVisible();
   await page.getByRole('button',{name:'Expand',exact:true}).click();

@@ -62,6 +62,7 @@ export default function LogReader({
   const [visible, setVisible] = useState(
     document.visibilityState === "visible",
   );
+  const [findOpen, setFindOpen] = useState(false);
   const [find, setFind] = useState(""),
     [match, setMatch] = useState(0),
     [wrap, setWrap] = useState(true),
@@ -377,11 +378,13 @@ export default function LogReader({
   }, []);
   const body = (
     <>
-      <Stack gap={1} sx={{ p: 1.5, flexShrink: 0 }}>
-        <Typography variant="h6" sx={{ overflowWrap: "anywhere" }}>
+      <Stack gap={0.5} sx={{ px: 1, py: 0.5, flexShrink: 0 }}>
+        <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap">
+        <Typography variant="subtitle1" title={selected.name} sx={{ flex: "1 1 140px", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 600 }}>
           {selected.name}
         </Typography>
         <Stack direction="row" gap={0.5} flexWrap="wrap" alignItems="center">
+          <Button aria-expanded={findOpen} onClick={() => setFindOpen(value => !value)}>Find</Button>
           <Button onClick={reopen} disabled={loading}>
             Refresh
           </Button>
@@ -402,6 +405,7 @@ export default function LogReader({
               label="Follow latest"
               control={
                 <Switch
+                  size="small"
                   checked={follow}
                   onChange={(_, value) => {
                     setCancelled(false);
@@ -412,8 +416,10 @@ export default function LogReader({
             />
           )}
         </Stack>
-        <Stack direction="row" gap={0.5} flexWrap="wrap" alignItems="center">
+        </Stack>
+        {findOpen && <Stack direction="row" gap={0.5} flexWrap="wrap" alignItems="center">
           <TextField
+            autoFocus
             size="small"
             label="Find in this section"
             value={find}
@@ -429,18 +435,8 @@ export default function LogReader({
           <Button disabled={!matches.length} onClick={() => goMatch(1)}>
             Next match
           </Button>
-        </Stack>
-        <Typography variant="caption" role="status">
-          {find
-            ? `${matches.length}${matches.length === 500 ? "+" : ""} matches in this section. `
-            : ""}
-          {follow
-            ? "Following latest · bounded 1 MiB preview"
-            : status?.compressed
-              ? "Archive · captured reading copy"
-              : "Captured reading copy"}
-          {updated && ` · Updated ${updated}`}
-        </Typography>
+        </Stack>}
+        {findOpen && find && <Typography variant="caption" role="status">{matches.length}{matches.length === 500 ? '+' : ''} matches in this section</Typography>}
       </Stack>
       {loading && (
         <>
@@ -531,8 +527,8 @@ export default function LogReader({
           minHeight: 160,
           overflow: "auto",
           p: 1.5,
-          bgcolor: "#14202b",
-          color: "#edf4fa",
+          bgcolor: "background.default",
+          color: "text.primary",
         }}
       >
         <Box
@@ -559,7 +555,7 @@ export default function LogReader({
         gap={0.5}
         alignItems="center"
         flexWrap="wrap"
-        sx={{ p: 1, flexShrink: 0 }}
+        sx={{ px: 1, py: 0.5, flexShrink: 0 }}
       >
         <Button
           disabled={loading || (!showLive && section?.section_number === 1)}
@@ -589,6 +585,9 @@ export default function LogReader({
             Section {section.section_number} of {section.section_count}
           </Typography>
         )}
+        <Typography variant="caption" role="status" sx={{ ml: 'auto', color: 'text.secondary' }} title={updated ? `Updated ${updated}` : undefined}>
+          {follow ? 'Following latest · 1 MiB' : status?.compressed ? 'Archive · captured copy' : 'Captured copy'}
+        </Typography>
       </Stack>
     </>
   );
@@ -603,7 +602,7 @@ export default function LogReader({
             flex: 1,
             minHeight: 0,
             overflow: "auto",
-            "& button": { minHeight: 44 },
+
           }}
         >
           {body}
@@ -618,7 +617,7 @@ export default function LogReader({
           sx: {
             height: "100dvh",
             overflow: "auto",
-            "& button": { minHeight: 44 },
+
           },
         }}
         TransitionProps={{ onExited: () => expandButton.current?.focus() }}

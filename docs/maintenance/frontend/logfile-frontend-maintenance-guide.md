@@ -14,13 +14,21 @@
    prepares a captured version and initially shows the latest section. Preparation
    displays progress and Cancel; it can fail explicitly on corrupt/oversized input.
 5. Use Beginning, Older section, Newer section and Latest to read the complete
-   captured file. Only one section is rendered. Find in this section searches
+   captured file. Only one section is rendered. Find opens the search field; Find in this section searches
    this displayed text; its query survives section changes and results reset.
 6. Expand gives the reader the full screen. Escape closes it and restores focus.
    On a phone, Back to files returns to the retained catalogue position.
 7. More contains wrapping and Details. Details shows the authoritative server
    path, ZIP member separately, encoding, captured time and decoded byte range.
    Copy path reports success or offers manual copying when clipboard access fails.
+
+## Space and appearance
+
+Folder shortcuts, breadcrumbs, sorting and filters live inside the file selector.
+The reader has one compact filename/action row, Find on demand and a section/status
+footer. At1280×720 the default text pane must occupy at least 60% of window height;
+`appearance.spec.ts` measures this without Expand. Surfaces use the shared light/dark
+palette. Keep full paths and capture metadata in Details.
 
 ## Components and ownership
 

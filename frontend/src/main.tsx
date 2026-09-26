@@ -3,12 +3,9 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 
 // Optimized Material-UI imports for better tree-shaking
-import ThemeProvider from '@mui/material/styles/ThemeProvider';
-import CssBaseline from '@mui/material/CssBaseline';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Toaster } from 'react-hot-toast';
 import App from './App';
-import theme from './theme';
+import { AppearanceProvider } from './context/AppearanceContext';
 
 // Create QueryClient instance
 const queryClient = new QueryClient({
@@ -24,11 +21,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <ThemeProvider theme={theme}>
-          <CssBaseline />
+        <AppearanceProvider>
           <App />
-          <Toaster position="top-right" />
-        </ThemeProvider>
+        </AppearanceProvider>
       </BrowserRouter>
     </QueryClientProvider>
   </React.StrictMode>

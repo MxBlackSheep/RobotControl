@@ -14,6 +14,7 @@ import { isAxiosError } from 'axios';
 import { useAuth } from '../context/AuthContext';
 import ErrorAlert from '../components/ErrorAlert';
 import { authAPI } from '../services/api';
+import { AppearanceControl } from '../context/AppearanceContext';
 
 type AuthMode = 'login' | 'register' | 'forgot';
 
@@ -119,9 +120,10 @@ const LoginPage: React.FC = () => {
 
   return (
     <Container maxWidth="sm" sx={{ px: { xs: 2, sm: 3 } }}>
+      <Box sx={{ display: 'flex', justifyContent: 'flex-end', pt: 1 }}><AppearanceControl /></Box>
       <Box
         sx={{
-          minHeight: '100vh',
+          minHeight: 'calc(100dvh - 56px)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',

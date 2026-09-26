@@ -1,4 +1,4 @@
-import { sectionRegistry } from './navigation';
+import { sectionRegistry, navigationItems } from './navigation';
 /**
  * NavigationBreadcrumbs Component
  * 
@@ -53,56 +53,9 @@ interface BreadcrumbConfig {
 }
 
 // Route configurations
-const routeConfigs: BreadcrumbConfig[] = [
-  {
-    path: '/',
-    label: 'Dashboard',
-    icon: <HomeIcon fontSize="small" />,
-  },
-  {
-    path: '/database',
-    label: 'Database',
-    icon: <DatabaseIcon fontSize="small" />,
-  },
-  {
-    path: '/camera',
-    label: 'Camera System',
-    icon: <CameraIcon fontSize="small" />,
-  },
-  {
-    path: '/labware',
-    label: 'Labware',
-    icon: <LabwareIcon fontSize="small" />,
-    requiresRole: ['admin', 'user'],
-  },
-  {
-    path: '/maintenance',
-    label: 'Maintenance',
-    icon: <MaintenanceIcon fontSize="small" />,
-  },
-  {
-    path: '/logfile',
-    label: 'Logs',
-    icon: <LogFileIcon fontSize="small" />,
-  },
-  {
-    path: '/system-status',
-    label: 'System Status',
-    icon: <MonitoringIcon fontSize="small" />,
-  },
-  {
-    path: '/scheduling',
-    label: 'Scheduling',
-    icon: <ScheduleIcon fontSize="small" />,
-    requiresRole: ['admin', 'user'],
-  },
-  { path: '/admin', label: 'Administration' },
-  {
-    path: '/about',
-    label: 'About',
-    icon: <InfoIcon fontSize="small" />,
-  },
-];
+const routeConfigs: BreadcrumbConfig[] = navigationItems.map(item => ({
+  path: item.path, label: item.label, icon: <item.icon fontSize="small" />,
+}));
 
 // Helper function to get breadcrumb trail for a given path
 const getBreadcrumbTrail = (pathname: string): BreadcrumbConfig[] => {
@@ -174,6 +127,8 @@ const NavigationBreadcrumbs: React.FC<NavigationBreadcrumbsProps> = ({
   
   // Keep one location indicator even on Dashboard.
   if (!breadcrumbTrail.length) return null;
+  // The phone header shows the current location; its drawer provides the hierarchy.
+  const displayedTrail = compact && maxItems <= 2 ? breadcrumbTrail.slice(-1) : breadcrumbTrail;
   
   return (
     <Box 
@@ -188,14 +143,17 @@ const NavigationBreadcrumbs: React.FC<NavigationBreadcrumbsProps> = ({
         maxItems={maxItems}
         aria-label="navigation breadcrumbs"
         sx={{
+          '& .MuiBreadcrumbs-ol': { flexWrap: 'nowrap' },
+          '& .MuiBreadcrumbs-li': { minWidth: 0 },
+          '& .MuiTypography-root': { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
           '& .MuiBreadcrumbs-separator': {
             color: 'text.secondary',
             mx: compact ? 0.5 : 1,
           },
         }}
       >
-        {breadcrumbTrail.map((config, index) => {
-          const isLast = index === breadcrumbTrail.length - 1;
+        {displayedTrail.map((config, index) => {
+          const isLast = index === displayedTrail.length - 1;
           const isClickable = !isLast;
           
           const breadcrumbContent = (

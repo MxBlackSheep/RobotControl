@@ -5,6 +5,15 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>RobotControl</title>
+    <script>
+      try {
+        const preference = localStorage.getItem('robotcontrol-appearance');
+        const dark = preference === 'dark' || (preference !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.dataset.appearance = dark ? 'dark' : 'light';
+        document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+        document.documentElement.style.backgroundColor = dark ? '#101820' : '#f5f7fa';
+      } catch {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

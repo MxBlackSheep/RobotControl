@@ -26,6 +26,7 @@ import LoginPage from './pages/LoginPage';
 import Dashboard from './pages/Dashboard';
 import ChangePasswordDialog from './components/ChangePasswordDialog';
 import MaintenanceDialog from './components/MaintenanceDialog';
+import { AppearanceControl } from './context/AppearanceContext';
 
 // Lazy load non-critical pages for better initial load performance
 const DatabasePage = loadComponent(() => import('./pages/DatabasePage'));
@@ -82,7 +83,8 @@ const AppContent: React.FC = () => {
         <Toolbar sx={{ minHeight: '56px !important', px: { xs: 1, md: 2 }, gap: 1 }}>
           {isMobile && <IconButton aria-label="Open navigation" onClick={() => setMobileDrawerOpen(true)}><MenuIcon /></IconButton>}
           <Box sx={{ flex: 1, minWidth: 0 }}><NavigationBreadcrumbs compact showIcons={false} maxItems={isMobile ? 2 : 4} /></Box>
-          <Button color="inherit" aria-haspopup="menu" aria-expanded={!!accountAnchor} onClick={event => setAccountAnchor(event.currentTarget)}>{user?.username} · {roleLabel}</Button>
+          <AppearanceControl />
+          <Button color="inherit" aria-label="Account menu" aria-haspopup="menu" aria-expanded={!!accountAnchor} sx={{ maxWidth: { xs: 92, sm: 240 }, minWidth: 44 }} onClick={event => setAccountAnchor(event.currentTarget)}><Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.username}<Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}> · {roleLabel}</Box></Box></Button>
         </Toolbar>
       </AppBar>
       <Menu anchorEl={accountAnchor} open={!!accountAnchor} onClose={() => setAccountAnchor(null)}>
@@ -94,7 +96,7 @@ const AppContent: React.FC = () => {
       <Box 
         component="main"
         id="main-content"
-        sx={{ p: { xs: 2, md: 3 }, minWidth: 0 }} // Less padding on mobile
+        sx={{ p: { xs: 1, sm: 1.5, lg: 2 }, minWidth: 0 }}
         tabIndex={-1} // Make focusable for skip link
       >
         <Suspense fallback={<PageLoading message="Loading page..." />}>

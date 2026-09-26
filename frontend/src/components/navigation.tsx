@@ -17,7 +17,7 @@ export const sectionRegistry: Record<string, Section[]> = {
   '/camera': [{id: 'archive', label: 'Video archive', index: 0}, {id: 'live', label: 'Live streaming', index: 1}],
   '/labware': [{id: 'tips', label: 'Tip tracking', index: 0}, {id: 'cytomat', label: 'Cytomat', index: 1}],
   '/logfile': [{id: 'python', label: 'Python logs', index: 0}, {id: 'hamilton', label: 'Hamilton traces', index: 1}, {id: 'robotcontrol', label: 'RobotControl logs', index: 2, adminOrLocal: true}],
-  '/admin': [{id: 'users', label: 'User accounts', index: 0}, {id: 'password-resets', label: 'Password reset requests', index: 1}],
+  '/admin': [{id: 'users', label: 'User accounts', index: 0}, {id: 'password-resets', label: 'Password reset requests', index: 1}, {id: 'storage', label: 'Storage health', index: 2, local: true}],
 };
 export const allowedSections = (path: string, user: NavigationUser) => {
   if ((['/scheduling', '/labware'].includes(path) && !['admin', 'user'].includes(user?.role || '')) || (path === '/admin' && user?.role !== 'admin')) return [];

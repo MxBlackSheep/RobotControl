@@ -27,8 +27,8 @@ const AdminPage: React.FC = () => {
   }
 
   return (
-    <PageContent>
-      <PageHeader title="Administration" description={section === 0 ? "Update user email addresses or remove accounts that should no longer have access." : "Review and resolve password reset requests."} />
+    <PageContent variant="task">
+      <PageHeader title={section === 2 ? "Storage health" : "Administration"} />
 
       {error && (
         <ErrorAlert
@@ -41,8 +41,8 @@ const AdminPage: React.FC = () => {
         />
       )}
 
-      <UserManagement section={section} onError={setError} />
-      {isLocalUser(user) && <SQLiteHealthPanel />}
+      {section !== 2 && <UserManagement section={section} onError={setError} />}
+      {section === 2 && isLocalUser(user) && <SQLiteHealthPanel />}
     </PageContent>
   );
 };

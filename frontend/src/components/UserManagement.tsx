@@ -264,9 +264,6 @@ const UserManagement: React.FC<UserManagementProps> = ({ onError, section }) => 
             </Tooltip>
           </Stack>
 
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Update user email addresses or delete accounts. Other profile attributes are read-only.
-          </Typography>
 
           {feedback && (
             <Alert severity="warning" sx={{ mb: 2 }}>
@@ -279,10 +276,12 @@ const UserManagement: React.FC<UserManagementProps> = ({ onError, section }) => 
           ) : (
             <List disablePadding>
               {users.map((user) => (
-                <ListItem key={user.username} divider>
+                <ListItem key={user.username} divider sx={{ gap: 1, alignItems: "flex-start", flexWrap: "wrap", px: 0 }}>
                   <ListItemText
+                    sx={{ flex: "1 1 240px", minWidth: 0, overflowWrap: "anywhere" }}
+                    primaryTypographyProps={{ component: "div" }} secondaryTypographyProps={{ component: "div" }}
                     primary={
-                      <Stack direction="row" spacing={1} alignItems="center">
+                      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
                         {user.role === 'admin' ? (
                           <AdminIcon fontSize="small" />
                         ) : (
@@ -305,7 +304,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ onError, section }) => 
                       </Box>
                     }
                   />
-                  <ListItemSecondaryAction>
+                  <Stack direction="row" alignItems="center" sx={{ ml: "auto" }}>
                     <Tooltip title="Edit email">
                       <IconButton
                         edge="end"
@@ -325,7 +324,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ onError, section }) => 
                         <DeleteIcon />
                       </IconButton>
                     </Tooltip>
-                  </ListItemSecondaryAction>
+                  </Stack>
                 </ListItem>
               ))}
 
@@ -353,17 +352,16 @@ const UserManagement: React.FC<UserManagementProps> = ({ onError, section }) => 
             </Tooltip>
           </Stack>
 
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Process reset requests by issuing a temporary password and recording the resolution.
-          </Typography>
 
           {requestsLoading ? (
             <LinearProgress />
           ) : (
             <List disablePadding>
               {resetRequests.map((request) => (
-                <ListItem key={request.id} divider alignItems="flex-start">
+                <ListItem key={request.id} divider alignItems="flex-start" sx={{ gap: 1, flexWrap: "wrap", px: 0 }}>
                   <ListItemText
+                    sx={{ flex: "1 1 240px", minWidth: 0, overflowWrap: "anywhere" }}
+                    primaryTypographyProps={{ component: "div" }} secondaryTypographyProps={{ component: "div" }}
                     primary={
                       <Stack spacing={0.5}>
                         <Typography variant="subtitle1" fontWeight={600}>
@@ -387,7 +385,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ onError, section }) => 
                       </Box>
                     }
                   />
-                  <ListItemSecondaryAction>
+                  <Stack direction="row" alignItems="center" sx={{ ml: "auto" }}>
                     <Button
                       variant="contained"
                       size="small"
@@ -395,7 +393,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ onError, section }) => 
                     >
                       Reset Password
                     </Button>
-                  </ListItemSecondaryAction>
+                  </Stack>
                 </ListItem>
               ))}
 

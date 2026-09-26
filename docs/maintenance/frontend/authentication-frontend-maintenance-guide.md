@@ -4,6 +4,10 @@ Read this before you touch anything related to login, registration, or password 
 
 ---
 
+## Appearance and administration
+
+Login uses the same AppearanceProvider and System/Light/Dark control as the signed-in shell; the preference survives logout and reload. User account and reset-request rows wrap actions below long names on phones. Local administrators access storage previews/repairs through `/admin?section=storage`; these controls no longer appear beneath the account list. Remote administration keeps its existing permission limits.
+
 ## 1. High-Level Architecture
 
 - `frontend/src/context/AuthContext.tsx`  

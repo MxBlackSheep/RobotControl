@@ -1,5 +1,5 @@
 import { PageContent, PageHeader } from '../components/PageLayout';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Box,
@@ -41,6 +41,7 @@ const MaintenancePage: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reasonInput, setReasonInput] = useState('');
+  const reasonEdited = useRef(false);
   const [hxRunRunningDialogOpen, setHxRunRunningDialogOpen] = useState(false);
   const [hxRunRunningDialogMessage, setHxRunRunningDialogMessage] = useState(
     'HxRun is running. Please close the software before entering maintenance mode.',
@@ -64,10 +65,9 @@ const MaintenancePage: React.FC = () => {
     setError(null);
     try {
       const payload = await hxrunMaintenanceApi.getState();
+      if (typeof payload?.enabled !== 'boolean' || typeof payload?.permissions?.can_edit !== 'boolean') throw new Error('Maintenance state unavailable. Refresh to retry.');
       setState(payload);
-      if (payload.reason) {
-        setReasonInput(payload.reason);
-      }
+      if (!reasonEdited.current) setReasonInput(payload.reason || '');
     } catch (err: any) {
       const message = err?.response?.data?.message || err?.response?.data?.detail || err?.message || 'Failed to load maintenance state';
       setError(message);
@@ -78,7 +78,7 @@ const MaintenancePage: React.FC = () => {
 
   const updateState = useCallback(
     async (enabled: boolean) => {
-      if (!canEdit) {
+      if (!canEdit || !state || loading || error || saving) {
         return;
       }
       setSaving(true);
@@ -88,7 +88,10 @@ const MaintenancePage: React.FC = () => {
           enabled,
           reasonInput.trim() ? reasonInput.trim() : undefined,
         );
+        if (typeof next?.enabled !== 'boolean' || typeof next?.permissions?.can_edit !== 'boolean') throw new Error('Maintenance state unavailable. Refresh to verify the change.');
         setState(next);
+        reasonEdited.current = false;
+        setReasonInput(next.reason || "");
       } catch (err: any) {
         const message = err?.response?.data?.message || err?.response?.data?.detail || err?.message || 'Failed to update maintenance state';
         const statusCode = err?.response?.status;
@@ -102,7 +105,7 @@ const MaintenancePage: React.FC = () => {
         setSaving(false);
       }
     },
-    [canEdit, reasonInput],
+    [canEdit, reasonInput, state, loading, error, saving],
   );
 
   useEffect(() => {
@@ -110,8 +113,8 @@ const MaintenancePage: React.FC = () => {
   }, [loadState]);
 
   return (
-    <PageContent reading>
-      <PageHeader title="Maintenance" description="Manage HxRun Maintenance Mode." />
+    <PageContent variant="task">
+      <PageHeader title="Maintenance" actions={<Button onClick={loadState} disabled={saving || loading} startIcon={<RefreshIcon />}>Refresh</Button>} />
 
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
@@ -119,13 +122,13 @@ const MaintenancePage: React.FC = () => {
         </Alert>
       )}
 
-      {!canEdit && (
+      {state && !canEdit && (
         <Alert severity="info" sx={{ mb: 2 }}>
-          Local Access Required: remote sessions can inspect this flag but cannot change it.
+          Changes require a local session.
         </Alert>
       )}
 
-      <Card>
+      <Card variant="outlined">
         <CardContent>
           {loading && !state ? (
             <Box sx={{ py: 4, display: 'flex', justifyContent: 'center' }}>
@@ -134,57 +137,39 @@ const MaintenancePage: React.FC = () => {
           ) : (
             <Stack spacing={2}>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
-                <Typography variant="h6">HxRun Maintenance Mode</Typography>
+                <Typography variant="h6">HxRun launches</Typography>
                 <Chip
-                  color={state?.enabled ? 'warning' : 'success'}
-                  icon={state?.enabled ? <BlockIcon /> : <CheckCircleOutlineIcon />}
-                  label={state?.enabled ? 'Enabled (HxRun blocked)' : 'Disabled (HxRun allowed)'}
+                  color={!state || error ? 'default' : state.enabled ? 'warning' : 'success'}
+                  icon={!state || error ? undefined : state.enabled ? <BlockIcon /> : <CheckCircleOutlineIcon />}
+                  label={!state || error ? 'State unavailable' : state.enabled ? 'Blocked for maintenance' : 'Allowed'}
                 />
               </Stack>
 
               <Typography variant="body2" color="text.secondary">
-                Updated by: {state?.updated_by || 'N/A'} | Updated at: {formatTimestamp(state?.updated_at)}
+                {state ? `Last change: ${state.updated_by || 'Unknown'} · ${formatTimestamp(state.updated_at)}` : 'Refresh to check the current state.'}
               </Typography>
 
               <TextField
                 label="Reason"
                 value={reasonInput}
-                onChange={(event) => setReasonInput(event.target.value)}
+                onChange={(event) => { reasonEdited.current = true; setReasonInput(event.target.value); }}
                 multiline
                 minRows={2}
-                disabled={!canEdit || saving}
-                helperText="Optional note shown when HxRun launch is blocked."
+                disabled={!canEdit || saving || !state || loading || !!error}
+                placeholder="Optional maintenance note"
                 fullWidth
               />
 
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-                <Button
-                  variant="contained"
-                  color="warning"
-                  onClick={() => updateState(true)}
-                  disabled={!canEdit || saving || Boolean(state?.enabled)}
-                  startIcon={<BlockIcon />}
-                >
-                  Enable Maintenance Mode
-                </Button>
-                <Button
-                  variant="contained"
-                  color="success"
-                  onClick={() => updateState(false)}
-                  disabled={!canEdit || saving || !state?.enabled}
-                  startIcon={<CheckCircleOutlineIcon />}
-                >
-                  Disable Maintenance Mode
-                </Button>
-                <Button
-                  variant="outlined"
-                  onClick={loadState}
-                  disabled={saving || loading}
-                  startIcon={<RefreshIcon />}
-                >
-                  Refresh
-                </Button>
-              </Stack>
+              <Button
+                variant="contained"
+                color={state?.enabled ? 'primary' : 'warning'}
+                onClick={() => updateState(!state?.enabled)}
+                disabled={!canEdit || saving || loading || !state || !!error}
+                startIcon={state?.enabled ? <CheckCircleOutlineIcon /> : <BlockIcon />}
+                sx={{ alignSelf: { xs: 'stretch', sm: 'flex-start' } }}
+              >
+                {saving ? 'Saving…' : state?.enabled ? 'Allow HxRun launches' : 'Enter maintenance'}
+              </Button>
             </Stack>
           )}
         </CardContent>

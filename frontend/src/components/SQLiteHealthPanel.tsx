@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Alert, Button, Card, CardContent, Stack, Typography } from '@mui/material';
+import { Alert, Box, Button, Card, CardContent, Stack, Typography } from '@mui/material';
 import { api } from '../services/api';
 
 interface Issue { kind: string; id: string | number; description: string; repairable: boolean }
@@ -53,10 +53,11 @@ function DatabaseHealth({ database, label }: { database: string; label: string }
 }
 
 export default function SQLiteHealthPanel() {
-  return <Stack spacing={2} sx={{ mt: 3 }}>
-    <Typography variant="h5">SQLite storage health</Typography>
-    <Typography>Preview changes before repairing local application storage. Repairs preserve history and never acknowledge recovery or resume jobs.</Typography>
+  return <Stack spacing={1.5}>
+    <Typography variant="body2" color="text.secondary">Preview repairs first. Recovery stays blocked until explicitly acknowledged.</Typography>
+    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "repeat(2, minmax(0, 1fr))" }, gap: 1.5, alignItems: "start" }}>
     <DatabaseHealth database="scheduling" label="Scheduling storage" />
     <DatabaseHealth database="authentication" label="Authentication storage" />
+    </Box>
   </Stack>;
 }

@@ -1,106 +1,39 @@
 # Frontend Maintenance Page Guide
 
-## Shared page spacing
+The Maintenance page controls the persistent HxRun launch block. It is separate
+from the temporary API pause used while restoring a database.
 
-This page uses `PageContent` and `PageHeader` from `components/PageLayout.tsx`. The application shell supplies navigation, the breadcrumb and outer padding; do not add another outer Container or Back/breadcrumb row. Keep this module's functional tabs and controls. Operational content fills the space beside the sidebar; Maintenance uses the readable-width variant. See [the main application layout guide](main-application-frontend-maintenance-guide.md#shared-page-layout-september-2026) before changing page spacing.
+## Files and navigation
 
-This guide covers the new top-level **Maintenance** tab/page used to manage **HxRun Maintenance Mode**.
+- `pages/MaintenancePage.tsx`: status, reason, action and conflict dialog.
+- `services/hxrunMaintenanceApi.ts`: GET/PUT `/api/maintenance/hxrun`.
+- `components/navigation.tsx`: sidebar and breadcrumb metadata.
+- `App.tsx`: `/maintenance` route.
 
-Important: this page is **not** the same as the existing database-restore maintenance dialog.
+## Operator flow
 
----
+The current state is Allowed or Blocked for maintenance. The last change shows its
+operator and time. A verified Allowed state offers Enter maintenance; a verified
+blocked state offers Allow HxRun launches. The optional Reason accompanies a
+change. Remote sessions can inspect; changes require backend local permission.
 
-## 1. Files You Must Know
+Initial failure or malformed state displays State unavailable. A failed refresh also marks the state
+unavailable and disables changes, even if a previous reading remains. Loading and
+saving disable the action. Never treat missing state as Allowed. Refresh preserves
+an edited Reason; a successful save accepts the server's returned reason.
 
-- `frontend/src/pages/MaintenancePage.tsx`  
-  UI for viewing and toggling HxRun maintenance mode.
+A 409 response when entering maintenance opens the HxRun-running dialog and keeps
+the previous state. The backend remains the authority; changing UI permissions
+does not grant permission to change the flag.
 
-- `frontend/src/services/hxrunMaintenanceApi.ts`  
-  API wrapper for `GET/PUT /api/maintenance/hxrun`.
+## Layout and checks
 
-- Navigation wiring:
-  - `frontend/src/App.tsx`
-  - `frontend/src/components/MobileDrawer.tsx`
-  - `frontend/src/components/NavigationBreadcrumbs.tsx`
-  - `frontend/src/hooks/useKeyboardNavigation.ts`
-  - `frontend/src/components/KeyboardShortcutsHelp.tsx`
+This is a task/form PageContent, limited to1120px, with one status/action card.
+Do not stretch the small form to fill the height or add decorative summary cards.
+Use the common theme and compact PageHeader. The page scrolls naturally on short
+screens and with an onscreen keyboard.
 
----
-
-## 2. Permission Rules in UI
-
-- Local sessions:
-  - Can enable/disable the flag.
-  - Can edit reason text.
-
-- Remote sessions:
-  - Can view state only.
-  - See “Local Access Required” info message.
-
-The backend is still the final authority (remote `PUT` returns 403 even if UI is bypassed).
-
----
-
-## 3. Data Flow
-
-1. Page load calls `hxrunMaintenanceApi.getState()`.
-2. API response includes:
-   - `enabled`
-   - `reason`
-   - `updated_by`
-   - `updated_at`
-   - `permissions.can_edit`
-3. Button click calls `hxrunMaintenanceApi.updateState(enabled, reason)`.
-4. UI refreshes from returned state.
-5. If enable is rejected with `409` (HxRun already running), the page opens a blocking dialog with the backend message and keeps the flag unchanged.
-
----
-
-## 4. Separation from Old Maintenance Dialog
-
-Do not mix these two systems:
-
-- Old system (`MaintenanceManager`, `MaintenanceDialog`)  
-  Temporary frontend API pause for database restore windows.
-
-- New system (this page)  
-  Persistent HxRun execution block.
-
-If you rename labels, keep this distinction obvious.
-
----
-
-## 5. Common Tasks
-
-| Task | Where | What to change |
-|------|-------|----------------|
-| Change tab order | `App.tsx` + `MobileDrawer.tsx` | Keep Maintenance before `LogFile` and `System Status` so operational pages stay grouped. |
-| Adjust shortcuts | `useKeyboardNavigation.ts` + `KeyboardShortcutsHelp.tsx` | Keep bindings/help text in sync. |
-| Add extra state fields | `hxrunMaintenanceApi.ts` + `MaintenancePage.tsx` | Extend interface and render cards/rows. |
-| Change read-only messaging | `MaintenancePage.tsx` | Edit the info `Alert` copy only. |
-| Change "HxRun already running" dialog copy/behavior | `MaintenancePage.tsx` | Keep backend as source-of-truth; frontend should display server message for `409` conflicts. |
-
----
-
-## 6. Debug Checklist
-
-1. Page missing from top navigation:
-   - Check `tabItems` in `App.tsx`.
-   - Check route exists: `/maintenance`.
-
-2. Page exists on desktop but not mobile:
-   - Check `navigationItems` in `MobileDrawer.tsx`.
-
-3. Breadcrumb label wrong:
-   - Check `routeConfigs` in `NavigationBreadcrumbs.tsx`.
-
-4. Shortcut goes to wrong route:
-   - Check both `useKeyboardNavigation.ts` and `KeyboardShortcutsHelp.tsx`.
-
-5. Remote session can click toggle:
-   - Check `canEdit` logic in `MaintenancePage.tsx`.
-   - Verify backend still returns `permissions.can_edit`.
-
-6. Local enable button does nothing:
-   - Check browser network response for `PUT /api/maintenance/hxrun`.
-   - If status is `409`, HxRun is still running; close HxRun first.
+Run `npm run build` and `npx playwright test` in `frontend`. The appearance E2E
+spec checks initial error, disabled action, retry and retained Reason. The broader
+appearance matrix covers desktop/phone dark rendering. Reports and browser traces
+are saved under `recovery/viewer-verification`.

@@ -183,32 +183,111 @@ export default function LogSourceBrowser({
         overflow: "hidden",
       }}
     >
+      <Stack
+        direction="row"
+        gap={0.5}
+        flexWrap="wrap"
+        alignItems="center"
+        sx={{ px: 1, pt: 0.5 }}
+      >
+        {(source.shortcuts || []).map((shortcut) => (
+          <Button
+            key={shortcut.label}
+            onClick={() => browse({ ...root, folder: shortcut.relative_path })}
+          >
+            {shortcut.label}
+          </Button>
+        ))}
+        <Breadcrumbs
+          aria-label="Log folder"
+          maxItems={3}
+          sx={{
+            order: 1,
+            flexBasis: "100%",
+            minWidth: 0,
+            "& .MuiBreadcrumbs-ol": { flexWrap: "nowrap" },
+            "& .MuiBreadcrumbs-li": { minWidth: 0 },
+            "& button": {
+              maxWidth: "100%",
+              display: "block",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            },
+          }}
+        >
+          <Button onClick={() => browse(root)}>{source.label}</Button>
+          {current.archive && (
+            <Button onClick={() => browse({ ...current, entry: "" })}>
+              {current.archive.split("/").pop()}
+            </Button>
+          )}
+          {parts.map((part, index) => (
+            <Button
+              key={index}
+              onClick={() =>
+                browse(
+                  current.archive
+                    ? { ...current, entry: parts.slice(0, index + 1).join("/") }
+                    : { ...root, folder: parts.slice(0, index + 1).join("/") },
+                )
+              }
+            >
+              {part}
+            </Button>
+          ))}
+        </Breadcrumbs>
+        <Button
+          disabled={(!current.folder && !current.archive) || listLoading}
+          onClick={up}
+        >
+          Up
+        </Button>
+        <Button
+          disabled={listLoading}
+          onClick={() =>
+            setIntent((v) => ({
+              ...v,
+              location: current,
+              revision: v.revision + 1,
+            }))
+          }
+        >
+          Refresh files
+        </Button>
+      </Stack>
+      {listError && (
+        <Alert severity="error">
+          {listError}
+          {listing && " Previous results are retained."}
+        </Alert>
+      )}
       <Box
         component="form"
         onSubmit={(e) => {
           e.preventDefault();
           query({ search: search.trim() });
         }}
-        sx={{ display: "flex", gap: 1, p: 1.5 }}
+        sx={{ display: "flex", gap: 0.5, p: 1 }}
       >
         <TextField
           size="small"
-          label="Find filenames in this folder"
+          label="Find filenames"
           inputProps={{ maxLength: 200 }}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          sx={{ flex: 1 }}
+          sx={{ flex: 1, minWidth: 0 }}
         />
         <Button type="submit">Search</Button>
       </Box>
-      <Stack direction="row" gap={1} sx={{ px: 1.5, pb: 1 }}>
+      <Stack direction="row" gap={0.5} sx={{ px: 1, pb: 1 }}>
         <TextField
           select
           size="small"
           label="Sort"
           value={intent.query.sort_by}
           onChange={(e) => query({ sort_by: e.target.value })}
-          sx={{ flex: 1 }}
+          sx={{ flex: 1, minWidth: 0 }}
         >
           {["name", "modified", "size"].map((value) => (
             <MenuItem key={value} value={value}>
@@ -225,7 +304,7 @@ export default function LogSourceBrowser({
             })
           }
         >
-          {intent.query.sort_direction === "asc" ? "Ascending" : "Descending"}
+          {intent.query.sort_direction === "asc" ? "↑" : "↓"}
         </Button>
         <Button onClick={() => setFiltersOpen((v) => !v)}>Filters</Button>
       </Stack>
@@ -333,85 +412,6 @@ export default function LogSourceBrowser({
   );
   return (
     <>
-      <Stack
-        direction="row"
-        gap={0.5}
-        flexWrap="wrap"
-        alignItems="center"
-        sx={{ mb: 1, "& button": { minHeight: 44 } }}
-      >
-        {(source.shortcuts || []).map((shortcut) => (
-          <Button
-            key={shortcut.label}
-            onClick={() => browse({ ...root, folder: shortcut.relative_path })}
-          >
-            {shortcut.label}
-          </Button>
-        ))}
-        <Breadcrumbs
-          aria-label="Log folder"
-          maxItems={3}
-          sx={{
-            order: 1,
-            flexBasis: "100%",
-            minWidth: 0,
-            "& .MuiBreadcrumbs-ol": { flexWrap: "nowrap" },
-            "& .MuiBreadcrumbs-li": { minWidth: 0 },
-            "& button": {
-              maxWidth: "100%",
-              display: "block",
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-            },
-          }}
-        >
-          <Button onClick={() => browse(root)}>{source.label}</Button>
-          {current.archive && (
-            <Button onClick={() => browse({ ...current, entry: "" })}>
-              {current.archive.split("/").pop()}
-            </Button>
-          )}
-          {parts.map((part, index) => (
-            <Button
-              key={index}
-              onClick={() =>
-                browse(
-                  current.archive
-                    ? { ...current, entry: parts.slice(0, index + 1).join("/") }
-                    : { ...root, folder: parts.slice(0, index + 1).join("/") },
-                )
-              }
-            >
-              {part}
-            </Button>
-          ))}
-        </Breadcrumbs>
-        <Button
-          disabled={(!current.folder && !current.archive) || listLoading}
-          onClick={up}
-        >
-          Up
-        </Button>
-        <Button
-          disabled={listLoading}
-          onClick={() =>
-            setIntent((v) => ({
-              ...v,
-              location: current,
-              revision: v.revision + 1,
-            }))
-          }
-        >
-          Refresh files
-        </Button>
-      </Stack>
-      {listError && (
-        <Alert severity="error">
-          {listError}
-          {listing && " Previous results are retained."}
-        </Alert>
-      )}
       <InspectionWorkspace
         label="Log inspection"
         selector={selector}
