@@ -1,3 +1,9 @@
+## 2026-09-26 Labware visual alternatives awaiting selection
+
+- Prepared three isolated interactive concepts for Tip tracking and Cytomat: Quiet workbench, Rack tray and Deck first. Two frontend specialists reviewed the alternatives and investigated reported flashing. Production integration and packaging wait for the user's visual choice.
+- Browser recordings confirm a 12px background-refresh layout jump, disabled-control flicker/focus loss and MUI's repeating focus ripple. A synthetic 503 also opens the global maintenance overlay; this is not established as the user's incident. Complete blanking was not reproduced across 1,078 frames at the normal refresh cadence.
+- Preview captures, browser checks, source identification and reproducible flashing traces are retained in `recovery/labware-concepts-20260926`; start with `flashing-findings.md`. The editable conversation preview is `C:/Users/Hamilton/.codex/visualizations/2026/09/26/01a0dca6-5c7b-7110-98b3-4cf4d9271115/labware-design-options.html`. No production frontend or backend files changed.
+
 ## 2026-09-26 Responsive tip selection and Cytomat shelves
 
 - Sized the selected tip rack to both available width and height, with scalable dots/labels, a bounded workspace for 4K displays and readable minimum targets on short screens. Replaced Paint/Rectangle modes and row/column/range tools with Set tips to, block selection and Set entire rack; Undo and batch Save remain.
