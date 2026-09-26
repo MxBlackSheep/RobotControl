@@ -584,8 +584,8 @@ const CameraPage: React.FC = () => {
 
   return (
     <>
-      <PageContent>
-      <PageHeader title="Camera" actions={<Button variant="outlined" startIcon={<RefreshIcon />} onClick={handleRefresh}>Refresh</Button>} />
+      <PageContent variant="inspection">
+      <PageHeader title={currentTab === 0 ? "Recordings" : "Live camera"} />
 
       {/* Error Display */}
       {error && currentTab !== 1 && (
@@ -665,7 +665,7 @@ const CameraPage: React.FC = () => {
             {streamingStatus && !streamingStatus.enabled && <Typography variant="body2" color="error">Live viewing is currently disabled</Typography>}
           </>}
         />
-        <CameraControls admin={user?.role === 'admin'} collapsible onSourceChange={handleSourceChange} onSummaryChange={setCameraSummary} />
+        <CameraControls active={currentTab === 1} admin={user?.role === 'admin'} collapsible onSourceChange={handleSourceChange} onSummaryChange={setCameraSummary} />
         {mySession && <Box component="details" sx={{ mt: 1, color: 'text.secondary', fontSize: '0.875rem', '& summary': { cursor: 'pointer', minHeight: 44, display: 'flex', alignItems: 'center' } }}>
           <summary>Live view details</summary>
           <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>Session ID: {mySession.session_id}</Typography>

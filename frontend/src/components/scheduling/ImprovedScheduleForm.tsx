@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Improved Schedule Form Component
  * 
  * Modular form for creating and editing scheduled experiments.
@@ -14,8 +14,10 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { isAxiosError } from 'axios';
+import { useTheme } from '@mui/material/styles';
+import useMediaQuery from '@mui/material/useMediaQuery';
 import MethodPicker from './MethodPicker';
-import StatusDialog, { StatusSeverity } from '../StatusDialog';
+import { StatusSeverity } from '../StatusDialog';
 import {
   Dialog,
   DialogTitle,
@@ -34,9 +36,6 @@ import {
   FormControlLabel,
   CircularProgress,
   Stack,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
   Grid,
   InputAdornment,
   Tooltip,
@@ -210,6 +209,21 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
   };
 
   // UI state
+  const fullScreen = useMediaQuery(useTheme().breakpoints.down('md'));
+  const initialDraft = useRef('');
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const dirty = initialDraft.current !== '' && JSON.stringify(formData) !== initialDraft.current;
+  const requestClose = () => {
+    if (loading) return;
+    if (dirty) setConfirmDiscard(true);
+    else onClose();
+  };
+  useEffect(() => {
+    if (!open || !dirty) return;
+    const protectDraft = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', protectDraft);
+    return () => window.removeEventListener('beforeunload', protectDraft);
+  }, [open, dirty]);
   const [loading, setLoading] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [experiments, setExperiments] = useState<ExperimentFile[]>([]);
@@ -217,11 +231,6 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
   const [evoLoading, setEvoLoading] = useState(false);
   const [selectedExperimentId, setSelectedExperimentId] = useState<string>('');
   const [experimentPrepOption, setExperimentPrepOption] = useState<'none' | 'schedule'>('none');
-  const [expandedSections, setExpandedSections] = useState({
-    experiment: true,
-    schedule: true,
-    preparation: false
-  });
   const [statusDialog, setStatusDialog] = useState<{
     open: boolean;
     title: string;
@@ -305,7 +314,6 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
 
     if (initializedSession.current) return;
     initializedSession.current = true;
-    setExpandedSections({ experiment: true, schedule: true, preparation: false });
     setStatusDialog(prev => ({ ...prev, open: false }));
 
     const defaultFormData: ScheduleFormData = {
@@ -340,6 +348,8 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
         initialData?.timeout_cleanup_experiment_path ?? defaultFormData.timeout_cleanup_experiment_path,
     };
 
+    initialDraft.current = JSON.stringify(mergedData);
+    setConfirmDiscard(false);
     setFormData(mergedData);
 
     const hasScheduledFlag = initialPrereqs.includes('ScheduledToRun');
@@ -501,7 +511,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
       showStatusDialog({
         title: isAxiosError(error) && error.response?.status === 409 ? 'Schedule changed' : 'Save failed',
         message: isAxiosError(error) && error.response?.status === 409
-          ? 'This schedule was changed elsewhere. Your entries are still here. To load the latest version, cancel this form, refresh the schedule list, then reopen Edit Schedule.'
+          ? 'Schedule changed elsewhere. Your entries are kept. Reopen after refreshing to use the latest version.'
           : error instanceof Error ? error.message : 'Failed to save schedule',
         severity: 'error',
       });
@@ -510,22 +520,15 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
     }
   };
 
-  const toggleSection = (section: keyof typeof expandedSections) => {
-    setExpandedSections(prev => ({
-      ...prev,
-      [section]: !prev[section]
-    }));
-  };
-
   return (
     <>
       <Dialog
       open={open}
       TransitionProps={{ onEntered: () => experimentControlRef.current?.querySelector<HTMLElement>('button')?.focus({ preventScroll: true }) }}
-      onClose={!loading ? onClose : undefined}
+      onClose={!loading ? requestClose : undefined}
       maxWidth="md"
-      fullWidth
-      PaperProps={{ sx: { maxHeight: '90vh' } }}
+      fullWidth fullScreen={fullScreen}
+      PaperProps={{ sx: { maxHeight: fullScreen ? '100dvh' : 'calc(100dvh - 64px)', height: fullScreen ? '100dvh' : undefined } }}
       aria-labelledby="schedule-dialog-title"
       aria-describedby="schedule-dialog-description"
       disableEscapeKeyDown={loading}
@@ -534,25 +537,23 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
         <Stack direction="row" alignItems="center" spacing={1}>
           <AddIcon color="primary" aria-hidden="true" />
           <Typography variant="h6">
-            {mode === 'create' ? 'Create New Schedule' : 'Edit Schedule'}
+            {mode === 'create' ? 'Create schedule' : 'Edit schedule'}
           </Typography>
         </Stack>
       </DialogTitle>
 
       <DialogContent dividers id="schedule-dialog-description">
-        <Stack spacing={2}>
+        <Stack spacing={3}>
+          {statusDialog.open && <Alert severity={statusDialog.severity} onClose={closeStatusDialog} sx={{ whiteSpace: 'pre-line' }}>{statusDialog.message}</Alert>}
           {/* Experiment Selection Section */}
-          <Accordion 
-            expanded={expandedSections.experiment}
-            onChange={() => toggleSection('experiment')}
-          >
-            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+          <Box component="section">
+            <Box sx={{ mb: 1.5 }}>
               <Stack direction="row" alignItems="center" spacing={1}>
                 <ScienceIcon color="primary" />
-                <Typography variant="subtitle1">Experiment Selection</Typography>
+                <Typography variant="subtitle1">Method</Typography>
               </Stack>
-            </AccordionSummary>
-            <AccordionDetails>
+            </Box>
+            <Box>
               <Stack spacing={2}>
                 <Box display="flex" alignItems="center" gap={1}>
                   <Box ref={experimentControlRef} sx={{ flex: 1 }}><MethodPicker methods={experiments} value={formData.experiment_path} label="Choose method" onChange={handleExperimentSelect} disabled={loading || scanning} /></Box>
@@ -581,7 +582,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                   <Alert severity="warning">This saved path is not in the current available method library. It may be archived or unavailable. Your selection is preserved; review it in Methods before changing it.</Alert>}
 
                 <TextField
-                  label="Estimated Duration (minutes)"
+                  label="Estimated duration (minutes)"
                   type="number"
                   value={formData.estimated_duration}
                   onChange={(e) => setFormData({ ...formData, estimated_duration: Number(e.target.value) })}
@@ -592,21 +593,18 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                   helperText="How long this experiment typically takes to complete"
                 />
               </Stack>
-            </AccordionDetails>
-          </Accordion>
+            </Box>
+          </Box>
 
           {/* Schedule Configuration Section */}
-          <Accordion
-            expanded={expandedSections.schedule}
-            onChange={() => toggleSection('schedule')}
-          >
-            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+          <Box component="section">
+            <Box sx={{ mb: 1.5 }}>
               <Stack direction="row" alignItems="center" spacing={1}>
                 <ScheduleIcon color="primary" />
-                <Typography variant="subtitle1">Schedule Configuration</Typography>
+                <Typography variant="subtitle1">Timing and alerts</Typography>
               </Stack>
-            </AccordionSummary>
-            <AccordionDetails>
+            </Box>
+            <Box>
               <Grid container spacing={2}>
                 <Grid item xs={12} md={6}>
                   <FormControl fullWidth>
@@ -816,23 +814,20 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                   />
                 </Grid>
               </Grid>
-            </AccordionDetails>
-          </Accordion>
+            </Box>
+          </Box>
 
           {/* Experiment Preparation Section */}
-          <Accordion
-            expanded={expandedSections.preparation}
-            onChange={() => toggleSection('preparation')}
-          >
-            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+          <Box component="section">
+            <Box sx={{ mb: 1.5 }}>
               <Stack direction="row" alignItems="center" spacing={1}>
                 <SettingsIcon color="primary" />
                 <Typography variant="subtitle1">
-                  Experiment Preparation
+                  Preparation
                 </Typography>
               </Stack>
-            </AccordionSummary>
-            <AccordionDetails>
+            </Box>
+            <Box>
               <Stack spacing={2}>
                 <FormControl component="fieldset">
                   <FormLabel id="experiment-prep-options">Before running</FormLabel>
@@ -915,13 +910,13 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                   </Stack>
                 )}
               </Stack>
-            </AccordionDetails>
-          </Accordion>
+            </Box>
+          </Box>
         </Stack>
       </DialogContent>
 
       <DialogActions>
-        <Button onClick={onClose} disabled={loading}>
+        <Button onClick={requestClose} disabled={loading}>
           Cancel
         </Button>
         <Button
@@ -930,18 +925,18 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
           disabled={loading || scanning}
           startIcon={loading ? <CircularProgress size={20} /> : <AddIcon />}
         >
-          {mode === 'create' ? 'Create Schedule' : 'Update Schedule'}
+          {mode === 'create' ? 'Create schedule' : 'Save schedule'}
         </Button>
       </DialogActions>
       </Dialog>
-      <StatusDialog
-        open={statusDialog.open}
-        onClose={closeStatusDialog}
-        title={statusDialog.title}
-        message={statusDialog.message}
-        severity={statusDialog.severity}
-        autoCloseMs={statusDialog.autoCloseMs}
-      />
+      <Dialog open={confirmDiscard} onClose={() => setConfirmDiscard(false)} aria-labelledby="discard-schedule-title">
+        <DialogTitle id="discard-schedule-title">Discard schedule changes?</DialogTitle>
+        <DialogContent>Your unsaved changes will be lost.</DialogContent>
+        <DialogActions>
+          <Button autoFocus onClick={() => setConfirmDiscard(false)}>Keep editing</Button>
+          <Button color="error" onClick={() => { setConfirmDiscard(false); onClose(); }}>Discard changes</Button>
+        </DialogActions>
+      </Dialog>
     </>
   );
 };

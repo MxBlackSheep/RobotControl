@@ -24,8 +24,8 @@ const labels: Record<string, string> = {
 
 export interface CameraSummary { text: string; error: string | null }
 
-export default function CameraControls({ admin, onSourceChange, collapsible = false, onSummaryChange }: {
-  admin: boolean; onSourceChange: () => void; collapsible?: boolean; onSummaryChange?: (summary: CameraSummary) => void;
+export default function CameraControls({ admin, onSourceChange, collapsible = false, active = true, onSummaryChange }: {
+  admin: boolean; onSourceChange: () => void; collapsible?: boolean; active?: boolean; onSummaryChange?: (summary: CameraSummary) => void;
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [status, setStatus] = useState<CameraStatus>();
@@ -45,7 +45,7 @@ export default function CameraControls({ admin, onSourceChange, collapsible = fa
   const health = status?.health;
   const pending = submitting || Boolean(awaitingOperation) || health?.operation?.state === 'pending';
   const polling = useSerialPolling({
-    identity: token, interval: pending ? 1000 : 5000,
+    enabled: active, identity: token, interval: pending ? 1000 : 5000,
     request: async signal => {
       const response = await fetch(buildApiUrl('/api/camera/control-status'), {
         headers: { Authorization: `Bearer ${token}` }, signal,
@@ -110,12 +110,12 @@ export default function CameraControls({ admin, onSourceChange, collapsible = fa
     <Collapse in={!collapsible || detailsOpen} unmountOnExit={false}>
     <Stack id="camera-settings-panel" spacing={2} sx={{ p: collapsible ? 2 : 0, border: collapsible ? 1 : 0, borderColor: 'divider', borderRadius: 1 }}>
     <Typography variant="body2" color="text.secondary">
-      One camera supplies recording and all live viewers. Recovery is manual. Refresh cameras after connecting a USB device.
+      Camera changes affect recording and every live viewer.
     </Typography>
     <TextField select fullWidth label="Selected camera" value={selection}
       disabled={!admin || pending || selectionLocked}
       onChange={event => { edited.current = true; setSelection(event.target.value); }}
-      helperText={selectionLocked ? 'Stop recording before changing cameras.' : 'Choose a camera, then save the selection before connecting.'}>
+      helperText={selectionLocked ? 'Stop recording before changing cameras.' : 'Save your selection before connecting.'}>
       <MenuItem value="">Select a camera</MenuItem>
       {selection && !selectedExists && <MenuItem value={selection}>Saved camera — unavailable</MenuItem>}
       {devices.filter(device => device.device_identity).map(device =>
@@ -136,7 +136,7 @@ export default function CameraControls({ admin, onSourceChange, collapsible = fa
     </Box> : <Typography variant="body2">An administrator can select, connect or reconnect the camera.</Typography>}
     {pending && <Typography role="status">Camera operation in progress…</Typography>}
     <Typography variant="caption" color="text.secondary">
-      Reconnecting interrupts the camera briefly for all viewers. A forced recovery may leave the current clip incomplete; completed recordings remain available.
+      Reconnect briefly interrupts all viewers and may leave the current clip incomplete.
     </Typography>
     </Stack>
     </Collapse>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Box,
+  Button,
   Card,
   CardContent,
   Typography,
@@ -42,6 +43,7 @@ import ErrorAlert from './ErrorAlert';
 interface ExecutionHistoryProps {
   scheduleId?: string;
   maxHeight?: string;
+  active?: boolean;
 }
 
 interface ExecutionRecord {
@@ -106,9 +108,10 @@ const getStatusColor = (status?: string): 'success' | 'error' | 'warning' | 'inf
   }
 };
 
-export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({ 
-  scheduleId, 
-  maxHeight = '600px' 
+export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
+  scheduleId,
+  active = true,
+  maxHeight = 'min(65dvh, 900px)'
 }) => {
   const [executions, setExecutions] = useState<ExecutionRecord[]>([]);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
@@ -118,6 +121,7 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
   const [methodFilter, setMethodFilter] = useState<string>('all');
   const [executionFilter, setExecutionFilter] = useState<string>('all');
   const [search, setSearch] = useState<string>('');
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   const fetchHistory = async (signal: AbortSignal) => {
       const { data } = await schedulingAPI.getExecutionHistory(undefined, limit, signal);
@@ -154,7 +158,7 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
   };
   const polling = useSerialPolling({
     request: fetchHistory, onSuccess: setExecutions, identity: String(limit),
-    interval: autoRefresh ? 30000 : 0,
+    interval: autoRefresh ? 30000 : 0, enabled: active,
   });
   const loadExecutionHistory = polling.refresh;
   const loading = polling.pending;
@@ -344,9 +348,15 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
 
   return (
     <Box>
-      <Card sx={{ mb: 2, px: { xs: 2, sm: 3 }, py: { xs: 2, sm: 2.5 } }}>
-        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ xs: 'stretch', md: 'center' }}>
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} flexGrow={1}>
+      <Card variant="outlined" sx={{ mb: 1, p: 1.5 }}>
+        <Stack direction="row" gap={1} flexWrap="wrap" alignItems="center">
+          <TextField size="small" label="Search history" value={search} onChange={event => setSearch(event.target.value)} sx={{ flex: '1 1 180px' }} />
+          <Button aria-expanded={filtersOpen} onClick={() => setFiltersOpen(value => !value)}>Filters</Button>
+          <Button onClick={loadExecutionHistory} disabled={loading}>Refresh</Button>
+        </Stack>
+        <Collapse in={filtersOpen}>
+        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} flexWrap="wrap" alignItems={{ xs: 'stretch', md: 'center' }} sx={{ mt: 1 }}>
+          <Stack direction="row" flexWrap="wrap" gap={1} flexGrow={1}>
             <FormControl size="small" sx={{ minWidth: 160 }}>
               <InputLabel>Experiment</InputLabel>
               <Select
@@ -393,7 +403,7 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
             </FormControl>
           </Stack>
 
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center">
+          <Stack direction="row" flexWrap="wrap" gap={1} alignItems="center">
             <FormControl size="small" sx={{ minWidth: 120 }}>
               <InputLabel>Show Last</InputLabel>
               <Select
@@ -408,12 +418,7 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
               </Select>
             </FormControl>
 
-            <TextField
-              size="small"
-              placeholder="Search"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-            />
+
 
             <Tooltip title="Refresh execution history">
               <IconButton onClick={loadExecutionHistory} disabled={loading}>
@@ -423,7 +428,8 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
           </Stack>
         </Stack>
 
-        <Divider sx={{ my: 2 }} />
+        </Collapse>
+        <Divider sx={{ my: 1 }} />
 
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ xs: 'flex-start', sm: 'center' }}>
           <Typography variant="body2" color="text.secondary">
@@ -460,15 +466,16 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
       {loading && <LinearProgress sx={{ mb: 2 }} />}
 
       {/* Execution History Table */}
-      <TableContainer 
-        component={Paper} 
-        sx={{ 
-          maxHeight, 
+      <TableContainer
+        tabIndex={0} aria-label="Execution history records"
+        component={Paper}
+        sx={{
+          maxHeight,
           overflowY: 'auto',
           '& .MuiTableCell-root': { py: 1 }
         }}
       >
-        <Table stickyHeader size="small">
+        <Table stickyHeader size="small" aria-label="Execution history">
           <TableHead>
             <TableRow>
               <TableCell width="40px"></TableCell>
@@ -555,21 +562,21 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
                           size="small"
                           onClick={() => toggleRowExpansion(execution.execution_id)}
                         >
-                          {expandedRows.has(execution.execution_id) ? 
-                            <ExpandLessIcon /> : 
+                          {expandedRows.has(execution.execution_id) ?
+                            <ExpandLessIcon /> :
                             <ExpandMoreIcon />
                           }
                         </IconButton>
                       )}
                     </TableCell>
                   </TableRow>
-                  
+
                   {/* Expanded Error Details */}
                   {execution.error_message && (
                     <TableRow>
                       <TableCell colSpan={7} sx={{ py: 0 }}>
                         <Collapse in={expandedRows.has(execution.execution_id)}>
-                          <Box p={2} bgcolor="rgba(211, 47, 47, 0.04)">
+                          <Box p={2} sx={{ bgcolor: 'action.hover', borderLeft: 3, borderColor: 'error.main' }}>
                             <Typography variant="subtitle2" color="error" gutterBottom>
                               Error Details:
                             </Typography>

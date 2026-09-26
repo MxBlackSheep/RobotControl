@@ -1,596 +1,108 @@
-/**
- * VideoArchiveTab - Collapsible, virtualized view of experiment recordings.
- *
- * Renders experiment folders as a lightweight tree, deferring the rendering of
- * individual video rows until the user expands a folder. Video rows use
- * react-window so large folders stay responsive.
- */
+import React, { useEffect, useRef, useState } from 'react';
+import { Alert, Box, Button, CircularProgress, LinearProgress, List, ListItemButton, Stack, TablePagination, TextField, Typography } from '@mui/material';
+import { Download, FolderOutlined, Refresh } from '@mui/icons-material';
+import InspectionWorkspace from '../InspectionWorkspace';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  Box,
-  Card,
-  CardContent,
-  Typography,
-  IconButton,
-  Chip,
-  Stack,
-  Button,
-  Collapse,
-  CircularProgress,
-  List as MuiList,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
-  Divider,
-  Tooltip
-} from '@mui/material';
-import {
-  VideoLibrary as VideoLibraryIcon,
-  Download as DownloadIcon,
-  Delete as DeleteIcon,
-  Refresh as RefreshIcon,
-  Folder as FolderIcon,
-  ExpandLess as ExpandLessIcon,
-  ExpandMore as ExpandMoreIcon
-} from '@mui/icons-material';
-import { List as VirtualizedList } from 'react-window';
-import { ButtonLoading } from '../LoadingSpinner';
-
-export interface VideoFile {
-  filename: string;
-  timestamp: string;
-  size_bytes: number;
-  duration?: number;
-}
-
-export interface ExperimentFolder {
-  folder_name: string;
-  video_count: number;
-  total_size_bytes: number;
-  creation_time: string;
-  videos?: VideoFile[];
-}
-
+export interface VideoFile { filename: string; timestamp: string; size_bytes: number; duration?: number; }
+export interface ExperimentFolder { folder_name: string; video_count: number; total_size_bytes: number; creation_time: string; videos?: VideoFile[]; }
 export interface VideoArchiveTabProps {
-  experimentFolders: ExperimentFolder[];
-  loading: boolean;
-  error: string;
-  onRefresh: () => void;
-  onDownloadVideo: (filename: string) => void | Promise<void>;
-  downloadingFilename?: string | null;
-  downloadBusy?: boolean;
-  onDeleteVideo?: (filename: string) => void;
+  experimentFolders: ExperimentFolder[]; loading: boolean; error: string; onRefresh: () => void;
+  onDownloadVideo: (filename: string) => void | Promise<void>; downloadingFilename?: string | null;
+  downloadBusy?: boolean; onDeleteVideo?: (filename: string) => void;
   onLoadFolderVideos?: (folderName: string) => Promise<VideoFile[]>;
 }
+interface FolderState { videos: VideoFile[]; loading: boolean; loaded: boolean; error?: string; }
+const fileSize = (bytes: number) => bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(1)} GB`
+  : bytes >= 1024 ** 2 ? `${(bytes / 1024 ** 2).toFixed(1)} MB` : `${(bytes / 1024).toFixed(1)} KB`;
 
-interface FolderState {
-  videos: VideoFile[];
-  loading: boolean;
-  error?: string;
-}
-
-const ITEM_HEIGHT = 128;
-const MAX_LIST_HEIGHT = 320;
-
-const formatVideoDisplayName = (filename: string): string => {
-  const withoutExtension = filename.replace(/\.[^/.]+$/, '');
-  const [primary] = withoutExtension.split('_clip_');
-
-  if (primary && /^\d{8}_\d{6}$/.test(primary)) {
-    const year = Number(primary.slice(0, 4));
-    const month = Number(primary.slice(4, 6)) - 1;
-    const day = Number(primary.slice(6, 8));
-    const hour = Number(primary.slice(9, 11));
-    const minute = Number(primary.slice(11, 13));
-    const second = Number(primary.slice(13, 15));
-
-    const date = new Date(year, month, day, hour, minute, second);
-    if (!Number.isNaN(date.getTime())) {
-      const intl = new Intl.DateTimeFormat(undefined, {
-        year: 'numeric',
-        month: 'short',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit'
-      });
-      return intl.format(date);
-    }
-  }
-
-  return filename;
-};
-
-// Utility functions
-const formatFileSize = (bytes: number): string => {
-  const units = ['B', 'KB', 'MB', 'GB'];
-  let size = bytes;
-  let unitIndex = 0;
-
-  while (size >= 1024 && unitIndex < units.length - 1) {
-    size /= 1024;
-    unitIndex++;
-  }
-
-  return `${size.toFixed(1)} ${units[unitIndex]}`;
-};
-
-const formatTimestamp = (timestamp: string): string => {
-  try {
-    return new Date(timestamp).toLocaleString();
-  } catch {
-    return timestamp;
-  }
-};
-
-const VideoArchiveTab: React.FC<VideoArchiveTabProps> = ({
-  experimentFolders,
-  loading,
-  error,
-  onRefresh,
-  onDownloadVideo,
-  downloadingFilename,
-  downloadBusy = false,
-  onDeleteVideo,
-  onLoadFolderVideos
-}) => {
-  const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
-  const [folderState, setFolderState] = useState<Record<string, FolderState>>({});
-
-  // Keep folder state in sync with incoming data (e.g. refresh, new folders)
+/** One collection/detail workspace. Pagination bounds DOM size without fixed-height wrapped rows. */
+export default function VideoArchiveTab({ experimentFolders, loading, error, onRefresh, onDownloadVideo,
+  downloadingFilename, downloadBusy = false, onDeleteVideo, onLoadFolderVideos }: VideoArchiveTabProps) {
+  const [selected, setSelected] = useState<string | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [fileQuery, setFileQuery] = useState('');
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(25);
+  const [cache, setCache] = useState<Record<string, FolderState>>({});
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => {
-    setFolderState((prev) => {
-      const next: Record<string, FolderState> = {};
-      experimentFolders.forEach((folder) => {
-        const existing = prev[folder.folder_name];
-        next[folder.folder_name] = {
-          videos: folder.videos ?? existing?.videos ?? [],
-          loading: existing?.loading ?? false,
-          error: existing?.error
-        };
-      });
-      return next;
-    });
-  }, [experimentFolders]);
-
-  const totalVideos = useMemo(
-    () => experimentFolders.reduce((acc, folder) => acc + folder.video_count, 0),
-    [experimentFolders]
-  );
-
-  const totalSize = useMemo(
-    () => experimentFolders.reduce((acc, folder) => acc + folder.total_size_bytes, 0),
-    [experimentFolders]
-  );
-
-  const ensureVideosLoaded = useCallback(
-    async (folder: ExperimentFolder) => {
-      const cached = folderState[folder.folder_name];
-      const hasVideosLoaded =
-        (folder.videos && folder.videos.length > 0) || (cached?.videos?.length ?? 0) > 0;
-
-      if (hasVideosLoaded || !onLoadFolderVideos) {
-        return;
-      }
-
-      setFolderState((prev) => ({
-        ...prev,
-        [folder.folder_name]: { videos: [], loading: true }
-      }));
-
-      try {
-        const videos = await onLoadFolderVideos(folder.folder_name);
-        setFolderState((prev) => ({
-          ...prev,
-          [folder.folder_name]: { videos, loading: false }
-        }));
-      } catch (fetchError) {
-        console.error(`Failed to load videos for ${folder.folder_name}:`, fetchError);
-        setFolderState((prev) => ({
-          ...prev,
-          [folder.folder_name]: {
-            videos: [],
-            loading: false,
-            error: fetchError instanceof Error ? fetchError.message : 'Failed to load videos'
-          }
-        }));
-      }
-    },
-    [folderState, onLoadFolderVideos]
-  );
-
-  const toggleFolder = useCallback(
-    (folder: ExperimentFolder) => {
-      const isExpanded = !!expandedFolders[folder.folder_name];
-      setExpandedFolders((prev) => ({
-        ...prev,
-        [folder.folder_name]: !isExpanded
-      }));
-
-      if (!isExpanded) {
-        void ensureVideosLoaded(folder);
-      }
-    },
-    [ensureVideosLoaded, expandedFolders]
-  );
-
-  if (error) {
-    return (
-      <Box
-        sx={{
-          p: 3,
-          borderRadius: 2,
-          border: '1px solid',
-          borderColor: 'error.light',
-          bgcolor: 'rgba(244, 67, 54, 0.08)',
-          textAlign: 'center'
-        }}
-      >
-        <VideoLibraryIcon sx={{ fontSize: 48, color: 'error.main', mb: 2 }} />
-        <Typography variant="h6" color="error.main" gutterBottom>
-          Unable to load video archive
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          {error}
-        </Typography>
-        <Button
-          variant="contained"
-          color="error"
-          startIcon={<RefreshIcon />}
-          onClick={onRefresh}
-          disabled={loading}
-        >
-          {loading ? <ButtonLoading /> : 'Try Again'}
-        </Button>
-      </Box>
-    );
-  }
-
-  return (
-    <Card>
-      <CardContent>
-        <Box
-          sx={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: { xs: 'flex-start', sm: 'center' },
-            gap: 2,
-            flexWrap: 'wrap',
-            mb: 2
-          }}
-        >
-          <Stack spacing={0.5}>
-            <Typography variant="h6">
-              Video Archive ({experimentFolders.length} folders)
-            </Typography>
-            {experimentFolders.length > 0 && (
-              <Stack direction="row" spacing={2} flexWrap="wrap" sx={{ color: 'text.secondary' }}>
-                <Typography variant="body2">{totalVideos} files</Typography>
-                <Typography variant="body2">{formatFileSize(totalSize)}</Typography>
-              </Stack>
-            )}
-          </Stack>
-          <Button
-            startIcon={<RefreshIcon />}
-            onClick={onRefresh}
-            disabled={loading}
-            size="small"
-          >
-            {loading ? <ButtonLoading /> : 'Refresh'}
-          </Button>
-        </Box>
-
-        {loading && experimentFolders.length === 0 ? (
-          <Box sx={{ textAlign: 'center', py: 4 }}>
-            <CircularProgress size={32} sx={{ mb: 2 }} />
-            <Typography variant="body2" color="textSecondary">
-              Loading recordings...
-            </Typography>
-          </Box>
-        ) : experimentFolders.length === 0 ? (
-          <Box sx={{ textAlign: 'center', py: 4 }}>
-            <VideoLibraryIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
-            <Typography variant="h6" color="textSecondary" gutterBottom>
-              No experiment videos found
-            </Typography>
-            <Typography variant="body2" color="textSecondary" sx={{ mb: 3 }}>
-              Videos will appear here after experiments are completed
-            </Typography>
-            <Button
-              variant="contained"
-              startIcon={<RefreshIcon />}
-              onClick={onRefresh}
-              disabled={loading}
-            >
-              {loading ? <ButtonLoading /> : 'Check for Videos'}
-            </Button>
-          </Box>
-        ) : (
-          <FolderTree
-            folders={experimentFolders}
-            expanded={expandedFolders}
-            folderState={folderState}
-            onToggle={toggleFolder}
-            onEnsureVideos={ensureVideosLoaded}
-            onDownloadVideo={onDownloadVideo}
-            downloadingFilename={downloadingFilename}
-            downloadBusy={downloadBusy}
-            onDeleteVideo={onDeleteVideo}
-          />
-        )}
-      </CardContent>
-    </Card>
-  );
-};
-
-interface FolderTreeProps {
-  folders: ExperimentFolder[];
-  expanded: Record<string, boolean>;
-  folderState: Record<string, FolderState>;
-  onToggle: (folder: ExperimentFolder) => void;
-  onEnsureVideos: (folder: ExperimentFolder) => void | Promise<void>;
-  onDownloadVideo: (filename: string) => void | Promise<void>;
-  downloadingFilename?: string | null;
-  downloadBusy: boolean;
-  onDeleteVideo?: (filename: string) => void;
-}
-
-const FolderTree: React.FC<FolderTreeProps> = ({
-  folders,
-  expanded,
-  folderState,
-  onToggle,
-  onEnsureVideos,
-  onDownloadVideo,
-  downloadingFilename,
-  downloadBusy,
-  onDeleteVideo
-}) => {
-  return (
-    <MuiList disablePadding sx={{ border: 1, borderColor: 'divider', borderRadius: 1 }}>
-      {folders.map((folder, index) => {
-        const isExpanded = !!expanded[folder.folder_name];
-        const state = folderState[folder.folder_name] ?? { videos: [], loading: false };
-
-        return (
-          <Box key={folder.folder_name}>
-            <ListItemButton
-              onClick={() => onToggle(folder)}
-              sx={{ alignItems: 'flex-start', py: 1.5 }}
-            >
-              <ListItemIcon sx={{ minWidth: 36, mt: 0.25 }}>
-                <Tooltip title={`${folder.video_count} videos`}>
-                  <FolderIcon color={isExpanded ? 'primary' : 'inherit'} />
-                </Tooltip>
-              </ListItemIcon>
-              <ListItemText
-                primary={
-                  <Stack
-                    direction={{ xs: 'column', sm: 'row' }}
-                    spacing={1}
-                    alignItems={{ xs: 'flex-start', sm: 'center' }}
-                    flexWrap="wrap"
-                    sx={{ width: '100%' }}
-                  >
-                    <Typography
-                      variant="subtitle1"
-                      sx={{
-                        wordBreak: 'break-word',
-                        overflowWrap: 'anywhere',
-                        maxWidth: '100%'
-                      }}
-                    >
-                      {folder.folder_name}
-                    </Typography>
-                    <Chip
-                      label={`${folder.video_count} videos`}
-                      size="small"
-                      color="primary"
-                      variant="outlined"
-                    />
-                    <Typography variant="body2" color="text.secondary">
-                      {formatFileSize(folder.total_size_bytes)}
-                    </Typography>
-                  </Stack>
-                }
-                secondary={
-                  <Typography variant="body2" color="text.secondary">
-                    Updated {formatTimestamp(folder.creation_time)}
-                  </Typography>
-                }
-              />
-              {isExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-            </ListItemButton>
-
-            <Collapse in={isExpanded} timeout="auto" unmountOnExit>
-              <Box sx={{ pl: { xs: 6, sm: 8 }, pr: { xs: 2, sm: 4 }, pb: 2 }}>
-                {state.loading ? (
-                  <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
-                    <CircularProgress size={24} />
-                  </Box>
-                ) : state.error ? (
-                  <Box
-                    sx={{
-                      p: 2,
-                      borderRadius: 1,
-                      border: '1px solid',
-                      borderColor: 'error.light',
-                      bgcolor: 'rgba(244, 67, 54, 0.08)'
-                    }}
-                  >
-                    <Stack spacing={1.5}>
-                      <Typography variant="subtitle2" color="error.main">
-                        Could not load videos in this folder
-                      </Typography>
-                      <Typography variant="body2">
-                        {state.error}
-                      </Typography>
-                      <Box>
-                        <Button
-                          variant="outlined"
-                          color="error"
-                          size="small"
-                          startIcon={<RefreshIcon />}
-                          onClick={() => onEnsureVideos(folder)}
-                        >
-                          Retry
-                        </Button>
-                      </Box>
-                    </Stack>
-                  </Box>
-                ) : state.videos.length === 0 ? (
-                  <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
-                    No videos detected in this folder.
-                  </Typography>
-                ) : (
-                  <VirtualizedVideoList
-                    videos={state.videos}
-                    onDownloadVideo={onDownloadVideo}
-                    downloadingFilename={downloadingFilename}
-                    downloadBusy={downloadBusy}
-                    onDeleteVideo={onDeleteVideo}
-                  />
-                )}
-              </Box>
-            </Collapse>
-
-            {index < folders.length - 1 && <Divider component="li" />}
-          </Box>
-        );
-      })}
-    </MuiList>
-  );
-};
-
-interface VirtualizedVideoListProps {
-  videos: VideoFile[];
-  onDownloadVideo: (filename: string) => void | Promise<void>;
-  downloadingFilename?: string | null;
-  downloadBusy: boolean;
-  onDeleteVideo?: (filename: string) => void;
-}
-
-type VideoRowExtraProps = {
-  videos: VideoFile[];
-  onDownloadVideo: (filename: string) => void | Promise<void>;
-  downloadingFilename?: string | null;
-  downloadBusy: boolean;
-  onDeleteVideo?: (filename: string) => void;
-};
-
-const VideoListRow: React.FC<
-  { index: number; style: React.CSSProperties } & VideoRowExtraProps
-> = ({ index, style, videos, onDownloadVideo, downloadingFilename, downloadBusy, onDeleteVideo }) => {
-  const video = videos[index];
-  const isLast = index === videos.length - 1;
-  const isActiveDownload = downloadingFilename === video.filename;
-
-  return (
-    <Box
-      style={style}
-      sx={{
-        boxSizing: 'border-box',
-        display: 'flex',
-        flexWrap: 'wrap',
-        alignItems: 'center',
-        gap: 1.5,
-        py: 1,
-        pr: 1.5,
-        pl: 1,
-        borderBottom: isLast ? 'none' : '1px solid',
-        borderColor: 'divider',
-        bgcolor: 'background.paper'
-      }}
-    >
-      <Box
-        sx={{
-          flexGrow: 1,
-          minWidth: 0,
-          pr: { xs: 0, sm: 1.5 },
-          mb: { xs: 1, sm: 0 },
-        }}
-      >
-        <Typography
-          variant="body2"
-          sx={{ fontWeight: 600, overflowWrap: 'anywhere' }}
-          title={video.filename}
-        >
-          {formatVideoDisplayName(video.filename)}
-        </Typography>
-        <Stack
-          direction="row"
-          spacing={1}
-          alignItems="center"
-          flexWrap="wrap"
-          sx={{ color: 'text.secondary', fontSize: '0.75rem' }}
-        >
-          <Typography variant="caption" color="text.secondary">
-            {formatTimestamp(video.timestamp)}
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            {formatFileSize(video.size_bytes)}
-          </Typography>
-          {typeof video.duration === 'number' && (
-            <Typography variant="caption" color="text.secondary">
-              {video.duration}s
-            </Typography>
-          )}
+    setCache(previous => Object.fromEntries(experimentFolders.map(folder => [folder.folder_name,
+      folder.videos ? { videos: folder.videos, loading: false, loaded: true }
+        : previous[folder.folder_name] || { videos: [], loading: false, loaded: !onLoadFolderVideos }])));
+    if (selected && !experimentFolders.some(folder => folder.folder_name === selected)) {
+      setSelected(null); setDetailOpen(false);
+    }
+  }, [experimentFolders, onLoadFolderVideos, selected]);
+  const load = async (folder: ExperimentFolder, force = false) => {
+    if (!onLoadFolderVideos || folder.videos || (!force && cache[folder.folder_name]?.loaded) || cache[folder.folder_name]?.loading) return;
+    setCache(previous => ({ ...previous, [folder.folder_name]: { videos: [], loading: true, loaded: false } }));
+    try {
+      const videos = await onLoadFolderVideos(folder.folder_name);
+      if (mounted.current) setCache(previous => ({ ...previous, [folder.folder_name]: { videos, loading: false, loaded: true } }));
+    } catch (failure) {
+      if (mounted.current) setCache(previous => ({ ...previous, [folder.folder_name]: { videos: [], loading: false, loaded: false,
+        error: failure instanceof Error ? failure.message : 'Could not load recordings.' } }));
+    }
+  };
+  const choose = (folder: ExperimentFolder) => {
+    if (selected !== folder.folder_name) { setPage(0); setFileQuery(''); }
+    setSelected(folder.folder_name); setDetailOpen(true); void load(folder);
+  };
+  const folder = experimentFolders.find(item => item.folder_name === selected);
+  const state = selected ? cache[selected] : undefined;
+  const refreshArchive = () => {
+    onRefresh();
+    if (folder) void load(folder, true);
+  };
+  const videos = (state?.videos || folder?.videos || []).filter(video => video.filename.toLowerCase().includes(fileQuery.toLowerCase()));
+  const safePage = Math.min(page, Math.max(0, Math.ceil(videos.length / pageSize) - 1));
+  return <Stack spacing={1} sx={{ minWidth: 0 }}>
+    {error && <Alert severity="error" action={<Button color="inherit" onClick={refreshArchive}>Retry</Button>}>{error}</Alert>}
+    <InspectionWorkspace label="Recording archive" selectorLabel="Folders" detailOpen={detailOpen} onBack={() => setDetailOpen(false)}
+      selector={<Stack spacing={1} sx={{ minHeight: 0, height: '100%' }}>
+        <Stack direction="row" alignItems="center" justifyContent="space-between">
+          <Typography variant="subtitle1">Folders ({experimentFolders.length})</Typography>
+          <Button onClick={refreshArchive} disabled={loading} startIcon={<Refresh />}>Refresh</Button>
         </Stack>
-      </Box>
-      <Stack
-        direction="row"
-        spacing={1}
-        sx={{
-          flexShrink: 0,
-          alignItems: 'center',
-          alignSelf: { xs: 'flex-end', sm: 'center' },
-          width: { xs: '100%', sm: 'auto' },
-          justifyContent: { xs: 'flex-end', sm: 'flex-start' }
-        }}
-      >
-        <Tooltip title="Download video">
-          <IconButton
-            onClick={() => {
-              void onDownloadVideo(video.filename);
-            }}
-            size="small"
-            disabled={downloadBusy && !isActiveDownload}
-          >
-            {isActiveDownload ? <CircularProgress size={16} /> : <DownloadIcon fontSize="small" />}
-          </IconButton>
-        </Tooltip>
-        {onDeleteVideo && (
-          <Tooltip title="Delete video">
-            <IconButton onClick={() => onDeleteVideo(video.filename)} size="small" color="error">
-              <DeleteIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-        )}
-      </Stack>
-    </Box>
-  );
-};
-
-const VirtualizedVideoList: React.FC<VirtualizedVideoListProps> = ({
-  videos,
-  onDownloadVideo,
-  downloadingFilename,
-  downloadBusy,
-  onDeleteVideo
-}) => {
-  const height = Math.min(MAX_LIST_HEIGHT, Math.max(ITEM_HEIGHT, videos.length * ITEM_HEIGHT));
-
-  return (
-    <VirtualizedList
-      rowCount={videos.length}
-      rowHeight={ITEM_HEIGHT}
-      rowComponent={VideoListRow}
-      rowProps={{ videos, onDownloadVideo, downloadingFilename, downloadBusy, onDeleteVideo }}
-      overscanCount={4}
-      style={{ height, width: '100%' }}
-    />
-  );
-};
-
-export default VideoArchiveTab;
+        <TextField label="Search folders" size="small" value={query} onChange={event => setQuery(event.target.value)} />
+        {loading && <LinearProgress aria-label="Loading recordings" />}
+        <List disablePadding sx={{ overflow: 'auto', minHeight: 0, flex: 1 }}>
+          {experimentFolders.filter(item => item.folder_name.toLowerCase().includes(query.toLowerCase())).map(item => <ListItemButton
+            key={item.folder_name} aria-label={`Open folder ${item.folder_name}`} aria-current={selected === item.folder_name ? 'true' : undefined}
+            selected={selected === item.folder_name} onClick={() => choose(item)} sx={{ gap: 1, alignItems: 'flex-start', py: 1.5 }}>
+            <FolderOutlined sx={{ mt: .5 }} />
+            <Box sx={{ minWidth: 0 }}><Typography sx={{ overflowWrap: 'anywhere' }}>{item.folder_name}</Typography>
+              <Typography variant="body2" color="text.secondary">{item.video_count} recordings · {fileSize(item.total_size_bytes)}</Typography></Box>
+          </ListItemButton>)}
+          {!loading && !experimentFolders.length && <Typography sx={{ p: 2 }}>No recordings yet.</Typography>}
+        </List>
+      </Stack>}>
+      {folder ? <Stack spacing={1} sx={{ minHeight: 0, height: '100%' }}>
+        <Typography variant="h6" component="h2" sx={{ overflowWrap: 'anywhere' }}>{folder.folder_name}</Typography>
+        <TextField label="Find recording" size="small" value={fileQuery} onChange={event => { setFileQuery(event.target.value); setPage(0); }} />
+        {state?.loading && <LinearProgress aria-label="Loading folder" />}
+        {state?.error && <Alert severity="error" action={<Button onClick={() => void load(folder)}>Retry</Button>}>{state.error}</Alert>}
+        <Box sx={{ overflow: 'auto', minHeight: 0, flex: 1 }}>
+          {videos.slice(safePage * pageSize, (safePage + 1) * pageSize).map(video => <Stack key={video.filename} spacing={1}
+            sx={{ p: 1.5, borderBottom: 1, borderColor: 'divider' }}>
+            <Typography sx={{ overflowWrap: 'anywhere' }}>{video.filename}</Typography>
+            <Stack direction="row" gap={1} flexWrap="wrap" alignItems="center" justifyContent="space-between">
+              <Typography variant="body2" color="text.secondary">{new Date(video.timestamp).toLocaleString()} · {fileSize(video.size_bytes)}{video.duration != null ? ` · ${video.duration}s` : ''}</Typography>
+              <Stack direction="row" gap={1}>
+                <Button aria-label={`Download ${video.filename}`} onClick={() => void onDownloadVideo(video.filename)}
+                  disabled={downloadBusy} startIcon={downloadingFilename === video.filename ? <CircularProgress size={18} /> : <Download />}>Download</Button>
+                {onDeleteVideo && <Button color="error" aria-label={`Delete ${video.filename}`} disabled={downloadBusy} onClick={() => onDeleteVideo(video.filename)}>Delete</Button>}
+              </Stack>
+            </Stack>
+          </Stack>)}
+          {!state?.loading && !state?.error && !videos.length && <Typography sx={{ p: 2 }}>No recordings found.</Typography>}
+        </Box>
+        <TablePagination component="div" count={videos.length} page={safePage} rowsPerPage={pageSize} rowsPerPageOptions={[25, 50, 100]}
+          onPageChange={(_, next) => setPage(next)} onRowsPerPageChange={event => { setPageSize(Number(event.target.value)); setPage(0); }}
+          sx={{ flexShrink: 0, '& .MuiTablePagination-toolbar': { flexWrap: 'wrap', px: 0 }, '& .MuiTablePagination-spacer': { display: 'none' } }} />
+      </Stack> : <Typography color="text.secondary" sx={{ p: 2 }}>Select a recording folder.</Typography>}
+    </InspectionWorkspace>
+  </Stack>;
+}

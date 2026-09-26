@@ -9,7 +9,7 @@
  * - Responsive design with loading states
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useLayoutEffect, useRef } from 'react';
 import {
   Box,
   Paper,
@@ -329,7 +329,15 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
     schedule: null as ScheduledExperiment | null
   });
   const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const collectionRef = useRef<HTMLDivElement>(null);
+  const [isMobile, setIsMobile] = useState(true);
+  useLayoutEffect(() => {
+    const element = collectionRef.current;
+    if (!element) return;
+    const measure = () => { if (element.clientWidth) setIsMobile(element.clientWidth < 850); };
+    measure(); const observer = new ResizeObserver(measure); observer.observe(element);
+    return () => observer.disconnect();
+  }, [initialized, schedules.length, error]);
 
   // Sort schedules
   const sortedSchedules = useMemo(() => {
@@ -517,7 +525,7 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
 
     return (
       <Box sx={{ p: 2 }}>
-        <Stack spacing={2}>
+        <Stack spacing={1}>
           {sortedSchedules.map((schedule) => {
             const selected = selectedSchedule?.schedule_id === schedule.schedule_id;
             const nextRun = getNextExecutionTime(schedule);
@@ -674,7 +682,7 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
           borderRadius: 2,
           border: 1,
           borderColor: 'error.light',
-          bgcolor: 'rgba(244, 67, 54, 0.04)'
+          bgcolor: 'background.paper'
         }}
       >
         <Stack spacing={2}>
@@ -726,7 +734,8 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
   return (
     <>
       <Paper
-        elevation={1}
+        ref={collectionRef}
+        elevation={0}
         sx={{
           display: 'flex',
           flexDirection: 'column',
@@ -779,7 +788,7 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
         ) : (
           <TableContainer
             sx={{
-              maxHeight: { xs: 360, md: 520 },
+              maxHeight: 'min(70dvh, 900px)',
               overflowY: 'auto'
             }}
           >

@@ -80,7 +80,7 @@ export default function FolderImportDialog({ open, onClose, onImportComplete, on
   const rowLabel = (row: MethodImportRow) => ({ new: 'New', update: 'Update', invalid: 'Invalid', added: 'Added', updated: 'Updated', failed: 'Failed' }[stage === 2 ? row.status! : row.action!] || 'Unknown');
 
   return (
-    <Dialog open={open} onClose={close} disableEscapeKeyDown={busy} fullWidth maxWidth="md"
+    <Dialog open={open} onClose={close} disableEscapeKeyDown={busy} fullWidth maxWidth="md" sx={{ '@media (max-width: 899px)': { '& .MuiDialog-paper': { m: 0, width: '100%', maxWidth: '100%', height: '100dvh', maxHeight: '100dvh', borderRadius: 0 } } }}
       aria-labelledby="method-import-title" aria-describedby="method-import-description"
       TransitionProps={{ onEntered: () => initialFocus.current?.querySelector<HTMLInputElement>('input:checked')?.focus({ preventScroll: true }) }}>
       <DialogTitle id="method-import-title">Import Hamilton methods</DialogTitle>

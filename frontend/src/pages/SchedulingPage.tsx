@@ -3,7 +3,7 @@ import { useContext } from 'react';
 import { SchedulingNavigationContext, useSchedulingSection, isLocalUser } from '../components/navigation';
 /**
  * RobotControl Experiment Scheduling Page
- * 
+ *
  * Dedicated page for experiment scheduling and management operations.
  * Provides full-page scheduling interface with:
  * - Page-level error boundaries and authentication
@@ -37,6 +37,7 @@ import {
   Select,
   MenuItem,
   Table,
+  TableContainer,
   TableBody,
   TableCell,
   TableHead,
@@ -67,6 +68,9 @@ import { useAuth } from '../context/AuthContext';
 
 // Import scheduling components
 import ScheduleList from '../components/ScheduleList';
+import ScheduleCollection from '../components/scheduling/ScheduleCollection';
+import InspectionWorkspace from '../components/InspectionWorkspace';
+import SectionPanel from '../components/SectionPanel';
 import RecoverySafetyPanel from '../components/scheduling/RecoverySafetyPanel';
 import ImprovedScheduleForm from '../components/scheduling/ImprovedScheduleForm';
 import NotificationContactsPanel from '../components/scheduling/NotificationContactsPanel';
@@ -110,19 +114,19 @@ interface TabPanelProps {
 
 const TabPanel: React.FC<TabPanelProps> = ({ children, value, index }) => {
   return (
-    <div role="tabpanel" hidden={value !== index}>
-        {value === index && (
-          <Box sx={{ p: { xs: 1.5, md: 2 }, minWidth: 0 }}>
+    <SectionPanel active={value === index}>
+        {(
+          <Box sx={{ minWidth: 0 }}>
             {children}
           </Box>
         )}
-      </div>
+      </SectionPanel>
     );
 };
 
 /**
  * SchedulingPage Component
- * 
+ *
  * Full-page interface for experiment scheduling operations.
  * Implements role-based access control and proper navigation patterns.
  */
@@ -132,6 +136,8 @@ const SchedulingPage: React.FC = () => {
   const [currentTab, setCurrentTab] = useSchedulingSection(user);
   const { setRecoveryActive } = useContext(SchedulingNavigationContext);
   const [improvedFormOpen, setImprovedFormOpen] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [queueDetailsOpen, setQueueDetailsOpen] = useState(false);
   const [catalogueVersion, setCatalogueVersion] = useState(0);
   const [methodToRelink, setMethodToRelink] = useState<LibraryMethod | null>(null);
   const [folderImportOpen, setFolderImportOpen] = useState(false);
@@ -445,53 +451,20 @@ const SchedulingPage: React.FC = () => {
     setNotificationsTab(newValue);
   };
 
-  // Calendar view component
-  const CalendarView: React.FC = () => {
-    const [calendarData, setCalendarData] = useState<any[]>([]);
-    const [loading, setLoading] = useState(false);
-    
-    const loadCalendarData = () => {
-      setLoading(true);
-      try {
-        // Use existing schedules data instead of calling API again
-        // Group schedules by date for calendar view
-        const schedulesByDate = state.schedules
-          .filter(schedule => schedule.next_run)
-          .reduce((groups, schedule) => {
-            const date = schedule.next_run ? new Date(schedule.next_run).toDateString() : 'No Date';
-            if (!groups[date]) groups[date] = [];
-            groups[date].push(schedule);
-            return groups;
-          }, {} as Record<string, ScheduledExperiment[]>);
-        
-        setCalendarData(Object.entries(schedulesByDate).sort((a, b) => 
-          new Date(a[0]).getTime() - new Date(b[0]).getTime()
-        ));
-      } catch (error) {
-        console.error('Failed to load calendar data:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    useEffect(() => {
-      // Load calendar data when schedules change, but avoid infinite loops
-      loadCalendarData();
-    }, [state.schedules.length]); // Only re-run when the number of schedules changes
-
-    if (loading) {
-      return (
-        <Box display="flex" justifyContent="center" p={3}>
-          <Typography>Loading calendar data...</Typography>
-        </Box>
-      );
-    }
-
+  const calendarData = (() => {
+    const grouped: Record<string, ScheduledExperiment[]> = {};
+    state.schedules.filter(schedule => schedule.next_run).forEach(schedule => {
+      const day = new Date(schedule.next_run!).toDateString();
+      (grouped[day] ||= []).push(schedule);
+    });
+    return Object.entries(grouped).sort((a, b) => new Date(a[0]).getTime() - new Date(b[0]).getTime());
+  })();
+  const renderCalendarView = () => {
     if (calendarData.length === 0) {
       return (
         <Alert severity="info">
           <Typography variant="h6" gutterBottom>
-            No Upcoming Scheduled Experiments
+            No upcoming schedules
           </Typography>
           <Typography variant="body2">
             Create new schedules to see them appear in the calendar view.
@@ -510,25 +483,25 @@ const SchedulingPage: React.FC = () => {
           sx={{ mb: { xs: 2.5, md: 3 } }}
         >
           <Typography variant="h6" sx={{ fontWeight: 600 }}>
-            Upcoming Schedule Calendar
+            Upcoming runs
           </Typography>
           <Button
             startIcon={<RefreshIcon />}
-            onClick={loadCalendarData}
+            onClick={() => void actions.loadSchedules(false)}
             size="small"
             sx={{ alignSelf: { xs: 'flex-start', sm: 'center' } }}
           >
             Refresh
           </Button>
         </Stack>
-        
-        <Grid container spacing={{ xs: 2.5, md: 3 }}>
+
+        <Grid container spacing={1.5}>
           {calendarData.map(([date, schedules]) => (
             <Grid item xs={12} md={6} key={date}>
               <Card sx={{ borderRadius: 2, height: '100%' }}>
                 <CardContent sx={{ p: cardPadding }}>
                   <Typography variant="h6" color="primary" gutterBottom>
-                    {new Date(date).toLocaleDateString('en-US', { 
+                    {new Date(date).toLocaleDateString('en-US', {
                       weekday: 'long',
                       year: 'numeric',
                       month: 'long',
@@ -554,28 +527,28 @@ const SchedulingPage: React.FC = () => {
                               {schedule.experiment_name}
                             </Typography>
                             <Typography variant="body2" color="text.secondary">
-                              {schedule.next_run 
-                                ? new Date(schedule.next_run).toLocaleTimeString('en-US', { 
-                                    hour: '2-digit', 
-                                    minute: '2-digit' 
+                              {schedule.next_run
+                                ? new Date(schedule.next_run).toLocaleTimeString('en-US', {
+                                    hour: '2-digit',
+                                    minute: '2-digit'
                                   })
                                 : 'No scheduled time'
                               }
                             </Typography>
                             <Typography variant="caption" color="text.secondary">
-                              Duration: {formatDuration(schedule.estimated_duration)} | 
+                              Duration: {formatDuration(schedule.estimated_duration)} |
                               Type: {schedule.schedule_type}
                               {schedule.interval_hours && ` (${schedule.interval_hours}h)`}
                             </Typography>
                           </Box>
                           <Stack spacing={0.5}>
-                            <Chip 
+                            <Chip
                               size="small"
-                              label={schedule.is_active ? 'Active' : 'Inactive'} 
+                              label={schedule.is_active ? 'Active' : 'Inactive'}
                               color={schedule.is_active ? 'success' : 'default'}
                             />
                             {schedule.prerequisites.length > 0 && (
-                              <Chip 
+                              <Chip
                                 size="small"
                                 label={`${schedule.prerequisites.length} prereqs`}
                                 variant="outlined"
@@ -591,12 +564,12 @@ const SchedulingPage: React.FC = () => {
             </Grid>
           ))}
         </Grid>
-        
+
         <Alert severity="info" sx={{ mt: { xs: 2.5, md: 3 } }}>
           <Typography variant="body2">
-            <strong>Calendar View:</strong> Showing {calendarData.reduce((total, [, schedules]) => total + schedules.length, 0)} 
+            Showing {calendarData.reduce((total, [, schedules]) => total + schedules.length, 0)}
             scheduled experiments across {calendarData.length} dates.
-            Times shown are based on next_run calculations.
+            Next planned run for each schedule.
           </Typography>
         </Alert>
       </Box>
@@ -604,265 +577,68 @@ const SchedulingPage: React.FC = () => {
   };
 
   return (
-    <PageContent>
+    <PageContent variant={currentTab === 5 && notificationsTab === 2 ? "task" : "inspection"}>
       <PageHeader title="Scheduling" actions={isLocalSession && <>
         <Button variant="contained" startIcon={<AddIcon />} onClick={handleOpenCreateForm} disabled={state.loading}>Create schedule</Button>
         <Button variant="outlined" startIcon={<FolderIcon />} onClick={() => setFolderImportOpen(true)} disabled={state.loading}>Import methods</Button>
       </>} />
-      <Stack direction="row" gap={1} flexWrap="wrap" sx={{ mb: 2 }} aria-label="Scheduler service summary">
+      <Stack direction="row" gap={1} flexWrap="wrap" alignItems="center" sx={{ mb: 1 }} aria-label="Scheduler service summary">
         <Chip size="small" label={`Scheduler service: ${state.schedulerRunning ? 'Running' : 'Stopped'}`} color={state.schedulerRunning ? 'success' : 'default'} />
-        <Chip size="small" variant="outlined" label={`${state.schedules.length} schedules`} />
-        {!!state.manualRecovery?.active && <Chip size="small" color="error" label="Recovery requires attention" onClick={() => setCurrentTab(1)} />}
+        <Chip size="small" variant="outlined" label={state.queueStatus ? `${state.queueStatus.running_jobs ?? 0} running · ${state.queueStatus.queued_jobs ?? 0} queued` : 'Queue unavailable'} />
+        <Button size="small" onClick={() => void actions.getQueueStatus()} aria-label="Refresh queue">Refresh</Button>
+        {(state.manualRecovery?.active || state.manualRecovery?.resume_required) && <Button size="small" color="error" variant="outlined" onClick={() => setCurrentTab(1)}>Recovery required</Button>}
+        {currentTab === 0 && state.queueStatus && <Button aria-expanded={queueDetailsOpen} onClick={() => setQueueDetailsOpen(value => !value)}>Queue details</Button>}
       </Stack>
+      {currentTab === 0 && state.queueStatus && queueDetailsOpen && <Box sx={{ mb: 1 }}>
+        <Stack spacing={1} sx={{ p: 1 }}>
+          {(state.queueStatus.running_job_details ?? []).map(item => <Typography key={`running-${item.schedule_id}`} variant="body2">Running · {item.experiment_name}</Typography>)}
+          {(state.queueStatus.queued_job_details ?? []).map(item => <Typography key={`queued-${item.schedule_id}`} variant="body2">Queued · {item.experiment_name}{item.waiting_reason ? ` · ${item.waiting_reason}` : ''}</Typography>)}
+          {!state.queueStatus.running_jobs && !state.queueStatus.queued_jobs && <Typography variant="body2">Queue empty</Typography>}
+        </Stack>
+      </Box>}
       {state.error && <ServerError message={state.error} onClose={actions.clearError} retryable={false} />}
 
       {/* Main Content */}
-      <Paper elevation={1} sx={{ borderRadius: 2, overflow: 'hidden' }}>
+      <Box sx={{ minWidth: 0 }}>
         {/* Tab Panels */}
         <TabPanel value={currentTab} index={0}>
-          <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2, '@container workspace (min-width: 1100px)': { gridTemplateColumns: 'minmax(0, 2fr) minmax(280px, 1fr)' } }}>
-            <Box sx={{ minWidth: 0 }}>
-              <ScheduleList
-                schedules={state.schedules}
-                selectedSchedule={state.selectedSchedule}
-                onScheduleSelect={actions.selectSchedule}
-                onRefresh={() => actions.loadSchedules(false)}
-                onDeleteSchedule={(schedule) => {
-                  actions.selectSchedule(schedule);
-                  setDeleteDialogOpen(true);
-                }}
-                loading={state.loading}
-                error={state.error}
-                initialized={state.initialized}
-              />
-            </Box>
-            <Box sx={{ minWidth: 0 }}>
-              <Stack spacing={2.5}>
-                {/* Action Buttons */}
-                {(state.selectedSchedule || !isLocalSession) && <Card sx={{ borderRadius: 2 }}>
-                  <CardContent sx={{ p: cardPadding }}>
-                    <Typography variant="h6" gutterBottom>
-                      Actions
-                    </Typography>
-                    {isLocalSession ? (
-                      <Stack spacing={2}>
-                        {/* Edit/Delete for selected schedule */}
-                        {state.selectedSchedule && (
-                          <>
-                            <Divider />
-                            <Typography variant="subtitle2" color="text.secondary">
-                              Selected: {state.selectedSchedule.experiment_name}
-                            </Typography>
-                            {state.selectedSchedule.experiment_path && (
-                              <Typography
-                                variant="caption"
-                                color="text.secondary"
-                                sx={{ display: 'block', wordBreak: 'break-all', mt: 0.25 }}
-                              >
-                                Method path:{' '}
-                                <Typography component="span" variant="caption" sx={{ fontFamily: 'monospace' }}>
-                                  {state.selectedSchedule.experiment_path}
-                                </Typography>
-                              </Typography>
-                            )}
-                        <Button
-                          variant="outlined"
-                          fullWidth
-                          startIcon={<EditIcon />}
-                          onClick={handleOpenEditForm}
-                          disabled={state.loading}
-                        >
-                          Edit Schedule
-                        </Button>
-                        <Button
-                          variant="outlined"
-                          fullWidth
-                          startIcon={<ArchiveIcon />}
-                          onClick={async () => {
-                            if (!state.selectedSchedule) {
-                              return;
-                            }
-                            await actions.archiveSchedule(
-                              state.selectedSchedule,
-                              !state.selectedSchedule.archived,
-                            );
-                          }}
-                          disabled={state.loading || !state.selectedSchedule || (!state.selectedSchedule.archived && state.selectedSchedule.recovery_required)}
-                        >
-                          {state.selectedSchedule?.archived ? 'Unarchive Schedule' : 'Archive Schedule'}
-                        </Button>
-                        <Button
-                          variant="outlined"
-                          color="error"
-                          fullWidth
-                          startIcon={<DeleteIcon />}
-                          onClick={() => setDeleteDialogOpen(true)}
-                          disabled={state.loading || state.selectedSchedule.recovery_required}
-                        >
-                          Delete Schedule
-                        </Button>
-                          </>
-                        )}
-                      </Stack>
-                    ) : (
-                      <Stack spacing={2}>
-                        <Typography variant="body2" color="text.secondary">
-                          Schedule actions such as creating, editing, archiving, or deleting are only available when
-                          you are logged in from the local robot control workstation. You can still review schedule
-                          details remotely.
-                        </Typography>
-                      </Stack>
-                    )}
-                  </CardContent>
-                </Card>}
-
-                <Card sx={{ borderRadius: 2 }}>
-                  <CardContent sx={{ p: cardPadding }}>
-                    <Stack spacing={1.5}>
-                      <Stack direction="row" justifyContent="space-between" alignItems="center">
-                        <Typography variant="h6">Runtime Queue</Typography>
-                        <Button size="small" startIcon={<RefreshIcon />} onClick={() => actions.getQueueStatus()}>
-                          Refresh
-                        </Button>
-                      </Stack>
-                      <Stack direction="row" spacing={1} flexWrap="wrap">
-                        <Chip
-                          size="small"
-                          label={`${state.queueStatus?.running_jobs ?? 0} running`}
-                          color={(state.queueStatus?.running_jobs ?? 0) > 0 ? 'primary' : 'default'}
-                        />
-                        <Chip
-                          size="small"
-                          label={`${state.queueStatus?.queued_jobs ?? 0} queued`}
-                          color={(state.queueStatus?.queued_jobs ?? 0) > 0 ? 'warning' : 'default'}
-                        />
-                      </Stack>
-                      <Typography variant="subtitle2" color="text.secondary">
-                        Running now
-                      </Typography>
-                      {(state.queueStatus?.running_job_details ?? []).length > 0 ? (
-                        <Stack spacing={0.75}>
-                          {(state.queueStatus?.running_job_details ?? []).map((item) => (
-                            <Stack key={`running-${item.schedule_id}`} spacing={0.25}>
-                              <Typography variant="body2">{item.experiment_name}</Typography>
-                              {item.monitoring && (
-                                <Typography variant="caption" color={['log_inactive', 'monitoring_unavailable'].includes(item.monitoring.state) ? 'warning.main' : 'text.secondary'}>
-                                  {item.monitoring.run_state && `Hamilton: ${item.monitoring.run_state} Â· `}
-                                  {{ waiting: 'Waiting for run/log', monitoring: 'Monitoring', log_inactive: 'Log inactive', monitoring_unavailable: 'Monitoring unavailable', terminal: 'Run ended; finalizing' }[item.monitoring.state]}
-                                  {` Â· Alert threshold: ${item.monitoring.threshold_minutes} min`}
-                                  {item.monitoring.trace_filename && ` Â· ${item.monitoring.trace_filename}`}
-                                  {item.monitoring.last_activity_at && ` Â· Last activity observed: ${new Date(item.monitoring.last_activity_at).toLocaleTimeString()}`}
-                                  {item.monitoring.reason && ` Â· ${item.monitoring.reason}`}
-                                </Typography>
-                              )}
-                              {item.waiting_reason && (
-                                <Typography variant="caption" color="text.secondary">
-                                  {item.waiting_reason}
-                                </Typography>
-                              )}
-                            </Stack>
-                          ))}
-                        </Stack>
-                      ) : (
-                        <Typography variant="body2" color="text.secondary">
-                          No running schedules.
-                        </Typography>
-                      )}
-                      <Divider />
-                      <Typography variant="subtitle2" color="text.secondary">
-                        Queued next
-                      </Typography>
-                      {(state.queueStatus?.queued_job_details ?? []).length > 0 ? (
-                        <Stack spacing={0.75}>
-                          {(state.queueStatus?.queued_job_details ?? []).map((item) => (
-                            <Stack key={`queued-${item.schedule_id}`} spacing={0.25}>
-                              <Typography variant="body2">{item.experiment_name}</Typography>
-                              {item.waiting_reason && (
-                                <Typography variant="caption" color="text.secondary">
-                                  {item.waiting_reason}
-                                </Typography>
-                              )}
-                            </Stack>
-                          ))}
-                        </Stack>
-                      ) : (
-                        <Typography variant="body2" color="text.secondary">
-                          No queued schedules.
-                        </Typography>
-                      )}
-                    </Stack>
-                  </CardContent>
-                </Card>
-
-                {user?.role === 'admin' && state.selectedSchedule && (
-                  <Card sx={{ borderRadius: 2 }}>
-                    <CardContent sx={{ p: cardPadding }}>
-                      <Typography variant="h6" gutterBottom>
-                        Latest Notification
-                      </Typography>
-                      {latestNotificationForSelectedSchedule ? (
-                        <Stack spacing={1.5}>
-                          <Stack direction="row" spacing={1} alignItems="center">
-                            <Chip
-                              label={latestNotificationForSelectedSchedule.status || 'unknown'}
-                              color={getLogStatusColor(latestNotificationForSelectedSchedule.status)}
-                              size="small"
-                            />
-                            <Typography variant="body2" sx={{ textTransform: 'capitalize' }}>
-                              {latestNotificationForSelectedSchedule.event_type?.replace(/_/g, ' ') || 'event'}
-                            </Typography>
-                          </Stack>
-                          <Typography variant="body2" color="text.secondary">
-                            Sent: {formatTimestamp(latestNotificationForSelectedSchedule.triggered_at)}
-                          </Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            Recipients: {latestNotificationForSelectedSchedule.recipients.length ? latestNotificationForSelectedSchedule.recipients.join(', ') : 'N/A'}
-                          </Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            Attachments: {latestNotificationForSelectedSchedule.attachments.length ? `${latestNotificationForSelectedSchedule.attachments.length} file${latestNotificationForSelectedSchedule.attachments.length > 1 ? 's' : ''}` : 'N/A'}
-                          </Typography>
-                          {latestNotificationForSelectedSchedule.error_message && (
-                            <>
-                              <Typography variant="body2" color="error">
-                                Last delivery reported an error. See details below.
-                              </Typography>
-                              <ServerError
-                                title="Notification Delivery Error"
-                                message={latestNotificationForSelectedSchedule.error_message}
-                                retryable={false}
-                              />
-                            </>
-                          )}
-                          <Button onClick={openNotificationsTab} size="small">
-                            View notification history
-                          </Button>
-                        </Stack>
-                      ) : (
-                        <Stack spacing={1.5}>
-                          <Typography variant="body2" color="text.secondary">
-                            No notifications recorded for this schedule yet.
-                          </Typography>
-                          <Button onClick={openNotificationsTab} size="small">
-                            Configure notifications
-                          </Button>
-                        </Stack>
-                      )}
-                    </CardContent>
-                  </Card>
-                )}
-
-                {/* Operation Status */}
-                {state.operationStatus && state.operationStatus !== SchedulingOperationStatus.Idle && (
-                  <Alert 
-                    severity={'info'}
-                    sx={{ borderRadius: 2 }}
-                  >
-                    {state.operationStatus}
-                  </Alert>
-                )}
-              </Stack>
-            </Box>
-          </Box>
+          <InspectionWorkspace label="Schedule workspace" selectorLabel="Schedules" detailOpen={detailOpen}
+            onBack={() => setDetailOpen(false)} selector={<ScheduleCollection schedules={state.schedules}
+              selected={state.selectedSchedule} onSelect={schedule => { actions.selectSchedule(schedule); setDetailOpen(true); }}
+              onRefresh={() => void actions.loadSchedules(false)} loading={state.loading} error={state.error} />}>
+            {state.selectedSchedule ? <Stack data-testid="schedule-detail" spacing={2} sx={{ p: 2, overflow: 'auto', minHeight: 0, flex: 1, border: 1, borderColor: 'divider', borderRadius: 1 }}>
+              <Box>
+                <Typography variant="h6" component="h2" sx={{ overflowWrap: 'anywhere' }}>{state.selectedSchedule.experiment_name}</Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{state.selectedSchedule.experiment_path}</Typography>
+              </Box>
+              {state.selectedSchedule.recovery_required && <Alert severity="warning" action={<Button color="inherit" onClick={() => setCurrentTab(1)}>Review recovery</Button>}>Recovery required</Alert>}
+              <Box component="dl" sx={{ m: 0, display: 'grid', gridTemplateColumns: 'minmax(100px, 1fr) minmax(0, 2fr)', gap: 1, '& dt': { color: 'text.secondary' }, '& dd': { m: 0, overflowWrap: 'anywhere' } }}>
+                <Typography component="dt">Status</Typography><Typography component="dd">{state.selectedSchedule.is_active ? 'Active' : 'Inactive'}</Typography>
+                <Typography component="dt">Timing</Typography><Typography component="dd">{state.selectedSchedule.schedule_type}{state.selectedSchedule.interval_hours ? ` · every ${state.selectedSchedule.interval_hours} hours` : ''}</Typography>
+                <Typography component="dt">Next run</Typography><Typography component="dd">{formatTimestamp(state.selectedSchedule.next_run)}</Typography>
+                <Typography component="dt">Duration</Typography><Typography component="dd">{formatDuration(state.selectedSchedule.estimated_duration)}</Typography>
+                <Typography component="dt">Preparation</Typography><Typography component="dd">{state.selectedSchedule.prerequisites.join(', ') || 'None'}</Typography>
+                <Typography component="dt">Late-start action</Typography><Typography component="dd">{state.selectedSchedule.timeout_config?.action === 'run_cleanup_and_terminate' ? 'Run cleanup and terminate' : 'Continue'}{state.selectedSchedule.timeout_config?.timeout_minutes ? ` after ${state.selectedSchedule.timeout_config.timeout_minutes} minutes` : ''}</Typography>
+              </Box>
+              <Button sx={{ alignSelf: 'flex-start' }} startIcon={<HistoryIcon />} onClick={() => setCurrentTab(3)}>Execution history</Button>
+              {isLocalSession ? <>
+                <Divider />
+                <Stack direction="row" gap={1} flexWrap="wrap">
+                  <Button variant="contained" startIcon={<EditIcon />} onClick={handleOpenEditForm} disabled={state.loading}>Edit schedule</Button>
+                  <Button startIcon={<ArchiveIcon />} disabled={state.loading || state.selectedSchedule.recovery_required}
+                    onClick={() => state.selectedSchedule && void actions.archiveSchedule(state.selectedSchedule, !state.selectedSchedule.archived)}>
+                    {state.selectedSchedule.archived ? 'Restore schedule' : 'Archive schedule'}</Button>
+                  <Button color="error" startIcon={<DeleteIcon />} onClick={() => setDeleteDialogOpen(true)} disabled={state.loading || state.selectedSchedule.recovery_required}>Delete schedule</Button>
+                </Stack>
+              </> : <Typography variant="body2" color="text.secondary">Read only · Changes require the local workstation.</Typography>}
+              {user?.role === 'admin' && <Box>
+                <Typography variant="subtitle2">Latest notification</Typography>
+                <Typography variant="body2">{latestNotificationForSelectedSchedule ? `${latestNotificationForSelectedSchedule.status} · ${formatTimestamp(latestNotificationForSelectedSchedule.triggered_at)}` : 'No notifications yet'}</Typography>
+                {latestNotificationForSelectedSchedule?.error_message && <Alert severity="error">{latestNotificationForSelectedSchedule.error_message}</Alert>}
+                <Button onClick={openNotificationsTab}>Notification history</Button>
+              </Box>}
+            </Stack> : <Box sx={{ p: 3 }}><Typography color="text.secondary">Select a schedule.</Typography></Box>}
+          </InspectionWorkspace>
         </TabPanel>
 
         <TabPanel value={currentTab} index={1}>
@@ -871,13 +647,13 @@ const SchedulingPage: React.FC = () => {
         </TabPanel>
 
         <TabPanel value={currentTab} index={2}>
-          <CalendarView />
+          {renderCalendarView()}
         </TabPanel>
 
         <TabPanel value={currentTab} index={3}>
-          <ExecutionHistory 
+          <ExecutionHistory
             scheduleId={state.selectedSchedule?.schedule_id}
-            maxHeight="700px" 
+            maxHeight="min(65dvh, 900px)" active={currentTab === 3}
           />
         </TabPanel>
 
@@ -1025,7 +801,7 @@ const SchedulingPage: React.FC = () => {
                         No notification events recorded yet.
                       </Typography>
                     ) : (
-                      <Table size="small">
+                      <TableContainer tabIndex={0} aria-label="Notification deliveries"><Table size="small">
                         <TableHead>
                           <TableRow>
                             <TableCell>Timestamp</TableCell>
@@ -1065,13 +841,13 @@ const SchedulingPage: React.FC = () => {
                             </TableRow>
                           ))}
                         </TableBody>
-                      </Table>
+                      </Table></TableContainer>
                     )}
                   </CardContent>
                 </Card>
               )}
 
-              {notificationsTab === 2 && (
+              <SectionPanel active={notificationsTab === 2}>
               <NotificationEmailSettingsPanel
                   settings={state.notificationSettings}
                   loading={state.notificationSettingsLoading}
@@ -1080,7 +856,7 @@ const SchedulingPage: React.FC = () => {
                   onSendTest={actions.sendNotificationTestEmail}
                   contacts={state.contacts}
                 />
-              )}
+              </SectionPanel>
             </Stack>
           </TabPanel>
         )}
@@ -1092,7 +868,7 @@ const SchedulingPage: React.FC = () => {
               setScheduleFormInitialData({ experiment_name: method.method_name, experiment_path: method.file_path, notification_contacts: [] });
             }} />
         </TabPanel>}
-      </Paper>
+      </Box>
 
       {/* Improved Schedule Form Dialog */}
       {methodToRelink && <MethodPathDialog method={methodToRelink} onClose={() => setMethodToRelink(null)} onChanged={() => {

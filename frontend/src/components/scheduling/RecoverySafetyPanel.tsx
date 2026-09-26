@@ -47,6 +47,12 @@ export default function RecoverySafetyPanel({ state, isLocal, onChanged }: Props
         : 'No manual recovery is currently required.'}
     </Alert>
     {error && <Alert severity="error">{error}</Alert>}
+    {isLocal && state?.active && <>
+      <TextField label="Recovery note" multiline value={note} onChange={event => setNote(event.target.value)} disabled={busy}
+        helperText="Required when the original schedule is missing. Acknowledgement does not resume jobs." />
+      <FormControlLabel control={<Checkbox checked={ready} onChange={event => setReady(event.target.checked)} disabled={busy} />}
+        label="I have checked the robot, completed manual recovery, and closed HxRun." />
+    </>}
     {pending.map((item, index) => <Card key={item.schedule_id ?? `missing-${index}`}><CardContent>
       <Stack spacing={1}>
         <Typography variant="h6">{item.experiment_name || 'Unknown schedule'}</Typography>
@@ -59,12 +65,6 @@ export default function RecoverySafetyPanel({ state, isLocal, onChanged }: Props
           onClick={() => void submit(item.schedule_id)}>Acknowledge recovery</Button>}
       </Stack>
     </CardContent></Card>)}
-    {isLocal && state?.active && <>
-      <TextField label="Recovery note" multiline value={note} onChange={event => setNote(event.target.value)} disabled={busy}
-        helperText="Required when the original schedule is missing. Acknowledgement does not resume jobs." />
-      <FormControlLabel control={<Checkbox checked={ready} onChange={event => setReady(event.target.checked)} disabled={busy} />}
-        label="I have checked the robot, completed manual recovery, and closed HxRun." />
-    </>}
     {isLocal && state?.resume_required && <>
       {state.resume_block_reason && <Typography>{state.resume_block_reason}</Typography>}
       <Button variant="contained" disabled={busy || !healthy || state.active || Boolean(state.resume_block_reason)} onClick={() => void submit()}>

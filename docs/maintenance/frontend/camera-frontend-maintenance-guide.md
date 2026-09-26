@@ -1,3 +1,11 @@
+## September 2026 archive workspace
+
+- `VideoArchiveTab` uses the shared inspection workspace: folder selector plus files on wide containers, folder-to-files navigation with Back on phones. Selection, search and page state stay mounted across width changes.
+- File rows use natural height and local scrolling. Pagination (25/50/100 files) replaces fixed-height virtualization, bounding rendered rows while allowing long filenames and touch controls to wrap safely.
+- Keep lazy folder-loading callbacks, the folder cache and the existing download lifecycle. Display changes do not call camera hardware or recording APIs.
+- `CameraControls.active` pauses status polling when the live section is inactive. Collapsing camera settings does not pause polling. The shared document-visibility policy is unchanged.
+- Verify archive behavior with `operations.spec.ts`; retain `camera.spec.ts` for Fit, Fill, zoom, source resets, Escape focus, disconnect and mutation checks. Evidence is written to `recovery/viewer-verification`.
+
 # Camera frontend maintenance
 
 ## Active components

@@ -18,6 +18,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableContainer,
   TableHead,
   TableRow,
   TextField,
@@ -314,7 +315,7 @@ const NotificationContactsPanel: React.FC<NotificationContactsPanelProps> = ({
                 </Typography>
               </Box>
             ) : (
-              <Table size="small">
+              <TableContainer tabIndex={0} aria-label="Notification contacts"><Table size="small">
                 <TableHead>
                   <TableRow>
                     <TableCell>Name</TableCell>
@@ -358,12 +359,12 @@ const NotificationContactsPanel: React.FC<NotificationContactsPanelProps> = ({
                     </TableRow>
                   ))}
                 </TableBody>
-              </Table>
+              </Table></TableContainer>
             )}
           </Stack>
         </CardContent>
 
-      <Dialog open={dialogOpen} onClose={resetDialog} fullWidth maxWidth="sm">
+      <Dialog open={dialogOpen} onClose={saving ? undefined : resetDialog} fullWidth maxWidth="sm" sx={{ '@media (max-width: 599px)': { '& .MuiDialog-paper': { m: 0, width: '100%', maxWidth: '100%', height: '100dvh', maxHeight: '100dvh', borderRadius: 0 } } }}>
         <DialogTitle>{editingContact ? 'Edit Contact' : 'Add Contact'}</DialogTitle>
         <DialogContent dividers>
           <Stack spacing={2.5} sx={{ pt: 1 }}>

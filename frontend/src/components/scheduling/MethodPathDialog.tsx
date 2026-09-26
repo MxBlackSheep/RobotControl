@@ -42,7 +42,7 @@ export default function MethodPathDialog({ method, onClose, onChanged }: { metho
     } catch (err) { setError(`${methodError(err)} Your entries are retained. Use Review again to reload the affected schedules.`); }
     finally { setBusy(false); }
   };
-  return <Dialog open onClose={() => { if (!busy) onClose(); }} disableEscapeKeyDown={busy} fullWidth maxWidth="md" aria-labelledby="method-path-title">
+  return <Dialog open onClose={() => { if (!busy) onClose(); }} disableEscapeKeyDown={busy} fullWidth maxWidth="md" sx={{ '@media (max-width: 899px)': { '& .MuiDialog-paper': { m: 0, width: '100%', maxWidth: '100%', height: '100dvh', maxHeight: '100dvh', borderRadius: 0 } } }} aria-labelledby="method-path-title">
     <DialogTitle id="method-path-title">Change method path</DialogTitle>
     <DialogContent dividers><Stack spacing={2}>
       <Typography sx={{ overflowWrap: 'anywhere' }}>Original library path: {method.file_path}</Typography>

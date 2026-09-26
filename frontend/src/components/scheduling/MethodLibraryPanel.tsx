@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, LinearProgress,
   Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TextField, Typography } from '@mui/material';
+import useMediaQuery from '@mui/material/useMediaQuery';
+import { useTheme } from '@mui/material/styles';
 import MethodExplorer from './MethodExplorer';
 import { LibraryMethod } from '../../types/scheduling';
 import { schedulingAPI } from '../../services/schedulingApi';
@@ -13,6 +15,7 @@ export default function MethodLibraryPanel({ version, onChanged, onImport, onCre
   version: number; onChanged: () => void; onImport: () => void; onCreateSchedule: (method: LibraryMethod) => void;
   onChangePath?: (method: LibraryMethod) => void; showImportAction?: boolean;
 }) {
+  const fullScreen = useMediaQuery(useTheme().breakpoints.down('md'));
   const [methods, setMethods] = useState<LibraryMethod[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [status, setStatus] = useState('');
@@ -64,13 +67,13 @@ export default function MethodLibraryPanel({ version, onChanged, onImport, onCre
   };
   return <Stack spacing={2}>
     <Typography variant="h6">Method library</Typography>
-    <Typography variant="body2">Manage the paths available when creating schedules. Archiving a method hides it from new selections; existing schedules keep their saved paths.</Typography>
+
     <Stack direction="row" flexWrap="wrap" gap={1}>
       {showImportAction && <Button variant="contained" onClick={onImport}>Import methods</Button>}
       <Button disabled={busy} onClick={() => { setError(''); void load(); }}>Refresh library</Button>
-      <Button disabled={busy || !targets.length} onClick={check}>Check paths</Button>
-      <Button disabled={busy || !targets.some(row => !row.archived)} onClick={() => setArchiveAction(true)}>Archive selected</Button>
-      <Button disabled={busy || !targets.some(row => row.archived)} onClick={() => setArchiveAction(false)}>Restore selected</Button>
+      {!!targets.length && <Button disabled={busy} onClick={check}>Check paths</Button>}
+      {targets.some(row => !row.archived) && <Button disabled={busy} onClick={() => setArchiveAction(true)}>Archive selected</Button>}
+      {targets.some(row => row.archived) && <Button disabled={busy} onClick={() => setArchiveAction(false)}>Restore selected</Button>}
     </Stack>
     <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
       <TextField select SelectProps={{ native: true }} label="Path status" value={status} InputLabelProps={{ shrink: true }} onChange={e => { setStatus(e.target.value); clearSelection(); }} size="small" sx={{ minWidth: 140 }}>
@@ -86,9 +89,9 @@ export default function MethodLibraryPanel({ version, onChanged, onImport, onCre
     {!!error && <Alert severity="error" sx={{ whiteSpace: 'pre-line' }}>{error}</Alert>}
     {!!message && <Alert severity="success">{message}</Alert>}
     {busy && <LinearProgress aria-label="Updating method library" />}
-    <Typography variant="caption">{visible.length} methods · {targets.length} selected. Select rows to check, archive or restore them.</Typography>
+    <Typography variant="caption">{visible.length} methods · {targets.length} selected. </Typography>
     <MethodExplorer items={visible} onViewChange={clearSelection}>{(pageItems, relativePath) => <>
-    <TableContainer><Table size="small" stickyHeader aria-label="Imported methods">
+    <TableContainer tabIndex={0} aria-label="Method records"><Table size="small" stickyHeader aria-label="Imported methods">
       <TableHead><TableRow>
         <TableCell padding="checkbox"><Checkbox inputProps={{ 'aria-label': 'Select this page' }} disabled={busy || !pageItems.length}
           checked={pageItems.length > 0 && pageItems.every(row => selected.includes(row.method_id))}
@@ -110,7 +113,7 @@ export default function MethodLibraryPanel({ version, onChanged, onImport, onCre
       </TableRow>)}</TableBody>
     </Table></TableContainer>
     </>}</MethodExplorer>
-    <Dialog open={!!detail} onClose={() => setDetailId(null)} maxWidth="md" fullWidth>
+    <Dialog open={!!detail} onClose={() => setDetailId(null)} maxWidth="md" fullWidth fullScreen={fullScreen}>
       <DialogTitle>Method details and schedules</DialogTitle>
       <DialogContent dividers>{detail && <Stack spacing={1.5} sx={{ overflowWrap: 'anywhere' }}>
         <Typography>{detail.method_name}</Typography><Typography>{detail.file_path}</Typography>

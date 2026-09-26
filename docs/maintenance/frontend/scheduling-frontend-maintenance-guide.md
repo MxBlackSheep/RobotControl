@@ -1,3 +1,12 @@
+## September 2026 responsive workspace
+
+- `SchedulingPage` owns selection, edit state, permissions and queue/recovery state. Its `InspectionWorkspace` keeps the list and details mounted; narrow containers show one pane with Back. `ScheduleCollection` searches/sorts the current list without changing backend query semantics. The existing `ScheduleList` remains the archived-schedule table/detail view.
+- Keep recovery and queue status above the workspace. Opening or resizing a view must never start/resume/archive/delete a schedule. Local access, recovery-required restrictions, and expected revisions still come from existing handlers/services.
+- Visited sections stay mounted through `SectionPanel`. Execution history receives `active`; leaving History stops its polling without losing filters. Email settings remain mounted when switching notification tabs. Document visibility retains the shared polling policy.
+- `ImprovedScheduleForm` is a structured form, fullscreen below the medium breakpoint. Its opening snapshot determines dirty state. Cancel/Escape/backdrop ask before discarding edits; failed saves keep values and show an inline error. Browser reload/close is guarded while dirty. A successful save closes normally. Method picking and import/path forms also use the available phone surface.
+- Calendar groups derive from the current schedule array, so timing changes are reflected even when the schedule count stays the same. History/notification/method tables scroll within their container.
+- Browser regression: build frontend, then `npx playwright test operations.spec.ts`. Tests use intercepted APIs, never robot services. Screenshots, traces and request assertions are under `recovery/viewer-verification`.
+
 # Frontend Scheduling Maintenance Guide
 
 ## Recovery acknowledgement and Resume (2026-09-14)
@@ -247,3 +256,5 @@ Stick to this blueprint and the scheduling UI will stay maintainable even for ne
 - Running jobs display **Waiting for run/log**, **Monitoring**, **Log inactive**, **Monitoring unavailable**, or **Run ended; finalizing**, plus the threshold, trace filename, last observed activity and available diagnostic reason. The queue API's optional `monitoring` object supplies these values. Old payloads without this object still render.
 - Notification history retains historical `long_running` entries and shows new `log_inactive` / `monitoring_unavailable` events. `cancelled` means the condition resolved before an email could be sent. Errors can retry; a sent pause is not repeated after restart.
 - To test, save a non-default threshold, reopen the edit form, and verify it round-trips. Use the backend's controlled trace tests for state transitions; the operator should perform the simulator/email acceptance sequence described in the backend scheduling guide.
+
+The service strip keeps Queue details beside Refresh and Recovery required; expanding it reveals running/queued entries without a permanent extra toolbar row.
