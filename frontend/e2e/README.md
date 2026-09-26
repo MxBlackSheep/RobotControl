@@ -1,7 +1,7 @@
-# Repeatable inspection viewer verification
+# Repeatable frontend design verification
 
 These are browser/HTTP end-to-end checks, not unit tests. Read `scenarios.md` and
-`database-failure-scenarios.md` for the failure cases recorded before implementation.
+`database-failure-scenarios.md`, `ui-redesign-scenarios.md`, `inspection-labware-failure-scenarios.md` and `operations-failure-scenarios.md` for cases recorded before implementation.
 
 ## Run on Windows
 
@@ -34,8 +34,8 @@ candidate directory; preserve any existing runtime data before building another.
 
 ```powershell
 & ./.venv/Scripts/python.exe build_scripts/embed_resources.py
-& ./.venv/Scripts/python.exe build_scripts/pyinstaller_build.py --output-dir dist/viewer-review-20260926
-& ./.venv/Scripts/python.exe backend/e2e/packaged_viewer_smoke.py dist/viewer-review-20260926/RobotControl
+& ./.venv/Scripts/python.exe build_scripts/pyinstaller_build.py --output-dir dist/ui-redesign-20260926
+& ./.venv/Scripts/python.exe backend/e2e/packaged_viewer_smoke.py dist/ui-redesign-20260926/RobotControl
 ```
 
 The packaged check copies the candidate into a temporary folder with a different
@@ -45,7 +45,7 @@ scheduler autostart disabled, and a nonproduction SQL address. It verifies:
 - The embedded UI is available and the real logger and browser resolve the same relocated root.
 - Startup removes an orphaned reading copy.
 - A gzip archive larger than one section is reconstructed through authenticated HTTP.
-- Edge can navigate and expand the packaged history reader at desktop and phone widths.
+- Edge can navigate and expand the packaged history reader at desktop and phone widths, switch appearance, and verify default reading height and full-screen phone sizing.
 - Released readers leave no decoded temporary files.
 
 The process and relocated copy are removed afterward. Results are saved in
@@ -62,6 +62,30 @@ SQL finding/copy failure, retained selection and focus, marked camera corners in
 Source-reset checks deliberately hold the no-frame state open to verify camera
 keyboard focus. Log checks include UTF-8/UTF-16/Windows-1252, CRLF, oversized lines, gzip/ZIP,
 ownership/access/traversal, cancellation, capacity, expiry, source growth and follow.
+
+The redesign adds checks for First/Last/page jumps and failed requests, SQL line
+navigation, keyboard rack editing, pending/failed Labware saves, malformed data,
+schedule recovery and draft protection, archive phone navigation, Maintenance
+unknown state, single-owner monitoring, local storage navigation and System/Light/Dark
+appearance. A dark screenshot sweep covers every module and key nested sections.
+The log space check requires at least 60% of the 1280×720 window height for text.
+
+The prior viewer-only report is preserved at `recovery/viewer-verification-baseline`.
+The main report is the latest complete integrated run.
+
+### Native browser zoom (interactive, optional after automated checks)
+
+Run `node frontend/e2e/native-zoom.cjs` from the repository root with port 8016 free.
+It starts disposable fixtures and a dedicated Edge window. Set Edge's browser zoom
+to 200% (using its menu or Ctrl+Plus) within 3 minutes. The script verifies Find,
+horizontal overflow and Back focus, then saves native-zoom screenshots/trace/JSON
+and closes both processes. Do not run it alongside Playwright. A viewport-size
+check is not a substitute for this native zoom check.
+
+The 26 September automated desktop-control attempt timed out waiting for app access,
+so native 200% zoom is not certified by this run. Its 100% screenshot and incomplete
+trace are retained; `native-zoom.json` records this limit. No actual phone keyboard
+or hardware was used.
 
 Camera and database data are fixtures; this does not certify a physical camera,
 Hamilton robot, remote network tunnel or production SQL server. Reduced viewport

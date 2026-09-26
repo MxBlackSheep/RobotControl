@@ -138,7 +138,7 @@ This guide explains the overall React shell: routing, theming, providers, and na
 
 | Task | Where | Steps |
 |------|-------|-------|
-| Add a new page (e.g., “Reports”) | `App.tsx`, navigation helpers | Create `frontend/src/pages/ReportsPage.tsx`, add `const ReportsPage = loadComponent(() => import('./pages/ReportsPage'));`, add a `<Route>` and tab item, then update `MobileDrawer.tsx`, `NavigationBreadcrumbs.tsx`, and keyboard shortcut/help mappings if it should be globally navigable. |
+| Add a new page (e.g., “Reports”) | `App.tsx`, navigation helpers | Create `frontend/src/pages/ReportsPage.tsx`, add `const ReportsPage = loadComponent(() => import('./pages/ReportsPage'));`, add its guarded `<Route>` and `navigation.tsx` entry, then update shortcut/help mappings if globally navigable. Breadcrumbs and AppSidebar use the shared registry. |
 | Tune LogFile page behavior | `frontend/src/pages/LogFilePage.tsx` & `frontend/src/services/logFileApi.ts` | Keep it read-only. `.zip` should open archive browsing mode; `.gz` should preview directly. |
 | Tune HxRun Maintenance page behavior | `frontend/src/pages/MaintenancePage.tsx` & `frontend/src/services/hxrunMaintenanceApi.ts` | Keep this page separate from `MaintenanceDialog`; this page controls persistent HxRun blocking, not temporary DB restore windows. |
 | Change the theme colors | `frontend/src/theme.ts` | Edit `palette.primary`, `secondary`, typography, etc. Rebuild so Material UI picks up the change. |
@@ -152,7 +152,7 @@ This guide explains the overall React shell: routing, theming, providers, and na
 
 - **Passive surfaces** (dashboards, list views) should render inline warning cards with retry buttons. Keep messages inside the component and avoid popping modals for status updates.
 - **Active flows** (password changes, destructive deletes) go through `ErrorAlert` / confirmation dialogs. These modals provide titles and explicit actions.
-- **Consistency** – Reuse the shared red warning card styling (`borderColor: 'error.light', bgcolor: 'rgba(244, 67, 54, 0.08)'`) whenever you add a new passive warning.
+- **Consistency** – Use the shared MUI Alert and semantic palette colors for passive warnings in both appearances.
 
 ---
 
@@ -166,10 +166,10 @@ This guide explains the overall React shell: routing, theming, providers, and na
    <Route path="/admin" element={<AdminRoute element={<AdminPage />} />} />
    ```
 
-### 6.2 Support dark/light mode toggle
-1. Store a theme preference in `localStorage` or React context.  
-2. Update `theme.ts` to export both a light and dark theme.  
-3. In `main.tsx`, wrap `<ThemeProvider>` with your own `ThemeModeProvider` that switches between the two.
+### 6.2 Extend appearance
+Use the existing `AppearanceProvider`, `AppearanceControl` and `createAppTheme`.
+Do not create a second theme provider or preference key. Test System mode, explicit
+Light/Dark, storage failure, reload and retained page state before adding options.
 
 ### 6.3 Replace React Router with HashRouter (if hosting as static files)
 1. Swap `BrowserRouter` for `HashRouter` in `main.tsx`.  
@@ -185,7 +185,7 @@ This guide explains the overall React shell: routing, theming, providers, and na
 | `main.tsx` | Entry point | Sets up providers and renders `<App />`. |
 | `App.tsx` | Shell + routes | Guards on auth, builds navigation, includes global dialogs. |
 | `loadComponent` | Lazy loader | Wraps `React.lazy` + `Suspense` for code splitting. |
-| `MobileDrawer` | Mobile navigation | Controlled by `mobileDrawerOpen` state in `App.tsx`. |
+| `AppSidebar` | Desktop rail and mobile drawer | Uses `mobileDrawerOpen` and the shared navigation registry. |
 | `MaintenanceDialog` | Maintenance alerts | Automatically shows when maintenance window is active. |
 | `ChangePasswordDialog` | Force password update | Opens on login if `user.must_reset`. |
 
@@ -194,13 +194,13 @@ This guide explains the overall React shell: routing, theming, providers, and na
 ## 8. When Something Goes Wrong
 
 1. **Blank page after login**  
-   - Likely forgot to add a `<Route>` for the landing page or the route component throws an error. Check the console for stack traces. Ensure `Dashboard` is imported via `loadComponent`.
+   - Likely forgot to add a `<Route>` for the landing page or the route component throws an error. Check the console for stack traces. Dashboard is eagerly imported; other routes use `loadComponent`.
 
 2. **Tabs highlight the wrong page**  
-   - Update the `tabValue` computation. Nested paths require the `startsWith` check to match the parent tab.
+   - Check the section name and permission filtering in `navigation.tsx`, and the `section` query parameter.
 
 3. **Mobile menu doesn’t open**  
-   - Ensure `MobileMenuButton` calls `setMobileDrawerOpen(true)` and that `<MobileDrawer>` receives `open` and `onClose` props. MUI drawers are picky—leave them mounted outside the `<Toolbar>` like the current layout.
+   - Ensure the labelled Open navigation IconButton updates `mobileDrawerOpen`, and AppSidebar receives `open` and `onClose`.
 
 4. **Keyboard shortcuts not working**  
    - Check that `useKeyboardNavigation({ enabled: isAuthenticated })` is still called. If you changed provider order, make sure the hook still lives inside `AuthProvider`.
@@ -213,4 +213,4 @@ Stick to this playbook and the main shell will stay tidy, predictable, and easy 
 
 ### September 2026: shared section navigation
 
-`components/navigation.tsx` is the source of section names, URLs and UI permissions. Use `useModuleSection` and `moduleSectionUrl`; do not add another horizontal page tab bar. The sidebar supports expanded links, rail menus and mobile navigation. `SectionPanel` mounts on first visit and retains drafts/scroll within the page session. Components that poll must take an active flag and suspend their timer when hidden. Camera navigation never starts/stops a session. Database Restore remains admin **or** local; Operations and RobotControl logs remain local-only. Backend permissions still apply.
+`components/navigation.tsx` is the source of section names, URLs and UI permissions. Use `useModuleSection` and `moduleSectionUrl`; do not add another horizontal page tab bar. The sidebar supports expanded links, rail menus and mobile navigation. `SectionPanel` mounts on first visit and retains drafts/scroll within the page session. Components that poll must take an active flag and suspend their timer when hidden. Camera navigation never starts/stops a session. Database Restore remains admin **or** local; Operations remain local-only; RobotControl logs allow authenticated local users or remote administrators. Backend permissions still apply.

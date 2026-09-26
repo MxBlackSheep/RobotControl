@@ -1,3 +1,11 @@
+## 2026-09-26 Unified responsive frontend and appearance
+
+- Added persistent System/Light/Dark appearance, compact shared page patterns, keyboard-resizable inspection selectors and readable phone navigation. Logs now use one reader toolbar with Find on demand and folder controls inside the selector.
+- Added table First/Last/page jumps with correct retained-data labels after failures; SQL Top/Bottom/line navigation; focused rack/Cytomat editors with keyboard/touch access, protected pending saves and recoverable malformed-data errors.
+- Scheduling now uses a retained list/detail workspace, compact queue/recovery controls and protected phone editor drafts. Camera archives use responsive bounded lists; live frame/session behavior is preserved. Two frontend specialists cross-reviewed both scopes.
+- Maintenance treats unknown/failed state explicitly and preserves edited reasons. System Status has one polling owner and distinguishes service availability from resource use. Local storage repair has its own Admin section. Product copy stays concise; maintenance guides describe extension rules for future tabs.
+- Verification: all 50 browser E2E checks passed; frontend build, resource embedding and the separate Windows PyInstaller candidate completed. Relocated executable checks passed, including embedded dark/phone viewers, real log root, archive checksum and reader cleanup. Browser/relocated-package results, checksums, screenshots and traces are retained under `recovery/viewer-verification`; candidate is `dist/ui-redesign-20260926/RobotControl`. Native browser zoom could not be completed because computer-use app access timed out; real phone keyboard and VM hardware checks remain in the delivery checklist.
+
 ## 2026-09-26 Whole-application UI review
 
 - Reviewed all active frontend routes, shared navigation/theme and the supplied log screenshot with two frontend specialists. Proposed four reusable page patterns, a shared space/action/state policy, System/Light/Dark appearance and route-by-route changes in `docs/frontend-ui-review-2026-09-26.md`.
