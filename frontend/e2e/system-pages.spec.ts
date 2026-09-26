@@ -4,6 +4,7 @@ import { test, expect } from '@playwright/test';
 // - Process CPU or cached JPEG throughput is presented as live-view utilization/health.
 // - Enabled configuration is mistaken for a connected camera or recording state.
 // - A missing/non-boolean enabled field is mislabeled as disabled or enabled.
+// - Incomplete database/size fields imply disconnection or print undefined capacity.
 // - Database failures disappear inside a disclosure that was collapsed before data arrived.
 // - Opening details creates another polling owner or loses the retained stale reading.
 // - Connection identifiers or session counts overflow a 320px screen or trap keyboard focus.
@@ -77,11 +78,14 @@ test('live view configuration stays unknown when the status contract is incomple
   let status: Record<string, unknown> = {};
   await page.route('**/api/monitoring/experiments', route => route.fulfill({ json: { data: [] } }));
   await page.route('**/api/monitoring/system-health', route => route.fulfill({ json: { data: {
-    sampled_at: new Date().toISOString(), system: { cpu_percent: 4, memory_percent: 12, disk_percent: 25 },
+    sampled_at: new Date().toISOString(), system: { cpu_percent: 4, memory_percent: 12, disk_percent: 25, memory_total_gb: 16, disk_total_gb: 500 },
+    database: {},
   } } }));
   await page.route('**/api/camera/streaming/status', route => route.fulfill({ json: { data: { status } } }));
   await page.goto('/system-status');
   await expect(page.getByText('Live view unavailable', { exact: true })).toBeVisible();
+  await expect(page.getByText('Database unavailable', { exact: true })).toBeVisible();
+  await expect(page.getByText(/undefined|NaN/)).toHaveCount(0);
   status = { enabled: 'true' };
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
   await expect(page.getByText('Updated', { exact: true })).toBeVisible();

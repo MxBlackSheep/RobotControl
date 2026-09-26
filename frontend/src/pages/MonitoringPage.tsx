@@ -16,10 +16,12 @@ export default function MonitoringPage() {
       ? `${sessionCount} of ${sessionLimit} slots in use`
       : `${sessionCount} slots in use`
     : 'Unavailable';
+  const capacity = (used?: number, total?: number) => Number.isFinite(used) && Number.isFinite(total)
+    ? `${used} / ${total} GB` : '';
   const metrics = [
     { name: 'CPU', value: systemHealth?.cpu_percent },
-    { name: 'Memory', value: systemHealth?.memory_percent, detail: systemHealth?.memory_total_gb != null ? `${systemHealth.memory_used_gb} / ${systemHealth.memory_total_gb} GB` : '' },
-    { name: 'Disk', value: systemHealth?.disk_percent, detail: systemHealth?.disk_total_gb != null ? `${systemHealth.disk_used_gb} / ${systemHealth.disk_total_gb} GB` : '' },
+    { name: 'Memory', value: systemHealth?.memory_percent, detail: capacity(systemHealth?.memory_used_gb, systemHealth?.memory_total_gb) },
+    { name: 'Disk', value: systemHealth?.disk_percent, detail: capacity(systemHealth?.disk_used_gb, systemHealth?.disk_total_gb) },
   ];
   return <PageContent variant="overview">
     <PageHeader title="System Status" actions={<>
@@ -29,7 +31,7 @@ export default function MonitoringPage() {
     {error && <Alert severity="warning" sx={{ mb: 1 }}>{error}{monitoringData ? ' · Last reading retained.' : ''}</Alert>}
     {isLoading && <LinearProgress aria-label="Updating monitoring" sx={{ mb: 1 }} />}
     <Stack direction="row" gap={1} flexWrap="wrap" sx={{ mb: 2 }}>
-      <Chip label={databaseStatus ? databaseStatus.is_connected ? 'Database connected' : 'Database disconnected' : 'Database unavailable'} color={!databaseStatus || error ? 'default' : databaseStatus.is_connected ? 'success' : 'error'} />
+      <Chip label={databaseStatus?.is_connected === true ? 'Database connected' : databaseStatus?.is_connected === false ? 'Database disconnected' : 'Database unavailable'} color={error ? 'default' : databaseStatus?.is_connected === true ? 'success' : databaseStatus?.is_connected === false ? 'error' : 'default'} />
       <Chip label={streamingStatus?.enabled === true ? 'Live view enabled' : streamingStatus?.enabled === false ? 'Live view disabled' : 'Live view unavailable'} />
       {timestamp && <Typography variant="caption" sx={{ alignSelf: 'center', ml: 'auto' }} color="text.secondary">Last reading {new Date(timestamp).toLocaleString()}</Typography>}
     </Stack>
