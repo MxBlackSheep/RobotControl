@@ -9,12 +9,19 @@ export default function MonitoringPage() {
   // This page owns one monitoring request cycle. Presentation below never starts polling.
   const { monitoringData, systemHealth, databaseStatus, streamingStatus, isLoading, error, refreshData } = useMonitoring();
   const timestamp = systemHealth?.timestamp || monitoringData?.last_updated;
+  const sessionCount = streamingStatus?.active_session_count;
+  const sessionLimit = streamingStatus?.max_sessions;
+  const sessionSummary = Number.isInteger(sessionCount) && sessionCount! >= 0
+    ? Number.isInteger(sessionLimit) && sessionLimit! > 0
+      ? `${sessionCount} of ${sessionLimit} slots in use`
+      : `${sessionCount} slots in use`
+    : 'Unavailable';
   const metrics = [
     { name: 'CPU', value: systemHealth?.cpu_percent },
     { name: 'Memory', value: systemHealth?.memory_percent, detail: systemHealth?.memory_total_gb != null ? `${systemHealth.memory_used_gb} / ${systemHealth.memory_total_gb} GB` : '' },
     { name: 'Disk', value: systemHealth?.disk_percent, detail: systemHealth?.disk_total_gb != null ? `${systemHealth.disk_used_gb} / ${systemHealth.disk_total_gb} GB` : '' },
   ];
-  return <PageContent>
+  return <PageContent variant="overview">
     <PageHeader title="System Status" actions={<>
       <Chip size="small" label={error ? monitoringData ? 'Stale data' : 'Unavailable' : isLoading ? 'Updating' : monitoringData ? 'Updated' : 'Unknown'} color={error ? 'warning' : 'default'} />
       <Button startIcon={<Refresh />} disabled={isLoading} onClick={() => void refreshData()}>Refresh</Button>
@@ -23,9 +30,10 @@ export default function MonitoringPage() {
     {isLoading && <LinearProgress aria-label="Updating monitoring" sx={{ mb: 1 }} />}
     <Stack direction="row" gap={1} flexWrap="wrap" sx={{ mb: 2 }}>
       <Chip label={databaseStatus ? databaseStatus.is_connected ? 'Database connected' : 'Database disconnected' : 'Database unavailable'} color={!databaseStatus || error ? 'default' : databaseStatus.is_connected ? 'success' : 'error'} />
-      <Chip label={streamingStatus ? streamingStatus.enabled ? 'Streaming enabled' : 'Streaming disabled' : 'Streaming unavailable'} color={streamingStatus?.enabled && !error ? 'success' : 'default'} />
+      <Chip label={streamingStatus?.enabled === true ? 'Live view enabled' : streamingStatus?.enabled === false ? 'Live view disabled' : 'Live view unavailable'} />
       {timestamp && <Typography variant="caption" sx={{ alignSelf: 'center', ml: 'auto' }} color="text.secondary">Last reading {new Date(timestamp).toLocaleString()}</Typography>}
     </Stack>
+    {databaseStatus?.error_message && <Alert severity="error" sx={{ mb: 2, overflowWrap: 'anywhere' }}>{databaseStatus.error_message}</Alert>}
     <Typography variant="subtitle1" component="h2" sx={{ mb: 1 }}>Resource use</Typography>
     <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, minmax(0, 1fr))' }, gap: 1.5, mb: 2 }}>
       {metrics.map(metric => <Card key={metric.name} variant="outlined"><CardContent>
@@ -34,27 +42,22 @@ export default function MonitoringPage() {
         {metric.detail && <Typography variant="caption" color="text.secondary">{metric.detail}</Typography>}
       </CardContent></Card>)}
     </Box>
-    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' }, gap: 1.5, alignItems: 'start' }}>
-      <Accordion disableGutters variant="outlined" defaultExpanded={!!databaseStatus?.error_message}>
-        <AccordionSummary expandIcon={<ExpandMore />}><Typography>Database details</Typography></AccordionSummary>
-        <AccordionDetails sx={{ overflowWrap: 'anywhere' }}>
-          {databaseStatus ? <Stack gap={1}>
-            <Typography>{databaseStatus.database_name} · {databaseStatus.server_name}</Typography>
-            <Typography variant="body2" color="text.secondary">Mode: {databaseStatus.mode}</Typography>
-            {databaseStatus.error_message && <Alert severity="error">{databaseStatus.error_message}</Alert>}
-          </Stack> : <Typography color="text.secondary">Unavailable</Typography>}
-        </AccordionDetails>
-      </Accordion>
-      <Accordion disableGutters variant="outlined">
-        <AccordionSummary expandIcon={<ExpandMore />}><Typography>Streaming details</Typography></AccordionSummary>
-        <AccordionDetails>
-          {streamingStatus ? <Stack gap={1}>
-            <Typography>Sessions: {streamingStatus.active_session_count ?? '—'} / {streamingStatus.max_sessions ?? '—'}</Typography>
-            <Typography>Bandwidth: {streamingStatus.total_bandwidth_mbps != null ? `${streamingStatus.total_bandwidth_mbps.toFixed(1)} Mb/s` : '—'}</Typography>
-            <Typography>Utilization: {streamingStatus.resource_usage_percent != null ? `${Math.round(streamingStatus.resource_usage_percent)}%` : '—'}</Typography>
-          </Stack> : <Typography color="text.secondary">Unavailable</Typography>}
-        </AccordionDetails>
-      </Accordion>
-    </Box>
+    <Accordion disableGutters variant="outlined">
+      <AccordionSummary id="connection-details-heading" aria-controls="connection-details-content" expandIcon={<ExpandMore />}>
+        <Typography>Connection details</Typography>
+      </AccordionSummary>
+      <AccordionDetails id="connection-details-content" sx={{ overflowWrap: 'anywhere' }}>
+        <Box component="dl" sx={{ m: 0, display: 'grid', gridTemplateColumns: 'minmax(100px, 1fr) minmax(0, 3fr)', gap: 1, '& dt': { color: 'text.secondary' }, '& dd': { m: 0, minWidth: 0 } }}>
+          <Typography component="dt" variant="body2">Database</Typography>
+          <Typography component="dd" variant="body2">{databaseStatus?.database_name || 'Unavailable'}</Typography>
+          <Typography component="dt" variant="body2">Server</Typography>
+          <Typography component="dd" variant="body2">{databaseStatus?.server_name || 'Unavailable'}</Typography>
+          <Typography component="dt" variant="body2">Connection mode</Typography>
+          <Typography component="dd" variant="body2">{databaseStatus?.mode || 'Unavailable'}</Typography>
+          <Typography component="dt" variant="body2">Live view sessions</Typography>
+          <Typography component="dd" variant="body2">{sessionSummary}</Typography>
+        </Box>
+      </AccordionDetails>
+    </Accordion>
   </PageContent>;
 }

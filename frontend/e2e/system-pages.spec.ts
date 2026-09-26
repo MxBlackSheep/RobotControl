@@ -1,5 +1,13 @@
 import { test, expect } from '@playwright/test';
 
+// Failure scenarios recorded before the compact connection-details change:
+// - Process CPU or cached JPEG throughput is presented as live-view utilization/health.
+// - Enabled configuration is mistaken for a connected camera or recording state.
+// - A missing/non-boolean enabled field is mislabeled as disabled or enabled.
+// - Database failures disappear inside a disclosure that was collapsed before data arrived.
+// - Opening details creates another polling owner or loses the retained stale reading.
+// - Connection identifiers or session counts overflow a 320px screen or trap keyboard focus.
+
 test.beforeEach(async ({ page }) => { await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin')); });
 
 test('monitoring has one refresh owner and shows stale and unknown services accurately', async ({ page }, info) => {
@@ -15,7 +23,7 @@ test('monitoring has one refresh owner and shows stale and unknown services accu
   });
   await page.goto('/system-status');
   await expect(page.getByText('Database disconnected', { exact: true })).toBeVisible();
-  await expect(page.getByText('Streaming unavailable', { exact: true })).toBeVisible();
+  await expect(page.getByText('Live view unavailable', { exact: true })).toBeVisible();
   expect(healthRequests).toBe(1);
   failed = true;
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
@@ -24,6 +32,61 @@ test('monitoring has one refresh owner and shows stale and unknown services accu
   await page.setViewportSize({ width: 320, height: 740 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
   await page.screenshot({ path: info.outputPath('monitoring-phone.png') });
+});
+
+for (const width of [320, 1280]) {
+  test(`connection details stay compact and report only supported facts at ${width}px`, async ({ page }, info) => {
+    await page.setViewportSize({ width, height: 740 });
+    let healthRequests = 0;
+    await page.route('**/api/monitoring/experiments', route => route.fulfill({ json: { data: [] } }));
+    await page.route('**/api/camera/streaming/status', route => route.fulfill({ json: { data: { status: {
+      enabled: true, active_session_count: 2, max_sessions: 4,
+      resource_usage_percent: 137, total_bandwidth_mbps: 12.3,
+    } } } }));
+    await page.route('**/api/monitoring/system-health', route => {
+      healthRequests++;
+      return route.fulfill({ json: { data: {
+        sampled_at: new Date().toISOString(), system: { cpu_percent: 4, memory_percent: 12, disk_percent: 25 },
+        database: { is_connected: false, mode: 'primary', database_name: 'Fixture database with a long identifier',
+          server_name: 'fixture-server-with-a-very-long-hostname.internal', error_message: 'Database connection refused.' },
+      } } });
+    });
+    await page.goto('/system-status');
+    await expect(page.getByText('Live view enabled', { exact: true })).toBeVisible();
+    await expect(page.getByText('Database connection refused.', { exact: true })).toBeVisible();
+    await expect(page.getByRole('progressbar', { name: 'CPU usage', exact: true })).toHaveAttribute('aria-valuenow', '4');
+    const disclosure = page.getByRole('button', { name: 'Connection details', exact: true });
+    await expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.getByText('Fixture database with a long identifier', { exact: true })).not.toBeVisible();
+    await disclosure.focus();
+    await page.keyboard.press('Enter');
+    await expect(disclosure).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.getByText('Fixture database with a long identifier', { exact: true })).toBeVisible();
+    await expect(page.getByText('2 of 4 slots in use', { exact: true })).toBeVisible();
+    await expect(page.getByText(/Utilization|Bandwidth|Recording active|Robot healthy/i)).toHaveCount(0);
+    expect(healthRequests).toBe(1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+    await page.screenshot({ path: info.outputPath(`connections-${width}.png`), fullPage: true, animations: 'disabled' });
+    await page.keyboard.press('Enter');
+    await expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+    await expect(disclosure).toBeFocused();
+  });
+}
+
+test('live view configuration stays unknown when the status contract is incomplete', async ({ page }) => {
+  let status: Record<string, unknown> = {};
+  await page.route('**/api/monitoring/experiments', route => route.fulfill({ json: { data: [] } }));
+  await page.route('**/api/monitoring/system-health', route => route.fulfill({ json: { data: {
+    sampled_at: new Date().toISOString(), system: { cpu_percent: 4, memory_percent: 12, disk_percent: 25 },
+  } } }));
+  await page.route('**/api/camera/streaming/status', route => route.fulfill({ json: { data: { status } } }));
+  await page.goto('/system-status');
+  await expect(page.getByText('Live view unavailable', { exact: true })).toBeVisible();
+  status = { enabled: 'true' };
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(page.getByText('Updated', { exact: true })).toBeVisible();
+  await expect(page.getByText('Live view unavailable', { exact: true })).toBeVisible();
+  await expect(page.getByText(/^Live view (enabled|disabled)$/)).toHaveCount(0);
 });
 
 test('administration gives storage health its own local section', async ({ page }) => {
