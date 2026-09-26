@@ -20,6 +20,7 @@
     "react-window-infinite-loader": "^1.0.10"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.6.1",
     "@types/react": "^18.2.39",

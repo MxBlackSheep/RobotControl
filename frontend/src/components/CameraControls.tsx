@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Alert, Box, Button, MenuItem, Stack, TextField, Typography } from '@mui/material';
+import { Alert, Box, Button, Collapse, MenuItem, Stack, TextField, Typography } from '@mui/material';
 import { buildApiUrl } from '@/utils/apiBase';
 import { useSerialPolling } from '@/hooks/useSerialPolling';
 
@@ -22,9 +22,12 @@ const labels: Record<string, string> = {
   reconnecting: 'Reconnecting', error: 'Error', recording: 'Recording', starting: 'Starting', stopped: 'Stopped',
 };
 
-export default function CameraControls({ admin, onSourceChange }: {
-  admin: boolean; onSourceChange: () => void;
+export interface CameraSummary { text: string; error: string | null }
+
+export default function CameraControls({ admin, onSourceChange, collapsible = false, onSummaryChange }: {
+  admin: boolean; onSourceChange: () => void; collapsible?: boolean; onSummaryChange?: (summary: CameraSummary) => void;
 }) {
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [status, setStatus] = useState<CameraStatus>();
   const [selection, setSelection] = useState('');
   const edited = useRef(false);
@@ -97,12 +100,15 @@ export default function CameraControls({ admin, onSourceChange }: {
   const recordingRequested = Boolean(health?.recording_requested);
   const selectionLocked = recordingRequested && Boolean(saved);
   const error = actionError || health?.operation?.error || health?.error || polling.error;
-  return <Stack spacing={2} sx={{ mb: 3 }}>
-    <Typography variant="h6">Camera and recording</Typography>
-    <Typography aria-live="polite">
-      Camera: {labels[health?.capture_state ?? ''] ?? 'Checking'} · Recording: {labels[health?.recording_state ?? ''] ?? 'Checking'}
-    </Typography>
-    {error && <Alert severity="warning">{error}</Alert>}
+  const summary = `Camera: ${labels[health?.capture_state ?? ''] ?? 'Checking'} · Recording: ${labels[health?.recording_state ?? ''] ?? 'Checking'}`;
+  useEffect(() => { onSummaryChange?.({ text: summary, error: error || null }); }, [summary, error, onSummaryChange]);
+  return <Stack spacing={1} sx={{ my: 2, '& button': { minHeight: 44 } }}>
+    {collapsible ? <Button aria-expanded={detailsOpen} aria-controls="camera-settings-panel" onClick={() => setDetailsOpen(value => !value)} sx={{ alignSelf: 'flex-start' }}>Camera and recording settings</Button>
+      : <Typography variant="h6">Camera and recording</Typography>}
+    {!onSummaryChange && <Typography aria-live="polite">{summary}</Typography>}
+    {!onSummaryChange && error && <Alert severity="warning">{error}</Alert>}
+    <Collapse in={!collapsible || detailsOpen} unmountOnExit={false}>
+    <Stack id="camera-settings-panel" spacing={2} sx={{ p: collapsible ? 2 : 0, border: collapsible ? 1 : 0, borderColor: 'divider', borderRadius: 1 }}>
     <Typography variant="body2" color="text.secondary">
       One camera supplies recording and all live viewers. Recovery is manual. Refresh cameras after connecting a USB device.
     </Typography>
@@ -132,5 +138,7 @@ export default function CameraControls({ admin, onSourceChange }: {
     <Typography variant="caption" color="text.secondary">
       Reconnecting interrupts the camera briefly for all viewers. A forced recovery may leave the current clip incomplete; completed recordings remain available.
     </Typography>
+    </Stack>
+    </Collapse>
   </Stack>;
 }

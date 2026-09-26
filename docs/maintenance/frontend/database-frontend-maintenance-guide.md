@@ -1,171 +1,61 @@
-# Frontend Database Maintenance Guide
+# Frontend database maintenance guide
 
-## Shared page spacing
+The Database page is a read-only inspector for table rows, stored procedures and functions. Restore and Operations are separate existing tools with their existing permissions and confirmations. Viewing a SQL definition never executes it.
 
-This page uses `PageContent` and `PageHeader` from `components/PageLayout.tsx`. The application shell supplies navigation, the breadcrumb and outer padding; do not add another outer Container or Back/breadcrumb row. Keep this module's functional tabs and controls. Operational content fills the space beside the sidebar; Maintenance uses the readable-width variant. See [the main application layout guide](main-application-frontend-maintenance-guide.md#shared-page-layout-september-2026) before changing page spacing.
+## Where the code lives
 
-This write-up explains every moving part of the database browser UI. It is designed for maintainers with minimal React experience—follow the exact steps and you will avoid breaking the admin workflow.
+- `frontend/src/pages/DatabasePage.tsx` loads the table catalogue and selects the module section.
+- `frontend/src/components/DatabaseTable.tsx` owns the selected table's query, row/cell inspection and exports.
+- `frontend/src/components/StoredProcedures.tsx` loads definitions and provides the SQL, Parameters and Details tabs.
+- `frontend/src/components/InspectionWorkspace.tsx` lays out the catalogue and detail area. Read [the shared workspace guide](inspection-workspace-maintenance-guide.md) before changing heights or breakpoints.
+- `frontend/src/components/InspectionTextViewer.tsx` provides the SQL reading controls.
+- `frontend/src/services/api.ts` supplies the existing `databaseAPI` request helpers.
 
----
+## Navigation and layout
 
-## 1. High-Level Architecture
+`components/navigation.tsx` defines the sidebar sections and URLs: `/database?section=tables`, `procedures`, `restore` and `operations`. Do not introduce another module navigation bar. `SectionPanel` retains visited sections; readers receive an `active` flag to avoid loading hidden sections.
 
-- `frontend/src/pages/DatabasePage.tsx`  
-  Main screen with tabs for Tables, Stored Procedures, Restore, and Operations. Handles initial data loads, filters, and error banners.
+The table and definition catalogues are 300 pixels wide when enough space is available. Below 900 pixels of workspace width, choosing an item opens its details; Back restores the catalogue. These transitions hide rather than unmount either side, preserving search and scroll. The table catalogue starts with Important tables only enabled. Has data and Empty are availability descriptions, not row counts.
 
-- `frontend/src/components/DatabaseTable.tsx`  
-  Heavy-lifting table viewer. Supports pagination, column filtering, CSV/JSON export, and cell inspection dialogs.
+The workspace measures the space remaining below the page heading. The table scrolls locally with sticky column headers and a sticky row-inspection column; pagination stays below it. Avoid hardcoded viewport percentages. Extremely short windows can scroll the outer viewer to keep its controls reachable.
 
-- `frontend/src/components/StoredProcedures.tsx`  
-  Lists stored procedures and allows execution with parameters. Uses the same Axios client.
+## Table reading and queries
 
-- `frontend/src/components/DatabaseOperations.tsx`  
-  Collection of maintenance actions (e.g., reindex, stats updates) exposed in the Operations tab.
+Search text and column conditions are drafts until Apply or Enter is chosen. The query effect cancels or ignores superseded responses. Refresh retains useful rows while loading; failures explicitly label the retained rows. Switching to another table resets its query, while Back and Expand retain it.
 
-- `frontend/src/components/DatabaseRestore.tsx`  
-  UI for triggering restores, showing backup metadata, and managing the maintenance countdown while the backend restarts.
+The API request includes `page`, `limit`, `search`, `order_by`, `sort_direction` and serialized `filters`. Preserve these names. Search applies to supported scalar text, numeric and date columns; it does not include binary/complex columns. The backend validates column names and parameterizes values. Sorting and paging cannot promise a stable snapshot while records are being written.
 
-- `frontend/src/services/api.ts` (`databaseAPI`)  
-  Wrapper around the REST endpoints for tables, stored procedures, and status.
+Click a numbered row button to inspect **every** column, including columns hidden from the grid. Click a cell to inspect just its complete value. NULL and empty strings have distinct labels. Copy reports success or explains the manual select-and-copy fallback. JSON-shaped values are displayed as formatted text. Browsing does not modify a record.
 
-**Rule of thumb:** Keep network calls in the page or the specific component responsible for the feature. Don’t have random child components call `fetch` directly; use the `databaseAPI` helpers so error handling and headers stay consistent.
+More contains Columns, Export, Wrap cells and Clear search and filters. At least one grid column must remain visible. Expanded tables use a MUI full-screen Dialog; Escape restores focus to Expand. Query, scroll and column state live outside the Dialog.
 
----
+## Exports
 
-## 2. Typical User Journey
+The export dialog offers Current page or All matching rows, in CSV or JSON. Both use the applied search, conditions, sorting and visible columns.
 
-1. **Page mount** → `DatabasePage` calls `loadTablesAndStatus()` with `showImportantOnly = true`.  
-   - Fetches `/api/database/tables?important_only=true`, maps response into `TableInfo[]`, and updates `tableStats`.
+`databaseExport.ts` collects all matching data in 1,000-row requests. Cancellation, count changes, incomplete batches or its 50 MB memory bound stop the export with an explanation. Do not replace this with a single unbounded request. Concurrent database writes can affect a multi-request export; it is not a transaction snapshot. NULL remains NULL in JSON and becomes an empty CSV field.
 
-2. **Tables tab**  
-   - On selecting a table (`handleTableSelect`), `DatabaseTable` loads data via `databaseAPI.getTableData(tableName, page, limit, params)`.  
-   - The component memoises columns and rows, handles pagination events, and uses a Drawer for filters.
+## Stored procedures and functions
 
-3. **Stored Procedures tab**  
-   - `StoredProcedures` fetches the list once (`databaseAPI.getStoredProcedures`).  
-   - Running a procedure posts to `/api/database/execute-procedure` with `procedure_name` and `parameters`.
+The catalogue supports name search and a definition-type filter. Selecting an item opens SQL by default. Parameters and Details have their own tabs, leaving the SQL reading area free of stacked metadata cards.
 
-4. **Restore tab**  
-  - `DatabasePage` now checks the signed-in user before mounting the restore UI. Admins always see the tools; non-admins only see them if the current session was classified as local (`session_is_local === true`). Everyone else gets an informational card instead of triggering API errors.
-  - When the restore UI is active, `DatabaseRestore` displays backups (from `/api/admin/backup/list`) and exposes restore/delete actions.
-  - After the operator confirms a restore, the component starts a 60-second maintenance window and repeatedly calls `GET /health` with the header `X-Allow-Maintenance: true`. As soon as the backend answers, maintenance ends early so the UI unlocks without waiting the full minute.
+The SQL reader provides line numbers, Find with previous/next matches, wrapping, copying and expansion. Wrap preference is independent of logs. Parameters retain their type, length and direction from the server. Definition payloads are normalized so missing parameter arrays or SQL do not crash the page.
 
-5. **Operations tab**  
-   - `DatabaseOperations` groups actions (clear cache, rebuild indexes). Each button maps to a backend endpoint exposed under `/api/database/...`.
-   - Remote sessions never mount this component. Instead, the tab shows a friendly “Local Access Required” card. If you change the guard, keep the message in sync so remote staff know to walk over to the robot console.
+Refresh preserves the selected item by type plus name. If it disappeared from the refreshed response, the reader clears the selection and explains why. A failed refresh retains the previous definitions. The component requests fresh data on explicit Refresh and ignores results after it becomes inactive.
 
-6. **Error handling**  
-   - Any failure sets `error` in `DatabasePage`, which renders `ServerError` with retry buttons.
+## Access rules
 
----
+Restore remains available to admins or local sessions. Operations remains local-only. Backend checks remain authoritative. No SQL editing, procedure execution or database mutation was added to the viewers.
 
-## 3. Key State & Props
+## When something looks wrong
 
-- `DatabasePage` state:
-  - `tables` – list of tables shown in the sidebar.  
-  - `selectedTable` – currently viewed table name.  
-  - `showImportantOnly` – toggles important-only filter.  
-  - `activeTab` – which MUI tab is visible (Tables/Procedures/Restore/Operations).  
-  - `tableStats` – counts displayed in the tooltip.
+1. **No tables:** clear Find a table and switch off Important tables only. Inspect the catalogue response if it remains empty.
+2. **No rows:** clear applied search and filters through More. Distinguish an empty table from no matches or a failed refresh.
+3. **Details are hidden on a phone:** choose a catalogue item. Back changes the visible pane; it does not discard the selected item's state.
+4. **A long value is shortened:** use its cell button or the row-inspection button. Hidden grid columns remain available in the row inspector.
+5. **Copy fails:** browser clipboard permission may be unavailable. The value remains selectable, and the reader shows that fallback.
+6. **Reader has very little space:** inspect shared workspace sizing and toolbar wrapping before adding another viewport-height constant.
 
-- `DatabaseTable` state:
-  - `data` (columns, rows, totals) – transformed backend payload.  
-  - `page`, `rowsPerPage`, `sortColumn`, `filters`, `searchTerm` – all trigger data reloads when changed.  
-  - `selectedCell` – opens the detail dialog for long values.  
-  - `exportMenuAnchor`, `filterDrawerOpen` – UI controls.
+## Repeatable checks
 
-- Props to keep consistent:
-  - `DatabaseTable` expects `tableName` and an `onError` callback.  
-- `StoredProcedures` and `DatabaseOperations` rely on `onError`/`onSuccess` to surface issues; `DatabaseRestore` only fires `onError` while loading its backup list—restore failures must stay inside the status dialog so the page doesn’t show double errors.
-
----
-
-## 4. Working With API Helpers
-
-1. **Use `databaseAPI` methods** (`getTables`, `getTableData`, `getStoredProcedures`, etc.). They automatically use `axios` and include the auth header.  
-2. **Pass params explicitly.** Pagination uses parameters `page` and `limit`; filters are encoded as JSON via `params.filters = JSON.stringify(...)`. Keep that shape if you add new operators.  
-3. **Normalise responses** inside each component. The backend returns `columns` and `rows` as objects; `DatabaseTable` converts them to arrays to match MUI’s expected format.
-4. **Throttle re-renders.** Expensive state (like the table data) is wrapped in `useMemo`. Keep these memos if you add fields or rows so performance stays acceptable on big tables.
-
----
-
-## 5. Common Maintenance Tasks
-
-| Task | Where | Instructions |
-|------|-------|--------------|
-| Change the default filter (important tables) | `DatabasePage` (`showImportantOnly` state) | Flip the `useState(true)` default. Update tooltip strings to match the new default. |
-| Add column-specific tooltips | `DatabaseTable` rows | Modify the map that renders rows and add `Tooltip` around `TableCell`. |
-| Support additional filter operators | `DatabaseTable.tsx` (`ColumnFilter`) | Extend the `operator` union and update backend interpretation. Add UI controls in the filter drawer. |
-| Enable CSV export in a new format | `DatabaseTable` export handlers | Adjust the `handleExport` logic to map rows to your desired shape before building the download. |
-| Display table row counts in the sidebar | `DatabasePage` list render | Include `table.row_count` when mapping to `<ListItemButton>`. Remember to update the data mapping in `loadTablesAndStatus()`. |
-| Restore unlocks never end | `DatabaseRestore` maintenance watcher | Confirm the poll request sends `X-Allow-Maintenance: true`. Without that header the Axios interceptor blocks the call and the UI waits the full 60 seconds. |
-
----
-
-## 6. Extending or Modifying Behaviour
-
-### 6.1 Add a chart/visualisation for a table
-1. In `DatabasePage`, add another tab (e.g., “Visualise”).  
-2. When selected, call a new component that uses the already-fetched data or triggers `databaseAPI.getTableData` with a specific shape.  
-3. Use a chart library (Recharts, etc.) and document the expected data format in the component.
-
-### 6.2 Add a search across all tables
-1. Provide a new text input in the header.  
-2. On submit, call a backend endpoint that supports global search (if available).  
-3. Show results in a temporary list or direct the user to the relevant table (set `selectedTable` and hand `DatabaseTable` a prebuilt filter).
-
-### 6.3 Allow editing table rows (admin only)
-1. Add edit/delete buttons to each row.  
-2. Wire them to new endpoints (PATCH/DELETE).  
-3. After a mutation, call `loadData()` to refresh the table and keep pagination intact.
-
----
-
-## 7. Quick Reference
-
-| Function / Component | Purpose | Notes |
-|----------------------|---------|-------|
-| `DatabasePage` | Page layout + orchestration | Controls tabs, filters, and error banners. |
-| `DatabaseTable` | Render tabular data | Supports pagination, filters, exports. Keep `loadData()` logic intact. |
-| `databaseAPI.getTables(importantOnly)` | Fetch important/all tables | Returns `table_details`, `important_count`, `all_count`. |
-| `databaseAPI.getTableData(name, page, limit, params)` | Load table rows | Accepts optional filter/sort params encoded as JSON. |
-| `StoredProcedures` | Run stored procedures | Expects backend to return parameter metadata. |
-| `DatabaseRestore` | Restore backups | Uses admin endpoints `/api/admin/backup/*`. Requires admin role. |
-
----
-
-## 8. When Something Goes Wrong
-
-1. **Tables list is empty**  
-   - Backend likely returned `important_count=0`. Toggle “Important tables only” off to confirm the API is healthy. Use browser dev tools to inspect the response payload.
-
-2. **Table viewer keeps reloading**  
-   - Check dependencies on `useEffect`. If you added state to `DatabaseTable` without memoising, you may trigger an infinite loop (e.g., forgetting to skip `loadData` when `tableName` is empty).
-
-3. **CSV download is garbled**  
-   - Ensure you’re stringifying rows correctly (wrap values that contain commas). Check the MIME type and file extension in the download helper.
-
-4. **Restore tab replaced by warning**  
-   - The page hides `DatabaseRestore` for remote non-admin sessions, so seeing the warning card is expected when you are off the lab network or signed in without admin rights. To test the UI, log in as an admin from a trusted machine.
-
-5. **Filters never apply**  
-   - Inspect the network request; the backend expects `filters` as JSON string. Verify you updated both the UI state and the serialization logic when adding new operators.
-
-6. **Restore dialog hangs for a minute**  
-   - Check the `/health` poll in dev tools. If the request is missing `X-Allow-Maintenance: true`, the Axios interceptor cancels it and maintenance only clears after the 60-second timer expires.
-
-Follow these instructions and the database UI will stay easy to maintain and hard to break.
-
-
-### September 2026: shared section navigation
-
-`components/navigation.tsx` is the source of section names, URLs and UI permissions. Use `useModuleSection` and `moduleSectionUrl`; do not add another horizontal page tab bar. The sidebar supports expanded links, rail menus and mobile navigation. `SectionPanel` mounts on first visit and retains drafts/scroll within the page session. Components that poll must take an active flag and suspend their timer when hidden. Camera navigation never starts/stops a session. Database Restore remains admin **or** local; Operations and RobotControl logs remain local-only. Backend permissions still apply.
-
-
-### September 2026: table browsing and exports
-
-The Tables section has a searchable catalogue, Important-only filter, and a separate selected-table workspace. Catalogue labels mean Has data/Empty, not row counts. On narrow screens Back to tables preserves the selected-table draft. Stored procedures also support name search.
-
-`DatabaseTable` applies search/filter drafts only on Apply or Enter. Its single effect cancels/ignores superseded requests and keeps prior rows during refresh. `search` (maximum 200 characters) and `sort_direction=asc|desc` extend the existing table endpoint. SQL parameters carry values; column names are checked against metadata and identifiers are quoted. Scalar-type metadata excludes binary/complex columns from global search. SQL commands time out after 30 seconds. Primary keys break sorting ties; tables without a unique key cannot promise stable pagination during writes.
-
-`databaseExport.ts` collects all matching rows in 1,000-row batches. Cancellation, count changes, incomplete batches and the 50 MB memory limit stop the download with an explanation. Exports use applied conditions and visible columns. They are not transaction snapshots. NULL is preserved in JSON and rendered as an empty CSV field. Do not replace this with a single unbounded page request. Restore and Operations keep their existing behavior and access rules.
+`frontend/e2e/database-failure-scenarios.md` records failure cases written before the production changes. `frontend/e2e/database.spec.ts` exercises the built application against synthetic read responses at 390, 1280 and 1920 pixels. It covers table navigation, complete row inspection, search, expansion/focus, SQL Find/tabs, read failures and clipboard failure. The shared suite saves screenshots, traces and an HTML report; use the command in `frontend/e2e/scenarios.md` to repeat it. No unit tests were added for this change.

@@ -11,13 +11,16 @@ import gzip
 import logging
 import time
 import zipfile
+import threading
 from collections import deque
 from datetime import datetime, date
 import errno
 from pathlib import Path, PurePosixPath
 from typing import Any, BinaryIO, Deque, Dict, List, Literal, Optional, Tuple
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Request, status
+from pydantic import BaseModel, Field
+from backend.services.log_readers import LogReaderManager, ReaderError
 
 from backend.api.dependencies import ConnectionContext, get_connection_context
 from backend.api.response_formatter import ResponseFormatter, ResponseMetadata
@@ -26,10 +29,110 @@ from backend.services.auth import get_current_user
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/logfiles", tags=["logfiles"])
+_reader_manager_lock = threading.Lock()
 
 MAX_PREVIEW_BYTES = 1024 * 1024
 MAX_BROWSE_ITEMS = 200
 PREVIEW_MODES = {"head", "tail"}
+
+
+class OpenLogReader(BaseModel):
+    source_id: str = Field(max_length=100)
+    relative_path: str = Field(max_length=4096)
+    entry_path: Optional[str] = Field(default=None, max_length=4096)
+
+
+def _reader_manager(request: Request) -> LogReaderManager:
+    with _reader_manager_lock:
+        manager = getattr(request.app.state, "log_readers", None)
+        if manager is None:
+            directory = getattr(request.app.state, "log_reader_cache", None)
+            if directory is None:
+                from backend.utils.data_paths import get_path_manager
+                directory = get_path_manager().temp_path / "log-readers"
+            manager = LogReaderManager(Path(directory))
+            request.app.state.log_readers = manager
+        return manager
+
+
+def _reader_access(request, ident, current_user, connection):
+    manager = _reader_manager(request)
+    reader = manager.get(ident, str(current_user["user_id"]))
+    config, root = _resolve_source_root(reader.source_id, request)
+    denied = _enforce_source_access(reader.source_id, config, connection, current_user)
+    if denied is not None:
+        return manager, reader, denied
+    if root.resolve() != reader.root or not _is_allowed_file_for_source(config, reader.path):
+        manager.release(reader.id, reader.owner)
+        raise ReaderError("The log source changed. Reopen the selected file.", 404)
+    with manager.lock:
+        reader.touched = time.monotonic()
+    return manager, reader, None
+
+
+def _reader_error(exc: Exception):
+    return ResponseFormatter.error(message=str(exc), error_code="LOG_READER_ERROR",
+                                   status_code=exc.status if isinstance(exc, ReaderError) else 400)
+
+
+@router.post("/readers")
+def open_log_reader(body: OpenLogReader, request: Request,
+                    current_user: Dict[str, Any] = Depends(get_current_user),
+                    connection: ConnectionContext = Depends(get_connection_context)):
+    try:
+        config, root = _resolve_source_root(body.source_id, request)
+        denied = _enforce_source_access(body.source_id, config, connection, current_user)
+        if denied is not None:
+            return denied
+        target = _resolve_child_path(root, body.relative_path)
+        if not target.is_file():
+            raise ReaderError("Log file not found.", 404)
+        if not _is_allowed_file_for_source(config, target):
+            raise ReaderError("This file type is not enabled for the selected source.")
+        entry = _normalize_zip_entry_path(body.entry_path) if body.entry_path else None
+        if bool(entry) != (target.suffix.lower() == '.zip'):
+            raise ReaderError("Select a text entry inside the ZIP archive.")
+        manager = _reader_manager(request)
+        reader = manager.create(str(current_user['user_id']), body.source_id, target, root.resolve(), entry)
+        return ResponseFormatter.success(data=manager.status(reader))
+    except (ReaderError, ValueError, KeyError, OSError) as exc:
+        return _reader_error(exc)
+
+
+@router.get("/readers/{reader_id}")
+def log_reader_status(reader_id: str, request: Request,
+                      current_user: Dict[str, Any] = Depends(get_current_user),
+                      connection: ConnectionContext = Depends(get_connection_context)):
+    try:
+        manager, reader, denied = _reader_access(request, reader_id, current_user, connection)
+        return denied if denied is not None else ResponseFormatter.success(data=manager.status(reader))
+    except (ReaderError, ValueError, KeyError) as exc:
+        return _reader_error(exc)
+
+
+@router.get("/readers/{reader_id}/sections")
+def log_reader_section(reader_id: str, request: Request, cursor: str = Query('last', max_length=100),
+                       current_user: Dict[str, Any] = Depends(get_current_user),
+                       connection: ConnectionContext = Depends(get_connection_context)):
+    try:
+        manager, reader, denied = _reader_access(request, reader_id, current_user, connection)
+        return denied if denied is not None else ResponseFormatter.success(data=manager.section(reader, cursor))
+    except (ReaderError, ValueError, KeyError, OSError) as exc:
+        return _reader_error(exc)
+
+
+@router.delete("/readers/{reader_id}")
+def close_log_reader(reader_id: str, request: Request,
+                     current_user: Dict[str, Any] = Depends(get_current_user),
+                     connection: ConnectionContext = Depends(get_connection_context)):
+    try:
+        manager, reader, denied = _reader_access(request, reader_id, current_user, connection)
+        if denied is not None:
+            return denied
+        manager.release(reader.id, reader.owner)
+        return ResponseFormatter.success(data={"released": True})
+    except (ReaderError, ValueError, KeyError) as exc:
+        return _reader_error(exc)
 
 LOGFILE_SOURCES: Dict[str, Dict[str, Any]] = {
     "python_log": {
@@ -45,8 +148,8 @@ LOGFILE_SOURCES: Dict[str, Dict[str, Any]] = {
     },
     "robotcontrol_logs": {
         "label": "RobotControl Logs",
-        "path": r"C:\Users\Hamilton\Desktop\RobotControl\data\logs",
-        "access_scope": "local_only",
+        "path": None,
+        "access_scope": "admin_or_local",
     },
 }
 
@@ -66,8 +169,16 @@ def _path_to_str(path: Path) -> str:
     return str(path)
 
 
-def _get_sources() -> Dict[str, Dict[str, Any]]:
-    return {source_id: dict(config) for source_id, config in LOGFILE_SOURCES.items()}
+def _get_sources(request: Optional[Request] = None) -> Dict[str, Dict[str, Any]]:
+    sources = {source_id: dict(config) for source_id, config in LOGFILE_SOURCES.items()}
+    config = sources.get("robotcontrol_logs")
+    if config is not None and config.get("path") is None:
+        root = getattr(request.app.state, "log_root", None) if request else None
+        if root is None:
+            from backend.utils.data_paths import get_path_manager
+            root = get_path_manager().logs_path
+        config["path"] = str(Path(root).resolve())
+    return sources
 
 
 def _get_allowed_extensions_for_source(source_config: Dict[str, Any]) -> Optional[set[str]]:
@@ -84,14 +195,16 @@ def _is_allowed_file_for_source(source_config: Dict[str, Any], file_path: Path) 
     return file_path.suffix.lower() in allowed
 
 
-def _enforce_source_access(source_id: str, source_config: Dict[str, Any], connection: ConnectionContext):
+def _enforce_source_access(source_id: str, source_config: Dict[str, Any], connection: ConnectionContext, current_user: Optional[Dict[str, Any]] = None):
     access_scope = str(source_config.get("access_scope") or "local_only")
     if access_scope == "all_authenticated":
+        return None
+    if access_scope == "admin_or_local" and (connection.is_local or (current_user or {}).get("role") == "admin"):
         return None
     if access_scope == "local_only" and connection.is_local:
         return None
     return ResponseFormatter.forbidden(
-        message="Local access required for this log source",
+        message="An administrator or a local session is required for this log source",
         details={
             "source_id": source_id,
             "source_label": source_config.get("label"),
@@ -119,8 +232,8 @@ def _sanitize_relative_path(relative_path: Optional[str]) -> str:
     return pure.as_posix()
 
 
-def _resolve_source_root(source_id: str) -> Tuple[Dict[str, Any], Path]:
-    sources = _get_sources()
+def _resolve_source_root(source_id: str, request: Optional[Request] = None) -> Tuple[Dict[str, Any], Path]:
+    sources = _get_sources(request)
     if source_id not in sources:
         raise KeyError(f"Unknown source_id '{source_id}'")
 
@@ -454,13 +567,14 @@ def _response_metadata(start_time: float, operation: str, current_user: Dict[str
 
 @router.get("/sources")
 def list_logfile_sources(
+    request: Request,
     current_user: Dict[str, Any] = Depends(get_current_user),
     connection: ConnectionContext = Depends(get_connection_context),
 ):
     start_time = time.time()
 
     entries: List[Dict[str, Any]] = []
-    for source_id, config in _get_sources().items():
+    for source_id, config in _get_sources(request).items():
         root = Path(config["path"])
         exists = False
         accessible = False
@@ -480,11 +594,13 @@ def list_logfile_sources(
                 "exists": exists,
                 "accessible": accessible,
                 "error": error_message,
+                "shortcuts": [{"label": "Current logs", "relative_path": ""}, {"label": "History", "relative_path": "history"}] if source_id == "robotcontrol_logs" else [],
                 "permissions": {
                     "is_local_session": connection.is_local,
                     "can_access": (
                         str(config.get("access_scope") or "local_only") == "all_authenticated"
                         or connection.is_local
+                        or (config.get("access_scope") == "admin_or_local" and current_user.get("role") == "admin")
                     ),
                     "access_scope": str(config.get("access_scope") or "local_only"),
                     "ip_classification": connection.ip_classification,
@@ -502,6 +618,7 @@ def list_logfile_sources(
 
 @router.get("/browse")
 def browse_logfiles(
+    request: Request,
     source_id: str = Query(..., description="Configured source identifier"),
     relative_path: str = Query("", description="Path relative to the selected source"),
     search: str = Query("", max_length=200),
@@ -520,14 +637,14 @@ def browse_logfiles(
         return ResponseFormatter.bad_request(message="Modified-from date must not be later than modified-to date")
 
     try:
-        source_config, root = _resolve_source_root(source_id)
+        source_config, root = _resolve_source_root(source_id, request)
         target = _resolve_child_path(root, relative_path)
     except KeyError:
         return ResponseFormatter.not_found(message="Unknown log source", details={"source_id": source_id})
     except ValueError as exc:
         return ResponseFormatter.bad_request(message="Invalid relative path", details=str(exc))
 
-    access_error = _enforce_source_access(source_id, source_config, connection)
+    access_error = _enforce_source_access(source_id, source_config, connection, current_user)
     if access_error:
         return access_error
 
@@ -591,6 +708,7 @@ def browse_logfiles(
 
 @router.get("/preview")
 def preview_logfile(
+    request: Request,
     source_id: str = Query(..., description="Configured source identifier"),
     relative_path: str = Query(..., description="File path relative to source"),
     mode: str = Query("tail", description="Preview mode: head or tail"),
@@ -604,14 +722,14 @@ def preview_logfile(
         return ResponseFormatter.bad_request(message="Invalid preview mode", details={"mode": mode, "allowed": sorted(PREVIEW_MODES)})
 
     try:
-        source_config, root = _resolve_source_root(source_id)
+        source_config, root = _resolve_source_root(source_id, request)
         target = _resolve_child_path(root, relative_path)
     except KeyError:
         return ResponseFormatter.not_found(message="Unknown log source", details={"source_id": source_id})
     except ValueError as exc:
         return ResponseFormatter.bad_request(message="Invalid relative path", details=str(exc))
 
-    access_error = _enforce_source_access(source_id, source_config, connection)
+    access_error = _enforce_source_access(source_id, source_config, connection, current_user)
     if access_error:
         return access_error
 
@@ -700,6 +818,7 @@ def preview_logfile(
 
 @router.get("/archive/browse")
 def browse_archive_entries(
+    request: Request,
     source_id: str = Query(...),
     archive_relative_path: str = Query(..., description="ZIP archive path relative to source"),
     entry_path: str = Query("", description="Directory path inside archive"),
@@ -719,7 +838,7 @@ def browse_archive_entries(
         return ResponseFormatter.bad_request(message="Modified-from date must not be later than modified-to date")
 
     try:
-        source_config, root = _resolve_source_root(source_id)
+        source_config, root = _resolve_source_root(source_id, request)
         archive_path = _resolve_child_path(root, archive_relative_path)
         normalized_entry_path = _normalize_zip_entry_path(entry_path)
     except KeyError:
@@ -727,7 +846,7 @@ def browse_archive_entries(
     except ValueError as exc:
         return ResponseFormatter.bad_request(message="Invalid path", details=str(exc))
 
-    access_error = _enforce_source_access(source_id, source_config, connection)
+    access_error = _enforce_source_access(source_id, source_config, connection, current_user)
     if access_error:
         return access_error
 
@@ -843,6 +962,7 @@ def browse_archive_entries(
 
 @router.get("/archive/preview")
 def preview_archive_entry(
+    request: Request,
     source_id: str = Query(...),
     archive_relative_path: str = Query(..., description="ZIP archive path relative to source"),
     entry_path: str = Query(..., description="File path inside zip archive"),
@@ -857,7 +977,7 @@ def preview_archive_entry(
         return ResponseFormatter.bad_request(message="Invalid preview mode", details={"mode": mode, "allowed": sorted(PREVIEW_MODES)})
 
     try:
-        source_config, root = _resolve_source_root(source_id)
+        source_config, root = _resolve_source_root(source_id, request)
         archive_path = _resolve_child_path(root, archive_relative_path)
         normalized_entry_path = _normalize_zip_entry_path(entry_path)
     except KeyError:
@@ -865,7 +985,7 @@ def preview_archive_entry(
     except ValueError as exc:
         return ResponseFormatter.bad_request(message="Invalid path", details=str(exc))
 
-    access_error = _enforce_source_access(source_id, source_config, connection)
+    access_error = _enforce_source_access(source_id, source_config, connection, current_user)
     if access_error:
         return access_error
 

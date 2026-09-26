@@ -320,6 +320,12 @@ async def lifespan(app: FastAPI):
     logger.info("Backend session starting | pid=%s", os.getpid())
 
     logger.info("Starting RobotControl Backend...")
+    from backend.services.log_readers import LogReaderManager
+    try:
+        app.state.log_readers = await asyncio.to_thread(LogReaderManager, app.state.log_reader_cache)
+    except OSError as exc:
+        # Keep other modules usable; opening a reader will retry and explain the disk error.
+        logger.warning("Log reading cache unavailable: %s", exc)
     from backend.services.health_sampler import health_sampler
     health_sampler.start()
 
@@ -384,6 +390,8 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         logger.info("Shutting down RobotControl Backend...")
+        if getattr(app.state, "log_readers", None) is not None:
+            await asyncio.to_thread(app.state.log_readers.close)
         await asyncio.to_thread(health_sampler.stop)
         if diagnostics:
             await asyncio.to_thread(diagnostics.stop)
@@ -462,6 +470,10 @@ app = FastAPI(
     redoc_url="/redoc",
     lifespan=lifespan,
 )
+
+# Share the logger's actual root with all log browsing/reading endpoints.
+app.state.log_root = Path(logging_handlers.application.baseFilename).parent
+app.state.log_reader_cache = data_paths.temp_path / "log-readers"
 
 # Configure CORS for frontend access
 app.add_middleware(
@@ -850,6 +862,7 @@ Examples:
                 reload=False,
                 log_level="info",
                 access_log=True,
+                proxy_headers=False,  # Access checks must retain the actual socket peer.
                 use_colors=False,  # Disable colors in compiled mode
                 log_config=None,  # Use existing logger configuration
             )
@@ -869,6 +882,7 @@ Examples:
                 reload=False,
                 log_level="info",
                 access_log=False,
+                proxy_headers=False,
                 log_config=None
             )
     except KeyboardInterrupt:

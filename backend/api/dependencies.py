@@ -25,8 +25,8 @@ async def get_connection_context(request: Request) -> ConnectionContext:
     """
     Inspect the incoming request and determine whether the caller is local.
 
-    Preference is given to the left-most X-Forwarded-For header which allows the
-    application to sit behind a trusted reverse proxy.
+    Forwarded addresses may restrict a loopback connection, but may never turn a
+    remote socket peer into local access. The app disables Uvicorn peer rewriting.
     """
     forwarded_for = request.headers.get("x-forwarded-for")
     client_ip: Optional[str] = None
@@ -38,6 +38,10 @@ async def get_connection_context(request: Request) -> ConnectionContext:
         client_ip = normalize_ip(request.client.host)
 
     classification = classify_ip(client_ip)
+    # Forwarded headers can restrict a loopback proxy, never promote a remote peer.
+    peer_ip = normalize_ip(request.client.host) if request.client else None
+    if classification == "local" and not is_local_ip(peer_ip):
+        classification = classify_ip(peer_ip)
     return ConnectionContext(
         client_ip=client_ip,
         is_local=classification == "local",

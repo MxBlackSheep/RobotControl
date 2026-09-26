@@ -23,7 +23,7 @@ export function createFrameStore() {
   };
 }
 
-export function FrameFreshness({ store }: { store: FrameStore }) {
+export function FrameFreshness({ store, inline = false }: { store: FrameStore; inline?: boolean }) {
   const [label, setLabel] = useState('Waiting for frames');
   useEffect(() => {
     const refresh = () => {
@@ -35,9 +35,10 @@ export function FrameFreshness({ store }: { store: FrameStore }) {
     const timer = setInterval(refresh, 1000);
     return () => clearInterval(timer);
   }, [store]);
-  return <Box role="status" sx={{ position: 'absolute', bottom: 8, left: 8, right: 8, zIndex: 2,
-    bgcolor: 'rgba(0,0,0,.8)', color: label.startsWith('Stale') ? '#ffcc80' : 'white',
-    px: 1, py: .5, borderRadius: 1, pointerEvents: 'none' }}>{label}</Box>;
+  return <Box role="status" sx={{ ...(inline ? { position: 'relative' } : { position: 'absolute', bottom: 8, left: 8, right: 8, zIndex: 2 }),
+    bgcolor: inline ? 'transparent' : 'rgba(0,0,0,.8)',
+    color: inline ? (label.startsWith('Stale') ? 'warning.dark' : 'text.secondary') : (label.startsWith('Stale') ? '#ffcc80' : 'white'),
+    px: inline ? 0 : 1, py: .5, borderRadius: 1, pointerEvents: 'none', fontSize: '0.8125rem' }}>{label}</Box>;
 }
 
 export type FrameStore = ReturnType<typeof createFrameStore>;

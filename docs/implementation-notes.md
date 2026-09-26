@@ -1,3 +1,16 @@
+## 2026-09-26 Whole-application UI review
+
+- Reviewed all active frontend routes, shared navigation/theme and the supplied log screenshot with two frontend specialists. Proposed four reusable page patterns, a shared space/action/state policy, System/Light/Dark appearance and route-by-route changes in `docs/frontend-ui-review-2026-09-26.md`.
+- Identified missing first/last-page controls, excess log toolbars, tiny labware targets and code-reviewed state/save/pagination/polling problems to cover before the next redesign. This pass changed documentation only; no new application build or live-device verification was performed.
+
+## 2026-09-26 Desktop and phone inspection viewers
+
+- Two frontend specialists researched and peer-reviewed the shared inspection layout, table/full-row reader, searchable SQL catalogue and camera viewport. Back/Expand retain state; camera Fit preserves the whole frame, with explicit cropped Fill, zoom and bounded pan using the existing streaming session.
+- RobotControl log browsing now uses the running logger's actual directory and permits remote administrators or authenticated local users. Complete plain/gzip/ZIP text is available through cancellable captured readers, bounded sections, section Find and opt-in live following. Source archives and existing retention behavior are preserved.
+- Reader ownership, actual-peer access checks, Unicode/CRLF boundaries, temporary storage limits, idle expiry and startup/shutdown cleanup are enforced. Maintenance guides and repeatable browser/HTTP fixtures are updated; no new unit tests were added.
+- Validation: all 29 browser/HTTP E2E checks passed, including deterministic camera focus recovery during a source-change gap. Frontend build, resource embedding and Windows compilation passed. The relocated candidate passed authenticated archive reconstruction, actual log-root, orphan cleanup and desktop/phone browser checks with disposable data and automation disabled. Physical camera/SQL and native phone-keyboard/browser-zoom acceptance remain VM/operator checks.
+- Verification commands and limits: `frontend/e2e/README.md`. Retained reports, screenshots, traces and checksums: `recovery/viewer-verification/`. Windows candidate: `dist/viewer-review-20260926/RobotControl/` (copy the whole folder for VM testing).
+
 ## 2026-09-17 Deployment recovery guidance and GitHub validation
 
 - Documented full executable/support-folder replacement and reviewed offline reconciliation of conflicting live/archive run history, preserving originals and explicit scheduler resume.

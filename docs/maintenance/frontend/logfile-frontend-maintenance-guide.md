@@ -1,155 +1,67 @@
-# Frontend LogFile Page Maintenance Guide
+# Log viewer maintenance
 
-## Shared page spacing
+## Operator workflow
 
-This page uses `PageContent` and `PageHeader` from `components/PageLayout.tsx`. The application shell supplies navigation, the breadcrumb and outer padding; do not add another outer Container or Back/breadcrumb row. Keep this module's functional tabs and controls. Operational content fills the space beside the sidebar; Maintenance uses the readable-width variant. See [the main application layout guide](main-application-frontend-maintenance-guide.md#shared-page-layout-september-2026) before changing page spacing.
+1. Open Logs and choose Python logs, Hamilton traces or RobotControl logs in the
+   sidebar. RobotControl is available remotely to administrators, and locally to
+   authenticated users. Source permissions come from the backend.
+2. For RobotControl, Current logs opens the active folder and History opens its
+   `history` subfolder. Breadcrumbs always identify the actual location.
+3. Search filenames in the current folder, change sorting or apply type/date
+   filters. Folder paging defaults to 50 entries (25/100 are available). This is
+   filename search, not recursive disk or file-content search.
+4. Select a plain/gzip file, or open a ZIP and select its text member. The reader
+   prepares a captured version and initially shows the latest section. Preparation
+   displays progress and Cancel; it can fail explicitly on corrupt/oversized input.
+5. Use Beginning, Older section, Newer section and Latest to read the complete
+   captured file. Only one section is rendered. Find in this section searches
+   this displayed text; its query survives section changes and results reset.
+6. Expand gives the reader the full screen. Escape closes it and restores focus.
+   On a phone, Back to files returns to the retained catalogue position.
+7. More contains wrapping and Details. Details shows the authoritative server
+   path, ZIP member separately, encoding, captured time and decoded byte range.
+   Copy path reports success or offers manual copying when clipboard access fails.
 
-This guide explains the **LogFile** page (top-level tab) used to browse and preview log files from fixed backend-approved folders.
+## Components and ownership
 
-Important: this page is **read-only**. Do not add file edit/delete actions casually.
+`LogFilePage` resolves sources and sidebar sections. `LogSourceBrowser` retains
+folder/filter/page/selection state and uses `InspectionWorkspace` for the 300px
+catalogue and 900-pixel content-width desktop/phone transition. `LogReader` owns its
+reading session, section requests, Find, follow polling and expanded dialog.
+`services/logFileApi.ts` contains the typed old/new endpoint wrappers.
 
----
+The shared workspace measures available height below the app header and controls.
+Do not reintroduce hardcoded viewport deductions or stack the entire catalogue
+above content on phones. All viewer actions have labelled, 44px touch targets.
 
-## 1. Files You Must Know
+## Lifecycle rules
 
-- `frontend/src/pages/LogFilePage.tsx`  
-  Main UI for source selection, folder/archive browsing, and text preview.
+- Selection identity includes source, path, archive and member. A filename alone
+  is insufficient. Requests from older selections must not replace newer content.
+- Initial selection creates a reader; its preparation is polled serially. Cancel
+  and cleanup issue DELETE, including when create finishes after navigation away.
+- Visible ready readers renew their lease every 60 seconds. Hidden readers do not
+  renew. A 403/404 ends renewal and offers Reopen while retaining displayed text.
+- Leaving the file releases the session. Switching sidebar sections retains a
+  completed snapshot without renewing its lease; preparation/follow is stopped.
+  Returning restores its section. Expired readers offer an explicit Reopen.
+- Follow latest is explicit and only available for active plain files outside
+  `history`. It uses the legacy bounded tail API every 5 seconds after the previous
+  request settles. Archives never follow. Hiding the document pauses requests;
+  leaving the reader stops following. Cancel aborts polling. Errors retain the
+  last displayed preview and stop following.
+- Beginning/Older leave follow mode and prepare a snapshot. Latest does not enable
+  follow. A user reading above the bottom is offered Jump to latest rather than
+  being scrolled away from their current position.
+- File-list Refresh and reader Refresh are separate. Same-file read failures
+  retain text with an explicit error. Reopening prepares a new captured version;
+  normal appends do not change the content of an existing snapshot.
 
-- `frontend/src/services/logFileApi.ts`  
-  API wrapper for `/api/logfiles/*`.
+## Verification
 
-- Navigation wiring:
-  - `frontend/src/App.tsx`
-  - `frontend/src/components/MobileDrawer.tsx`
-  - `frontend/src/components/NavigationBreadcrumbs.tsx`
-  - `frontend/src/hooks/useKeyboardNavigation.ts`
-  - `frontend/src/components/KeyboardShortcutsHelp.tsx`
-
----
-
-## 2. What the Page Supports
-
-- Browse fixed log sources (provided by backend)
-- Browse folders/files
-- Open `.zip` files as archive folders (browse entries inside)
-- Preview `.gz` files directly (backend decompresses)
-- Preview normal text log files (`.trc`, `.txt`, `.md`, `.log`, etc.)
-- Switch preview mode:
-  - `Tail` (default)
-  - `Head`
-
-Note:
-- The **Hamilton LogFiles** source is backend-filtered to **`.trc` files only**. If you do not see `.txt`/other files there, that is expected.
-
----
-
-## 3. Local vs Remote Behavior
-
-The page is available to both local and remote authenticated users, but source access is restricted per source by the backend.
-
-Current policy:
-
-- Local sessions:
-  - Can access all configured sources (including `RobotControl Logs`)
-
-- Remote sessions:
-  - Can access `Python Log`
-  - Can access `Hamilton LogFiles`
-  - Cannot access `RobotControl Logs` (shown as `local only`)
-
-Backend is the final authority (`403` if bypassed).
-
----
-
-## 4. Page State Model (Mental Model)
-
-The page has two browser modes:
-
-1. `filesystem`
-   - browsing actual directories/files under a selected source
-
-2. `archive`
-   - browsing entries inside a selected `.zip` file
-
-`.gz` is not treated as an archive folder in the UI; it is previewed directly as a file.
-
----
-
-## 5. Data Flow
-
-1. Page load → `logFileApi.getSources()`
-2. User selects source → `logFileApi.browse(sourceId, relativePath)`
-3. Click file:
-   - normal / `.gz` → `logFileApi.preview(...)`
-   - `.zip` → `logFileApi.browseArchive(...)`
-4. Click zip entry file → `logFileApi.previewArchive(...)`
-5. Preview mode toggle (`Tail` / `Head`) reloads current preview
-
----
-
-## 6. Locked File Handling
-
-If backend returns `423 FILE_LOCKED`:
-
-- Page shows a warning banner
-- Browser list remains usable
-- User can switch files/folders and continue
-
-Do not convert this into a fatal modal. Locked files are expected during robot operation.
-
----
-
-## 7. Common Tasks
-
-| Task | Where | What to change |
-|------|-------|----------------|
-| Change preview default (`tail`/`head`) | `LogFilePage.tsx` | Update initial `previewMode` state. |
-| Add filters/search in file list | `LogFilePage.tsx` | Filter `browseItems` before rendering; keep raw API data unchanged. |
-| Change preview size | `logFileApi.ts` + backend `MAX_PREVIEW_BYTES` | Keep frontend/backend caps aligned. Backend cap is the real limit. |
-| Add route/tab label changes | `App.tsx`, `MobileDrawer.tsx`, `NavigationBreadcrumbs.tsx` | Keep all labels in sync. |
-| Change shortcut | `useKeyboardNavigation.ts` + `KeyboardShortcutsHelp.tsx` | Update both files together. |
-
----
-
-## 8. Debug Checklist
-
-1. Tab missing on desktop:
-   - Check `tabItems` in `App.tsx`
-   - Check route `/logfile` exists
-
-2. Tab missing on mobile:
-   - Check `navigationItems` in `MobileDrawer.tsx`
-
-3. Breadcrumb label wrong:
-   - Check `/logfile` route config in `NavigationBreadcrumbs.tsx`
-
-4. `.zip` opens as normal file instead of archive:
-   - Check file-click branch in `LogFilePage.tsx` for `.zip`
-
-5. `.gz` previews fail:
-   - Check backend response message
-   - Confirm backend `/api/logfiles/preview` supports `.gz` (not archive endpoints)
-
-6. Preview mode toggle does not refresh:
-   - Check the `previewMode` effect in `LogFilePage.tsx`
-   - Confirm a file is selected and preview is present
-
-
-### September 2026: shared section navigation
-
-`components/navigation.tsx` is the source of section names, URLs and UI permissions. Use `useModuleSection` and `moduleSectionUrl`; do not add another horizontal page tab bar. The sidebar supports expanded links, rail menus and mobile navigation. `SectionPanel` mounts on first visit and retains drafts/scroll within the page session. Components that poll must take an active flag and suspend their timer when hidden. Camera navigation never starts/stops a session. Database Restore remains admin **or** local; Operations and RobotControl logs remain local-only. Backend permissions still apply.
-
-
-### September 2026: paged log browsing and reader
-
-Use the Logs sidebar sections (Python logs, Hamilton traces, RobotControl logs). Source permissions still come from the backend; RobotControl logs require a local session. Missing/inaccessible sources show a retryable explanation. Each visited source keeps its own folder, search, page, selection and reading state until the page is left.
-
-The file list defaults to 50 entries and offers 25/100. Filename search is submitted explicitly and applies to the **whole current directory before pagination**, including ZIP directories. It does not search file contents or recurse through the disk. Sort by Name/Modified/Size; type/date filters affect files while retaining reachable folders. The list retains its last successful folder/results if a request fails. New responses cannot overwrite later navigation.
-
-The existing browse endpoints accept optional `search` (up to 200 characters), `file_type=all|text|traces|archives`, `modified_from`, `modified_to` (ISO dates), `sort_by=name|modified|size`, `sort_direction=asc|desc`, `page` and `limit` (up to 200). Calls omitting these options retain the old newest-first, first-200 behavior. Filesystem and ZIP routes share filtering/paging and deterministic name ties. The API remains read-only, uses configured roots and extension restrictions, and executes blocking filesystem work in FastAPI's worker pool.
-
-Refresh files updates the directory list. Refresh in the reader updates the selected preview. Latest/Beginning remain limited to 1 MB; Find in preview searches only returned text (up to 500 highlighted matches), not the rest of the file. Details exposes the full path, Copy path and technical metadata. On narrow screens use Back to files and Reading tools. Expand opens a full-screen reader; Escape restores focus to Expand.
-
-Follow latest is off by default. When enabled it refreshes a selected plain file every five seconds **after the preceding request settles**. It stops on source/file changes, hidden sections/documents and errors, and is unavailable for ZIP/gzip previews. Reading above the bottom keeps the scroll position; Jump to latest is offered when new content arrives. Failed same-file reads retain an explicitly stale preview. Source/path/archive-entry identity prevents same-name files from sharing previews.
-
-Tests: `backend/tests/test_logfiles_api.py` covers large folders/ZIPs, sorting, filters, permissions and preview formats. `frontend/src/components/LogSourceBrowser.test.tsx` covers request races, refresh separation, stale retention, follow lifecycle and expanded-reader accessibility. Browser checks use read-only access; do not enable camera streaming or run methods merely to validate these views.
+Failure cases are written in `frontend/e2e/scenarios.md`; `logs.spec.ts` covers
+real HTTP archive reading/checksums, access, cancellation/capacity/expiry and phone
+inspection. Run `npm run build` and `npx playwright test` from frontend. Reports,
+screenshots, traces and a fixture manifest are under
+`recovery/viewer-verification`. The fixture server uses disposable filesystem data
+and synthetic database/camera endpoints; it never starts production services.

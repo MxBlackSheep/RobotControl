@@ -16,7 +16,7 @@ export const sectionRegistry: Record<string, Section[]> = {
   '/database': [{id: 'tables', label: 'Tables', index: 0}, {id: 'procedures', label: 'Stored procedures', index: 1}, {id: 'restore', label: 'Restore', index: 2, adminOrLocal: true}, {id: 'operations', label: 'Operations', index: 3, local: true}],
   '/camera': [{id: 'archive', label: 'Video archive', index: 0}, {id: 'live', label: 'Live streaming', index: 1}],
   '/labware': [{id: 'tips', label: 'Tip tracking', index: 0}, {id: 'cytomat', label: 'Cytomat', index: 1}],
-  '/logfile': [{id: 'python', label: 'Python logs', index: 0}, {id: 'hamilton', label: 'Hamilton traces', index: 1}, {id: 'robotcontrol', label: 'RobotControl logs', index: 2, local: true}],
+  '/logfile': [{id: 'python', label: 'Python logs', index: 0}, {id: 'hamilton', label: 'Hamilton traces', index: 1}, {id: 'robotcontrol', label: 'RobotControl logs', index: 2, adminOrLocal: true}],
   '/admin': [{id: 'users', label: 'User accounts', index: 0}, {id: 'password-resets', label: 'Password reset requests', index: 1}],
 };
 export const allowedSections = (path: string, user: NavigationUser) => {

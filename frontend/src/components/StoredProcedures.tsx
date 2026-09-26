@@ -1,32 +1,23 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from "react";
 import {
+  Alert,
   Box,
-  Card,
-  CardContent,
-  Typography,
+  Button,
+  LinearProgress,
   List,
-  ListItem,
   ListItemButton,
   ListItemText,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
-  Chip,
-  Stack,
-  Button,
+  MenuItem,
   Paper,
-  IconButton,
-  Tooltip,
-  Divider,
-  Grid, TextField
-} from '@mui/material';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import CodeIcon from '@mui/icons-material/Code';
-import FunctionsIcon from '@mui/icons-material/Functions';
-import RefreshIcon from '@mui/icons-material/Refresh';
-import ContentCopyIcon from '@mui/icons-material/ContentCopy';
-import { databaseAPI } from '../services/api';
-import LoadingSpinner from './LoadingSpinner';
+  Stack,
+  Tab,
+  Tabs,
+  TextField,
+  Typography,
+} from "@mui/material";
+import { databaseAPI } from "../services/api";
+import InspectionWorkspace from "./InspectionWorkspace";
+import InspectionTextViewer from "./InspectionTextViewer";
 
 interface Parameter {
   name: string;
@@ -34,17 +25,7 @@ interface Parameter {
   mode: string;
   max_length: number | null;
 }
-
-interface RawStoredItem {
-  name?: string;
-  type?: string;
-  created_date?: string | null;
-  modified_date?: string | null;
-  definition?: string | null;
-  parameters?: Array<Partial<Parameter>> | null;
-}
-
-interface StoredProcedure {
+interface StoredItem {
   name: string;
   type: string;
   created_date: string | null;
@@ -52,408 +33,326 @@ interface StoredProcedure {
   definition: string;
   parameters: Parameter[];
 }
-
-interface StoredProceduresProps {
-  onError?: (error: string) => void;
-}
-
-const normalizeParameter = (param: Partial<Parameter> | undefined): Parameter => ({
-  name: param?.name ?? 'param',
-  data_type: param?.data_type ?? 'UNKNOWN',
-  mode: (param?.mode ?? 'IN').toUpperCase(),
-  max_length: typeof param?.max_length === 'number' ? param.max_length : null
+const identity = (item: StoredItem) => `${item.type}:${item.name}`;
+const normalize = (item: Partial<StoredItem>, type: string): StoredItem => ({
+  name: item.name || "Unnamed",
+  type: item.type || type,
+  created_date: item.created_date || null,
+  modified_date: item.modified_date || null,
+  definition: item.definition ?? "Definition not available from server.",
+  parameters: Array.isArray(item.parameters)
+    ? item.parameters.map((parameter) => ({
+        name: parameter.name || "param",
+        data_type: parameter.data_type || "UNKNOWN",
+        mode: (parameter.mode || "IN").toUpperCase(),
+        max_length:
+          typeof parameter.max_length === "number"
+            ? parameter.max_length
+            : null,
+      }))
+    : [],
 });
+const dateLabel = (value: string | null) =>
+  value ? new Date(value).toLocaleString() : "Not available";
 
-const normalizeStoredItem = (item: RawStoredItem | undefined): StoredProcedure => ({
-  name: item?.name ?? 'Unnamed',
-  type: item?.type ?? 'PROCEDURE',
-  created_date: item?.created_date ?? null,
-  modified_date: item?.modified_date ?? null,
-  definition: item?.definition ?? 'Definition not available from server.',
-  parameters: Array.isArray(item?.parameters)
-    ? (item?.parameters ?? []).map(normalizeParameter)
-    : []
-});
-
-const StoredProcedures: React.FC<StoredProceduresProps> = ({ onError }) => {
-  const [search,setSearch] = useState('');
-  const [procedures, setProcedures] = useState<StoredProcedure[]>([]);
-  const [functions, setFunctions] = useState<StoredProcedure[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedItem, setSelectedItem] = useState<StoredProcedure | null>(null);
-  const [expandedAccordion, setExpandedAccordion] = useState<string | false>('procedures');
-  const [metadataExpanded, setMetadataExpanded] = useState(false);
-  const [parametersExpanded, setParametersExpanded] = useState(true);
-
-  const selectedParameters = Array.isArray(selectedItem?.parameters) ? selectedItem.parameters : [];
+export default function StoredProcedures({
+  active = true,
+  onError,
+}: {
+  active?: boolean;
+  onError?: (message: string) => void;
+}) {
+  const [items, setItems] = useState<StoredItem[]>([]);
+  const [selectedKey, setSelectedKey] = useState("");
+  const selectedKeyRef = useRef(selectedKey);
+  selectedKeyRef.current = selectedKey;
+  const [search, setSearch] = useState("");
+  const [type, setType] = useState("all");
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [tab, setTab] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [refresh, setRefresh] = useState(0);
+  const [notice, setNotice] = useState("");
 
   useEffect(() => {
-    loadStoredProcedures();
-  }, []);
-
-  const loadStoredProcedures = async () => {
+    if (!active) return;
+    let current = true;
     setLoading(true);
-    try {
-      const response = await databaseAPI.getStoredProcedures();
-      const payload = response?.data?.data ?? {};
+    setError("");
+    databaseAPI
+      .getStoredProcedures(refresh === 0)
+      .then((response) => {
+        if (!current) return;
+        const payload = response?.data?.data || {};
+        const next = [
+          ...(Array.isArray(payload.procedures)
+            ? payload.procedures.map((item: Partial<StoredItem>) =>
+                normalize(item, "PROCEDURE"),
+              )
+            : []),
+          ...(Array.isArray(payload.functions)
+            ? payload.functions.map((item: Partial<StoredItem>) =>
+                normalize(item, "FUNCTION"),
+              )
+            : []),
+        ];
+        setItems(next);
+        if (
+          selectedKeyRef.current &&
+          !next.some((item) => identity(item) === selectedKeyRef.current)
+        ) {
+          setSelectedKey("");
+          setDetailOpen(false);
+          setNotice(
+            "The previously selected definition is no longer in the refreshed list.",
+          );
+        }
+      })
+      .catch((reason) => {
+        if (!current) return;
+        const message =
+          reason.response?.data?.detail ||
+          "Unable to refresh procedures and functions. Previous definitions are retained.";
+        setError(String(message));
+        onError?.(String(message));
+      })
+      .finally(() => {
+        if (current) setLoading(false);
+      });
+    return () => {
+      current = false;
+    };
+  }, [active, refresh]);
 
-      const normalizedProcedures = Array.isArray(payload.procedures)
-        ? payload.procedures.map(normalizeStoredItem)
-        : [];
-      const normalizedFunctions = Array.isArray(payload.functions)
-        ? payload.functions.map(normalizeStoredItem)
-        : [];
-
-      setProcedures(normalizedProcedures);
-      setFunctions(normalizedFunctions);
-
-      if (selectedItem) {
-        setSelectedItem([...normalizedProcedures,...normalizedFunctions].find(item=>item.name===selectedItem.name && item.type===selectedItem.type) || selectedItem);
-      } else if (normalizedProcedures.length > 0) {
-        setSelectedItem(normalizedProcedures[0]);
-      } else if (normalizedFunctions.length > 0) {
-        setSelectedItem(normalizedFunctions[0]);
-        setExpandedAccordion('functions');
-      } else {
-        setSelectedItem(null);
-      }
-    } catch (err: any) {
-      console.error('Error loading stored procedures:', err);
-      if (onError) {
-        onError(err.response?.data?.detail || 'Failed to load stored procedures');
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleCopyDefinition = (definition: string) => {
-    navigator.clipboard.writeText(definition);
-  };
-
-  const formatParameterString = (params: Parameter[]) => {
-    if (params.length === 0) return '()';
-    return `(${params.map(p => {
-      const type = p.max_length ? `${p.data_type}(${p.max_length})` : p.data_type;
-      return `${p.name} ${type}`;
-    }).join(', ')})`;
-  };
-
-  const formatDate = (dateString: string | null) => {
-    if (!dateString) return 'N/A';
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
-
-  const handleAccordionChange = (panel: string) => (event: React.SyntheticEvent, isExpanded: boolean) => {
-    setExpandedAccordion(isExpanded ? panel : false);
-  };
-
-  if (loading && !procedures.length && !functions.length) {
-    return (
-      <Card sx={{ minHeight: 320, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <CardContent>
-          <LoadingSpinner
-            variant="spinner"
-            message="Loading stored procedures and functions..."
-            size="large"
-          />
-        </CardContent>
-      </Card>
-    );
-  }
-
-  return (
-    <Box>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-        <Typography variant="h6">Stored Procedures & Functions</Typography>
-        <Button
-          startIcon={<RefreshIcon />}
-          onClick={loadStoredProcedures}
+  const filtered = items.filter(
+    (item) =>
+      (type === "all" || item.type === type) &&
+      item.name.toLowerCase().includes(search.toLowerCase()),
+  );
+  const selected = items.find((item) => identity(item) === selectedKey);
+  const selector = (
+    <Paper
+      variant="outlined"
+      sx={{
+        display: "flex",
+        flexDirection: "column",
+        flex: 1,
+        minHeight: 0,
+        overflow: "hidden",
+      }}
+    >
+      <Stack spacing={1} sx={{ p: 1.5 }}>
+        <Typography variant="h6" component="h2">
+          Procedures &amp; functions
+        </Typography>
+        <TextField
           size="small"
-          disabled={loading}
+          label="Find a procedure or function"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+        />
+        <TextField
+          select
+          size="small"
+          label="Definition type"
+          value={type}
+          onChange={(event) => setType(event.target.value)}
         >
-          Refresh
+          <MenuItem value="all">All definitions</MenuItem>
+          <MenuItem value="PROCEDURE">Procedures</MenuItem>
+          <MenuItem value="FUNCTION">Functions</MenuItem>
+        </TextField>
+        <Button
+          disabled={loading}
+          onClick={() => setRefresh((value) => value + 1)}
+        >
+          Refresh definitions
         </Button>
       </Stack>
-
-      <Grid container spacing={2}>
-        {/* Left Panel - List of Procedures and Functions */}
-        <Grid item xs={12} md={4}>
-        <TextField fullWidth size="small" label="Find a procedure or function" value={search} onChange={e=>setSearch(e.target.value)} sx={{mb:1}} />
-          <Card sx={{ height: 'calc(100vh - 280px)', minHeight: '600px', display: 'flex', flexDirection: 'column' }}>
-            <CardContent sx={{ flex: 1, overflow: 'auto', p: 1 }}>
-              {/* Procedures Accordion */}
-              <Accordion
-                expanded={expandedAccordion === 'procedures'}
-                onChange={handleAccordionChange('procedures')}
-                elevation={0}
-                sx={{ border: 'none', '&:before': { display: 'none' } }}
-              >
-                <AccordionSummary
-                  expandIcon={<ExpandMoreIcon />}
-                  sx={{ px: 1, minHeight: 48, '& .MuiAccordionSummary-content': { my: 1 } }}
-                >
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <CodeIcon sx={{ fontSize: 20 }} />
-                    <Typography>Procedures</Typography>
-                    <Chip label={procedures.length} size="small" color="primary" />
-                  </Stack>
-                </AccordionSummary>
-                <AccordionDetails sx={{ p: 0 }}>
-                  <List dense sx={{ maxHeight: 'calc(40vh - 150px)', minHeight: 200, overflow: 'auto' }}>
-                    {procedures.filter(item=>item.name.toLowerCase().includes(search.toLowerCase())).map((proc) => {
-                      const parameterCount = Array.isArray(proc.parameters) ? proc.parameters.length : 0;
-                      return (
-                        <ListItem key={proc.name} disablePadding>
-                          <ListItemButton
-                            selected={selectedItem?.name === proc.name}
-                            onClick={() => setSelectedItem(proc)}
-                          >
-                            <ListItemText
-                              primary={proc.name}
-                              secondary={`${parameterCount} parameters`}
-                              primaryTypographyProps={{ fontSize: 14 }}
-                              secondaryTypographyProps={{ fontSize: 12 }}
-                            />
-                          </ListItemButton>
-                        </ListItem>
-                      );
-                    })}
-                    {procedures.length === 0 && (
-                      <ListItem>
-                        <ListItemText
-                          primary="No stored procedures found"
-                          secondary="Database may not have any procedures"
-                          primaryTypographyProps={{ fontSize: 14, color: 'text.secondary' }}
-                          secondaryTypographyProps={{ fontSize: 12 }}
-                        />
-                      </ListItem>
-                    )}
-                  </List>
-                </AccordionDetails>
-              </Accordion>
-
-              {/* Functions Accordion */}
-              <Accordion
-                expanded={expandedAccordion === 'functions'}
-                onChange={handleAccordionChange('functions')}
-                elevation={0}
-                sx={{ border: 'none', '&:before': { display: 'none' } }}
-              >
-                <AccordionSummary
-                  expandIcon={<ExpandMoreIcon />}
-                  sx={{ px: 1, minHeight: 48, '& .MuiAccordionSummary-content': { my: 1 } }}
-                >
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <FunctionsIcon sx={{ fontSize: 20 }} />
-                    <Typography>Functions</Typography>
-                    <Chip label={functions.length} size="small" color="secondary" />
-                  </Stack>
-                </AccordionSummary>
-                <AccordionDetails sx={{ p: 0 }}>
-                  <List dense sx={{ maxHeight: 'calc(40vh - 150px)', minHeight: 200, overflow: 'auto' }}>
-                    {functions.filter(item=>item.name.toLowerCase().includes(search.toLowerCase())).map((func) => {
-                      const parameterCount = Array.isArray(func.parameters) ? func.parameters.length : 0;
-                      return (
-                        <ListItem key={func.name} disablePadding>
-                          <ListItemButton
-                            selected={selectedItem?.name === func.name}
-                            onClick={() => setSelectedItem(func)}
-                          >
-                            <ListItemText
-                              primary={func.name}
-                              secondary={`${parameterCount} parameters`}
-                              primaryTypographyProps={{ fontSize: 14 }}
-                              secondaryTypographyProps={{ fontSize: 12 }}
-                            />
-                          </ListItemButton>
-                        </ListItem>
-                      );
-                    })}
-                    {functions.length === 0 && (
-                      <ListItem>
-                        <ListItemText
-                          primary="No functions found"
-                          secondary="Database may not have any functions"
-                          primaryTypographyProps={{ fontSize: 14, color: 'text.secondary' }}
-                          secondaryTypographyProps={{ fontSize: 12 }}
-                        />
-                      </ListItem>
-                    )}
-                  </List>
-                </AccordionDetails>
-              </Accordion>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        {/* Right Panel - Selected Item Details */}
-        <Grid item xs={12} md={8}>
-          {selectedItem ? (
-            <Card sx={{ height: 'calc(100vh - 280px)', minHeight: '600px', display: 'flex', flexDirection: 'column' }}>
-              <CardContent sx={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
-                <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-                  <Box>
-                    <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      {selectedItem.type === 'PROCEDURE' ? <CodeIcon /> : <FunctionsIcon />}
-                      {selectedItem.name}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {selectedItem.type}
-                    </Typography>
-                  </Box>
-                  <Tooltip title="Copy SQL definition">
-                    <IconButton
-                      size="small"
-                      onClick={() => handleCopyDefinition(selectedItem.definition)}
-                    >
-                      <ContentCopyIcon />
-                    </IconButton>
-                  </Tooltip>
-                </Stack>
-
-                <Divider sx={{ my: 2 }} />
-
-                {/* Collapsible Metadata */}
-                <Accordion
-                  expanded={metadataExpanded}
-                  onChange={(_, isExpanded) => setMetadataExpanded(isExpanded)}
-                  elevation={0}
-                  sx={{ 
-                    border: '1px solid',
-                    borderColor: 'divider',
-                    borderRadius: 1,
-                    mb: 2,
-                    '&:before': { display: 'none' }
-                  }}
-                >
-                  <AccordionSummary
-                    expandIcon={<ExpandMoreIcon />}
-                    sx={{ minHeight: 40, '& .MuiAccordionSummary-content': { my: 1 } }}
-                  >
-                    <Typography variant="subtitle2">Metadata</Typography>
-                  </AccordionSummary>
-                  <AccordionDetails sx={{ pt: 0 }}>
-                    <Stack spacing={1}>
-                      <Typography variant="body2">
-                        <strong>Created:</strong> {formatDate(selectedItem.created_date)}
-                      </Typography>
-                      <Typography variant="body2">
-                        <strong>Modified:</strong> {formatDate(selectedItem.modified_date)}
-                      </Typography>
-                    </Stack>
-                  </AccordionDetails>
-                </Accordion>
-
-                {/* Collapsible Parameters */}
-                {selectedParameters.length > 0 && (
-                  <Accordion
-                    expanded={parametersExpanded}
-                    onChange={(_, isExpanded) => setParametersExpanded(isExpanded)}
-                    elevation={0}
-                    sx={{ 
-                      border: '1px solid',
-                      borderColor: 'divider',
-                      borderRadius: 1,
-                      mb: 2,
-                      '&:before': { display: 'none' }
-                    }}
-                  >
-                    <AccordionSummary
-                      expandIcon={<ExpandMoreIcon />}
-                      sx={{ minHeight: 40, '& .MuiAccordionSummary-content': { my: 1 } }}
-                    >
-                      <Typography variant="subtitle2">
-                        Parameters ({selectedParameters.length})
-                      </Typography>
-                    </AccordionSummary>
-                    <AccordionDetails sx={{ pt: 0 }}>
-                      <List dense>
-                        {selectedParameters.map((param, index) => (
-                          <ListItem key={index} sx={{ py: 0 }}>
-                            <ListItemText
-                              primary={
-                                <Stack direction="row" spacing={1} alignItems="center">
-                                  <Typography variant="body2" component="span" sx={{ fontFamily: 'monospace' }}>
-                                    {param.name}
-                                  </Typography>
-                                  <Chip 
-                                    label={param.data_type} 
-                                    size="small" 
-                                    variant="outlined"
-                                    sx={{ height: 20 }}
-                                  />
-                                  {param.max_length && (
-                                    <Typography variant="caption" color="text.secondary">
-                                      ({param.max_length})
-                                    </Typography>
-                                  )}
-                                  <Chip 
-                                    label={param.mode} 
-                                    size="small" 
-                                    color={param.mode === 'OUT' ? 'secondary' : 'default'}
-                                    sx={{ height: 20 }}
-                                  />
-                                </Stack>
-                              }
-                            />
-                          </ListItem>
-                        ))}
-                      </List>
-                    </AccordionDetails>
-                  </Accordion>
-                )}
-
-                {/* SQL Definition */}
-                <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-                  <Typography variant="subtitle2" gutterBottom>SQL Definition</Typography>
-                  <Paper
-                    variant="outlined"
-                    sx={{
-                      p: 2,
-                      bgcolor: 'grey.50',
-                      flex: 1,
-                      minHeight: 300,
-                      overflow: 'auto',
-                      '& pre': {
-                        margin: 0,
-                        fontFamily: 'monospace',
-                        fontSize: '0.85rem',
-                        whiteSpace: 'pre-wrap',
-                        wordBreak: 'break-word'
-                      }
-                    }}
-                  >
-                    <pre>{selectedItem.definition}</pre>
-                  </Paper>
-                </Box>
-              </CardContent>
-            </Card>
-          ) : (
-            <Card sx={{ height: 'calc(100vh - 280px)', minHeight: '600px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <CardContent>
-                <Box sx={{ textAlign: 'center' }}>
-                  <CodeIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
-                  <Typography variant="h6" color="text.secondary" gutterBottom>
-                    No Procedure or Function Selected
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Select a stored procedure or function from the list to view its details
-                  </Typography>
-                </Box>
-              </CardContent>
-            </Card>
-          )}
-        </Grid>
-      </Grid>
-    </Box>
+      {loading && <LinearProgress aria-label="Loading definitions" />}
+      <List
+        aria-label="Procedures and functions"
+        sx={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden" }}
+      >
+        {filtered.map((item) => (
+          <ListItemButton
+            key={identity(item)}
+            selected={selectedKey === identity(item)}
+            aria-current={selectedKey === identity(item) ? "true" : undefined}
+            onClick={() => {
+              setSelectedKey(identity(item));
+              setDetailOpen(true);
+              setTab(0);
+              setNotice("");
+            }}
+            sx={{ minHeight: 52 }}
+          >
+            <ListItemText
+              primary={item.name}
+              primaryTypographyProps={{ sx: { overflowWrap: "anywhere" } }}
+              secondary={`${item.type === "PROCEDURE" ? "Procedure" : "Function"} · ${item.parameters.length} parameters`}
+            />
+          </ListItemButton>
+        ))}
+        {!loading && !filtered.length && (
+          <Typography sx={{ p: 2 }}>
+            {items.length
+              ? "No definitions match this search."
+              : "No procedures or functions are available."}
+          </Typography>
+        )}
+      </List>
+    </Paper>
   );
-};
 
-export default StoredProcedures;
+  return (
+    <>
+      {error && (
+        <Alert severity="error" sx={{ mb: 1 }}>
+          {error}
+        </Alert>
+      )}
+      {notice && (
+        <Alert severity="info" sx={{ mb: 1 }}>
+          {notice}
+        </Alert>
+      )}
+      <InspectionWorkspace
+        label="Stored procedure workspace"
+        selector={selector}
+        selectorLabel="Definitions"
+        detailOpen={detailOpen}
+        onBack={() => setDetailOpen(false)}
+      >
+        {selected ? (
+          <Paper
+            variant="outlined"
+            sx={{
+              flex: 1,
+              minHeight: 0,
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+            }}
+          >
+            <Box sx={{ px: 1.5, pt: 1.5, minWidth: 0 }}>
+              <Typography
+                variant="h6"
+                component="h2"
+                sx={{ overflowWrap: "anywhere" }}
+              >
+                {selected.name}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                {selected.type === "PROCEDURE"
+                  ? "Stored procedure"
+                  : "Function"}{" "}
+                · Read only
+              </Typography>
+            </Box>
+            <Tabs
+              value={tab}
+              onChange={(_, value) => setTab(value)}
+              variant="scrollable"
+              scrollButtons="auto"
+              aria-label="Definition information"
+              sx={{ flexShrink: 0, borderBottom: 1, borderColor: "divider" }}
+            >
+              <Tab
+                label="SQL definition"
+                id="definition-sql-tab"
+                aria-controls="definition-sql-panel"
+              />
+              <Tab
+                label={`Parameters (${selected.parameters.length})`}
+                id="definition-parameters-tab"
+                aria-controls="definition-parameters-panel"
+              />
+              <Tab
+                label="Details"
+                id="definition-details-tab"
+                aria-controls="definition-details-panel"
+              />
+            </Tabs>
+            <Box
+              role="tabpanel"
+              id="definition-sql-panel"
+              aria-labelledby="definition-sql-tab"
+              hidden={tab !== 0}
+              sx={{
+                display: tab === 0 ? "flex" : "none",
+                flex: 1,
+                minHeight: 0,
+                minWidth: 0,
+              }}
+            >
+              <InspectionTextViewer
+                key={selectedKey}
+                text={selected.definition}
+                label="SQL definition"
+              />
+            </Box>
+            <Box
+              role="tabpanel"
+              id="definition-parameters-panel"
+              aria-labelledby="definition-parameters-tab"
+              hidden={tab !== 1}
+              sx={{ flex: 1, minHeight: 0, overflow: "auto", p: 1.5 }}
+            >
+              {selected.parameters.length ? (
+                <Stack component="dl" spacing={1.5} sx={{ m: 0 }}>
+                  {selected.parameters.map((parameter, index) => (
+                    <Box key={`${parameter.name}-${index}`}>
+                      <Typography
+                        component="dt"
+                        sx={{
+                          fontFamily: "monospace",
+                          overflowWrap: "anywhere",
+                        }}
+                      >
+                        {parameter.name}
+                      </Typography>
+                      <Typography
+                        component="dd"
+                        sx={{ ml: 0 }}
+                        color="text.secondary"
+                      >
+                        {parameter.data_type}
+                        {parameter.max_length === null
+                          ? ""
+                          : ` (${parameter.max_length})`}{" "}
+                        · {parameter.mode}
+                      </Typography>
+                    </Box>
+                  ))}
+                </Stack>
+              ) : (
+                <Typography>This definition has no parameters.</Typography>
+              )}
+            </Box>
+            <Box
+              role="tabpanel"
+              id="definition-details-panel"
+              aria-labelledby="definition-details-tab"
+              hidden={tab !== 2}
+              sx={{ flex: 1, minHeight: 0, overflow: "auto", p: 1.5 }}
+            >
+              <Typography>
+                Created: {dateLabel(selected.created_date)}
+              </Typography>
+              <Typography>
+                Modified: {dateLabel(selected.modified_date)}
+              </Typography>
+            </Box>
+          </Paper>
+        ) : (
+          <Alert severity="info">
+            Choose a procedure or function to inspect its SQL definition and
+            parameters.
+          </Alert>
+        )}
+      </InspectionWorkspace>
+    </>
+  );
+}
