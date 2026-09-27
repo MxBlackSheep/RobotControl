@@ -1,131 +1,95 @@
-# Repeatable frontend design verification
+# Frontend browser checks
 
-These are browser/HTTP end-to-end checks, not unit tests. Read `scenarios.md` and
-`database-failure-scenarios.md`, `ui-redesign-scenarios.md`, `inspection-labware-failure-scenarios.md` and `operations-failure-scenarios.md` for cases recorded before implementation.
+Choose checks for the behavior being changed. [AGENTS.md](../../AGENTS.md) defines
+verification scope; a full suite is not required for every edit. Existing scenario
+files record failure cases, not a checklist to repeat on unrelated changes.
 
-## Run on Windows
+## Routine work (PowerShell, repository root)
 
-Use PowerShell from the repository root. The repository's `.venv` must contain
-the backend dependencies, and Microsoft Edge must be installed.
+Install dependencies once using the root README. Rebuild when frontend inputs
+changed; the fixture server serves `frontend/dist`, not the development source.
 
 ```powershell
+npm --prefix frontend run build
 Set-Location frontend
-npm ci
-npm run build
-npx playwright test
+npx playwright test labware-layout-stability.spec.ts --grep "joined workbench"
 Set-Location ..
 ```
 
-The harness starts its own fixture server on port 8016. It serves the built UI,
-uses the real log routes and reading worker, and supplies synthetic database and
-camera data. It does not import the production application or start robot services.
-It deletes disposable log files and cache copies when the run ends.
+This example checks Labware sizing. Narrow or broaden it to the actual change:
 
-Open `recovery/viewer-verification/report/index.html` for results, screenshots and
-browser traces. `fixture-manifest.json` contains expected decoded SHA-256 checksums;
-each archived file is reconstructed in both directions and compared with its
-checksum. `results.json` contains machine-readable results. This evidence folder
-is intentionally Git-ignored; retain it with the release candidate.
+| Area | Existing spec files to select from |
+| --- | --- |
+| Tip layout and refresh | `labware-layout-stability.spec.ts` |
+| Tip editing and saving | `labware.spec.ts` |
+| Cytomat | `cytomat-spatial.spec.ts` |
+| Tables and SQL | `database.spec.ts`, `inspection-pagination.spec.ts` |
+| Log readers | `logs.spec.ts` |
+| Camera | `camera.spec.ts` |
+| Scheduling and archives | `operations.spec.ts` |
+| Theme, navigation and system pages | `appearance.spec.ts`, `system-pages.spec.ts` |
 
-## Build and verify a relocated Windows candidate
+Use `--grep` for a specific case; use `npx playwright test --list --reporter=list`
+to list cases without running them. Keep related failure cases in the existing
+module scenario file. The Labware scenario files describe successive revisions;
+start with `labware-layout-stability-scenarios.md` for current tip sizing/refresh
+and `cytomat-spatial-scenarios.md` for Cytomat. Add only new failure information.
 
-Choose a fresh output directory. PyInstaller refuses to replace a nonempty
-candidate directory; preserve any existing runtime data before building another.
+## Evidence and isolation
+
+Playwright uses installed Microsoft Edge and starts its own fixture server on
+port 8016. Do not run another harness on that port concurrently. The fixture uses
+real log routes and disposable files; most other APIs, including Labware writes,
+are synthetic. It starts no robot services and cleans its temporary files at exit.
+
+`recovery/viewer-verification/report/index.html` is the latest run, which may be
+focused rather than full. `results.json` identifies the cases actually run.
+Successful screenshots requested by the config/specs remain available. Traces are
+retained on failure by default; use `--trace on` for a release or investigation
+that needs successful traces. Explicit screenshot matrices still run when selected.
+
+Record the command, code/build identity and result beside the report. The fixture
+manifest records log checksums; spec files define other fixtures. Preserve a report
+referenced by a delivered candidate before overwriting it. Do not archive a full
+copy after every passing local run. Evidence stays Git-ignored. Traces can contain
+fixture credentials; these belong only to the disposable process.
+
+## Broader verification and Windows delivery
+
+Use the full suite when shared behavior is affected, uncertainty remains, or the
+release acceptance requires it. After relevant checks pass, package only when a
+Windows candidate is needed. Commands below use a **new** candidate directory;
+replace `review-candidate` with the chosen name.
 
 ```powershell
-& ./.venv/Scripts/python.exe build_scripts/embed_resources.py
-& ./.venv/Scripts/python.exe build_scripts/pyinstaller_build.py --output-dir dist/labware-adaptive-20260927
-& ./.venv/Scripts/python.exe backend/e2e/packaged_viewer_smoke.py dist/labware-adaptive-20260927/RobotControl
+# From frontend; for a justified full run with complete traces:
+npx playwright test --trace on
+# From the repository root; built frontend must be current:
+uv run --locked python build_scripts/embed_resources.py
+uv run --locked --group build python build_scripts/pyinstaller_build.py --output-dir dist/review-candidate
+uv run --locked python backend/e2e/packaged_viewer_smoke.py dist/review-candidate/RobotControl
 ```
 
-The packaged check copies the candidate into a temporary folder with a different
-name, starts it on port 8017 with disposable credentials, automatic recording and
-scheduler autostart disabled, and a nonproduction SQL address. It verifies:
+The packaged check runs a relocated copy on port 8017 with automatic recording and
+scheduler autostart disabled, disposable authentication and a nonproduction SQL
+address. It checks embedded viewers, the relocated log root, complete archive
+reading and reader cleanup. It removes its process/copy; the original candidate
+is preserved. Results and trace are `packaged-smoke.json` and `packaged-trace.zip`.
+Its real 1 MiB log-section assertions allow 20 seconds; investigate failures rather
+than repeatedly raising that limit. Copy the whole candidate, including `_internal`.
 
-- The embedded UI is available and the real logger and browser resolve the same relocated root.
-- Startup removes an orphaned reading copy.
-- A gzip archive larger than one section is reconstructed through authenticated HTTP.
-- Edge can navigate and expand the packaged history reader at desktop and phone widths, switch appearance, and verify default reading height and full-screen phone sizing.
-- Released readers leave no decoded temporary files.
-- The embedded ten-rack deck retains both carrier columns on desktop and phone,
-  using intercepted read-only Labware data; compact connection details omit
-  misleading utilization/bandwidth values.
+## Native zoom and practical limits
 
-The process and relocated copy are removed afterward. Results are saved in
-`packaged-smoke.json`, `packaged-desktop.png`, `packaged-phone.png`, and
-`packaged-trace.zip` beside the main browser report. Disposable authentication
-tokens in browser traces cease to work after the isolated process exits.
+When zoom behavior is affected, run `node frontend/e2e/labware-native-zoom.cjs`
+from the repository root with port 8016 free; set the dedicated Edge window to
+200% within three minutes. `native-zoom.cjs` is the equivalent reader check.
+These save screenshots/JSON/traces and stop their own processes. Reduced viewport
+size or a device scale factor does not by itself prove native browser zoom works.
 
-## Coverage and practical limits
+Synthetic browser checks do not certify real SQL writes, robot operations, camera
+hardware, remote networking or an actual phone keyboard. Verify the affected real
+boundary when required; do not claim it from screenshots or test totals.
 
-The automated matrix includes 1280×720 and 1920×1080, phone widths 320/390, a short
-320×390 window, and 844×390 landscape. It checks wide tables, full row values,
-SQL finding/copy failure, retained selection and focus, marked camera corners in
-4:3/16:9/portrait, crop/zoom/pan, stale/disconnected frames, and stream request counts.
-Source-reset checks deliberately hold the no-frame state open to verify camera
-keyboard focus. Log checks include UTF-8/UTF-16/Windows-1252, CRLF, oversized lines, gzip/ZIP,
-ownership/access/traversal, cancellation, capacity, expiry, source growth and follow.
-
-The redesign adds checks for First/Last/page jumps and failed requests, SQL line
-navigation, keyboard rack editing, pending/failed Labware saves, malformed data,
-schedule recovery and draft protection, archive phone navigation, Maintenance
-unknown state, single-owner monitoring, local storage navigation and System/Light/Dark
-appearance. A dark screenshot sweep covers every module and key nested sections.
-The log space check requires at least 60% of the 1280×720 window height for text.
-
-The prior viewer-only report is preserved at `recovery/viewer-verification-baseline`.
-The main report is the latest complete integrated run.
-
-### Spatial Labware revision
-
-The previous whole-application report is preserved at
-`recovery/ui-redesign-20260926-verification`. Rebuild and run
-`npx playwright test labware.spec.ts cytomat-spatial.spec.ts system-pages.spec.ts` for the deck selection
-and compact connection-details checks, or `npx playwright test` for the full
-regression run. The tests record failure scenarios before their production
-changes and exercise only disposable intercepted Labware writes.
-
-Check the realistic ten-rack screenshots as well as pass/fail results: Col A and
-Col B must remain side by side, and their racks must retain the API order.
-The operator-confirmed Cytomat mapping shows positions 1–7 top to bottom; 8–9 are unused. Missing and duplicate rows remain unavailable, and unexpected IDs are preserved separately.
-
-### Native browser zoom (interactive, optional after automated checks)
-
-Run `node frontend/e2e/native-zoom.cjs` from the repository root with port 8016 free.
-It starts disposable fixtures and a dedicated Edge window. Set Edge's browser zoom
-to 200% (using its menu or Ctrl+Plus) within 3 minutes. The script verifies Find,
-horizontal overflow and Back focus, then saves native-zoom screenshots/trace/JSON
-and closes both processes. Do not run it alongside Playwright. A viewport-size
-check is not a substitute for this native zoom check.
-
-The 26 September desktop-control attempt timed out; its incomplete evidence remains in the archived report. The 27 September Labware refinement verified native 200% Edge zoom using the dedicated helper below. This does not certify every viewer at native zoom, an actual phone keyboard or physical hardware.
-
-Camera and database data are fixtures; this does not certify a physical camera,
-Hamilton robot, remote network tunnel or production SQL server. Reduced viewport
-height exercises the space available with an onscreen keyboard but does not
-reproduce an actual phone keyboard. Native browser zoom and real phone keyboards
-should also be checked on the VM/phone used by operators.
-
-For VM testing, copy the entire candidate `RobotControl` directory, including
-`_internal`, into a new folder. Keep the existing installation and its `data`
-directory intact. Open the application and verify tables, procedures, current and
-historical logs, and a live camera using the VM's normal setup. Check normal and
-200% browser zoom; on a phone, open Find with the keyboard visible, use Back, and
-rotate the screen. Fit should retain all image edges; Fill should say Cropped view.
-
-### Rack sizing and selection revision
-
-The preceding spatial report is preserved at `recovery/spatial-labware-20260926-verification`. The current matrix adds 3840×2160, 1366×768, 1024×768/600 and 1920 CSS pixels at 2× device scale. It checks one bulk-selection interaction, Set entire rack, resize cancellation, and responsive geometry. Read `labware-spatial-failure-scenarios.md` and `cytomat-spatial-scenarios.md` for the pre-implementation failure cases. Packaged checks also capture 4K rack scaling and desktop/phone Cytomat order.
-
-### Quiet workbench refinement
-
-The preceding integrated report is preserved at `recovery/labware-layout-20260926-verification`. Read `labware-read-race-scenarios.md` and `labware-layout-stability-scenarios.md` before changing background reads or responsive sizing. Run `npx playwright test labware-layout-stability.spec.ts labware.spec.ts cytomat-spatial.spec.ts` for focused checks, then `npx playwright test` for the final suite. The scenarios cover delayed GET responses arriving after editing begins, stable refresh geometry/focus, static keyboard focus and the connected deck/editor at multiple available widths and heights.
-### Full-workspace Labware sizing
-
-The preceding report is preserved at `recovery/labware-workbench-20260926-verification`. Read `labware-workspace-sizing-scenarios.md` before changing measured space or panel proportions. Run the focused Labware suite and then `npx playwright test`. The adaptive checks require full-width use, 40/60 where minimum target sizes fit, shared diagram bounds, circular dots, scroll stability and an expanding Cytomat register.
-
-For a native browser zoom check, run `node frontend/e2e/labware-native-zoom.cjs` from the repository root with port 8016 free. In its dedicated Edge window, set browser zoom to 200% within three minutes. The script checks tip keyboard navigation/target sizes, compact Back focus and Cytomat overflow, then retains screenshots, a trace and `labware-native-zoom.json`. It closes its browser and fixture process. A changed device scale factor or reduced viewport alone is not a native zoom verification.
-
-The recorded native run changed devicePixelRatio from 1 to 2 and the usable CSS viewport from 1896×988 to 948×494. Both Labware sections passed. The first adaptive layout failures and traces are preserved under `adaptive-first-failures`; the final HTML report contains the corrected implementation.
-
-The packaged check allows up to 20 seconds for a real 1 MiB log section to render. The first candidate attempt displayed the expected section just after the former five-second assertion deadline; its trace remains in `packaged-first-attempt`. The same candidate passed with the bounded wait. No production log code changed.
+Historical results and candidate paths belong in
+[implementation notes](../../docs/implementation-notes.md) and the corresponding
+release evidence, not in this current run guide. Existing reports are preserved.

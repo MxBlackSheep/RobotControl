@@ -48,9 +48,11 @@ recording and recovery state visible. Never replace unknown state with success.
    component with CSS alone does not stop its effects.
 5. Use semantic palette colors, labelled controls, keyboard operation and focus
    restoration. Do not shrink text or touch targets to make a layout fit.
-6. Record failures before implementation and extend the browser E2E matrix. Save
-   screenshots/traces for 320/390px phones and 1280/1920px desktops, light/dark,
-   short screens and browser zoom. See `frontend/e2e/README.md`.
+6. Record the relevant failures before changing behavior and select checks for
+   the affected consumers. A local toolbar adjustment needs the affected layout
+   and width boundary; a shared shell change warrants broader navigation, theme
+   and state checks. Extend the screen-size matrix only when it exposes a distinct
+   risk. Follow `AGENTS.md` and `frontend/e2e/README.md` for scope and evidence.
 
 ## Sidebar and section navigation
 

@@ -29,4 +29,4 @@ Wrap preference is stored under `inspection.wrap.<preferenceKey>`. Do not reuse 
 
 ## Verification
 
-Run the shared browser suite documented in `frontend/e2e/scenarios.md`. Database scenarios are in `frontend/e2e/database.spec.ts`; the scenarios were written before the implementation. Inspect the saved screenshots at 390, 1280 and 1920 pixels and the browser report. Verify Back, Expand/Escape, long names, horizontal overflow and keyboard operation after changes to shared sizing.
+Select affected consumer checks using `frontend/e2e/README.md`: database checks for SQL/table readers and log checks for log readers. Shared sizing changes warrant representative narrow/desktop screenshots and checks for Back, Expand/Escape, long names, horizontal overflow and keyboard operation. A local text change does not require the entire matrix. Failure scenarios remain in `frontend/e2e/scenarios.md` and the module scenario files.

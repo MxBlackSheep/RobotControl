@@ -1,3 +1,9 @@
+## 2026-09-27 Proportionate engineering and clearer guidance
+
+- Reviewed testing, communication and code structure. Tracked `AGENTS.md` now defines requirement-first design, justified abstractions, verification matched to impact, release-only packaging and concrete user-facing explanations. Retired the standing frontend specialist workflow.
+- Replaced the browser run guide's release history with focused commands, corrected blanket testing instructions, added a documentation map and retained the review in `docs/engineering-review-2026-09-27.md`. Playwright now retains traces on failure by default; full traces remain available with `--trace on`. Existing tests, screenshots and release artifacts are preserved.
+- Checked local documentation links, diff formatting and Playwright configuration discovery (100 existing cases). No browser tests or application build were needed; the previous release report is unchanged.
+
 ## 2026-09-27 Adaptive full-workspace Labware sizing
 
 - Removed desktop width caps and fitted-size ceilings. Tip tracking uses a 40/60 overview/editor split when minimum controls fit, shared diagram bounds, adaptive spacing and circular dots. Smaller windows retain focused rack viewing and usable minimum targets.

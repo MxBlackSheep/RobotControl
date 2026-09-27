@@ -23,6 +23,10 @@ Join different system utilities and provide unified control surface for the Shou
 
 ## Repository Layout
 
+For development decisions and verification scope, read [AGENTS.md](AGENTS.md).
+The [documentation map](docs/README.md) separates current maintenance instructions
+from historical reviews and release evidence.
+
 ### backend/ 
 - FastAPI application (routers, services, utils, tests)
 ### frontend/
@@ -31,7 +35,7 @@ Join different system utilities and provide unified control surface for the Shou
 - Asset embedding & PyInstaller automation
 ### Others
 - docs: Supplemental design and logging
-- AGENTS.md: This project was developed with OpenAI CodeX. This file provides some basic context if to work with CodeX.
+- AGENTS.md: Tracked project engineering, communication and verification rules.
 
 # Installation
 

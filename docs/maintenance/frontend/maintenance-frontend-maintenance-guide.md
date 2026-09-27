@@ -33,7 +33,9 @@ Do not stretch the small form to fill the height or add decorative summary cards
 Use the common theme and compact PageHeader. The page scrolls naturally on short
 screens and with an onscreen keyboard.
 
-Run `npm run build` and `npx playwright test` in `frontend`. The appearance E2E
-spec checks initial error, disabled action, retry and retained Reason. The broader
-appearance matrix covers desktop/phone dark rendering. Reports and browser traces
-are saved under `recovery/viewer-verification`.
+For changes to this page, build changed frontend inputs and run
+`npx playwright test appearance.spec.ts --grep maintenance` in `frontend`.
+These cases check initial error, disabled action, retry and retained Reason.
+Use the broader appearance cases when theme or shared layout changes. See
+`frontend/e2e/README.md` for reports and trace options; documentation edits need
+neither a browser run nor a build.

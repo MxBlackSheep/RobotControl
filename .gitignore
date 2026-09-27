@@ -28,7 +28,6 @@ venv/
 # IDE settings
 .idea/
 .vscode/
-AGENTS.md
 
 # Node modules (frontend)
 frontend/node_modules/
