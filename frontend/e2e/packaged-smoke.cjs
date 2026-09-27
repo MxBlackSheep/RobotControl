@@ -21,14 +21,16 @@ const path = require('node:path');
     await expect(page.locator('html')).toHaveAttribute('data-appearance', 'dark');
     expect((await page.getByLabel('Log content').boundingBox()).height / 720).toBeGreaterThanOrEqual(.60);
     await page.getByRole('button', { name: 'Beginning', exact: true }).click();
-    await expect(page.getByText(/Section 1 of 2/)).toBeVisible();
+    // A real 1 MiB section can finish rendering just after the default 5s
+    // assertion deadline on the Windows VM. Keep a bounded preparation wait.
+    await expect(page.getByText(/Section 1 of 2/)).toBeVisible({ timeout: 20000 });
     await page.getByRole('button', { name: 'Expand', exact: true }).click();
     await expect(page.getByRole('dialog')).toContainText('Packaged archive verification αβγ');
     await page.screenshot({ path: path.join(output, 'packaged-desktop.png'), fullPage: true, animations: 'disabled' });
     await page.keyboard.press('Escape');
     await page.setViewportSize({ width: 390, height: 844 });
     await page.getByRole('button', { name: 'Latest', exact: true }).click();
-    await expect(page.getByText(/Section 2 of 2/)).toBeVisible();
+    await expect(page.getByText(/Section 2 of 2/)).toBeVisible({ timeout: 20000 });
     await page.getByRole('button', { name: 'Expand', exact: true }).click();
     expect((await page.getByRole('dialog').boundingBox()).width).toBe(390);
     await page.keyboard.press('Escape');
