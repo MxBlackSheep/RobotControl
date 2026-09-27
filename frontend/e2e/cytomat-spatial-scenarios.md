@@ -1,5 +1,14 @@
 # Cytomat shelf failures (before implementation)
 
+## Full-workspace refinement (recorded before implementation)
+
+- On desktop, the register must use the available page width and remaining height. Its nine normal summaries share that height equally, without an 800px cap or 60px row cap.
+- Minimum rows stay 48px with 44px actions. Phones and very short windows use natural page flow; desktop has one internal register scroll area for expanded content.
+- Opening one inline editor, adding unsaved text, or rendering a long identifier must not clip content or resize every other shelf. Extra IDs remain available below the nine shelves through an explicit Other positions shortcut.
+- Sidebar/window changes and returning from a retained hidden section recalculate external space without remounting an open editor or losing drafts. Row sizing must not observe its own rendered output or respond to polling.
+- A 1920 CSS-pixel screen at 2× device scale uses the same CSS layout as 1920 at 1×; no whole-page transform, zoom or font scaling simulates a larger workspace.
+- Screenshots and geometry artifacts must cover 3840×2160, 1920×1080, 1280×720, 320px phones, a short desktop and an editor resized between desktop and phone.
+
 ## Continuous register refinement (recorded before implementation)
 
 - The initial successful view shows a continuous shelf register, not seven open selectors; an explicit Edit position action opens exactly one inline selector without hiding other shelf assignments.

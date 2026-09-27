@@ -2,7 +2,9 @@
 
 Recorded before production edits. Use synthetic snapshots and intercept writes.
 
-## Responsive bulk-selection revision
+## Earlier responsive bulk-selection revision
+
+The sizing rules in this section are historical. The full-page 40/60 layout, independent horizontal/vertical pitches and shared diagram bounds in `labware-layout-stability-scenarios.md` supersede fitted-card, square-cell and maximum-size assumptions below. Selection, permission, draft and cancellation cases remain current.
 
 Recorded before this revision's production changes:
 

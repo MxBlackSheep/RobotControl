@@ -34,8 +34,8 @@ candidate directory; preserve any existing runtime data before building another.
 
 ```powershell
 & ./.venv/Scripts/python.exe build_scripts/embed_resources.py
-& ./.venv/Scripts/python.exe build_scripts/pyinstaller_build.py --output-dir dist/labware-workbench-20260926
-& ./.venv/Scripts/python.exe backend/e2e/packaged_viewer_smoke.py dist/labware-workbench-20260926/RobotControl
+& ./.venv/Scripts/python.exe build_scripts/pyinstaller_build.py --output-dir dist/labware-adaptive-20260927
+& ./.venv/Scripts/python.exe backend/e2e/packaged_viewer_smoke.py dist/labware-adaptive-20260927/RobotControl
 ```
 
 The packaged check copies the candidate into a temporary folder with a different
@@ -98,10 +98,7 @@ horizontal overflow and Back focus, then saves native-zoom screenshots/trace/JSO
 and closes both processes. Do not run it alongside Playwright. A viewport-size
 check is not a substitute for this native zoom check.
 
-The 26 September automated desktop-control attempt timed out waiting for app access,
-so native 200% zoom is not certified by this run. The earlier report preserves its 100% screenshot and incomplete
-trace; native zoom remains unverified in this refinement. No actual phone keyboard
-or hardware was used.
+The 26 September desktop-control attempt timed out; its incomplete evidence remains in the archived report. The 27 September Labware refinement verified native 200% Edge zoom using the dedicated helper below. This does not certify every viewer at native zoom, an actual phone keyboard or physical hardware.
 
 Camera and database data are fixtures; this does not certify a physical camera,
 Hamilton robot, remote network tunnel or production SQL server. Reduced viewport
@@ -123,3 +120,10 @@ The preceding spatial report is preserved at `recovery/spatial-labware-20260926-
 ### Quiet workbench refinement
 
 The preceding integrated report is preserved at `recovery/labware-layout-20260926-verification`. Read `labware-read-race-scenarios.md` and `labware-layout-stability-scenarios.md` before changing background reads or responsive sizing. Run `npx playwright test labware-layout-stability.spec.ts labware.spec.ts cytomat-spatial.spec.ts` for focused checks, then `npx playwright test` for the final suite. The scenarios cover delayed GET responses arriving after editing begins, stable refresh geometry/focus, static keyboard focus and the connected deck/editor at multiple available widths and heights.
+### Full-workspace Labware sizing
+
+The preceding report is preserved at `recovery/labware-workbench-20260926-verification`. Read `labware-workspace-sizing-scenarios.md` before changing measured space or panel proportions. Run the focused Labware suite and then `npx playwright test`. The adaptive checks require full-width use, 40/60 where minimum target sizes fit, shared diagram bounds, circular dots, scroll stability and an expanding Cytomat register.
+
+For a native browser zoom check, run `node frontend/e2e/labware-native-zoom.cjs` from the repository root with port 8016 free. In its dedicated Edge window, set browser zoom to 200% within three minutes. The script checks tip keyboard navigation/target sizes, compact Back focus and Cytomat overflow, then retains screenshots, a trace and `labware-native-zoom.json`. It closes its browser and fixture process. A changed device scale factor or reduced viewport alone is not a native zoom verification.
+
+The recorded native run changed devicePixelRatio from 1 to 2 and the usable CSS viewport from 1896×988 to 948×494. Both Labware sections passed. The first adaptive layout failures and traces are preserved under `adaptive-first-failures`; the final HTML report contains the corrected implementation.

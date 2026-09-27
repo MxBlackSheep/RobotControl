@@ -4,7 +4,7 @@ import { Box, Button, MenuItem, Stack, TextField, Typography } from '@mui/materi
 interface Props {
   rack: string;
   headingId: string;
-  availableWidth?: number;
+  joined: boolean;
   side: string;
   rows: number;
   columns: number;
@@ -25,15 +25,12 @@ interface Props {
 
 type Press = { pointer: number; first: number; last: number | null; x: number; y: number; dragging: boolean };
 
-export default function TipRackEditor({ rack, headingId, availableWidth, side, rows, columns, position, statuses, colors, statusAt, pendingAt, canUpdate, disabled, active, paint, onPaintChange, onSelect, onApply, onGestureChange }: Props) {
+export default function TipRackEditor({ rack, headingId, joined, side, rows, columns, position, statuses, colors, statusAt, pendingAt, canUpdate, disabled, active, paint, onPaintChange, onSelect, onApply, onGestureChange }: Props) {
   const [corners, setCorners] = useState<{ first: number; last: number } | null>(null);
-  const [cellSize, setCellSize] = useState(44);
   const press = useRef<Press | null>(null);
   const ignoreClick = useRef(false);
   const grid = useRef<HTMLDivElement>(null);
-  const host = useRef<HTMLDivElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
-  const footer = useRef<HTMLDivElement>(null);
   const selecting = useRef(false);
   selecting.current = Boolean(corners || press.current);
   const positions = rows * columns;
@@ -48,30 +45,23 @@ export default function TipRackEditor({ rack, headingId, availableWidth, side, r
     return result;
   };
   const preview = new Set(corners ? rectangle(corners.first, corners.last) : []);
-  const cancel = () => { press.current = null; setCorners(null); onGestureChange(false); };
+  const cancel = () => { selecting.current = false; press.current = null; setCorners(null); onGestureChange(false); };
   useLayoutEffect(() => {
-    const element = host.current, area = viewport.current, strip = footer.current;
-    if (!element || !area || !strip) return;
-    const measure = () => {
-      if (!element.clientWidth || selecting.current) return;
-      const paper = area.closest<HTMLElement>('[data-rack-editor]')!;
-      const style = getComputedStyle(paper);
-      const inlinePadding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight) + 2;
-      const dialogScroll = area.closest<HTMLElement>('.MuiDialogContent-root');
-      const scrollTop = dialogScroll?.scrollTop ?? window.scrollY;
-      const top = area.getBoundingClientRect().top + scrollTop;
-      const bottomPadding = parseFloat(style.paddingBottom) + (parseFloat(getComputedStyle(dialogScroll || element.closest('main') || element).paddingBottom) || 0);
-      // The parent supplies available page width, not this fitted editor's result.
-      const widthFit = ((availableWidth ?? element.clientWidth) - inlinePadding - (columns - 1) * 4) / columns;
-      const heightFit = ((window.visualViewport?.height ?? window.innerHeight) - top - strip.offsetHeight - bottomPadding - 12 - (rows - 1) * 4) / rows;
-      setCellSize(Math.max(44, Math.min(132, Math.floor(widthFit), Math.floor(heightFit))));
+    const area = viewport.current; if (!area) return;
+    let previous = { width: area.clientWidth, height: area.clientHeight };
+    const cancelOnResize = () => { if (selecting.current) { ignoreClick.current = true; cancel(); } };
+    const changed = () => {
+      const next = { width: area.clientWidth, height: area.clientHeight };
+      if (!next.width || !next.height) return;
+      if (next.width !== previous.width || next.height !== previous.height) cancelOnResize();
+      previous = next;
     };
-    const resize = () => { if (selecting.current) { ignoreClick.current = true; selecting.current = false; cancel(); } measure(); };
-    measure();
-    const observer = new ResizeObserver(measure);observer.observe(element);observer.observe(strip);
-    window.addEventListener('resize', resize);window.visualViewport?.addEventListener('resize', resize);
-    return () => { observer.disconnect();window.removeEventListener('resize', resize);window.visualViewport?.removeEventListener('resize', resize); };
-  }, [rack, active, rows, columns, canUpdate, availableWidth, Boolean(corners)]);
+    // CSS fits the two pitches. This observer never writes dimensions, so it
+    // cannot feed its own measurement back into layout or pulse during polls.
+    const observer = new ResizeObserver(changed); observer.observe(area);
+    window.addEventListener('resize', cancelOnResize);
+    return () => { observer.disconnect(); window.removeEventListener('resize', cancelOnResize); };
+  }, [rack, active, joined]);
   useEffect(() => {
     if (press.current || corners) ignoreClick.current = true;
     cancel();
@@ -97,7 +87,7 @@ export default function TipRackEditor({ rack, headingId, availableWidth, side, r
     onSelect(tip);
     if (!enabled) return;
     if (corners) apply(rectangle(corners.first, tip));
-    else { setCorners({ first: tip, last: tip }); onGestureChange(true); }
+    else { selecting.current = true; setCorners({ first: tip, last: tip }); onGestureChange(true); }
   };
   const hit = (x: number, y: number) => {
     const button = document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-tip]');
@@ -112,11 +102,11 @@ export default function TipRackEditor({ rack, headingId, availableWidth, side, r
     onSelect(next); grid.current?.querySelector<HTMLButtonElement>(`[data-tip="${next}"]`)?.focus();
   };
   const stateName = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
-  const dotSize = Math.max(14, Math.round(cellSize * 0.32));
-  const fontSize = Math.max(12, Math.min(22, Math.round(cellSize * 0.21)));
+  const dotSize = `max(14px, min(calc((100cqw - ${(columns - 1) * 4}px) / ${columns} * 0.32), calc((100cqh - ${(rows - 1) * 4}px) / ${rows} * 0.32)))`;
+  const fontSize = `clamp(12px, min(calc(100cqw / ${columns} * 0.21), calc(100cqh / ${rows} * 0.21)), 22px)`;
 
-  return <Box ref={host} sx={{ minWidth: 0, width: availableWidth ? 'fit-content' : '100%', maxWidth: '100%' }}><Box data-rack-editor sx={{ px: 1.5, py: availableWidth ? 1 : 1.5, minWidth: 0, width: 'fit-content', maxWidth: '100%' }}>
-    <Stack gap={availableWidth ? 0.75 : 1}>
+  return <Box data-rack-editor sx={{ minWidth: 0, display: 'grid', gridColumn: joined ? 2 : undefined, gridRow: joined ? '1 / 4' : undefined, gridTemplateRows: joined ? 'subgrid' : 'auto auto auto' }}>
+    <Stack gap={0.75} sx={{ gridRow: 1, px: 1.5, py: 1 }}>
       <Stack direction="row" gap={1} alignItems="baseline" flexWrap="wrap"><Typography id={headingId} variant="h6" component="h2" sx={{ overflowWrap: 'anywhere' }}>{rack}</Typography><Typography variant="caption" color="text.secondary">{side}</Typography></Stack>
       {canUpdate && <Stack direction="row" flexWrap="wrap" alignItems="center" gap={1}>
         <TextField select size="small" label="Set tips to" value={paint || ''} disabled={disabled} onChange={event => onPaintChange(event.target.value || null)} InputLabelProps={{ shrink: true }} SelectProps={{ displayEmpty: true, SelectDisplayProps: { 'aria-label': 'Set tips to', 'aria-labelledby': undefined } }} sx={{ flex: '1 1 136px', maxWidth: 240 }}>
@@ -125,13 +115,15 @@ export default function TipRackEditor({ rack, headingId, availableWidth, side, r
         </TextField>
         <Button disabled={!enabled || Boolean(corners)} onClick={() => apply(Array.from({ length: positions }, (_, index) => index + 1))} sx={{ whiteSpace: 'nowrap' }}>Set entire rack</Button>
       </Stack>}
-      <Box ref={viewport} sx={{ overflowX: 'auto', maxWidth: '100%', pb: availableWidth ? 0 : 0.5 }}>
+    </Stack>
+      <Box ref={viewport} data-tip-editor-body sx={{ gridRow: 2, minWidth: 0, minHeight: rows * 44 + (rows - 1) * 4, height: '100%', px: 1.5, overflowX: 'auto', overflowY: 'hidden' }}>
         <Box ref={grid} role="group" aria-label={`${rack} tips`} onPointerDown={event => {
           ignoreClick.current = false;
           if (!enabled || event.pointerType === 'touch' || event.button !== 0) return;
           const tip = hit(event.clientX, event.clientY); if (!tip) return;
           ignoreClick.current = false;
           press.current = { pointer: event.pointerId, first: tip, last: tip, x: event.clientX, y: event.clientY, dragging: false };
+          selecting.current = true;
           const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button');
           try { button?.setPointerCapture(event.pointerId); } catch { /* The pointer may already have been canceled. */ }
           onGestureChange(true);
@@ -154,23 +146,22 @@ export default function TipRackEditor({ rack, headingId, availableWidth, side, r
           // Native touch panning ends this pointer, not the previously chosen corner.
           if (event.pointerType !== 'touch' || press.current) cancel();
         }} onLostPointerCapture={() => { if (press.current) { ignoreClick.current = true; cancel(); } }}
-          sx={{ display: 'grid', gridTemplateColumns: `repeat(${columns}, ${cellSize}px)`, gridTemplateRows: `repeat(${rows}, ${cellSize}px)`, gap: 0.5, width: 'max-content', userSelect: 'none', touchAction: 'manipulation' }}>
+          sx={{ containerType: 'size', display: 'grid', gridTemplateColumns: `repeat(${columns}, minmax(44px, 1fr))`, gridTemplateRows: `repeat(${rows}, minmax(44px, 1fr))`, gap: 0.5, width: '100%', height: '100%', minWidth: columns * 44 + (columns - 1) * 4, minHeight: rows * 44 + (rows - 1) * 4, userSelect: 'none', touchAction: 'manipulation' }}>
           {Array.from({ length: positions }, (_, index) => {
             const tip = index + 1, status = statusAt(tip), unsaved = pendingAt(tip);
             return <Button key={tip} disableRipple data-tip={tip} aria-label={`Tip ${tip}, ${status}`} aria-pressed={position === tip} tabIndex={position === tip ? 0 : -1} onClick={event => activate(tip, event)} onKeyDown={event => keyMove(event, tip)}
               sx={{ gridColumn: Math.floor(index / rows) + 1, gridRow: index % rows + 1, minWidth: 44, minHeight: 44, p: 0.25, display: 'flex', flexDirection: 'column', gap: 0, color: 'text.primary', border: 2, borderColor: position === tip || preview.has(tip) ? 'primary.main' : unsaved ? 'warning.main' : 'transparent', borderStyle: unsaved ? 'dashed' : 'solid', bgcolor: preview.has(tip) ? 'action.selected' : 'transparent', transition: 'none', '&.Mui-focusVisible, &:focus-visible': { outline: '3px solid', outlineColor: 'primary.main', outlineOffset: -3 } }}>
-              <Box component="span" aria-hidden="true" sx={{ width: dotSize, height: dotSize, borderRadius: '50%', bgcolor: colors[status] || 'text.disabled', border: 1, borderColor: 'divider' }} /><Typography component="span" sx={{ fontSize, lineHeight: 1.2 }}>{tip}{unsaved ? '*' : ''}</Typography>
+              <Box component="span" data-tip-dot aria-hidden="true" sx={{ width: dotSize, height: dotSize, flexShrink: 0, borderRadius: '50%', bgcolor: colors[status] || 'text.disabled', border: 1, borderColor: 'divider' }} /><Typography component="span" sx={{ fontSize, lineHeight: 1.2 }}>{tip}{unsaved ? '*' : ''}</Typography>
             </Button>;
           })}
         </Box>
       </Box>
-      <Stack ref={footer} gap={0.5}>
-        <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap" sx={{ minHeight: 44 }}>
-          <Typography role="status" variant="body2" sx={{ flex: 1, minWidth: 120 }}>{corners ? `${preview.size} tips · Choose the other corner` : canUpdate ? paint ? 'Drag a block or select two corners.' : 'Choose a status to edit tips.' : `Tip ${position}: ${stateName(statusAt(position))}`}</Typography>
-          {corners && <Button onClick={cancel}>Cancel selection</Button>}
-        </Stack>
-        {!canUpdate && <Stack direction="row" gap={1} flexWrap="wrap" aria-label="Tip status legend">{statuses.map(status => <Stack key={status} direction="row" gap={0.5} alignItems="center"><Box aria-hidden="true" sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: colors[status] || 'text.disabled', border: 1, borderColor: 'divider' }} /><Typography variant="caption">{stateName(status)}</Typography></Stack>)}</Stack>}
+      <Stack gap={0.5} sx={{ gridRow: 3, px: 1.5, py: 1 }}>
+        <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 1, alignItems: 'center', minHeight: 44 }}>
+          <Typography role="status" variant="body2" sx={{ minWidth: 0 }}>{corners ? `${preview.size} tips selected` : canUpdate ? paint ? 'Choose two corners or drag.' : 'Choose a status to edit tips.' : `Tip ${position}: ${stateName(statusAt(position))}`}</Typography>
+          <Button onClick={cancel} disabled={!corners} aria-hidden={!corners} tabIndex={corners ? 0 : -1} sx={{ visibility: corners ? 'visible' : 'hidden' }}>Cancel selection</Button>
+        </Box>
+        {!canUpdate && !joined && <Stack direction="row" gap={1} flexWrap="wrap" aria-label="Tip status legend">{statuses.map(status => <Stack key={status} direction="row" gap={0.5} alignItems="center"><Box aria-hidden="true" sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: colors[status] || 'text.disabled', border: 1, borderColor: 'divider' }} /><Typography variant="caption">{stateName(status)}</Typography></Stack>)}</Stack>}
       </Stack>
-    </Stack>
-  </Box></Box>;
+  </Box>;
 }

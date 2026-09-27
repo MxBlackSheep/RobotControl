@@ -7,7 +7,7 @@ async function fixture(page: Page, canUpdate = true, duplicates = false, extraPo
   if (duplicates) rows.push({ cytomat_pos: '1', plate_id: 'CONFLICT' }, { cytomat_pos: 'SPARE', plate_id: 'CONFLICT' });
   const snapshot = { rows, plate_options: ['', 'P100', 'P200'], auto_refresh_ms: 1000,
     permissions: { role: 'admin', is_local_session: canUpdate, can_update: canUpdate }, refreshed_at: '2026-09-26T12:00:00Z' };
-  const state = { writes: [] as any[], reads: 0, failSave: false, saveGate: null as Promise<void> | null,
+  const state = { rows, writes: [] as any[], reads: 0, failSave: false, saveGate: null as Promise<void> | null,
     readGate: null as Promise<void> | null, staleRead: false };
   await page.route('**/api/labware/cytomat', async route => {
     if (route.request().method() === 'PUT') {
@@ -36,7 +36,10 @@ for (const [width, height] of [[3840, 2160], [1920, 1080], [1280, 720], [320, 74
     expect(await shelves.getByRole('listitem').evaluateAll(items => items.map(item => item.getAttribute('data-position')))).toEqual(['1', '2', '3', '4', '5', '6', '7']);
     const bounds = await shelves.getByRole('listitem').evaluateAll(items => items.map(item => { const rect = item.getBoundingClientRect(); return { x: rect.x, y: rect.y, width: rect.width }; }));
     for (let index = 1; index < bounds.length; index++) { expect(bounds[index].y).toBeGreaterThan(bounds[index - 1].y); expect(bounds[index].x).toBe(bounds[0].x); }
-    expect(bounds[0].width).toBeLessThanOrEqual(800);
+    const available = await page.locator('[data-page-pattern="spatial"]').boundingBox();
+    const workspace = await page.getByTestId('cytomat-workspace').boundingBox();
+    expect(Math.abs(workspace!.width - available!.width)).toBeLessThanOrEqual(1);
+    expect(bounds[0].width).toBeGreaterThanOrEqual(available!.width - 24); // Register border and native scroll gutter.
     await expect(page.getByTestId('cytomat-position-4')).toContainText('Unavailable');
     await expect(page.getByRole('combobox', { name: 'Plate at 4', exact: true })).toHaveCount(0);
     await expect(page.getByTestId('cytomat-position-2')).toContainText('Empty');
@@ -50,6 +53,10 @@ for (const [width, height] of [[3840, 2160], [1920, 1080], [1280, 720], [320, 74
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
     expect(state.writes).toEqual([]);
     await page.screenshot({ path: info.outputPath(`cytomat-${width}.png`), fullPage: true, animations: 'disabled' });
+    await page.getByRole('button', { name: 'Other positions (2)', exact: true }).click();
+    await expect(other).toBeFocused();
+    await expect(other.getByRole('button', { name: 'Edit position SPARE', exact: true })).toBeInViewport();
+    await page.screenshot({ path: info.outputPath(`cytomat-extra-positions-${width}.png`), fullPage: true, animations: 'disabled' });
   });
 }
 
@@ -168,10 +175,68 @@ test('all nine Cytomat positions fit a short desktop while preserving touch targ
   await expect(page.getByRole('region', { name: 'Other positions', exact: true })).toHaveCount(0);
   const bounds = await last.boundingBox();
   expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(720);
+  const body = await page.getByTestId('cytomat-register-body').boundingBox();
+  expect(Math.abs(bounds!.y + bounds!.height - body!.y - body!.height)).toBeLessThanOrEqual(2);
   const button = await page.getByRole('button', { name: 'Edit position 1', exact: true }).boundingBox();
   expect(button!.height).toBeGreaterThanOrEqual(44);
   expect(button!.width).toBeGreaterThanOrEqual(44);
   expect(state.writes).toEqual([]);
   await info.attach('cytomat-short-desktop-geometry', { body: JSON.stringify({ lastPosition: bounds, editButton: button }), contentType: 'application/json' });
   await page.screenshot({ path: info.outputPath('cytomat-nine-positions-1280.png'), animations: 'disabled' });
+});
+
+for (const [width, height] of [[3840, 2160], [1920, 1080]]) test(`Cytomat fills remaining workspace with equal shelves at ${width}px`, async ({ page }, info) => {
+  await page.setViewportSize({ width, height }); await fixture(page, true, false, false);
+  await page.goto('/labware?section=cytomat');
+  const body = page.getByTestId('cytomat-register-body');
+  await expect(page.getByRole('group', { name: 'Position 9', exact: true })).toBeVisible();
+  const bounds = await body.boundingBox();
+  expect(height - bounds!.y - bounds!.height).toBeGreaterThanOrEqual(0);
+  expect(height - bounds!.y - bounds!.height).toBeLessThanOrEqual(25);
+  const shelves = [];
+  for (let position = 1; position <= 9; position++) shelves.push(await page.getByRole('group', { name: 'Position ' + position, exact: true }).boundingBox());
+  expect(Math.max(...shelves.map(box => box!.height)) - Math.min(...shelves.map(box => box!.height))).toBeLessThanOrEqual(1.1);
+  expect(Math.abs(shelves[8]!.y + shelves[8]!.height - bounds!.y - bounds!.height)).toBeLessThanOrEqual(2);
+  expect(await body.evaluate(element => element.scrollHeight - element.clientHeight)).toBeLessThanOrEqual(2);
+  await info.attach('full-workspace-shelf-geometry', { body: JSON.stringify({ viewport: { width, height }, body: bounds, shelves }), contentType: 'application/json' });
+  await page.screenshot({ path: info.outputPath(`cytomat-full-workspace-${width}.png`), animations: 'disabled' });
+});
+
+test('Cytomat inline drafts survive desktop-phone resizing with one usable scroll area', async ({ page }, info) => {
+  const state = await fixture(page); await page.setViewportSize({ width: 1920, height: 1080 });
+  await page.goto('/labware?section=cytomat');
+  await page.getByRole('button', { name: 'Edit position 1', exact: true }).click();
+  const editor = page.getByRole('combobox', { name: 'Plate at 1', exact: true });
+  await editor.click(); await page.getByRole('option', { name: 'Empty', exact: true }).click();
+  await editor.evaluate(element => { (window as any).__cytomatEditor = element; });
+  const body = page.getByTestId('cytomat-register-body');
+  expect(await body.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
+  const before = await page.getByRole('group', { name: 'Position 2', exact: true }).boundingBox();
+  await page.waitForTimeout(1200);
+  expect(await page.getByRole('group', { name: 'Position 2', exact: true }).boundingBox()).toEqual(before);
+  for (const viewport of [{ width: 1280, height: 720 }, { width: 320, height: 740 }, { width: 1280, height: 420 }, { width: 1920, height: 1080 }]) {
+    await page.setViewportSize(viewport);
+    await expect(editor).toHaveText('Empty');
+    expect(await editor.evaluate(element => element === (window as any).__cytomatEditor)).toBe(true);
+    const expectedOverflow = viewport.width < 900 || viewport.height === 420 ? 'visible' : 'auto';
+    await expect.poll(() => body.evaluate(element => getComputedStyle(element).overflowY)).toBe(expectedOverflow);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+    await page.screenshot({ path: info.outputPath(`cytomat-draft-resize-${viewport.width}x${viewport.height}.png`), fullPage: true, animations: 'disabled' });
+  }
+  expect(state.writes).toEqual([]);
+});
+
+test('Cytomat uses CSS workspace dimensions on a high-DPI desktop', async ({ browser, baseURL }, info) => {
+  const context = await browser.newContext({ baseURL, viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 2 });
+  try {
+    const page = await context.newPage(); await fixture(page, true, false, false);
+    await page.goto('/labware?section=cytomat');
+    const body = page.getByTestId('cytomat-register-body'); await expect(body).toBeVisible();
+    const bounds = await body.boundingBox();
+    expect(bounds!.width).toBeGreaterThan(1600);
+    expect(1080 - bounds!.y - bounds!.height).toBeLessThanOrEqual(25);
+    expect(await body.evaluate(element => getComputedStyle(element).transform)).toBe('none');
+    await info.attach('high-dpi-css-geometry', { body: JSON.stringify({ cssBounds: bounds, deviceScaleFactor: 2 }), contentType: 'application/json' });
+    await page.screenshot({ path: info.outputPath('cytomat-1920-at-2x.png'), animations: 'disabled' });
+  } finally { await context.close(); }
 });

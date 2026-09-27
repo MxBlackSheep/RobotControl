@@ -1,3 +1,9 @@
+## 2026-09-27 Adaptive full-workspace Labware sizing
+
+- Removed desktop width caps and fitted-size ceilings. Tip tracking uses a 40/60 overview/editor split when minimum controls fit, shared diagram bounds, adaptive spacing and circular dots. Smaller windows retain focused rack viewing and usable minimum targets.
+- Cytomat fills available width/height with nine equal base rows, one desktop register scroll area and normal compact-page flow. Inline editors, long values and unexpected positions remain reachable. Shared external measurement avoids child-size feedback; refresh, selection and draft safeguards remain.
+- Verification: all 100 integrated browser checks and native 200% Edge zoom passed. Two frontend specialists independently reviewed corrected desktop/phone screenshots. Repeat commands, initial failure traces, final HTML results and native-zoom evidence are retained in `recovery/viewer-verification`. Windows candidate target: `dist/labware-adaptive-20260927/RobotControl`; packaged verification and checksums are recorded with that evidence. Actual phones and physical equipment remain VM/operator checks.
+
 ## 2026-09-26 Quiet Labware workbench and stable refresh
 
 - Applied the selected A direction as a layout refinement: a joined deck/rack surface, aligned bounded heading/actions, quieter tip wells and a compact Cytomat shelf register with one inline editor. Width and height fitting retain the physical layout and readable phone targets.

@@ -1,7 +1,8 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Box, Button, Chip, Dialog, DialogContent, DialogTitle, LinearProgress, Menu, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material';
 import { labwareApi, TipTrackingSnapshot, TipTrackingUpdate } from '../../services/labwareApi';
 import { useLabwareSnapshot } from './useLabwareSnapshot';
+import { useLabwareWorkspace } from './useLabwareWorkspace';
 import TipDeckOverview from './TipDeckOverview';
 import TipRackEditor from './TipRackEditor';
 
@@ -33,11 +34,10 @@ export default function TipTrackingPanel({ active = true }: { active?: boolean }
   const [writeError, setWriteError] = useState('');
   const [notice, setNotice] = useState('');
   const [menu, setMenu] = useState<HTMLElement | null>(null);
-  const [narrow, setNarrow] = useState(true);
-  const [availableWidth, setAvailableWidth] = useState(0);
   const container = useRef<HTMLDivElement>(null);
   const totalPending = Object.values(pending).reduce((total, entries) => total + Object.keys(entries).length, 0);
   const { snapshot, setSnapshot, pending: reading, error: readError, refresh, suspend } = useLabwareSnapshot(labwareApi.getTipTrackingSnapshot, active, busy || totalPending > 0 || gesture, validSnapshot);
+  const workspace = useLabwareWorkspace(active, Boolean(snapshot));
   const families = snapshot?.families || [];
   const family = families.find(item => item.family_id === familyId) || families[0];
   const racks = useMemo(() => family ? [...family.left_racks, ...family.right_racks] : [], [family]);
@@ -48,18 +48,13 @@ export default function TipTrackingPanel({ active = true }: { active?: boolean }
   const canUpdate = Boolean(snapshot?.permissions.can_update);
   const rows = snapshot?.grid.rows || 8;
   const columns = snapshot?.grid.cols || 12;
+  const editorMinimum = columns * 44 + (columns - 1) * 4 + 24;
+  const narrow = workspace.width < 320 + editorMinimum;
   const statuses = snapshot?.status_order || [];
   const unknown = snapshot?.unknown_status || 'unclear';
   const savedStatus = (rackId: string, tip: number) => family?.tips[rackId]?.[String(tip)] || unknown;
   const shownStatus = (rackId: string, tip: number) => currentPending[keyFor(rackId, tip)] ?? savedStatus(rackId, tip);
 
-  useLayoutEffect(() => {
-    const element = container.current; if (!element) return;
-    // Measure the available page, independently from the fitted deck/editor surface.
-    const measure = () => { if (element.clientWidth) { setAvailableWidth(element.clientWidth); setNarrow(element.clientWidth < 900); } };
-    measure(); const observer = new ResizeObserver(measure); observer.observe(element);
-    return () => observer.disconnect();
-  }, [Boolean(snapshot)]);
   useEffect(() => {
     if (family && familyId !== family.family_id) setFamilyId(family.family_id);
     if (paint && !statuses.includes(paint)) setPaint(null);
@@ -149,22 +144,21 @@ export default function TipTrackingPanel({ active = true }: { active?: boolean }
     {(readError || writeError) && <Alert severity="error" action={!totalPending && !busy && !gesture ? <Button onClick={() => void refresh()}>Retry</Button> : undefined}>{writeError || readError}{readError && ' Previous data is shown.'}</Alert>}
     <Typography variant="caption" color="text.secondary" role="status" sx={{ minHeight: 20 }}>{busy ? 'Saving…' : gesture ? 'Selection in progress' : totalPending ? `${totalPending} unsaved${totalPending > count ? ` (${totalPending - count} in other families)` : ''}` : reading ? 'Updating…' : notice || `Updated ${new Date(snapshot.refreshed_at).toLocaleTimeString()}`}</Typography>
   </Stack>;
-  const deckWidth = narrow ? Math.min(480, availableWidth || 480) : Math.round(Math.min(400, Math.max(240, availableWidth * 0.24)));
-  const editor = rack ? <TipRackEditor rack={rack} headingId="selected-tip-rack-heading" availableWidth={narrow ? undefined : availableWidth - deckWidth - 2} side={family.left_racks.includes(rack) ? 'Col A' : 'Col B'} rows={rows} columns={columns} position={position} statuses={statuses} colors={snapshot.status_colors}
+  const editor = rack ? <TipRackEditor rack={rack} headingId="selected-tip-rack-heading" joined={!narrow} side={family.left_racks.includes(rack) ? 'Col A' : 'Col B'} rows={rows} columns={columns} position={position} statuses={statuses} colors={snapshot.status_colors}
     statusAt={tip => shownStatus(rack, tip)} pendingAt={tip => Object.prototype.hasOwnProperty.call(currentPending, keyFor(rack, tip))}
     canUpdate={canUpdate} disabled={busy} active={active && (!narrow || rackOpen)} paint={paint} onPaintChange={setPaint}
     onSelect={tip => setSelectedTips(previous => ({ ...previous, [`${family.family_id}:${rack}`]: tip }))} onApply={apply} onGestureChange={selecting => { if (selecting) suspend(); setGesture(selecting); }} /> : <Alert severity="info">No racks found.</Alert>;
 
-  return <Box ref={container} sx={{ minWidth: 0, maxWidth: 2200, mx: 'auto' }}>
+  return <Box ref={container} sx={{ minWidth: 0, width: '100%' }}>
     <Stack gap={1}>
       {actions}
-      <Paper data-tip-workspace variant="outlined" sx={{ display: 'flex', alignItems: 'stretch', width: 'fit-content', maxWidth: '100%', borderRadius: 2, overflow: 'hidden' }}>
-        <Box sx={{ width: deckWidth, maxWidth: '100%', flexShrink: 0, display: 'flex', bgcolor: 'action.hover', borderRight: narrow ? 0 : 1, borderColor: 'divider' }}>
-        <TipDeckOverview family={family} rows={rows} columns={columns} selected={rack} colors={snapshot.status_colors} statusAt={shownStatus}
+      <Paper ref={workspace.ref} data-tip-workspace variant="outlined" sx={{ width: '100%', minWidth: 0, height: narrow ? 'auto' : Math.max(240, workspace.height), borderRadius: 2, overflowX: 'hidden', overflowY: narrow ? 'visible' : 'auto' }}>
+        <Box sx={{ display: 'grid', minHeight: narrow ? undefined : '100%', gridTemplateColumns: narrow ? 'minmax(0, 1fr)' : `clamp(320px, calc(100% - ${editorMinimum}px), 40%) minmax(0, 1fr)`, gridTemplateRows: 'auto minmax(min-content, 1fr) auto' }}>
+        <TipDeckOverview family={family} joined={!narrow} rows={rows} columns={columns} selected={rack} statuses={statuses} colors={snapshot.status_colors} statusAt={shownStatus}
           pendingAt={rackId => Object.keys(currentPending).filter(key => (JSON.parse(key) as [string, number])[0] === rackId).length}
           onOpen={rackId => { setSelectedRacks(previous => ({ ...previous, [family.family_id]: rackId })); setRackOpen(true); }} />
-        </Box>
         {!narrow && editor}
+        </Box>
       </Paper>
     </Stack>
     <Dialog open={narrow && rackOpen && active} fullScreen aria-labelledby="selected-tip-rack-heading" onClose={() => setRackOpen(false)} PaperProps={{ sx: { height: '100dvh', maxHeight: '100dvh' } }} TransitionProps={{ onExited: () => container.current?.querySelector<HTMLButtonElement>('[aria-current="true"]')?.focus({ preventScroll: true }) }}>

@@ -187,10 +187,11 @@ test(`rack sizing and bulk controls at ${viewport.width}x${viewport.height}`,asy
   await page.getByRole('button',{name:'Open rack VER_ST_0001',exact:true}).click();await chooseStatus(page);
   const grid=page.getByRole('group',{name:'VER_ST_0001 tips',exact:true});
   const cell=grid.getByRole('button').first();const last=grid.getByRole('button').last();
-  await expect(cell).toBeVisible();const dimensions=await cell.boundingBox();expect(dimensions!.width).toBeGreaterThanOrEqual(43.9);expect(Math.abs(dimensions!.width-dimensions!.height)).toBeLessThan(1.1);
+  await expect(cell).toBeVisible();const dimensions=await cell.boundingBox();expect(dimensions!.width).toBeGreaterThanOrEqual(43.9);expect(dimensions!.height).toBeGreaterThanOrEqual(43.9);
+  const dot=await cell.locator('[data-tip-dot]').boundingBox();expect(Math.abs(dot!.width-dot!.height)).toBeLessThan(0.1);
   const canvas=await grid.boundingBox();const card=await grid.locator('xpath=ancestor::*[@data-rack-editor]').boundingBox();
-  if(viewport.width>=1280){expect(card!.width-canvas!.width).toBeLessThan(40);const bottom=await last.boundingBox();expect(bottom!.y+bottom!.height).toBeLessThanOrEqual(viewport.height-16);}
-  if(viewport.width===3840)expect(dimensions!.width).toBeGreaterThan(85);
+  if(viewport.width>=1280){expect(card!.width-canvas!.width).toBeLessThan(40);await last.scrollIntoViewIfNeeded();await expect(last).toBeVisible();}
+  if(viewport.width===3840)expect(dimensions!.width).toBeGreaterThan(132);
   await expect(page.getByRole('button',{name:'Set entire rack',exact:true})).toBeEnabled();
   for(const name of['Paint','Rectangle','Inspect','Paint row','Paint column','Paint rack','Paint range'])await expect(page.getByRole('button',{name,exact:true})).toHaveCount(0);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);

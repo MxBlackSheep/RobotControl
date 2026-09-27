@@ -4,15 +4,15 @@ const left = ['VER_HT_0005', 'VER_HT_0001', 'VER_HT_0002', 'VER_HT_0006', 'VER_H
 const right = ['VER_HT_0003', 'VER_HT_0004', 'VER_HT_0007', 'VER_HT_0008', 'VER_HT_0010'];
 const statuses = ['clean', 'empty', 'dirty', 'rinsed', 'washed', 'reserved', 'unclear'];
 
-async function fixture(page: Page) {
+async function fixture(page: Page, firstRack = left[0]) {
   await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));
   const snapshot = {
     grid: { rows: 8, cols: 12, positions_per_rack: 96 }, auto_refresh_ms: 1000,
     status_order: statuses, status_colors: { clean: '#22c55e', empty: '#d1d5db', dirty: '#ef4444', rinsed: '#3b82f6', washed: '#a855f7', reserved: '#f59e0b', unclear: '#6b7280' },
     unknown_status: 'unclear', refreshed_at: '2026-09-26T12:00:00Z',
     permissions: { role: 'admin', is_local_session: true, can_update: true },
-    families: [{ family_id: 'tips1000', display_name: '1000 µL tips', left_racks: left, right_racks: right, reset_map: {},
-      tips: Object.fromEntries([...left, ...right].map((rack, index) => [rack, Object.fromEntries(Array.from({ length: 96 }, (_, i) => [String(i + 1), index === 0 ? 'clean' : statuses[(Math.floor(i / 8) + index) % statuses.length]]))])) }],
+    families: [{ family_id: 'tips1000', display_name: '1000 µL tips', left_racks: [firstRack, ...left.slice(1)], right_racks: right, reset_map: {},
+      tips: Object.fromEntries([firstRack, ...left.slice(1), ...right].map((rack, index) => [rack, Object.fromEntries(Array.from({ length: 96 }, (_, i) => [String(i + 1), index === 0 ? 'clean' : statuses[(Math.floor(i / 8) + index) % statuses.length]]))])) }],
   };
   const state = { reads: 0, writes: [] as any[], gate: null as Promise<void> | null, lateStatus: null as string | null };
   await page.route('**/api/labware/tip-tracking', async route => {
@@ -116,18 +116,32 @@ for (const reducedMotion of ['no-preference', 'reduce'] as const) test(`focused 
   await info.attach(`static-focus-${reducedMotion}`, { body: await page.screenshot({ animations: 'disabled' }), contentType: 'image/png' });
 });
 
-for (const viewport of [{ width: 3840, height: 2160 }, { width: 1920, height: 1080 }, { width: 1366, height: 768 }, { width: 1280, height: 720 }, { width: 1024, height: 600 }, { width: 390, height: 844 }, { width: 320, height: 720 }]) test(`joined workbench fits ${viewport.width}x${viewport.height}`, async ({ page }, info) => {
+for (const viewport of [{ width: 3840, height: 2160 }, { width: 1920, height: 1080 }, { width: 1366, height: 768 }, { width: 1280, height: 720 }, { width: 1080, height: 900 }, { width: 1024, height: 600 }, { width: 390, height: 844 }, { width: 320, height: 720 }]) test(`joined workbench fits ${viewport.width}x${viewport.height}`, async ({ page }, info) => {
   await fixture(page); await page.setViewportSize(viewport); await page.goto('/labware'); await openRack(page);
   const grid = page.getByRole('group', { name: `${left[0]} tips`, exact: true });
-  const first = grid.getByRole('button').first(); const box = await first.boundingBox(); expect(box!.width).toBeGreaterThanOrEqual(44); expect(Math.abs(box!.width - box!.height)).toBeLessThan(1);
+  const first = grid.getByRole('button').first(); const box = await first.boundingBox(); expect(box!.width).toBeGreaterThanOrEqual(43.9); expect(box!.height).toBeGreaterThanOrEqual(43.9);
+  const dot = await first.locator('[data-tip-dot]').boundingBox(); expect(Math.abs(dot!.width - dot!.height)).toBeLessThan(0.1);
+  const scrollBody = page.locator('[data-tip-editor-body]');
+  const clipping = await scrollBody.evaluate(element => ({ top: element.getBoundingClientRect().top + element.clientTop, visibleHeight: element.clientHeight, horizontal: element.scrollWidth > element.clientWidth }));
+  if (clipping.horizontal) { const last = await grid.getByRole('button').last().boundingBox(); expect(last!.y + last!.height).toBeLessThanOrEqual(clipping.top + clipping.visibleHeight + 1); }
   if (!(await page.getByRole('dialog').isVisible())) {
     const deck = page.getByRole('region', { name: 'Tip deck' }); const deckBox = await deck.boundingBox();
     const editor = page.locator('[data-rack-editor]'); const editorBox = await editor.boundingBox();
     expect(Math.abs(editorBox!.x - (deckBox!.x + deckBox!.width))).toBeLessThanOrEqual(1);
     const workbench = await page.locator('[data-tip-workspace]').boundingBox();
-    expect(workbench!.width - deckBox!.width - editorBox!.width).toBeLessThanOrEqual(3);
+    const available = await page.locator('[data-tip-workspace]').evaluate(element => element.clientWidth);
+    const content = await page.locator('[data-page-pattern="spatial"]').boundingBox();
+    expect(Math.abs(workbench!.width - content!.width)).toBeLessThanOrEqual(1);
+    const expectedOverview = Math.max(320, Math.min(available * 0.4, available - 596));
+    expect(Math.abs(deckBox!.width - expectedOverview)).toBeLessThanOrEqual(2);
+    const overviewBody = await page.locator('[data-tip-overview-body]').boundingBox();
+    const editorBody = await page.locator('[data-tip-editor-body]').boundingBox();
+    expect(Math.abs(overviewBody!.y - editorBody!.y)).toBeLessThanOrEqual(1);
+    expect(Math.abs(overviewBody!.y + overviewBody!.height - editorBody!.y - editorBody!.height)).toBeLessThanOrEqual(1);
+    const miniDot = await deck.locator('[data-overview-dot]').first().boundingBox();
+    expect(miniDot!.width).toBeGreaterThanOrEqual(4.9); expect(Math.abs(miniDot!.width - miniDot!.height)).toBeLessThan(0.1);
+    if (viewport.width === 3840) { expect(box!.width).toBeGreaterThan(132); expect(miniDot!.width).toBeGreaterThan(9); }
     await expect(deck.getByRole('group', { name: 'Col A', exact: true }).getByRole('button')).toHaveCount(5);
-    if (viewport.width >= 1280) { const last = await grid.getByRole('button').last().boundingBox(); expect(last!.y + last!.height).toBeLessThanOrEqual(viewport.height - 12); }
   }
   if (viewport.width === 1280 || viewport.width === 3840) {
     const heading = await page.getByRole('heading', { name: 'Labware', exact: true }).boundingBox();
@@ -139,4 +153,68 @@ for (const viewport of [{ width: 3840, height: 2160 }, { width: 1920, height: 10
   }
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   await info.attach(`joined-workbench-${viewport.width}`, { body: await page.screenshot({ animations: 'disabled' }), contentType: 'image/png' });
+});
+
+test('short desktop has one stage scroll and container resizing cancels only the unfinished selection', async ({ page }, info) => {
+  await fixture(page); await page.setViewportSize({ width: 1440, height: 500 }); await page.goto('/labware'); await openRack(page);
+  const stage = page.locator('[data-tip-workspace]'); const body = page.locator('[data-tip-editor-body]');
+  expect(await stage.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
+  expect(await body.evaluate(element => element.scrollHeight <= element.clientHeight + 1)).toBe(true);
+  await page.getByRole('button', { name: 'Tip 96, clean', exact: true }).scrollIntoViewIfNeeded();
+  await expect(page.getByText('Choose a status to edit tips.', { exact: true })).toBeVisible();
+  await stage.evaluate(element => { element.scrollTop = 0; });
+  await page.getByRole('combobox', { name: 'Set tips to', exact: true }).click(); await page.getByRole('option', { name: 'Dirty', exact: true }).click();
+  await page.getByRole('button', { name: 'Tip 1, clean', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Cancel selection', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: /^(Collapse|Expand) navigation$/ }).click();
+  await expect(page.getByRole('button', { name: 'Cancel selection', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Save changes (0)', exact: true })).toBeDisabled();
+  await info.attach('short-stage-scroll-resize', { body: await page.screenshot({ animations: 'disabled' }), contentType: 'image/png' });
+});
+
+test('short split boundary stays stable when a scrollbar appears', async ({ page }, info) => {
+  await fixture(page); await page.setViewportSize({ width: 1040, height: 500 }); await page.goto('/labware');
+  const evidence: any[] = [];
+  for (const width of [1040, 1020, 1014, 1010]) {
+    await page.setViewportSize({ width, height: 500 }); await page.waitForTimeout(350);
+    const samples = await page.locator('[data-tip-workspace]').evaluate(async element => {
+      const frames: any[] = [];
+      for (let frame = 0; frame < 20; frame++) {
+        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+        const box = element.getBoundingClientRect();
+        frames.push({ width: box.width, height: box.height, split: Boolean(element.querySelector('[data-rack-editor]')), scroll: element.scrollHeight > element.clientHeight });
+      }
+      return frames;
+    });
+    expect(new Set(samples.map(sample => JSON.stringify(sample))).size).toBe(1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+    evidence.push({ width, samples });
+  }
+  await info.attach('short-boundary-geometry', { body: JSON.stringify(evidence, null, 2), contentType: 'application/json' });
+  await info.attach('short-boundary-layout', { body: await page.screenshot({ animations: 'disabled' }), contentType: 'image/png' });
+});
+
+test('long rack names and unsaved counts cannot move the diagram', async ({ page }, info) => {
+  const rack = 'VER_HT_0005__LONG_STORAGE_RACK_LOCATION_ALPHANUMERIC_IDENTIFIER';
+  await fixture(page, rack); await page.setViewportSize({ width: 1280, height: 720 }); await page.goto('/labware');
+  const opener = page.getByRole('button', { name: `Open rack ${rack}`, exact: true }); await opener.click();
+  await page.getByRole('combobox', { name: 'Set tips to', exact: true }).click(); await page.getByRole('option', { name: 'Dirty', exact: true }).click();
+  // Clicking an offscreen control can legitimately scroll the stage. Compare
+  // layout in its content coordinates, not its changing viewport position.
+  const geometry = async () => page.locator('[data-tip-workspace]').evaluate(stage => {
+    const origin = stage.getBoundingClientRect();
+    const box = (element: Element | null) => {
+      const bounds = element!.getBoundingClientRect();
+      return { x: bounds.x - origin.x + stage.scrollLeft, y: bounds.y - origin.y + stage.scrollTop, width: bounds.width, height: bounds.height };
+    };
+    return { stage: { x: origin.x + window.scrollX, y: origin.y + window.scrollY, width: origin.width, height: origin.height }, overview: box(stage.querySelector('[data-tip-overview-body]')), editor: box(stage.querySelector('[data-tip-editor-body]')), rack: box(stage.querySelector('[aria-current="true"]')) };
+  });
+  const before = await geometry();
+  await page.getByRole('button', { name: 'Set entire rack', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Save changes (96)', exact: true })).toBeEnabled();
+  expect(await geometry()).toEqual(before);
+  await expect(opener.locator('[title]').first()).toHaveAttribute('title', rack);
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  expect(await geometry()).toEqual(before);
+  await info.attach('long-rack-stable-pending', { body: await page.screenshot({ animations: 'disabled' }), contentType: 'image/png' });
 });
