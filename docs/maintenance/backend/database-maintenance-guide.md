@@ -119,7 +119,7 @@ This guide explains how the database utilities (backup, restore, metadata manage
 | Restore backup | `BackupService.restore_backup(filename)` | Takes exclusive control of the database; warn users first. |
 | Delete backup | `BackupService.delete_backup(filename)` | Removes `.bak` and `.json`; returns partial success if one file couldn’t be deleted. |
 | Health check | `BackupService.get_performance_metrics()` | Includes disk space, backup count, and average durations—feed this into monitoring dashboards. |
-| Run ad-hoc query | `backend/services/database.py` helpers (via `/api/database/query`) | UI is read-only; hammering production with heavy queries is discouraged. |
+| Run ad-hoc query | `backend/services/database.py` helpers (internal callers only) | UI is read-only; hammering production with heavy queries is discouraged. |
 
 ---
 
@@ -131,7 +131,7 @@ This guide explains how the database utilities (backup, restore, metadata manage
 - **Metadata consistency**: Always use `BackupMetadataStore` to manipulate metadata. Writing JSON manually bypasses validation and breaks the UI.
 - **Maintenance mode**: The frontend sets a maintenance window when a restore starts. Keep this behaviour; cutting the restore short can leave the database in single-user mode.
 - **Network paths**: UNC paths (e.g., `\\server\share`) are supported, but validation uses string comparisons. Ensure the paths are normalised and accessible.
-- **Query API**: `/api/database/query` is powerful—enforce authentication and avoid exposing it in insecure environments.
+- **Query API**: `/api/database/query` is retired (410); use registered tools.
 
 ---
 
@@ -149,7 +149,7 @@ This guide explains how the database utilities (backup, restore, metadata manage
 | `SqlCommandExecutor.execute(sql, timeout)` | Run arbitrary SQL via sqlcmd | Used for restore scripts and recovery commands. |
 | `BackupMetadataStore.save(...)` | Persist metadata | Always call this after a successful backup. |
 | `BackupMetadataStore.delete_metadata_file(filename)` | Remove `.json` file | Returns `(deleted, name, error_message_or_None)`. |
-| `database_service.execute_query(sql)` | Run read-only query | Leveraged by `/api/database/query`; use for dashboards. |
+| `database_service.execute_query(sql)` | Run read-only query | Internal monitoring/scheduling helper; no public raw-SQL route. |
 
 ---
 
@@ -179,7 +179,7 @@ This guide explains how the database utilities (backup, restore, metadata manage
    - Remember that restores may require additional space for transaction logs.
 
 6. **Ad-hoc query errors**  
-   - The query API is intentionally minimalist. Avoid running multi-statement scripts; stick to `SELECT`, `EXEC` read-only procedures.  
+   - The raw query API is retired. Use a registered operation/report or an internal helper.
    - Enforce role-based access to these endpoints; never expose them to unauthenticated users.
 
 7. **Restore reports success but the API still errors**  
@@ -204,4 +204,20 @@ The Tables section has a searchable catalogue, Important-only filter, and a sepa
 
 `DatabaseTable` applies search/filter drafts only on Apply or Enter. Its single effect cancels/ignores superseded requests and keeps prior rows during refresh. `search` (maximum 200 characters) and `sort_direction=asc|desc` extend the existing table endpoint. SQL parameters carry values; column names are checked against metadata and identifiers are quoted. Scalar-type metadata excludes binary/complex columns from global search. SQL commands time out after 30 seconds. Primary keys break sorting ties; tables without a unique key cannot promise stable pagination during writes.
 
-`databaseExport.ts` collects all matching rows in 1,000-row batches. Cancellation, count changes, incomplete batches and the 50 MB memory limit stop the download with an explanation. Exports use applied conditions and visible columns. They are not transaction snapshots. NULL is preserved in JSON and rendered as an empty CSV field. Do not replace this with a single unbounded page request. Restore and Operations keep their existing behavior and access rules.
+`databaseExport.ts` collects all matching rows in 1,000-row batches. Cancellation, count changes, incomplete batches and the 50 MB memory limit stop the download with an explanation. Exports use applied conditions and visible columns. They are not transaction snapshots. NULL is preserved in JSON and rendered as an empty CSV field. Do not replace this with a single unbounded page request. Restore retains its access rules; Operations now requires a local admin and uses package definitions.
+
+## Portable operations and reports (2026-09-27)
+
+See [the package contract](../../../database_packages/README.md) for formats, limits
+and authoring. The host owns installation, confirmations, receipts, SQL transactions
+and private downloads. Public APIs are in `backend/api/database_tools.py`; raw SQL
+and procedure execution routes now return 410. Internal monitoring helpers remain.
+
+Deletion requires a local administrator and the existing scheduler safety checks.
+Its transaction holds the same in-process locks as final scheduler launch. This
+coordinates RobotControl dispatch; it cannot prevent an independent external launch
+of robot software. The SQL procedure must respect the host transaction.
+
+Repeated confirmation returns the saved result, never another execution. Unknown
+means inspect the outcome before repeating. Report failures appear in Data retrieval.
+Packages are trusted software, not sandboxed SQL definitions.

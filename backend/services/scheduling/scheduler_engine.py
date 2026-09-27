@@ -648,6 +648,18 @@ class SchedulerEngine:
         return state
 
     @contextmanager
+    def database_change_guard(self):
+        """Serialize a short database transaction with the final scheduler launch check."""
+        with self._schedules_lock, self._jobs_lock:
+            state = self._refresh_manual_recovery_state(force=True)
+            if not state.storage_healthy:
+                raise StorageUnavailable('Scheduler safety state unavailable')
+            if state.active or state.resume_required or self._owned_execution_ids or self.run_log_monitor.snapshots():
+                raise SafetyConflict('Finish the run and resolve recovery before changing the database.')
+            self._require_robot_absent()
+            yield
+
+    @contextmanager
     def launch_guard(self, experiment, execution):
         # Hold these only for the final state check, durable write and Popen, never the run.
         with self._schedules_lock, self._jobs_lock:
@@ -1329,7 +1341,10 @@ class SchedulerEngine:
             metadata={"context": context, "missing_contacts": missing},
         )
 
-        stored_entry = self.db_manager.create_notification_log(log_entry) or log_entry
+        stored_entry = self.db_manager.create_notification_log(log_entry)
+        if not stored_entry:
+            logger.error("Delivery log unavailable; notification %s was not sent", event_type)
+            return
 
         try:
             observation = self.run_log_monitor.snapshot(execution.execution_id)
@@ -1342,7 +1357,7 @@ class SchedulerEngine:
                 **({"trace_path": Path(observation.trace_path) if observation.trace_path else None,
                     "exact_trace": True} if observation else {}),
             )
-            status = "sent" if result.sent else "error"
+            status = "sent" if result.sent else "partial" if result.delivery_status == "partial" else "error"
             self.db_manager.update_notification_log(
                 stored_entry.log_id,
                 status=status,

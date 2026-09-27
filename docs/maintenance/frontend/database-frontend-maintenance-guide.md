@@ -63,3 +63,15 @@ Restore remains available to admins or local sessions. Operations remains local-
 `frontend/e2e/database-failure-scenarios.md` records failure cases written before the production changes. `frontend/e2e/database.spec.ts` exercises the built application against synthetic read responses at 390, 1280 and 1920 pixels. It covers table navigation, complete row inspection, search, expansion/focus, SQL Find/tabs, read failures and clipboard failure. The shared suite saves screenshots, traces and an HTML report; use the command in `frontend/e2e/scenarios.md` to repeat it. No unit tests were added for this change.
 
 `inspection-pagination.spec.ts` adds last-page/page-jump and failed-page label checks, plus phone SQL Top/Bottom/Go to line. Its failure scenarios were recorded first in `inspection-labware-failure-scenarios.md`.
+
+## Package-backed operations and retrieval (2026-09-27)
+
+`DatabaseTools.tsx` supplies shared forms and package management. Operations and Manage
+packages require a local admin; Data retrieval accepts any signed-in user. Experiment
+selection uses paginated server search. Package fields and endpoints are documented
+in [the contract](../../../database_packages/README.md).
+
+Review shows the target and requires typed confirmation. Check result reuses its token;
+never create a new token or silently retry after an uncertain response. Reports run in
+the background and poll only while their section is active. Downloads are authenticated.
+Changing report inputs clears the previous download to avoid mistaking it for new output.

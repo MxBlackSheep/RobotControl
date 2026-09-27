@@ -314,7 +314,7 @@ class SchedulingDatabaseManager:
     ) -> bool:
         """Update a notification log entry."""
         try:
-            return self.sqlite_db.update_notification_log(
+            updated = self.sqlite_db.update_notification_log(
                 log_id,
                 status=status,
                 error_message=error_message,
@@ -325,6 +325,9 @@ class SchedulingDatabaseManager:
                 message=message,
                 metadata=metadata,
             )
+            if not updated:
+                logger.error("Delivery record %s could not be updated to %s; do not resend accepted mail", log_id, status)
+            return updated
         except Exception as exc:  # pragma: no cover - log only
             logger.error("Failed to update notification log %s: %s", log_id, exc)
             return False

@@ -143,6 +143,7 @@ class EmailNotificationService:
         attempts: Optional[int] = None,
     ) -> bool:
         self.last_error = None
+        self.last_delivery_status = None
         if not self.config.is_enabled:
             detail = self._settings_error or "missing SMTP host or sender configuration"
             self.last_error = detail
@@ -208,7 +209,13 @@ class EmailNotificationService:
                     stage = "authentication"
                     smtp.login(self.config.username, self.config.password)
                 stage = "message submission"
-                smtp.send_message(message)
+                refused = smtp.send_message(message)
+                if refused:
+                    self.last_delivery_status = 'partial'
+                    self.last_error = 'Some recipients were refused: ' + ', '.join(refused) + '. Other recipients accepted; do not resend to everyone.'
+                    logger.warning(self.last_error)
+                    return False
+                self.last_delivery_status = 'sent'
 
                 self.last_error = None
                 logger.info("Sent email notification to %s (attempt %s/%s)", message["To"], attempt, delivery_attempts)
@@ -253,6 +260,7 @@ class ScheduleAlertResult:
     attachment_notes: List[str] = field(default_factory=list)
     error: Optional[str] = None
     cancelled: bool = False
+    delivery_status: Optional[str] = None
 
 
 class SchedulingNotificationService:
@@ -299,7 +307,9 @@ class SchedulingNotificationService:
             lines.extend(["", "Reason:", note])
 
         body = "\n".join(lines)
-        self.email.send(subject, body, to=recipients)
+        from backend.services.notification_delivery import send_recorded
+        send_recorded(self.email, subject, body, to=recipients, event_type='manual_recovery_required',
+                      schedule_id=schedule.schedule_id, actor=actor)
 
     def manual_recovery_cleared(
         self,
@@ -331,7 +341,9 @@ class SchedulingNotificationService:
             lines.extend(["", "Resolution notes:", note])
 
         body = "\n".join(lines)
-        self.email.send(subject, body, to=recipients)
+        from backend.services.notification_delivery import send_recorded
+        send_recorded(self.email, subject, body, to=recipients, event_type='manual_recovery_cleared',
+                      schedule_id=schedule.schedule_id, actor=actor)
 
     def _manual_recovery_recipients(self, schedule: ScheduledExperiment) -> List[str]:
         recipients = self.email.get_manual_recovery_recipients()

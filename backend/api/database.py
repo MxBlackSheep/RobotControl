@@ -28,10 +28,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/database", tags=["database"])
 
-class ProcedureExecuteRequest(BaseModel):
-    procedure_name: str
-    parameters: Optional[Dict[str, Any]] = None
-
 # Dependency to get database service
 async def get_db_service() -> DatabaseService:
     """FastAPI dependency function to get the database service"""
@@ -291,128 +287,9 @@ async def get_table_data(
 
 
 @router.post("/query")
-async def execute_query(
-    query: str,
-    params: Optional[List] = None,
-    db_service: DatabaseService = Depends(get_db_service)
-):
-    """
-    Execute a custom SQL query safely
-    
-    Args:
-        query: SQL query to execute (SELECT only for security)
-        params: Optional query parameters
-        
-    Returns:
-        Query results with columns and rows
-        
-    Note:
-        Only SELECT queries are allowed for security reasons
-    """
-    start_time = time.time()
-    
-    try:
-        # Execute query through our simplified service
-        result = await run_in_threadpool(db_service.execute_query, query, tuple(params) if params else None)
-        
-        data = {
-            "columns": result["columns"],
-            "rows": result["rows"],
-            "row_count": result["row_count"]
-        }
-        
-        # Create metadata
-        metadata = ResponseMetadata()
-        metadata.set_execution_time(start_time)
-        metadata.add_metadata("operation", "execute_query")
-        metadata.add_metadata("query_time_ms", result["execution_time_ms"])
-        metadata.add_metadata("row_count", result["row_count"])
-        
-        return ResponseFormatter.success(data=data, metadata=metadata)
-        
-    except ValueError as ve:
-        # Security validation errors
-        return ResponseFormatter.validation_error(
-            message="Query validation failed",
-            details={"error": str(ve), "query": query}
-        )
-    except Exception as e:
-        logger.error(f"Error executing query: {e}")
-        return ResponseFormatter.server_error(
-            message="Failed to execute query",
-            details=str(e)
-        )
-
-
 @router.post("/execute-procedure")
-async def execute_stored_procedure(
-    request: ProcedureExecuteRequest,
-    db_service: DatabaseService = Depends(get_db_service),
-    connection: ConnectionContext = Depends(require_local_access),
-    current_user: Dict[str, Any] = Depends(get_current_user),
-):
-    """
-    Execute a stored procedure with parameters
-    
-    Args:
-        request: Request containing procedure name and parameters
-        
-    Returns:
-        Procedure execution results
-    """
-    start_time = time.time()
-    actor = current_user.get("username", "unknown")
-    
-    try:
-        # Execute procedure through our service
-        result = await run_in_threadpool(db_service.execute_stored_procedure, request.procedure_name, request.parameters or {})
-        
-        data = {
-            "procedure_name": request.procedure_name,
-            "parameters_used": request.parameters,
-            "result": result,
-            "message": f"Stored procedure '{request.procedure_name}' executed successfully"
-        }
-        
-        # Create metadata
-        metadata = ResponseMetadata()
-        metadata.set_execution_time(start_time)
-        metadata.add_metadata("operation", "execute_procedure")
-        metadata.add_metadata("procedure_name", request.procedure_name)
-        
-        log_action(
-            actor=actor,
-            action="execute_procedure",
-            scope="database",
-            client_ip=connection.client_ip,
-            success=True,
-            details={
-                "procedure": request.procedure_name,
-                "parameters": request.parameters or {},
-            },
-        )
-        return ResponseFormatter.success(data=data, metadata=metadata)
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error executing stored procedure '{request.procedure_name}': {e}")
-        log_action(
-            actor=actor,
-            action="execute_procedure",
-            scope="database",
-            client_ip=connection.client_ip,
-            success=False,
-            details={
-                "procedure": request.procedure_name,
-                "parameters": request.parameters or {},
-                "error": str(e),
-            },
-        )
-        return ResponseFormatter.server_error(
-            message=f"Failed to execute stored procedure '{request.procedure_name}'",
-            details=str(e)
-        )
+def retired_execution_route(current_user=Depends(get_current_user)):
+    raise HTTPException(status_code=410, detail="Use an installed database operation or report.")
 
 
 @router.get("/monitoring")
@@ -635,7 +512,6 @@ async def health_check(
                 "/api/database/status",
                 "/api/database/tables",
                 "/api/database/tables/{table_name}",
-                "/api/database/query",
                 "/api/database/monitoring",
                 "/api/database/performance",
                 "/api/database/cache/clear",

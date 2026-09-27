@@ -557,7 +557,7 @@ export const schedulingService = {
 
   async sendNotificationTestEmail(
     recipient: string,
-  ): Promise<{ success: boolean; recipient?: string; error?: string }> {
+  ): Promise<{ success: boolean; recipient?: string; warning?: string; error?: string }> {
     try {
       const { data } = await schedulingAPI.sendNotificationTestEmail(recipient);
       if (!data.success) {
@@ -567,6 +567,7 @@ export const schedulingService = {
       return {
         success: true,
         recipient: coerceString(payload?.recipient, recipient),
+        warning: data.data?.warning || undefined,
       };
     } catch (error) {
       return { success: false, error: parseAPIError(error) };

@@ -14,11 +14,11 @@ interface Props {
   loading: boolean;
   onRefresh: () => Promise<{ settings?: NotificationSettings | null; error?: string }>;
   onSave: (payload: NotificationSettingsUpdatePayload) => Promise<{ settings?: NotificationSettings; error?: string }>;
-  onSendTest: (recipient: string) => Promise<{ success: boolean; recipient?: string; error?: string }>;
+  onSendTest: (recipient: string) => Promise<{ success: boolean; recipient?: string; warning?: string; error?: string }>;
   contacts: NotificationContact[];
 }
 
-type Feedback = { severity: 'success' | 'error' | 'info'; message: string } | null;
+type Feedback = { severity: 'success' | 'error' | 'info' | 'warning'; message: string } | null;
 const messageOf = (error: unknown) => error instanceof Error ? error.message : 'The request failed. Please try again.';
 
 export default function NotificationEmailSettingsPanel({ settings, loading, onRefresh, onSave, onSendTest, contacts }: Props) {
@@ -101,7 +101,7 @@ export default function NotificationEmailSettingsPanel({ settings, loading, onRe
     try {
       const result = await onSendTest(testRecipient.trim());
       if (!result.success || result.error) throw new Error(result.error || 'The test email could not be sent.');
-      setTestFeedback({ severity: 'success', message: `Test email sent to ${result.recipient || testRecipient.trim()}.` });
+      setTestFeedback({ severity: result.warning ? 'warning' : 'success', message: result.warning || `Test email sent to ${result.recipient || testRecipient.trim()}.` });
     } catch (error) {
       setTestFeedback({ severity: 'error', message: messageOf(error) });
     } finally { setBusy(null); }

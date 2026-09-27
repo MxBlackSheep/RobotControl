@@ -123,6 +123,9 @@ def build_with_pyinstaller(layout: str = "onedir", console: bool = False, output
         
         # Include other commonly missing modules
         "--hidden-import", "pyodbc",
+        "--collect-all", "pandas",
+        "--collect-all", "openpyxl",
+        "--add-data", "database_packages;database_packages",
         "--hidden-import", "bcrypt",
         
         # Collect submodules

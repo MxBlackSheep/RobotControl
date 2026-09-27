@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { AxiosError, isAxiosError } from 'axios';
 import { schedulingAPI, schedulingService, normalizeManualRecovery } from '../services/schedulingApi';
 import {
@@ -364,11 +364,14 @@ const useScheduling = () => {
     [],
   );
 
+  const notificationRead = useRef(0);
   const loadNotificationLogs = useCallback(
     async (
       params?: NotificationLogQuery & { limit?: number },
     ): Promise<{ logs?: NotificationLogEntry[]; error?: string }> => {
+      const id = ++notificationRead.current;
       const result = await schedulingService.getNotificationLogs(params);
+      if (id !== notificationRead.current) return {};
       if (result.error) {
         setError(result.error);
         return { error: result.error };

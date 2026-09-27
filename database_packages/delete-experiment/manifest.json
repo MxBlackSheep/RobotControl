@@ -1,0 +1,16 @@
+{
+  "contract_version": 1,
+  "id": "delete-experiment",
+  "name": "Delete Experiment",
+  "version": "1.0.0",
+  "libraries": [],
+  "tools": [{
+    "id": "delete-experiment",
+    "name": "Delete Experiment",
+    "kind": "operation",
+    "entrypoint": "handler:run",
+    "preview": "handler:preview",
+    "confirmation_field": "experiment_id",
+    "inputs": [{"name": "experiment_id", "label": "Experiment", "type": "experiment", "required": true}]
+  }]
+}

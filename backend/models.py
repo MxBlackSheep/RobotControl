@@ -305,7 +305,7 @@ class NotificationLogEntry:
     schedule_id: Optional[str]
     execution_id: Optional[str]
     event_type: str
-    status: str  # 'pending', 'sent', 'error'
+    status: str  # pending, sending, sent, error, partial, cancelled, unknown
     recipients: List[str] = field(default_factory=list)
     subject: Optional[str] = None
     message: Optional[str] = None

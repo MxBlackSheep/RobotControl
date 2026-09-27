@@ -13,7 +13,7 @@ import { SchedulingNavigationContext, useSchedulingSection, isLocalUser } from '
  * - Integration with main application navigation
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Box,
   Container,
@@ -148,9 +148,9 @@ const SchedulingPage: React.FC = () => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [logsLoading, setLogsLoading] = useState(false);
   const [logsError, setLogsError] = useState<string | null>(null);
-  const [logsLoaded, setLogsLoaded] = useState(false);
   const [logScheduleFilter, setLogScheduleFilter] = useState('');
-  const [logStatusFilter, setLogStatusFilter] = useState<'all' | 'sent' | 'pending' | 'error'>('all');
+  const [logStatusFilter, setLogStatusFilter] = useState<'all' | 'sent' | 'pending' | 'error' | 'partial' | 'unknown' | 'cancelled'>('all');
+  const [appliedLogFilters, setAppliedLogFilters] = useState({ schedule: '', status: 'all' });
   const [notificationsTab, setNotificationsTab] = useState(0);
   const [contactsRequested, setContactsRequested] = useState(false);
   const [emailSettingsRequested, setEmailSettingsRequested] = useState(false);
@@ -292,7 +292,9 @@ const SchedulingPage: React.FC = () => {
     setImprovedFormOpen(true);
   };
 
+  const logRead = useRef(0);
   const handleLogsRefresh = useCallback(async () => {
+    const id = ++logRead.current;
     if (user?.role !== 'admin') {
       return;
     }
@@ -300,31 +302,30 @@ const SchedulingPage: React.FC = () => {
     setLogsError(null);
 
     const params: Record<string, string | number> = { limit: 50 };
-    const trimmedSchedule = logScheduleFilter.trim();
+    const trimmedSchedule = appliedLogFilters.schedule.trim();
     if (trimmedSchedule) {
       params.schedule_id = trimmedSchedule;
     }
-    if (logStatusFilter !== 'all') {
-      params.status = logStatusFilter;
+    if (appliedLogFilters.status !== 'all') {
+      params.status = appliedLogFilters.status;
     }
 
     const result = await actions.loadNotificationLogs(params);
+    if (id !== logRead.current) return;
     if (result?.error) {
       setLogsError(result.error);
     }
     setLogsLoading(false);
-    setLogsLoaded(true);
-  }, [actions.loadNotificationLogs, logScheduleFilter, logStatusFilter, user?.role]);
+  }, [actions.loadNotificationLogs, appliedLogFilters, user?.role]);
 
   const applyLogFilters = useCallback(() => {
-    setLogsLoaded(false);
-    handleLogsRefresh();
-  }, [handleLogsRefresh]);
+    setAppliedLogFilters({ schedule: logScheduleFilter, status: logStatusFilter });
+  }, [logScheduleFilter, logStatusFilter]);
 
   const resetLogFilters = useCallback(() => {
     setLogScheduleFilter('');
     setLogStatusFilter('all');
-    setLogsLoaded(false);
+    setAppliedLogFilters({ schedule: '', status: 'all' });
   }, []);
 
   const openNotificationsTab = useCallback(() => {
@@ -347,16 +348,16 @@ const SchedulingPage: React.FC = () => {
   }, [user?.role, currentTab, notificationsTab, contactsRequested, actions]);
 
   useEffect(() => {
-    if (user?.role !== 'admin') {
-      return;
-    }
-    if (currentTab !== 5 || notificationsTab !== 1) {
-      return;
-    }
-    if (!logsLoaded && !logsLoading) {
-      handleLogsRefresh();
-    }
-  }, [user?.role, currentTab, notificationsTab, logsLoaded, logsLoading, handleLogsRefresh]);
+    if (user?.role !== 'admin' || currentTab !== 5 || notificationsTab !== 1) return;
+    let stopped = false;
+    let timer: number;
+    const poll = async () => {
+      if (document.visibilityState === 'visible') await handleLogsRefresh();
+      if (!stopped) timer = window.setTimeout(poll, 5000);
+    };
+    void poll();
+    return () => { stopped = true; logRead.current++; clearTimeout(timer); };
+  }, [user?.role, currentTab, notificationsTab, handleLogsRefresh]);
 
   useEffect(() => {
     if (user?.role !== 'admin') {
@@ -396,6 +397,8 @@ const SchedulingPage: React.FC = () => {
       switch ((status || '').toLowerCase()) {
         case 'sent':
           return 'success';
+        case 'partial':
+        case 'unknown':
         case 'pending':
           return 'warning';
         case 'error':
@@ -757,6 +760,9 @@ const SchedulingPage: React.FC = () => {
                           <MenuItem value="sent">Sent</MenuItem>
                           <MenuItem value="pending">Pending</MenuItem>
                           <MenuItem value="error">Error</MenuItem>
+                          <MenuItem value="partial">Partial</MenuItem>
+                          <MenuItem value="unknown">Unknown</MenuItem>
+                          <MenuItem value="cancelled">Cancelled</MenuItem>
                         </Select>
                       </FormControl>
                       <Stack direction="row" spacing={1}>

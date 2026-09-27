@@ -51,6 +51,8 @@ async def lifespan(app):
     yield
     if getattr(app.state, 'log_readers', None):
         app.state.log_readers.close()
+    if getattr(app.state, "database_tools", None):
+        app.state.database_tools.close()
     temporary.cleanup()
 
 
@@ -164,6 +166,15 @@ async def video(ws: WebSocket, ident: str):
             await asyncio.sleep(.2)
     except Exception:
         pass
+
+
+from backend.api.database_tools import router as database_tools_router
+from backend.services.database_tools import DatabaseTools, get_database_tools
+from backend.e2e.database_fixture import DatabaseFixture
+app.state.database_tools = DatabaseTools(fixture / 'database-tools', ROOT / 'database_packages', DatabaseFixture(fixture))
+app.state.database_tools.guard = app.state.database_tools.database.guard
+app.dependency_overrides[get_database_tools] = lambda: app.state.database_tools
+app.include_router(database_tools_router)
 
 
 @app.get('/api/{path:path}')

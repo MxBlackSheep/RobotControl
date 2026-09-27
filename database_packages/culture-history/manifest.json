@@ -1,0 +1,14 @@
+{
+  "contract_version": 1,
+  "id": "culture-history",
+  "name": "Culture history",
+  "version": "1.0.0",
+  "libraries": ["pandas", "openpyxl", "pyodbc"],
+  "tools": [{
+    "id": "culture-history",
+    "name": "Culture history",
+    "kind": "report",
+    "entrypoint": "handler:run",
+    "inputs": [{"name": "experiment_id", "label": "Experiment", "type": "experiment", "required": true}]
+  }]
+}

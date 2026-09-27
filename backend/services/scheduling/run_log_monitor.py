@@ -378,11 +378,11 @@ class RunLogMonitor:
                     trace_path=Path(state.trace_path) if state.trace_path else None, exact_trace=True,
                     message_id=f"<robotcontrol.{log_id}@robotcontrol.local>",
                     should_send=lambda: self.alert_is_current(state.execution_id, log_id))
-                self.manager.update_notification_log(log_id, status="cancelled" if result.cancelled else "sent" if result.sent else "error",
+                self.manager.update_notification_log(log_id, status="cancelled" if result.cancelled else "sent" if result.sent else "partial" if result.delivery_status == "partial" else "error",
                     error_message=result.error or "", processed_at=datetime.now(), recipients=result.recipients,
                     attachments=result.attachments, subject=result.subject, message=result.body,
                     metadata={**metadata, "attachment_notes": result.attachment_notes})
-                if not result.sent and not result.cancelled:
+                if not result.sent and not result.cancelled and result.delivery_status != "partial":
                     self._retry_at[log_id] = self.clock() + RETRY_SECONDS
                 else:
                     self._retry_at.pop(log_id, None)

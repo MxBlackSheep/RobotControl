@@ -93,3 +93,30 @@ boundary when required; do not claim it from screenshots or test totals.
 Historical results and candidate paths belong in
 [implementation notes](../../docs/implementation-notes.md) and the corresponding
 release evidence, not in this current run guide. Existing reports are preserved.
+
+## Database packages and delivery logs
+
+Focused checks from the repository root:
+
+```powershell
+.venv/Scripts/python.exe -W ignore::UserWarning -m backend.e2e.database_tools_check
+.venv/Scripts/python.exe -W ignore::UserWarning -m backend.e2e.notification_delivery_check
+.venv/Scripts/python.exe -c "from pathlib import Path; from backend.e2e.database_fixture import package_zip; Path('recovery/database-verification/culture-history.zip').write_bytes(package_zip('database_packages/culture-history'))"
+Set-Location frontend
+npx playwright test database-tools.spec.ts --trace on
+Set-Location ..
+.venv/Scripts/python.exe -m backend.e2e.packaged_database_smoke dist/<candidate>/RobotControl
+```
+
+Evidence: `recovery/database-verification` and the current Playwright HTML report.
+Before the first reference comparison, download the revision in
+`database_packages/culture-history/UPSTREAM.txt` to
+`recovery/database-verification/upstream.py`.
+
+HTTP checks use disposable SQLite-backed SQL rows and real package/API code. SMTP
+uses a local mail sink and disposable storage. Browser checks use real package/report
+endpoints; notification rows are UI fixtures. The packaged check strips Python/UV
+from the child PATH and uploads a trusted fixture package into a temporary relocated
+executable. It substitutes database connections only in that disposable process;
+no production test endpoint is added. Real SQL Server/procedure/hardware behavior
+remains a VM check. Owned temporary processes and databases are removed afterwards.

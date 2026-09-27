@@ -17,7 +17,7 @@ class RunLogStore:
         with self.database._get_connection() as conn:
             rows = conn.execute("SELECT data FROM ExecutionMonitoring WHERE finished = 0").fetchall()
             # A crash may have happened between SMTP acceptance and recording success.
-            conn.execute("UPDATE NotificationLog SET status = 'pending' WHERE status = 'sending' AND event_type IN (?, ?)", MONITOR_EVENTS)
+            conn.execute("UPDATE NotificationLog SET status = 'unknown', error_message = 'Delivery was interrupted; check recipients before resending.' WHERE status = 'sending' AND event_type IN (?, ?)", MONITOR_EVENTS)
             conn.execute("""
                 UPDATE NotificationLog SET status = 'cancelled', processed_at = ?
                 WHERE event_type IN (?, ?) AND status IN ('pending', 'error')

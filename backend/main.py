@@ -326,6 +326,11 @@ async def lifespan(app: FastAPI):
     except OSError as exc:
         # Keep other modules usable; opening a reader will retry and explain the disk error.
         logger.warning("Log reading cache unavailable: %s", exc)
+    from backend.services.database_tools import get_database_tools
+    try:
+        await asyncio.to_thread(get_database_tools)
+    except Exception as exc:
+        logger.error("Database packages unavailable: %s", exc)
     from backend.services.health_sampler import health_sampler
     health_sampler.start()
 
@@ -393,6 +398,8 @@ async def lifespan(app: FastAPI):
         if getattr(app.state, "log_readers", None) is not None:
             await asyncio.to_thread(app.state.log_readers.close)
         await asyncio.to_thread(health_sampler.stop)
+        from backend.services.database_tools import close_database_tools
+        await asyncio.to_thread(close_database_tools)
         if diagnostics:
             await asyncio.to_thread(diagnostics.stop)
         
@@ -546,6 +553,8 @@ def graceful_shutdown(signum=None, frame=None):
 # Include API routers
 app.include_router(auth_router)
 app.include_router(database_router)
+from backend.api.database_tools import router as database_tools_router
+app.include_router(database_tools_router)
 app.include_router(experiments_router)
 app.include_router(camera_router, prefix="/api", tags=["camera"])
 app.include_router(admin_router, prefix="/api/admin", tags=["admin"])
@@ -731,7 +740,7 @@ async def api_info():
                     "GET /api/database/status",
                     "GET /api/database/tables",
                     "GET /api/database/tables/{table_name}",
-                    "POST /api/database/query",
+                    "GET /api/database/tools/catalogue",
                     "GET /api/database/monitoring",
                     "GET /api/database/performance"
                 ]

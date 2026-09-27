@@ -191,12 +191,6 @@ export const databaseAPI = {
   getStoredProcedures: (useCache = true) =>
     api.get('/api/database/stored-procedures', { params: { use_cache: useCache } }),
 
-  executeProcedure: (procedureName: string, parameters?: Record<string, any>) =>
-    api.post('/api/database/execute-procedure', {
-      procedure_name: procedureName,
-      parameters,
-    }),
-
   getExperiments: (page = 1, limit = 100) =>
     api.get('/api/database/tables/Experiments', { params: { page, limit } }),
 };

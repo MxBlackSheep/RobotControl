@@ -18,6 +18,7 @@ from backend.services.scheduling import (
     get_hamilton_process_monitor,
 )
 from backend.services.notifications import EmailNotificationService
+from backend.services.notification_delivery import send_recorded
 from backend.services.scheduling.experiment_discovery import get_experiment_discovery_service
 from backend.services.scheduling.experiment_executor import resolve_experiment_path
 from backend.models import (
@@ -444,7 +445,8 @@ def test_notification_settings_endpoint(
     ]
     body = "\n".join(body_lines)
 
-    if not email_service.send(subject, body, to=[recipient], timeout_seconds=10, attempts=1):
+    if not send_recorded(email_service, subject, body, to=[recipient], timeout_seconds=10, attempts=1,
+                         event_type="smtp_test", actor=current_user.get("username")):
         detail = email_service.last_error or "Failed to deliver test email; see backend logs for details."
         log_action(
             actor=current_user.get("username", "unknown"),
@@ -468,7 +470,7 @@ def test_notification_settings_endpoint(
     return ApiResponse(
         success=True,
         message=f"Test email sent to {recipient}",
-        data={"recipient": recipient},
+        data={"recipient": recipient, "warning": email_service.delivery_log_warning},
     ).to_dict()
 
 
@@ -533,7 +535,8 @@ def send_schedule_notification_email_endpoint(
         ).to_dict()
 
     email_service = EmailNotificationService()
-    if not email_service.send(subject, body, to=recipients, timeout_seconds=10, attempts=1):
+    if not send_recorded(email_service, subject, body, to=recipients, timeout_seconds=10, attempts=1,
+                         event_type="manual_email", schedule_id=schedule_id, actor=actor):
         detail = email_service.last_error or "Failed to deliver email; see backend logs for details"
         log_action(
             actor=actor,
@@ -566,6 +569,7 @@ def send_schedule_notification_email_endpoint(
         data={
             "schedule_id": schedule_id,
             "sent": True,
+            "warning": email_service.delivery_log_warning,
             "skipped": False,
             "recipients": recipients,
             "missing_contact_ids": missing_contact_ids,

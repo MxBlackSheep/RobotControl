@@ -258,3 +258,10 @@ Stick to this blueprint and the scheduling UI will stay maintainable even for ne
 - To test, save a non-default threshold, reopen the edit form, and verify it round-trips. Use the backend's controlled trace tests for state transitions; the operator should perform the simulator/email acceptance sequence described in the backend scheduling guide.
 
 The service strip keeps Queue details beside Refresh and Recovery required; expanding it reveals running/queued entries without a permanent extra toolbar row.
+
+## Delivery Logs refresh (2026-09-27)
+
+All statuses are shown by default. Filters include sent, pending, error, partial,
+unknown and cancelled. Visible logs refresh serially every five seconds; hidden pages
+stop polling. Request generations prevent stale filter responses replacing new results.
+SMTP test log-storage warnings appear even when the email was successfully submitted.

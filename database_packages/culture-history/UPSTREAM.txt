@@ -1,0 +1,2 @@
+Source: https://github.com/MxBlackSheep/Shou_LHR_PythonPackage/blob/ed676fbe3b113329b7748935c87f6d3219743cb5/SQL%20Database/Data.py
+Revision: ed676fbe3b113329b7748935c87f6d3219743cb5

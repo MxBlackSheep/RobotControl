@@ -324,3 +324,18 @@ Hamilton SQL states are 1 (Running), 2 (Paused), 64 (Aborted), and 128 (Complete
 Run the backend test suite, then build the frontend, embed resources, and build the Windows executable. `test_run_log_monitor.py` uses temporary SQLite databases, trace files, a controllable monotonic clock, fake SQL and fake SMTP. It covers run matching, repeated pauses, outages, replacements, restart, terminal races, delivery retries, archive completion and the removed runtime cap. API tests cover positive-integer validation, default 3 and omitted-update preservation.
 
 For acceptance on the simulator: schedule a verified simulator-only method with an email contact, pause trace writes for at least 3.5 minutes, check one email, resume writes, pause again, and check a second email. Complete and verify silence. Repeat with an application restart during a pause: the same previously sent pause must not send twice; an unalerted pause needs a fresh observation window. Actual Hamilton behavior and SMTP delivery must be checked by the operator; automated tests never launch a laboratory method.
+
+## Delivery records (2026-09-27)
+
+Automatic alerts retain their record owner. Manual/test/recovery sends use
+`notification_delivery.send_recorded`: create pending before SMTP, then update that
+row. If creating the record fails, do not send. If its final update fails, log the
+failure and return a warning; never resend accepted mail solely to repair a log.
+SMTP test warnings also appear in the settings panel.
+
+Sent means SMTP acceptance, not inbox delivery. Partial refusal records partial and
+does not retry accepted recipients. An interrupted run-monitor sending record becomes
+unknown after restart, instead of automatically sending again. Inspect before resending.
+
+`SchedulerEngine.database_change_guard` serializes destructive database actions with
+`launch_guard`, rejecting active/unknown robot state, recovery and unhealthy storage.

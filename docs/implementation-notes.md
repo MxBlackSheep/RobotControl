@@ -1,3 +1,10 @@
+## 2026-09-27 — Portable database packages and delivery logs
+
+- Added local-admin ZIP package management, shared operation/report forms, guarded Delete Experiment and private Excel generation using the bundled runtime. Retired public raw SQL/procedure execution.
+- Pinned culture-history calculations to upstream ed676fbe3b113329b7748935c87f6d3219743cb5; fixed duplicate OD-column selection without changing calculation rules.
+- Recorded manual/test/recovery deliveries, added visible log refresh and partial/unknown outcomes, and prevented retries caused only by logging failure.
+- Focused HTTP/SMTP/browser evidence: `recovery/database-verification`; package contract: `database_packages/README.md`. SQL Server/procedure and hardware compatibility remain VM checks; verification uses disposable database rows.
+
 ## 2026-09-27 Proportionate engineering and clearer guidance
 
 - Reviewed testing, communication and code structure. Tracked `AGENTS.md` now defines requirement-first design, justified abstractions, verification matched to impact, release-only packaging and concrete user-facing explanations. Retired the standing frontend specialist workflow.

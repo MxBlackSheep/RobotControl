@@ -22,7 +22,7 @@ import { databaseAPI } from "../services/api";
 import DatabaseTable from "../components/DatabaseTable";
 import StoredProcedures from "../components/StoredProcedures";
 import DatabaseRestore from "../components/DatabaseRestore";
-import DatabaseOperations from "../components/DatabaseOperations";
+import DatabaseTools, { DatabasePackages } from "../components/DatabaseTools";
 
 type TableInfo = { name: string; has_data?: boolean; is_important?: boolean };
 
@@ -171,7 +171,13 @@ export default function DatabasePage() {
         ) : null}
       </SectionPanel>
       <SectionPanel active={section === 3}>
-        {isLocalUser(user) ? <DatabaseOperations onError={setError} /> : null}
+        {isLocalUser(user) && user?.role === "admin" ? <DatabaseTools kind="operation" active={section === 3} /> : null}
+      </SectionPanel>
+      <SectionPanel active={section === 4}>
+        <DatabaseTools kind="report" active={section === 4} />
+      </SectionPanel>
+      <SectionPanel active={section === 5}>
+        {isLocalUser(user) && user?.role === "admin" ? <DatabasePackages active={section === 5} /> : null}
       </SectionPanel>
     </PageContent>
   );
