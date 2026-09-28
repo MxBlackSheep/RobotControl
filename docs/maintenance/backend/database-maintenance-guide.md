@@ -18,11 +18,18 @@ See the scheduling maintenance guide for restart and recovery constraints.
 
 `workspace_database.py` uses an explicit snapshot from `report_sources.py` for
 viewers. `/api/database/tables` (including count/columns) and `/stored-procedures`
-require authenticated requests and `source_id`. No source means a setup error, not
+require authenticated requests. `ReportSources.viewer()` resolves the admin's
+`viewer_source` setting; a supplied stale/different `source_id` returns 409 and
+cannot override it. On upgrade the first available reader is persisted once,
+matching the former fresh-browser default. With none configured, return a setup error, not
 fallback to the robot writer. Schema-qualified metadata names are validated against
 SQL Server metadata; views and duplicate names in different schemas are supported.
 The native `get_database_service()` singleton, scheduler SQL integration, scheduling
 SQLite, Tip tracking, Cytomat, monitoring, backup and Restore remain unchanged.
+
+PUT `/api/database/tools/viewer-source` is local-admin-only. The selected profile
+cannot be removed until another is chosen. Browser-local connection preferences
+do not affect server routing.
 
 Connection settings stay in `data/database-tools/report-sources.json`. Existing
 profiles default to read-only. `access=operation` profiles require a separate account;
@@ -31,6 +38,30 @@ on every open. Operations store the target snapshot and configuration revision w
 the preview, compare again under the configuration lock, then retain the existing
 scheduler safety guard and transaction. Reconfiguration/remapping requires a new
 preview. No native writer fallback remains for package operations.
+
+Preview also takes the scheduler launch guard and rolls back its transaction.
+Acquire that guard, then the catalogue lock, then `sources.lock`. Scheduling
+settings also acquire the guard before source configuration. This avoids inversion
+with package publication, which takes catalogue then sources.
+Operation lookup inputs use separately mapped reading connections, validate values
+before preview and again before execution, and retain the target transaction.
+Trusted code must not commit inside preview, bypass connections or start independent
+work. The host cannot enforce that contract against hostile Python.
+
+Reports now run in disposable spawned processes (`report_worker.py`), with at most
+two active reports and a five-minute limit. Shutdown/timeout terminates the child;
+crash/error releases the slot. Only selected reading profiles are passed to the
+child; no source catalogue or scheduler is initialized there. This is process
+separation, not an OS sandbox: it has the application user's filesystem/network
+permissions and there is no per-process memory cap. Package activation no longer
+imports Python. Report imports happen in the child; operation imports occur during
+explicit preview/execution under the guard.
+
+POST `/reports/{id}/edit` captures the installed archive and its hash in an
+owner-only draft. The generated update preserves sibling tools and authored files,
+merges library declarations, retains IDs, and increments the suggested patch
+version. Review/publish reject changed installed hashes or mappings. Both still
+perform the normal activation running checks. Non-`run` entry functions use ZIP editing.
 
 `database_access.py` creates a new reader only after the local admin reviews grants.
 The review token is owner-bound, single-use and expires after ten minutes. SQL
@@ -302,7 +333,8 @@ trial/review/install actions and `/packages/{id}/sources`. Ordinary report clien
 use registered `/reports/{id}/choices/{field}` lookups; catalogue responses omit
 query text and source details. Dependency membership is checked again during runs.
 SQL Server 2008-compatible ROW_NUMBER paging is intentional. No SQLite report
-provider is implemented yet. Normal operation safety/transactions are unchanged.
+provider is implemented yet. Operations expose the equivalent local-admin choices
+endpoint and preserve the same confirmation/transaction checks.
 
 Focused real-SQL workflow: `.venv/Scripts/python.exe -m backend.e2e.report_wizard_check`.
 It creates uniquely named disposable databases/login using local Windows-admin
@@ -330,8 +362,8 @@ Packages are trusted software, not sandboxed SQL definitions.
 importing Python or writing an installation. It returns the manifest and current
 installed version/hash. The install route accepts `expected_current` (the reviewed
 hash, or `absent` for a new package) and `expected_package`; mismatches return 409.
-All package routes retain local-admin checks and upload limits. Activation still
-imports trusted code; inspection is not a sandbox or proof of behavior.
+All package routes retain local-admin checks and upload limits. Activation checks
+syntax and entry-point definitions without importing; it cannot prove behavior.
 
 `build_scripts/database_package.py create` preserves a source script and generates
 an editable adapter, manifest and agent instructions. `build` shares archive

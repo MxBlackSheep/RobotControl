@@ -180,8 +180,8 @@ export default function DatabaseTools({ kind, active }: { kind: 'operation' | 'r
               {experiment.Note && <Typography color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{experiment.Note}</Typography>}
             </Box> : <Typography color="text.secondary">Select an experiment.</Typography>)}
             {tool?.inputs.filter(field => !tool.setup_needed && field !== experimentField).map(field => ['lookup', 'date'].includes(field.type)
-              ? <ReportInputs key={`${tool.id}/${field.name}`} fields={[field]} values={values} disabled={locked || !!tool.setup_needed}
-                  choiceBase={`${base}/reports/${tool.id}/choices`} onChange={changeValue} />
+              ? <ReportInputs key={`${tool.id}/${field.name}`} fields={[field]} allFields={tool.inputs} values={values} disabled={locked || !!tool.setup_needed}
+                  choiceBase={`${base}/${kind === 'operation' ? 'operations' : 'reports'}/${tool.id}/choices`} onChange={changeValue} />
               : field.type === 'experiment'
               ? <ExperimentInput operationId={kind === 'operation' ? tool.id : undefined} reportId={kind === 'report' ? tool.id : undefined} key={`${tool.id}/${field.name}`} label={field.label} value={values[field.name]} disabled={locked} onChange={value => changeValue(field.name, value)} />
               : field.type === 'boolean' ? <FormControlLabel key={field.name} label={field.label} control={<Checkbox disabled={locked} checked={values[field.name] === true} onChange={(_, value) => changeValue(field.name, value)} />} />

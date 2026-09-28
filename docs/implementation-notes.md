@@ -1,3 +1,10 @@
+## 2026-09-28 Simpler database setup and installed report editing
+
+- Tables and Stored procedures now use one admin-selected, server-persisted viewer database. Schedule preparation shows the active setup before editing; the existing connection is visible and ordinary EvoYeast selection no longer requires optional ResetHamiltonTables.
+- Edit report retains installed Python, inputs, mappings, sibling tools and supporting files, suggests a patch version and publishes without manual JSON/ZIP editing. Changed installation bases are rejected. The choice builder can filter by an earlier answer; operations support the same read-only lookup sources and revalidate selections before execution.
+- Reports run in separate five-minute processes; activation no longer imports uploaded code. Previews share launch protection, roll back, and use a consistent catalogue/source lock order. Python remains trusted code, not sandboxed.
+- Focused SQL/HTTP, desktop/phone workflows and product review: `recovery/database-simplification-verification/index.html`. Process crash/timeout, stale choices, rollback, draft preservation and settings recovery checked; no new unit tests. Candidate verification is recorded alongside the evidence.
+
 ## 2026-09-28 Portable package editing and reviewed database settings
 
 - Added installed-package ZIP downloads and report editing downloads containing the original Python, configured handler, inputs and concise editing instructions. Report/operation selectors stay visible; package rows identify both kinds.

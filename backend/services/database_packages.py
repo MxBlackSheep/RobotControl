@@ -92,8 +92,6 @@ class ToolDefinition(BaseModel):
             visited.add(name)
         for name in names:
             visit(name, set())
-        if self.kind == 'operation' and (self.sources or any(f.type in {'lookup', 'date'} for f in self.inputs)):
-            raise ValueError('Report sources and lookups are for reports only')
         if self.kind == "operation" and (not self.preview or not any(field.name == self.confirmation_field and field.required for field in self.inputs)):
             raise ValueError("Operations require a preview and confirmation field")
         return self
@@ -337,11 +335,9 @@ class PackageCatalogue:
                     raise PackageError("Choose an update for the selected package.", 409)
                 if expected_current is not None and expected_current != (current['sha256'] if current else ''):
                     raise PackageError("Installed package changed. Review the update again.", 409)
-                # Trusted code imports only after structural/compatibility checks. No install hooks.
-                for tool in manifest.tools:
-                    self.function(entry, tool.entrypoint)
-                    if tool.preview:
-                        self.function(entry, tool.preview)
+                # Inspection already validates syntax and entry-point names.
+                # Import only when explicitly running/previewing a tool; report
+                # imports belong in the report process, never the robot service.
                 old = self.index.get(manifest.id)
                 updated = {**self.index, manifest.id: entry}
                 self._save(updated)

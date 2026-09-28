@@ -5,11 +5,18 @@ Python; RobotControl handles the form settings and ZIP.**
 
 ## Edit an installed package
 
-Choose **Manage packages → Download package** on the installed version. Unzip it,
-edit the Python, increase `version` in `manifest.json`, then ZIP the files with
-`manifest.json` at the root. Choose **Update** on the same package and review the
-version before installing. Local connection assignments and passwords are not
-added to the download; inspect your own code for any hard-coded secrets before sharing.
+For a report, choose **Manage packages → Edit report → Download Python**. Edit
+the file yourself or with a coding agent, then **Replace Python → Try report**.
+Check the downloaded workbook, choose **Next → Review update → Publish update**.
+RobotControl suggests the next patch version and retains the input form, connection
+assignments, other tools and supporting files. No manifest or ZIP editing is needed.
+Discard removes only the draft. If someone updated the installed package or its
+connections meanwhile, start a new edit from that version.
+
+For operation code, supporting-file edits or custom entry functions other than
+`run`, use **Download package**. Edit the extracted files, increase `version` in
+`manifest.json`, ZIP them with the manifest at the root, then choose **Update**.
+Local assignments/passwords are not exported; inspect authored code for secrets.
 
 A tool's `kind` in the manifest decides its page: `report` appears in Data retrieval;
 `operation` appears in Operations. A package can contain both. Each page always
@@ -61,7 +68,8 @@ Python and UV are not needed on the deployment computer.
 
 For an operation, choose its **Connections → Operation target** after installing it.
 Existing operations also need this explicit assignment after this upgrade. Table and
-procedure viewers have their own **Database connection** selector. Report packages
+procedure viewers use the shared **Viewer database** chosen by the local admin in
+Database settings. Report packages
 retain their source mappings. None of these choices redirects robot functions or Restore.
 
 The wizard does not translate arbitrary Python calculations. Your handler implements
@@ -69,9 +77,13 @@ The wizard does not translate arbitrary Python calculations. Your handler implem
 `context.output_dir`, and returns its filename. For example, a Plate dropdown sends
 the selected ID as `inputs['plate_id']`; its displayed label is not passed to Python.
 
-For database dropdowns, **Build from columns** creates a simple SELECT. For filtered
-choices, return columns named `value` and `label`, use `?` for each parent value, and
-select those parents in parameter order. Example:
+For database dropdowns, **Build from columns** takes a table, ID column and label
+column. For Plate choices, set **Filter using earlier answer = Experiment** and
+**Filter column = ExperimentID**. Choose **Use columns** to apply. Changing the
+Experiment answer clears Plate and any later choices depending on it.
+
+For joins or multiple filters, **Advanced SQL** accepts a SELECT returning `value`
+and `label`. Use `?` for each parent value, and select parents in parameter order:
 
 ```sql
 SELECT PlateID AS value, PlateName AS label FROM dbo.Plates WHERE ProjectID = ?
@@ -81,8 +93,8 @@ Choose `project_id` under **Depends on**. Changing Project clears Plate. Choose 
 correct value type (integer for an integer ID). No experiment table is required.
 
 Use **Save and close**, then **Resume** to continue later. Drafts belong to their
-author. To update, resume the draft, keep its package ID, increase the version and
-upload the edited handler. Review installation before replacing the working report.
+author. For an installed report, start from **Edit report** so the draft captures
+the current installation and suggests its next version.
 
 Connection passwords stay on this computer and are not exported with settings.
 Installation on another computer needs local source assignments. Existing reports,

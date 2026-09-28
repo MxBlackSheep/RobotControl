@@ -12,11 +12,15 @@ export default function DatabaseSettings({ active }: { active: boolean }) {
   const [connections, setConnections] = useState(false), [error, setError] = useState('');
   const [busy, setBusy] = useState(false), [lab, setLab] = useState<any>(), [config, setConfig] = useState<Config>({adapter:'evoyeast'});
   const [review, setReview] = useState<any>(), [binding, setBinding] = useState<Assignment>();
+  const [viewer, setViewer] = useState(''), [savedViewer, setSavedViewer] = useState(''), [changeLab, setChangeLab] = useState(false);
   const load = async (signal?: AbortSignal) => {
     const [profiles, packages] = await Promise.all([api.get(`${base}/sources`, {signal}), api.get(`${base}/packages`, {signal})]);
     const bindings = await Promise.all(packages.data.map(async (p: any) => ({ id:p.id, name:p.name, ...(await api.get(`${base}/packages/${p.id}/sources`, {signal})).data })));
     if (signal?.aborted) return;
     setSources(profiles.data); setAssignments(bindings);
+    const selected = await api.get(`${base}/viewer-sources`, {signal});
+    if (signal?.aborted) return;
+    setViewer(selected.data[0]?.id || ''); setSavedViewer(selected.data[0]?.id || '');
     try { const r = await api.get(`${base}/scheduling-settings`, {signal}); if (!signal?.aborted) { setLab(r.data); setConfig(r.data.saved); } }
     catch (e) { if (!signal?.aborted) setError(requestMessage(e)); }
   };
@@ -29,24 +33,33 @@ export default function DatabaseSettings({ active }: { active: boolean }) {
     {error && <Alert severity="error">{error}</Alert>}
     <Paper variant="outlined" sx={{p:2}}><Stack spacing={1}>
       <Stack direction="row" justifyContent="space-between" flexWrap="wrap"><Typography variant="h6">Connections</Typography><Button disabled={busy} onClick={() => setConnections(true)}>Manage connections</Button></Stack>
-      {sources.map(s => <Box key={s.id} sx={{py:1, borderBottom:1, borderColor:'divider', overflowWrap:'anywhere'}}><Typography fontWeight={600}>{s.name}</Typography><Typography variant="body2">{s.server} / {s.database} · {s.access === 'operation' ? 'Database changes' : 'Read-only'}</Typography><Typography variant="body2" color="text.secondary">{[...(s.access !== 'operation' ? ['Available in Tables and Stored procedures'] : []), ...uses(s.id)].join(' · ') || 'Not assigned'}</Typography></Box>)}
+      {sources.map(s => <Box key={s.id} sx={{py:1, borderBottom:1, borderColor:'divider', overflowWrap:'anywhere'}}><Typography fontWeight={600}>{s.name}</Typography><Typography variant="body2">{s.server} / {s.database} · {s.access === 'operation' ? 'Database changes' : 'Read-only'}</Typography><Typography variant="body2" color="text.secondary">{[...(savedViewer === s.id ? ['Tables and Stored procedures'] : []), ...uses(s.id)].join(' · ') || 'Not assigned'}</Typography></Box>)}
       {!sources.length && <Typography>No connections configured.</Typography>}
+    </Stack></Paper>
+    <Paper variant="outlined" sx={{p:2}}><Stack spacing={2}><Typography variant="h6">Tables and Stored procedures</Typography>
+      <TextField select size="small" label="Viewer database" value={viewer} disabled={busy} onChange={e => setViewer(e.target.value)}>
+        {sources.filter(s => s.access !== 'operation').map(s => <MenuItem key={s.id} value={s.id}>{s.name} · {s.database}</MenuItem>)}
+      </TextField><Button sx={{alignSelf:'flex-start'}} disabled={busy || !viewer || viewer === savedViewer} onClick={() => void work(async () => { await api.put(`${base}/viewer-source`, {source_id:viewer}); setSavedViewer(viewer); })}>Save viewer database</Button>
     </Stack></Paper>
     <Paper variant="outlined" sx={{p:2}}><Typography variant="h6">Package connections</Typography>
       {assignments.map(a => <Stack key={a.id} direction="row" gap={1} justifyContent="space-between" alignItems="center" sx={{py:1}}><Box><Typography>{a.name}</Typography><Typography variant="body2" color="text.secondary">{[...a.aliases.map(alias => `${alias}: ${sources.find(s => s.id === a.mappings[alias])?.name || 'Not configured'}`), ...(a.has_operation ? [`Operations: ${sources.find(s => s.id === a.operation_source)?.name || 'Not configured'}`] : [])].join(' · ') || 'No database required'}</Typography></Box><Button disabled={busy} onClick={() => setBinding({...a, mappings:{...a.mappings}})}>Assign</Button></Stack>)}
     </Paper>
     <Paper variant="outlined" sx={{p:2}}><Stack spacing={2}>
-      <Typography variant="h6">Before a robot run</Typography>
+      <Stack direction="row" justifyContent="space-between"><Typography variant="h6">Schedule preparation</Typography><Button disabled={busy} onClick={() => { setChangeLab(v => !v); setConfig(lab?.saved || {adapter:'evoyeast'}); setReview(undefined); }}>{changeLab ? 'Cancel editing' : 'Change setup'}</Button></Stack>
       {lab ? <>
         <Typography>Active now: {lab.active.adapter === 'evoyeast' ? 'EvoYeast' : 'Batch (SQLite)'} · {lab.target.server ? `${lab.target.server} / ` : ''}{lab.target.database}</Typography>
         {lab.pending && <Alert severity="info" action={<Button disabled={busy} onClick={() => void work(async () => { const r = await api.post(`${base}/scheduling-settings/cancel`, {revision:lab.revision}); setLab(r.data); setConfig(r.data.saved); setReview(undefined); })}>Cancel change</Button>}>Saved; restart required. Active settings above still apply.</Alert>}
-        <TextField select size="small" label="Laboratory integration" value={config.adapter} disabled={busy} onChange={e => { setConfig({adapter:e.target.value}); setReview(undefined); }}>
+        <Typography variant="body2" color="text.secondary">Choose the experiment and preparation steps in each schedule.</Typography>
+        {changeLab && <>
+        <Box component="details"><Typography component="summary">Advanced: preparation rules</Typography><TextField fullWidth sx={{mt:1}} select size="small" label="Preparation rules" value={config.adapter} disabled={busy} onChange={e => { setConfig({adapter:e.target.value}); setReview(undefined); }}>
           <MenuItem value="evoyeast">EvoYeast (SQL Server)</MenuItem><MenuItem value="batch-sqlite">Batch (SQLite)</MenuItem></TextField>
-        {config.adapter === 'evoyeast' ? <TextField select size="small" label="Scheduling database" value={config.source_id || ''} disabled={busy} onChange={e => { setConfig({adapter:'evoyeast', ...(e.target.value ? {source_id:e.target.value} : {})}); setReview(undefined); }}>
-          <MenuItem value="">Existing laboratory connection</MenuItem>{sources.filter(s => s.access === 'operation').map(s => <MenuItem key={s.id} value={s.id}>{s.name} · {s.server} / {s.database}</MenuItem>)}</TextField>
+        </Box>
+        {config.adapter === 'evoyeast' ? <TextField select size="small" label="Laboratory database" value={config.source_id || '__existing'} disabled={busy} onChange={e => { setConfig({adapter:'evoyeast', ...(e.target.value !== '__existing' ? {source_id:e.target.value} : {})}); setReview(undefined); }}>
+          <MenuItem value="__existing">Existing laboratory connection</MenuItem>{sources.filter(s => s.access === 'operation').map(s => <MenuItem key={s.id} value={s.id}>{s.name} · {s.server} / {s.database}</MenuItem>)}</TextField>
           : <TextField size="small" label="Laboratory SQLite file" value={config.sqlite_path || ''} disabled={busy} onChange={e => { setConfig({adapter:'batch-sqlite', sqlite_path:e.target.value}); setReview(undefined); }} />}
-        <Typography variant="body2" color="text.secondary">Choose the experiment or batch when editing a schedule. Changing integrations does not convert existing schedules.</Typography>
+        <Typography variant="body2" color="text.secondary">Changing the setup does not convert existing schedules.</Typography>
         <Button variant="outlined" disabled={busy} sx={{alignSelf:'flex-start'}} onClick={() => void work(async () => { const r = await api.post(`${base}/scheduling-settings/review`, config, {timeout:30000}); setReview(r.data); })}>Check and review</Button>
+        </>}
       </> : <Typography>Scheduling settings are unavailable.</Typography>}
     </Stack></Paper>
     <ReportConnections open={connections} onClose={() => { setConnections(false); void work(() => load()); }} />

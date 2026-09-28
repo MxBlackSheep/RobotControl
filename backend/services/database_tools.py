@@ -12,6 +12,7 @@ import threading
 import time
 import uuid
 import copy
+import multiprocessing
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
@@ -23,6 +24,7 @@ from backend.utils.audit import log_action
 from backend.utils.data_paths import get_path_manager
 
 logger = logging.getLogger(__name__)
+REPORT_TIMEOUT_SECONDS = 300
 
 
 def digest(value):
@@ -84,17 +86,23 @@ class DatabaseTools:
     def preview(self, tool_id, inputs, owner):
         with self.catalogue.reserve(tool_id, "operation") as (entry, tool):
             inputs = tool.validate_values(inputs)
-            target = self.sources.operation_target(entry['manifest']['id'])
-            with self.sources.open(target) as conn:
-                conn.timeout = 30
-                result = self.catalogue.function(entry, tool.preview)(SimpleNamespace(connection=conn), inputs)
+            with self.guard(), self.catalogue.lock, self.sources.lock:
+                target = self.sources.operation_target(entry['manifest']['id'])
+                choices = self.sources.snapshot(entry['manifest']['id'], tool.sources)
+                with self.sources.connections(choices) as connections, self.sources.open(target) as conn:
+                    conn.timeout = 30
+                    self.validate_choices(tool, inputs, connections)
+                    try:
+                        result = self.catalogue.function(entry, tool.preview)(SimpleNamespace(connection=conn, connections=connections), inputs)
+                    finally:
+                        conn.rollback()
             token = uuid.uuid4().hex
             with self.lock:
                 self.cleanup()
                 if len(self.previews) >= 200:
                     raise PackageError("Too many open confirmations. Try again shortly.", 429)
                 self.previews[token] = dict(owner=owner, tool_id=tool_id, inputs=inputs,
-                    target=target, sha256=entry['sha256'], package_id=entry['manifest']['id'], package_version=entry['manifest']['version'], snapshot=digest(result), expires=time.time()+600)
+                    target=target, choices=choices, sha256=entry['sha256'], package_id=entry['manifest']['id'], package_version=entry['manifest']['version'], snapshot=digest(result), expires=time.time()+600)
             return dict(token=token, confirmation=str(inputs[tool.confirmation_field]), target=self.target_label(target), **result)
 
     @staticmethod
@@ -128,10 +136,12 @@ class DatabaseTools:
                     raise PackageError("Package changed. Preview the operation again.", 409)
                 # Hold configuration lock through commit; a target cannot be edited
                 # or remapped between this check and the destructive transaction.
-                with self.sources.lock, self.guard():
+                with self.guard(), self.catalogue.lock, self.sources.lock:
                     target = self.sources.operation_target(preview['package_id'])
                     if target != preview['target']:
                         raise PackageError('Connection changed. Review the operation again.', 409)
+                    if self.sources.snapshot(preview['package_id'], tool.sources) != preview['choices']:
+                        raise PackageError('Choice connections changed. Review the operation again.', 409)
                     result, committing, committed = self._execute_operation(entry, tool, preview, target)
         except Exception as exc:
             logger.exception("Database operation failed")
@@ -149,14 +159,15 @@ class DatabaseTools:
     def _execute_operation(self, entry, tool, preview, target):
         committing = committed = False
         try:
-            with self.sources.open(target) as conn:
+            with self.sources.connections(preview['choices']) as connections, self.sources.open(target) as conn:
                 conn.timeout = 30
-                context = SimpleNamespace(connection=conn)
+                context = SimpleNamespace(connection=conn, connections=connections)
                 try:
                     # Serializable protects the selected target until commit.
                     cursor = conn.cursor()
                     cursor.execute("SET XACT_ABORT ON; SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
                     cursor.close()
+                    self.validate_choices(tool, preview['inputs'], connections)
                     current = self.catalogue.function(entry, tool.preview)(context, preview['inputs'])
                     if digest(current) != preview['snapshot']:
                         raise PackageError("Experiment changed. Preview the operation again.", 409)
@@ -184,6 +195,7 @@ class DatabaseTools:
                     tool['setup_needed'] = True
             else:
                 try:
+                    self.sources.snapshot(tool['package_id'], tool.get('sources', []))
                     target = self.sources.operation_target(tool['package_id'])
                     tool['target'] = self.target_label(target)
                     tool['setup_needed'] = False
@@ -194,9 +206,17 @@ class DatabaseTools:
                     field['lookup'] = {k: v for k, v in field['lookup'].items() if k in {'parameters', 'value_type'}}
         return tools
 
-    def choices(self, tool_id, field_name, inputs, search, page, catalogue=None, mapping=None):
+    @staticmethod
+    def validate_choices(tool, inputs, connections):
+        for field in tool.inputs:
+            if field.lookup and field.name in inputs:
+                options = lookup_rows(connections[field.lookup.source], field, inputs, selected=inputs[field.name])['options']
+                if not any(x['value'] == inputs[field.name] for x in options):
+                    raise PackageError(f'{field.label} is no longer available. Choose it again.')
+
+    def choices(self, tool_id, field_name, inputs, search, page, catalogue=None, mapping=None, kind='report'):
         catalogue = catalogue or self.catalogue
-        with catalogue.reserve(tool_id, 'report') as (entry, tool):
+        with catalogue.reserve(tool_id, kind) as (entry, tool):
             values = tool.validate_values(inputs, partial=True)
             field = next((x for x in tool.inputs if x.name == field_name and x.lookup), None)
             if field is None:
@@ -259,17 +279,34 @@ class DatabaseTools:
         with self.lock:
             self.jobs[key]['status'] = 'running'
         try:
-            with self.sources.connections(snapshot) as connections:
-                for field in tool.inputs:
-                    if field.lookup and field.name in inputs:
-                        options = lookup_rows(connections[field.lookup.source], field, inputs, selected=inputs[field.name])['options']
-                        if not any(x['value'] == inputs[field.name] for x in options):
-                            raise PackageError(f'{field.label} is no longer available. Choose it again.')
-                for conn in connections.values():
-                    conn.timeout = 120
-                context = SimpleNamespace(connection=connections.get('primary', next(iter(connections.values()), None)),
-                                          connections=connections, output_dir=folder)
-                output = catalogue.function(entry, tool.entrypoint)(context, inputs)
+            from backend.services.report_worker import run_report
+            context = multiprocessing.get_context('spawn')
+            receiver, sender = context.Pipe(duplex=False)
+            process = context.Process(target=run_report, args=(sender, str(catalogue.root), entry, tool.model_dump(), inputs, snapshot, str(folder)), daemon=True)
+            try:
+                process.start()
+                sender.close()
+                deadline = time.monotonic() + REPORT_TIMEOUT_SECONDS
+                while not receiver.poll(0.2):
+                    if self.stop.is_set():
+                        raise PackageError('Report stopped because RobotControl is shutting down.')
+                    if time.monotonic() >= deadline:
+                        raise PackageError('Report exceeded the five-minute limit. Reduce the selected data and try again.')
+                    if not process.is_alive():
+                        raise PackageError('Report process stopped unexpectedly. Check the Python script.')
+                try:
+                    response = receiver.recv()
+                except EOFError:
+                    raise PackageError('Report process stopped unexpectedly. Check the Python script.') from None
+                if response.get('error'):
+                    raise PackageError(response['error'])
+                output = response['output']
+            finally:
+                sender.close(); receiver.close()
+                if process.pid:
+                    process.join(timeout=1)
+                    if process.is_alive():
+                        process.terminate(); process.join(timeout=5)
             path = (folder / output).resolve()
             if path.parent != folder.resolve() or path.suffix != '.xlsx' or not path.is_file() or path.is_symlink():
                 raise ValueError("Report did not produce an Excel file in its output directory")

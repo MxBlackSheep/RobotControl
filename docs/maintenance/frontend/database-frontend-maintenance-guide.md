@@ -5,9 +5,23 @@
 The local-admin **Database settings** section (`DatabaseSettings.tsx`) shows saved
 connections, their uses, package assignments and scheduling's active/pending target.
 It reuses `ReportConnections` and `SourceMappings`; there is no second credential
-store. Viewers still select their own read-only connection. Package rows show tool
+store. The admin selects one server-persisted **Viewer database**; Tables and Stored
+procedures display its name without a dropdown. Package rows show tool
 counts, Download package, Connections, Update and Remove. Tool `kind` controls
 Operations versus Data retrieval; the selector remains visible with one tool.
+
+**Edit report** opens a private draft at Try report, with the installed Python,
+inputs and source mappings. Replace Python, try/download Excel, then review and
+publish the suggested patch version. The backend preserves sibling tools/assets
+and rejects a changed installation base. A package with several reports has an
+Edit action per report. Custom entry functions other than `run` retain the ZIP path.
+The choice builder adds an optional earlier-answer filter; opening Advanced SQL
+never rewrites an existing query. Parent changes clear dependent answers recursively.
+
+**Schedule preparation** shows active setup first. **Change setup** reveals the
+laboratory database; preparation implementation is under Advanced. The existing
+laboratory connection is an explicit option, never a blank selection. Experiment
+selection remains in each schedule, separate from installation settings.
 
 Create report distinguishes import inspection from Python adaptation. Download
 editing files preserves the original, a configured handler and input contract;

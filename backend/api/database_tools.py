@@ -1,6 +1,7 @@
 """Authenticated public interface; never accepts SQL or Python entry points."""
 from typing import Any, Literal
 import sqlite3
+import threading
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, Response
 from fastapi.routing import APIRoute
@@ -69,11 +70,14 @@ def owner(user):
     return str(user.get('user_id') or user['username'])
 
 
+_lab_settings_lock = threading.Lock()
+
+
 def get_lab_settings(service=Depends(get_database_tools)):
     from backend.services.scheduling import get_scheduler_engine, get_scheduling_database_manager
     from backend.utils.data_paths import get_data_path
     manager = get_scheduling_database_manager()
-    with service.sources.lock:
+    with _lab_settings_lock:
         if not hasattr(manager, '_settings_service'):
             manager._settings_service = LabSettings(manager, service.sources, get_data_path(), get_scheduler_engine().database_change_guard)
         return manager._settings_service
@@ -139,6 +143,11 @@ def report_choices(tool_id: str, field_name: str, payload: ChoiceRequest, servic
     return service.choices(tool_id, field_name, payload.inputs, payload.search, payload.page)
 
 
+@router.post('/operations/{tool_id}/choices/{field_name}')
+def operation_choices(tool_id: str, field_name: str, payload: ChoiceRequest, user=Depends(local_admin), service=Depends(get_database_tools)):
+    return service.choices(tool_id, field_name, payload.inputs, payload.search, payload.page, kind='operation')
+
+
 @router.get('/sources')
 def sources(user=Depends(local_admin), service=Depends(get_database_tools)):
     return service.sources.list()
@@ -146,7 +155,19 @@ def sources(user=Depends(local_admin), service=Depends(get_database_tools)):
 
 @router.get('/viewer-sources')
 def viewer_sources(service=Depends(get_database_tools)):
-    return [{k: s.get(k) for k in ('id', 'name', 'server', 'database', 'revision')} for s in service.sources.list() if s.get('access', 'read') == 'read']
+    source = service.sources.viewer()
+    return [{k: source.get(k) for k in ('id', 'name', 'server', 'database', 'revision')}] if source else []
+
+
+class ViewerSelection(BaseModel):
+    source_id: str = Field(min_length=1, max_length=64)
+
+
+@router.put('/viewer-source')
+def select_viewer(payload: ViewerSelection, user=Depends(local_admin), service=Depends(get_database_tools)):
+    service.sources.set_viewer(payload.source_id)
+    log_action(actor=owner(user), action='select_viewer_database', scope='database', client_ip=None, success=True, details={'source_id':payload.source_id})
+    return viewer_sources(service)
 
 
 @router.post('/sources')
@@ -234,6 +255,11 @@ def drafts(user=Depends(local_admin), service=Depends(get_database_tools)):
     return service.authoring.list(owner(user))
 
 
+@router.post('/reports/{tool_id}/edit')
+def edit_report(tool_id: str, user=Depends(local_admin), service=Depends(get_database_tools)):
+    return service.authoring.edit_installed(tool_id, owner(user))
+
+
 @router.post('/drafts')
 def new_draft(payload: DraftSave, user=Depends(local_admin), service=Depends(get_database_tools)):
     return service.authoring.save(payload.draft, owner(user))
@@ -264,13 +290,15 @@ def starter(key: str, user=Depends(local_admin), service=Depends(get_database_to
 @router.get('/drafts/{key}/package')
 def export_draft(key: str, user=Depends(local_admin), service=Depends(get_database_tools)):
     draft = service.authoring.draft(key, owner(user))
-    return Response(service.authoring.archive(draft), media_type='application/zip',
+    return Response(service.authoring.archive(draft, key, owner(user)), media_type='application/zip',
                     headers={'Content-Disposition': f'attachment; filename="{draft.package_id}-{draft.version}.zip"'})
 
 
 @router.get('/drafts/{key}/review')
 def review_draft(key: str, user=Depends(local_admin), service=Depends(get_database_tools)):
-    return service.catalogue.inspect(service.authoring.archive(service.authoring.draft(key, owner(user))))
+    with service.authoring.lock, service.catalogue.lock, service.sources.lock:
+        service.authoring.check_base(key, owner(user))
+        return service.catalogue.inspect(service.authoring.archive(service.authoring.draft(key, owner(user)), key, owner(user)))
 
 
 @router.post('/drafts/{key}/choices/{field_name}')
@@ -306,12 +334,18 @@ def install_draft(key: str, payload: DraftInstall, user=Depends(local_admin), se
         if service.authoring.get(key, owner(user))['revision'] != payload.revision:
             raise HTTPException(409, 'Draft changed. Review it again.')
         draft = service.authoring.draft(key, owner(user))
-        aliases = draft.sources
-        service.sources.snapshot(draft.package_id, aliases, draft.mappings)
-        if set(draft.mappings) != set(aliases):
+        baseline = service.authoring.check_base(key, owner(user))
+        content = service.authoring.archive(draft, key, owner(user))
+        from backend.services.database_packages import inspect_archive
+        manifest, _ = inspect_archive(content)
+        aliases = service.sources.aliases(manifest.model_dump())
+        mappings = {**(baseline['mappings'] if baseline else {}), **draft.mappings}
+        mappings = {name:mappings[name] for name in aliases if name in mappings}
+        service.sources.snapshot(draft.package_id, aliases, mappings)
+        if set(mappings) != set(aliases):
             raise HTTPException(400, 'Map exactly the declared source aliases.')
-        result = service.catalogue.install(service.authoring.archive(draft), expected_current=payload.expected_current)
-        service.sources.bind(draft.package_id, aliases, draft.mappings)
+        result = service.catalogue.install(content, expected_current=payload.expected_current)
+        service.sources.bind(draft.package_id, aliases, mappings)
     log_action(actor=owner(user), action='install_report_draft', scope='database', client_ip=None, success=True,
                details={'package': result['id'], 'version': result['version']})
     return result

@@ -15,8 +15,9 @@ export function changedInputs(fields: ReportField[], values: Record<string, any>
   return next;
 }
 
-function DatabaseChoice({ field, values, onChange, disabled, endpoint }: {
+function DatabaseChoice({ field, values, onChange, disabled, endpoint, allFields }: {
   field: ReportField; values: Record<string, any>; onChange: (value: any) => void; disabled: boolean; endpoint: string;
+  allFields: ReportField[];
 }) {
   const [query, setQuery] = useState(''), [page, setPage] = useState(1);
   const [options, setOptions] = useState<{ value: any; label: string }[]>([]);
@@ -47,19 +48,19 @@ function DatabaseChoice({ field, values, onChange, disabled, endpoint }: {
       onInputChange={(_, text, reason) => { if (reason === 'input' || reason === 'clear') { setQuery(text); setPage(1); } }}
       onChange={(_, x) => { setSelected(x); onChange(x?.value ?? null); }}
       renderInput={params => <TextField {...params} label={field.label} required={field.required} size="small" />} />
-    {missing && <Typography variant="caption">Choose {(field.lookup?.parameters || []).join(', ')} first.</Typography>}
+    {missing && <Typography variant="caption">Choose {(field.lookup?.parameters || []).filter(p => values[p] == null || values[p] === '').map(p => allFields.find(f => f.name === p)?.label || p).join(', ')} first.</Typography>}
     {more && <Button disabled={disabled || loading} onClick={() => setPage(p => p + 1)}>More choices</Button>}
     {error && <Alert severity="error">{error}</Alert>}
   </Stack>;
 }
 
-export default function ReportInputs({ fields, values, onChange, disabled, choiceBase }: {
+export default function ReportInputs({ fields, values, onChange, disabled, choiceBase, allFields = fields }: {
   fields: ReportField[]; values: Record<string, any>; onChange: (name: string, value: any) => void;
-  disabled: boolean; choiceBase: string;
+  disabled: boolean; choiceBase: string; allFields?: ReportField[];
 }) {
   return <Stack spacing={2} sx={{ width: '100%', minWidth: 0 }}>
     {fields.map(field => field.type === 'lookup'
-      ? <DatabaseChoice key={field.name} field={field} values={values} onChange={v => onChange(field.name, v)} disabled={disabled} endpoint={`${choiceBase}/${field.name}`} />
+      ? <DatabaseChoice key={field.name} field={field} allFields={allFields} values={values} onChange={v => onChange(field.name, v)} disabled={disabled} endpoint={`${choiceBase}/${field.name}`} />
       : field.type === 'boolean'
         ? <FormControlLabel key={field.name} label={field.label} control={<Checkbox checked={values[field.name] === true} disabled={disabled} onChange={(_, v) => onChange(field.name, v)} />} />
         : <TextField key={field.name} label={field.label} required={field.required} disabled={disabled} size="small"

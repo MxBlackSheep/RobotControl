@@ -98,6 +98,24 @@ class ReportSources:
                 raise PackageError('Choose a configured ' + ('read-only' if access == 'read' else 'operation') + ' connection.', 409)
             return copy.deepcopy(source)
 
+    def viewer(self):
+        with self.lock:
+            # Migrate the old first-available default once; do not silently switch
+            # databases when an administrator removes or adds a connection.
+            if 'viewer_source' not in self.state:
+                first = next((s['id'] for s in self.state['sources'].values() if s.get('access', 'read') == 'read'), None)
+                if first:
+                    self.set_viewer(first)
+            source_id = self.state.get('viewer_source')
+            return self.get(source_id) if source_id else None
+
+    def set_viewer(self, source_id):
+        with self.lock:
+            self.get(source_id)
+            state = copy.deepcopy(self.state)
+            state['viewer_source'] = source_id
+            self._save(state)
+
     def operation_target(self, package_id):
         with self.lock:
             return self.get(self.state['operation_bindings'].get(package_id), 'operation')
@@ -144,6 +162,8 @@ class ReportSources:
 
     def remove(self, source_id):
         with self.lock:
+            if source_id == self.state.get('viewer_source'):
+                raise PackageError('Tables and Stored procedures use this connection. Choose another in Database settings first.', 409)
             if any(source_id in mapping.values() for mapping in self.state['bindings'].values()) or source_id in self.state['operation_bindings'].values():
                 raise PackageError('This connection is assigned to a package. Change its mappings first.', 409)
             state = copy.deepcopy(self.state)
@@ -152,8 +172,8 @@ class ReportSources:
 
     @staticmethod
     def aliases(manifest):
-        return sorted({alias for tool in manifest['tools'] if tool['kind'] == 'report'
-                       for alias in (tool.get('sources', []) if manifest.get('contract_version') == 2 else ['primary'])})
+        return sorted({alias for tool in manifest['tools']
+                       for alias in (tool.get('sources', []) if manifest.get('contract_version') == 2 else ['primary'] if tool['kind'] == 'report' else [])})
 
     def bindings(self, package_id):
         with self.lock:

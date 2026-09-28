@@ -116,3 +116,12 @@ display the returned reason. No new unit tests; extend focused HTTP/browser chec
 - Discarding a fresh report must close without creating a draft. For an autosaved/resumed draft, confirmation removes only that draft; cancel keeps it. Failed deletion must keep the editor open with its values. A running trial must still block deletion. Save and close must continue to retain the draft.
 - Dropping broad pandas collection must remove its test suite from the frozen archive without losing pandas/openpyxl Excel generation in a relocated executable.
 - A disposable database with a public EXECUTE grant on a diagram-style procedure must produce a newly provisioned reader that cannot execute it or write data. Existing-account validation must still reject EXECUTE. Failed post-creation verification must remove only the new login, including its pooled verification session; existing identities remain untouched.
+# Simplified setup and report editing (2026-09-28)
+
+- Viewer choice must persist on the server; a non-admin or stale source ID cannot select another database. Removing the selected connection must fail until reassigned.
+- EvoYeast experiment selection must review without the optional reset procedure. Explicit reset steps still fail safely if it is missing. Default connection must be visible, not blank.
+- Editing an installed report must retain sibling tools, supporting files, inputs, mappings and identifiers. Discard must leave installation untouched. A changed installed base or mapping must prevent publishing an old draft.
+- Changing a parent choice must clear descendants; stale/forged child values must fail before reports or operations run. Opening an advanced query must not rewrite it.
+- Report failure, timeout or process exit must leave the backend responsive and release its slot; report workers receive only the selected read connections. This is not a sandbox for hostile Python.
+- Preview must use the same robot/scheduler gate as execution and roll back its transaction. Concurrent configuration and execution must acquire locks in the same order.
+- Check one desktop and phone authoring flow, downloaded workbook, administrator restrictions, restart persistence and a relocated packaged worker. Retain commands, fixture identity and focused evidence.

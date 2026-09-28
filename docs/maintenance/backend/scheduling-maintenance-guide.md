@@ -2,15 +2,18 @@
 
 ## Reviewed database settings (2026-09-28)
 
-Local admins use **Database settings / Before a robot run** to choose an existing
+Local admins use **Database settings / Schedule preparation / Change setup** to choose an existing
 EvoYeast operation connection or the existing Batch SQLite adapter. This does not
 add arbitrary SQL or new preparation algorithms. The schedule editor still selects
 the experiment/batch, preserving existing preparation tokens.
 
 `lab_settings.py` and `/api/database/tools/scheduling-settings` provide status,
-review, apply and cancel. Compatibility checks read table/procedure metadata only;
+review, apply and cancel. Compatibility checks read required table metadata only;
 they never run ResetHamiltonTables or prepare an experiment. Passing does not
 prove permissions to execute preparation or the scientific/hardware method.
+EvoYeast's ResetHamiltonTables procedure is optional: ordinary experiment selection
+does not require it. An explicit reset step still executes transactionally and
+blocks launch on failure. Do not restore an unconditional procedure-existence check.
 Review tokens are owner-bound, expire after ten minutes, and capture config and
 source revisions. Apply repeats safety checks under `database_change_guard` (the
 scheduler launch locks), then an IMMEDIATE scheduler-storage transaction. Active

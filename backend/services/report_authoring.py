@@ -65,11 +65,13 @@ class ReportDraft(BaseModel):
     mappings: dict[str, str] = Field(default_factory=dict, max_length=8)
     inputs: list[dict] = Field(default_factory=list, max_length=20)
     step: int = Field(default=0, ge=0, le=3)
+    tool_id: str | None = Field(default=None, pattern=r'^[a-z][a-z0-9-]{0,63}$')
+    entrypoint: str = Field(default='handler:run', pattern=r'^[a-zA-Z_][a-zA-Z_0-9]*:run$')
 
     def manifest(self):
         return Manifest.model_validate(dict(contract_version=2, id=self.package_id, name=self.name,
-            version=self.version, libraries=self.libraries, tools=[dict(id=self.package_id, name=self.name,
-                kind='report', entrypoint='handler:run', sources=self.sources, inputs=self.inputs)]))
+            version=self.version, libraries=self.libraries, tools=[dict(id=self.tool_id or self.package_id, name=self.name,
+                kind='report', entrypoint=self.entrypoint, sources=self.sources, inputs=self.inputs)]))
 
 
 class ReportAuthoring:
@@ -120,6 +122,8 @@ class ReportAuthoring:
                     except SyntaxError as exc:
                         raise PackageError(f'{name}: Python syntax error on line {exc.lineno}: {exc.msg}') from exc
             record = dict(id=key, owner=owner, revision=revision+1, draft=draft.model_dump())
+            if revision and current.get('base'):
+                record['base'] = current['base']
             path = self._path(key)
             temporary = path.with_suffix('.tmp')
             temporary.write_text(json.dumps(record), encoding='utf-8')
@@ -135,6 +139,39 @@ class ReportAuthoring:
                 if exc.status != 404:
                     raise
             self._path(key).unlink()
+            self._path(key).with_suffix('.zip').unlink(missing_ok=True)
+
+    def edit_installed(self, tool_id, owner):
+        with self.lock, self.service.catalogue.lock, self.service.sources.lock:
+            package_id, entry, tool = self.service.catalogue.resolve(tool_id, 'report')
+            if not tool.entrypoint.endswith(':run'):
+                raise PackageError('This report uses a custom entry function. Download its package to edit it.')
+            content, _ = self.service.catalogue.export(package_id)
+            manifest, files = inspect_archive(content)
+            major, minor, patch = map(int, manifest.version.split('.'))
+            draft = ReportDraft(name=tool.name, package_id=package_id, tool_id=tool.id, entrypoint=tool.entrypoint,
+                version=f'{major}.{minor}.{patch+1}', libraries=manifest.libraries,
+                handler=files[tool.entrypoint.split(':')[0]+'.py'].decode('utf-8-sig'),
+                sources=tool.sources if manifest.contract_version == 2 else ['primary'],
+                mappings=self.service.sources.bindings(package_id), inputs=[x.model_dump() for x in tool.inputs], step=2)
+            record = self.save(draft, owner)
+            record['owner'] = owner
+            record['base'] = dict(sha256=entry['sha256'], package_id=package_id, tool_id=tool.id, entrypoint=tool.entrypoint,
+                mappings=self.service.sources.bindings(package_id))
+            path = self._path(record['id'])
+            path.with_suffix('.zip').write_bytes(content)
+            temporary = path.with_suffix('.tmp')
+            temporary.write_text(json.dumps(record), encoding='utf-8')
+            temporary.replace(path)
+            return self.get(record['id'], owner)
+
+    def check_base(self, key, owner):
+        base = self.get(key, owner).get('base')
+        if base:
+            entry = self.service.catalogue.index.get(base['package_id'])
+            if not entry or entry['sha256'] != base['sha256'] or self.service.sources.bindings(base['package_id']) != base['mappings']:
+                raise PackageError('The installed package or its connections changed. Start a new edit from the installed version.', 409)
+        return base
 
     def draft(self, key, owner):
         return ReportDraft.model_validate(self.get(key, owner)['draft'])
@@ -152,8 +189,26 @@ class ReportAuthoring:
                 '    # Write Excel under context.output_dir; return its filename.\n'
                 '    raise NotImplementedError("ADAPT_BEFORE_BUILD")\n')
 
-    def archive(self, draft):
+    def archive(self, draft, key=None, owner=None, trial=False):
         manifest = draft.manifest()
+        files = {}
+        base = self.get(key, owner).get('base') if key else None
+        if base:
+            if (draft.package_id, draft.tool_id, draft.entrypoint) != (base['package_id'], base['tool_id'], base['entrypoint']):
+                raise PackageError('An update must retain the installed package and report identifiers.')
+            original, files = inspect_archive(self._path(key).with_suffix('.zip').read_bytes())
+            combined = original.model_dump()
+            for item in combined['tools']:
+                if original.contract_version == 1 and item['kind'] == 'report':
+                    item['sources'] = ['primary']
+            combined.update(contract_version=2, version=draft.version, libraries=sorted(set(original.libraries + draft.libraries)))
+            combined['tools'] = [manifest.tools[0].model_dump() if t['id'] == draft.tool_id else t for t in combined['tools']]
+            manifest = Manifest.model_validate(combined)
+        if trial:
+            manifest = manifest.model_copy(deep=True)
+            manifest.id = 'draft-' + key
+            manifest.tools = [next(t for t in manifest.tools if t.id == (draft.tool_id or draft.package_id))]
+            manifest.tools[0].id = manifest.id
         if not draft.handler or 'ADAPT_BEFORE_BUILD' in draft.handler:
             raise PackageError('Upload the completed handler.py before trying or installing this report.')
         tree = ast.parse(draft.handler)
@@ -161,12 +216,14 @@ class ReportAuthoring:
             names = [x.name for x in node.names] if isinstance(node, ast.Import) else [node.module or ''] if isinstance(node, ast.ImportFrom) else []
             for name in names:
                 top = name.split('.')[0]
-                if top not in sys.stdlib_module_names and top not in manifest.libraries:
+                if top not in sys.stdlib_module_names and top not in manifest.libraries and top+'.py' not in files:
                     raise PackageError(f"Import '{top}' is not declared. Choose a bundled library or adapt the script.")
         output = io.BytesIO()
         with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
-            archive.writestr('manifest.json', manifest.model_dump_json(indent=2))
-            archive.writestr('handler.py', draft.handler)
+            files['manifest.json'] = manifest.model_dump_json(indent=2).encode('utf-8')
+            files[draft.entrypoint.split(':')[0]+'.py'] = draft.handler.encode('utf-8')
+            for name, content in files.items():
+                archive.writestr(name, content)
         content = output.getvalue()
         inspect_archive(content)
         return content
@@ -189,10 +246,10 @@ class ReportAuthoring:
 
     def trial(self, key, owner):
         draft = self.draft(key, owner)
-        # Each saved revision gets a private execution snapshot. Import occurs only
-        # after the administrator explicitly chooses Try or loads trial choices.
-        trial = draft.model_copy(update={'package_id': 'draft-' + key})
-        content = self.archive(trial)
+        # Each saved revision gets a private execution snapshot. Import occurs
+        # only in the report process after explicitly choosing Try.
+        trial = draft.model_copy(update={'package_id': 'draft-' + key, 'tool_id':'draft-' + key})
+        content = self.archive(draft, key, owner, trial=True)
         review = self.trials.inspect(content)
         if review['sha256'] != review['current_sha256']:
             self.trials.install(content)

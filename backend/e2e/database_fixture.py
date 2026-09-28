@@ -11,6 +11,7 @@ import threading
 import zipfile
 from contextlib import contextmanager
 from pathlib import Path
+from backend.services.report_worker import run_report as _production_report_worker
 
 
 def package_zip(folder, manifest_changes=None, extras=None):
@@ -145,6 +146,20 @@ def configure_fixture_lab_settings(service, root):
     return LabSettings(manager, service.sources, root, service.guard)
 
 
+def run_fixture_report(channel, package_root, entry, definition, inputs, snapshot, folder):
+    """Keep the existing disposable SQLite adapter inside the spawned child."""
+    from backend.services.report_sources import ReportSources
+    @contextmanager
+    def open_source(self, source):
+        db = object.__new__(DatabaseFixture)
+        db.path = Path(source['fixture_path'])
+        with db.get_connection() as conn:
+            conn.raw.execute('PRAGMA query_only=ON')
+            yield conn
+    ReportSources.open = open_source
+    _production_report_worker(channel, package_root, entry, definition, inputs, snapshot, folder)
+
+
 def configure_fixture_report_sources(service):
     """Legacy workflow fixture only. SQL Server permission checks use a real fixture."""
     @contextmanager
@@ -154,7 +169,9 @@ def configure_fixture_report_sources(service):
                 conn.raw.execute('PRAGMA query_only=ON')
             yield conn
     service.sources.open = open_source
-    service.sources.snapshot = lambda package_id, aliases, mapping=None: {alias: {'id': 'fixture'} for alias in aliases}
+    service.sources.snapshot = lambda package_id, aliases, mapping=None: {alias: {'id': 'fixture', 'fixture_path':str(service.database.path)} for alias in aliases}
+    import backend.services.report_worker as worker
+    worker.run_report = run_fixture_report
     service.sources.state['sources'] = {name: dict(id=name, name=name.title(), server='fixture', database='disposable',
         username='fixture', driver='fixture', trust_certificate=False) for name in ('primary', 'plates')}
 

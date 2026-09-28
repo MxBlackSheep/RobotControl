@@ -113,6 +113,11 @@ export default function DatabasePackages({ active }: { active: boolean }) {
           </Box>
           {pkg.running > 0 && <Typography variant="body2">In use</Typography>}
           <Stack direction="row" gap={1} flexWrap="wrap">
+            {pkg.tools.filter(t => t.kind === 'report').map(t => <Button key={t.id} disabled={busy} onClick={async () => {
+              setBusy(true); setError('');
+              try { const r = await api.post(`/api/database/tools/reports/${t.id}/edit`, {}); setWizard(r.data.id); }
+              catch(e) { setError(message(e)); } finally { setBusy(false); }
+            }}>{pkg.tools.filter(x => x.kind === 'report').length === 1 ? 'Edit report' : `Edit ${t.name}`}</Button>)}
             <Button disabled={busy} onClick={async () => { try { const r = await api.get(`/api/database/tools/packages/${pkg.id}/export`, { responseType: 'blob' }); saveBlob(r.data, /filename="([^"]+)"/.exec(r.headers['content-disposition'] || '')?.[1] || `${pkg.id}-${pkg.version}.zip`); } catch (e) { setError(message(e)); } }}>Download package</Button>
             {<Button disabled={busy || pkg.running > 0} onClick={async () => {
               try {

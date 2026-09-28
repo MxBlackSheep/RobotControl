@@ -72,8 +72,8 @@ class LabSettings:
             with context as conn:
                 cursor = conn.cursor()
                 cursor.execute('SELECT TOP 0 ExperimentID, UserDefinedID, Note, ScheduledToRun FROM Experiments')
-                if not cursor.execute("SELECT OBJECT_ID('ResetHamiltonTables', 'P')").fetchone()[0]:
-                    raise PackageError('ResetHamiltonTables is missing or not visible to this account.')
+                # ResetHamiltonTables is optional. The preparation adapter only
+                # invokes it when a schedule explicitly requests that step.
             return target
         if config.source_id or not config.sqlite_path:
             raise PackageError('Choose a separate SQLite file for the batch integration.')
@@ -103,7 +103,7 @@ class LabSettings:
             status = self.status()
             self.reviews[token] = dict(owner=owner, config=config, target=target, revision=status['revision'], expires=time.time()+600)
             return dict(token=token, target=target, schedules=status['schedules'],
-                        message='Required tables and procedures found. Preparation has not been run.')
+                        message='Required tables found. No preparation steps have been run. Each schedule keeps its own preparation choices.')
 
     def _idle(self, conn):
         # Recheck under the same SQLite write lock used by schedule changes.

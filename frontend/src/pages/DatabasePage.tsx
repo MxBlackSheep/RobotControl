@@ -4,7 +4,6 @@ import {
   Button,
 
   LinearProgress,
-  MenuItem,
   List,
   ListItemButton,
   ListItemText,
@@ -26,7 +25,7 @@ import DatabaseSettings from "../components/DatabaseSettings";
 import DatabaseRestore from "../components/DatabaseRestore";
 import DatabaseTools, { DatabasePackages } from "../components/DatabaseTools";
 
-import ReportConnections, { Source } from "../components/ReportConnections";
+import { Source } from "../components/ReportConnections";
 
 type TableInfo = { name: string; has_data?: boolean; is_important?: boolean };
 
@@ -34,10 +33,14 @@ export default function DatabasePage() {
   const { user } = useAuth();
   const [section] = useModuleSection("/database", user);
   const [sources, setSources] = useState<Source[]>([]);
-  const [sourceId, setSourceId] = useState(() => localStorage.getItem('database-viewer-source') || '');
-  const [connectionsOpen, setConnectionsOpen] = useState(false);
-  const loadSources = async () => { const r = await api.get('/api/database/tools/viewer-sources'); setSources(r.data); setSourceId(old => r.data.some((s: Source) => s.id === old) ? old : r.data[0]?.id || ''); };
-  useEffect(() => { void loadSources().catch(() => setError('Unable to load database connections.')); }, []);
+  const sourceId = sources[0]?.id || '';
+  useEffect(() => {
+    const c = new AbortController();
+    if (section === 0 || section === 1) void api.get('/api/database/tools/viewer-sources', {signal:c.signal})
+      .then(r => { if (!c.signal.aborted) setSources(r.data); })
+      .catch(() => { if (!c.signal.aborted) setError('Unable to load the viewer database.'); });
+    return () => c.abort();
+  }, [section]);
   const [tables, setTables] = useState<TableInfo[]>([]);
   const [selected, setSelected] = useState("");
   const [search, setSearch] = useState("");
@@ -66,7 +69,6 @@ export default function DatabasePage() {
   const sourceKey = sourceId + '/' + (sources.find(s => s.id === sourceId)?.revision || '');
   useEffect(() => {
     setTables([]); setSelected(''); setShowTable(false); setError('');
-    localStorage.setItem('database-viewer-source', sourceId);
   }, [sourceKey]);
   useEffect(() => {
     if (section === 0) void load();
@@ -144,13 +146,9 @@ export default function DatabasePage() {
     <PageContent variant="inspection">
       <PageHeader title="Database" />
       {(section === 0 || section === 1) && <Stack direction="row" gap={1} flexWrap="wrap" sx={{ mb: 1 }}>
-        <TextField select size="small" label="Database connection" value={sourceId} onChange={e => setSourceId(e.target.value)} sx={{ flex: 1, minWidth: 200 }}>
-          {sources.map(s => <MenuItem key={s.id} value={s.id}>{s.name} · {s.server} / {s.database}</MenuItem>)}
-        </TextField>
-        {isLocalUser(user) && user?.role === 'admin' && <Button onClick={() => setConnectionsOpen(true)}>Configure connections</Button>}
-        {!sourceId && <Alert severity="info">Configure a read-only connection to browse a database.</Alert>}
+        {sources[0] && <Typography variant="body2" color="text.secondary">{sources[0].name} · {sources[0].database}</Typography>}
+        {!sourceId && <Alert severity="info">Ask an administrator to select a database in Database settings.</Alert>}
       </Stack>}
-      <ReportConnections open={connectionsOpen} onClose={() => { setConnectionsOpen(false); void loadSources(); }} />
       {error && (
         <Alert severity="error" sx={{ mb: 1 }}>
           {error}

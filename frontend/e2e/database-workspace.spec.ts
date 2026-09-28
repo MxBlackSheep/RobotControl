@@ -6,6 +6,67 @@ async function login(page: any) {
   await page.route('**/api/auth/me', (route: any) => route.fulfill({ json: { success: true, data: { user_id: 'viewer-admin', username: 'Fixture', role: 'admin', session_is_local: true } } }));
 }
 
+test('simplified settings show one viewer and an explicit existing lab connection', async ({page}) => {
+  mkdirSync(evidence,{recursive:true}); await login(page);
+  await page.route('**/api/database/tools/viewer-sources', r => r.fulfill({json:[{id:'primary',name:'Lab results',database:'EvoYeast',revision:'1'}]}));
+  await page.route('**/api/database/tables?*', r => r.fulfill({json:{success:true,data:{table_details:[{name:'[dbo].[Experiments]'}]}}}));
+  await page.goto('/database');
+  await expect(page.getByText('Lab results · EvoYeast',{exact:true})).toBeVisible();
+  await expect(page.getByRole('combobox',{name:'Database connection'})).toHaveCount(0);
+  await page.screenshot({path:`${evidence}/viewer.png`});
+  await page.route('**/api/database/tools/scheduling-settings', r => r.fulfill({json:{active:{adapter:'evoyeast'},saved:{adapter:'evoyeast'},target:{server:'LAB-SQL',database:'EvoYeast'},pending:false,schedules:[]}}));
+  await page.goto('/database?section=settings');
+  await expect(page.getByRole('heading',{name:'Schedule preparation'})).toBeVisible();
+  await expect(page.getByRole('combobox',{name:'Laboratory database'})).toHaveCount(0);
+  await page.screenshot({path:`${evidence}/settings-collapsed.png`,fullPage:true});
+  await page.getByRole('button',{name:'Change setup',exact:true}).click();
+  await expect(page.getByRole('combobox',{name:'Laboratory database'})).toContainText('Existing laboratory connection');
+  await page.getByRole('heading',{name:'Schedule preparation'}).scrollIntoViewIfNeeded();
+  await page.screenshot({path:`${evidence}/settings-expanded.png`,animations:'disabled'});
+});
+
+test('simplified installed report edit retains inputs and publishes without a ZIP', async ({page,request}) => {
+  mkdirSync(evidence,{recursive:true}); await login(page);
+  const base='/api/database/tools', headers={Authorization:'Bearer viewer-admin'};
+  const handler="from openpyxl import Workbook\ndef run(context, inputs):\n    b=Workbook(); b.active.append([inputs['sample'],42]); b.save(context.output_dir/'sample.xlsx'); return 'sample.xlsx'\n";
+  const created=await request.post(`${base}/drafts`,{headers,data:{draft:{name:'Sample export',package_id:'editable-browser',sources:[],mappings:{},handler,inputs:[{name:'sample',label:'Sample',type:'text',required:true,choices:[]}]}}});
+  expect(created.ok()).toBeTruthy(); const saved=await created.json();
+  const review=await (await request.get(`${base}/drafts/${saved.id}/review`,{headers})).json();
+  expect((await request.post(`${base}/drafts/${saved.id}/install`,{headers,data:{expected_current:review.current_sha256,revision:saved.revision}})).ok()).toBeTruthy();
+  await page.goto('/database?section=packages');
+  await page.getByText('Sample export · 1.0.0',{exact:true}).locator('..').locator('..').getByRole('button',{name:'Edit report',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Edit report — Sample export'})).toBeVisible();
+  await page.getByLabel('Completed handler',{exact:true}).setInputFiles({name:'handler.py',mimeType:'text/x-python',buffer:Buffer.from(handler.replace(',42',',43'))});
+  await page.getByLabel('Sample',{exact:false}).fill('Updated sample');
+  await page.getByRole('button',{name:'Try report',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Download Excel',exact:true})).toBeVisible({timeout:30000});
+  await page.screenshot({path:`${evidence}/edit-report.png`,fullPage:true});
+  await page.getByRole('button',{name:'Next',exact:true}).click();
+  await page.getByRole('button',{name:'Review update',exact:true}).click();
+  await page.getByRole('button',{name:'Publish update',exact:true}).click();
+  await expect(page.getByText('Report installed. It is available in Data retrieval.',{exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Save and close',exact:true}).click();
+  await expect(page.getByText('Sample export · 1.0.1',{exact:true})).toBeVisible();
+});
+
+test('simplified dependent choices clear children and use friendly labels on phone', async ({page}) => {
+  mkdirSync(evidence,{recursive:true}); await login(page);
+  await page.route('**/api/database/tools/catalogue?kind=report',r => r.fulfill({json:[{id:'plate-export',name:'Plate export',kind:'report',inputs:[
+    {name:'experiment_id',label:'Experiment',type:'choice',required:true,choices:['Yeast','Bacteria']},
+    {name:'plate_id',label:'Plate',type:'lookup',required:true,choices:[],lookup:{parameters:['experiment_id'],value_type:'integer'}}]}]}));
+  await page.route('**/api/database/tools/reports/plate-export/choices/plate_id',r => r.fulfill({json:{options:[{value:11,label:'Growth plate'}],has_more:false}}));
+  await page.goto('/database?section=retrieval');
+  await expect(page.getByText('Choose Experiment first.',{exact:true})).toBeVisible();
+  await page.getByRole('combobox',{name:'Experiment'}).click(); await page.getByRole('option',{name:'Yeast',exact:true}).click();
+  await page.getByRole('combobox',{name:'Plate',exact:true}).click(); await page.getByRole('option',{name:'Growth plate · 11'}).click();
+  await page.getByRole('combobox',{name:'Experiment'}).click(); await page.getByRole('option',{name:'Bacteria',exact:true}).click();
+  await expect(page.getByRole('combobox',{name:'Plate',exact:true})).toHaveValue('');
+  await expect(page.getByRole('listbox')).toHaveCount(0);
+  await page.setViewportSize({width:390,height:844});
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+  await page.screenshot({path:`${evidence}/dependent-phone.png`,animations:'disabled'});
+});
+
 test('account setup explains a name conflict and retains settings without credentials', async ({ page }) => {
   mkdirSync(evidence, { recursive: true }); await login(page);
   await page.route('**/api/database/tools/sources/access/create', route => route.fulfill({ status: 400, json: {
@@ -86,16 +147,22 @@ test('upload-first example needs no database and access creation has a review', 
 
 test('switching viewer database clears the previous table and leaves restore separate', async ({ page }) => {
   await login(page);
-  await page.route('**/api/database/tools/viewer-sources', route => route.fulfill({ json: [
-    { id: 'a', name: 'Lab A', server: 'SQL-A', database: 'ResultsA' }, { id: 'b', name: 'Lab B', server: 'SQL-B', database: 'ResultsB' },
-  ] }));
+  const profiles=[{id:'a',name:'Lab A',server:'SQL-A',database:'ResultsA'}, {id:'b',name:'Lab B',server:'SQL-B',database:'ResultsB'}];
+  let current='a';
+  await page.route('**/api/database/tools/viewer-sources', r => r.fulfill({json:profiles.filter(x => x.id===current)}));
+  await page.route('**/api/database/tools/sources', r => r.fulfill({json:profiles}));
+  await page.route('**/api/database/tools/viewer-source', r => {current=r.request().postDataJSON().source_id; return r.fulfill({json:profiles.filter(x => x.id===current)});});
   await page.route('**/api/database/tables?*', route => route.fulfill({ json: { success: true, data: { table_details: [{ name: new URL(route.request().url()).searchParams.get('source_id') === 'a' ? '[dbo].[Samples]' : '[other].[Readings]' }] } } }));
   await page.route('**/api/database/tables/*?*', route => route.fulfill({ json: { success: true, data: { columns: ['value'], rows: [{ value: 'Sample A' }], total_count: 1 } } }));
   await page.goto('/database');
   await page.getByRole('button', { name: '[dbo].[Samples]', exact: false }).click();
   await expect(page.getByText('Sample A', { exact: true })).toBeVisible();
-  await page.getByRole('combobox', { name: 'Database connection' }).click();
-  await page.getByRole('option', { name: 'Lab B · SQL-B / ResultsB' }).click();
+  await page.goto('/database?section=settings');
+  await page.getByRole('combobox', { name: 'Viewer database' }).click();
+  await page.getByRole('option', { name: 'Lab B · ResultsB' }).click();
+  await page.getByRole('button',{name:'Save viewer database',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Save viewer database',exact:true})).toBeDisabled();
+  await page.goto('/database');
   await expect(page.getByRole('button', { name: '[other].[Readings]', exact: false })).toBeVisible();
   await expect(page.getByText('Sample A', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('listbox')).toHaveCount(0);
@@ -111,13 +178,14 @@ test('settings review saves for restart, cancellation restores active settings, 
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download package', exact: true }).first().click();
   expect((await download).suggestedFilename()).toBe('culture-history-1.0.2.zip');
-  await expect(page.getByText('1 reports · 0 operations')).toBeVisible();
+  await expect(page.getByText('1 reports · 0 operations').first()).toBeVisible();
   await page.getByRole('link', { name: 'Database settings', exact: true }).last().click();
   await expect(page.getByText(/Active now: Batch/)).toBeVisible();
+  await page.getByRole('button',{name:'Change setup',exact:true}).click();
   await page.getByLabel('Laboratory SQLite file', { exact: true }).fill('batches-next.db');
   await page.getByRole('button', { name: 'Check and review', exact: true }).click();
   const review = page.getByRole('dialog');
-  await expect(review).toContainText('Preparation has not been run.');
+  await expect(review).toContainText('No preparation steps have been run.');
   await review.getByRole('button', { name: 'Save for restart', exact: true }).click();
   await expect(review).not.toBeVisible();
   await expect(page.getByRole('alert')).toContainText('restart required');
@@ -125,6 +193,7 @@ test('settings review saves for restart, cancellation restores active settings, 
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({ path: `${evidence}/settings-pending.png`, fullPage: true, animations: 'disabled' });
   await page.reload();
+  await page.getByRole('button',{name:'Change setup',exact:true}).click();
   await expect(page.getByLabel('Laboratory SQLite file', { exact: true })).toHaveValue('batches-next.db');
   await page.getByRole('button', { name: 'Cancel change', exact: true }).click();
   await expect(page.getByLabel('Laboratory SQLite file', { exact: true })).toHaveValue('batches.db');

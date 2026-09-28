@@ -106,15 +106,22 @@ def run():
                     result['checks'].append('Reviewed create-account HTTP flow; no creation on review; owner/replay enforced; SELECT works and writes/DDL denied')
                     call('POST',BASE+'/sources',dict(source,id='lab-b',name='Lab B',database=fixture['names'][1],username=fixture['login'],password=fixture['password']))
                     a=call('GET','/api/database/tables?source_id=lab-a')['data']['tables']
+                    call('GET','/api/database/tables?source_id=lab-b',status=409)
+                    call('PUT',BASE+'/viewer-source',{'source_id':'lab-b'})
                     b=call('GET','/api/database/tables?source_id=lab-b')['data']['tables']
                     assert '[other].[Projects]' in a and '[other].[Projects]' not in b
+                    from backend.services.report_sources import ReportSources
+                    assert ReportSources(service.root).viewer()['id']=='lab-b'
+                    call('DELETE',BASE+'/sources/lab-b',status=409)
+                    call('PUT',BASE+'/viewer-source',{'source_id':'lab-a'})
                     rows=call('GET','/api/database/tables/%5Bother%5D.%5BProjects%5D?source_id=lab-a')['data']['rows']
                     assert rows[0]['id']==7
                     procedures=call('GET','/api/database/stored-procedures?source_id=lab-a')['data']['procedures']
                     assert any(p['name']=='[other].[PreviewOnly]' and 'SELECT 1' in p['definition'] for p in procedures)
-                    call('GET','/api/database/tables',status=422)
+                    call('GET','/api/database/tables')
                     client.headers['authorization']='user'
-                    call('GET','/api/database/tables?source_id=lab-b')
+                    call('GET','/api/database/tables?source_id=lab-b',status=409)
+                    call('PUT',BASE+'/viewer-source',{'source_id':'lab-b'},403)
                     call('POST',BASE+'/sources',source,403)
                     client.headers['authorization']='admin'
                     with TestClient(app, client=('10.2.3.4',5),headers={'authorization':'admin','x-forwarded-for':'127.0.0.1'}) as remote:
@@ -126,11 +133,10 @@ def run():
                     writer=dict(source,id='writer',name='Disposable writer',database=fixture['names'][1],username=fixture['login'],password=fixture['password'],access='operation')
                     call('POST',BASE+'/sources',writer)
                     admin.execute('CREATE TABLE Experiments(ExperimentID int, UserDefinedID nvarchar(100), Note nvarchar(100), ScheduledToRun bit); INSERT Experiments VALUES(42,\'Unchanged\',NULL,0)')
-                    admin.execute("CREATE PROCEDURE ResetHamiltonTables AS BEGIN RAISERROR('Compatibility must not execute preparation',16,1) END")
-                    admin.execute('GRANT VIEW DEFINITION ON ResetHamiltonTables TO ['+fixture['login']+']')
                     cfg = dict(adapter='evoyeast', source_id='writer')
                     initial = call('GET',BASE+'/scheduling-settings')
                     checked = call('POST',BASE+'/scheduling-settings/review',cfg)
+                    assert 'Required tables found' in checked['message']
                     assert not admin.execute('SELECT ScheduledToRun FROM Experiments').fetchone()[0]
                     client.headers['authorization']='other-admin'
                     call('POST',BASE+'/scheduling-settings/apply',dict(token=checked['token']),409)
@@ -178,7 +184,7 @@ def run():
                     result['checks'].append('Scheduling HTTP review only reads; active/recovery/queued/robot/storage/changed-source/owner/stale reviews blocked; pending settings protect sources and cancel restores exact active configuration without changing schedule bindings')
                     call('GET','/api/database/tables?source_id=writer',status=409)
                     call('PUT',BASE+'/packages/culture-history/sources',dict(mappings={'primary':'writer'}),400)
-                    manifest=dict(contract_version=1,id='remove-project',name='Remove project',version='1.0.0',libraries=[],tools=[dict(id='remove-project',name='Remove project',kind='operation',preview='handler:preview',entrypoint='handler:run',confirmation_field='id',inputs=[dict(name='id',label='Project',type='integer',required=True)])])
+                    manifest=dict(contract_version=2,id='remove-project',name='Remove project',version='1.0.0',libraries=[],tools=[dict(id='remove-project',name='Remove project',kind='operation',preview='handler:preview',entrypoint='handler:run',confirmation_field='id',sources=['primary'],inputs=[dict(name='id',label='Project',type='lookup',required=True,lookup=dict(source='primary',query='SELECT id AS value,label FROM dbo.Projects',value_type='integer'))])])
                     handler = "def preview(context, inputs):\n    row=context.connection.execute('SELECT label FROM dbo.Projects WHERE id=?', inputs['id']).fetchone()\n    return dict(summary='Remove project', details=dict(label=row[0] if row else None))\ndef run(context, inputs):\n    context.connection.execute('DELETE dbo.Projects WHERE id=?', inputs['id'])\n    if inputs['id']==2: raise ValueError('Fixture rollback')\n    return dict(message='Removed')\n"
                     output=io.BytesIO()
                     with zipfile.ZipFile(output,'w') as z:
@@ -200,13 +206,23 @@ def run():
                     client.headers['authorization']='admin'
                     call('GET',BASE+'/packages/missing/export',status=404)
                     result['checks'].append('Installed package exports exact original bytes; legacy export excludes cache; unavailable and non-admin exports denied')
-                    call('PUT',BASE+'/packages/remove-project/sources',dict(mappings={},operation_source='writer'))
+                    call('PUT',BASE+'/packages/remove-project/sources',dict(mappings={'primary':'lab-a'},operation_source='writer'))
+                    options=call('POST',BASE+'/operations/remove-project/choices/id',dict(inputs={}))
+                    assert {x['value'] for x in options['options']}=={1,2}
+                    call('POST',BASE+'/operations/remove-project/preview',dict(inputs={'id':999}),400)
+                    service.guard=blocked
+                    call('POST',BASE+'/operations/remove-project/preview',dict(inputs={'id':1}),409)
+                    service.guard=nullcontext
                     def preview(i): return call('POST',BASE+'/operations/remove-project/preview',dict(inputs={'id':i}))
                     def execute(p,i): return call('POST',BASE+'/operations/execute',dict(token=p['token'],confirmation=str(i)))
                     p=preview(1); assert fixture['names'][1] in p['target']
                     call('POST',BASE+'/sources',writer)
                     assert execute(p,1)['status']=='error'
                     p=preview(2); assert execute(p,2)['status']=='error'
+                    p=preview(1)
+                    admin.execute('USE ['+fixture['names'][0]+']; DELETE dbo.Projects WHERE id=1')
+                    assert execute(p,1)['status']=='error'
+                    admin.execute("INSERT dbo.Projects VALUES(1,N'Yeast Ω'); USE ["+fixture['names'][1]+']')
                     p=preview(1); assert execute(p,1)['status']=='succeeded'; assert execute(p,1)['status']=='succeeded'
                     assert admin.execute('SELECT id FROM dbo.Projects').fetchone()[0]==2
                     result['checks'].append('Writer cannot be used by viewers/reports; changed configuration blocks confirmation; rollback and duplicate execution protected')
@@ -237,6 +253,63 @@ def run():
                     assert list(openpyxl.load_workbook(io.BytesIO(content)).active.values)==[('Demo',42)]
                     (EVIDENCE/'example.xlsx').write_bytes(content)
                     result['checks'].append('Nested/unavailable/dynamic imports detected without running upload; no-database draft generates correct workbook')
+                    # Reopen an installed report while preserving sibling tools/assets.
+                    package=io.BytesIO()
+                    manifest=dict(contract_version=2,id='editable',name='Lab exports',version='2.1.4',libraries=['openpyxl'],tools=[
+                        dict(id='editable-report',name='Plate export',kind='report',entrypoint='exporter:run',sources=['primary'],inputs=[
+                            dict(name='project',label='Experiment',type='lookup',lookup=dict(source='primary',query='SELECT id AS value,label FROM dbo.Projects',value_type='integer')),
+                            dict(name='plate',label='Plate',type='lookup',lookup=dict(source='primary',query='SELECT id AS value,label FROM dbo.Plates WHERE project=?',parameters=['project'],value_type='integer'))]),
+                        dict(id='sibling',name='Other export',kind='report',entrypoint='other:run',sources=[],inputs=[])])
+                    export_script="from openpyxl import Workbook\ndef run(context, inputs):\n    b=Workbook(); b.active.append([inputs['project'],inputs['plate']]); b.save(context.output_dir/'plate.xlsx'); return 'plate.xlsx'\n"
+                    with zipfile.ZipFile(package,'w') as z:
+                        z.writestr('manifest.json',json.dumps(manifest));z.writestr('exporter.py',export_script)
+                        z.writestr('other.py',"def run(context, inputs):\n    raise ValueError('Other report unchanged')\n");z.writestr('README.md','Keep this supporting file')
+                    assert client.post(BASE+'/packages',files={'file':('edit.zip',package.getvalue())}).status_code==200
+                    call('PUT',BASE+'/packages/editable/sources',dict(mappings={'primary':'lab-a'}))
+                    edited=call('POST',BASE+'/reports/editable-report/edit',{})
+                    assert edited['draft']['version']=='2.1.5' and edited['draft']['tool_id']=='editable-report'
+                    assert edited['draft']['handler']==export_script and edited['draft']['mappings']=={'primary':'lab-a'}
+                    key=edited['id']
+                    options=call('POST',BASE+'/drafts/'+key+'/choices/plate',dict(inputs={'project':1}))
+                    assert {x['value'] for x in options['options']}=={11,12}
+                    def wait_report(job):
+                        deadline=time.monotonic()+40
+                        while job['status'] in {'pending','running'}:
+                            assert time.monotonic()<deadline,job
+                            time.sleep(.1);job=call('GET',BASE+'/reports/'+job['id'])
+                        return job
+                    bad=wait_report(call('POST',BASE+'/drafts/'+key+'/try',dict(inputs={'project':2,'plate':11})))
+                    assert bad['status']=='error' and 'no longer available' in bad['error'],bad
+                    good=wait_report(call('POST',BASE+'/drafts/'+key+'/try',dict(inputs={'project':1,'plate':11})))
+                    assert good['status']=='ready',good
+                    assert list(openpyxl.load_workbook(io.BytesIO(call('GET',BASE+'/reports/'+good['id']+'/download'))).active.values)==[(1,11)]
+                    stale=call('POST',BASE+'/reports/editable-report/edit',{})
+                    reviewed=call('GET',BASE+'/drafts/'+key+'/review')
+                    call('POST',BASE+'/drafts/'+key+'/install',dict(revision=edited['revision'],expected_current=reviewed['current_sha256']))
+                    exported=call('GET',BASE+'/packages/editable/export')
+                    with zipfile.ZipFile(io.BytesIO(exported)) as z:
+                        m=json.loads(z.read('manifest.json'))
+                        assert m['name']=='Lab exports' and m['version']=='2.1.5' and len(m['tools'])==2
+                        assert z.read('README.md')==b'Keep this supporting file'
+                        assert z.read('other.py')==b"def run(context, inputs):\n    raise ValueError('Other report unchanged')\n"
+                    call('GET',BASE+'/drafts/'+stale['id']+'/review',status=409)
+                    call('DELETE',BASE+'/drafts/'+stale['id'])
+                    assert call('GET',BASE+'/packages/editable/export')==exported
+                    result['checks'].append('Installed report edit retains IDs, siblings, code, assets and mappings; suggests patch version; dependent choices and forged selection checked in child; Excel correct; stale base denied; discard keeps installation')
+                    crash=dict(name='Crash fixture',package_id='crash-fixture',sources=[],inputs=[],handler="import os\ndef run(context, inputs):\n    os._exit(17)\n")
+                    crashing=call('POST',BASE+'/drafts',dict(draft=crash))
+                    failed=wait_report(call('POST',BASE+'/drafts/'+crashing['id']+'/try',dict(inputs={})))
+                    assert failed['status']=='error' and 'stopped unexpectedly' in failed['error'],failed
+                    import backend.services.database_tools as execution
+                    execution.REPORT_TIMEOUT_SECONDS=1
+                    try:
+                        hanging=call('POST',BASE+'/drafts',dict(draft={**crash,'package_id':'hang-fixture','handler':'import time\ndef run(context, inputs):\n    time.sleep(30)\n'}))
+                        expired=wait_report(call('POST',BASE+'/drafts/'+hanging['id']+'/try',dict(inputs={})))
+                        assert expired['status']=='error' and 'limit' in expired['error'],expired
+                    finally:
+                        execution.REPORT_TIMEOUT_SECONDS=300
+                    assert wait_report(call('POST',BASE+'/reports/editable-report',dict(inputs={'project':1,'plate':11})))['status']=='ready'
+                    result['checks'].append('Report crash and shortened fixture timeout leave HTTP responsive, release workers and allow another successful report; operation preview busy gate and stale/forged choices denied')
                     result['passed']=True
             finally:
                 service.close()

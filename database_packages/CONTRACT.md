@@ -41,7 +41,7 @@ cursors. Never keep a connection or per-request state in module globals.
   do not change globals. A Python package can technically bypass these conventions:
   code review is the trust boundary.
 
-## Report contract version 2
+## Contract version 2: database choices
 
 Version 1 remains supported without changing its calculations. Its report connection
 requires an explicit `primary` mapping in Manage packages; a missing mapping blocks
@@ -52,6 +52,12 @@ administrators map these to named SQL Server connections. Python receives them i
 `context.connections[alias]`; `context.connection` remains the `primary` alias or
 the first declared source. SQL dialect conversion is not automatic; SQLite is not
 implemented. Source mappings and credentials are excluded from exported packages.
+
+Version 2 operations may also declare reading `sources` for lookup inputs and
+receive them in `context.connections`. Their `context.connection` remains the
+separately assigned operation target. Choice membership is checked before preview
+and execution. Preview takes the robot/scheduler safety gate and always rolls back
+the host transaction; authors must not commit or perform external side effects.
 
 New input types: `date` (ISO `YYYY-MM-DD`) and `lookup`. A lookup field supplies:
 
@@ -87,7 +93,7 @@ be scoped by the database administrator to the tables/views the reports need.
 
 Local-admin drafts retain the original Python, edited handler, inputs, aliases and
 local source mappings under `data/database-tools/report-drafts`. Saving and exporting
-do not import Python. Only explicit trial or installation imports the handler.
+do not import Python. Explicit trial/report execution imports the handler in a child process.
 Original reference scripts are never included in the runnable ZIP. Inspection is
 not calculation validation. Draft saves carry a revision; stale saves return 409.
 Drafts are private to the author, capped at 100 with 1 MiB per Python file. Removing
@@ -97,8 +103,8 @@ Reports use a captured connection configuration while running; later source chan
 apply to future runs. Trials share the two-report worker limit and private download
 expiry with installed reports. Do not store per-run globals in package code.
 
-Installation imports modules to check entry points. Keep imports free of side
-effects; there are no installation hooks or automatic SQL migrations. Any required
+Installation checks syntax and entry-point definitions without importing. Keep
+imports free of side effects; there are no installation hooks or automatic SQL migrations. Any required
 stored procedures must already exist. Updates replace a matching package ID;
 conflicting tool IDs in other packages are rejected. Installation/removal is blocked
 while that package runs. Old confirmations are invalid after a package update.
@@ -106,8 +112,9 @@ while that package runs. Old confirmations are invalid after a package update.
 Limits: 20 MiB ZIP, 50 MiB expanded, 100 files; multipart requests require a known
 Content-Length. Two concurrent reports, no waiting queue; 100 MiB maximum completed
 workbook; finished report files expire after 15 minutes, renewed on download.
-Report SQL statements time out after 120 seconds; trusted Python computation has no
-forced termination. Operation SQL statements time out after 30 seconds. Operation
+Report SQL statements time out after 120 seconds. Report processes are terminated
+after five minutes or shutdown; this is not an OS sandbox or a memory limit.
+Operation SQL statements time out after 30 seconds. Operation
 confirmations expire after 10 minutes. Preview and report ownership use the user ID.
 
 Installed versions and their atomic index live under `data/database-tools/packages`.

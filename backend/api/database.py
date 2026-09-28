@@ -35,12 +35,17 @@ async def get_db_service() -> DatabaseService:
     return get_database_service()
 
 
-def get_viewer_service(source_id: str = Query(..., max_length=64),
+def get_viewer_service(source_id: str | None = Query(None, max_length=64),
                        user=Depends(get_current_user), service=Depends(get_database_tools)):
     from backend.services.workspace_database import WorkspaceDatabase
     from backend.services.database_packages import PackageError
     try:
-        return WorkspaceDatabase(service.sources, service.sources.get(source_id))
+        source = service.sources.viewer()
+        if not source:
+            raise PackageError('Ask an administrator to choose the viewer database in Database settings.', 409)
+        if source_id and source_id != source['id']:
+            raise PackageError('The viewer database changed. Refresh this page.', 409)
+        return WorkspaceDatabase(service.sources, source)
     except PackageError as exc:
         raise HTTPException(exc.status, str(exc)) from exc
 

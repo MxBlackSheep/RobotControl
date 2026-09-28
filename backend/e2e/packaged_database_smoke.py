@@ -48,6 +48,7 @@ def wizard_check(request, token, result, evidence):
                 assert exc.code == 400
                 assert 'already exists' in exc.read().decode()
             result['checks'].append('Packaged duplicate-login error identifies the conflict without changing the existing account')
+            request('/api/database/tools/viewer-source', {'source_id':'created-reader'}, token, method='PUT')
             tables = request('/api/database/tables?source_id=created-reader', token=token)['data']['tables']
             assert '[dbo].[Projects]' in tables
             assert request('/api/database/tables/%5Bdbo%5D.%5BProjects%5D?source_id=created-reader',token=token)['data']['total_count']==2
