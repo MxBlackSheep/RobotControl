@@ -88,6 +88,10 @@ def run(context, inputs):
                 if admin.execute('SELECT name FROM sys.database_principals WHERE name=?', created_login).fetchone():
                     admin.execute('DROP USER ['+created_login+']')
                 admin.execute('USE master')
+                # The packaged process can retain idle ODBC pooled sessions. Only
+                # terminate sessions owned by this UUID-named disposable login.
+                for row in admin.execute('SELECT session_id FROM sys.dm_exec_sessions WHERE login_name=?',created_login).fetchall():
+                    admin.execute('KILL '+str(int(row[0])))
                 admin.execute('DROP LOGIN ['+created_login+']')
     result['sql_fixture_removed']=True
     result['passed']=True
