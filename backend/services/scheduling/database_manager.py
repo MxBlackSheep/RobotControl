@@ -50,12 +50,21 @@ class SchedulingDatabaseManager:
         try:
             self.main_db_service = get_database_service()
             self._hamilton_db_available = True
-            logger.info("Hamilton SQL Server database connection established")
+            logger.info("Hamilton database service configured; connections are checked on use")
         except Exception as exc:  # pragma: no cover - log only
             logger.warning("Hamilton SQL Server database not available: %s", exc)
             self.main_db_service = None
             self._hamilton_db_available = False
 
+        from backend.services.scheduling.lab_integration import load_lab_integration
+        from backend.utils.data_paths import get_data_path
+        self._lab = None
+        self._lab_error = None
+        try:
+            self._lab = load_lab_integration(self.sqlite_db, self.main_db_service, get_data_path())
+        except Exception:
+            logger.exception("Scheduling lab configuration could not be loaded")
+            self._lab_error = 'Scheduling lab setup is unavailable. Restore the previous configuration or review scheduling-lab.json and recovery.'
         self._schema_initialized = True  # SQLite auto-initializes
 
     def initialize_schema(self) -> bool:
@@ -368,119 +377,18 @@ class SchedulingDatabaseManager:
             logger.error("Error storing job execution: %s", exc)
             return False
 
-    def set_scheduled_to_run_flag(self, experiment_name: str, value: bool = True) -> bool:
-        """Set the ScheduledToRun flag for Hamilton integration."""
-        try:
-            if self._hamilton_db_available and self.main_db_service:
-                logger.info("Setting ScheduledToRun flag for %s to %s", experiment_name, value)
-                # Real implementation would update Hamilton's database
-                logger.info("Hamilton database integration not fully implemented yet")
-            else:
-                logger.info(
-                    "Mock: Setting ScheduledToRun flag for %s to %s (Hamilton DB not available)",
-                    experiment_name,
-                    value,
-                )
-            return True
-        except Exception as exc:  # pragma: no cover - log only
-            logger.error("Error setting ScheduledToRun flag: %s", exc)
-            return False
+    @property
+    def lab(self):
+        if self._lab_error:
+            raise SafetyConflict(self._lab_error)
+        return self._lab
 
-    def reset_all_scheduled_to_run_flags(self) -> bool:
-        """Reset all ScheduledToRun flags to false."""
-        try:
-            if self._hamilton_db_available and self.main_db_service:
-                logger.info("Resetting all ScheduledToRun flags")
-                logger.info("Hamilton database integration not fully implemented yet")
-            else:
-                logger.info("Mock: Reset all ScheduledToRun flags (Hamilton DB not available)")
-            return True
-        except Exception as exc:  # pragma: no cover - log only
-            logger.error("Error resetting ScheduledToRun flags: %s", exc)
-            return False
-
-    def get_evo_yeast_experiments(self, limit: int = 200) -> List[Dict[str, Any]]:
-        """Return a list of EvoYeast experiments with their scheduling state."""
-        if not self._hamilton_db_available or not self.main_db_service:
-            logger.debug("Hamilton database unavailable; returning empty EvoYeast experiment list")
-            return []
-
-        limit = max(1, min(limit, 500))
-
-        query = (
-            "SELECT TOP {limit} ExperimentID, UserDefinedID, Note, ScheduledToRun "
-            "FROM Experiments ORDER BY ExperimentID DESC"
-        ).format(limit=limit)
-
-        try:
-            result = self.main_db_service.execute_query(query)
-            rows = result.get("rows", []) if isinstance(result, dict) else []
-            logger.debug("Fetched %d EvoYeast experiments", len(rows))
-            return rows
-        except Exception as exc:  # pragma: no cover - log only
-            logger.error("Failed to fetch EvoYeast experiments: %s", exc)
-            return []
-
-    def set_exclusive_evoyeast_experiment(self, experiment_id: str) -> bool:
-        """Reset all ScheduledToRun flags then activate the chosen experiment."""
-        if not experiment_id:
-            logger.error("No ExperimentID supplied for exclusive EvoYeast selection")
-            return False
-
-        if not self._hamilton_db_available or not self.main_db_service:
-            logger.info(
-                "Mock: would set ExperimentID %s as exclusive ScheduledToRun (Hamilton DB not available)",
-                experiment_id,
-            )
-            return True
-
-        try:
-            with self.main_db_service.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("UPDATE Experiments SET ScheduledToRun = 0")
-                cursor.execute(
-                    "UPDATE Experiments SET ScheduledToRun = 1 WHERE ExperimentID = ?",
-                    (experiment_id,),
-                )
-                conn.commit()
-
-                if cursor.rowcount <= 0:
-                    logger.warning(
-                        "ExperimentID %s not found while setting ScheduledToRun flag",
-                        experiment_id,
-                    )
-                else:
-                    logger.info("ExperimentID %s marked ScheduledToRun", experiment_id)
-            return True
-        except Exception as exc:  # pragma: no cover - log only
-            logger.error("Failed to update ScheduledToRun for ExperimentID %s: %s", experiment_id, exc)
-            return False
-
-    def reset_hamilton_tables(self, experiment_name: str, tables: Optional[List[str]] = None) -> bool:
-        """Reset Hamilton SQL Server tables prior to experiment execution."""
-        try:
-            if not self._hamilton_db_available or not self.main_db_service:
-                table_info = ', '.join(tables) if tables else 'default set'
-                logger.info("Mock: reset Hamilton tables for %s (%s)", experiment_name, table_info)
-                return True
-
-            params: List[Any] = [experiment_name]
-            query = 'EXEC ResetHamiltonTables @ExperimentName = ?'
-            if tables:
-                payload = json.dumps(tables)
-                params.append(payload)
-                query = 'EXEC ResetHamiltonTables @ExperimentName = ?, @TablesJson = ?'
-
-            with self.main_db_service.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(query, params)
-                conn.commit()
-
-            logger.info("Hamilton tables reset for experiment %s", experiment_name)
-            return True
-        except Exception as exc:  # pragma: no cover - log only
-            logger.error("Failed to reset Hamilton tables for %s: %s", experiment_name, exc)
-            return False
+    def get_evo_yeast_experiments(self, limit=200):
+        # Compatibility endpoint; never reinterpret another lab's identifiers.
+        if self.lab.adapter.id != 'evoyeast':
+            raise SafetyConflict('This installation uses a different lab integration.')
+        return [dict(ExperimentID=r['value'], UserDefinedID=r['label'], Note=r['note'],
+                     ScheduledToRun=r['selected']) for r in self.lab.adapter.choices(limit)]
 
     def get_latest_hamilton_run_state_by_name(
         self,

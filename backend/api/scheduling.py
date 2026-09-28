@@ -1858,6 +1858,21 @@ def get_evo_yeast_experiments(
         raise HTTPException(status_code=500, detail="Failed to retrieve EvoYeast experiments")
 
 
+@router.get("/lab/preparation")
+def get_lab_preparation(
+    limit: int = Query(100, ge=1, le=500),
+    current_user: dict = Depends(get_current_user),
+):
+    """Choices belong to this installation, never the Database viewer target."""
+    _, manager, _, _ = get_services()
+    lab = manager.lab
+    try:
+        return lab.catalogue(limit)
+    except Exception:
+        logger.exception('Lab preparation choices unavailable')
+        raise HTTPException(502, 'Cannot load lab choices. Check the lab database connection and schema.')
+
+
 @router.get("/experiments/prerequisites")
 def get_available_prerequisites(
     current_user: dict = Depends(get_current_user)

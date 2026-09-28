@@ -265,3 +265,22 @@ All statuses are shown by default. Filters include sent, pending, error, partial
 unknown and cancelled. Visible logs refresh serially every five seconds; hidden pages
 stop polling. Request generations prevent stale filter responses replacing new results.
 SMTP test log-storage warnings appear even when the email was successfully submitted.
+## Installation-specific preparation (2026-09-28)
+
+`GET /api/scheduling/lab/preparation` supplies the selected lab's short labels and
+choices. The schedule editor shows Experiment for EvoYeast or Batch for the SQLite
+example. Its independent read generation rejects stale results after refresh/close;
+failed reads retain the saved ID and show Retry. A downstream lab failure uses 502,
+because the existing global 503 handler opens the database-maintenance dialog.
+
+Opening/saving a schedule or editing timing/contacts preserves its entire
+prerequisite array and order. Only explicit selection changes replace the selection
+tokens. Other steps, such as ResetHamiltonTables, remain and are listed separately.
+“No experiment selection” does not imply those other steps are removed. Saved IDs
+absent from current choices are still shown; execution revalidates the record.
+
+Default EvoYeast saves the existing ScheduledToRun + EvoYeastExperiment pair;
+the batch example saves Batch:<code>. Changing a Database viewer connection does
+not change this installation's preparation choices. See the
+[backend guide](../backend/scheduling-maintenance-guide.md) for switching targets.
+Focused browser coverage: `frontend/e2e/scheduling-lab.spec.ts`.

@@ -19,7 +19,7 @@ class StubPreExecutionPipeline:
     def __init__(self, _db_manager):
         return
 
-    def run(self, _experiment):
+    def run(self, _experiment, _execution_id):
         StubPreExecutionPipeline.run_calls += 1
         return _PreRunResult(success=True, cleanup_required=False, steps=[])
 

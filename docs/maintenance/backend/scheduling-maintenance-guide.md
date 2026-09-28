@@ -339,3 +339,75 @@ unknown after restart, instead of automatically sending again. Inspect before re
 
 `SchedulerEngine.database_change_guard` serializes destructive database actions with
 `launch_guard`, rejecting active/unknown robot state, recovery and unhealthy storage.
+## Laboratory integration boundary (2026-09-28)
+
+The native scheduling SQLite database remains the owner of schedules, queue
+history and safety/recovery. `run_log_monitor.HamiltonRunReader` still owns exact
+Hamilton GUID/status matching. `lab_integration.py` owns laboratory preparation
+and its separate data connection. Database viewer target selection has no effect
+on scheduling. See the [installation/example guide](../../../backend/services/scheduling/examples/README.md).
+
+Reference workflow, established from the existing form/code: save
+`ScheduledToRun` and `EvoYeastExperiment:<ID>|set`, wait for the normal scheduler
+gates, select exactly that experiment in SQL, then launch the chosen Hamilton
+method. EvoYeast selection remains set after completion. The checked local
+schedule database contained no schedules, so this is not a recording of a live
+deployed run. Preserve a real deployed schedule and verify its preparation on the
+VM before using this candidate on hardware.
+
+`PreExecutionPipeline` now delegates the full prerequisite list to the selected
+adapter. EvoYeast validates all tokens before writes, locks/verifies the target,
+clears flags and selects it in one transaction. ResetHamiltonTables remains an
+optional stored procedure step in the same connection. A failing procedure rolls
+back transaction-owned writes; internal commits/external effects are not guaranteed
+reversible. Explicit `none`/`noop`/`skip` selection actions are non-writing.
+The old standalone ScheduledToRun placeholder now fails with an actionable error
+instead of claiming a write succeeded. Missing targets and unavailable connections
+also block launch. The former marker cleanup never wrote SQL and is not replaced
+by a new post-run reset.
+
+Three small native SQLite tables retain the boundary:
+
+- `LabInstallation`: captured adapter/version, connection identity and configuration
+  signature. Secrets are never stored here. A configuration change requires no
+  active schedules, unfinished jobs/monitoring or pending recovery.
+- `LabScheduleBinding`: original data target for each schedule, including migrated
+  schedules. Credential rotation can retain a target; switching databases cannot
+  silently reuse old IDs. Re-create a schedule after reviewing a changed target.
+- `LabPreparation`: execution ID, captured identity, prerequisite list and
+  preparing/prepared/failed status. A repeated execution ID is rejected even after
+  restart. These receipts are retained as execution evidence; there is no automatic
+  deletion in this change.
+
+The existing restart reconciler remains responsible for unfinished executions;
+it does not rerun preparation. Failure after preparation starts requests the
+existing manual recovery flow. A storage failure retains the existing scheduler
+hold. Changing installation files requires restart; an invalid configuration
+blocks preparation rather than falling back to another database. Restore the
+previous configuration to reconcile unfinished work.
+
+The batch example uses its own SQLite file, `Batches` and `InstrumentWorkOrder`.
+It demonstrates different identifiers and schema without rewriting the scheduler.
+Its method-side workflow has not been validated in another laboratory.
+
+Verification:
+
+```powershell
+.venv/Scripts/python.exe -X utf8 -m backend.e2e.scheduling_lab_check
+npm --prefix frontend run build
+Set-Location frontend
+npx playwright test scheduling-lab.spec.ts --trace retain-on-failure
+```
+
+The HTTP/executor check uses UUID-named disposable SQL Server databases and two
+separate SQLite files. The process launch boundary is a recorder; no robot runs.
+Evidence is in `recovery/scheduling-lab-verification`: results, logs, screenshots
+and the retained maintenance-modal failure trace. The obsolete stub-only
+`test_scheduling_pipeline.py` was replaced by this integration coverage; its
+assumptions included the removed success-without-a-write placeholders.
+
+Existing focused safety/executor checks passed. A broader existing selection
+reported 12 failures also reproduced against the previous committed implementation:
+11 create/update checks rely on forwarded localhost headers/non-admin access;
+one interrupted-email check expects cancelled instead of the current unknown state.
+These unrelated expectations were not used to weaken production safety behavior.

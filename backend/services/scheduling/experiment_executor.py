@@ -168,7 +168,7 @@ class ExperimentExecutor:
                     )
 
             if run_pre_execution:
-                pre_run = self.pre_execution.run(experiment)
+                pre_run = self.pre_execution.run(experiment, execution.execution_id)
                 if not pre_run.success:
                     execution.error_message = pre_run.failure_reason or "Pre-execution pipeline failed"
                     logger.error("Pre-execution failed for %s: %s", experiment.experiment_name, execution.error_message)

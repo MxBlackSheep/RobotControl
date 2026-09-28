@@ -229,6 +229,10 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
   const [experiments, setExperiments] = useState<ExperimentFile[]>([]);
   const [evoExperiments, setEvoExperiments] = useState<EvoYeastExperimentOption[]>([]);
   const [evoLoading, setEvoLoading] = useState(false);
+  const [labDefinition, setLabDefinition] = useState<{ id: string; name: string; selection_step: string; selection_label: string; preparation_label: string }>();
+  const [labError, setLabError] = useState('');
+  const labRequest = useRef(0);
+  useEffect(() => { if (!open) labRequest.current += 1; }, [open]);
   const [selectedExperimentId, setSelectedExperimentId] = useState<string>('');
   const [experimentPrepOption, setExperimentPrepOption] = useState<'none' | 'schedule'>('none');
   const [statusDialog, setStatusDialog] = useState<{
@@ -291,19 +295,16 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
   }, [catalogueVersion, open, loadExperiments]);
 
   const loadEvoExperiments = useCallback(async (limit: number = 100) => {
-    try {
-      setEvoLoading(true);
-      const result = await schedulingService.getEvoYeastExperiments(limit);
-      if (!result.error) {
-        setEvoExperiments(result.experiments);
-      } else {
-        console.error(result.error);
-      }
-    } catch (error) {
-      console.error('Failed to load EvoYeast experiments:', error);
-    } finally {
-      setEvoLoading(false);
+    const request = ++labRequest.current;
+    setEvoLoading(true);
+    const result = await schedulingService.getLabPreparation(limit);
+    if (request !== labRequest.current) return;
+    setLabError(result.error || '');
+    if (result.definition) {
+      setLabDefinition(result.definition);
+      setEvoExperiments(result.experiments);
     }
+    setEvoLoading(false);
   }, []);
 
   useEffect(() => {
@@ -352,21 +353,12 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
     setConfirmDiscard(false);
     setFormData(mergedData);
 
-    const hasScheduledFlag = initialPrereqs.includes('ScheduledToRun');
-    setExperimentPrepOption(hasScheduledFlag ? 'schedule' : 'none');
-
-    if (hasScheduledFlag) {
-      const evoEntry = initialPrereqs.find((entry) => entry.startsWith('EvoYeastExperiment:'));
-      if (evoEntry) {
-        const payload = evoEntry.split(':')[1] ?? '';
-        const [experimentId] = payload.split('|');
-        setSelectedExperimentId(experimentId || '');
-      } else {
-        setSelectedExperimentId('');
-      }
-    } else {
-      setSelectedExperimentId('');
-    }
+    const selection = initialPrereqs.find(entry => entry.startsWith('EvoYeastExperiment:') || entry.startsWith('Batch:'));
+    setExperimentPrepOption(selection || initialPrereqs.includes('ScheduledToRun') ? 'schedule' : 'none');
+    setSelectedExperimentId(selection ? selection.slice(selection.indexOf(':') + 1).split('|')[0] : '');
+    setLabDefinition(undefined);
+    setLabError('');
+    setEvoExperiments([]);
 
     const intervalHours =
       typeof mergedData.interval_hours === 'number' && !Number.isNaN(mergedData.interval_hours)
@@ -386,37 +378,26 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
     loadEvoExperiments();
   }, [open, initialData, loadExperiments, loadEvoExperiments]);
 
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-
-    setFormData((prev) => {
-      const nextPrereqs =
-        experimentPrepOption === 'schedule'
-          ? [
-              'ScheduledToRun',
-              ...(selectedExperimentId ? [`EvoYeastExperiment:${selectedExperimentId}|set`] : []),
-            ]
-          : [];
-
-      const isSame =
-        prev.prerequisites.length === nextPrereqs.length &&
-        prev.prerequisites.every((value, index) => value === nextPrereqs[index]);
-
-      if (isSame) {
-        return prev;
-      }
-
-      return { ...prev, prerequisites: nextPrereqs };
+  const updatePreparation = (mode: 'none' | 'schedule', value: string) => {
+    setExperimentPrepOption(mode);
+    setSelectedExperimentId(value);
+    if (!labDefinition) return;
+    // Only explicit preparation edits replace its tokens. Timing/contact edits
+    // preserve the complete saved array, including reset steps and their order.
+    const isSelection = (token: string) => token === 'ScheduledToRun' || token.startsWith('EvoYeastExperiment:') || token.startsWith('Batch:');
+    const replacement = mode === 'none' ? [] : labDefinition.id === 'evoyeast'
+      ? ['ScheduledToRun', ...(value ? [`EvoYeastExperiment:${value}|set`] : [])]
+      : value ? [`Batch:${value}`] : [];
+    setFormData(prev => {
+      const first = prev.prerequisites.findIndex(isSelection);
+      const remaining = prev.prerequisites.filter(token => !isSelection(token));
+      remaining.splice(first < 0 ? remaining.length : first, 0, ...replacement);
+      return { ...prev, prerequisites: remaining };
     });
-  }, [experimentPrepOption, selectedExperimentId, open]);
+  };
 
   const handleExperimentPrepChange = (value: 'none' | 'schedule') => {
-    setExperimentPrepOption(value);
-    if (value === 'none') {
-      setSelectedExperimentId('');
-    }
+    updatePreparation(value, value === 'none' ? '' : selectedExperimentId);
   };
 
   const handleExperimentSelect = (experimentPath: string) => {
@@ -463,7 +444,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
     }
 
     if (experimentPrepOption === 'schedule' && !selectedExperimentId) {
-      newErrors.push('Select an experiment to prepare before execution');
+      newErrors.push(`Select ${labDefinition?.selection_label === 'Batch' ? 'a batch' : 'an experiment'} before running`);
     }
 
     if (mode === 'create' && formData.start_time) {
@@ -829,8 +810,9 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
             </Box>
             <Box>
               <Stack spacing={2}>
+                {labError && <Alert severity="error" action={<Button onClick={() => loadEvoExperiments()}>Retry</Button>}>{labError}</Alert>}
                 <FormControl component="fieldset">
-                  <FormLabel id="experiment-prep-options">Before running</FormLabel>
+                  <FormLabel id="experiment-prep-options">{labDefinition ? `${labDefinition.name} preparation` : 'Before running'}</FormLabel>
                   <RadioGroup
                     aria-labelledby="experiment-prep-options"
                     value={experimentPrepOption}
@@ -839,37 +821,48 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                     <FormControlLabel
                       value="none"
                       control={<Radio />}
-                      label="Do nothing"
+                      label={`No ${(labDefinition?.selection_label || 'record').toLowerCase()} selection`}
+                      disabled={!labDefinition || !!labError}
                     />
                     <FormControlLabel
                       value="schedule"
                       control={<Radio />}
-                      label="Mark an EvoYeast experiment as ScheduledToRun"
+                      label={labDefinition?.preparation_label || 'Prepare lab data'}
+                      disabled={!labDefinition || !!labError}
                     />
                   </RadioGroup>
                 </FormControl>
 
+                {formData.prerequisites.some(token => !['ScheduledToRun', 'EvoYeastExperiment', 'Batch'].includes(token.split(':')[0])) && (
+                  <Typography variant="caption" color="text.secondary">
+                    Other steps: {formData.prerequisites.filter(token => !['ScheduledToRun', 'EvoYeastExperiment', 'Batch'].includes(token.split(':')[0])).map(token => token.split(':')[0]).join(', ')}
+                  </Typography>
+                )}
                 {experimentPrepOption === 'schedule' && (
                   <Stack spacing={1}>
                     <Stack direction="row" alignItems="center" justifyContent="space-between">
                       <Typography variant="body2" color="text.secondary">
-                        Choose the experiment to activate before execution
+                        {labDefinition?.selection_label || 'Saved selection'}
                       </Typography>
-                      <IconButton size="small" onClick={() => loadEvoExperiments()} disabled={evoLoading}>
+                      <IconButton aria-label="Refresh lab choices" size="small" onClick={() => loadEvoExperiments()} disabled={evoLoading}>
                         {evoLoading ? <CircularProgress size={16} /> : <RefreshIcon fontSize="small" />}
                       </IconButton>
                     </Stack>
 
                     <FormControl fullWidth size="small">
-                      <InputLabel id="evoyeast-experiment-select">Experiment ID</InputLabel>
+                      <InputLabel id="evoyeast-experiment-select">{labDefinition?.selection_label || 'Saved selection'}</InputLabel>
                       <Select
                         labelId="evoyeast-experiment-select"
-                        label="Experiment ID"
+                        label={labDefinition?.selection_label || 'Saved selection'}
+                        disabled={!labDefinition || !!labError}
                         value={selectedExperimentId}
-                        onChange={(event) => setSelectedExperimentId(event.target.value as string)}
+                        onChange={(event) => updatePreparation('schedule', event.target.value as string)}
                         displayEmpty
                       >
-                        <MenuItem value="">Select experiment</MenuItem>
+                        <MenuItem value="">Choose…</MenuItem>
+                        {selectedExperimentId && !evoExperiments.some(x => x.experiment_id === selectedExperimentId) && (
+                          <MenuItem value={selectedExperimentId}>{selectedExperimentId} · saved</MenuItem>
+                        )}
                         {evoExperiments.map((option) => (
                           <MenuItem key={option.experiment_id} value={option.experiment_id}>
                             <Stack direction="row" alignItems="center" spacing={1} justifyContent="space-between" sx={{ width: '100%' }}>
@@ -902,9 +895,9 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                       </Select>
                     </FormControl>
 
-                    {!evoLoading && evoExperiments.length === 0 && (
+                    {!evoLoading && !labError && evoExperiments.length === 0 && (
                       <Typography variant="caption" color="text.secondary">
-                        No EvoYeast experiments available. Refresh after the database is populated.
+                        No choices available.
                       </Typography>
                     )}
                   </Stack>

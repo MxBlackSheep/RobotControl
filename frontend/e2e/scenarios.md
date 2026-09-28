@@ -1,5 +1,30 @@
 # Inspection viewer failure scenarios (written before implementation)
 
+## Scheduling lab integration (2026-09-28, before implementation)
+
+Preserve the EvoYeast preparation pair and every unrelated prerequisite when
+editing timing/contacts. Native SQLite and Hamilton run matching stay separate
+from the selected laboratory data connection. The local schedule database has
+no saved schedules; the reference is the existing form/code, not an observed
+production run. Verify with disposable SQL Server data and a second SQLite batch
+schema; never launch a laboratory method from these checks.
+
+Failures to exercise: missing/duplicate experiment leaves flags unchanged;
+missing database, schema or procedure cannot report successful preparation;
+standalone legacy ScheduledToRun marker cannot guess an experiment; unknown or
+foreign adapter step is rejected before any write; second submission/restart
+cannot repeat preparation; changed integration/target with unfinished jobs or
+recovery cannot redirect them; saved selection survives failed/late option reads;
+changing unrelated fields preserves prerequisite order; SQLite batch failure
+rolls back and never changes the native/Hamilton connection. SQL preparation and
+robot launch are not one transaction: ambiguous partial work requires recovery.
+
+Acceptance: default and batch preparation forms at desktop/phone, focused HTTP
+catalogue/executor checks, existing scheduler safety checks, and a separate
+packaged candidate. Retain command, code identity, fixture identities and results
+under recovery/scheduling-lab-verification. Supervised real-method acceptance is
+explicitly separate from disposable verification.
+
 Run from frontend: `npx playwright test`. The fixture server uses real log HTTP
 routes and disposable filesystem data, synthetic database/camera responses, and
 the built application. It never starts robot services or opens production data.

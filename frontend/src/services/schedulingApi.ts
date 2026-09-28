@@ -750,6 +750,17 @@ export const schedulingService = {
       return { success: false, error: parseAPIError(error) };
     }
   },
+  async getLabPreparation(limit = 100): Promise<{ definition?: { id: string; name: string; selection_step: string; selection_label: string; preparation_label: string }; experiments: EvoYeastExperimentOption[]; error?: string }> {
+    try {
+      const { data } = await api.get('/api/scheduling/lab/preparation', { params: { limit } });
+      return { definition: data, experiments: data.choices.map((r: { value: string; label: string; note?: string; selected: boolean }) => ({
+        experiment_id: r.value, user_defined_id: r.label, note: r.note, scheduled_to_run: r.selected,
+      })) };
+    } catch (error) {
+      return { experiments: [], error: parseAPIError(error) };
+    }
+  },
+
   async getEvoYeastExperiments(limit = 100): Promise<{ experiments: EvoYeastExperimentOption[]; error?: string }> {
     try {
       const { data } = await schedulingAPI.getEvoYeastExperiments(limit);

@@ -1,3 +1,10 @@
+## 2026-09-28 Scheduling laboratory integrations
+
+- Kept native scheduler SQLite and Hamilton run monitoring separate from laboratory preparation. EvoYeast remains the default; existing schedule tokens and unrelated preparation steps survive editing. A reviewed built-in SQLite batch example demonstrates another schema, with per-installation configuration and concise Experiment/Batch controls.
+- Added captured installation/execution identities and original schedule-to-database bindings. Missing records, unavailable databases and unsupported preparation now block launch; transaction-owned flag changes roll back. Duplicate execution IDs are not prepared again after restart. Changed targets cannot redirect old schedules or unfinished work.
+- Verified disposable SQL Server preparation/rollback, HTTP choices, restart/target protection, separate SQLite batch preparation and desktop/phone editor workflows. Existing safety/executor checks passed; 12 other selected legacy checks fail identically against the prior commit (documented in the maintenance guide). Replaced obsolete placeholder pipeline unit checks with focused integration coverage; no new unit tests.
+- The local schedule store was empty: reference behavior comes from existing code/form, not a captured live run. A supervised deployed-method comparison is still required before hardware use. Setup/examples: `backend/services/scheduling/examples/README.md`. Repeat commands, screenshots, useful failures and Windows candidate verification: `recovery/scheduling-lab-verification/`.
+
 ## 2026-09-28 Configurable Database workspace and simpler report creation
 
 - Added named SQL Server connections for table/procedure viewers and explicit writable targets for operations. Schema-qualified browsing supports other labs without requiring RobotControl tables. Operation reviews capture the connection/version and reject changes; native scheduler, labware, monitoring and Restore connections remain separate. Existing operations need a target assignment once.
