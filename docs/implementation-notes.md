@@ -1,3 +1,10 @@
+## 2026-09-28 Database authoring, reviewed updates and task workspace
+
+- Added a product-specialist workflow for new/unclear features. Package authors keep ownership of Python; the scaffold preserves the original script, generates an adapter/agent brief and builds a versioned ZIP without executing it. See `database_packages/README.md`.
+- Package installation now offers non-executing inspection, explicit Update and installed/incoming versions. Reviewed hashes protect against intervening changes. Operations/retrieval use a full-width experiment/task workspace with retained phone Back state.
+- Culture history 1.0.1 handles missing well labels under pandas 3 without dropping selected cultures; ambiguous subset selection identifies the plate/cultures instead of guessing. Deliver its ZIP separately because executable upgrades do not replace installed packages.
+- Focused authoring/HTTP checks and desktop/phone browser workflows passed; the product specialist reviewed screenshots. Initial browser failure was a wrong test locator, retained with its trace. No new unit tests. Repeat commands, candidate identity and packaged outcome are in `recovery/database-verification/index.html`. Candidate: `dist/database-authoring-20260928/RobotControl`. Actual experiment 333 and SQL Server/ODBC remain VM checks.
+
 ## 2026-09-27 — Portable database packages and delivery logs
 
 - Added local-admin ZIP package management, shared operation/report forms, guarded Delete Experiment and private Excel generation using the bundled runtime. Retired public raw SQL/procedure execution.

@@ -95,7 +95,8 @@ def get_cultures(conn: pyodbc.Connection, plate_ids: List[int]) -> pd.DataFrame:
 
     df["CultureID"] = df["CultureID"].astype(int)
     df["PlateID"] = df["PlateID"].astype(int)
-    df["WellID"] = df["WellID"].astype(str)
+    # pandas 3 string conversion preserves missing values; never treat them as text.
+    df["WellID"] = df["WellID"].map(lambda value: None if pd.isna(value) else str(value))
     return df
 
 
@@ -344,6 +345,8 @@ def get_fluor_from_single_row(row: Optional[pd.Series], col: str) -> Optional[fl
 
 
 def well_sort_key(well: str) -> Tuple[str, int]:
+    if pd.isna(well) or not str(well).strip():
+        return ("\uffff", 0)
     m = re.match(r"^([A-Za-z]+)(\d+)$", well.strip())
     if not m:
         return (well, 0)
@@ -376,8 +379,14 @@ def determine_active_cultures_by_plate_only(cultures: pd.DataFrame, active_plate
     if plate_cult.empty:
         raise RuntimeError(f"No cultures found for active PlateID={active_plate}")
 
+    missing = plate_cult["WellID"].isna() | plate_cult["WellID"].fillna('').str.strip().eq('')
+    if missing.any() and 0 < n_active < len(plate_cult):
+        ids = ', '.join(str(value) for value in plate_cult.loc[missing, "CultureID"].head(10))
+        raise ValueError(f"Plate {active_plate}: missing well positions for cultures {ids}. "
+                         "Correct these positions before choosing the active cultures for this report.")
+
     plate_cult["__well_key__"] = plate_cult["WellID"].map(well_sort_key)
-    plate_cult = plate_cult.sort_values("__well_key__")
+    plate_cult = plate_cult.sort_values("__well_key__", kind="stable")
 
     ids = plate_cult["CultureID"].astype(int).tolist()
 

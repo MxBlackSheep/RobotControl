@@ -1,13 +1,16 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Alert, Autocomplete, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle,
   FormControlLabel, LinearProgress, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material';
+import InspectionWorkspace from './InspectionWorkspace';
+import ExperimentBrowser, { Experiment } from './ExperimentBrowser';
+export { default as DatabasePackages } from './DatabasePackages';
 import { api } from '../services/api';
 
 const base = '/api/database/tools';
 type Field = { name: string; label: string; type: string; required: boolean; choices: string[] };
 type Tool = { id: string; name: string; kind: string; package_version: string; inputs: Field[] };
 type Preview = { token: string; confirmation: string; summary: string; details: Record<string, unknown> };
-type Job = { id: string; status: string; filename?: string; error?: string };
+type Job = { id: string; status: string; filename?: string; error?: string; error_details?: string; package_version?: string };
 const message = (error: any) => {
   const value = error?.response?.data?.detail || error?.message || 'Request failed.';
   return typeof value === 'string' ? value : 'The request could not be completed.';
@@ -61,7 +64,13 @@ export default function DatabaseTools({ kind, active }: { kind: 'operation' | 'r
   const [job, setJob] = useState<Job | null>(null);
   const [uncertain, setUncertain] = useState(false);
   const generation = useRef(0);
+  const [experiment, setExperiment] = useState<Experiment>();
+  const [detailOpen, setDetailOpen] = useState(false);
+  const detail = useRef<HTMLDivElement>(null);
+  const selection = useRef<HTMLDivElement>(null);
   const tool = tools.find(item => item.id === selected);
+  const experimentFields = tool?.inputs.filter(field => field.type === 'experiment') || [];
+  const experimentField = experimentFields.length === 1 ? experimentFields[0] : undefined;
   useEffect(() => {
     if (!active) return;
     const controller = new AbortController();
@@ -86,7 +95,7 @@ export default function DatabaseTools({ kind, active }: { kind: 'operation' | 'r
     return () => { stopped = true; clearTimeout(timer); };
   }, [job?.id, job?.status, active]);
   const changeValue = (name: string, value: unknown) => {
-    setValues(old => ({ ...old, [name]: value })); setJob(null); setNotice('');
+    setValues(old => ({ ...old, [name]: value })); setJob(null); setNotice(''); setError('');
   };
   const prepare = async () => {
     const id = ++generation.current;
@@ -127,32 +136,64 @@ export default function DatabaseTools({ kind, active }: { kind: 'operation' | 'r
     finally { setBusy(false); }
   };
   const locked = busy || !!preview || !!job && ['pending', 'running'].includes(job.status);
-  return <Box sx={{ overflow: 'auto', p: .5 }}><Paper variant="outlined" sx={{ p: { xs: 2, md: 3 }, maxWidth: 900 }}>
-    <Stack spacing={2}>
-      <Typography variant="h6">{kind === 'operation' ? 'Operations' : 'Data retrieval'}</Typography>
-      {error && !preview && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
-      {notice && <Alert severity="success">{notice}</Alert>}
-      <TextField select label={kind === 'operation' ? 'Operation' : 'Report'} value={selected} disabled={locked || !tools.length}
-        onChange={event => { setSelected(event.target.value); setValues({}); setNotice(''); setJob(null); }}>
-        {tools.map(tool => <MenuItem key={tool.id} value={tool.id}>{tool.name}</MenuItem>)}
-      </TextField>
-      {!tools.length && <Typography color="text.secondary">No {kind === 'operation' ? 'operations' : 'reports'} installed.</Typography>}
-      {tool?.inputs.map(field => field.type === 'experiment'
-        ? <ExperimentInput key={`${tool.id}/${field.name}`} label={field.label} value={values[field.name]} disabled={locked} onChange={value => changeValue(field.name, value)} />
-        : field.type === 'boolean' ? <FormControlLabel key={field.name} label={field.label} control={<Checkbox disabled={locked} checked={values[field.name] === true} onChange={(_, value) => changeValue(field.name, value)} />} />
-        : <TextField key={field.name} label={field.label} required={field.required} disabled={locked} select={field.type === 'choice'}
-          type={['integer', 'number'].includes(field.type) ? 'number' : 'text'} value={values[field.name] ?? ''}
-          onChange={event => changeValue(field.name, ['integer', 'number'].includes(field.type) && event.target.value !== '' ? Number(event.target.value) : event.target.value)}>
-          {field.choices.map(choice => <MenuItem key={choice} value={choice}>{choice}</MenuItem>)}
-        </TextField>)}
-      {busy && <LinearProgress />}
-      <Button variant="contained" disabled={!tool || locked} onClick={prepare}>{kind === 'operation' ? 'Review operation' : 'Generate Excel'}</Button>
-      {job && <Stack spacing={1}>
-        {['pending', 'running'].includes(job.status) && <><LinearProgress /><Typography>Preparing report…</Typography></>}
-        {job.status === 'error' && <Alert severity="error">{job.error}</Alert>}
-        {job.status === 'ready' && <Button variant="outlined" onClick={download} disabled={busy}>Download Excel</Button>}
-      </Stack>}
+  const chooseTool = (id: string) => {
+    setSelected(id); setValues({}); setExperiment(undefined); setDetailOpen(false); setNotice(''); setError(''); setJob(null);
+  };
+  const invalid = tool?.inputs.some(field => field.required && field.type !== 'boolean' && (values[field.name] == null || values[field.name] === ''));
+  return <>
+    <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 1, minHeight: 48 }}>
+      {tools.length > 1 ? <TextField select size="small" label={kind === 'operation' ? 'Operation' : 'Report'} value={selected}
+        disabled={locked} onChange={event => chooseTool(event.target.value)} sx={{ width: 420, maxWidth: '100%' }}>
+        {tools.map(item => <MenuItem key={item.id} value={item.id}>{item.name}</MenuItem>)}
+      </TextField> : <Typography component="h2" variant="h6">{tool?.name || (kind === 'operation' ? 'Operations' : 'Data retrieval')}</Typography>}
     </Stack>
+    <InspectionWorkspace label="Database task workspace">
+      <Box sx={{ display: 'grid', gridTemplateColumns: experimentField ? 'minmax(0, 2fr) minmax(0, 3fr)' : '1fr', gap: 2, height: '100%', minHeight: 0,
+        '@container workspace (max-width: 899px)': { gridTemplateColumns: '1fr' } }}>
+        {experimentField && <Box ref={selection} sx={{ minWidth: 0, minHeight: 0,
+          '@container workspace (max-width: 899px)': { display: detailOpen ? 'none' : 'block' } }}>
+          <ExperimentBrowser selected={experiment} disabled={locked} active={active} onSelect={row => {
+            setExperiment(row);
+            if (values[experimentField.name] !== row.ExperimentID) changeValue(experimentField.name, row.ExperimentID);
+            setDetailOpen(true);
+            requestAnimationFrame(() => detail.current?.focus());
+          }} />
+        </Box>}
+        <Paper ref={detail} tabIndex={-1} variant="outlined" sx={{ p: { xs: 1.5, md: 2.5 }, minWidth: 0, minHeight: 0, overflow: 'auto', outline: 'none',
+          '@container workspace (max-width: 899px)': { display: experimentField && !detailOpen ? 'none' : 'block' } }}>
+          <Stack spacing={2}>
+            {experimentField && <Button sx={{ display: 'none', alignSelf: 'flex-start', '@container workspace (max-width: 899px)': { display: 'inline-flex' } }}
+              onClick={() => { setDetailOpen(false); requestAnimationFrame(() => selection.current?.querySelector<HTMLElement>('[aria-current="true"]')?.focus()); }}>Back to experiments</Button>}
+            {error && !preview && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
+            {notice && <Alert severity="success">{notice}</Alert>}
+            {!tools.length && <Typography color="text.secondary">No {kind === 'operation' ? 'operations' : 'reports'} installed.</Typography>}
+            {experimentField && (experiment ? <Box>
+              <Typography variant="overline">Experiment {experiment.ExperimentID}</Typography>
+              <Typography component="h3" variant="h6" sx={{ overflowWrap: 'anywhere' }}>{experiment.UserDefinedID || 'Unnamed experiment'}</Typography>
+              {experiment.Note && <Typography color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{experiment.Note}</Typography>}
+            </Box> : <Typography color="text.secondary">Select an experiment.</Typography>)}
+            {tool?.inputs.filter(field => field !== experimentField).map(field => field.type === 'experiment'
+              ? <ExperimentInput key={`${tool.id}/${field.name}`} label={field.label} value={values[field.name]} disabled={locked} onChange={value => changeValue(field.name, value)} />
+              : field.type === 'boolean' ? <FormControlLabel key={field.name} label={field.label} control={<Checkbox disabled={locked} checked={values[field.name] === true} onChange={(_, value) => changeValue(field.name, value)} />} />
+              : <TextField key={field.name} label={field.label} required={field.required} disabled={locked} select={field.type === 'choice'}
+                type={['integer', 'number'].includes(field.type) ? 'number' : 'text'} value={values[field.name] ?? ''}
+                onChange={event => changeValue(field.name, ['integer', 'number'].includes(field.type) && event.target.value !== '' ? Number(event.target.value) : event.target.value)}>
+                {field.choices.map(choice => <MenuItem key={choice} value={choice}>{choice}</MenuItem>)}
+              </TextField>)}
+            {busy && <LinearProgress />}
+            <Button variant="contained" sx={{ alignSelf: 'flex-start', minHeight: 44 }} disabled={!tool || locked || invalid}
+              onClick={prepare}>{kind === 'operation' ? 'Review operation' : 'Generate Excel'}</Button>
+            {job && <Paper variant="outlined" sx={{ p: 2 }}><Stack spacing={1}>
+              {['pending', 'running'].includes(job.status) && <><Typography>Preparing report…</Typography><LinearProgress /></>}
+              {job.status === 'error' && <Alert severity="error">{job.error}</Alert>}
+              {job.error_details && <Box component="details"><Typography component="summary">Details</Typography><Typography sx={{ overflowWrap: 'anywhere' }}>{job.error_details}</Typography></Box>}
+              {job.status === 'ready' && <><Typography sx={{ overflowWrap: 'anywhere' }}>{job.filename}</Typography><Button variant="outlined" sx={{ alignSelf: 'flex-start' }} onClick={download} disabled={busy}>Download Excel</Button></>}
+              <Typography variant="caption" color="text.secondary">{tool?.name} · {job.package_version}</Typography>
+            </Stack></Paper>}
+          </Stack>
+        </Paper>
+      </Box>
+    </InspectionWorkspace>
     <Dialog open={!!preview} onClose={() => { if (!busy && !uncertain) setPreview(null); }} fullWidth maxWidth="sm">
       <DialogTitle>Confirm {tool?.name}</DialogTitle><DialogContent>
         <Stack spacing={2} sx={{ pt: 1 }}>
@@ -166,38 +207,5 @@ export default function DatabaseTools({ kind, active }: { kind: 'operation' | 'r
         <Button color="error" variant="contained" disabled={busy || confirmation !== preview?.confirmation} onClick={execute}>{uncertain ? 'Check result' : 'Confirm operation'}</Button>
       </DialogActions>
     </Dialog>
-  </Paper></Box>;
-}
-
-export function DatabasePackages({ active }: { active: boolean }) {
-  const [packages, setPackages] = useState<any[]>([]);
-  const [file, setFile] = useState<File | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [remove, setRemove] = useState<string | null>(null);
-  const load = useCallback(async () => { const { data } = await api.get(`${base}/packages`); setPackages(data); }, []);
-  useEffect(() => { if (active) load().catch(error => setError(message(error))); }, [active, load]);
-  const change = async (action: () => Promise<unknown>) => {
-    setBusy(true); setError('');
-    try { await action(); setFile(null); setRemove(null); await load(); }
-    catch (error) { setError(message(error)); }
-    finally { setBusy(false); }
-  };
-  return <Box sx={{ overflow: 'auto' }}><Stack spacing={2}>
-    <Typography variant="h6">Manage packages</Typography>
-    <Typography color="text.secondary">Install reviewed packages only. Packages execute code on this computer.</Typography>
-    {error && <Alert severity="error">{error}</Alert>}
-    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-      <Button component="label" disabled={busy} variant="outlined">Choose ZIP<input hidden type="file" accept=".zip" onChange={event => { setFile(event.target.files?.[0] || null); event.target.value = ''; }} /></Button>
-      <Button variant="contained" disabled={busy || !file} onClick={() => change(() => { const form = new FormData(); form.append('file', file!); return api.post(`${base}/packages`, form, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 }); })}>Install package</Button>
-      {file && <Typography sx={{ alignSelf: 'center', overflowWrap: 'anywhere' }}>{file.name}</Typography>}
-    </Stack>
-    {busy && <LinearProgress />}
-    {packages.map(pkg => <Paper variant="outlined" key={pkg.id} sx={{ p: 2 }}><Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }}>
-      <Box sx={{ flex: 1, minWidth: 0 }}><Typography fontWeight={600}>{pkg.name} · {pkg.version}</Typography><Typography variant="body2" color="text.secondary">{pkg.tools.map((tool: Tool) => tool.name).join(', ')}</Typography>
-        <Box component="details"><Typography component="summary" variant="body2">Details</Typography><Typography variant="caption" sx={{ overflowWrap: 'anywhere' }}>{pkg.id} · Contract {pkg.contract_version}<br />Libraries: {pkg.libraries.join(', ') || 'Standard library'}<br />SHA-256: {pkg.sha256}</Typography></Box>
-      </Box><Button color="error" disabled={busy || !!pkg.running} onClick={() => setRemove(pkg.id)}>Remove</Button>
-    </Stack></Paper>)}
-    <Dialog open={!!remove} onClose={() => !busy && setRemove(null)}><DialogTitle>Remove package?</DialogTitle><DialogContent>Its actions and reports will no longer be available.</DialogContent><DialogActions><Button disabled={busy} onClick={() => setRemove(null)}>Cancel</Button><Button color="error" disabled={busy} onClick={() => change(() => api.delete(`${base}/packages/${remove}`))}>Remove package</Button></DialogActions></Dialog>
-  </Stack></Box>;
+  </>;
 }

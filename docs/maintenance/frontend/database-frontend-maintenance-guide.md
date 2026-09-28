@@ -66,7 +66,7 @@ Restore remains available to admins or local sessions. Operations remains local-
 
 ## Package-backed operations and retrieval (2026-09-27)
 
-`DatabaseTools.tsx` supplies shared forms and package management. Operations and Manage
+`DatabaseTools.tsx` supplies task forms; `DatabasePackages.tsx` owns installation review. Operations and Manage
 packages require a local admin; Data retrieval accepts any signed-in user. Experiment
 selection uses paginated server search. Package fields and endpoints are documented
 in [the contract](../../../database_packages/README.md).
@@ -75,3 +75,25 @@ Review shows the target and requires typed confirmation. Check result reuses its
 never create a new token or silently retry after an uncertain response. Reports run in
 the background and poll only while their section is active. Downloads are authenticated.
 Changing report inputs clears the previous download to avoid mistaking it for new output.
+
+
+### Authoring and update workflow
+
+Operations and Data retrieval use the full inspection height and width. A single
+experiment input gets a 40/60 experiment-list/task layout; below 900px container
+width the same mounted panes use Back navigation. Search and pagination stay with
+the experiment list. Selecting the same experiment after Back retains its report;
+selecting a different experiment clears the old result and error. One tool shows
+its name as a heading; multiple installed tools show a chooser. Non-experiment
+inputs continue to use the manifest's typed fields.
+
+Manage packages inspects a chosen ZIP before installation. Review shows the
+installed/incoming versions and detects unchanged, same-version/different-code and
+older packages. Update beside a package rejects a different package's ZIP. The
+activation request includes the reviewed installed hash so another administrator's
+intervening update requires a fresh review. A request failure does not clear the
+selected file. Unexpected report errors have a short message and expandable Details.
+
+Package creation is a development-PC workflow, not an in-browser Python editor.
+The script scaffold/build commands and coding-agent handoff are in the authoring
+guide. Updating the executable does not update existing installed packages.

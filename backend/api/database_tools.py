@@ -1,6 +1,6 @@
 """Authenticated public interface; never accepts SQL or Python entry points."""
 from typing import Any, Literal
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field
@@ -15,7 +15,7 @@ class ToolRoute(APIRoute):
     def get_route_handler(self):
         original = super().get_route_handler()
         async def handler(request):
-            if request.method == 'POST' and request.url.path.endswith('/packages'):
+            if request.method == 'POST' and request.url.path.rstrip('/').endswith(('/packages', '/packages/inspect')):
                 try:
                     length = int(request.headers.get('content-length', '-1'))
                 except ValueError:
@@ -79,12 +79,23 @@ def packages(user=Depends(local_admin), service=Depends(get_database_tools)):
 
 @router.post('/packages')
 def install(file: UploadFile = File(...), user=Depends(local_admin),
+            expected_current: str | None = Form(None), expected_package: str | None = Form(None),
             connection: ConnectionContext=Depends(require_local_access), service=Depends(get_database_tools)):
     try:
-        result = service.catalogue.install(file.file.read(MAX_UPLOAD+1))
+        result = service.catalogue.install(file.file.read(MAX_UPLOAD+1),
+            expected_current='' if expected_current == 'absent' else expected_current,
+            expected_package=expected_package)
         log_action(actor=owner(user), action='install_database_package', scope='database', client_ip=connection.client_ip,
                    success=True, details=dict(package=result['id'], version=result['version']))
         return result
+    finally:
+        file.file.close()
+
+
+@router.post('/packages/inspect')
+def inspect_package(file: UploadFile = File(...), user=Depends(local_admin), service=Depends(get_database_tools)):
+    try:
+        return service.catalogue.inspect(file.file.read(MAX_UPLOAD+1))
     finally:
         file.file.close()
 

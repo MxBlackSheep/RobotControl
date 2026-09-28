@@ -97,9 +97,26 @@ Finish with what changed, what was checked and any material limit. When manual
 help is essential, give the exact action and what happens next. Keep UI wording
 short; put engineering explanation in maintenance documentation.
 
-Work as one agent by default. Delegate only when explicitly requested for the
-current work; previous specialist assignments are not a standing requirement.
-The earlier frontend specialist assignments are retired.
+For new features and unclear user workflows, use a product specialist as the
+user's point of contact. The specialist clarifies the actual job and expected
+outcome, recommends useful alternatives with concrete advantages/disadvantages,
+and asks only questions that change the result. Relay the specialist's questions
+through the main conversation so the user has one conversation to follow.
+
+Before coding, turn the agreement into a short implementation brief: user flow,
+data/state to retain, safety constraints and observable acceptance conditions.
+Show a small visual example first when the appearance remains undecided. The
+specialist reviews the implemented workflow and relevant screenshots against that
+brief; the coder owns technical verification. Do not add this process to wording
+changes or well-understood bug fixes. This is standing authorization to delegate
+that product role; other delegation still needs a current request. The earlier
+frontend specialist assignments remain retired.
+
+For database packages, assume the author edits Python themselves, optionally with
+a coding agent. Explain script adaptation separately from package building. Use
+the authoring path in `database_packages/README.md`; do not expect the author to
+infer manifest or archive rules. Never claim packaging checks validate calculations
+or sandbox uploaded Python.
 
 ## Where information belongs
 

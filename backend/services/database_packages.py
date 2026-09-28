@@ -1,6 +1,7 @@
 """Trusted database extensions. Installation validates packaging, not Python safety."""
 from __future__ import annotations
 
+import ast
 import hashlib
 import importlib.util
 import io
@@ -93,6 +94,56 @@ class Manifest(BaseModel):
     tools: list[ToolDefinition] = Field(min_length=1, max_length=20)
 
 
+def inspect_archive(content):
+    """Read/compile trusted package files without importing or executing them."""
+    if len(content) > MAX_UPLOAD:
+        raise PackageError("Package exceeds the 20 MiB upload limit", 413)
+    try:
+        with zipfile.ZipFile(io.BytesIO(content)) as archive:
+            files = archive.infolist()
+            if len(files) > 100 or sum(file.file_size for file in files) > MAX_EXPANDED:
+                raise PackageError("Package exceeds 100 files or 50 MiB expanded size", 413)
+            seen = set()
+            for file in files:
+                name = file.filename
+                path = PurePosixPath(name)
+                if (file.is_dir() or len(path.parts) != 1 or path.is_absolute() or
+                    not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.-]*", name) or
+                    name.endswith(('.', ' ')) or path.suffix.lower() not in {".py", ".json", ".md", ".txt"} or
+                    name.lower() in seen or (file.external_attr >> 16) & 0o170000 == 0o120000 or
+                    name.split('.')[0].upper() in {'CON', 'PRN', 'AUX', 'NUL', *[f'COM{i}' for i in range(10)], *[f'LPT{i}' for i in range(10)]}):
+                    raise PackageError("Package contains an unsafe path, duplicate file or unsupported file type")
+                seen.add(name.lower())
+            manifest = Manifest.model_validate_json(archive.read("manifest.json"))
+            if len({tool.id for tool in manifest.tools}) != len(manifest.tools):
+                raise PackageError("Tool identifiers must be unique")
+            for library in manifest.libraries:
+                if library not in SUPPORTED_LIBRARIES or importlib.util.find_spec(library) is None:
+                    raise PackageError(f"Library {library} is not bundled. An application upgrade is required.")
+            payloads = {}
+            for file in files:
+                payload = archive.read(file)
+                if file.filename.endswith(".py"):
+                    compile(payload, file.filename, "exec")
+                payloads[file.filename] = payload
+        for tool in manifest.tools:
+            for entrypoint in (tool.entrypoint, tool.preview):
+                if not entrypoint:
+                    continue
+                module, function = entrypoint.split(':')
+                source = payloads.get(module + '.py')
+                if source is None:
+                    raise PackageError(f"Missing Python file: {module}.py")
+                tree = ast.parse(source, filename=module + '.py')
+                if not any(isinstance(node, ast.FunctionDef) and node.name == function for node in tree.body):
+                    raise PackageError(f"Define {function}(context, inputs) in {module}.py")
+        return manifest, payloads
+    except PackageError:
+        raise
+    except Exception as exc:
+        raise PackageError(f"Package could not be read: {exc}") from exc
+
+
 class PackageCatalogue:
     def __init__(self, root: Path, defaults: Path):
         self.root = root
@@ -178,48 +229,41 @@ class PackageCatalogue:
                 raise PackageError("Package entry point is not callable")
             return function
 
-    def install(self, content):
-        if len(content) > MAX_UPLOAD:
-            raise PackageError("Package exceeds the 20 MiB upload limit", 413)
+    def inspect(self, content):
+        manifest, _ = inspect_archive(content)
+        with self.lock:
+            self._check_conflicts(manifest)
+            current = self.index.get(manifest.id)
+            return dict(package=manifest.model_dump(), sha256=hashlib.sha256(content).hexdigest(),
+                        current_version=current['manifest']['version'] if current else None,
+                        current_sha256=current['sha256'] if current else '',
+                        running=self.running.get(manifest.id, 0))
+
+    def _check_conflicts(self, manifest):
+        existing_ids = {tool['id'] for key, value in self.index.items() if key != manifest.id
+                        for tool in value['manifest']['tools']}
+        if existing_ids & {tool.id for tool in manifest.tools}:
+            raise PackageError("An installed package already provides this tool identifier", 409)
+
+    def install(self, content, expected_current=None, expected_package=None):
+        manifest, payloads = inspect_archive(content)
         directory = self.root / uuid.uuid4().hex
         activated = False
         try:
-            with zipfile.ZipFile(io.BytesIO(content)) as archive:
-                files = archive.infolist()
-                if len(files) > 100 or sum(file.file_size for file in files) > MAX_EXPANDED:
-                    raise PackageError("Package exceeds 100 files or 50 MiB expanded size", 413)
-                seen = set()
-                for file in files:
-                    name = file.filename
-                    path = PurePosixPath(name)
-                    if (file.is_dir() or len(path.parts) != 1 or path.is_absolute() or
-                        not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.-]*", name) or
-                        name.endswith(('.', ' ')) or path.suffix.lower() not in {".py", ".json", ".md", ".txt"} or
-                        name.lower() in seen or (file.external_attr >> 16) & 0o170000 == 0o120000 or
-                        name.split('.')[0].upper() in {'CON', 'PRN', 'AUX', 'NUL', *[f'COM{i}' for i in range(10)], *[f'LPT{i}' for i in range(10)]}):
-                        raise PackageError("Package contains an unsafe path, duplicate file or unsupported file type")
-                    seen.add(name.lower())
-                manifest = Manifest.model_validate_json(archive.read("manifest.json"))
-                if len({tool.id for tool in manifest.tools}) != len(manifest.tools):
-                    raise PackageError("Tool identifiers must be unique")
-                for library in manifest.libraries:
-                    if library not in SUPPORTED_LIBRARIES or importlib.util.find_spec(library) is None:
-                        raise PackageError(f"Library {library} is not bundled. An application upgrade is required.")
-                directory.mkdir()
-                for file in files:
-                    payload = archive.read(file)
-                    if file.filename.endswith(".py"):
-                        compile(payload, file.filename, "exec")
-                    (directory / file.filename).write_bytes(payload)
+            directory.mkdir()
+            for name, payload in payloads.items():
+                (directory / name).write_bytes(payload)
             entry = {"manifest": manifest.model_dump(), "directory": directory.name,
                      "sha256": hashlib.sha256(content).hexdigest()}
             with self.lock:
                 if self.running.get(manifest.id, 0):
                     raise PackageError("This package is running. Try again when it finishes.", 409)
-                existing_ids = {tool["id"] for key, value in self.index.items() if key != manifest.id
-                                for tool in value["manifest"]["tools"]}
-                if existing_ids & {tool.id for tool in manifest.tools}:
-                    raise PackageError("An installed package already provides this tool identifier", 409)
+                self._check_conflicts(manifest)
+                current = self.index.get(manifest.id)
+                if expected_package is not None and expected_package != manifest.id:
+                    raise PackageError("Choose an update for the selected package.", 409)
+                if expected_current is not None and expected_current != (current['sha256'] if current else ''):
+                    raise PackageError("Installed package changed. Review the update again.", 409)
                 # Trusted code imports only after structural/compatibility checks. No install hooks.
                 for tool in manifest.tools:
                     self.function(entry, tool.entrypoint)

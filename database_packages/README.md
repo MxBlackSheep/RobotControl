@@ -8,15 +8,73 @@ new import against a packaged candidate; adding dependencies requires an app upd
 
 ## Make a package
 
-Copy one of the two example directories. Change its identifiers and code. A ZIP
+Start with your existing Python script. There are two jobs: **adapt the Python**
+to use RobotControl's services, then **build the package**. The helper handles the
+manifest and ZIP; it does not convert arbitrary Python automatically.
+
+On your development PC, from the RobotControl repository:
+
+```powershell
+uv run --locked python build_scripts/database_package.py create ../MyDatabasePackages/my-report --script C:/Scripts/Data.py
+```
+
+Answer the prompts for name, stable ID (e.g. `my-culture-report`), report/operation,
+version, libraries and form inputs. For an experiment selector enter
+`experiment_id:experiment:Experiment`. Enter a blank line after the final input.
+The supported types are experiment, text, integer, number, boolean and choice;
+for choices use `state:choice:State:Clean,Dirty`. Inputs created by the helper are
+required. Optional inputs can set `required: false` in the generated manifest.
+
+The new folder contains:
+
+| File | Your next step |
+| --- | --- |
+| `reference/Data.py` | Unchanged original; keep it for comparison. It is not included in the ZIP. |
+| `handler.py` | Move/adapt the original logic here. The comments show the required interface. |
+| `manifest.json` | Generated name, version, libraries and form fields. |
+| `AGENTS.md` | Adaptation instructions for you or a coding agent. |
+
+For example, replace `sys.argv[1]` with `inputs["experiment_id"]`, your SQL
+connection creation with `context.connection`, and a fixed export path with
+`context.output_dir / "report.xlsx"`. Return `"report.xlsx"`. Keep calculation,
+plate/parent selection and workbook formatting rules unchanged unless intentionally
+redesigning the report. Do not call the original standalone `main()`.
+
+If using a coding agent, give it this instruction:
+
+> Read this package's AGENTS.md and original script in reference/. Adapt handler.py
+> to RobotControl's interface. Preserve the report rules and formatting. Explain
+> any ambiguity before changing it. Do not run against production data. Record the
+> relevant failure cases and verify the result using disposable data.
+
+When the adapter is complete, remove its `ADAPT_BEFORE_BUILD` marker and build:
+
+```powershell
+uv run --locked python build_scripts/database_package.py build ../MyDatabasePackages/my-report
+# After editing an existing package, increase its version:
+uv run --locked python build_scripts/database_package.py build ../MyDatabasePackages/my-report --version 1.0.1
+```
+
+The helper prints the versioned ZIP path. It checks archive contents, entry-point
+definitions, Python syntax and declared bundled libraries without importing the
+package. These checks do not verify calculations, query safety or every import.
+Upload through **Database → Manage packages → Add package**, review it, then
+install. Test the report/operation with disposable data before production use.
+
+For an update, keep the package and tool IDs unchanged. Click **Update** beside
+the installed package, choose the new ZIP and review the old/new versions. If an
+installation changed since review, review it again. Updating RobotControl itself
+does **not** replace installed packages; deliver their updated ZIPs separately.
+Deployment PCs need neither Python nor UV. The commands above are authoring tools
+for the development PC, where the project's Python environment is available.
+
+For advanced authors, either starter package can also be copied directly. A ZIP
 contains `manifest.json`, Python modules and optional `.md`/`.txt` documentation at
 its root (no enclosing folder, binaries, symlinks or nested directories). Use one
 self-contained Python module per entry point; sibling-module imports are not part
 of this first contract. Upload through **Database → Manage packages**.
 
-```powershell
-Compress-Archive -Path database_packages/culture-history/*.py,database_packages/culture-history/*.json,database_packages/culture-history/*.txt -DestinationPath culture-history.zip -Force
-```
+Use the same `build` command for a starter package. No manual ZIP assembly is needed.
 
 The manifest declares `contract_version: 1`, a unique lowercase hyphenated package
 `id`, display `name`, three-part `version`, `libraries`, and a `tools` array. Each
@@ -68,6 +126,11 @@ records its exact upstream revision in `UPSTREAM.txt`. Its calculation functions
 retain upstream behavior, including latest-plate/first-parent choices. The adapter
 uses RobotControl's connection and output directory, reads rows through pyodbc
 directly, and avoids selecting the same OD column twice under different casing.
+Version 1.0.1 handles missing well labels on pandas 3 without converting them into
+fake well names. When every culture on the chosen plate is included, missing wells
+remain blank and sort after known wells. If selecting only a subset would require
+ordering cultures with missing well positions, it stops with the affected plate
+and culture IDs instead of guessing which cultures to export.
 
 The application exposes `/api/database/tools/catalogue`, `/experiments`, `/packages`,
 `/operations/{id}/preview`, `/operations/execute`, `/reports/{id}` (POST), and

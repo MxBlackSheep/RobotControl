@@ -2,7 +2,7 @@
   "contract_version": 1,
   "id": "culture-history",
   "name": "Culture history",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "libraries": ["pandas", "openpyxl", "pyodbc"],
   "tools": [{
     "id": "culture-history",

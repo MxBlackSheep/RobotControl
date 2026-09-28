@@ -29,3 +29,21 @@ Before implementation, exercise these boundaries with disposable data:
 - SMTP pending/sent/error records appear through HTTP and the screen. Manual/test/recovery
   emails are included. Partial refusal and log-storage failure must not resend accepted mail.
 - A relocated executable installs and runs packages without a system Python or UV.
+# Authoring, updates and task workspace (2026-09-28)
+
+- An existing script must remain untouched when creating a working package. The
+  generated adapter must fail clearly until adapted; creating/building a package
+  must not import or execute its Python code. Reject unsafe ZIPs, syntax errors,
+  missing entry points and unsupported declared libraries before installation.
+- Inspecting an update must not activate it or import Python. Show installed and
+  incoming versions; reject a changed installation or a different package between
+  review and activation. Keep the installed version when validation fails.
+- A missing WellID currently crashes pandas 3 report generation. Preserve all
+  selected cultures; if missing locations make the selection of a subset ambiguous,
+  identify the plate/cultures instead of silently excluding or choosing them.
+- A wide desktop must use the available width for experiment selection and task
+  results. On a phone, Back must retain search, selection and completed download.
+  Reject late searches; changing inputs must clear the previous result/error.
+- Verify author-created ZIP through the actual upload/report HTTP path, the update
+  review in the browser, and the relocated executable. Use disposable SQL rows;
+  the actual experiment 333 data and SQL Server remain a separate VM check.

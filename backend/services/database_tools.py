@@ -185,10 +185,12 @@ class DatabaseTools:
             with self.lock:
                 self.jobs[key].update(status='ready', filename=path.name, expires=time.time()+900)
         except Exception as exc:
-            logger.exception("Report generation failed")
+            logger.exception("Report %s failed (tool=%s, version=%s)", key, tool.id, entry['manifest']['version'])
             shutil.rmtree(folder, ignore_errors=True)
             with self.lock:
-                self.jobs[key].update(status='error', error=str(exc), expires=time.time()+900)
+                self.jobs[key].update(status='error',
+                    error=str(exc) if isinstance(exc, ValueError) else 'Report generation failed. Check Details or the RobotControl log.',
+                    error_details=None if isinstance(exc, ValueError) else str(exc), expires=time.time()+900)
         finally:
             reservation.__exit__(None, None, None)
             self.slots.release()

@@ -4,6 +4,8 @@ import hashlib
 import io
 import json
 import sqlite3
+import subprocess
+import sys
 import tempfile
 import threading
 from types import SimpleNamespace
@@ -65,6 +67,38 @@ def run():
                 with TestClient(app, client=('10.1.2.3', 1234), headers={'authorization':'admin','x-forwarded-for':'127.0.0.1'}) as remote:
                     assert remote.get(BASE+'/packages').status_code == 403
                 checks.append('Local administrator checks, forwarded-header denial and retired SQL route: passed')
+                # Exercise the author's actual CLI, then upload its output through HTTP.
+                project = Path(temp)/'author-report'
+                original = ROOT/'database_packages/culture-history/handler.py'
+                def helper(*args):
+                    return subprocess.run([sys.executable, str(ROOT/'build_scripts/database_package.py'), *map(str,args)],
+                        cwd=ROOT, capture_output=True, text=True, encoding='utf-8')
+                created = helper('create', project, '--script', original, '--name', 'Culture history', '--id', 'culture-history',
+                    '--kind', 'report', '--libraries', 'pandas,openpyxl,pyodbc')
+                assert created.returncode == 0, created.stderr
+                assert (project/'reference/handler.py').read_bytes() == original.read_bytes()
+                assert helper('build', project).returncode != 0  # Unfinished adapter cannot masquerade as a package.
+                (project/'handler.py').write_bytes(original.read_bytes())
+                built = helper('build', project, '--version', '1.0.2')
+                assert built.returncode == 0, built.stderr
+                authored = (Path(temp)/'culture-history-1.0.2.zip').read_bytes()
+                reviewed = client.post(BASE+'/packages/inspect', files={'file': ('report.zip', authored)}).json()
+                assert reviewed['current_version'] == '1.0.1' and reviewed['package']['version'] == '1.0.2'
+                fields = dict(expected_current=reviewed['current_sha256'], expected_package='culture-history')
+                assert client.post(BASE+'/packages', files={'file': ('report.zip', authored)}, data={**fields,'expected_package':'wrong-package'}).status_code == 409
+                assert client.post(BASE+'/packages', files={'file': ('report.zip', authored)}, data=fields).status_code == 200
+                assert client.post(BASE+'/packages', files={'file': ('report.zip', authored)}, data=fields).status_code == 409
+                # Inspection must not run imports. Activation failure must preserve the working version.
+                poisoned = package_zip(ROOT/'database_packages/culture-history', {'version':'1.0.3'},
+                    extras={'probe.py': 'raise RuntimeError("inspection executed code")'})
+                assert client.post(BASE+'/packages/inspect', files={'file': ('probe.zip', poisoned)}).status_code == 200
+                broken = package_zip(ROOT/'database_packages/culture-history', {'version':'1.0.3','tools':[
+                    {**reviewed['package']['tools'][0], 'entrypoint':'broken:run'}]},
+                    extras={'broken.py':'raise RuntimeError("import failure")\ndef run(context, inputs):\n    pass\n'})
+                assert client.post(BASE+'/packages/inspect', files={'file': ('broken.zip', broken)}).status_code == 200
+                assert client.post(BASE+'/packages', files={'file': ('broken.zip', broken)}).status_code == 400
+                assert client.get(BASE+'/catalogue',params={'kind':'report'}).json()[0]['package_version']=='1.0.2'
+                checks.append('Author CLI → non-executing inspection → reviewed update; stale/wrong/failed updates preserve installed code: passed')
                 folder = ROOT/'database_packages/delete-experiment'
                 def upload(content): return client.post(BASE+'/packages', files={'file': ('package.zip', content, 'application/zip')})
                 for content in [package_zip(folder, extras={'../escape.py':'bad'}), package_zip(folder, extras={'binary.exe':'bad'}),
@@ -156,6 +190,28 @@ def run():
                 with closing(sqlite3.connect(database.path)) as connection, connection:
                     connection.execute('ALTER TABLE CulturesHistory DROP COLUMN Converted_OD')
                 checks.append('Converted_OD casing aliases select one column and retain its value: passed')
+                def report_result():
+                    result=client.post(BASE+'/reports/culture-history',json={'inputs':{'experiment_id':42}}).json()
+                    deadline=time.monotonic()+20
+                    while result['status'] in {'pending','running'}:
+                        assert time.monotonic()<deadline
+                        time.sleep(.05); result=client.get(BASE+'/reports/'+result['id']).json()
+                    return result
+                with closing(sqlite3.connect(database.path)) as connection, connection:
+                    connection.execute('UPDATE Cultures SET WellID=NULL WHERE CultureID IN (1,3)')
+                missing=report_result()
+                assert missing['status']=='ready',missing
+                missing_sheet=openpyxl.load_workbook(io.BytesIO(client.get(BASE+'/reports/'+missing['id']+'/download').content)).active
+                id_columns=[cell.column for cell in missing_sheet[1] if str(cell.value).endswith(' ID')]
+                assert {missing_sheet.cell(2,column).value for column in id_columns} == {3,4}
+                with closing(sqlite3.connect(database.path)) as connection, connection:
+                    connection.execute('INSERT INTO Cultures VALUES (5,20,NULL)')
+                ambiguous=report_result()
+                assert ambiguous['status']=='error' and 'Plate 20' in ambiguous['error'] and 'missing well positions' in ambiguous['error'],ambiguous
+                with closing(sqlite3.connect(database.path)) as connection, connection:
+                    connection.execute('DELETE FROM Cultures WHERE CultureID=5')
+                    connection.execute("UPDATE Cultures SET WellID='A1' WHERE CultureID IN (1,3)")
+                checks.append('Missing well labels retain all selected cultures; ambiguous subset selection gives plate/culture guidance: passed')
                 # Hold both actual report workers, checking HTTP admission and package removal.
                 release_reports=threading.Event()
                 original_function=service.catalogue.function

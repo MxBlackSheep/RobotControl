@@ -221,3 +221,26 @@ of robot software. The SQL procedure must respect the host transaction.
 Repeated confirmation returns the saved result, never another execution. Unknown
 means inspect the outcome before repeating. Report failures appear in Data retrieval.
 Packages are trusted software, not sandboxed SQL definitions.
+
+
+### Package inspection and authoring
+
+`POST /api/database/tools/packages/inspect` reads and compiles the ZIP without
+importing Python or writing an installation. It returns the manifest and current
+installed version/hash. The install route accepts `expected_current` (the reviewed
+hash, or `absent` for a new package) and `expected_package`; mismatches return 409.
+All package routes retain local-admin checks and upload limits. Activation still
+imports trusted code; inspection is not a sandbox or proof of behavior.
+
+`build_scripts/database_package.py create` preserves a source script and generates
+an editable adapter, manifest and agent instructions. `build` shares archive
+validation with the host, rejects unfinished adapters and produces a versioned ZIP.
+No package code is executed by either command. See the package authoring guide.
+
+Culture history 1.0.1 fixes pandas 3 missing-WellID handling. All selected cultures
+remain present; missing historical/output well labels stay blank. If missing wells
+prevent choosing a subset of cultures on the active plate, it raises an actionable
+error containing the plate and culture IDs. Do not silently filter missing cultures
+or manufacture well IDs. Unexpected report exceptions retain technical Details and
+log the report ID/tool/version. SQL Server validation of real experiment data is
+still necessary; disposable SQLite fixtures do not establish it.
