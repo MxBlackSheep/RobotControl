@@ -14,6 +14,7 @@ import subprocess
 import tempfile
 import time
 import urllib.request
+from urllib.error import HTTPError
 import zipfile
 from pathlib import Path
 
@@ -35,6 +36,14 @@ def wizard_check(request, token, result, evidence):
                 username=created_login, trust_certificate=True)
             review = request('/api/database/tools/sources/access/review', profile, token)
             request('/api/database/tools/sources/access/create', {'token':review['token'], 'windows_auth':True}, token)
+            conflict = request('/api/database/tools/sources/access/review', dict(profile, id='conflicting-reader'), token)
+            try:
+                request('/api/database/tools/sources/access/create', {'token':conflict['token'], 'windows_auth':True}, token)
+                raise AssertionError('Existing login was accepted')
+            except HTTPError as exc:
+                assert exc.code == 400
+                assert 'already exists' in exc.read().decode()
+            result['checks'].append('Packaged duplicate-login error identifies the conflict without changing the existing account')
             tables = request('/api/database/tables?source_id=created-reader', token=token)['data']['tables']
             assert '[dbo].[Projects]' in tables
             assert request('/api/database/tables/%5Bdbo%5D.%5BProjects%5D?source_id=created-reader',token=token)['data']['total_count']==2

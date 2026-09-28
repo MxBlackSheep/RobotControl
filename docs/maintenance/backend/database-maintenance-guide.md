@@ -28,6 +28,21 @@ SELECT and VIEW DEFINITION. This includes future tables; use an existing narrowl
 scoped account if the lab needs table-level restrictions. Windows setup authentication
 uses the identity running RobotControl, not the browser user's Windows identity.
 
+Setup errors identify duplicate login/user names, rejected sign-in, insufficient SQL
+authority, inaccessible databases and missing ODBC drivers. Other failures show the
+setup stage and SQLSTATE/native error numbers. Logs record only those diagnostics,
+never raw driver messages that could contain SQL or credentials. Failed rollback or
+cleanup explicitly asks the administrator to check the requested new account before
+retrying. The original VM error was generic; its actual cause remains unconfirmed.
+
+For manual setup, download the SQL, replace `<REPLACE_WITH_STRONG_PASSWORD>` and run
+it on the selected server using an authorized SQL administrator. Then choose **Use
+existing account** in RobotControl with that new login/password. The **Create account**
+button instead generates its own password and saves the connection automatically.
+Do not run the downloaded script and then use Create account for the same login.
+
+Focused error checks and commands: `recovery/database-access-verification/index.html`.
+
 `report_authoring.inspect_python` parses AST only. It detects nested imports,
 explicit Excel engines, compatible synchronous entry-point signatures and common
 connection/argument adaptations. Dynamic imports and local modules need manual

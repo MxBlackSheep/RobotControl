@@ -9,6 +9,7 @@ import tempfile
 import time
 import traceback
 import zipfile
+import os
 import openpyxl
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.testclient import TestClient
@@ -18,7 +19,7 @@ from backend.api.database import router as viewer_router
 from backend.services.auth import get_current_user
 from backend.services.database_tools import DatabaseTools, get_database_tools
 
-EVIDENCE = ROOT / 'recovery/database-workspace-verification'
+EVIDENCE = Path(os.environ.get('ROBOTCONTROL_E2E_EVIDENCE', str(ROOT / 'recovery/database-workspace-verification')))
 
 
 def run():
@@ -66,13 +67,25 @@ def run():
                             except Exception: conn.rollback()
                             else: raise AssertionError('New identity can write')
                     collision = call('POST',BASE+'/sources/access/review',dict(source,id='collision',username=fixture['login']))
-                    call('POST',BASE+'/sources/access/create',dict(token=collision['token'],windows_auth=True),400)
+                    conflict = call('POST',BASE+'/sources/access/create',dict(token=collision['token'],windows_auth=True),400)
+                    assert 'already exists' in conflict['detail'] and 'RobotControl_ReadOnly' in conflict['detail']
                     assert admin.execute('SELECT name FROM sys.server_principals WHERE name=?', fixture['login']).fetchone()
+                    denied = call('POST',BASE+'/sources/access/review',dict(source,id='denied',username=new_login+'_denied'))
+                    error = call('POST',BASE+'/sources/access/create',dict(token=denied['token'],username=fixture['login'],password=fixture['password']),400)
+                    assert 'lacks permission' in error['detail'] and 'create login' in error['detail'], error
+                    assert fixture['password'] not in json.dumps(error)
+                    assert not admin.execute('SELECT name FROM sys.server_principals WHERE name=?',new_login+'_denied').fetchone()
+                    signin = call('POST',BASE+'/sources/access/review',dict(source,id='signin',username=new_login+'_signin'))
+                    error = call('POST',BASE+'/sources/access/create',dict(token=signin['token'],username=fixture['login'],password='disposable-wrong-password'),400)
+                    assert 'rejected the administrator sign-in' in error['detail'], error
+                    assert 'disposable-wrong-password' not in json.dumps(error)
                     bad_login = new_login + '_bad'
                     bad = call('POST',BASE+'/sources/access/review',dict(source,id='bad-database',username=bad_login,database=bad_login))
-                    call('POST',BASE+'/sources/access/create',dict(token=bad['token'],windows_auth=True),400)
+                    missing = call('POST',BASE+'/sources/access/create',dict(token=bad['token'],windows_auth=True),400)
+                    assert 'Cannot open database' in missing['detail'], missing
                     assert not admin.execute('SELECT name FROM sys.server_principals WHERE name=?',bad_login).fetchone()
                     result['checks'].append('Existing login never modified; failed database grant transaction removes new login')
+                    result['checks'].append('Duplicate name, insufficient SQL authority, rejected sign-in and missing database have distinct actionable HTTP errors; passwords are absent')
                     result['checks'].append('Reviewed create-account HTTP flow; no creation on review; owner/replay enforced; SELECT works and writes/DDL denied')
                     call('POST',BASE+'/sources',dict(source,id='lab-b',name='Lab B',database=fixture['names'][1],username=fixture['login'],password=fixture['password']))
                     a=call('GET','/api/database/tables?source_id=lab-a')['data']['tables']
@@ -138,6 +151,7 @@ def run():
                 if admin.execute('SELECT name FROM sys.server_principals WHERE name=?',new_login).fetchone():
                     admin.execute('USE ['+fixture['names'][0]+']; DROP USER ['+new_login+']; USE master; DROP LOGIN ['+new_login+']')
     except Exception:
+        result['passed']=False
         result['failure']=traceback.format_exc()
         raise
     finally:

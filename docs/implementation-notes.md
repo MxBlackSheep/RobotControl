@@ -1,3 +1,9 @@
+## 2026-09-28 Read-only account setup diagnostics
+
+- Replaced the generic SQL setup error with specific name-conflict, sign-in, authority, database and driver guidance. Unknown failures retain stage/numeric diagnostics without exposing SQL or passwords; existing logins remain untouched.
+- Clarified new-login versus administrator identity and the manual SQL versus Create account paths. Failed setup retains connection fields while clearing administrator credentials.
+- Focused disposable SQL/HTTP and desktop/phone browser checks passed. Fixed owned SQL fixture cleanup for pooled sessions; retained the original cleanup failure. Commands, screenshots and Windows candidate results: `recovery/database-access-verification/index.html`. The original VM failure's cause remains unconfirmed.
+
 ## 2026-09-28 Scheduling laboratory integrations
 
 - Kept native scheduler SQLite and Hamilton run monitoring separate from laboratory preparation. EvoYeast remains the default; existing schedule tokens and unrelated preparation steps survive editing. A reviewed built-in SQLite batch example demonstrates another schema, with per-installation configuration and concise Experiment/Batch controls.

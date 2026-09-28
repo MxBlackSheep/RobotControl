@@ -1,11 +1,43 @@
 """Explicit, reviewed creation of a new SQL read-only identity."""
 import secrets
+import logging
+import re
 import time
 import uuid
 import pyodbc
 from pydantic import BaseModel, ConfigDict, Field
 from backend.services.database_packages import PackageError
 from backend.services.report_sources import ReportSource
+
+logger = logging.getLogger(__name__)
+
+
+def setup_error(exc, stage, source, authority):
+    """Expose known causes and numeric diagnostics, never raw ODBC/SQL text."""
+    if isinstance(exc, PackageError):
+        return str(exc)
+    args = getattr(exc, 'args', ())
+    state = str(args[0]) if args and re.fullmatch(r'[A-Z0-9]{5}', str(args[0])) else None
+    codes = sorted({int(x) for arg in args[1:] for x in re.findall(r'\((-?\d+)\)', str(arg))})[:8]
+    logger.warning('Read-only account setup failed: stage=%s sqlstate=%s codes=%s', stage, state, codes)
+    if 15025 in codes:
+        return f"SQL login '{source.username}' already exists. Choose a new name, such as RobotControl_ReadOnly. Existing logins are not changed."
+    if 15023 in codes:
+        return f"Database user '{source.username}' already exists in {source.database}. Choose a different new login name."
+    if state == '28000' or 18456 in codes:
+        return ('SQL Server rejected RobotControl\'s Windows sign-in. Uncheck the Windows option and use an authorized SQL administrator.'
+                if authority.windows_auth else 'SQL Server rejected the administrator sign-in. Check the SQL administrator account and password.')
+    if any(code in codes for code in (15247, 229)):
+        who = "RobotControl's Windows account" if authority.windows_auth else 'This SQL account'
+        return f'{who} lacks permission for {stage}. Use an authorized SQL administrator or download the setup SQL for them.'
+    if any(code in codes for code in (911, 4060, 916)):
+        return f"Cannot open database '{source.database}' with the setup account. Check the database name and that account's access."
+    if state in ('IM002', 'IM003'):
+        return 'The selected ODBC driver is unavailable on the RobotControl computer. Check Driver in Details.'
+    if stage == 'connect':
+        return f'Cannot connect to SQL Server using the setup account. Check Server and the certificate settings in Details. SQLSTATE: {state or "unavailable"}.'
+    diagnostic = ' · '.join(x for x in [f'SQLSTATE {state}' if state else '', 'SQL '+', '.join(map(str,codes)) if codes else ''] if x)
+    return f'Account setup failed during {stage}. {diagnostic}. Download the setup SQL for your administrator.'
 
 
 class ProvisionAuthority(BaseModel):
@@ -68,22 +100,36 @@ class DatabaseAccess:
             conn = None
             created = False
             password = secrets.token_urlsafe(36) + 'aA1!'
+            stage = 'connect'
             try:
                 conn = pyodbc.connect(';'.join(f'{k}={quote(v)}' for k, v in config.items()), timeout=8)
                 conn.timeout = 30
+                stage = 'check login name'
+                if conn.execute('SELECT 1 FROM sys.server_principals WHERE name = ?', (source.username,)).fetchone():
+                    raise PackageError(f"SQL login '{source.username}' already exists. Choose a new name, such as RobotControl_ReadOnly. Existing logins are not changed.")
                 # CREATE rejects an existing name; never ALTER an existing principal.
                 login = identifier(source.username)
+                stage = 'create login'
                 conn.execute(f"CREATE LOGIN {login} WITH PASSWORD=N'{password}', CHECK_POLICY=ON")
+                stage = 'open database'
                 conn.execute(f'USE {identifier(source.database)}')
+                stage = 'create database user'
                 conn.execute(f'CREATE USER {login} FOR LOGIN {login}')
+                stage = 'grant read-only access'
                 conn.execute(f'GRANT CONNECT, SELECT, VIEW DEFINITION TO {login}')
+                stage = 'commit account'
                 conn.commit()
                 created = True
+                stage = 'verify and save connection'
                 self.sources.save(source.model_copy(update={'password': password}))
                 return {'message': 'Read-only account created, checked and saved.'}
             except Exception as exc:
+                detail = setup_error(exc, stage, source, authority)
                 if conn is not None:
-                    conn.rollback()
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        raise PackageError(f'{detail} Rollback could not be confirmed. Ask the SQL administrator to check the new login {source.username} before retrying.') from None
                     if created:
                         try:
                             conn.execute(f'USE {identifier(source.database)}')
@@ -92,10 +138,15 @@ class DatabaseAccess:
                             conn.execute(f'DROP LOGIN {identifier(source.username)}')
                             conn.commit()
                         except Exception:
-                            conn.rollback()
-                            raise PackageError(f'Connection was not saved. Ask the SQL administrator to remove the new account {source.username} from {source.database} and its server login before retrying.') from None
-                detail = str(exc) if isinstance(exc, PackageError) else 'SQL setup failed. Check the server, database, new account name and administrator authority; alternatively give the reviewed SQL script to your database administrator.'
+                            try:
+                                conn.rollback()
+                            except Exception:
+                                pass
+                            raise PackageError(f'{detail} Connection was not saved. Ask the SQL administrator to check/remove the new account {source.username} from {source.database} and its server login before retrying.') from None
                 raise PackageError(detail) from None
             finally:
                 if conn is not None:
-                    conn.close()
+                    try:
+                        conn.close()
+                    except Exception:
+                        logger.warning('Could not close the account setup connection')

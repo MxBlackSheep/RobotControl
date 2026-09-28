@@ -58,6 +58,10 @@ def sql_fixture():
             admin.execute(f'ALTER DATABASE [{name}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE')
             admin.execute(f'DROP DATABASE [{name}]')
         if logged:
+            # ODBC pooling can retain this fixture's login after a failed setup.
+            sessions = admin.execute('SELECT session_id FROM sys.dm_exec_sessions WHERE login_name=?', login).fetchall()
+            for session in sessions:
+                admin.execute(f'KILL {int(session[0])}')
             admin.execute(f'DROP LOGIN [{login}]')
         admin.close()
 

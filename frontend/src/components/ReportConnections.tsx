@@ -38,10 +38,11 @@ export default function ReportConnections({ open, onClose }: { open: boolean; on
         {review ? <Stack spacing={2}>
           <Typography variant="h6">Review read-only access</Typography>
           <Typography sx={{ overflowWrap: 'anywhere' }}>{review.server} / {review.database}</Typography>
-          <Typography>New account: {review.account}</Typography>
+          <Typography>New read-only login: {review.account}</Typography>
           <Typography>{review.grants.join(' · ')}</Typography>
           <Typography variant="body2">SQL administrator access is used once, then discarded.</Typography>
           <FormControlLabel label="Use RobotControl's Windows account" control={<Checkbox checked={authority.windows_auth} disabled={busy} onChange={(_, v) => setAuthority(a => ({ ...a, windows_auth: v }))} />} />
+          {authority.windows_auth && <Typography variant="body2" color="text.secondary">This Windows account must be allowed to create SQL logins and grant database access.</Typography>}
           {!authority.windows_auth && <><TextField label="SQL administrator" autoComplete="off" value={authority.username} disabled={busy} onChange={e => setAuthority(a => ({ ...a, username: e.target.value }))} />
             <TextField label="Administrator password" type="password" autoComplete="new-password" value={authority.password} disabled={busy} onChange={e => setAuthority(a => ({ ...a, password: e.target.value }))} /></>}
           <Button onClick={() => saveBlob(new Blob([review.sql], { type: 'text/plain' }), 'create-read-only.sql')}>Download SQL for your administrator</Button>
@@ -58,7 +59,7 @@ export default function ReportConnections({ open, onClose }: { open: boolean; on
           {(['name', 'server', 'database', 'username', ...(mode === 'existing' ? ['password'] : [])] as ('name'|'server'|'database'|'username'|'password')[]).map(key => <TextField key={key} size="small" disabled={busy}
             label={{ name: 'Name', server: 'Server', database: 'Database', username: mode === 'create' ? 'New account name' : 'Account', password: 'Password' }[key]}
             type={key === 'password' ? 'password' : 'text'} value={source[key] || ''} autoComplete={key === 'password' ? 'new-password' : 'off'}
-            helperText={key === 'password' && editing ? 'Leave blank to keep the saved password.' : undefined}
+            helperText={key === 'username' && mode === 'create' ? 'A new SQL login, e.g. RobotControl_ReadOnly. Do not enter an existing administrator login.' : key === 'password' && editing ? 'Leave blank to keep the saved password.' : undefined}
             onChange={e => setSource(s => ({ ...s, [key]: key === 'password' && !e.target.value ? undefined : e.target.value }))} />)}
           <Box component="details"><Typography component="summary">Details</Typography><Stack spacing={2} sx={{ mt: 2 }}>
             <TextField size="small" label="Connection ID" value={source.id} disabled={busy || editing} onChange={e => setSource(s => ({ ...s, id: e.target.value }))} />

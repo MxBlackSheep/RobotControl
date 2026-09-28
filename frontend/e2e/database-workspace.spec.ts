@@ -1,10 +1,44 @@
 import { test, expect } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
-const evidence = '../recovery/database-workspace-verification';
+const evidence = process.env.ROBOTCONTROL_E2E_EVIDENCE || '../recovery/database-workspace-verification';
 async function login(page: any) {
   await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));
   await page.route('**/api/auth/me', (route: any) => route.fulfill({ json: { success: true, data: { user_id: 'viewer-admin', username: 'Fixture', role: 'admin', session_is_local: true } } }));
 }
+
+test('account setup explains a name conflict and retains settings without credentials', async ({ page }) => {
+  mkdirSync(evidence, { recursive: true }); await login(page);
+  await page.route('**/api/database/tools/sources/access/create', route => route.fulfill({ status: 400, json: {
+    detail: "SQL login 'Hamilton' already exists. Choose a new name, such as RobotControl_ReadOnly. Existing logins are not changed.",
+  } }));
+  await page.goto('/database?section=packages');
+  await page.getByRole('button', { name: 'Database connections', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Account setup' }).click();
+  await page.getByRole('option', { name: 'Create read-only account', exact: true }).click();
+  await page.getByLabel('Name', { exact: true }).fill('ShouLab-ReadOnly');
+  await page.getByLabel('Server', { exact: true }).fill('LOCALHOST\\HAMILTON');
+  await page.getByRole('textbox', { name: 'Database', exact: true }).fill('EvoYeast');
+  await page.getByLabel('New account name', { exact: true }).fill('Hamilton');
+  await expect(page.getByText('A new SQL login, e.g. RobotControl_ReadOnly. Do not enter an existing administrator login.')).toBeVisible();
+  await page.getByRole('button', { name: 'Review access', exact: true }).click();
+  await page.getByLabel('SQL administrator', { exact: true }).fill('fixture-admin');
+  await page.getByLabel('Administrator password', { exact: true }).fill('fixture-secret');
+  await page.getByLabel("Use RobotControl's Windows account").check();
+  await expect(page.getByText('This Windows account must be allowed to create SQL logins and grant database access.')).toBeVisible();
+  await page.getByRole('button', { name: 'Create account', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText("SQL login 'Hamilton' already exists");
+  await expect(page.getByLabel('Name', { exact: true })).toHaveValue('ShouLab-ReadOnly');
+  await expect(page.getByLabel('New account name', { exact: true })).toHaveValue('Hamilton');
+  await page.screenshot({ path: `${evidence}/account-conflict-desktop.png` });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: `${evidence}/account-conflict-phone.png` });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+  await page.getByLabel('New account name', { exact: true }).fill('RobotControl_ReadOnly');
+  await page.getByRole('button', { name: 'Review access', exact: true }).click();
+  await expect(page.getByLabel("Use RobotControl's Windows account")).not.toBeChecked();
+  await expect(page.getByLabel('SQL administrator', { exact: true })).toHaveValue('');
+  await expect(page.getByLabel('Administrator password', { exact: true })).toHaveValue('');
+});
 
 test('upload-first example needs no database and access creation has a review', async ({ page }) => {
   mkdirSync(evidence, { recursive: true }); await login(page);

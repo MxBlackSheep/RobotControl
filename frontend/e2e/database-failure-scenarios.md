@@ -93,3 +93,14 @@ Upload: syntax errors, nested imports, unavailable and dynamic imports, wrong ru
 signature, replacement clearing old results. Upload must never execute Python.
 Try the no-database example and resume a real draft; keep secrets out of downloads.
 Check desktop plus one phone width, then the relocated packaged boundary.
+
+## Read-only account setup errors (2026-09-28, before changes)
+
+Reproduce an existing login name and an account without CREATE LOGIN authority
+through HTTP with disposable SQL objects. Distinguish these from sign-in,
+driver/connection and database-access failures without returning raw driver text
+or credentials. A rollback/cleanup failure must not hide the original stage or
+suggest that the new login was removed. Existing principals remain untouched.
+The form must retain non-secret settings after a failed creation, clear authority
+credentials, explain that the new login is separate from the administrator, and
+display the returned reason. No new unit tests; extend focused HTTP/browser checks.

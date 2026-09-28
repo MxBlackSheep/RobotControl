@@ -128,6 +128,12 @@ Administrator credentials are transient and cleared on completion/close. The ser
 owns permission enforcement and review tokens. Package Connections supports report
 mappings plus Operation target; a package needing setup cannot run.
 
+Reader creation distinguishes the new SQL login from the temporary administrator
+identity. The Windows option uses RobotControl's process identity, which needs SQL
+account-creation authority. A failed creation keeps connection fields, clears the
+review and administrator credentials, and displays the backend's actionable cause.
+The `account setup explains` browser case covers that retry flow and phone overflow.
+
 `ReportWizard` starts with Upload Python or Try an example. The inspect endpoint
 returns libraries/adaptation findings without executing Python. IDs/version/manual
 library overrides are under Details. Compatible uploads become the runnable handler;
