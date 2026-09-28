@@ -237,10 +237,11 @@ an editable adapter, manifest and agent instructions. `build` shares archive
 validation with the host, rejects unfinished adapters and produces a versioned ZIP.
 No package code is executed by either command. See the package authoring guide.
 
-Culture history 1.0.1 fixes pandas 3 missing-WellID handling. All selected cultures
-remain present; missing historical/output well labels stay blank. If missing wells
-prevent choosing a subset of cultures on the active plate, it raises an actionable
-error containing the plate and culture IDs. Do not silently filter missing cultures
-or manufacture well IDs. Unexpected report exceptions retain technical Details and
-log the report ID/tool/version. SQL Server validation of real experiment data is
-still necessary; disposable SQLite fixtures do not establish it.
+Culture history 1.0.2 restores Data.py's original well ordering and first-N
+selection. Its adapter explicitly stringifies SQL NULL as `None`, preserving the
+legacy pandas behavior under bundled pandas 3. The 1.0.1 missing-well rejection was
+an unintended behavior change and is removed. Do not special-case culture IDs or
+exclude rows independently of the reference script. The regression compares whole
+workbooks with an extra NULL-well culture 98500000 on plate 985 and with selected
+missing/ancestral wells. SQL Server validation of the actual experiment remains a
+VM check. This correction ships as a ZIP compatible with the existing executable.

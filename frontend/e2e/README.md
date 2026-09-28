@@ -101,7 +101,7 @@ Focused checks from the repository root:
 ```powershell
 .venv/Scripts/python.exe -W ignore::UserWarning -m backend.e2e.database_tools_check
 .venv/Scripts/python.exe -W ignore::UserWarning -m backend.e2e.notification_delivery_check
-.venv/Scripts/python.exe -c "from pathlib import Path; from backend.e2e.database_fixture import package_zip; Path('recovery/database-verification/culture-history.zip').write_bytes(package_zip('database_packages/culture-history', {'version':'1.0.2'}))"
+.venv/Scripts/python.exe -c "from pathlib import Path; from backend.e2e.database_fixture import package_zip; Path('recovery/database-verification/culture-history.zip').write_bytes(package_zip('database_packages/culture-history', {'version':'9.0.0'}))"
 Set-Location frontend
 npx playwright test database-tools.spec.ts --trace on
 Set-Location ..
@@ -126,5 +126,9 @@ For authoring/update/workspace changes only, run `database_tools_check` and sele
 `database-tools.spec.ts --grep "local admin|phone report"`. The HTTP command also
 creates an author project from an existing script, rejects an unfinished adapter,
 builds its ZIP and exercises update review/activation without production data.
-Missing well fixtures cover preserved culture IDs and ambiguous subset rejection.
-The browser update uses fixture version 1.0.2; the deliverable report fix is 1.0.1.
+Missing well fixtures compare selection and workbook output against the original
+script with legacy pandas string inference, including culture 98500000 on plate 985.
+The browser update uses fixture version 9.0.0, independently of release versions.
+For a package-only correction, `packaged_database_smoke` accepts `--report-package`
+to verify the ZIP against an existing executable without recompiling. Both HTTP and
+packaged checks accept `--evidence` to preserve earlier release results.

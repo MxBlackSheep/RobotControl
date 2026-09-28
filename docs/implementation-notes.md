@@ -1,3 +1,9 @@
+## 2026-09-28 Restore Culture history reference behavior (1.0.2)
+
+- Removed the 1.0.1 missing-well rejection, which incorrectly changed Data.py's sorting/first-N culture selection. Explicit SQL NULL-to-string conversion preserves the original legacy pandas behavior under bundled pandas 3; no culture-ID pattern is special-cased.
+- Compared complete workbook values/formatting with the original script for an extra culture 98500000 on plate 985 and selected/ancestral missing wells. HTTP checks and upload/run in the existing relocated executable passed. No frontend/executable rebuild or new unit tests. Package: `dist/package-updates/culture-history-1.0.2.zip`; commands, fixture identity and results: `recovery/culture-history-verification/index.html`. Actual VM data remain unexamined.
+- Replaced the mixed authoring/reference README with one four-step example and exact prompt answers; moved interface/limits to `database_packages/CONTRACT.md`. The product specialist reviewed the revised guide. Installation is unchanged.
+
 ## 2026-09-28 Database authoring, reviewed updates and task workspace
 
 - Added a product-specialist workflow for new/unclear features. Package authors keep ownership of Python; the scaffold preserves the original script, generates an adapter/agent brief and builds a versioned ZIP without executing it. See `database_packages/README.md`.

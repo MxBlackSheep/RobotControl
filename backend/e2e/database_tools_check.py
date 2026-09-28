@@ -1,5 +1,6 @@
 from contextlib import closing
 """HTTP checks for package lifecycle, destructive actions and downloadable reports."""
+import argparse
 import hashlib
 import io
 import json
@@ -14,6 +15,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import openpyxl
+import pandas as pd
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.testclient import TestClient
 from backend.api.database_tools import router
@@ -26,8 +28,7 @@ ROOT = Path(__file__).resolve().parents[2]
 BASE = '/api/database/tools'
 
 
-def run():
-    evidence = ROOT/'recovery/database-verification'
+def run(evidence=ROOT/'recovery/database-verification'):
     evidence.mkdir(parents=True, exist_ok=True)
     checks = []
     with tempfile.TemporaryDirectory(prefix='rc-database-') as temp:
@@ -79,25 +80,25 @@ def run():
                 assert (project/'reference/handler.py').read_bytes() == original.read_bytes()
                 assert helper('build', project).returncode != 0  # Unfinished adapter cannot masquerade as a package.
                 (project/'handler.py').write_bytes(original.read_bytes())
-                built = helper('build', project, '--version', '1.0.2')
+                built = helper('build', project, '--version', '9.0.0')
                 assert built.returncode == 0, built.stderr
-                authored = (Path(temp)/'culture-history-1.0.2.zip').read_bytes()
+                authored = (Path(temp)/'culture-history-9.0.0.zip').read_bytes()
                 reviewed = client.post(BASE+'/packages/inspect', files={'file': ('report.zip', authored)}).json()
-                assert reviewed['current_version'] == '1.0.1' and reviewed['package']['version'] == '1.0.2'
+                assert reviewed['current_version'] == json.loads((ROOT/'database_packages/culture-history/manifest.json').read_text())['version'] and reviewed['package']['version'] == '9.0.0'
                 fields = dict(expected_current=reviewed['current_sha256'], expected_package='culture-history')
                 assert client.post(BASE+'/packages', files={'file': ('report.zip', authored)}, data={**fields,'expected_package':'wrong-package'}).status_code == 409
                 assert client.post(BASE+'/packages', files={'file': ('report.zip', authored)}, data=fields).status_code == 200
                 assert client.post(BASE+'/packages', files={'file': ('report.zip', authored)}, data=fields).status_code == 409
                 # Inspection must not run imports. Activation failure must preserve the working version.
-                poisoned = package_zip(ROOT/'database_packages/culture-history', {'version':'1.0.3'},
+                poisoned = package_zip(ROOT/'database_packages/culture-history', {'version':'9.0.1'},
                     extras={'probe.py': 'raise RuntimeError("inspection executed code")'})
                 assert client.post(BASE+'/packages/inspect', files={'file': ('probe.zip', poisoned)}).status_code == 200
-                broken = package_zip(ROOT/'database_packages/culture-history', {'version':'1.0.3','tools':[
+                broken = package_zip(ROOT/'database_packages/culture-history', {'version':'9.0.1','tools':[
                     {**reviewed['package']['tools'][0], 'entrypoint':'broken:run'}]},
                     extras={'broken.py':'raise RuntimeError("import failure")\ndef run(context, inputs):\n    pass\n'})
                 assert client.post(BASE+'/packages/inspect', files={'file': ('broken.zip', broken)}).status_code == 200
                 assert client.post(BASE+'/packages', files={'file': ('broken.zip', broken)}).status_code == 400
-                assert client.get(BASE+'/catalogue',params={'kind':'report'}).json()[0]['package_version']=='1.0.2'
+                assert client.get(BASE+'/catalogue',params={'kind':'report'}).json()[0]['package_version']=='9.0.0'
                 checks.append('Author CLI → non-executing inspection → reviewed update; stale/wrong/failed updates preserve installed code: passed')
                 folder = ROOT/'database_packages/delete-experiment'
                 def upload(content): return client.post(BASE+'/packages', files={'file': ('package.zip', content, 'application/zip')})
@@ -201,17 +202,39 @@ def run():
                     connection.execute('UPDATE Cultures SET WellID=NULL WHERE CultureID IN (1,3)')
                 missing=report_result()
                 assert missing['status']=='ready',missing
-                missing_sheet=openpyxl.load_workbook(io.BytesIO(client.get(BASE+'/reports/'+missing['id']+'/download').content)).active
+                missing_content=client.get(BASE+'/reports/'+missing['id']+'/download').content
+                (evidence/'culture-history.xlsx').write_bytes(missing_content)
+                compare_upstream(database,evidence,legacy_strings=True)
+                missing_sheet=openpyxl.load_workbook(io.BytesIO(missing_content)).active
                 id_columns=[cell.column for cell in missing_sheet[1] if str(cell.value).endswith(' ID')]
                 assert {missing_sheet.cell(2,column).value for column in id_columns} == {3,4}
                 with closing(sqlite3.connect(database.path)) as connection, connection:
-                    connection.execute('INSERT INTO Cultures VALUES (5,20,NULL)')
-                ambiguous=report_result()
-                assert ambiguous['status']=='error' and 'Plate 20' in ambiguous['error'] and 'missing well positions' in ambiguous['error'],ambiguous
-                with closing(sqlite3.connect(database.path)) as connection, connection:
-                    connection.execute('DELETE FROM Cultures WHERE CultureID=5')
                     connection.execute("UPDATE Cultures SET WellID='A1' WHERE CultureID IN (1,3)")
-                checks.append('Missing well labels retain all selected cultures; ambiguous subset selection gives plate/culture guidance: passed')
+                    connection.execute('UPDATE Cultures SET PlateID=985 WHERE PlateID=20')
+                    connection.execute('UPDATE Descendants SET DescPlateID=985 WHERE DescPlateID=20')
+                    for old,new in [(3,98500001),(4,98500002)]:
+                        connection.execute('UPDATE Cultures SET CultureID=? WHERE CultureID=?',(new,old))
+                        connection.execute('UPDATE CulturesHistory SET CultureID=? WHERE CultureID=?',(new,old))
+                        connection.execute('UPDATE Propagation SET ChldCultureID=? WHERE ChldCultureID=?',(new,old))
+                    connection.execute('INSERT INTO Cultures VALUES (98500000,985,NULL)')
+                extra=report_result()
+                assert extra['status']=='ready',extra
+                extra_content=client.get(BASE+'/reports/'+extra['id']+'/download').content
+                (evidence/'culture-history.xlsx').write_bytes(extra_content)
+                compare_upstream(database,evidence,legacy_strings=True)
+                extra_sheet=openpyxl.load_workbook(io.BytesIO(extra_content)).active
+                assert {extra_sheet.cell(2,column).value for column in id_columns} == {98500001,98500002}
+                (evidence/'plate-985-culture-history.xlsx').write_bytes(extra_content)
+                with closing(sqlite3.connect(database.path)) as connection, connection:
+                    connection.execute('DELETE FROM Cultures WHERE CultureID=98500000')
+                    connection.execute('UPDATE Cultures SET PlateID=20 WHERE PlateID=985')
+                    connection.execute('UPDATE Descendants SET DescPlateID=20 WHERE DescPlateID=985')
+                    for old,new in [(3,98500001),(4,98500002)]:
+                        connection.execute('UPDATE Cultures SET CultureID=? WHERE CultureID=?',(old,new))
+                        connection.execute('UPDATE CulturesHistory SET CultureID=? WHERE CultureID=?',(old,new))
+                        connection.execute('UPDATE Propagation SET ChldCultureID=? WHERE ChldCultureID=?',(old,new))
+                (evidence/'culture-history.xlsx').write_bytes(content)
+                checks.append('Legacy Data.py workbook parity with selected/ancestral NULL wells and extra culture 98500000 on plate 985: passed')
                 # Hold both actual report workers, checking HTTP admission and package removal.
                 release_reports=threading.Event()
                 original_function=service.catalogue.function
@@ -250,14 +273,15 @@ def run():
     print('\n'.join(checks))
 
 
-def compare_upstream(database, evidence):
+def compare_upstream(database, evidence, legacy_strings=False):
     # Execute the unmodified upstream main/calculation functions with only I/O replaced.
     source=(evidence/'upstream.py').read_text(encoding='utf-8-sig')
     namespace={}
     exec('import os\nimport re\nimport sys\nfrom datetime import datetime\nfrom typing import *\nimport pandas as pd\nimport pyodbc\n'+source[source.index('def fetch_df('):source.index('if __name__')], namespace)
     namespace.update(log=lambda *args:None, safe_print=lambda *args:None, connect=lambda:database.get_connection(),
                      OUT_DIR=str(evidence), TS='reference', SCRIPT_NAME='reference')
-    with patch('sys.argv',['Data.py','42']): assert namespace['main']()==0
+    with pd.option_context('future.infer_string', not legacy_strings), patch('sys.argv',['Data.py','42']):
+        assert namespace['main']()==0
     expected=openpyxl.load_workbook(evidence/'Experiment_42_CultureHistory_reference.xlsx').active
     actual=openpyxl.load_workbook(evidence/'culture-history.xlsx').active
     def cells(sheet): return [[(cell.value,cell.number_format,cell.fill.fgColor.rgb,cell.alignment.horizontal) for cell in row] for row in sheet]
@@ -266,4 +290,7 @@ def compare_upstream(database, evidence):
     return 'Workbook values, order, formatting and propagation merges match pinned upstream: passed'
 
 
-if __name__=='__main__': run()
+if __name__=='__main__':
+    parser=argparse.ArgumentParser()
+    parser.add_argument('--evidence',type=Path,default=ROOT/'recovery/database-verification')
+    run(parser.parse_args().evidence.resolve())

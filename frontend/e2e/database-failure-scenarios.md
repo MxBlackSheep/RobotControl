@@ -47,3 +47,16 @@ Before implementation, exercise these boundaries with disposable data:
 - Verify author-created ZIP through the actual upload/report HTTP path, the update
   review in the browser, and the relocated executable. Use disposable SQL rows;
   the actual experiment 333 data and SQL Server remain a separate VM check.
+
+## Culture-history compatibility correction (2026-09-28)
+
+The 1.0.1 missing-well guard above changed upstream selection behavior. Regression:
+plate 985 contains an extra culture 98500000 with SQL NULL WellID alongside the
+requested well-addressed cultures. The packaged report must match the original
+script's legacy string conversion, ordering, first-N selection and workbook, not
+reject the extra record or special-case a CultureID pattern. Also compare a selected
+missing well and missing ancestral labels so restoring selection does not change
+exported values. Use the pinned original script with legacy string inference as the
+reference; keep that compatibility setting scoped to the synchronous verifier.
+Install the new ZIP into the already-built executable and run the fixture report;
+no frontend or executable rebuild is required for this package-only correction.

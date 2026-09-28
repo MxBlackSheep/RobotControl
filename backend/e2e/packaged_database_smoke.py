@@ -22,8 +22,7 @@ import openpyxl
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def run(candidate):
-    evidence = ROOT/'recovery/database-verification'
+def run(candidate, report_package=None, evidence=ROOT/'recovery/database-verification'):
     evidence.mkdir(parents=True, exist_ok=True)
     result = dict(candidate=str(candidate), checks=[], passed=False)
     def request(path, body=None, token=None, method=None, upload=None):
@@ -75,6 +74,8 @@ def run(context, inputs):
     book.save(context.output_dir/'fixture.xlsx')
     return 'fixture.xlsx'
 '''
+            if report_package:
+                fixture += '\nwith closing(sqlite3.connect(service.database.path)) as connection, connection:\n    connection.execute("INSERT INTO Cultures VALUES (2000000,20,NULL)")\n'
             manifest={'contract_version':1,'id':'verification-fixture','name':'Disposable verification fixture','version':'1.0.0','libraries':['openpyxl'],
                 'tools':[{'id':'verification-fixture','name':'Fixture','kind':'report','entrypoint':'handler:run','inputs':[]}]}
             output=io.BytesIO()
@@ -82,6 +83,11 @@ def run(context, inputs):
                 archive.writestr('manifest.json',json.dumps(manifest)); archive.writestr('handler.py',fixture)
             request('/api/database/tools/packages',token=token,upload=output.getvalue())
             result['checks'].append('Trusted fixture package uploaded and activated without restart/recompile')
+            if report_package:
+                inspected=request('/api/database/tools/packages/inspect',token=token,upload=report_package.read_bytes())
+                request('/api/database/tools/packages',token=token,upload=report_package.read_bytes())
+                result['checks'].append('Report ZIP replaces bundled version without rebuilding the executable: '+inspected['package']['version'])
+                result['package_sha256']=hashlib.sha256(report_package.read_bytes()).hexdigest()
             job=request('/api/database/tools/reports/culture-history',{'inputs':{'experiment_id':42}},token)
             deadline=time.monotonic()+60
             while job['status'] in {'pending','running'}:
@@ -111,4 +117,7 @@ def run(context, inputs):
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser(); parser.add_argument('candidate',type=Path)
-    run(parser.parse_args().candidate.resolve())
+    parser.add_argument('--report-package',type=Path)
+    parser.add_argument('--evidence',type=Path,default=ROOT/'recovery/database-verification')
+    args=parser.parse_args()
+    run(args.candidate.resolve(),args.report_package,args.evidence.resolve())

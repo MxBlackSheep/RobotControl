@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test';
 import path from 'node:path';
+import { readFileSync } from 'node:fs';
+const installedVersion = JSON.parse(readFileSync(path.resolve('../database_packages/culture-history/manifest.json'), 'utf8')).version;
 
 async function login(page: any) {
   await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));
@@ -10,13 +12,13 @@ async function login(page: any) {
 test('local admin installs a report package, previews deletion and downloads Excel', async ({ page }) => {
   await login(page);
   await page.goto('/database?section=packages');
-  await expect(page.getByText('Culture history · 1.0.1')).toBeVisible();
+  await expect(page.getByText(`Culture history · ${installedVersion}`)).toBeVisible();
   await page.getByRole('button', { name: 'Update Culture history', exact: true }).click();
   await page.locator('input[type=file]').setInputFiles(path.resolve('../recovery/database-verification/culture-history.zip'));
-  await expect(page.getByRole('dialog')).toContainText('1.0.1 → 1.0.2');
+  await expect(page.getByRole('dialog')).toContainText(`${installedVersion} → 9.0.0`);
   await page.screenshot({ path: '../recovery/database-verification/package-update.png', animations: 'disabled' });
   await page.getByRole('button', { name: 'Update package', exact: true }).click();
-  await expect(page.getByText('Culture history · 1.0.2')).toBeVisible();
+  await expect(page.getByText('Culture history · 9.0.0')).toBeVisible();
   await page.goto('/database?section=operations');
   await page.getByRole('textbox', { name: 'Search experiments', exact: true }).fill('43');
   await page.getByRole('button', { name: /43 · Delete fixture/ }).click();

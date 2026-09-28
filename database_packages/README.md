@@ -1,143 +1,108 @@
-# Database package contract, version 1
+# Make a report from your Python script
 
-Packages are reviewed Python code running with RobotControl's permissions, not a
-sandbox. Only local administrators can install them. They cannot install libraries.
-Supported libraries are the bundled versions of pandas, openpyxl, pyodbc and numpy,
-plus the Python standard library modules included in the application. Verify every
-new import against a packaged candidate; adding dependencies requires an app update.
+A package is a ZIP containing your Python code and the settings RobotControl needs
+to display its input form. **You edit the Python; the helper builds the ZIP.**
 
-## Make a package
+Already have a ZIP? Use **Database → Manage packages → Add package**, or **Update**
+beside the installed package. You do not need the steps below just to install it.
 
-Start with your existing Python script. There are two jobs: **adapt the Python**
-to use RobotControl's services, then **build the package**. The helper handles the
-manifest and ZIP; it does not convert arbitrary Python automatically.
+## 1. Create a working folder
 
-On your development PC, from the RobotControl repository:
+On your development PC, open PowerShell in the RobotControl repository:
 
 ```powershell
+cd C:/Users/Hamilton/Desktop/RobotControl
 uv run --locked python build_scripts/database_package.py create ../MyDatabasePackages/my-report --script C:/Scripts/Data.py
 ```
 
-Answer the prompts for name, stable ID (e.g. `my-culture-report`), report/operation,
-version, libraries and form inputs. For an experiment selector enter
-`experiment_id:experiment:Experiment`. Enter a blank line after the final input.
-The supported types are experiment, text, integer, number, boolean and choice;
-for choices use `state:choice:State:Clean,Dirty`. Inputs created by the helper are
-required. Optional inputs can set `required: false` in the generated manifest.
+Replace `C:/Scripts/Data.py` with your script's path; put quotes around it if it
+contains spaces. The new `my-report` folder must not already exist.
 
-The new folder contains:
+For a report that asks the user to select an experiment, answer:
 
-| File | Your next step |
+| Prompt | Enter |
 | --- | --- |
-| `reference/Data.py` | Unchanged original; keep it for comparison. It is not included in the ZIP. |
-| `handler.py` | Move/adapt the original logic here. The comments show the required interface. |
-| `manifest.json` | Generated name, version, libraries and form fields. |
-| `AGENTS.md` | Adaptation instructions for you or a coding agent. |
+| Name shown in RobotControl | `My culture report` |
+| Stable package ID | `my-report` |
+| Type | `report` |
+| Version | `1.0.0` |
+| Libraries | `pandas,openpyxl,pyodbc` |
+| Input | `experiment_id:experiment:Experiment` |
+| Next Input | Press Enter without typing anything |
 
-For example, replace `sys.argv[1]` with `inputs["experiment_id"]`, your SQL
-connection creation with `context.connection`, and a fixed export path with
-`context.output_dir / "report.xlsx"`. Return `"report.xlsx"`. Keep calculation,
-plate/parent selection and workbook formatting rules unchanged unless intentionally
-redesigning the report. Do not call the original standalone `main()`.
+The input line means: give Python a value named `experiment_id`, let the user
+select an experiment, and label that control **Experiment**.
 
-If using a coding agent, give it this instruction:
+The helper creates `C:/Users/Hamilton/Desktop/MyDatabasePackages/my-report`:
 
-> Read this package's AGENTS.md and original script in reference/. Adapt handler.py
-> to RobotControl's interface. Preserve the report rules and formatting. Explain
-> any ambiguity before changing it. Do not run against production data. Record the
-> relevant failure cases and verify the result using disposable data.
+- **handler.py:** the Python file you will edit.
+- **manifest.json:** settings generated from your answers.
+- **reference/Data.py:** an untouched copy of your original script.
+- **AGENTS.md:** adaptation instructions for you or a coding agent.
 
-When the adapter is complete, remove its `ADAPT_BEFORE_BUILD` marker and build:
+**This creates a starting folder. It does not convert your original script.**
+
+## 2. Finish handler.py
+
+Keep your calculations, record-selection rules and workbook formatting. Change
+how the script receives its input, connection and output location:
+
+| Standalone script | Inside `run(context, inputs)` in handler.py |
+| --- | --- |
+| Reads an experiment from command-line arguments | Read `inputs["experiment_id"]` |
+| Opens its own database connection | Use `context.connection` |
+| Writes to a fixed Excel path | Save to `context.output_dir / "report.xlsx"` |
+| Ends after saving | Return `"report.xlsx"` |
+
+Move the relevant functions from the original into `handler.py`; do not simply call
+its standalone `main()`. RobotControl calls `run(context, inputs)` for you.
+
+You can do this yourself, or give a coding agent this request:
+
+> Open C:/Users/Hamilton/Desktop/MyDatabasePackages/my-report. Read AGENTS.md and
+> the original script in reference/. Complete handler.py for RobotControl. Preserve
+> the calculations, record selection and Excel formatting. Use the supplied database
+> connection and experiment input. Explain uncertainty before changing report
+> behavior. Check the result with disposable data.
+
+When the adapter is complete, remove its `ADAPT_BEFORE_BUILD` comment. Removing the
+comment alone does not finish the code.
+
+## 3. Build the ZIP
+
+From the same RobotControl repository:
 
 ```powershell
 uv run --locked python build_scripts/database_package.py build ../MyDatabasePackages/my-report
-# After editing an existing package, increase its version:
+```
+
+This produces `C:/Users/Hamilton/Desktop/MyDatabasePackages/my-report-1.0.0.zip`.
+It checks package structure and Python syntax; it does not prove calculations are
+correct. If it reports an unfinished adapter, go back to step 2.
+
+## 4. Install and check the report
+
+1. Open **Database → Manage packages → Add package**.
+2. Choose `my-report-1.0.0.zip`, review the name/version, then install.
+3. Open **Database → Data retrieval** and choose **My culture report**.
+4. Select an experiment from disposable data, generate Excel and check its contents.
+
+Keep the `my-report` source folder. You will edit it for future updates.
+
+## Update your report later
+
+Edit the existing `handler.py`; **do not run create again**. Then build a new version:
+
+```powershell
 uv run --locked python build_scripts/database_package.py build ../MyDatabasePackages/my-report --version 1.0.1
 ```
 
-The helper prints the versioned ZIP path. It checks archive contents, entry-point
-definitions, Python syntax and declared bundled libraries without importing the
-package. These checks do not verify calculations, query safety or every import.
-Upload through **Database → Manage packages → Add package**, review it, then
-install. Test the report/operation with disposable data before production use.
+Click **Update** beside My culture report and choose `my-report-1.0.1.zip`.
+Keep its package ID unchanged so RobotControl recognizes the update.
 
-For an update, keep the package and tool IDs unchanged. Click **Update** beside
-the installed package, choose the new ZIP and review the old/new versions. If an
-installation changed since review, review it again. Updating RobotControl itself
-does **not** replace installed packages; deliver their updated ZIPs separately.
-Deployment PCs need neither Python nor UV. The commands above are authoring tools
-for the development PC, where the project's Python environment is available.
+Python and UV are needed on the development PC for these commands, not on the
+robot's deployment PC. Updating the RobotControl executable does not replace an
+already installed report; update the report's ZIP separately.
 
-For advanced authors, either starter package can also be copied directly. A ZIP
-contains `manifest.json`, Python modules and optional `.md`/`.txt` documentation at
-its root (no enclosing folder, binaries, symlinks or nested directories). Use one
-self-contained Python module per entry point; sibling-module imports are not part
-of this first contract. Upload through **Database → Manage packages**.
-
-Use the same `build` command for a starter package. No manual ZIP assembly is needed.
-
-The manifest declares `contract_version: 1`, a unique lowercase hyphenated package
-`id`, display `name`, three-part `version`, `libraries`, and a `tools` array. Each
-tool has a globally unique `id`, `name`, `kind` (`operation` or `report`),
-`entrypoint` (`module:function`) and `inputs`. Input definitions use `name`, `label`,
-`type`, `required` and optionally `choices`. Types: `text`, `integer`, `number`,
-`boolean`, `choice`, `experiment`. Unknown inputs and invalid types are rejected.
-
-Both kinds implement `run(context, inputs)`. The context supplies a database
-`connection`; reports also receive `output_dir`. Use parameterized queries. Close
-cursors. Never keep a connection or per-request state in module globals.
-
-- **Operation:** also declare `preview` (`module:function`) and
-  `confirmation_field` naming a required input. Preview returns
-  `{"summary": "What will change", "details": {...}}`; it must be deterministic
-  for unchanged data. Run returns a dictionary including a short `message`.
-  The host compares the preview immediately before execution and owns commit and
-  rollback. Package code must not commit, change transaction settings or perform
-  external side effects. All operations require a local admin and an idle robot.
-- **Report:** use SELECT queries only. Return the filename of a completed `.xlsx`
-  directly inside `output_dir`. Never write fixed paths. Reports may run concurrently;
-  do not change globals. A Python package can technically bypass these conventions:
-  code review is the trust boundary.
-
-Installation imports modules to check entry points. Keep imports free of side
-effects; there are no installation hooks or automatic SQL migrations. Any required
-stored procedures must already exist. Updates replace a matching package ID;
-conflicting tool IDs in other packages are rejected. Installation/removal is blocked
-while that package runs. Old confirmations are invalid after a package update.
-
-Limits: 20 MiB ZIP, 50 MiB expanded, 100 files; multipart requests require a known
-Content-Length. Two concurrent reports, no waiting queue; 100 MiB maximum completed
-workbook; finished report files expire after 15 minutes, renewed on download.
-Report SQL statements time out after 120 seconds; trusted Python computation has no
-forced termination. Operation SQL statements time out after 30 seconds. Operation
-confirmations expire after 10 minutes. Preview and report ownership use the user ID.
-
-Installed versions and their atomic index live under `data/database-tools/packages`.
-The index is also the removal record: do not delete it to reset one package. Starter
-packages are seeded only on first installation, so user removals survive restarts.
-Operation receipts survive restart under `data/database-tools/operations.sqlite3`;
-an interrupted execution is unknown and must be checked before repeating. There is
-no automatic retry of database changes. Temporary reports are removed on restart.
-
-## Verify and maintain
-
-Use the focused commands in `frontend/e2e/README.md`. The culture-history package
-records its exact upstream revision in `UPSTREAM.txt`. Its calculation functions
-retain upstream behavior, including latest-plate/first-parent choices. The adapter
-uses RobotControl's connection and output directory, reads rows through pyodbc
-directly, and avoids selecting the same OD column twice under different casing.
-Version 1.0.1 handles missing well labels on pandas 3 without converting them into
-fake well names. When every culture on the chosen plate is included, missing wells
-remain blank and sort after known wells. If selecting only a subset would require
-ordering cultures with missing well positions, it stops with the affected plate
-and culture IDs instead of guessing which cultures to export.
-
-The application exposes `/api/database/tools/catalogue`, `/experiments`, `/packages`,
-`/operations/{id}/preview`, `/operations/execute`, `/reports/{id}` (POST), and
-`/reports/{job_id}` / `/download` (GET). All require authentication. Installation,
-removal, preview and execution additionally require a local administrator. The
-former `/api/database/query` and `/execute-procedure` routes return HTTP 410.
-
-Do not describe fixture checks as SQL Server validation: the disposable adapter
-translates the procedure and metadata queries. Verify the actual ODBC driver,
-schema, `dbo.DeleteExperiment` transaction behavior and report output on the VM.
+For operations that change data, other input types, libraries and limits, see the
+[technical reference](CONTRACT.md).
