@@ -1,3 +1,9 @@
+## 2026-09-28 Tool replacement, publication completion and history
+
+- Replace Python now replaces the defining script even when renamed, preserving helpers. Supporting uploads reject a second tool definition. Input guidance points to `TOOL['inputs']`; installed rows use Excel report/Database operation labels and one Edit action. Global ZIP import remains the alternate update path.
+- Publishing returns to the installed list with a versioned success message and retires its draft. Atomic publication receipts prevent duplicate updates after lost responses. Optional notes persist in unfinished drafts; History records version, timestamp, publisher, note and file changes for Python and ZIP publications, without claiming source rollback or reconstructing old history.
+- Focused real SQL/HTTP and desktop/phone checks cover replacement, failed updates, restart persistence, completed-draft removal and lost-response retry. Repeat commands, screenshots and candidate evidence: `recovery/tool-publishing-verification/index.html`. No new unit tests; unrelated working edits preserved.
+
 ## 2026-09-28 Existing database tools as single Python files
 
 - Converted Culture history and Delete Experiment to `culture_history.py` and `delete_experiment.py`, with literal `TOOL` definitions and searchable experiment inputs. Function bodies are unchanged; bundled manifests now target those sources. Existing installations update through Edit → Replace all files → Try → Publish update, without rebuilding RobotControl.

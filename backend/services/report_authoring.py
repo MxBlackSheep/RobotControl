@@ -74,6 +74,7 @@ class ReportDraft(BaseModel):
     definition_file: str | None = None
     files: dict[str, str] = Field(default_factory=dict, max_length=99)
     operation_source: str | None = None
+    change_note: str = Field(default='', max_length=2000)
 
     def manifest(self):
         return Manifest.model_validate(dict(contract_version=2, id=self.package_id, name=self.name,
@@ -155,12 +156,15 @@ class ReportAuthoring:
         with self.lock:
             return [dict(id=d['id'], name=d['draft']['name'], revision=d['revision'], code_defined=bool(d['draft'].get('definition_file')))
                     for path in self.root.glob('*.json')
-                    if (d := json.loads(path.read_text('utf-8')))['owner'] == owner]
+                    if (d := json.loads(path.read_text('utf-8')))['owner'] == owner
+                    and not self.service.catalogue.published_draft(d['id'], owner)]
 
     def save(self, draft, owner, key=None, revision=0):
         with self.lock:
             draft = draft.model_copy(deep=True).derive()
             if key:
+                if self.service.catalogue.published_draft(key, owner):
+                    raise PackageError('This draft was published. Edit the installed tool to make another change.', 409)
                 current = self.get(key, owner)
                 if current['revision'] != revision:
                     raise PackageError('This draft changed in another tab. Reopen it before saving.', 409)
@@ -178,6 +182,10 @@ class ReportAuthoring:
                     except SyntaxError as exc:
                         raise PackageError(f'{name}: Python syntax error on line {exc.lineno}: {exc.msg}') from exc
             record = dict(id=key, owner=owner, revision=revision+1, draft=draft.model_dump())
+            if revision and current.get('verification') and (
+                    {k:v for k,v in current['draft'].items() if k != 'change_note'} ==
+                    {k:v for k,v in record['draft'].items() if k != 'change_note'}):
+                record['verification'] = {**current['verification'], 'revision':revision+1}
             if revision and current.get('base'):
                 record['base'] = current['base']
             path = self._path(key)
@@ -186,11 +194,34 @@ class ReportAuthoring:
             temporary.replace(path)
             return self.get(key, owner)
 
-    def import_files(self, files, owner, key=None, revision=0):
+    def import_files(self, files, owner, key=None, revision=0, mode='all'):
         from backend.services.tool_definition import definition
         with self.lock, self.service.catalogue.lock:
             current = self.get(key, owner) if key else None
             entry_file = current['draft'].get('definition_file') if current else None
+            if mode != 'all':
+                if not current or not entry_file:
+                    raise PackageError('Add the tool Python first.')
+                existing = dict(current['draft']['files'])
+                if mode == 'python':
+                    if len(files) != 1 or not next(iter(files)).endswith('.py'):
+                        raise PackageError('Choose one defining Python file. Use Replace all files for a complete source set.')
+                    existing.pop(entry_file, None)
+                    entry_file = next(iter(files))
+                else:
+                    for name, source in files.items():
+                        if name == entry_file:
+                            raise PackageError('Use Replace Python to change the tool definition.')
+                        if name.endswith('.py'):
+                            try:
+                                tree = ast.parse(source)
+                            except SyntaxError as exc:
+                                raise PackageError(f'{name}, line {exc.lineno}: {exc.msg}') from None
+                            for node in tree.body:
+                                targets = node.targets if isinstance(node, ast.Assign) else [node.target] if isinstance(node, ast.AnnAssign) else []
+                                if any(isinstance(t, ast.Name) and t.id == 'TOOL' for t in targets):
+                                    raise PackageError('Supporting files cannot define another TOOL. Use Replace Python for the tool itself.')
+                files = {**existing, **files}
             filename, manifest = definition(files, entry_file if entry_file in files else None)
             if current:
                 draft = ReportDraft.model_validate(current['draft'])

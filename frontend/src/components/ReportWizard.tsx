@@ -5,7 +5,7 @@ import ReportInputs, { changedInputs, ReportField, requestMessage, saveBlob } fr
 import ReportConnections, { Source, SourceMappings } from './ReportConnections';
 const base = '/api/database/tools';
 type Draft = { name: string; package_id: string; version: string; libraries: string[]; original: string; handler: string;
-  sources: string[]; mappings: Record<string, string>; inputs: ReportField[]; step: number };
+  sources: string[]; mappings: Record<string, string>; inputs: ReportField[]; step: number; change_note?: string };
 type Saved = { id: string; revision: number; draft: Draft; base?: {sha256:string} };
 type Inspection = { available: string[]; unavailable: string[]; undetermined: string[]; compatible: boolean; adaptation: string[] };
 const example = `from openpyxl import Workbook
@@ -52,7 +52,7 @@ function LookupEditor({ field, fields, aliases, change }: { field: ReportField; 
   </Stack>;
 }
 
-export default function ReportWizard({ draftId, onClose }: { draftId?: string; onClose: () => void }) {
+export default function ReportWizard({ draftId, onClose }: { draftId?: string; onClose: (message?:string) => void }) {
   const [saved, setSaved] = useState<Saved>(), [draft, setDraft] = useState<Draft>(empty);
   const [inspection, setInspection] = useState<Inspection>();
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState('');
@@ -192,6 +192,7 @@ export default function ReportWizard({ draftId, onClose }: { draftId?: string; o
         })}>Try report</Button>
       </Stack>}
       {draft.step === 3 && <Stack spacing={2}>
+        <TextField label="What changed? (optional)" multiline maxRows={4} inputProps={{maxLength:2000}} value={draft.change_note || ''} onChange={e=>setDraft({...draft,change_note:e.target.value})} />
         <Typography variant="h6">{draft.name} · {draft.version}</Typography>
         <Typography variant="body2">Install here, or export a package for another RobotControl installation.</Typography>
         <Button variant="outlined" sx={{ alignSelf: 'flex-start' }} onClick={() => action(async () => { const s = await persist(); await download(`${base}/drafts/${s.id}/package`, `${draft.package_id}-${draft.version}.zip`); })}>Export package</Button>
@@ -199,8 +200,8 @@ export default function ReportWizard({ draftId, onClose }: { draftId?: string; o
         {review && <><Typography>{review.current_version ? `${review.current_version} → ${draft.version}` : 'New package'}</Typography>
           {review.current_version && <Alert severity="warning">This replaces the installed package. Check the version and Excel output first.</Alert>}
           <Button variant="contained" sx={{ alignSelf: 'flex-start' }} onClick={() => action(async () => {
-            await api.post(`${base}/drafts/${saved!.id}/install`, { expected_current: review.current_sha256, revision: saved!.revision });
-            setNotice('Report installed. It is available in Data retrieval.'); setReview(undefined);
+            await api.post(`${base}/drafts/${saved!.id}/install`, { expected_current: review.current_sha256, revision: saved!.revision, change_note:draft.change_note || '' });
+            onClose(`${draft.name} ${draft.version} installed. Available in Data retrieval.`);
           })}>{saved?.base ? 'Publish update' : 'Install report'}</Button></>}
       </Stack>}
     </Box></Paper>

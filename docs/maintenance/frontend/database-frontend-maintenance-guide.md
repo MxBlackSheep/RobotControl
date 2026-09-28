@@ -189,3 +189,17 @@ Focused browser checks: `database-workspace.spec.ts` and `report-wizard.spec.ts`
 The former checks account review, a no-database Excel example and viewer switching;
 the latter retains resume/dependent-input/install coverage. SQL permissions and
 transaction behavior are verified separately through HTTP with disposable SQL data.
+
+## Tool publication and history
+
+`ToolAuthoring.tsx` uses Replace Python for the defining script, including renamed
+files. Helpers are preserved; helper upload and complete replacement live under
+Supporting files. Input forms remain derived from `TOOL['inputs']`.
+
+Successful publication closes the editor and shows a versioned success message on
+Manage packages. The backend retires the completed draft. A lost response retains
+the publication request for safe retry. Optional change notes persist with drafts
+and appear in History. `DatabasePackages.tsx` shows Excel report/Database operation
+instead of zero-count labels; per-row Edit is the Python workflow, while the global
+Import package ZIP action also accepts updates. History is metadata and file-change
+names, not source rollback. Existing installations without records say so.

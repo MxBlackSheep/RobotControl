@@ -95,7 +95,12 @@ def run():
                         return job
                     def enable(s,status=200,reviewed=True):
                         review=call('GET',f"/drafts/{s['id']}/review")
-                        return call('POST',f"/drafts/{s['id']}/install",dict(revision=s['revision'],expected_current=review['current_sha256'],reviewed=reviewed),status)
+                        payload=dict(revision=s['revision'],expected_current=review['current_sha256'],reviewed=reviewed)
+                        result=call('POST',f"/drafts/{s['id']}/install",payload,status)
+                        if status==200:
+                            assert call('POST',f"/drafts/{s['id']}/install",payload)==result
+                            assert not any(d['id']==s['id'] for d in call('GET','/drafts'))
+                        return result
                     enable(saved,409)
                     forged=finish(trial(saved,{'experiment':2,'plate':11}));assert forged['status']=='error',forged
                     enable(saved,409)
@@ -116,16 +121,48 @@ def run():
                     result['checks'].append('Prepared multi-file report → dependent form → real SQL → Excel → enable/export; ownership, local admin, forged choices, trial and source revision gates')
                     edit=call('POST','/authoring/report/plate-export/edit',{})
                     assert edit['draft']['version']=='1.0.1' and edit['draft']['files']['helper.py']==files['helper.py']
+                    parallel=call('POST','/authoring/report/plate-export/edit',{})
+                    renamed=call('POST','/authoring/import',dict(files={'renamed.py':REPORT},key=edit['id'],revision=edit['revision'],mode='python'))
+                    assert set(renamed['draft']['files'])=={'renamed.py','helper.py'}
+                    call('POST','/authoring/import',dict(files={'extra.py':REPORT},key=edit['id'],revision=renamed['revision'],mode='supporting'),400)
+                    edit=renamed
                     # Replace the complete source set: rename the entry file and remove a helper.
                     replacement={'export.py':REPORT.replace('from .helper import heading', "heading='Updated'")}
                     edit=call('POST','/authoring/import',dict(files=replacement,key=edit['id'],revision=edit['revision']))
                     enable(edit,409)
                     assert finish(trial(edit,{'experiment':2,'plate':21}))['status']=='ready'
+                    edit=save(edit,change_note='Use Updated heading; remove obsolete helper.')
                     enable(edit)
                     with zipfile.ZipFile(io.BytesIO(call('GET','/packages/plate-export/export'))) as z:
                         assert set(z.namelist())=={'manifest.json','export.py'}
-                    call('GET',f'/drafts/{key}/review',status=409)
-                    call('GET',f"/drafts/{edit['id']}/review",status=409)
+                    call('GET',f'/drafts/{key}/review',status=404)
+                    call('GET',f"/drafts/{edit['id']}/review",status=404)
+                    assert any(d['id']==parallel['id'] for d in call('GET','/drafts'))
+                    history=call('GET','/packages/plate-export/history')
+                    assert len(history)==2 and history[0]['actor']=='admin'
+                    assert history[0]['note']=='Use Updated heading; remove obsolete helper.'
+                    assert history[0]['files']['removed']==['helper.py','report.py']
+                    assert history[0]['files']['added']==['export.py']
+                    client.headers['authorization']='user';call('GET','/packages/plate-export/history',status=403)
+                    client.headers['authorization']='admin'
+                    call('DELETE',f"/drafts/{parallel['id']}")
+                    # ZIP imports remain the alternate route, with the same history.
+                    exported=call('GET','/packages/plate-export/export')
+                    buffer=io.BytesIO()
+                    with zipfile.ZipFile(io.BytesIO(exported)) as source, zipfile.ZipFile(buffer,'w') as target:
+                        for name in source.namelist():
+                            value=source.read(name)
+                            if name=='manifest.json':
+                                manifest=json.loads(value);manifest['version']='1.0.2';value=json.dumps(manifest).encode()
+                            target.writestr(name,value)
+                    current=service.catalogue.index['plate-export']['sha256']
+                    response=client.post(BASE+'/packages',files={'file':('report.zip',buffer.getvalue())},data={'expected_current':current,'change_note':'Imported reviewed ZIP.'})
+                    assert response.status_code==200,response.text
+                    history=call('GET','/packages/plate-export/history')
+                    assert len(history)==3 and history[0]['note']=='Imported reviewed ZIP.'
+                    assert history[0]['files']['changed']==['manifest.json']
+                    response=client.post(BASE+'/packages',files={'file':('report.zip',buffer.getvalue())},data={'expected_current':current})
+                    assert response.status_code==409 and call('GET','/packages/plate-export/history')==history
                     result['checks'].append('Edit retains source files and identity; complete replacement renames entry file/removes helper; version, readiness and stale-base checks passed')
                     op=call('POST','/authoring/import',dict(files={'operation.py':(ROOT/'database_packages/examples/operation.py').read_text('utf-8')}))
                     op=save(op,operation_source='writer')
@@ -150,9 +187,14 @@ def run():
                     service.sources.bind('plate-export',['primary'],{'primary':'reader'})
                     service.authoring.recover_activation()
                     assert not service.authoring.activation.exists()
-                    call('DELETE',f"/drafts/{op['id']}")
+                    call('DELETE',f"/drafts/{op['id']}",status=404)
                     assert any(t['id']=='delete-demo-item' for t in call('GET','/catalogue?kind=operation'))
                     result['checks'].append('Activation journal recovery and discard preserve installed tools')
+                    service.close()
+                    service=DatabaseTools(Path(temp)/'tools', ROOT/'database_packages', database=object(), guard=nullcontext)
+                    assert call('GET','/packages/plate-export/history')==history
+                    assert not call('GET','/drafts')
+                    result['checks'].append('Renamed Python replacement preserves helpers; supporting TOOL rejected; publication retires only its draft; notes, file changes and duplicate-publish receipts survive restart')
                     result['workbook_sha256']=hashlib.sha256(content).hexdigest()
                     result['passed']=True
             finally:

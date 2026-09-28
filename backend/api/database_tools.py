@@ -251,11 +251,12 @@ class ToolUpload(BaseModel):
     files: dict[str, str] = Field(max_length=99)
     key: str | None = None
     revision: int = Field(default=0, ge=0)
+    mode: Literal['all', 'python', 'supporting'] = 'all'
 
 
 @router.post('/authoring/import')
 def import_tool(payload: ToolUpload, user=Depends(local_admin), service=Depends(get_database_tools)):
-    return service.authoring.import_files(payload.files, owner(user), payload.key, payload.revision)
+    return service.authoring.import_files(payload.files, owner(user), payload.key, payload.revision, payload.mode)
 
 
 @router.get('/authoring/examples/{kind}')
@@ -399,11 +400,18 @@ class DraftInstall(BaseModel):
     expected_current: str = Field(max_length=64)
     revision: int = Field(ge=1)
     reviewed: bool = False
+    change_note: str | None = Field(default=None, max_length=2000)
 
 
 @router.post('/drafts/{key}/install')
 def install_draft(key: str, payload: DraftInstall, user=Depends(local_admin), service=Depends(get_database_tools)):
     with service.authoring.lock, service.lock, service.catalogue.lock, service.sources.lock:
+        published = service.catalogue.published_draft(key, owner(user))
+        if published:
+            entry, receipt = published
+            if receipt['draft']['revision'] != payload.revision or entry['sha256'] != receipt['sha256']:
+                raise PackageError('This draft was already published; the installed version has since changed.', 409)
+            return entry['manifest']
         if service.authoring.get(key, owner(user))['revision'] != payload.revision:
             raise HTTPException(409, 'Draft changed. Review it again.')
         draft = service.authoring.draft(key, owner(user))
@@ -436,12 +444,21 @@ def install_draft(key: str, payload: DraftInstall, user=Depends(local_admin), se
             service.sources.bind(draft.package_id, aliases, mappings)
             if operation_source:
                 service.sources.bind_operation(draft.package_id, operation_source)
-            result = service.catalogue.install(content, expected_current=payload.expected_current)
+            result = service.catalogue.install(content, expected_current=payload.expected_current, actor=owner(user),
+                note=payload.change_note if payload.change_note is not None else draft.change_note,
+                draft=dict(id=key, revision=payload.revision))
         except Exception:
             service.sources._save(old_sources)
             service.authoring.finish_activation()
             raise
         service.authoring.finish_activation()
+        try:
+            service.authoring.remove(key, owner(user))
+        except Exception:
+            # The history receipt already hides this completed draft and prevents
+            # publishing twice, even if cleanup cannot finish or the response is lost.
+            import logging
+            logging.getLogger(__name__).exception('Published draft cleanup failed: %s', key)
     log_action(actor=owner(user), action='install_report_draft', scope='database', client_ip=None, success=True,
                details={'package': result['id'], 'version': result['version']})
     return result
@@ -472,6 +489,11 @@ def export_package(package_id: str, user=Depends(local_admin), service=Depends(g
     return Response(content, media_type='application/zip', headers={'Content-Disposition': f'attachment; filename="{filename}"'})
 
 
+@router.get('/packages/{package_id}/history')
+def package_history(package_id: str, user=Depends(local_admin), service=Depends(get_database_tools)):
+    return service.catalogue.history(package_id)
+
+
 @router.get('/drafts/{key}/editing-files')
 def editing_files(key: str, user=Depends(local_admin), service=Depends(get_database_tools)):
     return Response(service.authoring.editing_files(key, owner(user)), media_type='application/zip',
@@ -481,11 +503,12 @@ def editing_files(key: str, user=Depends(local_admin), service=Depends(get_datab
 @router.post('/packages')
 def install(file: UploadFile = File(...), user=Depends(local_admin),
             expected_current: str | None = Form(None), expected_package: str | None = Form(None),
+            change_note: str = Form('', max_length=2000),
             connection: ConnectionContext=Depends(require_local_access), service=Depends(get_database_tools)):
     try:
         result = service.catalogue.install(file.file.read(MAX_UPLOAD+1),
             expected_current='' if expected_current == 'absent' else expected_current,
-            expected_package=expected_package)
+            expected_package=expected_package, actor=owner(user), note=change_note)
         log_action(actor=owner(user), action='install_database_package', scope='database', client_ip=connection.client_ip,
                    success=True, details=dict(package=result['id'], version=result['version']))
         return result

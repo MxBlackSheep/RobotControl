@@ -128,6 +128,15 @@ display the returned reason. No new unit tests; extend focused HTTP/browser chec
 
 ## Python-defined reports and operations (before implementation)
 
+Publishing/source follow-up: replace a renamed defining Python without retaining
+the old definition or losing helpers; reject another TOOL among supporting files.
+Publishing must retire only its draft, survive a lost response/repeated submission,
+and leave failed updates editable. Persist history atomically with activation;
+record publisher, version, optional note and actual file changes, including ZIP
+updates. Do not fabricate old history or imply source rollback. Check completed
+drafts stay absent after refresh/restart, notes remain in unfinished drafts, and
+the list has one Edit action with readable report/operation labels.
+
 Bundled-tool conversion: each of Culture history and Delete Experiment must import
 as one Python file and update its existing identity. Changing the filename must
 not alter calculation functions, workbook values/formatting, deletion parameters,

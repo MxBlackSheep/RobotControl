@@ -11,7 +11,7 @@ The two existing EvoYeast tools are also ready as single Python files:
 - [culture_history.py](culture-history/culture_history.py): the existing Culture history calculations and Excel formatting.
 - [delete_experiment.py](delete-experiment/delete_experiment.py): preview and execution through `dbo.DeleteExperiment`.
 
-For an installed tool, choose **Edit report/operation → Replace all files**, select
+For an installed tool, choose **Edit report/operation → Replace Python**, select
 its `.py` file, check the connections, try, then **Publish update**. For a new
 installation, use **Add tool** instead. No manifest or supporting file upload is
 needed. Both use this lab's EvoYeast schema; they are not generic database tools.
@@ -112,12 +112,26 @@ transactions and duplicate-submission protection.
 ## Edit or move a tool
 
 Choose **Edit report** or **Edit operation**, then **Download source**. Edit the
-Python and choose **Replace or add files**, try again, and **Publish update**.
-Use **Replace all files** when deleting/renaming files: select the complete new
-source set. The server rejects an incomplete set without replacing the draft.
+Python and choose **Replace Python**, try again, and **Publish update**. This replaces
+the defining file even if its name changed, while keeping helpers. Under
+**Supporting files**, use **Add supporting files** for helpers/data or **Replace all
+files** to supply the complete new source set. The server rejects an incomplete
+set without replacing the draft.
 RobotControl retains identity, suggests a patch version and preserves sibling
 tools by default. A changed installation or connection assignment blocks an old
 draft. Custom entry functions outside `run`/`preview` still use the ZIP route.
+
+The form's fields come from `TOOL['inputs']` in the defining Python; there is no
+separate input settings file. `kind: 'report'` places it in Data retrieval;
+`kind: 'operation'` places it in Operations.
+
+**What changed?** is an optional publication note, saved with unfinished drafts.
+Publishing returns to the installed list with a success message and removes the
+completed draft. **History** shows version, time, publisher, note and filenames
+added/changed/removed. History starts when recording is available; earlier changes
+are not reconstructed. It is installation history, not retained source revisions
+or rollback. Removing a package removes its local history. Use the single **Edit**
+action for Python changes; **Import package ZIP** also handles ready-built updates.
 
 Use **Export package** in the editor or **Download package** on an installed row
 to move the complete tool. **Import package ZIP** retains the existing reviewed

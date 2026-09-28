@@ -416,7 +416,7 @@ in `database_packages/culture-history/culture_history.py` and
 `database_packages/delete-experiment/delete_experiment.py`. Their calculation and
 operation functions are unchanged. Bundled manifests use these entry points at
 versions 1.0.3 and 1.0.1 respectively; existing installed packages are never
-automatically replaced. Use Edit → Replace all files → Try → Publish update.
+automatically replaced. Use Edit → Replace Python → Try → Publish update.
 Both selectors use a read-only `primary` connection; Delete Experiment also
 requires the operation connection to that same EvoYeast database.
 
@@ -424,3 +424,23 @@ Repeat `.venv/Scripts/python.exe -m backend.e2e.bundled_tools_check` for the foc
 HTTP update/import checks and before/after workbook comparison. Evidence lives in
 `recovery/bundled-tools-verification`. This package-only change works with the
 Python-tools candidate without rebuilding RobotControl.
+
+## Publication receipts and history
+
+`POST /authoring/import` accepts `mode: python` (one defining file, replace even
+when renamed), `supporting` (merge helpers, reject another TOOL), or `all` (complete
+source set; backwards-compatible default). Derived fields still come from Python.
+
+Package activation writes history in the same atomic `installed.json` update:
+version, previous version, UTC timestamp, publisher, optional note, checksum and
+added/changed/removed filenames. GET `/packages/{id}/history` is local-admin only.
+Old installations can have no history; there is no fabricated timestamp or source
+rollback. ZIP imports record the same metadata. Removal discards the package's history.
+
+Draft publications include an owner/revision receipt in that index. Completed
+drafts are removed after activation; if cleanup fails, the receipt hides them and
+prevents reuse. Repeating the same publication returns the installed result without
+another history event. If the package has changed since, it returns 409. The browser
+retains the exact request after a lost response so Retry does not require the now
+removed draft. Note-only draft edits retain the successful trial; code/connection
+edits still invalidate it. Old wizard drafts also finish by returning to the list.

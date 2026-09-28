@@ -14,7 +14,7 @@ import threading
 import uuid
 import zipfile
 from types import ModuleType
-from datetime import date
+from datetime import date, datetime, timezone
 from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 from typing import Literal
@@ -240,6 +240,21 @@ class PackageCatalogue:
         return [dict(tool, package_id=package["id"], package_version=package["version"])
                 for package in self.packages() for tool in package["tools"] if tool["kind"] == kind]
 
+    def history(self, package_id):
+        with self.lock:
+            entry = self.index.get(package_id)
+            if not entry:
+                raise PackageError('Package is not installed', 404)
+            return [{k:v for k,v in item.items() if k != 'draft'} for item in reversed(entry.get('history', []))]
+
+    def published_draft(self, key, owner):
+        # Publication and its receipt share the atomic installed-index write.
+        for entry in self.index.values():
+            for item in entry.get('history', []):
+                if item.get('draft', {}).get('id') == key and item.get('actor') == owner:
+                    return entry, item
+        return None
+
     def export(self, package_id):
         with self.lock:
             entry = self.index.get(package_id)
@@ -321,7 +336,7 @@ class PackageCatalogue:
         if existing_ids & {tool.id for tool in manifest.tools}:
             raise PackageError("An installed package already provides this tool identifier", 409)
 
-    def install(self, content, expected_current=None, expected_package=None):
+    def install(self, content, expected_current=None, expected_package=None, *, actor=None, note='', draft=None):
         manifest, payloads = inspect_archive(content)
         directory = self.root / uuid.uuid4().hex
         activated = False
@@ -345,6 +360,18 @@ class PackageCatalogue:
                 # Import only when explicitly running/previewing a tool; report
                 # imports belong in the report process, never the robot service.
                 old = self.index.get(manifest.id)
+                previous = {name: (self.root / old['directory'] / name).read_bytes()
+                            for name in payloads if old and (self.root / old['directory'] / name).is_file()}
+                old_names = {p.name for p in (self.root / old['directory']).iterdir()
+                             if p.is_file() and p.suffix in {'.py','.json','.txt','.md'}} if old else set()
+                names = set(payloads)
+                event = dict(version=manifest.version, previous_version=old['manifest']['version'] if old else None,
+                             at=datetime.now(timezone.utc).isoformat(), actor=actor, note=note.strip(), sha256=entry['sha256'],
+                             files=dict(added=sorted(names-old_names), removed=sorted(old_names-names),
+                                        changed=sorted(n for n in names & old_names if previous.get(n) != payloads[n])))
+                if draft:
+                    event['draft'] = draft
+                entry['history'] = [*(old.get('history', []) if old else []), event]
                 updated = {**self.index, manifest.id: entry}
                 self._save(updated)
                 self.index = updated

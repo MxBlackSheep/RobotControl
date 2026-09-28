@@ -7,10 +7,10 @@ import ReportConnections, { Source, SourceMappings } from './ReportConnections';
 const base = '/api/database/tools';
 type Draft = { name: string; kind: 'report' | 'operation'; package_id: string; version: string;
   definition_file: string; files: Record<string, string>; inputs: ReportField[]; sources: string[];
-  mappings: Record<string, string>; operation_source?: string; libraries: string[] };
+  mappings: Record<string, string>; operation_source?: string; libraries: string[]; change_note?: string };
 type Saved = { id: string; revision: number; draft: Draft; base?: { sha256: string } };
 
-export default function ToolAuthoring({ draftId, onClose }: { draftId?: string; onClose: () => void }) {
+export default function ToolAuthoring({ draftId, onClose }: { draftId?: string; onClose: (message?: string) => void }) {
   const [saved, setSaved] = useState<Saved>(), [draft, setDraft] = useState<Draft>();
   const [sources, setSources] = useState<Source[]>([]), [connections, setConnections] = useState(false);
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState('');
@@ -18,7 +18,8 @@ export default function ToolAuthoring({ draftId, onClose }: { draftId?: string; 
   const [values, setValues] = useState<Record<string, any>>({}), [job, setJob] = useState<any>(), [preview, setPreview] = useState<any>();
   const [discard, setDiscard] = useState(false), [enabled, setEnabled] = useState(false);
   const alive = useRef(true), upload = useRef<HTMLInputElement>(null);
-  const replaceAll = useRef(false);
+  const uploadMode = useRef<'all'|'python'|'supporting'>('all');
+  const publication = useRef<{revision:number;expected_current:string;reviewed:boolean;change_note:string}>();
   const running = job && ['pending', 'running'].includes(job.status);
   const locked = busy || !!running || enabled;
   useEffect(() => {
@@ -48,7 +49,7 @@ export default function ToolAuthoring({ draftId, onClose }: { draftId?: string; 
     try { await action(); } catch(e) { if (alive.current) setError(requestMessage(e)); }
     finally { if (alive.current) setBusy(false); }
   };
-  const invalidate = () => { setChecked(false); setReviewed(false); setJob(undefined); setPreview(undefined); setNotice(''); };
+  const invalidate = () => { publication.current=undefined;setChecked(false); setReviewed(false); setJob(undefined); setPreview(undefined); setNotice(''); };
   const change = (patch: Partial<Draft>) => { if (draft) setDraft({ ...draft, ...patch }); invalidate(); setValues({}); };
   const persist = async () => {
     if (!saved || !draft) throw new Error('Add Python first.');
@@ -62,9 +63,9 @@ export default function ToolAuthoring({ draftId, onClose }: { draftId?: string; 
     void work(async () => {
       if (incoming.reduce((n,f) => n+f.size,0) > 3*1024*1024) throw { response:{data:{detail:'Source files must total at most 3 MiB.'}} };
       const baseline = saved ? await persist() : undefined;
-      const files = replaceAll.current ? {} : { ...draft?.files };
+      const files: Record<string,string> = {};
       for (const f of incoming) files[f.name] = await f.text();
-      const r = await api.post(`${base}/authoring/import`, { files, key:baseline?.id, revision:baseline?.revision || 0 });
+      const r = await api.post(`${base}/authoring/import`, { files, key:baseline?.id, revision:baseline?.revision || 0, mode:uploadMode.current });
       setSaved(r.data); setDraft(r.data.draft); invalidate(); setValues({}); setNotice('Python added. It has not been run.');
     });
   };
@@ -78,7 +79,7 @@ export default function ToolAuthoring({ draftId, onClose }: { draftId?: string; 
     <Stack direction="row" gap={1} justifyContent="space-between" alignItems="center" flexWrap="wrap">
       <Typography variant="h6" component="h2">{saved?.base ? 'Edit tool' : 'Add tool'}</Typography>
       <Stack direction="row" gap={1} flexWrap="wrap">
-        {enabled ? <Button onClick={onClose}>Close</Button> : <>
+        {enabled ? <Button onClick={()=>onClose()}>Close</Button> : <>
           <Button disabled={busy || !!running} onClick={() => saved ? setDiscard(true) : onClose()}>Discard and close</Button>
           {saved && <Button disabled={busy || !!running} onClick={() => work(async () => { await persist(); onClose(); })}>Save and close</Button>}
         </>}
@@ -89,8 +90,7 @@ export default function ToolAuthoring({ draftId, onClose }: { draftId?: string; 
       <Paper variant="outlined" sx={{p:2, minWidth:0}}><Stack spacing={2}>
         <Typography variant="h6">1. Python</Typography>
         <Stack direction="row" gap={1} flexWrap="wrap">
-          <Button variant={draft ? 'outlined':'contained'} disabled={locked} onClick={() => {replaceAll.current=false;upload.current?.click();}}>{draft ? 'Replace or add files':'Add Python'}</Button>
-          {draft && <Button disabled={locked} onClick={() => {replaceAll.current=true;upload.current?.click();}}>Replace all files</Button>}
+          <Button variant={draft ? 'outlined':'contained'} disabled={locked} onClick={() => {uploadMode.current=draft?'python':'all';upload.current?.click();}}>{draft ? 'Replace Python':'Add Python'}</Button>
           {saved && <Button disabled={busy} onClick={() => work(() => download(`${base}/drafts/${saved.id}/source`,'source.zip'))}>Download source</Button>}
         </Stack>
         <input ref={upload} hidden type="file" multiple accept=".py,.json,.md,.txt" aria-label="Tool Python files" onChange={e => { addFiles(e.target.files); e.target.value=''; }} />
@@ -105,6 +105,10 @@ export default function ToolAuthoring({ draftId, onClose }: { draftId?: string; 
           <Typography variant="subtitle1">{draft.name}</Typography>
           <Typography variant="body2">{draft.kind === 'report' ? 'Report · Excel output' : 'Operation · changes database records'}</Typography>
           <Typography variant="body2" sx={{overflowWrap:'anywhere'}}>{Object.keys(draft.files).join(', ')}</Typography>
+          <Box component="details"><Typography component="summary">Supporting files</Typography><Stack direction="row" gap={1} flexWrap="wrap">
+            <Button disabled={locked} onClick={()=>{uploadMode.current='supporting';upload.current?.click();}}>Add supporting files</Button>
+            <Button disabled={locked} onClick={()=>{uploadMode.current='all';upload.current?.click();}}>Replace all files</Button>
+          </Stack></Box>
           <Box component="details"><Typography component="summary">Definition and libraries</Typography>
             <Typography variant="body2">Inputs: {draft.inputs.map(f=>f.label).join(', ') || 'None'}</Typography>
             <Typography variant="body2">Libraries: {draft.libraries.join(', ') || 'Python standard library'}</Typography>
@@ -125,6 +129,7 @@ export default function ToolAuthoring({ draftId, onClose }: { draftId?: string; 
       <Paper variant="outlined" sx={{p:2,minWidth:0}}><Stack spacing={2}>
         <Typography variant="h6">3. Try and enable</Typography>
         {!draft ? <Typography color="text.secondary">The tool’s form will appear here.</Typography> : <>
+          <Typography variant="body2" color="text.secondary">Edit TOOL['inputs'] in your Python to change this form.</Typography>
           {!checked && <Typography variant="body2" color="text.secondary">Check setup to try this form.</Typography>}
           <ReportInputs key={`${saved?.id}-${saved?.revision}`} fields={draft.inputs} values={values} disabled={locked || !checked}
             choiceBase={`${base}/drafts/${saved?.id}/choices`} onChange={(name,value)=>{setValues(changedInputs(draft.inputs,values,name,value));setJob(undefined);setPreview(undefined);setReviewed(false);}} />
@@ -142,11 +147,21 @@ export default function ToolAuthoring({ draftId, onClose }: { draftId?: string; 
             <Typography variant="caption">Preview only. Execution has not been requested.</Typography>
           </Paper>}
           {success && !enabled && <FormControlLabel control={<Checkbox checked={reviewed} disabled={locked} onChange={(_,v)=>setReviewed(v)} />} label={draft.kind==='report' ? 'I reviewed the Python and checked the output':'I reviewed the Python and expected effects'} />}
+          <TextField label="What changed? (optional)" size="small" multiline maxRows={4} value={draft.change_note || ''} disabled={locked}
+            inputProps={{maxLength:2000}} onChange={e=>setDraft({...draft,change_note:e.target.value})} />
           <Stack direction="row" gap={1} flexWrap="wrap">
             <Button variant="contained" disabled={locked || !success || !reviewed} onClick={()=>work(async()=>{
-              const r=await api.get(`${base}/drafts/${saved!.id}/review`);
-              await api.post(`${base}/drafts/${saved!.id}/install`,{revision:saved!.revision,expected_current:r.data.current_sha256,reviewed:true});
-              setEnabled(true);setNotice(`${draft.name} is available in ${draft.kind==='report'?'Data retrieval':'Operations'}.`);
+              if(!publication.current || publication.current.revision!==saved!.revision){
+                const r=await api.get(`${base}/drafts/${saved!.id}/review`);
+                publication.current={revision:saved!.revision,expected_current:r.data.current_sha256,reviewed:true,change_note:draft.change_note || ''};
+              }
+              try { await api.post(`${base}/drafts/${saved!.id}/install`,publication.current); }
+              catch(e:any){
+                if(!e.response) throw {response:{data:{detail:'Publication could not be confirmed. Press Enable or Publish again; it will not create a second update.'}}};
+                if(e.response.status<500)publication.current=undefined;
+                throw e;
+              }
+              setEnabled(true);onClose(`${draft.name} ${saved?.base?'updated to':'enabled at'} ${draft.version}. Available in ${draft.kind==='report'?'Data retrieval':'Operations'}.`);
             })}>{saved?.base?'Publish update':`Enable ${draft.kind}`}</Button>
             {saved && <Button disabled={busy || !!running} onClick={()=>work(async()=>{const s=await persist();await download(`${base}/drafts/${s.id}/package`,`${draft.package_id}.zip`);})}>Export package</Button>}
           </Stack>

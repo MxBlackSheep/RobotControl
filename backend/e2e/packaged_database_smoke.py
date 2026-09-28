@@ -116,9 +116,10 @@ def run(context, inputs):
             assert list(openpyxl.load_workbook(io.BytesIO(content)).active.values)==[('Packaged','Same name',11)]
             (evidence/'packaged-python-tool.xlsx').write_bytes(content)
             reviewed=request(prefix+'/review',token=token)
-            request(prefix+'/install',{'revision':saved['revision'],'expected_current':reviewed['current_sha256'],'reviewed':True},token)
+            request(prefix+'/install',{'revision':saved['revision'],'expected_current':reviewed['current_sha256'],'reviewed':True,'change_note':'Packaged authoring check.'},token)
             finished(request('/api/database/tools/reports/plate-export',{'inputs':{'experiment':2,'plate':21}},token))
-            request(prefix,token=token,method='DELETE')
+            assert not any(d['id']==saved['id'] for d in request('/api/database/tools/drafts',token=token))
+            assert request('/api/database/tools/packages/plate-export/history',token=token)[0]['note']=='Packaged authoring check.'
             request('/api/database/tools/packages/plate-export',token=token,method='DELETE')
             result['checks'].append('Prepared Python: bundled examples, relative helper import, dependent form, real SQL Excel trial, enable and installed generation passed')
             result['python_tool_workbook_sha256']=hashlib.sha256(content).hexdigest()
