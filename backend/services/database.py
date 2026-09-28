@@ -344,14 +344,14 @@ class DatabaseService:
         limit: int,
     ) -> Tuple[List[str], List[Dict[str, Any]]]:
         """Execute ROW_NUMBER pagination for servers without OFFSET support."""
-        safe_table = table_name.replace("]", "]]")
+        safe_table = self._quote_table(table_name)
         start_row = max(1, offset + 1)
         page_size = max(1, limit)
         end_row = start_row + page_size - 1
 
         base_query = (
             f"SELECT {select_columns}, ROW_NUMBER() OVER (ORDER BY {order_expression}) AS row_num "
-            f"FROM [{safe_table}] {where_sql}"
+            f"FROM {safe_table} {where_sql}"
         )
         paged_query = (
             f"SELECT {select_columns} FROM ({base_query}) AS paged "
@@ -363,6 +363,9 @@ class DatabaseService:
         columns = [column[0] for column in cursor.description]
         rows = [self._format_row(columns, row) for row in cursor.fetchall()]
         return columns, rows
+
+    def _quote_table(self, name):
+        return '[' + name.replace(']', ']]') + ']'
 
     def get_table_data(
         self,
@@ -467,7 +470,7 @@ class DatabaseService:
             if supports_offset:
                 try:
                     query = (
-                        f"SELECT {select_columns} FROM {quote(table_name)} {where_sql} {order_clause} "
+                        f"SELECT {select_columns} FROM {self._quote_table(table_name)} {where_sql} {order_clause} "
                         f"OFFSET ? ROWS FETCH NEXT ? ROWS ONLY"
                     )
                     page_cursor.execute(query, (*params, offset, page_size))
@@ -510,10 +513,10 @@ class DatabaseService:
             cursor = page_cursor
 
             if where_clauses:
-                count_query = f"SELECT COUNT(*) FROM {quote(table_name)} {where_sql}"
+                count_query = f"SELECT COUNT(*) FROM {self._quote_table(table_name)} {where_sql}"
                 cursor.execute(count_query, tuple(params))
             else:
-                cursor.execute(f"SELECT COUNT(*) FROM {quote(table_name)}")
+                cursor.execute(f"SELECT COUNT(*) FROM {self._quote_table(table_name)}")
             total_count = int(cursor.fetchone()[0])
             cursor.close()
 
@@ -615,7 +618,7 @@ class DatabaseService:
             "last_error": self._last_error,
         }
 
-    def get_stored_procedures(self, use_cache: bool = True) -> Dict[str, List[Dict[str, Any]]]:
+    def get_stored_procedures(self, use_cache: bool = True, qualified: bool = False) -> Dict[str, List[Dict[str, Any]]]:
         procedures: List[Dict[str, Any]] = []
         functions: List[Dict[str, Any]] = []
         try:
@@ -631,7 +634,7 @@ class DatabaseService:
                         sm.definition
                     FROM INFORMATION_SCHEMA.ROUTINES r
                     LEFT JOIN sys.sql_modules sm
-                        ON sm.object_id = OBJECT_ID(r.ROUTINE_SCHEMA + '.' + r.ROUTINE_NAME)
+                        ON sm.object_id = OBJECT_ID(QUOTENAME(r.ROUTINE_SCHEMA) + '.' + QUOTENAME(r.ROUTINE_NAME))
                     ORDER BY ROUTINE_TYPE, ROUTINE_NAME
                 """)
                 routines = cursor.fetchall()
@@ -661,7 +664,7 @@ class DatabaseService:
 
                 for schema, name, routine_type, created, last_altered, definition in routines:
                     entry = {
-                        "name": name,
+                        "name": ('[' + schema.replace(']', ']]') + '].[' + name.replace(']', ']]') + ']') if qualified else name,
                         "type": routine_type,
                         "created_date": created.isoformat() if hasattr(created, 'isoformat') else None,
                         "modified_date": last_altered.isoformat() if hasattr(last_altered, 'isoformat') else None,
@@ -673,6 +676,8 @@ class DatabaseService:
                     else:
                         functions.append(entry)
         except Exception as exc:
+            if qualified:
+                raise
             logger.warning("Failed to load stored procedures: %s", exc)
         return {"procedures": procedures, "functions": functions}
 

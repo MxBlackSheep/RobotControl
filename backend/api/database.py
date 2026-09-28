@@ -18,6 +18,7 @@ from datetime import datetime
 # Import our simplified database service
 from backend.services.auth import get_current_user
 from backend.services.database import get_database_service, DatabaseService
+from backend.services.database_tools import get_database_tools
 from backend.api.dependencies import ConnectionContext, require_local_access
 from backend.utils.audit import log_action
 
@@ -32,6 +33,16 @@ router = APIRouter(prefix="/api/database", tags=["database"])
 async def get_db_service() -> DatabaseService:
     """FastAPI dependency function to get the database service"""
     return get_database_service()
+
+
+def get_viewer_service(source_id: str = Query(..., max_length=64),
+                       user=Depends(get_current_user), service=Depends(get_database_tools)):
+    from backend.services.workspace_database import WorkspaceDatabase
+    from backend.services.database_packages import PackageError
+    try:
+        return WorkspaceDatabase(service.sources, service.sources.get(source_id))
+    except PackageError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
 
 
 @router.get("/status")
@@ -129,7 +140,7 @@ async def get_database_status(
 async def get_tables(
     use_cache: bool = Query(True, description="Use cached results if available"),
     important_only: bool = Query(False, description="Show only important tables"),
-    db_service: DatabaseService = Depends(get_db_service)
+    db_service: DatabaseService = Depends(get_viewer_service)
 ):
     """
     Get list of available database tables, optionally filtered to important tables only
@@ -209,7 +220,7 @@ async def get_table_data(
     sort_direction: str = Query("asc", pattern="^(asc|desc)$"),
     filters: Optional[str] = Query(None, description="JSON string of column filters"),
     use_cache: bool = Query(True, description="Use cached results if available"),
-    db_service: DatabaseService = Depends(get_db_service)
+    db_service: DatabaseService = Depends(get_viewer_service)
 ):
     """
     Get paginated data from a specific database table
@@ -333,7 +344,7 @@ async def get_monitoring_data(
 @router.get("/stored-procedures")
 async def get_stored_procedures(
     use_cache: bool = Query(True, description="Use cached results if available"),
-    db_service: DatabaseService = Depends(get_db_service)
+    db_service: DatabaseService = Depends(get_viewer_service)
 ):
     """
     Get all stored procedures and functions from the database
@@ -540,7 +551,7 @@ async def health_check(
 async def get_table_count(
     table_name: str,
     filters: Optional[str] = Query(None, description="JSON string of column filters"),
-    db_service: DatabaseService = Depends(get_db_service)
+    db_service: DatabaseService = Depends(get_viewer_service)
 ):
     """
     Get row count for a specific table with optional filters
@@ -599,7 +610,7 @@ async def get_table_count(
 @router.get("/tables/{table_name}/columns")
 async def get_table_columns(
     table_name: str,
-    db_service: DatabaseService = Depends(get_db_service)
+    db_service: DatabaseService = Depends(get_viewer_service)
 ):
     """
     Get column information for a specific table

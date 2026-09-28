@@ -71,16 +71,19 @@ const displayValue = (value: any) =>
         : String(value);
 export default function DatabaseTable(props: {
   tableName: string;
+  sourceId?: string;
   onError?: (message: string) => void;
   active?: boolean;
 }) {
-  return <TableView key={props.tableName} {...props} />;
+  return <TableView key={`${props.sourceId}/${props.tableName}`} {...props} />;
 }
 function TableView({
   tableName,
+  sourceId,
   active = true,
 }: {
   tableName: string;
+  sourceId?: string;
   active?: boolean;
 }) {
   const [query, setQuery] = useState<Query>(initialQuery),
@@ -153,7 +156,7 @@ function TableView({
         tableName,
         query.page + 1,
         query.limit,
-        queryParams(query),
+        { ...queryParams(query), source_id: sourceId },
         abort.signal,
       )
       .then((response) => {
@@ -184,7 +187,7 @@ function TableView({
       current = false;
       abort.abort();
     };
-  }, [tableName, query, refresh, active]);
+  }, [tableName, query, refresh, active, sourceId]);
   const apply = () =>
     setQuery((q) => ({
       ...q,
@@ -209,7 +212,7 @@ function TableView({
                   tableName,
                   page,
                   limit,
-                   queryParams(displayedQuery),
+                   { ...queryParams(displayedQuery), source_id: sourceId },
                   abort.signal,
                 );
                 return response.data.data;

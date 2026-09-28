@@ -141,3 +141,11 @@ former `/api/database/query` and `/execute-procedure` routes return HTTP 410.
 Do not describe fixture checks as SQL Server validation: the disposable adapter
 translates the procedure and metadata queries. Verify the actual ODBC driver,
 schema, `dbo.DeleteExperiment` transaction behavior and report output on the VM.
+
+
+Contract 2 reports can declare `sources: []` for a report that needs no database.
+Then `context.connections` is empty and `context.connection` is None. Contract 1
+still requires its explicit `primary` read-only mapping. Operation packages are
+assigned a writable target locally through Manage packages; connection settings
+and credentials do not belong in the package. Updating those settings invalidates
+pending operation confirmations.

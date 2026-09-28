@@ -132,9 +132,14 @@ def configure_fixture_report_sources(service):
     @contextmanager
     def open_source(source):
         with service.database.get_connection() as conn:
-            conn.raw.execute('PRAGMA query_only=ON')
+            if source.get('access') != 'operation':
+                conn.raw.execute('PRAGMA query_only=ON')
             yield conn
     service.sources.open = open_source
     service.sources.snapshot = lambda package_id, aliases, mapping=None: {alias: {'id': 'fixture'} for alias in aliases}
     service.sources.state['sources'] = {name: dict(id=name, name=name.title(), server='fixture', database='disposable',
         username='fixture', driver='fixture', trust_certificate=False) for name in ('primary', 'plates')}
+
+    target = dict(id='operation', name='Disposable fixture', server='fixture', database='disposable', access='operation', revision='1')
+    service.sources.operation_target = lambda package_id: dict(target)
+    service.operation_experiments = lambda tool_id, search, page: vars(service.database.get_table_data('Experiments', limit=25, offset=(page-1)*25, search=search))

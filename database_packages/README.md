@@ -5,19 +5,44 @@ Python; RobotControl handles the form settings and ZIP.**
 
 ## Recommended: create it in RobotControl
 
-1. As a local administrator, open **Database → Manage packages → Report connections**.
-   Configure a dedicated SQL Server account with SELECT-only access. Ask your SQL
-   administrator to provide it; do not use the application's normal write account.
-2. Choose **Create report**. Name it and upload your existing Python as a reference.
-3. In **Data and inputs**, name the sources your Python will use and choose local
-   connections. Add text, numbers, dates, checkboxes or dropdowns. Database choices
-   can come from different sources and depend on earlier inputs.
-4. In **Try report**, download the starter `handler.py`, adapt it yourself or with a
-   coding agent, then upload the completed file. Your settings stay in the saved
-   draft. **Download saved handler** retrieves your edited version; **Download
-   starter** always creates a new starting template.
-5. Try representative inputs and inspect the Excel download. Choose **Install** to
-   use it here, or **Export package** to move it to another installation.
+1. Open **Database → Manage packages → Create report → Upload Python**.
+   RobotControl detects ordinary imports, including imports inside functions. It
+   lists bundled libraries and anything that needs manual attention without running
+   the file. **Try an example** demonstrates the same flow without SQL setup.
+2. In **Data and inputs**, choose connections and add the fields users need. Use
+   **Configure connections** if this is your first report. Package IDs, versions and
+   manual library overrides are under **Details**; source aliases are under
+   **Source names in Python**.
+3. If the script already supplies `run(context, inputs)`, it can proceed directly.
+   Otherwise download the starter, keep your calculations and adapt the connection,
+   input and output handling. Upload the completed `handler.py`. Your draft retains
+   its form settings while you edit outside RobotControl, with or without a coding agent.
+4. **Try report**, check the Excel output, then **Install** here or **Export package**
+   for another installation. A successful trial does not establish calculation accuracy.
+
+### Set up a connection once
+
+Open **Database connections**, enter a name, server and database, then choose:
+
+- **Create read-only account:** name a new SQL login, choose **Review access**, check
+  the database and grants, and supply SQL administrator credentials for **Create account**.
+  Alternatively, use the Windows identity running RobotControl if it has the required
+  SQL authority. Setup credentials are used once and are not saved. The generated
+  reader password is encrypted locally. This grants CONNECT, SELECT and VIEW DEFINITION
+  on the named database, including future tables; existing SQL accounts are never changed.
+- **Use existing account:** enter the credentials your lab provides. Choose
+  **Read-only: viewers and reports** or **Operations: database changes**. The latter
+  must not be used for reports. **Check and save** verifies the supplied access.
+
+If you do not have SQL authority, download the reviewed SQL for your administrator.
+They replace the password placeholder and run it, then give you the reader credentials
+for **Use existing account**. The Microsoft ODBC driver must be installed on the host;
+Python and UV are not needed on the deployment computer.
+
+For an operation, choose its **Connections → Operation target** after installing it.
+Existing operations also need this explicit assignment after this upgrade. Table and
+procedure viewers have their own **Database connection** selector. Report packages
+retain their source mappings. None of these choices redirects robot functions or Restore.
 
 The wizard does not translate arbitrary Python calculations. Your handler implements
 `run(context, inputs)`, uses `context.connections['source-name']`, writes Excel under

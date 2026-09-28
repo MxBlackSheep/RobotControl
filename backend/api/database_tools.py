@@ -4,13 +4,14 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from fastapi.responses import FileResponse, Response
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
-from backend.api.dependencies import require_local_access, ConnectionContext
+from backend.api.dependencies import require_local_access, ConnectionContext, get_connection_context
 from backend.services.auth import get_current_user
 from backend.services.database_tools import get_database_tools
 from backend.services.database_packages import MAX_UPLOAD, PackageError
 from backend.utils.audit import log_action
-from backend.services.report_authoring import ReportDraft
+from backend.services.report_authoring import ReportDraft, inspect_python
 from backend.services.report_sources import ReportSource, lookup_rows
+from backend.services.database_access import ProvisionAuthority
 
 
 class ToolRoute(APIRoute):
@@ -92,10 +93,31 @@ def sources(user=Depends(local_admin), service=Depends(get_database_tools)):
     return service.sources.list()
 
 
+@router.get('/viewer-sources')
+def viewer_sources(service=Depends(get_database_tools)):
+    return [{k: s.get(k) for k in ('id', 'name', 'server', 'database', 'revision')} for s in service.sources.list() if s.get('access', 'read') == 'read']
+
+
 @router.post('/sources')
 def save_source(payload: ReportSource, user=Depends(local_admin), service=Depends(get_database_tools)):
     result = service.sources.save(payload)
     log_action(actor=owner(user), action='save_report_source', scope='database', client_ip=None, success=True, details={'id': payload.id})
+    return result
+
+
+@router.post('/sources/access/review')
+def review_access(payload: ReportSource, user=Depends(local_admin), service=Depends(get_database_tools)):
+    return service.access.review(payload, owner(user))
+
+
+@router.post('/sources/access/create')
+def create_access(payload: ProvisionAuthority, user=Depends(local_admin), service=Depends(get_database_tools)):
+    try:
+        result = service.access.create(payload, owner(user))
+    except PackageError:
+        log_action(actor=owner(user), action='create_database_reader', scope='database', client_ip=None, success=False, details={'review': payload.token})
+        raise
+    log_action(actor=owner(user), action='create_database_reader', scope='database', client_ip=None, success=True, details={'review': payload.token})
     return result
 
 
@@ -108,6 +130,7 @@ def delete_source(source_id: str, user=Depends(local_admin), service=Depends(get
 class Mappings(BaseModel):
     model_config = ConfigDict(extra='forbid')
     mappings: dict[str, str] = Field(max_length=8)
+    operation_source: str | None = Field(default=None, max_length=64)
 
 
 @router.get('/packages/{package_id}/sources')
@@ -116,7 +139,9 @@ def package_sources(package_id: str, user=Depends(local_admin), service=Depends(
         entry = service.catalogue.index.get(package_id)
         if not entry:
             raise HTTPException(404, 'Package not found')
-        return dict(aliases=service.sources.aliases(entry['manifest']), mappings=service.sources.bindings(package_id))
+        return dict(aliases=service.sources.aliases(entry['manifest']), mappings=service.sources.bindings(package_id),
+                    has_operation=any(t['kind']=='operation' for t in entry['manifest']['tools']),
+                    operation_source=service.sources.state['operation_bindings'].get(package_id))
 
 
 @router.put('/packages/{package_id}/sources')
@@ -127,14 +152,30 @@ def bind_sources(package_id: str, payload: Mappings, user=Depends(local_admin), 
             raise HTTPException(404, 'Package not found')
         if service.catalogue.running.get(package_id):
             raise HTTPException(409, 'Package is running. Wait until it finishes.')
-        service.sources.bind(package_id, service.sources.aliases(entry['manifest']), payload.mappings)
-    return {'message': 'Report connections assigned.'}
+        with service.sources.lock:
+            if payload.operation_source:
+                if not any(t['kind']=='operation' for t in entry['manifest']['tools']):
+                    raise HTTPException(400, 'Package has no operation')
+                service.sources.get(payload.operation_source, 'operation')
+            service.sources.bind(package_id, service.sources.aliases(entry['manifest']), payload.mappings)
+            service.sources.bind_operation(package_id, payload.operation_source)
+    return {'message': 'Connections assigned.'}
 
 
 class DraftSave(BaseModel):
     model_config = ConfigDict(extra='forbid')
     draft: ReportDraft
     revision: int = Field(default=0, ge=0)
+
+
+class PythonUpload(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    source: str = Field(max_length=1024*1024)
+
+
+@router.post('/authoring/inspect-python')
+def inspect_script(payload: PythonUpload, user=Depends(local_admin)):
+    return inspect_python(payload.source)
 
 
 @router.get('/drafts')
@@ -189,7 +230,7 @@ def draft_choices(key: str, field_name: str, payload: ChoiceRequest, user=Depend
     field = next((x for x in tool.inputs if x.name == field_name and x.lookup), None)
     if not field:
         raise HTTPException(404, 'Choice not found')
-    snapshot = service.sources.snapshot(draft.package_id, tool.sources or ['primary'], draft.mappings)
+    snapshot = service.sources.snapshot(draft.package_id, tool.sources, draft.mappings)
     with service.sources.open(snapshot[field.lookup.source]) as conn:
         return lookup_rows(conn, field, values, payload.search, payload.page)
 
@@ -214,7 +255,7 @@ def install_draft(key: str, payload: DraftInstall, user=Depends(local_admin), se
         if service.authoring.get(key, owner(user))['revision'] != payload.revision:
             raise HTTPException(409, 'Draft changed. Review it again.')
         draft = service.authoring.draft(key, owner(user))
-        aliases = draft.sources or ['primary']
+        aliases = draft.sources
         service.sources.snapshot(draft.package_id, aliases, draft.mappings)
         if set(draft.mappings) != set(aliases):
             raise HTTPException(400, 'Map exactly the declared source aliases.')
@@ -226,12 +267,17 @@ def install_draft(key: str, payload: DraftInstall, user=Depends(local_admin), se
 
 
 @router.get('/experiments')
-def experiments(search: str = Query('', max_length=200), page: int = Query(1, ge=1), report_id: str | None = None, service=Depends(get_database_tools)):
+def experiments(search: str = Query('', max_length=200), page: int = Query(1, ge=1), report_id: str | None = None,
+                operation_id: str | None = None, user=Depends(get_current_user),
+                connection: ConnectionContext=Depends(get_connection_context),
+                service=Depends(get_database_tools)):
     if report_id:
         return service.report_experiments(report_id, search, page)
-    result = service.database.get_table_data('Experiments', limit=25, offset=(page-1)*25,
-                                            search=search, order_by='ExperimentID', sort_direction='desc')
-    return dict(rows=result.rows, total_count=result.total_count)
+    if not operation_id:
+        raise HTTPException(400, 'Choose an operation or report first')
+    if user.get('role') != 'admin' or not connection.is_local:
+        raise HTTPException(403, 'Local administrator required')
+    return service.operation_experiments(operation_id, search, page)
 
 
 @router.get('/packages')

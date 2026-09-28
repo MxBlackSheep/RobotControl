@@ -5,7 +5,9 @@ import json
 import math
 import re
 import threading
+import uuid
 from pathlib import Path
+from typing import Literal
 
 import pyodbc
 from pydantic import BaseModel, ConfigDict, Field
@@ -23,6 +25,7 @@ class ReportSource(BaseModel):
     password: str | None = Field(default=None, max_length=1000)
     driver: str = Field(default='ODBC Driver 17 for SQL Server', max_length=128)
     trust_certificate: bool = False
+    access: Literal['read', 'operation'] = 'read'
 
 
 def _check_database_permissions(cursor, allowed):
@@ -86,6 +89,26 @@ class ReportSources:
         self.path = Path(root) / 'report-sources.json'
         self.lock = threading.RLock()
         self.state = json.loads(self.path.read_text('utf-8')) if self.path.exists() else {'sources': {}, 'bindings': {}}
+        self.state.setdefault('operation_bindings', {})
+
+    def get(self, source_id, access='read'):
+        with self.lock:
+            source = self.state['sources'].get(source_id)
+            if not source or source.get('access', 'read') != access:
+                raise PackageError('Choose a configured ' + ('read-only' if access == 'read' else 'operation') + ' connection.', 409)
+            return copy.deepcopy(source)
+
+    def operation_target(self, package_id):
+        with self.lock:
+            return self.get(self.state['operation_bindings'].get(package_id), 'operation')
+
+    def bind_operation(self, package_id, source_id):
+        with self.lock:
+            if source_id:
+                self.get(source_id, 'operation')
+            state = copy.deepcopy(self.state)
+            state['operation_bindings'][package_id] = source_id
+            self._save(state)
 
     def _save(self, state):
         temporary = self.path.with_suffix('.tmp')
@@ -102,23 +125,26 @@ class ReportSources:
         value = source.model_dump(exclude={'password'})
         with self.lock:
             old = self.state['sources'].get(source.id, {})
+            if old and old.get('access', 'read') != source.access:
+                raise PackageError('Create a separate connection when changing its access type.')
         if source.password is not None:
             value['password_encrypted'] = encrypt_secret(source.password)
         else:
             value['password_encrypted'] = old.get('password_encrypted')
         if not value['password_encrypted']:
-            raise PackageError('Enter the dedicated report account password.')
+            raise PackageError('Enter the account password.')
+        value['revision'] = uuid.uuid4().hex
         with self.open(value):
             pass
         with self.lock:
             state = copy.deepcopy(self.state)
             state['sources'][source.id] = value
             self._save(state)
-        return {'message': 'Connection and effective read permissions checked.'}
+        return {'message': 'Connection and effective read permissions checked.' if source.access == 'read' else 'Operation connection checked and saved.'}
 
     def remove(self, source_id):
         with self.lock:
-            if any(source_id in mapping.values() for mapping in self.state['bindings'].values()):
+            if any(source_id in mapping.values() for mapping in self.state['bindings'].values()) or source_id in self.state['operation_bindings'].values():
                 raise PackageError('This connection is assigned to a package. Change its mappings first.', 409)
             state = copy.deepcopy(self.state)
             state['sources'].pop(source_id, None)
@@ -127,7 +153,7 @@ class ReportSources:
     @staticmethod
     def aliases(manifest):
         return sorted({alias for tool in manifest['tools'] if tool['kind'] == 'report'
-                       for alias in (tool.get('sources') or ['primary'])})
+                       for alias in (tool.get('sources', []) if manifest.get('contract_version') == 2 else ['primary'])})
 
     def bindings(self, package_id):
         with self.lock:
@@ -135,7 +161,7 @@ class ReportSources:
 
     def bind(self, package_id, aliases, mapping):
         with self.lock:
-            if set(mapping) != set(aliases) or any(x not in self.state['sources'] for x in mapping.values()):
+            if set(mapping) != set(aliases) or any(x not in self.state['sources'] or self.state['sources'][x].get('access', 'read') != 'read' for x in mapping.values()):
                 raise PackageError('Choose a report connection for every source alias.')
             state = copy.deepcopy(self.state)
             state['bindings'][package_id] = mapping
@@ -145,6 +171,7 @@ class ReportSources:
         with self.lock:
             state = copy.deepcopy(self.state)
             state['bindings'].pop(package_id, None)
+            state['operation_bindings'].pop(package_id, None)
             self._save(state)
 
     def snapshot(self, package_id, aliases, mapping=None):
@@ -152,7 +179,7 @@ class ReportSources:
             mapping = mapping if mapping is not None else self.state['bindings'].get(package_id, {})
             if any(mapping.get(x) not in self.state['sources'] for x in aliases):
                 raise PackageError('Connection setup needed. Ask a local administrator to assign read-only report connections.', 409)
-            return {x: copy.deepcopy(self.state['sources'][mapping[x]]) for x in aliases}
+            return {x: self.get(mapping[x]) for x in aliases}
 
     @contextmanager
     def open(self, source):
@@ -166,11 +193,14 @@ class ReportSources:
         try:
             conn = pyodbc.connect(';'.join(f'{k}={quoted(v)}' for k, v in config.items()), timeout=8)
             conn.timeout = 30
-            assert_read_only(conn)
+            if source.get('access', 'read') == 'read':
+                assert_read_only(conn)
+            else:
+                conn.execute('SELECT DB_NAME()').fetchone()
             yield conn
         except pyodbc.Error as exc:
             # Driver errors can disclose addresses/usernames; never expose passwords.
-            raise PackageError(f"Cannot read report connection '{source['name']}'. Check its connection settings, SELECT permissions and query.") from exc
+            raise PackageError(f"Cannot use connection '{source['name']}'. Check the connection settings, account permissions and query.") from exc
         finally:
             if conn is not None:
                 conn.close()

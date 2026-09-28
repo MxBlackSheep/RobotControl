@@ -76,3 +76,20 @@ no frontend or executable rebuild is required for this package-only correction.
 - Legacy report output and operation guards remain unchanged. Verify the real SQL
   permission boundary separately; a SQLite adapter cannot establish that result.
 - Desktop/phone: create, resume, try, download, install and choose among reports.
+# Configurable workspace and upload-first authoring (2026-09-28)
+
+Before implementation: changing the viewer target must not change scheduler,
+labware, Restore or a pending operation. Check two disposable SQL databases with
+different schemas (including duplicate table names); no writer fallback for an
+unconfigured viewer/report. Reject remote/non-admin connection changes, writable
+report mappings, changed operation configurations and stale UI responses.
+
+Account creation: review before applying, no existing-login modification, escaped
+identifiers, rollback on failed grants, one-off administrator credentials never
+saved/logged, created identity can SELECT but cannot INSERT/UPDATE/DELETE/DDL.
+Failed verification must not leave a saved or silently usable connection.
+
+Upload: syntax errors, nested imports, unavailable and dynamic imports, wrong run
+signature, replacement clearing old results. Upload must never execute Python.
+Try the no-database example and resume a real draft; keep secrets out of downloads.
+Check desktop plus one phone width, then the relocated packaged boundary.

@@ -15,7 +15,7 @@ The Database page is a read-only inspector for table rows, stored procedures and
 
 `components/navigation.tsx` defines the sidebar sections and URLs: `/database?section=tables`, `procedures`, `restore` and `operations`. Do not introduce another module navigation bar. `SectionPanel` retains visited sections; readers receive an `active` flag to avoid loading hidden sections.
 
-The table and definition catalogues are 300 pixels wide when enough space is available. Below 900 pixels of workspace width, choosing an item opens its details; Back restores the catalogue. These transitions hide rather than unmount either side, preserving search and scroll. The table catalogue starts with Important tables only enabled. Has data and Empty are availability descriptions, not row counts.
+The table and definition catalogues are 300 pixels wide when enough space is available. Below 900 pixels of workspace width, choosing an item opens its details; Back restores the catalogue. These transitions hide rather than unmount either side, preserving search and scroll. The table catalogue shows all schemas. The selected connection is visible above tables and procedures; Restore does not use that selection.
 
 The workspace measures the space remaining below the page heading. The table scrolls locally with sticky column headers and a sticky row-inspection column; pagination stays below it. Avoid hardcoded viewport percentages. Extremely short windows can scroll the outer viewer to keep its controls reachable.
 
@@ -51,7 +51,7 @@ Restore remains available to admins or local sessions. Operations remains local-
 
 ## When something looks wrong
 
-1. **No tables:** clear Find a table and switch off Important tables only. Inspect the catalogue response if it remains empty.
+1. **No tables:** check the selected connection and clear Find a table. Inspect the catalogue response if it remains empty.
 2. **No rows:** clear applied search and filters through More. Distinguish an empty table from no matches or a failed refresh.
 3. **Details are hidden on a phone:** choose a catalogue item. Back changes the visible pane; it does not discard the selected item's state.
 4. **A long value is shortened:** use its cell button or the row-inspection button. Hidden grid columns remain available in the row inspector.
@@ -111,3 +111,31 @@ Run `npx playwright test report-wizard.spec.ts --trace retain-on-failure` from
 dependent fields, trial, export, installation, multiple reports and phone layout.
 Use the real SQL HTTP check separately for permissions; the browser fixture is not
 proof of SQL Server grants. Evidence is linked in `recovery/report-wizard-verification`.
+
+
+## Configurable connections and upload-first reports (2026-09-28)
+
+`DatabasePage` owns the viewer connection ID, retained locally across visits. Source
+changes clear the prior table/definition; section navigation retains the selection.
+Source revisions refresh the workspace after connection settings change. The target
+selector is only shown for tables/procedures, never for native Restore. Each table
+request/export includes its captured source ID. Package operations use a separately
+assigned writable target and repeat it in confirmation; reports use their aliases.
+
+`ReportConnections` offers existing-account setup or reviewed reader creation. It
+uses the same settings dialog from viewers, packages and the saved report wizard.
+Administrator credentials are transient and cleared on completion/close. The server
+owns permission enforcement and review tokens. Package Connections supports report
+mappings plus Operation target; a package needing setup cannot run.
+
+`ReportWizard` starts with Upload Python or Try an example. The inspect endpoint
+returns libraries/adaptation findings without executing Python. IDs/version/manual
+library overrides are under Details. Compatible uploads become the runnable handler;
+other scripts remain reference material until the author uploads an adapter. Replacing
+Python clears old results/reviews. The example is an ordinary saved draft with zero
+sources and bundled sample rows; it does not install a report or touch a database.
+
+Focused browser checks: `database-workspace.spec.ts` and `report-wizard.spec.ts`.
+The former checks account review, a no-database Excel example and viewer switching;
+the latter retains resume/dependent-input/install coverage. SQL permissions and
+transaction behavior are verified separately through HTTP with disposable SQL data.

@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
-const evidence = '../recovery/report-wizard-verification';
+const evidence = process.env.ROBOTCONTROL_E2E_EVIDENCE || '../recovery/report-wizard-verification';
 const handler = `import openpyxl
 def run(context, inputs):
     book = openpyxl.Workbook()
@@ -24,10 +24,12 @@ test('report author resumes a draft, configures dependent inputs and installs a 
   await page.goto('/database?section=packages');
   await page.getByRole('button', { name: 'Create report', exact: true }).click();
   await page.getByLabel('Report name', { exact: true }).fill('Selection export');
+  await page.getByText('Details', { exact: true }).click();
   await page.getByLabel('Package ID', { exact: true }).fill('selection-export');
   await page.getByLabel('Original Python', { exact: true }).setInputFiles({ name: 'original.py', mimeType: 'text/x-python', buffer: Buffer.from('raise RuntimeError("original must not run")') });
-  await expect(page.getByText('Original script saved.', { exact: true })).toBeVisible();
+  await expect(page.getByText('Python saved. It has not been run.', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Next', exact: true }).click();
+  await page.getByText('Source names in Python', { exact: true }).click();
   await page.getByLabel('Names used in Python (comma separated)').fill('primary, plates');
   await choose(page, 'Connection for primary', 'Primary');
   await choose(page, 'Connection for plates', 'Plates');

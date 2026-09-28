@@ -35,6 +35,8 @@ class DatabaseTools:
         self.catalogue = PackageCatalogue(self.root / "packages", defaults)
         self.database = database or get_database_service()
         self.sources = ReportSources(self.root)
+        from backend.services.database_access import DatabaseAccess
+        self.access = DatabaseAccess(self.sources)
         from backend.services.report_authoring import ReportAuthoring
         self.authoring = ReportAuthoring(self.root, self)
         self.guard = guard or self._guard
@@ -82,7 +84,8 @@ class DatabaseTools:
     def preview(self, tool_id, inputs, owner):
         with self.catalogue.reserve(tool_id, "operation") as (entry, tool):
             inputs = tool.validate_values(inputs)
-            with self.database.get_connection() as conn:
+            target = self.sources.operation_target(entry['manifest']['id'])
+            with self.sources.open(target) as conn:
                 conn.timeout = 30
                 result = self.catalogue.function(entry, tool.preview)(SimpleNamespace(connection=conn), inputs)
             token = uuid.uuid4().hex
@@ -91,8 +94,12 @@ class DatabaseTools:
                 if len(self.previews) >= 200:
                     raise PackageError("Too many open confirmations. Try again shortly.", 429)
                 self.previews[token] = dict(owner=owner, tool_id=tool_id, inputs=inputs,
-                    sha256=entry['sha256'], package_id=entry['manifest']['id'], package_version=entry['manifest']['version'], snapshot=digest(result), expires=time.time()+600)
-            return dict(token=token, confirmation=str(inputs[tool.confirmation_field]), **result)
+                    target=target, sha256=entry['sha256'], package_id=entry['manifest']['id'], package_version=entry['manifest']['version'], snapshot=digest(result), expires=time.time()+600)
+            return dict(token=token, confirmation=str(inputs[tool.confirmation_field]), target=self.target_label(target), **result)
+
+    @staticmethod
+    def target_label(target):
+        return f"{target['name']} · {target['server']} / {target['database']}"
 
     def execute(self, token, confirmation, owner, client_ip):
         with self.lock, closing(sqlite3.connect(self.receipts)) as journal, journal:
@@ -119,30 +126,18 @@ class DatabaseTools:
             with self.catalogue.reserve(preview['tool_id'], 'operation') as (entry, tool):
                 if entry['sha256'] != preview['sha256']:
                     raise PackageError("Package changed. Preview the operation again.", 409)
-                with self.guard(), self.database.get_connection() as conn:
-                    conn.timeout = 30
-                    context = SimpleNamespace(connection=conn)
-                    try:
-                        # Serializable protects the selected target until commit.
-                        cursor = conn.cursor()
-                        cursor.execute("SET XACT_ABORT ON; SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
-                        cursor.close()
-                        current = self.catalogue.function(entry, tool.preview)(context, preview['inputs'])
-                        if digest(current) != preview['snapshot']:
-                            raise PackageError("Experiment changed. Preview the operation again.", 409)
-                        value = self.catalogue.function(entry, tool.entrypoint)(context, preview['inputs'])
-                        committing = True
-                        conn.commit()
-                        committed = True
-                        result = dict(status='succeeded', result=value, message=value.get('message', 'Operation completed.'))
-                    except Exception:
-                        conn.rollback()
-                        raise
+                # Hold configuration lock through commit; a target cannot be edited
+                # or remapped between this check and the destructive transaction.
+                with self.sources.lock, self.guard():
+                    target = self.sources.operation_target(preview['package_id'])
+                    if target != preview['target']:
+                        raise PackageError('Connection changed. Review the operation again.', 409)
+                    result, committing, committed = self._execute_operation(entry, tool, preview, target)
         except Exception as exc:
             logger.exception("Database operation failed")
             result = dict(status='unknown' if committing else 'error', message=('Commit could not be confirmed. Check the database before repeating. ' if committing else '') + str(exc))
         log_action(actor=owner, action=preview['tool_id'], scope='database', client_ip=client_ip,
-                   success=committed, details=dict(inputs=preview['inputs'], package_id=preview['package_id'], package_version=preview['package_version'], package_sha256=preview['sha256'], outcome=result))
+                   success=committed, details=dict(target=self.target_label(preview['target']), target_revision=preview['target'].get('revision'), inputs=preview['inputs'], package_id=preview['package_id'], package_version=preview['package_version'], package_sha256=preview['sha256'], outcome=result))
         try:
             with closing(sqlite3.connect(self.receipts)) as journal, journal:
                 journal.execute("UPDATE receipts SET result=? WHERE id=?", (json.dumps(result, default=str), token))
@@ -151,12 +146,46 @@ class DatabaseTools:
             result['warning'] = 'Result could not be saved to the operation journal. Do not repeat without checking the database.'
         return result
 
+    def _execute_operation(self, entry, tool, preview, target):
+        committing = committed = False
+        try:
+            with self.sources.open(target) as conn:
+                conn.timeout = 30
+                context = SimpleNamespace(connection=conn)
+                try:
+                    # Serializable protects the selected target until commit.
+                    cursor = conn.cursor()
+                    cursor.execute("SET XACT_ABORT ON; SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+                    cursor.close()
+                    current = self.catalogue.function(entry, tool.preview)(context, preview['inputs'])
+                    if digest(current) != preview['snapshot']:
+                        raise PackageError("Experiment changed. Preview the operation again.", 409)
+                    value = self.catalogue.function(entry, tool.entrypoint)(context, preview['inputs'])
+                    committing = True
+                    conn.commit()
+                    committed = True
+                    result = dict(status='succeeded', result=value, message=value.get('message', 'Operation completed.'))
+                except Exception:
+                    conn.rollback()
+                    raise
+        except Exception as exc:
+            logger.exception("Database operation failed")
+            result = dict(status='unknown' if committing else 'error', message=('Commit could not be confirmed. Check the database before repeating. ' if committing else '') + str(exc))
+        return result, committing, committed
+
     def public_catalogue(self, kind):
         tools = copy.deepcopy(self.catalogue.tools(kind))
         for tool in tools:
             if kind == 'report':
                 try:
-                    self.sources.snapshot(tool['package_id'], tool.get('sources') or ['primary'])
+                    self.sources.snapshot(tool['package_id'], self.sources.aliases(self.catalogue.index[tool['package_id']]['manifest']))
+                    tool['setup_needed'] = False
+                except PackageError:
+                    tool['setup_needed'] = True
+            else:
+                try:
+                    target = self.sources.operation_target(tool['package_id'])
+                    tool['target'] = self.target_label(target)
                     tool['setup_needed'] = False
                 except PackageError:
                     tool['setup_needed'] = True
@@ -172,7 +201,7 @@ class DatabaseTools:
             field = next((x for x in tool.inputs if x.name == field_name and x.lookup), None)
             if field is None:
                 raise PackageError('Database choice not found', 404)
-            snapshot = self.sources.snapshot(entry['manifest']['id'], tool.sources or ['primary'], mapping)
+            snapshot = self.sources.snapshot(entry['manifest']['id'], tool.sources if entry['manifest']['contract_version'] == 2 else ['primary'], mapping)
             with self.sources.open(snapshot[field.lookup.source]) as conn:
                 return lookup_rows(conn, field, values, search, page)
 
@@ -180,7 +209,7 @@ class DatabaseTools:
         with self.catalogue.reserve(tool_id, 'report') as (entry, tool):
             if not any(x.type == 'experiment' for x in tool.inputs):
                 raise PackageError('Report has no experiment input', 404)
-            snapshot = self.sources.snapshot(entry['manifest']['id'], tool.sources or ['primary'])
+            snapshot = self.sources.snapshot(entry['manifest']['id'], tool.sources if entry['manifest']['contract_version'] == 2 else ['primary'])
             with self.sources.open(snapshot.get('primary', next(iter(snapshot.values())))) as conn, conn.cursor() as cursor:
                 pattern = '%' + search.replace('[', '[[]').replace('%', '[%]').replace('_', '[_]') + '%'
                 where = '(CAST(ExperimentID AS nvarchar(40)) LIKE ? OR UserDefinedID LIKE ? OR Note LIKE ?)'
@@ -188,6 +217,17 @@ class DatabaseTools:
                 total = cursor.execute('SELECT COUNT(*) FROM dbo.Experiments WHERE ' + where, params).fetchone()[0]
                 rows = cursor.execute('SELECT ExperimentID, UserDefinedID, Note FROM (SELECT ExperimentID, UserDefinedID, Note, ROW_NUMBER() OVER (ORDER BY ExperimentID DESC) AS rn FROM dbo.Experiments WHERE ' + where + ') AS numbered WHERE rn>? AND rn<=? ORDER BY rn', params + [(page-1)*25, page*25]).fetchall()
                 return dict(rows=[dict(zip(('ExperimentID', 'UserDefinedID', 'Note'), row)) for row in rows], total_count=total)
+
+    def operation_experiments(self, tool_id, search, page):
+        from backend.services.workspace_database import WorkspaceDatabase
+        with self.catalogue.reserve(tool_id, 'operation') as (entry, tool):
+            if not any(x.type == 'experiment' for x in tool.inputs):
+                raise PackageError('Operation has no experiment input', 404)
+            target = self.sources.operation_target(entry['manifest']['id'])
+            db = WorkspaceDatabase(self.sources, target)
+            result = db.get_table_data('[dbo].[Experiments]', limit=25, offset=(page-1)*25,
+                                       search=search, order_by='ExperimentID', sort_direction='desc')
+            return dict(rows=result.rows, total_count=result.total_count)
 
     def start_report(self, tool_id, inputs, owner, catalogue=None, mapping=None):
         catalogue = catalogue or self.catalogue
@@ -199,7 +239,7 @@ class DatabaseTools:
             entry, tool = reservation.__enter__()
             entered = True
             inputs = tool.validate_values(inputs)
-            snapshot = self.sources.snapshot(entry['manifest']['id'], tool.sources or ['primary'], mapping)
+            snapshot = self.sources.snapshot(entry['manifest']['id'], tool.sources if entry['manifest']['contract_version'] == 2 else ['primary'], mapping)
             key = uuid.uuid4().hex
             folder = self.temp / key
             folder.mkdir()
@@ -227,7 +267,7 @@ class DatabaseTools:
                             raise PackageError(f'{field.label} is no longer available. Choose it again.')
                 for conn in connections.values():
                     conn.timeout = 120
-                context = SimpleNamespace(connection=connections.get('primary', next(iter(connections.values()))),
+                context = SimpleNamespace(connection=connections.get('primary', next(iter(connections.values()), None)),
                                           connections=connections, output_dir=folder)
                 output = catalogue.function(entry, tool.entrypoint)(context, inputs)
             path = (folder / output).resolve()

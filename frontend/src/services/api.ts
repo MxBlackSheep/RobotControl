@@ -174,8 +174,8 @@ export const authAPI = {
 };
 
 export const databaseAPI = {
-  getTables: (importantOnly = false) =>
-    api.get('/api/database/tables', { params: { important_only: importantOnly } }),
+  getTables: (importantOnly = false, sourceId?: string) =>
+    api.get('/api/database/tables', { params: { important_only: importantOnly, source_id: sourceId } }),
 
   getStatus: () => api.get('/api/database/status'),
 
@@ -188,8 +188,8 @@ export const databaseAPI = {
   getTableSchema: (tableName: string) =>
     api.get(`/api/database/tables/${tableName}/columns`),
 
-  getStoredProcedures: (useCache = true) =>
-    api.get('/api/database/stored-procedures', { params: { use_cache: useCache } }),
+  getStoredProcedures: (useCache = true, sourceId?: string) =>
+    api.get('/api/database/stored-procedures', { params: { use_cache: useCache, source_id: sourceId } }),
 
   getExperiments: (page = 1, limit = 100) =>
     api.get('/api/database/tables/Experiments', { params: { page, limit } }),

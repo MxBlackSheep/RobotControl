@@ -25,11 +25,24 @@ ROOT = Path(__file__).resolve().parents[2]
 def wizard_check(request, token, result, evidence):
     from backend.e2e.report_wizard_check import sql_fixture
     with sql_fixture() as fixture:
-        result['fixture'] = {'databases': fixture['names'], 'login': fixture['login']}
-        for alias, database in zip(('primary', 'plates'), fixture['names']):
-            request('/api/database/tools/sources', dict(id=alias, name=alias, server=fixture['server'],
-                database=database, username=fixture['login'], password=fixture['password'], trust_certificate=True), token)
-        handler = '''import openpyxl
+        created_login = fixture['login'] + '_packaged'
+        try:
+            result['fixture'] = {'databases': fixture['names'], 'login': fixture['login']}
+            for alias, database in zip(('primary', 'plates'), fixture['names']):
+                request('/api/database/tools/sources', dict(id=alias, name=alias, server=fixture['server'],
+                    database=database, username=fixture['login'], password=fixture['password'], trust_certificate=True), token)
+            profile = dict(id='created-reader', name='Created reader', server=fixture['server'], database=fixture['names'][0],
+                username=created_login, trust_certificate=True)
+            review = request('/api/database/tools/sources/access/review', profile, token)
+            request('/api/database/tools/sources/access/create', {'token':review['token'], 'windows_auth':True}, token)
+            tables = request('/api/database/tables?source_id=created-reader', token=token)['data']['tables']
+            assert '[dbo].[Projects]' in tables
+            assert request('/api/database/tables/%5Bdbo%5D.%5BProjects%5D?source_id=created-reader',token=token)['data']['total_count']==2
+            request('/api/database/stored-procedures?source_id=created-reader',token=token)
+            scan = request('/api/database/tools/authoring/inspect-python',{'source':'def example():\n    import openpyxl\n'},token)
+            assert scan['available']==['openpyxl']
+            result['checks'].append('Packaged read-only account provisioning, schema-qualified viewer and upload import detection passed')
+            handler = '''import openpyxl
 def run(context, inputs):
     book = openpyxl.Workbook()
     for source in ('primary', 'plates'):
@@ -38,35 +51,44 @@ def run(context, inputs):
     book.save(context.output_dir / 'portable.xlsx')
     return 'portable.xlsx'
 '''
-        draft = dict(name='Portable SQL report', package_id='portable-sql-report', version='1.0.0',
-            libraries=['openpyxl'], original='raise RuntimeError("reference only")', handler=handler,
-            sources=['primary','plates'], mappings={'primary':'primary','plates':'plates'}, step=2,
-            inputs=[dict(name='project',label='Project',type='lookup',required=True,choices=[],
-                lookup=dict(source='primary',query='SELECT id AS value, label FROM dbo.Projects',parameters=[],value_type='integer'))])
-        saved = request('/api/database/tools/drafts', {'draft': draft}, token)
-        prefix = '/api/database/tools/drafts/' + saved['id']
-        choices = request(prefix+'/choices/project', {'inputs':{}}, token)
-        assert {x['value'] for x in choices['options']} == {1,2}
-        def finished(job):
-            deadline=time.monotonic()+60
-            while job['status'] in {'pending','running'}:
-                assert time.monotonic()<deadline,job
-                time.sleep(.1);job=request('/api/database/tools/reports/'+job['id'],token=token)
-            assert job['status']=='ready',job
-            return job
-        job=finished(request(prefix+'/try', {'inputs':{'project':1}},token))
-        content=request('/api/database/tools/reports/'+job['id']+'/download',token=token)
-        assert list(openpyxl.load_workbook(io.BytesIO(content)).active.values)==[('primary','Yeast Ω'),('plates','Yeast Ω')]
-        (evidence/'packaged-two-source.xlsx').write_bytes(content)
-        package=request(prefix+'/package',token=token)
-        request('/api/database/tools/packages',token=token,upload=package)
-        request('/api/database/tools/packages/portable-sql-report/sources',{'mappings':draft['mappings']},token,method='PUT')
-        finished(request('/api/database/tools/reports/portable-sql-report',{'inputs':{'project':2}},token))
-        result['checks'].append('Relocated executable: DPAPI source storage, SQL permission checks, private draft, dependent input API, trial workbook, exported ZIP upload and installed generation passed')
-        result['workbook_sha256']=hashlib.sha256(content).hexdigest()
-        result['package_sha256']=hashlib.sha256(package).hexdigest()
-        request(prefix,token=token,method='DELETE')
-        request('/api/database/tools/packages/portable-sql-report',token=token,method='DELETE')
+            draft = dict(name='Portable SQL report', package_id='portable-sql-report', version='1.0.0',
+                libraries=['openpyxl'], original='raise RuntimeError("reference only")', handler=handler,
+                sources=['primary','plates'], mappings={'primary':'primary','plates':'plates'}, step=2,
+                inputs=[dict(name='project',label='Project',type='lookup',required=True,choices=[],
+                    lookup=dict(source='primary',query='SELECT id AS value, label FROM dbo.Projects',parameters=[],value_type='integer'))])
+            saved = request('/api/database/tools/drafts', {'draft': draft}, token)
+            prefix = '/api/database/tools/drafts/' + saved['id']
+            choices = request(prefix+'/choices/project', {'inputs':{}}, token)
+            assert {x['value'] for x in choices['options']} == {1,2}
+            def finished(job):
+                deadline=time.monotonic()+60
+                while job['status'] in {'pending','running'}:
+                    assert time.monotonic()<deadline,job
+                    time.sleep(.1);job=request('/api/database/tools/reports/'+job['id'],token=token)
+                assert job['status']=='ready',job
+                return job
+            job=finished(request(prefix+'/try', {'inputs':{'project':1}},token))
+            content=request('/api/database/tools/reports/'+job['id']+'/download',token=token)
+            assert list(openpyxl.load_workbook(io.BytesIO(content)).active.values)==[('primary','Yeast Ω'),('plates','Yeast Ω')]
+            (evidence/'packaged-two-source.xlsx').write_bytes(content)
+            package=request(prefix+'/package',token=token)
+            request('/api/database/tools/packages',token=token,upload=package)
+            request('/api/database/tools/packages/portable-sql-report/sources',{'mappings':draft['mappings']},token,method='PUT')
+            finished(request('/api/database/tools/reports/portable-sql-report',{'inputs':{'project':2}},token))
+            result['checks'].append('Relocated executable: DPAPI source storage, SQL permission checks, private draft, dependent input API, trial workbook, exported ZIP upload and installed generation passed')
+            result['workbook_sha256']=hashlib.sha256(content).hexdigest()
+            result['package_sha256']=hashlib.sha256(package).hexdigest()
+            request(prefix,token=token,method='DELETE')
+            request('/api/database/tools/packages/portable-sql-report',token=token,method='DELETE')
+        finally:
+            admin = fixture['admin']
+            admin.execute('USE master')
+            if admin.execute('SELECT name FROM sys.server_principals WHERE name=?', created_login).fetchone():
+                admin.execute('USE ['+fixture['names'][0]+']')
+                if admin.execute('SELECT name FROM sys.database_principals WHERE name=?', created_login).fetchone():
+                    admin.execute('DROP USER ['+created_login+']')
+                admin.execute('USE master')
+                admin.execute('DROP LOGIN ['+created_login+']')
     result['sql_fixture_removed']=True
     result['passed']=True
 

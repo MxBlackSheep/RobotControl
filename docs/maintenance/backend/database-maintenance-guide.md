@@ -1,5 +1,44 @@
 # Database Maintenance Guide
 
+## Configurable Database workspace (2026-09-28)
+
+`workspace_database.py` uses an explicit snapshot from `report_sources.py` for
+viewers. `/api/database/tables` (including count/columns) and `/stored-procedures`
+require authenticated requests and `source_id`. No source means a setup error, not
+fallback to the robot writer. Schema-qualified metadata names are validated against
+SQL Server metadata; views and duplicate names in different schemas are supported.
+The native `get_database_service()` singleton, scheduler SQL integration, scheduling
+SQLite, Tip tracking, Cytomat, monitoring, backup and Restore remain unchanged.
+
+Connection settings stay in `data/database-tools/report-sources.json`. Existing
+profiles default to read-only. `access=operation` profiles require a separate account;
+report mappings and viewers reject them. Read-only effective permissions are checked
+on every open. Operations store the target snapshot and configuration revision with
+the preview, compare again under the configuration lock, then retain the existing
+scheduler safety guard and transaction. Reconfiguration/remapping requires a new
+preview. No native writer fallback remains for package operations.
+
+`database_access.py` creates a new reader only after the local admin reviews grants.
+The review token is owner-bound, single-use and expires after ten minutes. SQL
+provisioning credentials are never stored or audited. DDL runs in a transaction;
+after commit, reader verification and encrypted persistence must succeed or the new
+identity is removed. Cleanup failure gives explicit administrator instructions.
+Existing logins are rejected, never altered. Grants are database-wide CONNECT,
+SELECT and VIEW DEFINITION. This includes future tables; use an existing narrowly
+scoped account if the lab needs table-level restrictions. Windows setup authentication
+uses the identity running RobotControl, not the browser user's Windows identity.
+
+`report_authoring.inspect_python` parses AST only. It detects nested imports,
+explicit Excel engines, compatible synchronous entry-point signatures and common
+connection/argument adaptations. Dynamic imports and local modules need manual
+review. It neither runs Python nor certifies calculations or isolation. Contract 2
+reports may explicitly use zero sources; their `context.connection` is None and
+`context.connections` is empty. Contract 1 retains its required primary mapping.
+
+Repeat commands and evidence: `frontend/e2e/README.md`, section Configurable
+Database workspace; `recovery/database-workspace-verification`.
+
+
 ## uv setup and verification
 
 Install pyodbc through `uv sync --locked`; install the Microsoft ODBC driver separately on the host. Run `uv run --locked python -m pytest backend/tests/test_database_service.py` for mocked primary connection, failure handling, pagination, query, and transaction tests. The current service has no secondary-server or mock-data fallback. The tests do not connect to SQL Server.
@@ -20,7 +59,7 @@ This guide explains how the database utilities (backup, restore, metadata manage
   FastAPI routes for listing backups, creating/deleting them, restoring, and fetching health metrics. Calls into `BackupService` and emits audit logs.
 
 - `backend/api/database.py`  
-  Exposes endpoints for listing important tables, running queries, and checking database health. Uses `backend/services/database.py` helpers.
+  Exposes authenticated external-database viewers plus native health/monitoring endpoints. Public SQL and procedure execution routes return 410; installed operations use the guarded tools API.
 
 - `frontend/src/pages/BackupPage.tsx` & related components (`DatabaseRestore`, `BackupListComponent`, `BackupActions`)  
   UI surfaces for the backup workflow. Show progress to operators, trigger REST API calls, and display maintenance mode warnings.

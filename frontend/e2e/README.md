@@ -160,3 +160,28 @@ storage, package upload and Excel from a relocated executable with Python/UV abs
 from PATH. These commands neither inspect production rows nor change production
 grants. Evidence is under `recovery/report-wizard-verification`; Playwright's current
 HTML report and traces are under `recovery/viewer-verification`.
+
+
+## Configurable Database workspace
+
+```powershell
+.venv/Scripts/python.exe -m backend.e2e.database_workspace_check
+# Copy the pinned upstream.py from the preceding report evidence first.
+.venv/Scripts/python.exe -X utf8 -W ignore::UserWarning -m backend.e2e.database_tools_check --evidence recovery/database-workspace-verification
+npm --prefix frontend run build
+Set-Location frontend
+$env:ROBOTCONTROL_E2E_EVIDENCE='../recovery/database-workspace-verification'
+npx playwright test database-workspace.spec.ts report-wizard.spec.ts --trace retain-on-failure
+Set-Location ..
+.venv/Scripts/python.exe -m backend.e2e.packaged_database_smoke dist/<candidate>/RobotControl --wizard --evidence recovery/database-workspace-verification
+```
+
+The workspace HTTP check reuses the real SQL fixture above and creates an additional
+reader through the reviewed API. It verifies provisioning rollback, existing-login
+rejection, write denial, schema-qualified browsing, operation target revision and
+rollback/deduplication, nested import inspection and the zero-database example.
+The legacy check retains scheduler safety gates and workbook parity. The browser
+uses disposable package APIs and synthetic viewer data; its account flow stops at
+review. The packaged wizard check now also creates a reader and browses the real
+SQL fixture. These SQL checks require Windows SQL administrator access only to
+create/drop UUID-named fixture objects; no production grants/rows are changed.

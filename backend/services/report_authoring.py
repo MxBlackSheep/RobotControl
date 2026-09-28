@@ -10,7 +10,47 @@ import zipfile
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
-from backend.services.database_packages import Manifest, PackageCatalogue, PackageError, inspect_archive
+from backend.services.database_packages import Manifest, PackageCatalogue, PackageError, inspect_archive, SUPPORTED_LIBRARIES
+
+
+def inspect_python(source):
+    """Inspect source only, including imports inside functions. Never import it."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError as exc:
+        raise PackageError(f'Python syntax error on line {exc.lineno}: {exc.msg}') from None
+    imports = set()
+    undetermined = set()
+    adaptation = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imports.update(x.name.split('.')[0] for x in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                undetermined.add('Local module imports need their supporting files.')
+            else:
+                imports.add((node.module or '').split('.')[0])
+        elif isinstance(node, ast.Call):
+            name = ast.unparse(node.func)
+            if name.endswith(('import_module', '__import__', 'exec', 'eval')):
+                undetermined.add('Dynamic code or imports need manual review.')
+            if name.endswith('.connect'):
+                adaptation.add('Replace direct database connections with the selected report connections.')
+            if name.endswith(('ExcelWriter', 'to_excel')):
+                for kw in node.keywords:
+                    if kw.arg == 'engine' and isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str):
+                        imports.add(kw.value.value)
+        elif isinstance(node, ast.Attribute) and node.attr == 'argv':
+            adaptation.add('Replace command-line arguments with report inputs.')
+    run = next((n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'run'), None)
+    compatible = bool(run and [a.arg for a in run.args.posonlyargs + run.args.args] == ['context', 'inputs']
+                      and all(x is not None for x in run.args.kw_defaults))
+    # A matching signature is a starting point, not proof of correct calculations.
+    if not compatible:
+        adaptation.add('Add run(context, inputs), write Excel in context.output_dir and return its filename.')
+    return dict(available=sorted(imports & SUPPORTED_LIBRARIES),
+                unavailable=sorted(imports - SUPPORTED_LIBRARIES - sys.stdlib_module_names - {'__future__'}),
+                undetermined=sorted(undetermined), compatible=compatible, adaptation=sorted(adaptation))
 
 
 class ReportDraft(BaseModel):

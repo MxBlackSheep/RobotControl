@@ -4,6 +4,42 @@
 commands are in `frontend/e2e/README.md`; release evidence is under
 `recovery/report-wizard-verification`.
 
+## Configurable workspace follow-up (implemented 2026-09-28)
+
+Configurable databases apply to the Database workspace: table viewer,
+stored-procedure/function viewer, package operations and data retrieval. These
+tools may connect to a lab's existing SQL Server database without requiring the
+RobotControl labware schema. SQLite as an external data source remains later work.
+
+Tip tracking and Cytomat keep their dedicated tables/connections. Scheduling's
+native SQLite storage is unchanged. The implementation must also preserve existing
+scheduler integrations that currently share `get_database_service()`; changing a
+viewer connection must not redirect those consumers. Do not replace the shared
+robot database configuration globally.
+
+Use named external database connections with a visible selected target in the
+Database workspace. Viewing and reports use read-only access. Operations use an
+explicit writable target with existing local-admin, confirmation and robot-safety
+checks. Bind operation previews to the target connection and its configuration
+version; a viewer selection change must never redirect a pending operation.
+Generic viewing requires no particular lab tables. Package-specific tables or
+procedures remain requirements of that package, not of the whole application.
+
+The UX revision offers in-place creation of report read-only access,
+as well as existing-account setup. Creating credentials/grants requires suitable
+SQL Server authority supplied for that setup action; RobotControl admin status
+alone is insufficient. Review the database and grants before applying changes.
+
+For script authoring, start with Upload Python and automatically inspect ordinary
+imports, including imports inside functions. Classify available, unavailable and
+undetermined dependencies without running the script. Show only the adaptation
+work actually needed; keep package bookkeeping under Details. Preserve the author's
+calculation rules. A disposable example inside the wizard is preferred to a separate
+text-heavy tutorial. User confirmed that frontend wording must stay concise.
+
+The sections below describe the previously implemented wizard and its baseline
+requirements; the follow-up changes above are now implemented.
+
 ## Observable outcome
 
 An author brings a Python script, defines its inputs and database sources, tries

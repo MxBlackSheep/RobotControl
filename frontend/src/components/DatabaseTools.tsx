@@ -10,15 +10,15 @@ import { useAuth } from '../context/AuthContext';
 import { isLocalUser } from './navigation';
 
 const base = '/api/database/tools';
-type Tool = { id: string; name: string; kind: string; package_version: string; inputs: ReportField[]; setup_needed?: boolean };
-type Preview = { token: string; confirmation: string; summary: string; details: Record<string, unknown> };
+type Tool = { id: string; name: string; kind: string; package_version: string; inputs: ReportField[]; setup_needed?: boolean; target?: string };
+type Preview = { token: string; confirmation: string; summary: string; details: Record<string, unknown>; target?: string };
 type Job = { id: string; status: string; filename?: string; error?: string; error_details?: string; package_version?: string };
 const message = (error: any) => {
   const value = error?.response?.data?.detail || error?.message || 'Request failed.';
   return typeof value === 'string' ? value : 'The request could not be completed.';
 };
 
-function ExperimentInput({ label, value, onChange, disabled }: { label: string; value: unknown; onChange: (value: number | null) => void; disabled: boolean }) {
+function ExperimentInput({ label, value, onChange, disabled, operationId, reportId }: { label: string; value: unknown; onChange: (value: number | null) => void; disabled: boolean; operationId?: string; reportId?: string }) {
   const [query, setQuery] = useState('');
   const [options, setOptions] = useState<{ id: number; label: string }[]>([]);
   const [selected, setSelected] = useState<{ id: number; label: string } | null>(null);
@@ -32,7 +32,7 @@ function ExperimentInput({ label, value, onChange, disabled }: { label: string; 
     const timer = window.setTimeout(async () => {
       setLoading(true);
       try {
-        const { data } = await api.get(`${base}/experiments`, { params: { search: query, page }, signal: controller.signal });
+        const { data } = await api.get(`${base}/experiments`, { params: { search: query, page, operation_id: operationId, report_id: reportId }, signal: controller.signal });
         if (controller.signal.aborted) return;
         const values = data.rows.map((row: any) => ({ id: row.ExperimentID,
           label: [row.ExperimentID, row.UserDefinedID, row.Note].filter(v => v !== undefined && v !== null && v !== '').join(' · ') }));
@@ -42,7 +42,7 @@ function ExperimentInput({ label, value, onChange, disabled }: { label: string; 
       finally { if (!controller.signal.aborted) setLoading(false); }
     }, 250);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [query, page]);
+  }, [query, page, operationId, reportId]);
   return <Stack spacing={1}>
     <Autocomplete options={options} value={selected} disabled={disabled} loading={loading}
       filterOptions={values => values} isOptionEqualToValue={(a, b) => a.id === b.id}
@@ -150,13 +150,14 @@ export default function DatabaseTools({ kind, active }: { kind: 'operation' | 'r
         {tools.map(item => <MenuItem key={item.id} value={item.id}>{item.name}</MenuItem>)}
       </TextField> : <Typography component="h2" variant="h6">{tool?.name || (kind === 'operation' ? 'Operations' : 'Data retrieval')}</Typography>}
     </Stack>
+    {tool?.target && <Typography variant="body2" sx={{ mb: 1, overflowWrap: 'anywhere' }}>Target: {tool.target}</Typography>}
     <InspectionWorkspace label="Database task workspace">
       <Box sx={{ display: 'grid', gridTemplateColumns: experimentField ? 'minmax(0, 2fr) minmax(0, 3fr)' : '1fr', gap: 2, height: '100%', minHeight: 0,
         '@container workspace (max-width: 899px)': { gridTemplateColumns: '1fr' } }}>
         {experimentField && <Box ref={selection} sx={{ minWidth: 0, minHeight: 0,
           '@container workspace (max-width: 899px)': { display: detailOpen ? 'none' : 'block' } }}>
           <ExperimentBrowser key={tool?.id} selected={experiment} disabled={locked || !!tool?.setup_needed} active={active && !tool?.setup_needed}
-            reportId={kind === 'report' ? tool?.id : undefined} onSelect={row => {
+            operationId={kind === 'operation' ? tool?.id : undefined} reportId={kind === 'report' ? tool?.id : undefined} onSelect={row => {
             setExperiment(row);
             if (values[experimentField.name] !== row.ExperimentID) changeValue(experimentField.name, row.ExperimentID);
             setDetailOpen(true);
@@ -171,7 +172,7 @@ export default function DatabaseTools({ kind, active }: { kind: 'operation' | 'r
             {error && !preview && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
             {notice && <Alert severity="success">{notice}</Alert>}
             {tool?.setup_needed && <Alert severity="info" action={user?.role === 'admin' && isLocalUser(user) ? <Button href="/database?section=packages">Configure</Button> : undefined}>
-              Connection setup needed. Ask a local administrator to assign report connections.</Alert>}
+              Connection setup needed. Ask a local administrator to assign a connection.</Alert>}
             {!tools.length && <Typography color="text.secondary">No {kind === 'operation' ? 'operations' : 'reports'} installed.</Typography>}
             {experimentField && (experiment ? <Box>
               <Typography variant="overline">Experiment {experiment.ExperimentID}</Typography>
@@ -182,7 +183,7 @@ export default function DatabaseTools({ kind, active }: { kind: 'operation' | 'r
               ? <ReportInputs key={`${tool.id}/${field.name}`} fields={[field]} values={values} disabled={locked || !!tool.setup_needed}
                   choiceBase={`${base}/reports/${tool.id}/choices`} onChange={changeValue} />
               : field.type === 'experiment'
-              ? <ExperimentInput key={`${tool.id}/${field.name}`} label={field.label} value={values[field.name]} disabled={locked} onChange={value => changeValue(field.name, value)} />
+              ? <ExperimentInput operationId={kind === 'operation' ? tool.id : undefined} reportId={kind === 'report' ? tool.id : undefined} key={`${tool.id}/${field.name}`} label={field.label} value={values[field.name]} disabled={locked} onChange={value => changeValue(field.name, value)} />
               : field.type === 'boolean' ? <FormControlLabel key={field.name} label={field.label} control={<Checkbox disabled={locked} checked={values[field.name] === true} onChange={(_, value) => changeValue(field.name, value)} />} />
               : <TextField key={field.name} label={field.label} required={field.required} disabled={locked} select={field.type === 'choice'}
                 type={['integer', 'number'].includes(field.type) ? 'number' : 'text'} value={values[field.name] ?? ''}
@@ -207,6 +208,7 @@ export default function DatabaseTools({ kind, active }: { kind: 'operation' | 'r
       <DialogTitle>Confirm {tool?.name}</DialogTitle><DialogContent>
         <Stack spacing={2} sx={{ pt: 1 }}>
           {error && <Alert severity="error">{error}</Alert>}
+          {preview?.target && <Typography sx={{ overflowWrap: 'anywhere' }}>Target: {preview.target}</Typography>}
           <Alert severity="warning">{preview?.summary} This cannot be undone.</Alert>
           <Box component="dl" sx={{ m: 0, overflowWrap: 'anywhere' }}>{Object.entries(preview?.details || {}).map(([key, value]) => <Box key={key} sx={{ mb: 1 }}><Typography component="dt" variant="caption" color="text.secondary">{key}</Typography><Typography component="dd" sx={{ m: 0 }}>{value == null ? '—' : String(value)}</Typography></Box>)}</Box>
           <TextField label={`Type ${preview?.confirmation ?? ''} to confirm`} value={confirmation} disabled={busy || uncertain} onChange={event => setConfirmation(event.target.value)} />

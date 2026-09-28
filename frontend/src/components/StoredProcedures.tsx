@@ -57,9 +57,11 @@ const dateLabel = (value: string | null) =>
 
 export default function StoredProcedures({
   active = true,
+  sourceId,
   onError,
 }: {
   active?: boolean;
+  sourceId?: string;
   onError?: (message: string) => void;
 }) {
   const [items, setItems] = useState<StoredItem[]>([]);
@@ -81,7 +83,7 @@ export default function StoredProcedures({
     setLoading(true);
     setError("");
     databaseAPI
-      .getStoredProcedures(refresh === 0)
+      .getStoredProcedures(refresh === 0, sourceId)
       .then((response) => {
         if (!current) return;
         const payload = response?.data?.data || {};

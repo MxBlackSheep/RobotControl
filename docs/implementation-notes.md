@@ -1,3 +1,10 @@
+## 2026-09-28 Configurable Database workspace and simpler report creation
+
+- Added named SQL Server connections for table/procedure viewers and explicit writable targets for operations. Schema-qualified browsing supports other labs without requiring RobotControl tables. Operation reviews capture the connection/version and reject changes; native scheduler, labware, monitoring and Restore connections remain separate. Existing operations need a target assignment once.
+- Database connections now offers reviewed creation of a new read-only account or existing-account setup. One-off SQL authority is discarded; new credentials are encrypted locally. Existing logins are never altered and failed setup rolls back/cleans up its new identity.
+- Create report starts with Upload Python or a no-database example. Ordinary/nested imports are detected without execution; package bookkeeping is under Details and compatible scripts skip the starter. Python calculations remain author-owned. SQL Server is supported; external SQLite remains deferred.
+- Focused SQL/HTTP checks, legacy scheduler/deletion/workbook checks and desktop/phone browser workflows passed. The product specialist accepted the screenshots. No new unit tests. Commands, fixture identities, useful failure traces, screenshots and Windows candidate verification are retained under `recovery/database-workspace-verification/index.html`; current author instructions are in `database_packages/README.md`.
+
 ## 2026-09-28 Saved report wizard and read-only SQL sources
 
 - Added Create report with saved private drafts, original/handler separation, starter download and edited-handler upload, trial Excel, package export and reviewed installation. Python calculations remain author-owned; multiple reports use the existing chooser. The product specialist reviewed desktop/phone screenshots and draft/result handling.

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, LinearProgress, Paper, Stack, Typography } from '@mui/material';
+import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, LinearProgress, MenuItem, TextField, Paper, Stack, Typography } from '@mui/material';
 import { api } from '../services/api';
 import ReportWizard from './ReportWizard';
 import ReportConnections, { Source, SourceMappings } from './ReportConnections';
@@ -27,7 +27,7 @@ export default function DatabasePackages({ active }: { active: boolean }) {
   const [removeDraft, setRemoveDraft] = useState<{ id: string; name: string }>();
   const [connectionsOpen, setConnectionsOpen] = useState(false);
   const [sources, setSources] = useState<Source[]>([]);
-  const [binding, setBinding] = useState<{ id: string; aliases: string[]; mappings: Record<string, string> }>();
+  const [binding, setBinding] = useState<{ id: string; aliases: string[]; mappings: Record<string, string>; operation_source?: string; has_operation?: boolean }>();
   const input = useRef<HTMLInputElement>(null);
   const target = useRef<string>();
   const load = useCallback(async (signal?: AbortSignal) => {
@@ -81,7 +81,7 @@ export default function DatabasePackages({ active }: { active: boolean }) {
     <Stack direction="row" justifyContent="space-between" gap={2} alignItems="center" flexWrap="wrap">
       <Typography component="h2" variant="h6">Manage packages</Typography>
       <Stack direction="row" gap={1} flexWrap="wrap">
-        <Button disabled={busy} onClick={() => setConnectionsOpen(true)}>Report connections</Button>
+        <Button disabled={busy} onClick={() => setConnectionsOpen(true)}>Database connections</Button>
         <Button variant="outlined" disabled={busy} onClick={() => setWizard('')}>Create report</Button>
         <Button variant="contained" disabled={busy} onClick={() => { target.current = undefined; input.current?.click(); }}>Add package</Button>
       </Stack>
@@ -110,7 +110,7 @@ export default function DatabasePackages({ active }: { active: boolean }) {
           </Box>
           {pkg.running > 0 && <Typography variant="body2">In use</Typography>}
           <Stack direction="row" spacing={1}>
-            {pkg.tools.some(t => t.kind === 'report') && <Button disabled={busy || pkg.running > 0} onClick={async () => {
+            {<Button disabled={busy || pkg.running > 0} onClick={async () => {
               try {
                 const [mapping, profiles] = await Promise.all([api.get(`/api/database/tools/packages/${pkg.id}/sources`), api.get('/api/database/tools/sources')]);
                 setSources(profiles.data); setBinding({ id: pkg.id, ...mapping.data });
@@ -150,15 +150,18 @@ export default function DatabasePackages({ active }: { active: boolean }) {
       }}>Remove draft</Button></DialogActions>
     </Dialog>
     <Dialog open={!!binding} onClose={() => !busy && setBinding(undefined)} fullWidth maxWidth="sm">
-      <DialogTitle>Assign report connections</DialogTitle><DialogContent><Stack spacing={2} sx={{ pt: 1 }}>
+      <DialogTitle>Assign connections</DialogTitle><DialogContent><Stack spacing={2} sx={{ pt: 1 }}>
         {error && <Alert severity="error">{error}</Alert>}
         <Button onClick={() => setConnectionsOpen(true)}>Configure connections</Button>
+        {binding?.has_operation && <TextField select label="Operation target" value={binding.operation_source || ''} disabled={busy} onChange={e => setBinding({ ...binding, operation_source: e.target.value })}>
+          <MenuItem value="">Not configured</MenuItem>{sources.filter(s => s.access === 'operation').map(s => <MenuItem key={s.id} value={s.id}>{s.name} · {s.database}</MenuItem>)}
+        </TextField>}
         {binding && <SourceMappings aliases={binding.aliases} sources={sources} mappings={binding.mappings}
           onChange={mappings => setBinding({ ...binding, mappings })} disabled={busy} />}
       </Stack></DialogContent><DialogActions><Button onClick={() => setBinding(undefined)} disabled={busy}>Cancel</Button>
         <Button disabled={busy} onClick={async () => {
           if (!binding) return; setBusy(true); setError('');
-          try { await api.put(`/api/database/tools/packages/${binding.id}/sources`, { mappings: Object.fromEntries(binding.aliases.map(x => [x, binding.mappings[x]])) }); setBinding(undefined); }
+          try { await api.put(`/api/database/tools/packages/${binding.id}/sources`, { mappings: Object.fromEntries(binding.aliases.map(x => [x, binding.mappings[x]])), operation_source: binding.operation_source || null }); setBinding(undefined); }
           catch (e) { setError(message(e)); } finally { setBusy(false); }
         }}>Save connections</Button></DialogActions>
     </Dialog>

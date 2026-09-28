@@ -7,7 +7,17 @@ const base = '/api/database/tools';
 type Draft = { name: string; package_id: string; version: string; libraries: string[]; original: string; handler: string;
   sources: string[]; mappings: Record<string, string>; inputs: ReportField[]; step: number };
 type Saved = { id: string; revision: number; draft: Draft };
-const empty = (): Draft => ({ name: 'New report', package_id: 'my-report', version: '1.0.0', libraries: ['openpyxl'],
+type Inspection = { available: string[]; unavailable: string[]; undetermined: string[]; compatible: boolean; adaptation: string[] };
+const example = `from openpyxl import Workbook
+
+def run(context, inputs):
+    book = Workbook()
+    book.active.append(['Sample', 'Value'])
+    book.active.append([inputs['label'], 42])
+    book.save(context.output_dir / 'example.xlsx')
+    return 'example.xlsx'
+`;
+const empty = (): Draft => ({ name: 'New report', package_id: 'report-' + crypto.randomUUID().slice(0, 8), version: '1.0.0', libraries: ['openpyxl'],
   original: '', handler: '', sources: ['primary'], mappings: {}, inputs: [], step: 0 });
 
 function LookupEditor({ field, fields, aliases, change }: { field: ReportField; fields: ReportField[]; aliases: string[]; change: (f: ReportField) => void }) {
@@ -37,6 +47,7 @@ function LookupEditor({ field, fields, aliases, change }: { field: ReportField; 
 
 export default function ReportWizard({ draftId, onClose }: { draftId?: string; onClose: () => void }) {
   const [saved, setSaved] = useState<Saved>(), [draft, setDraft] = useState<Draft>(empty);
+  const [inspection, setInspection] = useState<Inspection>();
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState('');
   const [sources, setSources] = useState<Source[]>([]), [connectionsOpen, setConnectionsOpen] = useState(false);
   const [values, setValues] = useState<Record<string, any>>({}), [job, setJob] = useState<any>(), [review, setReview] = useState<any>();
@@ -45,7 +56,7 @@ export default function ReportWizard({ draftId, onClose }: { draftId?: string; o
     const controller = new AbortController();
     if (draftId) {
       setBusy(true);
-      api.get(`${base}/drafts/${draftId}`, { signal: controller.signal }).then(r => { if (!controller.signal.aborted) { setSaved(r.data); setDraft(r.data.draft); } })
+      api.get(`${base}/drafts/${draftId}`, { signal: controller.signal }).then(r => { if (!controller.signal.aborted) { setSaved(r.data); setDraft(r.data.draft); void api.post(`${base}/authoring/inspect-python`, { source: r.data.draft.handler || r.data.draft.original }).then(x => { if (!controller.signal.aborted) setInspection(x.data); }).catch(() => {}); } })
         .catch(e => { if (!controller.signal.aborted) setError(requestMessage(e)); })
         .finally(() => { if (!controller.signal.aborted) setBusy(false); });
     }
@@ -80,8 +91,12 @@ export default function ReportWizard({ draftId, onClose }: { draftId?: string; o
     if (!file) return;
     void action(async () => {
       if (file.size > 1024 * 1024) throw { response: { data: { detail: 'Python files must be under 1 MiB.' } } };
-      const next = { ...draft, [which]: await file.text() }; await persist(next); setJob(undefined); setReview(undefined);
-      setNotice(which === 'original' ? 'Original script saved.' : 'Handler saved.');
+      const source = await file.text();
+      const { data } = await api.post<Inspection>(`${base}/authoring/inspect-python`, { source });
+      const next = { ...draft, [which]: source, libraries: data.available };
+      if (which === 'original') next.handler = data.compatible && !data.adaptation.length ? source : '';
+      await persist(next); setInspection(data); setJob(undefined); setReview(undefined);
+      setNotice(which === 'original' ? 'Python saved. It has not been run.' : 'Handler saved.');
     });
   };
   const download = async (url: string, name: string) => { const r = await api.get(url, { responseType: 'blob' }); saveBlob(r.data, name); };
@@ -95,19 +110,37 @@ export default function ReportWizard({ draftId, onClose }: { draftId?: string; o
     <Paper variant="outlined" sx={{ p: { xs: 1.5, md: 3 } }}><Box component="fieldset" disabled={busy || running} sx={{ border: 0, p: 0, m: 0, minWidth: 0 }}>
       {draft.step === 0 && <Stack spacing={2}>
         <TextField label="Report name" value={draft.name} onChange={e => update({ name: e.target.value })} />
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}><TextField fullWidth label="Package ID" value={draft.package_id} onChange={e => update({ package_id: e.target.value })} />
-          <TextField fullWidth label="Version" value={draft.version} onChange={e => update({ version: e.target.value })} /></Stack>
-        <TextField select label="Bundled libraries" SelectProps={{ multiple: true }} value={draft.libraries} onChange={e => update({ libraries: typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value })}>
-          {['pandas', 'openpyxl', 'pyodbc', 'numpy'].map(x => <MenuItem key={x} value={x}>{x}</MenuItem>)}</TextField>
-        <Button component="label" variant="outlined">Upload original Python<input hidden type="file" accept=".py" aria-label="Original Python" onChange={e => { upload('original', e.target.files?.[0]); e.target.value = ''; }} /></Button>
-        {draft.original && <Typography variant="body2">Original saved as reference. It has not been run.</Typography>}
-        {draft.original && <Button onClick={() => saveBlob(new Blob([draft.original], { type: 'text/x-python' }), 'original.py')}>Download original</Button>}
+        <Stack direction="row" flexWrap="wrap" gap={1}>
+          <Button component="label" variant="contained">Upload Python<input hidden type="file" accept=".py" aria-label="Original Python" onChange={e => { upload('original', e.target.files?.[0]); e.target.value = ''; }} /></Button>
+          {!draft.original && !draft.handler && <Button onClick={() => action(async () => {
+            const next: Draft = { ...empty(), name: 'Example report', sources: [], original: example, handler: example,
+              inputs: [{ name: 'label', label: 'Sample name', type: 'text', required: true, choices: [] }] };
+            await persist(next); setInspection((await api.post(`${base}/authoring/inspect-python`, { source: example })).data);
+          })}>Try an example</Button>}
+          {draft.original && <Button onClick={() => saveBlob(new Blob([draft.original], { type: 'text/x-python' }), 'original.py')}>Download original</Button>}
+        </Stack>
+        {inspection && <Stack spacing={1}>
+          <Typography variant="body2">Available libraries: {inspection.available.join(', ') || 'Python standard library'}</Typography>
+          {!!inspection.unavailable.length && <Alert severity="warning">Not bundled: {inspection.unavailable.join(', ')}. Adapt the script or upgrade RobotControl.</Alert>}
+          {inspection.undetermined.map(text => <Alert key={text} severity="info">{text}</Alert>)}
+          {inspection.adaptation.map(text => <Typography variant="body2" key={text}>{text}</Typography>)}
+          {draft.handler && <Typography variant="body2">Report entry point found. Ready to configure and try.</Typography>}
+        </Stack>}
+        <Box component="details"><Typography component="summary">Details</Typography><Stack spacing={2} sx={{ mt: 2 }}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}><TextField fullWidth label="Package ID" value={draft.package_id} onChange={e => update({ package_id: e.target.value })} />
+            <TextField fullWidth label="Version" value={draft.version} onChange={e => update({ version: e.target.value })} /></Stack>
+          <TextField select label="Bundled libraries" SelectProps={{ multiple: true }} value={draft.libraries} onChange={e => update({ libraries: typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value })}>
+            {['pandas', 'openpyxl', 'pyodbc', 'numpy'].map(x => <MenuItem key={x} value={x}>{x}</MenuItem>)}</TextField>
+        </Stack></Box>
       </Stack>}
       {draft.step === 1 && <Stack spacing={2}>
         <Stack direction="row" justifyContent="space-between"><Typography variant="subtitle1">Sources</Typography><Button onClick={() => setConnectionsOpen(true)}>Configure connections</Button></Stack>
-        <TextField label="Names used in Python (comma separated)" value={draft.sources.join(', ')} onChange={e => update({ sources: e.target.value.split(',').map(x => x.trim()) })} />
+        <FormControlLabel label="Uses a database" control={<Checkbox checked={!!draft.sources.length} onChange={(_, checked) => update({ sources: checked ? ['primary'] : [], mappings: {} })} />} />
+        {!!draft.sources.length && <Box component="details"><Typography component="summary">Source names in Python</Typography>
+          <TextField fullWidth sx={{ mt: 1 }} label="Names used in Python (comma separated)" value={draft.sources.join(', ')} onChange={e => update({ sources: e.target.value.split(',').map(x => x.trim()) })} />
+        </Box>}
         <SourceMappings aliases={draft.sources.filter(Boolean)} sources={sources} mappings={draft.mappings} onChange={mappings => update({ mappings })} />
-        {!sources.length && <Alert severity="info">Configure a read-only connection to try this report.</Alert>}
+        {!!draft.sources.length && !sources.filter(s => !s.access || s.access === 'read').length && <Alert severity="info">Configure a read-only connection to try this report.</Alert>}
         <Typography variant="subtitle1">Inputs</Typography>
         {draft.inputs.map((field, i) => <Paper key={i} variant="outlined" sx={{ p: 2 }}><Stack spacing={2}>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
@@ -125,13 +158,13 @@ export default function ReportWizard({ draftId, onClose }: { draftId?: string; o
         <Button onClick={() => update({ inputs: [...draft.inputs, { name: `input_${draft.inputs.length + 1}`, label: 'Input', type: 'text', required: true, choices: [] }] })}>Add input</Button>
       </Stack>}
       {draft.step === 2 && <Stack spacing={2}>
-        <Typography variant="subtitle1">Finish your Python</Typography>
-        <Typography variant="body2">Download a starter, add your calculations, then upload the completed handler.</Typography>
+        {!draft.handler && <><Typography variant="subtitle1">Adapt your Python</Typography>
+          <Typography variant="body2">Download the starter with your inputs and connections. Add your calculations, then upload it.</Typography></>}
         <Stack direction="row" flexWrap="wrap" gap={1}>
-          <Button variant="outlined" onClick={() => action(async () => { const s = await persist(); await download(`${base}/drafts/${s.id}/handler`, 'handler.py'); })}>Download starter</Button>
+          {!draft.handler && <Button variant="outlined" onClick={() => action(async () => { const s = await persist(); await download(`${base}/drafts/${s.id}/handler`, 'handler.py'); })}>Download starter</Button>}
           <Button component="label" variant="outlined">Upload handler.py<input hidden type="file" accept=".py" aria-label="Completed handler" onChange={e => { upload('handler', e.target.files?.[0]); e.target.value = ''; }} /></Button>
           {draft.handler && <Button onClick={() => saveBlob(new Blob([draft.handler], { type: 'text/x-python' }), 'handler.py')}>Download saved handler</Button>}
-          {/^[ \t]*def run\(/m.test(draft.original) && <Button title="Original already defines run(context, inputs)" onClick={() => action(async () => {
+          {!draft.handler && inspection?.compatible && <Button title="Original already defines run(context, inputs)" onClick={() => action(async () => {
             await persist({ ...draft, handler: draft.original }); setJob(undefined); setReview(undefined); setNotice('Original selected as handler.');
           })}>Use original as handler</Button>}
         </Stack>
