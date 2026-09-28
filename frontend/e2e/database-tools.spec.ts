@@ -14,7 +14,7 @@ test('local admin installs a report package, previews deletion and downloads Exc
   await page.getByRole('button', { name: 'Update Culture history', exact: true }).click();
   await page.locator('input[type=file]').setInputFiles(path.resolve('../recovery/database-verification/culture-history.zip'));
   await expect(page.getByRole('dialog')).toContainText('1.0.1 → 1.0.2');
-  await page.screenshot({ path: '../recovery/database-verification/package-update.png' });
+  await page.screenshot({ path: '../recovery/database-verification/package-update.png', animations: 'disabled' });
   await page.getByRole('button', { name: 'Update package', exact: true }).click();
   await expect(page.getByText('Culture history · 1.0.2')).toBeVisible();
   await page.goto('/database?section=operations');
