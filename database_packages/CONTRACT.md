@@ -1,7 +1,8 @@
 # Database package reference
 
-For the first report, follow [the worked example](README.md). This file describes
-the runtime interface and restrictions for authors and maintainers.
+For normal authoring, use the [Python-defined tool workflow](README.md).
+RobotControl generates the manifest and archive. This file describes the runtime
+interface and restrictions for advanced authors and maintainers.
 
 Packages are reviewed Python code running with RobotControl's permissions, not a
 sandbox. Only local administrators can install them. They cannot install libraries.

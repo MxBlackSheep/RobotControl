@@ -1,5 +1,6 @@
 """Authenticated public interface; never accepts SQL or Python entry points."""
 from typing import Any, Literal
+from contextlib import nullcontext
 import sqlite3
 import threading
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
@@ -245,6 +246,45 @@ class PythonUpload(BaseModel):
     source: str = Field(max_length=1024*1024)
 
 
+class ToolUpload(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    files: dict[str, str] = Field(max_length=99)
+    key: str | None = None
+    revision: int = Field(default=0, ge=0)
+
+
+@router.post('/authoring/import')
+def import_tool(payload: ToolUpload, user=Depends(local_admin), service=Depends(get_database_tools)):
+    return service.authoring.import_files(payload.files, owner(user), payload.key, payload.revision)
+
+
+@router.get('/authoring/examples/{kind}')
+def authoring_example(kind: Literal['report', 'operation'], user=Depends(local_admin)):
+    import sys
+    from pathlib import Path
+    root = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parents[2]))
+    return Response((root / 'database_packages' / 'examples' / f'{kind}.py').read_text('utf-8'),
+                    media_type='text/x-python', headers={'Content-Disposition': f'attachment; filename="{kind}.py"'})
+
+
+@router.get('/drafts/{key}/source')
+def tool_source(key: str, user=Depends(local_admin), service=Depends(get_database_tools)):
+    from backend.services.tool_definition import source_archive
+    draft = service.authoring.draft(key, owner(user))
+    if not draft.definition_file:
+        raise PackageError('Use the editing files for this older draft.')
+    if len(draft.files) == 1:
+        return Response(draft.files[draft.definition_file], media_type='text/x-python',
+                        headers={'Content-Disposition': f'attachment; filename="{draft.definition_file}"'})
+    return Response(source_archive(draft.files), media_type='application/zip',
+                    headers={'Content-Disposition': f'attachment; filename="{draft.package_id}-source.zip"'})
+
+
+@router.post('/authoring/{kind}/{tool_id}/edit')
+def edit_defined_tool(kind: Literal['report', 'operation'], tool_id: str, user=Depends(local_admin), service=Depends(get_database_tools)):
+    return service.authoring.edit_installed(tool_id, owner(user), kind, code_defined=True)
+
+
 @router.post('/authoring/inspect-python')
 def inspect_script(payload: PythonUpload, user=Depends(local_admin)):
     return inspect_python(payload.source)
@@ -314,26 +354,63 @@ def draft_choices(key: str, field_name: str, payload: ChoiceRequest, user=Depend
         return lookup_rows(conn, field, values, payload.search, payload.page)
 
 
+class DraftTrial(Inputs):
+    revision: int | None = None
+
+
 @router.post('/drafts/{key}/try')
-def try_draft(key: str, payload: Inputs, user=Depends(local_admin), service=Depends(get_database_tools)):
+def try_draft(key: str, payload: DraftTrial, user=Depends(local_admin), service=Depends(get_database_tools)):
     # Explicit trial permits importing the trusted handler; loading forms does not.
-    with service.authoring.lock:
-        draft = service.authoring.trial(key, owner(user))
-        return service.start_report(draft.package_id, payload.inputs, owner(user), service.authoring.trials, draft.mappings)
+    operation = service.authoring.draft(key, owner(user)).kind == 'operation'
+    with service.guard() if operation else nullcontext():
+        with service.authoring.lock, service.lock, service.catalogue.lock, service.sources.lock:
+            saved = service.authoring.get(key, owner(user))
+            if saved['draft'].get('definition_file') and payload.revision != saved['revision']:
+                raise PackageError('Draft changed. Reload it before trying.', 409)
+            service.authoring.clear_trial(key, owner(user))
+            draft = service.authoring.trial(key, owner(user))
+            if (draft.kind == 'operation') != operation:
+                raise PackageError('Tool type changed. Try again.', 409)
+            if operation:
+                result = service.preview_draft(draft, payload.inputs)
+            else:
+                result = service.start_report(draft.package_id, payload.inputs, owner(user), service.authoring.trials, draft.mappings)
+            service.authoring.record_trial(key, owner(user), saved['revision'], None if operation else result['id'])
+            return result
+
+
+@router.post('/drafts/{key}/check')
+def check_tool_setup(key: str, user=Depends(local_admin), service=Depends(get_database_tools)):
+    with service.authoring.lock, service.catalogue.lock, service.sources.lock:
+        service.authoring.check_base(key, owner(user))
+        draft = service.authoring.draft(key, owner(user))
+        service.catalogue.inspect(service.authoring.archive(draft, key, owner(user)))
+        snapshot = service.sources.snapshot(draft.package_id, draft.sources, draft.mappings)
+        with service.sources.connections(snapshot):
+            pass
+        if draft.kind == 'operation':
+            with service.sources.open(service.sources.get(draft.operation_source, 'operation')):
+                pass
+        return dict(message='Files, libraries and connections checked. Python has not been run.')
 
 
 class DraftInstall(BaseModel):
     model_config = ConfigDict(extra='forbid')
     expected_current: str = Field(max_length=64)
     revision: int = Field(ge=1)
+    reviewed: bool = False
 
 
 @router.post('/drafts/{key}/install')
 def install_draft(key: str, payload: DraftInstall, user=Depends(local_admin), service=Depends(get_database_tools)):
-    with service.authoring.lock, service.catalogue.lock, service.sources.lock:
+    with service.authoring.lock, service.lock, service.catalogue.lock, service.sources.lock:
         if service.authoring.get(key, owner(user))['revision'] != payload.revision:
             raise HTTPException(409, 'Draft changed. Review it again.')
         draft = service.authoring.draft(key, owner(user))
+        if draft.definition_file:
+            if not payload.reviewed:
+                raise PackageError('Review the trial result before enabling this tool.', 409)
+            service.authoring.require_trial(key, owner(user))
         baseline = service.authoring.check_base(key, owner(user))
         content = service.authoring.archive(draft, key, owner(user))
         from backend.services.database_packages import inspect_archive
@@ -344,8 +421,27 @@ def install_draft(key: str, payload: DraftInstall, user=Depends(local_admin), se
         service.sources.snapshot(draft.package_id, aliases, mappings)
         if set(mappings) != set(aliases):
             raise HTTPException(400, 'Map exactly the declared source aliases.')
-        result = service.catalogue.install(content, expected_current=payload.expected_current)
-        service.sources.bind(draft.package_id, aliases, mappings)
+        operation_source = draft.operation_source
+        if any(t.kind == 'operation' for t in manifest.tools):
+            operation_source = operation_source or service.sources.state['operation_bindings'].get(draft.package_id)
+            if draft.definition_file:
+                service.sources.get(operation_source, 'operation')
+        # Save connection assignments first under both locks; restore on failure.
+        # The package index remains the single activation point. No reader can
+        # observe a half-enabled tool in this process.
+        import copy
+        old_sources = copy.deepcopy(service.sources.state)
+        service.authoring.begin_activation(draft.package_id, content)
+        try:
+            service.sources.bind(draft.package_id, aliases, mappings)
+            if operation_source:
+                service.sources.bind_operation(draft.package_id, operation_source)
+            result = service.catalogue.install(content, expected_current=payload.expected_current)
+        except Exception:
+            service.sources._save(old_sources)
+            service.authoring.finish_activation()
+            raise
+        service.authoring.finish_activation()
     log_action(actor=owner(user), action='install_report_draft', scope='database', client_ip=None, success=True,
                details={'package': result['id'], 'version': result['version']})
     return result

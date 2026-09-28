@@ -176,5 +176,6 @@ def configure_fixture_report_sources(service):
         username='fixture', driver='fixture', trust_certificate=False) for name in ('primary', 'plates')}
 
     target = dict(id='operation', name='Disposable fixture', server='fixture', database='disposable', access='operation', revision='1')
+    service.sources.state['sources']['operation'] = target
     service.sources.operation_target = lambda package_id: dict(target)
     service.operation_experiments = lambda tool_id, search, page: vars(service.database.get_table_data('Experiments', limit=25, offset=(page-1)*25, search=search))

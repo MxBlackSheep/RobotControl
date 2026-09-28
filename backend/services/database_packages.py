@@ -13,6 +13,7 @@ import sys
 import threading
 import uuid
 import zipfile
+from types import ModuleType
 from datetime import date
 from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
@@ -285,7 +286,12 @@ class PackageCatalogue:
         with self.lock:
             if key not in self.modules:
                 path = self.root / entry["directory"] / f"{module_name}.py"
-                spec = importlib.util.spec_from_file_location(f"rc_database_{key[0]}_{module_name}", path)
+                namespace = f"rc_database_{key[0]}"
+                if namespace not in sys.modules:
+                    package = ModuleType(namespace)
+                    package.__path__ = [str(path.parent)]
+                    sys.modules[namespace] = package
+                spec = importlib.util.spec_from_file_location(f"{namespace}.{module_name}", path)
                 module = importlib.util.module_from_spec(spec)
                 sys.modules[spec.name] = module
                 try:
@@ -359,6 +365,10 @@ class PackageCatalogue:
             if key[0] == entry["directory"]:
                 module = self.modules.pop(key)
                 sys.modules.pop(module.__name__, None)
+        namespace = f"rc_database_{entry['directory']}"
+        for name in list(sys.modules):
+            if name == namespace or name.startswith(namespace + '.'):
+                sys.modules.pop(name, None)
         shutil.rmtree(self.root / entry["directory"], ignore_errors=True)
 
     def remove(self, package_id):

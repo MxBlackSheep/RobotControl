@@ -125,3 +125,23 @@ display the returned reason. No new unit tests; extend focused HTTP/browser chec
 - Report failure, timeout or process exit must leave the backend responsive and release its slot; report workers receive only the selected read connections. This is not a sandbox for hostile Python.
 - Preview must use the same robot/scheduler gate as execution and roll back its transaction. Concurrent configuration and execution must acquire locks in the same order.
 - Check one desktop and phone authoring flow, downloaded workbook, administrator restrictions, restart persistence and a relocated packaged worker. Retain commands, fixture identity and focused evidence.
+
+## Python-defined reports and operations (before implementation)
+
+- Importing a prepared Python file must not execute it. Reject nonliteral definitions,
+  bad inputs/dependency cycles, missing entry functions, unavailable libraries and
+  unsafe or duplicate supporting filenames. An ordinary script needs an explicit
+  adaptation message. Never overwrite an existing definition silently.
+- The same Add flow must reach a real report download and an operation preview,
+  without editing a manifest or constructing a ZIP. Selecting another experiment
+  clears its plate; forged values fail on the server. Relative helper imports work.
+- Only the draft owner/local administrator can configure, try or enable. Report
+  mappings cannot use writers. Operation trials use the robot safety gate and
+  rollback, create no execution token and never call the execution function.
+- Enabling requires a successful trial and explicit review for the current code
+  and connection snapshot. Replacement, stale draft saves, failed trials, source
+  edits, concurrent installed updates and restarts must not reuse old readiness.
+- Existing packages, report drafts, sibling tools and supporting files remain
+  usable. Export transfers code/definitions without local credentials or mappings.
+- Check focused HTTP workflows plus desktop/phone browser addition and editing;
+  then verify the prepared-Python route in a relocated Windows candidate.

@@ -1,212 +1,136 @@
-# Make a report from your Python script
+# Add a report or operation from Python
 
-A package contains your Python and the settings for its input form. **You edit
-Python; RobotControl handles the form settings and ZIP.**
+**Write the tool once in Python. RobotControl builds its form and package.**
+The author defines inputs, database relationships and behavior. The local
+administrator chooses this lab's connections, tries the tool and enables it.
 
-## Edit an installed package
+## Start with an example
 
-For a report, choose **Manage packages → Edit report → Download Python**. Edit
-the file yourself or with a coding agent, then **Replace Python → Try report**.
-Check the downloaded workbook, choose **Next → Review update → Publish update**.
-RobotControl suggests the next patch version and retains the input form, connection
-assignments, other tools and supporting files. No manifest or ZIP editing is needed.
-Discard removes only the draft. If someone updated the installed package or its
-connections meanwhile, start a new edit from that version.
+In **Database → Manage packages → Add tool**, download **Report example** or
+**Operation example**. Edit it yourself, optionally with a coding agent.
 
-For operation code, supporting-file edits or custom entry functions other than
-`run`, use **Download package**. Edit the extracted files, increase `version` in
-`manifest.json`, ZIP them with the manifest at the root, then choose **Update**.
-Local assignments/passwords are not exported; inspect authored code for secrets.
+- [Report example](examples/report.py): Experiment → Plate choices and Excel output.
+  It assumes `dbo.Experiments` and `dbo.Plates`; adapt the table/column names and
+  replace its example output with your report's calculations.
+- [Operation example](examples/operation.py): preview and delete one row in a
+  disposable `dbo.DemoItems` table. It is not a laboratory deletion procedure.
+  Adapt both functions before using it against real data.
 
-A tool's `kind` in the manifest decides its page: `report` appears in Data retrieval;
-`operation` appears in Operations. A package can contain both. Each page always
-shows its selector; installing more tools adds choices, not new tabs.
+An existing `Data.py` needs one adaptation: receive inputs and the supplied
+connection, keep its calculations, and return its output filename. Upload does
+not translate arbitrary Python. You do not create a manifest, name entry points,
+specify a package version or construct a ZIP.
 
-## Recommended: create it in RobotControl
+## What belongs in the Python
 
-1. Open **Database → Manage packages → Create report → Upload Python**.
-   RobotControl detects ordinary imports, including imports inside functions. It
-   lists bundled libraries and anything that needs manual attention without running
-   the file. **Try an example** demonstrates the same flow without SQL setup.
-2. In **Data and inputs**, choose connections and add the fields users need. Use
-   **Configure connections** if this is your first report. Package IDs, versions and
-   manual library overrides are under **Details**; source aliases are under
-   **Source names in Python**.
-3. If the script already supplies `run(context, inputs)`, it can proceed directly.
-   Otherwise choose **Download editing files**. The ZIP contains `original.py`,
-   a configured `handler.py`, `inputs.json` and `EDITING.md` for you or a coding
-   agent. Keep your calculations and adapt connection, input and output handling.
-   Choose **Upload adapted script** when ready. This ZIP is for editing, not installation.
-   Your draft retains
-   its form settings while you edit outside RobotControl, with or without a coding agent.
-4. **Try report**, check the Excel output, then **Install** here or **Export package**
-   for another installation. A successful trial does not establish calculation accuracy.
+One literal `TOOL` dictionary describes the tool beside its functions:
 
-### Set up a connection once
+```python
+TOOL = {
+    'name': 'My report',
+    'kind': 'report',
+    'inputs': {
+        'experiment_id': {
+            'label': 'Experiment', 'type': 'integer',
+            'query': 'SELECT ExperimentID AS value, UserDefinedID AS label FROM dbo.Experiments',
+        },
+        'plate_id': {
+            'label': 'Plate', 'type': 'integer',
+            'query': 'SELECT PlateID AS value, CAST(PlateID AS nvarchar(40)) AS label FROM dbo.Plates WHERE ExpID = ?',
+            'depends_on': ['experiment_id'],
+        },
+    },
+}
 
-Open **Database → Database settings → Manage connections**, enter a name,
-server and database, then choose:
-
-- **Create read-only account:** name a new SQL login, choose **Review access**, check
-  the database and grants, and supply SQL administrator credentials for **Create account**.
-  Alternatively, use the Windows identity running RobotControl if it has the required
-  SQL authority. Setup credentials are used once and are not saved. The generated
-  reader password is encrypted locally. This grants CONNECT, SELECT and VIEW DEFINITION
-  on the named database, including future tables; existing SQL accounts are never changed.
-- **Use existing account:** enter the credentials your lab provides. Choose
-  **Read-only: viewers and reports** or **Operations: database changes**. The latter
-  must not be used for reports. **Check and save** verifies the supplied access.
-
-Certificate trust is explicit. After a successful save, this browser remembers
-your choice for that exact server name only. Encryption remains enabled; checking
-**Trust server certificate** skips verification of the server certificate.
-
-If you do not have SQL authority, download the reviewed SQL for your administrator.
-They replace the password placeholder and run it, then give you the reader credentials
-for **Use existing account**. The Microsoft ODBC driver must be installed on the host;
-Python and UV are not needed on the deployment computer.
-
-For an operation, choose its **Connections → Operation target** after installing it.
-Existing operations also need this explicit assignment after this upgrade. Table and
-procedure viewers use the shared **Viewer database** chosen by the local admin in
-Database settings. Report packages
-retain their source mappings. None of these choices redirects robot functions or Restore.
-
-The wizard does not translate arbitrary Python calculations. Your handler implements
-`run(context, inputs)`, uses `context.connections['source-name']`, writes Excel under
-`context.output_dir`, and returns its filename. For example, a Plate dropdown sends
-the selected ID as `inputs['plate_id']`; its displayed label is not passed to Python.
-
-For database dropdowns, **Build from columns** takes a table, ID column and label
-column. For Plate choices, set **Filter using earlier answer = Experiment** and
-**Filter column = ExperimentID**. Choose **Use columns** to apply. Changing the
-Experiment answer clears Plate and any later choices depending on it.
-
-For joins or multiple filters, **Advanced SQL** accepts a SELECT returning `value`
-and `label`. Use `?` for each parent value, and select parents in parameter order:
-
-```sql
-SELECT PlateID AS value, PlateName AS label FROM dbo.Plates WHERE ProjectID = ?
+def run(context, inputs):
+    # Use context.connection and inputs['plate_id'] for your calculations.
+    # Write Excel into context.output_dir and return its filename.
+    ...
 ```
 
-Choose `project_id` under **Depends on**. Changing Project clears Plate. Choose the
-correct value type (integer for an integer ID). No experiment table is required.
+This excerpt illustrates the interface; the linked report example is complete.
+Input names become the keys in `inputs`. Queries return `value` (the Python input)
+and `label` (what the user sees). Each `?` receives the input at the corresponding
+position in `depends_on`. Changing a parent clears its dependent choices; the
+server checks membership again when running. Queries can use joins and your own
+tables; no particular experiment or plate schema is required.
 
-Use **Save and close**, then **Resume** to continue later. Drafts belong to their
-author. For an installed report, start from **Edit report** so the draft captures
-the current installation and suggests its next version.
+Ordinary fields can be concise: `'start_date': 'date'` or
+`'format': {'type': 'choice', 'choices': ['Detailed', 'Summary']}`. Supported types
+are text, integer, number, boolean, date and choice. Database choices use text,
+integer or number plus `query`. Labels default from the input name; inputs are
+required unless `required: False` is supplied.
 
-Connection passwords stay on this computer and are not exported with settings.
-Installation on another computer needs local source assignments. Existing reports,
-including Culture history, need **Connections → primary** assigned once after the
-application upgrade; generation is blocked until configured. No write connection
-is used as a fallback. Reviewed Python remains required; this is not a code sandbox.
+Reports default to one read-only connection named `primary`. Set `connections: []`
+for a report without a database, or `connections: ['primary', 'measurements']`
+for several. Choose a dropdown source with `source: 'measurements'`. Python uses
+`context.connections['measurements']`; `context.connection` is the primary connection.
 
-Already have a ZIP? Use **Database → Manage packages → Install package**, or **Update**
-beside the installed package. You do not need the steps below just to install it.
+An operation uses `kind: 'operation'`, `confirm: 'item_id'`, and both
+`preview(context, inputs)` and `run(context, inputs)`. Preview returns
+`{'summary': '...', 'details': {...}}`; it must only read. The operation database
+is `context.connection`. Database dropdowns use separate read-only connections.
+The host owns commit/rollback: do not commit inside your functions.
 
-## Alternative: command-line authoring
+## Add, check and enable
 
-Keep this route for existing source folders and database operations. These commands
-require Python/UV on the development PC; the wizard and installed reports do not.
+1. **Add Python**: select the prepared file and any supporting files together.
+   RobotControl reads the definition and ordinary imports without running them.
+   The generated form appears beside source and connection controls.
+2. Choose saved connections. Reports and dropdowns require readers; operations
+   require a separate operation account. **Manage connections** opens setup; see
+   the [database guide](../docs/maintenance/backend/database-maintenance-guide.md).
+3. **Check setup**, then select inputs. **Try report** generates Excel to download
+   and inspect. **Try preview** calls only the operation's preview, creates no
+   execution confirmation and does not call its run function.
+4. Review the Python and result, check the review box, and **Enable report** or
+   **Enable operation**. It becomes available in Data retrieval or Operations.
 
-### 1. Create a working folder
+Changing files or connections invalidates the trial. After reopening a draft or
+restarting RobotControl, check and try again. **Save and close** retains work;
+**Discard and close** removes the draft without touching installed tools.
 
-On your development PC, open PowerShell in the RobotControl repository:
+Setup checks establish file, library and connection compatibility, not scientific
+correctness. Trials execute trusted Python. A report label or separate process
+does not sandbox filesystem/network access. Supplied report connections are
+verified as read-only; uploaded Python still requires code review. Operations
+retain local-admin access, robot/scheduler gates, target preview, typed confirmation,
+transactions and duplicate-submission protection.
+
+## Edit or move a tool
+
+Choose **Edit report** or **Edit operation**, then **Download source**. Edit the
+Python and choose **Replace or add files**, try again, and **Publish update**.
+Use **Replace all files** when deleting/renaming files: select the complete new
+source set. The server rejects an incomplete set without replacing the draft.
+RobotControl retains identity, suggests a patch version and preserves sibling
+tools by default. A changed installation or connection assignment blocks an old
+draft. Custom entry functions outside `run`/`preview` still use the ZIP route.
+
+Use **Export package** in the editor or **Download package** on an installed row
+to move the complete tool. **Import package ZIP** retains the existing reviewed
+package route; assign local connections after import. Saved passwords and local
+assignments are not exported. Check authored Python for hard-coded secrets.
+
+Supporting files stay in one flat folder: `.py`, `.json`, `.md` and `.txt`.
+Use relative imports such as `from .calculations import build_workbook`, including
+`calculations.py` when uploading. Multiple files download as a source ZIP: extract
+it for editing, then select the files to upload. New additions require one TOOL
+definition. Existing mixed packages retain other tools when one is edited.
+Ordinary imports identify bundled libraries; dynamic imports cannot be inferred.
+Unavailable libraries need an application upgrade.
+
+Python/UV are not needed on deployment computers. Source uploads allow up to
+3 MiB and 99 files; generated packages also follow [CONTRACT.md](CONTRACT.md).
+
+## Existing projects and drafts
+
+Older report drafts resume in their original wizard. Existing ZIPs and the
+command-line builder remain supported. For an existing source folder:
 
 ```powershell
-cd C:/Users/Hamilton/Desktop/RobotControl
-uv run --locked python build_scripts/database_package.py create ../MyDatabasePackages/my-report --script C:/Scripts/Data.py
+uv run --locked python build_scripts/database_package.py build C:/Scripts/MyPackage --version 1.0.1
 ```
 
-Replace `C:/Scripts/Data.py` with your script's path; put quotes around it if it
-contains spaces. The new `my-report` folder must not already exist.
-
-For a report that asks the user to select an experiment, answer:
-
-| Prompt | Enter |
-| --- | --- |
-| Name shown in RobotControl | `My culture report` |
-| Stable package ID | `my-report` |
-| Type | `report` |
-| Version | `1.0.0` |
-| Libraries | `pandas,openpyxl,pyodbc` |
-| Input | `experiment_id:experiment:Experiment` |
-| Next Input | Press Enter without typing anything |
-
-The input line means: give Python a value named `experiment_id`, let the user
-select an experiment, and label that control **Experiment**.
-
-The helper creates `C:/Users/Hamilton/Desktop/MyDatabasePackages/my-report`:
-
-- **handler.py:** the Python file you will edit.
-- **manifest.json:** settings generated from your answers.
-- **reference/Data.py:** an untouched copy of your original script.
-- **AGENTS.md:** adaptation instructions for you or a coding agent.
-
-**This creates a starting folder. It does not convert your original script.**
-
-### 2. Finish handler.py
-
-Keep your calculations, record-selection rules and workbook formatting. Change
-how the script receives its input, connection and output location:
-
-| Standalone script | Inside `run(context, inputs)` in handler.py |
-| --- | --- |
-| Reads an experiment from command-line arguments | Read `inputs["experiment_id"]` |
-| Opens its own database connection | Use `context.connection` |
-| Writes to a fixed Excel path | Save to `context.output_dir / "report.xlsx"` |
-| Ends after saving | Return `"report.xlsx"` |
-
-Move the relevant functions from the original into `handler.py`; do not simply call
-its standalone `main()`. RobotControl calls `run(context, inputs)` for you.
-
-You can do this yourself, or give a coding agent this request:
-
-> Open C:/Users/Hamilton/Desktop/MyDatabasePackages/my-report. Read AGENTS.md and
-> the original script in reference/. Complete handler.py for RobotControl. Preserve
-> the calculations, record selection and Excel formatting. Use the supplied database
-> connection and experiment input. Explain uncertainty before changing report
-> behavior. Check the result with disposable data.
-
-When the adapter is complete, remove its `ADAPT_BEFORE_BUILD` comment. Removing the
-comment alone does not finish the code.
-
-## 3. Build the ZIP
-
-From the same RobotControl repository:
-
-```powershell
-uv run --locked python build_scripts/database_package.py build ../MyDatabasePackages/my-report
-```
-
-This produces `C:/Users/Hamilton/Desktop/MyDatabasePackages/my-report-1.0.0.zip`.
-It checks package structure and Python syntax; it does not prove calculations are
-correct. If it reports an unfinished adapter, go back to step 2.
-
-## 4. Install and check the report
-
-1. Open **Database → Manage packages → Install package**.
-2. Choose `my-report-1.0.0.zip`, review the name/version, then install.
-3. Open **Database → Data retrieval** and choose **My culture report**.
-4. Select an experiment from disposable data, generate Excel and check its contents.
-
-Keep the `my-report` source folder. You will edit it for future updates.
-
-### Update your command-line project later
-
-Edit the existing `handler.py`; **do not run create again**. Then build a new version:
-
-```powershell
-uv run --locked python build_scripts/database_package.py build ../MyDatabasePackages/my-report --version 1.0.1
-```
-
-Click **Update** beside My culture report and choose `my-report-1.0.1.zip`.
-Keep its package ID unchanged so RobotControl recognizes the update.
-
-Python and UV are needed on the development PC for these commands, not on the
-robot's deployment PC. Updating the RobotControl executable does not replace an
-already installed report; update the report's ZIP separately.
-
-For operations that change data, other input types, libraries and limits, see the
-[technical reference](CONTRACT.md).
+That advanced route uses an existing `manifest.json`; see [CONTRACT.md](CONTRACT.md).
+New tools should use the Python-defined route above.

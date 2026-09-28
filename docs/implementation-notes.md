@@ -1,3 +1,10 @@
+## 2026-09-28 Python-defined reports and operations
+
+- Manage packages now has one Add tool workflow: upload prepared Python, choose connections, try, then enable. A small `TOOL` definition produces the form; imports identify bundled libraries, and RobotControl builds versions/manifests/ZIPs. Authors still adapt their calculations; Python is trusted code, not sandboxed.
+- Reports generate downloadable Excel; operation trials call only preview under launch protection and rollback, with no execution token. Enabling checks the current draft, trial result, connection revision and explicit review. Existing Operations confirmation and execution remain separate.
+- Edit report/operation preserves identity and supporting files, supports complete file replacement, and keeps the installed version until publication. Old drafts and package ZIPs remain supported. Activation journals recover interrupted connection assignment.
+- Focused real SQL/HTTP and desktop/phone browser checks, workbook evidence and repeat commands: `recovery/tool-authoring-verification/index.html`. Relocated Windows candidate results are recorded there. No new unit tests.
+
 ## 2026-09-28 Simpler database setup and installed report editing
 
 - Tables and Stored procedures now use one admin-selected, server-persisted viewer database. Schedule preparation shows the active setup before editing; the existing connection is visible and ordinary EvoYeast selection no longer requires optional ResetHamiltonTables.

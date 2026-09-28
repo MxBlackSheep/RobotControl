@@ -358,6 +358,36 @@ Packages are trusted software, not sandboxed SQL definitions.
 
 ### Package inspection and authoring
 
+New tools use `TOOL` in Python; see [the authoring guide](../../../database_packages/README.md)
+and `backend/services/tool_definition.py`. AST/literal inspection derives the existing
+manifest contract, inputs, entry points and ordinary imports without executing source.
+IDs are generated once; versions are suggested when editing. Relative helper imports
+run inside a unique package namespace, without modifying `sys.path`.
+
+`POST /authoring/import` creates/replaces an owned code-defined draft.
+`POST /authoring/{report|operation}/{tool_id}/edit` adapts a conventional installed
+handler for editing. Both reuse `ReportAuthoring` and the existing executors.
+`/drafts/{key}/check` checks files/connections without importing Python. `/try`
+runs the report worker or a guarded, rolled-back operation preview without issuing
+an execution token. Runtime Python remains trusted, including previews.
+
+Code-defined `/install` requires a successful trial, explicit review, matching draft
+revision and source fingerprint. Report jobs must still be ready; restarting
+invalidates readiness. New drafts cannot overwrite tools installed meanwhile.
+Operations retain their separate execution API. Old drafts and ZIPs stay compatible.
+
+Activation holds authoring, job, catalogue and source locks in that order. A small
+`report-drafts/activation.pending` journal records previous mappings and the new
+archive hash before assigning connections. The package index is the activation
+point; startup restores previous mappings if that hash was not activated. The
+journal contains no passwords and is removed after success/recovery. Preserve the
+job/catalogue/source lock order used by execution. Trials store source fingerprints,
+not credential snapshots.
+
+Focused check: `.venv/Scripts/python.exe -m backend.e2e.tool_authoring_check`.
+It uses disposable UUID-named SQL Server databases/accounts and records workbook
+checksums and cleanup in `recovery/tool-authoring-verification`.
+
 `POST /api/database/tools/packages/inspect` reads and compiles the ZIP without
 importing Python or writing an installation. It returns the manifest and current
 installed version/hash. The install route accepts `expected_current` (the reviewed

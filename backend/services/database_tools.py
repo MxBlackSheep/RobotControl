@@ -105,6 +105,24 @@ class DatabaseTools:
                     target=target, choices=choices, sha256=entry['sha256'], package_id=entry['manifest']['id'], package_version=entry['manifest']['version'], snapshot=digest(result), expires=time.time()+600)
             return dict(token=token, confirmation=str(inputs[tool.confirmation_field]), target=self.target_label(target), **result)
 
+    def preview_draft(self, draft, inputs):
+        """Explicit authoring trial: preview only, without an execution token."""
+        catalogue = self.authoring.trials
+        with catalogue.reserve(draft.package_id, 'operation') as (entry, tool):
+            inputs = tool.validate_values(inputs)
+            with self.sources.lock:
+                target = self.sources.get(draft.operation_source, 'operation')
+                snapshot = self.sources.snapshot(draft.package_id, tool.sources, draft.mappings)
+                with self.sources.connections(snapshot) as connections, self.sources.open(target) as conn:
+                    self.validate_choices(tool, inputs, connections)
+                    try:
+                        result = catalogue.function(entry, tool.preview)(SimpleNamespace(connection=conn, connections=connections), inputs)
+                    finally:
+                        conn.rollback()
+            if not isinstance(result, dict):
+                raise PackageError('Preview must return a summary and details dictionary.')
+            return dict(summary=result.get('summary', ''), details=result.get('details', {}), target=self.target_label(target))
+
     @staticmethod
     def target_label(target):
         return f"{target['name']} · {target['server']} / {target['database']}"

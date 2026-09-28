@@ -10,24 +10,26 @@ procedures display its name without a dropdown. Package rows show tool
 counts, Download package, Connections, Update and Remove. Tool `kind` controls
 Operations versus Data retrieval; the selector remains visible with one tool.
 
-**Edit report** opens a private draft at Try report, with the installed Python,
-inputs and source mappings. Replace Python, try/download Excel, then review and
-publish the suggested patch version. The backend preserves sibling tools/assets
-and rejects a changed installation base. A package with several reports has an
-Edit action per report. Custom entry functions other than `run` retain the ZIP path.
-The choice builder adds an optional earlier-answer filter; opening Advanced SQL
-never rewrites an existing query. Parent changes clear dependent answers recursively.
+**Add tool**, **Edit report** and **Edit operation** use `ToolAuthoring.tsx`.
+Prepared Python supplies the form, with no second input editor. Source/connections
+sit beside the generated trial form, stacking on phones. File or connection edits
+clear readiness. The backend checks the saved revision, source snapshot and installed
+base before enabling. Reports need a successful workbook; operation trials call
+preview only and expose no execution token. An explicit review checkbox permits
+publishing. Supporting files and sibling tools are preserved by default; Replace
+all files supports deletions/renames and rejects incomplete source sets. Parent
+changes clear dependent answers recursively. Versions are suggested by the server.
 
 **Schedule preparation** shows active setup first. **Change setup** reveals the
 laboratory database; preparation implementation is under Advanced. The existing
 laboratory connection is an explicit option, never a blank selection. Experiment
 selection remains in each schedule, separate from installation settings.
 
-Create report distinguishes import inspection from Python adaptation. Download
-editing files preserves the original, a configured handler and input contract;
-Upload adapted script enables a trial once its entry point and libraries are
-available. Inspection is not a correctness or sandbox guarantee. Install package
-accepts a reviewed ZIP; it does not adapt a standalone Python file.
+`ReportWizard.tsx` remains only for older drafts; its endpoints stay compatible.
+New additions use static TOOL declarations described in `database_packages/README.md`.
+Import package ZIP retains existing package transfer; it does not adapt standalone
+scripts. Inspection is not a correctness or sandbox guarantee. `ReportInputs` is
+shared between trial and installed-tool forms.
 
 Read-only account review describes capabilities before technical grants. The
 Windows account is the application's process identity. Certificate trust stays

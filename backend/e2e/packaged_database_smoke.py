@@ -100,6 +100,28 @@ def run(context, inputs):
             result['package_sha256']=hashlib.sha256(package).hexdigest()
             request(prefix,token=token,method='DELETE')
             request('/api/database/tools/packages/portable-sql-report',token=token,method='DELETE')
+            # Prepared Python uses the same bundled runtime, including relative helpers.
+            from backend.e2e.tool_authoring_check import REPORT
+            for kind in ('report', 'operation'):
+                assert b'TOOL' in request('/api/database/tools/authoring/examples/'+kind,token=token)
+            saved=request('/api/database/tools/authoring/import',{'files':{
+                'report.py':REPORT, 'helper.py':"heading='Packaged'\n"}},token)
+            prefix='/api/database/tools/drafts/'+saved['id']
+            saved=request(prefix,{'draft':{**saved['draft'],'mappings':{'primary':'primary'}},'revision':saved['revision']},token,method='PUT')
+            request(prefix+'/check',{},token)
+            choices=request(prefix+'/choices/plate',{'inputs':{'experiment':1}},token)
+            assert {x['value'] for x in choices['options']}=={11,12}
+            job=finished(request(prefix+'/try',{'inputs':{'experiment':1,'plate':11},'revision':saved['revision']},token))
+            content=request('/api/database/tools/reports/'+job['id']+'/download',token=token)
+            assert list(openpyxl.load_workbook(io.BytesIO(content)).active.values)==[('Packaged','Same name',11)]
+            (evidence/'packaged-python-tool.xlsx').write_bytes(content)
+            reviewed=request(prefix+'/review',token=token)
+            request(prefix+'/install',{'revision':saved['revision'],'expected_current':reviewed['current_sha256'],'reviewed':True},token)
+            finished(request('/api/database/tools/reports/plate-export',{'inputs':{'experiment':2,'plate':21}},token))
+            request(prefix,token=token,method='DELETE')
+            request('/api/database/tools/packages/plate-export',token=token,method='DELETE')
+            result['checks'].append('Prepared Python: bundled examples, relative helper import, dependent form, real SQL Excel trial, enable and installed generation passed')
+            result['python_tool_workbook_sha256']=hashlib.sha256(content).hexdigest()
         finally:
             admin = fixture['admin']
             admin.execute('USE master')

@@ -4,6 +4,7 @@ import { api } from '../services/api';
 import { saveBlob } from './ReportInputs';
 import { Link } from 'react-router-dom';
 import ReportWizard from './ReportWizard';
+import ToolAuthoring from './ToolAuthoring';
 import ReportConnections, { Source, SourceMappings } from './ReportConnections';
 
 type Package = { id: string; name: string; version: string; sha256: string; running: number;
@@ -25,7 +26,8 @@ export default function DatabasePackages({ active }: { active: boolean }) {
   const [notice, setNotice] = useState('');
   const [remove, setRemove] = useState<Package>();
   const [wizard, setWizard] = useState<string>();
-  const [drafts, setDrafts] = useState<{ id: string; name: string }[]>([]);
+  const [toolEditor, setToolEditor] = useState<string>();
+  const [drafts, setDrafts] = useState<{ id: string; name: string; code_defined?: boolean }[]>([]);
   const [removeDraft, setRemoveDraft] = useState<{ id: string; name: string }>();
   const [connectionsOpen, setConnectionsOpen] = useState(false);
   const [sources, setSources] = useState<Source[]>([]);
@@ -79,25 +81,26 @@ export default function DatabasePackages({ active }: { active: boolean }) {
   const downgrade = !!review?.current_version && older(review.package.version, review.current_version);
   const action = !review?.current_version ? 'Install package' : downgrade ? 'Install older version' : review.current_version === review.package.version ? 'Replace version' : 'Update package';
   if (wizard !== undefined) return <ReportWizard draftId={wizard || undefined} onClose={() => { setWizard(undefined); void load(); }} />;
+  if (toolEditor !== undefined) return <ToolAuthoring draftId={toolEditor || undefined} onClose={() => { setToolEditor(undefined); void load(); }} />;
   return <Stack spacing={2}>
     <Stack direction="row" justifyContent="space-between" gap={2} alignItems="center" flexWrap="wrap">
       <Typography component="h2" variant="h6">Manage packages</Typography>
       <Stack direction="row" gap={1} flexWrap="wrap">
         <Button component={Link} to="/database?section=settings">Database settings</Button>
-        <Button variant="outlined" disabled={busy} onClick={() => setWizard('')}>Create report</Button>
-        <Button variant="contained" disabled={busy} onClick={() => { target.current = undefined; input.current?.click(); }}>Install package</Button>
+        <Button variant="outlined" disabled={busy} onClick={() => { target.current = undefined; input.current?.click(); }}>Import package ZIP</Button>
+        <Button variant="contained" disabled={busy} onClick={() => setToolEditor('')}>Add tool</Button>
       </Stack>
     </Stack>
     <input ref={input} hidden type="file" accept=".zip" onChange={event => {
       const selected = event.target.files?.[0]; event.target.value = ''; if (selected) void inspect(selected);
     }} />
-    <Typography color="text.secondary" variant="body2">Install a reviewed package ZIP, or create a report from Python.</Typography>
+    <Typography color="text.secondary" variant="body2">Add a report or operation from reviewed Python, or import an existing package.</Typography>
     {error && !review && <Alert severity="error">{error}</Alert>}
     {notice && <Alert severity="success">{notice}</Alert>}
     {busy && <LinearProgress />}
     {!!drafts.length && <Paper variant="outlined" sx={{ p: 2 }}><Typography variant="subtitle1">Saved drafts</Typography>
       {drafts.map(d => <Stack key={d.id} direction="row" alignItems="center"><Typography sx={{ flex: 1 }}>{d.name}</Typography>
-        <Button onClick={() => setWizard(d.id)}>Resume</Button><Button color="error" onClick={() => setRemoveDraft(d)}>Remove draft</Button></Stack>)}
+        <Button onClick={() => d.code_defined ? setToolEditor(d.id) : setWizard(d.id)}>Resume</Button><Button color="error" onClick={() => setRemoveDraft(d)}>Remove draft</Button></Stack>)}
     </Paper>}
     {!packages.length && !busy && <Typography>No packages installed.</Typography>}
     <Paper variant="outlined">
@@ -113,11 +116,11 @@ export default function DatabasePackages({ active }: { active: boolean }) {
           </Box>
           {pkg.running > 0 && <Typography variant="body2">In use</Typography>}
           <Stack direction="row" gap={1} flexWrap="wrap">
-            {pkg.tools.filter(t => t.kind === 'report').map(t => <Button key={t.id} disabled={busy} onClick={async () => {
+            {pkg.tools.map(t => <Button key={t.id} disabled={busy} onClick={async () => {
               setBusy(true); setError('');
-              try { const r = await api.post(`/api/database/tools/reports/${t.id}/edit`, {}); setWizard(r.data.id); }
+              try { const r = await api.post(`/api/database/tools/authoring/${t.kind}/${t.id}/edit`, {}); setToolEditor(r.data.id); }
               catch(e) { setError(message(e)); } finally { setBusy(false); }
-            }}>{pkg.tools.filter(x => x.kind === 'report').length === 1 ? 'Edit report' : `Edit ${t.name}`}</Button>)}
+            }}>{pkg.tools.length === 1 ? `Edit ${t.kind}` : `Edit ${t.name}`}</Button>)}
             <Button disabled={busy} onClick={async () => { try { const r = await api.get(`/api/database/tools/packages/${pkg.id}/export`, { responseType: 'blob' }); saveBlob(r.data, /filename="([^"]+)"/.exec(r.headers['content-disposition'] || '')?.[1] || `${pkg.id}-${pkg.version}.zip`); } catch (e) { setError(message(e)); } }}>Download package</Button>
             {<Button disabled={busy || pkg.running > 0} onClick={async () => {
               try {

@@ -8,6 +8,7 @@ import threading
 import uuid
 import zipfile
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 from backend.services.database_packages import Manifest, PackageCatalogue, PackageError, inspect_archive, SUPPORTED_LIBRARIES
@@ -67,11 +68,32 @@ class ReportDraft(BaseModel):
     step: int = Field(default=0, ge=0, le=3)
     tool_id: str | None = Field(default=None, pattern=r'^[a-z][a-z0-9-]{0,63}$')
     entrypoint: str = Field(default='handler:run', pattern=r'^[a-zA-Z_][a-zA-Z_0-9]*:run$')
+    kind: Literal['report', 'operation'] = 'report'
+    preview: str | None = None
+    confirmation_field: str | None = None
+    definition_file: str | None = None
+    files: dict[str, str] = Field(default_factory=dict, max_length=99)
+    operation_source: str | None = None
 
     def manifest(self):
         return Manifest.model_validate(dict(contract_version=2, id=self.package_id, name=self.name,
             version=self.version, libraries=self.libraries, tools=[dict(id=self.tool_id or self.package_id, name=self.name,
-                kind='report', entrypoint=self.entrypoint, sources=self.sources, inputs=self.inputs)]))
+                kind=self.kind, entrypoint=self.entrypoint, sources=self.sources, inputs=self.inputs,
+                preview=self.preview, confirmation_field=self.confirmation_field)]))
+
+    def derive(self):
+        if self.definition_file:
+            from backend.services.tool_definition import definition
+            filename, manifest = definition(self.files, self.definition_file)
+            tool = manifest.tools[0]
+            for key in ('name', 'kind', 'entrypoint', 'preview', 'confirmation_field', 'sources'):
+                setattr(self, key, getattr(tool, key))
+            self.inputs = [x.model_dump() for x in tool.inputs]
+            self.libraries = manifest.libraries
+            self.handler = self.files[filename]
+        elif self.kind != 'report':
+            raise PackageError('Add operations from Python containing a TOOL definition.')
+        return self
 
 
 class ReportAuthoring:
@@ -80,8 +102,39 @@ class ReportAuthoring:
         self.root.mkdir(exist_ok=True)
         self.lock = threading.RLock()
         self.service = service
+        self.session = uuid.uuid4().hex
+        self.activation = self.root / 'activation.pending'
+        self.recover_activation()
         (self.root / 'empty').mkdir(exist_ok=True)
         self.trials = PackageCatalogue(self.root / 'trials', self.root / 'empty')
+
+    def begin_activation(self, package_id, content):
+        import hashlib
+        state = self.service.sources.state
+        record = dict(package_id=package_id, sha256=hashlib.sha256(content).hexdigest(),
+                      mappings=state['bindings'].get(package_id), operation=state['operation_bindings'].get(package_id))
+        temporary = self.activation.with_suffix('.tmp')
+        temporary.write_text(json.dumps(record), encoding='utf-8')
+        temporary.replace(self.activation)
+
+    def finish_activation(self):
+        self.activation.unlink(missing_ok=True)
+
+    def recover_activation(self):
+        if not self.activation.exists():
+            return
+        import copy
+        record = json.loads(self.activation.read_text('utf-8'))
+        installed = self.service.catalogue.index.get(record['package_id'], {})
+        if installed.get('sha256') != record['sha256']:
+            state = copy.deepcopy(self.service.sources.state)
+            for group, value in [('bindings', record['mappings']), ('operation_bindings', record['operation'])]:
+                if value is None:
+                    state[group].pop(record['package_id'], None)
+                else:
+                    state[group][record['package_id']] = value
+            self.service.sources._save(state)
+        self.finish_activation()
 
     def _path(self, key):
         if not re.fullmatch('[0-9a-f]{32}', key):
@@ -100,16 +153,19 @@ class ReportAuthoring:
 
     def list(self, owner):
         with self.lock:
-            return [dict(id=d['id'], name=d['draft']['name'], revision=d['revision'])
+            return [dict(id=d['id'], name=d['draft']['name'], revision=d['revision'], code_defined=bool(d['draft'].get('definition_file')))
                     for path in self.root.glob('*.json')
                     if (d := json.loads(path.read_text('utf-8')))['owner'] == owner]
 
     def save(self, draft, owner, key=None, revision=0):
         with self.lock:
+            draft = draft.model_copy(deep=True).derive()
             if key:
                 current = self.get(key, owner)
                 if current['revision'] != revision:
                     raise PackageError('This draft changed in another tab. Reopen it before saving.', 409)
+                if current['draft'].get('definition_file') and not draft.definition_file:
+                    raise PackageError('Keep this tool definition with its Python.')
             else:
                 if len(list(self.root.glob('*.json'))) >= 100:
                     raise PackageError('The 100-draft limit is reached. Remove an unused draft.', 409)
@@ -130,6 +186,28 @@ class ReportAuthoring:
             temporary.replace(path)
             return self.get(key, owner)
 
+    def import_files(self, files, owner, key=None, revision=0):
+        from backend.services.tool_definition import definition
+        with self.lock, self.service.catalogue.lock:
+            current = self.get(key, owner) if key else None
+            entry_file = current['draft'].get('definition_file') if current else None
+            filename, manifest = definition(files, entry_file if entry_file in files else None)
+            if current:
+                draft = ReportDraft.model_validate(current['draft'])
+                draft.files = files
+                draft.definition_file = filename
+            else:
+                # Name is only the initial identity; renaming a saved draft never changes it.
+                identity = re.sub('[^a-z0-9]+', '-', manifest.name.lower()).strip('-')[:50]
+                if not identity or not identity[0].isalpha():
+                    identity = 'tool-' + (identity or uuid.uuid4().hex[:8])
+                if identity in self.service.catalogue.index:
+                    raise PackageError('A package with this name is installed. Use Edit on that tool to update it.', 409)
+                draft = ReportDraft(package_id=identity, definition_file=filename, files=files)
+            draft.derive()
+            self.archive(draft, key, owner)
+            return self.save(draft, owner, key, revision)
+
     def remove(self, key, owner):
         with self.lock:
             self.get(key, owner)
@@ -141,23 +219,38 @@ class ReportAuthoring:
             self._path(key).unlink()
             self._path(key).with_suffix('.zip').unlink(missing_ok=True)
 
-    def edit_installed(self, tool_id, owner):
+    def edit_installed(self, tool_id, owner, kind='report', code_defined=False):
         with self.lock, self.service.catalogue.lock, self.service.sources.lock:
-            package_id, entry, tool = self.service.catalogue.resolve(tool_id, 'report')
+            package_id, entry, tool = self.service.catalogue.resolve(tool_id, kind)
             if not tool.entrypoint.endswith(':run'):
                 raise PackageError('This report uses a custom entry function. Download its package to edit it.')
             content, _ = self.service.catalogue.export(package_id)
             manifest, files = inspect_archive(content)
             major, minor, patch = map(int, manifest.version.split('.'))
+            if code_defined and tool.preview and tool.preview != tool.entrypoint.replace(':run', ':preview'):
+                raise PackageError('This operation has custom preview wiring. Download its package to edit it.')
+            if manifest.contract_version == 1 and kind == 'report':
+                tool = tool.model_copy(update={'sources':['primary']})
             draft = ReportDraft(name=tool.name, package_id=package_id, tool_id=tool.id, entrypoint=tool.entrypoint,
                 version=f'{major}.{minor}.{patch+1}', libraries=manifest.libraries,
                 handler=files[tool.entrypoint.split(':')[0]+'.py'].decode('utf-8-sig'),
                 sources=tool.sources if manifest.contract_version == 2 else ['primary'],
-                mappings=self.service.sources.bindings(package_id), inputs=[x.model_dump() for x in tool.inputs], step=2)
+                mappings=self.service.sources.bindings(package_id), inputs=[x.model_dump() for x in tool.inputs], step=2,
+                kind=kind, preview=tool.preview, confirmation_field=tool.confirmation_field,
+                operation_source=self.service.sources.state['operation_bindings'].get(package_id))
+            if code_defined:
+                from backend.services.tool_definition import with_definition
+                draft.definition_file = tool.entrypoint.split(':')[0]+'.py'
+                draft.files = {name:value.decode('utf-8-sig') for name,value in files.items() if name != 'manifest.json'}
+                tree = ast.parse(draft.handler)
+                has_definition = any(isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == 'TOOL' for t in n.targets)
+                                     or isinstance(n, ast.AnnAssign) and isinstance(n.target, ast.Name) and n.target.id == 'TOOL' for n in tree.body)
+                if not has_definition:
+                    draft.files[draft.definition_file] = with_definition(draft.handler, tool)
             record = self.save(draft, owner)
             record['owner'] = owner
             record['base'] = dict(sha256=entry['sha256'], package_id=package_id, tool_id=tool.id, entrypoint=tool.entrypoint,
-                mappings=self.service.sources.bindings(package_id))
+                mappings=self.service.sources.bindings(package_id), operation_source=draft.operation_source, kind=kind)
             path = self._path(record['id'])
             path.with_suffix('.zip').write_bytes(content)
             temporary = path.with_suffix('.tmp')
@@ -166,10 +259,14 @@ class ReportAuthoring:
             return self.get(record['id'], owner)
 
     def check_base(self, key, owner):
-        base = self.get(key, owner).get('base')
+        record = self.get(key, owner)
+        base = record.get('base')
+        if not base and record['draft'].get('definition_file') and record['draft']['package_id'] in self.service.catalogue.index:
+            raise PackageError('A tool with this identity was installed after this draft was created. Start an edit from the installed tool.', 409)
         if base:
             entry = self.service.catalogue.index.get(base['package_id'])
-            if not entry or entry['sha256'] != base['sha256'] or self.service.sources.bindings(base['package_id']) != base['mappings']:
+            if (not entry or entry['sha256'] != base['sha256'] or self.service.sources.bindings(base['package_id']) != base['mappings']
+                    or 'operation_source' in base and self.service.sources.state['operation_bindings'].get(base['package_id']) != base['operation_source']):
                 raise PackageError('The installed package or its connections changed. Start a new edit from the installed version.', 409)
         return base
 
@@ -190,12 +287,15 @@ class ReportAuthoring:
                 '    raise NotImplementedError("ADAPT_BEFORE_BUILD")\n')
 
     def archive(self, draft, key=None, owner=None, trial=False):
+        draft = draft.model_copy(deep=True).derive()
         manifest = draft.manifest()
         files = {}
         base = self.get(key, owner).get('base') if key else None
         if base:
-            if (draft.package_id, draft.tool_id, draft.entrypoint) != (base['package_id'], base['tool_id'], base['entrypoint']):
-                raise PackageError('An update must retain the installed package and report identifiers.')
+            if (draft.package_id, draft.tool_id) != (base['package_id'], base['tool_id']):
+                raise PackageError('An update must retain the installed package and tool identifiers.')
+            if draft.kind != base.get('kind', 'report'):
+                raise PackageError('An update cannot change a report into an operation or vice versa.')
             original, files = inspect_archive(self._path(key).with_suffix('.zip').read_bytes())
             combined = original.model_dump()
             for item in combined['tools']:
@@ -209,12 +309,16 @@ class ReportAuthoring:
             manifest.id = 'draft-' + key
             manifest.tools = [next(t for t in manifest.tools if t.id == (draft.tool_id or draft.package_id))]
             manifest.tools[0].id = manifest.id
+        if draft.definition_file:
+            files = {name:text.encode('utf-8') for name,text in draft.files.items()}
         if not draft.handler or 'ADAPT_BEFORE_BUILD' in draft.handler:
             raise PackageError('Upload the completed handler.py before trying or installing this report.')
         tree = ast.parse(draft.handler)
         for node in ast.walk(tree):
             names = [x.name for x in node.names] if isinstance(node, ast.Import) else [node.module or ''] if isinstance(node, ast.ImportFrom) else []
             for name in names:
+                if isinstance(node, ast.ImportFrom) and node.level and draft.definition_file:
+                    continue
                 top = name.split('.')[0]
                 if top not in sys.stdlib_module_names and top not in manifest.libraries and top+'.py' not in files:
                     raise PackageError(f"Import '{top}' is not declared. Choose a bundled library or adapt the script.")
@@ -254,3 +358,41 @@ class ReportAuthoring:
         if review['sha256'] != review['current_sha256']:
             self.trials.install(content)
         return trial
+
+    def connection_fingerprint(self, draft):
+        from backend.services.database_tools import digest
+        with self.service.sources.lock:
+            sources = self.service.sources.snapshot(draft.package_id, draft.sources, draft.mappings)
+            target = self.service.sources.get(draft.operation_source, 'operation') if draft.kind == 'operation' else None
+            return digest(dict(sources=sources, target=target))
+
+    def record_trial(self, key, owner, revision, job=None):
+        record = self.get(key, owner)
+        if record['revision'] != revision:
+            raise PackageError('Draft changed. Try it again.', 409)
+        record.update(owner=owner, verification=dict(revision=revision, job=job,
+                      session=self.session,
+                      connections=self.connection_fingerprint(self.draft(key, owner))))
+        path = self._path(key)
+        temporary = path.with_suffix('.tmp')
+        temporary.write_text(json.dumps(record), encoding='utf-8')
+        temporary.replace(path)
+
+    def clear_trial(self, key, owner):
+        record = self.get(key, owner)
+        record.pop('verification', None)
+        record['owner'] = owner
+        path = self._path(key)
+        temporary = path.with_suffix('.tmp')
+        temporary.write_text(json.dumps(record), encoding='utf-8')
+        temporary.replace(path)
+
+    def require_trial(self, key, owner):
+        record = self.get(key, owner)
+        verification = record.get('verification', {})
+        if (verification.get('session') != self.session or verification.get('revision') != record['revision'] or
+                verification.get('connections') != self.connection_fingerprint(self.draft(key, owner))):
+            raise PackageError('Code or connections changed, or no successful trial exists. Try it again before enabling.', 409)
+        if verification.get('job'):
+            if self.service.report(verification['job'], owner)['status'] != 'ready':
+                raise PackageError('Generate and check a successful report before enabling.', 409)

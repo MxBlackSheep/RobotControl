@@ -96,6 +96,20 @@ release evidence, not in this current run guide. Existing reports are preserved.
 
 ## Database packages and delivery logs
 
+For Python-defined tool addition/editing, use the focused pair:
+
+```powershell
+.venv/Scripts/python.exe -m backend.e2e.tool_authoring_check
+Set-Location frontend
+npx playwright test tool-authoring.spec.ts --trace on
+Set-Location ..
+```
+
+The HTTP check creates/removes UUID-named disposable SQL Server databases and logins
+using Windows administrator authentication. It does not use laboratory tables.
+The browser fixture uses its existing disposable SQLite adapter. Evidence and
+downloaded workbook checksums belong in `recovery/tool-authoring-verification`.
+
 Focused checks from the repository root:
 
 ```powershell
