@@ -22,7 +22,56 @@ import openpyxl
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def run(candidate, report_package=None, evidence=ROOT/'recovery/database-verification'):
+def wizard_check(request, token, result, evidence):
+    from backend.e2e.report_wizard_check import sql_fixture
+    with sql_fixture() as fixture:
+        result['fixture'] = {'databases': fixture['names'], 'login': fixture['login']}
+        for alias, database in zip(('primary', 'plates'), fixture['names']):
+            request('/api/database/tools/sources', dict(id=alias, name=alias, server=fixture['server'],
+                database=database, username=fixture['login'], password=fixture['password'], trust_certificate=True), token)
+        handler = '''import openpyxl
+def run(context, inputs):
+    book = openpyxl.Workbook()
+    for source in ('primary', 'plates'):
+        row = context.connections[source].cursor().execute('SELECT label FROM dbo.Projects WHERE id=?', inputs['project']).fetchone()
+        book.active.append([source, row[0]])
+    book.save(context.output_dir / 'portable.xlsx')
+    return 'portable.xlsx'
+'''
+        draft = dict(name='Portable SQL report', package_id='portable-sql-report', version='1.0.0',
+            libraries=['openpyxl'], original='raise RuntimeError("reference only")', handler=handler,
+            sources=['primary','plates'], mappings={'primary':'primary','plates':'plates'}, step=2,
+            inputs=[dict(name='project',label='Project',type='lookup',required=True,choices=[],
+                lookup=dict(source='primary',query='SELECT id AS value, label FROM dbo.Projects',parameters=[],value_type='integer'))])
+        saved = request('/api/database/tools/drafts', {'draft': draft}, token)
+        prefix = '/api/database/tools/drafts/' + saved['id']
+        choices = request(prefix+'/choices/project', {'inputs':{}}, token)
+        assert {x['value'] for x in choices['options']} == {1,2}
+        def finished(job):
+            deadline=time.monotonic()+60
+            while job['status'] in {'pending','running'}:
+                assert time.monotonic()<deadline,job
+                time.sleep(.1);job=request('/api/database/tools/reports/'+job['id'],token=token)
+            assert job['status']=='ready',job
+            return job
+        job=finished(request(prefix+'/try', {'inputs':{'project':1}},token))
+        content=request('/api/database/tools/reports/'+job['id']+'/download',token=token)
+        assert list(openpyxl.load_workbook(io.BytesIO(content)).active.values)==[('primary','Yeast Ω'),('plates','Yeast Ω')]
+        (evidence/'packaged-two-source.xlsx').write_bytes(content)
+        package=request(prefix+'/package',token=token)
+        request('/api/database/tools/packages',token=token,upload=package)
+        request('/api/database/tools/packages/portable-sql-report/sources',{'mappings':draft['mappings']},token,method='PUT')
+        finished(request('/api/database/tools/reports/portable-sql-report',{'inputs':{'project':2}},token))
+        result['checks'].append('Relocated executable: DPAPI source storage, SQL permission checks, private draft, dependent input API, trial workbook, exported ZIP upload and installed generation passed')
+        result['workbook_sha256']=hashlib.sha256(content).hexdigest()
+        result['package_sha256']=hashlib.sha256(package).hexdigest()
+        request(prefix,token=token,method='DELETE')
+        request('/api/database/tools/packages/portable-sql-report',token=token,method='DELETE')
+    result['sql_fixture_removed']=True
+    result['passed']=True
+
+
+def run(candidate, report_package=None, evidence=ROOT/'recovery/database-verification', wizard=False):
     evidence.mkdir(parents=True, exist_ok=True)
     result = dict(candidate=str(candidate), checks=[], passed=False)
     def request(path, body=None, token=None, method=None, upload=None):
@@ -62,11 +111,15 @@ def run(candidate, report_package=None, evidence=ROOT/'recovery/database-verific
             packages=request('/api/database/tools/packages',token=token)
             assert {p['id'] for p in packages}=={'culture-history','delete-experiment'}
             result['checks'].append('Relocated executable loads both packages with Python/UV absent from PATH')
+            if wizard:
+                wizard_check(request, token, result, evidence)
+                return
             fixture=(ROOT/'backend/e2e/database_fixture.py').read_text()
             fixture+='''
 from backend.services.database_tools import get_database_tools
 service = get_database_tools()
 service.database = DatabaseFixture(service.root)
+configure_fixture_report_sources(service)
 def run(context, inputs):
     import openpyxl
     book=openpyxl.Workbook()
@@ -110,7 +163,7 @@ def run(context, inputs):
             try: process.wait(timeout=15)
             except subprocess.TimeoutExpired: process.kill(); process.wait(timeout=10)
             result['process_stopped']=True
-            result['limit']='SQL Server/ODBC and dbo.DeleteExperiment execution require VM verification; disposable adapter used here.'
+            result['limit']='Real SQL Server uses disposable databases; actual VM data and hardware are not exercised.' if wizard else 'SQL Server/ODBC and dbo.DeleteExperiment execution require VM verification; disposable adapter used here.'
             (evidence/'packaged-results.json').write_text(json.dumps(result,indent=2))
     print(json.dumps(result,indent=2))
 
@@ -119,5 +172,6 @@ if __name__=='__main__':
     parser=argparse.ArgumentParser(); parser.add_argument('candidate',type=Path)
     parser.add_argument('--report-package',type=Path)
     parser.add_argument('--evidence',type=Path,default=ROOT/'recovery/database-verification')
+    parser.add_argument('--wizard',action='store_true')
     args=parser.parse_args()
-    run(args.candidate.resolve(),args.report_package,args.evidence.resolve())
+    run(args.candidate.resolve(),args.report_package,args.evidence.resolve(),args.wizard)

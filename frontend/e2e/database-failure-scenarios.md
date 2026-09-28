@@ -60,3 +60,19 @@ exported values. Use the pinned original script with legacy string inference as 
 reference; keep that compatibility setting scoped to the synchronous verifier.
 Install the new ZIP into the already-built executable and run the fixture report;
 no frontend or executable rebuild is required for this package-only correction.
+# Report wizard and read-only sources (2026-09-28, before implementation)
+
+- Upload must not import Python. An unfinished adapter cannot be tried/installed.
+- Draft Back/reload and edited-handler upload retain input/source settings. Stale
+  saves and another administrator's draft requests must not replace a draft.
+- Export contains no credentials; installing elsewhere requires source mappings.
+- Missing mappings never use the writer. SQL Server permissions, not SELECT success
+  or query scanning, must establish source eligibility. Reject writes, DDL, elevated
+  permissions and executable user procedures; connection errors are actionable.
+- Multiple sources, duplicate labels, typed values, empty choices, dependencies,
+  rapid parent changes and forged values must behave consistently at trial and run.
+- Cycles, unknown dependencies/sources and invalid queries fail without activation.
+- Active jobs keep their source snapshot; failed/stale updates preserve packages.
+- Legacy report output and operation guards remain unchanged. Verify the real SQL
+  permission boundary separately; a SQLite adapter cannot establish that result.
+- Desktop/phone: create, resume, try, download, install and choose among reports.

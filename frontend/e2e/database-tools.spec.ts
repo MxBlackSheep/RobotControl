@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import path from 'node:path';
 import { readFileSync } from 'node:fs';
+const evidence = process.env.ROBOTCONTROL_E2E_EVIDENCE || '../recovery/database-verification';
 const installedVersion = JSON.parse(readFileSync(path.resolve('../database_packages/culture-history/manifest.json'), 'utf8')).version;
 
 async function login(page: any) {
@@ -14,9 +15,9 @@ test('local admin installs a report package, previews deletion and downloads Exc
   await page.goto('/database?section=packages');
   await expect(page.getByText(`Culture history · ${installedVersion}`)).toBeVisible();
   await page.getByRole('button', { name: 'Update Culture history', exact: true }).click();
-  await page.locator('input[type=file]').setInputFiles(path.resolve('../recovery/database-verification/culture-history.zip'));
+  await page.locator('input[type=file]').setInputFiles(path.resolve(path.join(evidence, 'culture-history.zip')));
   await expect(page.getByRole('dialog')).toContainText(`${installedVersion} → 9.0.0`);
-  await page.screenshot({ path: '../recovery/database-verification/package-update.png', animations: 'disabled' });
+  await page.screenshot({ path: path.join(evidence, 'package-update.png'), animations: 'disabled' });
   await page.getByRole('button', { name: 'Update package', exact: true }).click();
   await expect(page.getByText('Culture history · 9.0.0')).toBeVisible();
   await page.goto('/database?section=operations');
@@ -38,7 +39,7 @@ test('local admin installs a report package, previews deletion and downloads Exc
   await page.setViewportSize({ width: 1920, height: 1080 });
   const bounds = await page.locator('[aria-label="Database task workspace"]').boundingBox();
   expect(bounds!.width).toBeGreaterThan(1500);
-  await page.screenshot({ path: '../recovery/database-verification/desktop-report.png' });
+  await page.screenshot({ path: path.join(evidence, 'desktop-report.png') });
 });
 
 test('phone report form fits and retains a completed download', async ({ page }) => {
@@ -54,7 +55,7 @@ test('phone report form fits and retains a completed download', async ({ page })
   await page.getByRole('button', { name: /42 · Yeast/ }).click();
   await expect(page.getByRole('button', { name: 'Download Excel' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
-  await page.screenshot({ path: '../recovery/database-verification/phone-report.png' });
+  await page.screenshot({ path: path.join(evidence, 'phone-report.png') });
 });
 
 test('Delivery Logs displays pending, sent, error and partial results', async ({ page }) => {
@@ -67,7 +68,7 @@ test('Delivery Logs displays pending, sent, error and partial results', async ({
   await page.getByRole('tab', { name: 'Delivery Logs' }).click();
   const rows = page.getByRole('table');
   for (const status of ['pending', 'sent', 'error', 'partial']) await expect(rows.getByText(status, { exact: true })).toBeVisible();
-  await page.screenshot({ path: '../recovery/database-verification/delivery-logs.png' });
+  await page.screenshot({ path: path.join(evidence, 'delivery-logs.png') });
   const before = requests;
   await expect.poll(() => requests, { timeout: 8000 }).toBeGreaterThan(before);
   await page.getByRole('combobox', { name: 'Status', exact: true }).click();

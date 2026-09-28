@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, LinearProgress, Paper, Stack, Typography } from '@mui/material';
 import { api } from '../services/api';
+import ReportWizard from './ReportWizard';
+import ReportConnections, { Source, SourceMappings } from './ReportConnections';
 
 type Package = { id: string; name: string; version: string; sha256: string; running: number;
   libraries: string[]; tools: { id: string; name: string; kind: string }[] };
@@ -20,11 +22,19 @@ export default function DatabasePackages({ active }: { active: boolean }) {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [remove, setRemove] = useState<Package>();
+  const [wizard, setWizard] = useState<string>();
+  const [drafts, setDrafts] = useState<{ id: string; name: string }[]>([]);
+  const [removeDraft, setRemoveDraft] = useState<{ id: string; name: string }>();
+  const [connectionsOpen, setConnectionsOpen] = useState(false);
+  const [sources, setSources] = useState<Source[]>([]);
+  const [binding, setBinding] = useState<{ id: string; aliases: string[]; mappings: Record<string, string> }>();
   const input = useRef<HTMLInputElement>(null);
   const target = useRef<string>();
   const load = useCallback(async (signal?: AbortSignal) => {
     const { data } = await api.get('/api/database/tools/packages', { signal });
     if (!signal?.aborted) setPackages(data);
+    const saved = await api.get('/api/database/tools/drafts', { signal });
+    if (!signal?.aborted) setDrafts(saved.data);
   }, []);
   useEffect(() => {
     if (!active) return;
@@ -66,10 +76,15 @@ export default function DatabasePackages({ active }: { active: boolean }) {
   const unchanged = review?.sha256 === review?.current_sha256;
   const downgrade = !!review?.current_version && older(review.package.version, review.current_version);
   const action = !review?.current_version ? 'Install package' : downgrade ? 'Install older version' : review.current_version === review.package.version ? 'Replace version' : 'Update package';
+  if (wizard !== undefined) return <ReportWizard draftId={wizard || undefined} onClose={() => { setWizard(undefined); void load(); }} />;
   return <Stack spacing={2}>
     <Stack direction="row" justifyContent="space-between" gap={2} alignItems="center" flexWrap="wrap">
       <Typography component="h2" variant="h6">Manage packages</Typography>
-      <Button variant="contained" disabled={busy} onClick={() => { target.current = undefined; input.current?.click(); }}>Add package</Button>
+      <Stack direction="row" gap={1} flexWrap="wrap">
+        <Button disabled={busy} onClick={() => setConnectionsOpen(true)}>Report connections</Button>
+        <Button variant="outlined" disabled={busy} onClick={() => setWizard('')}>Create report</Button>
+        <Button variant="contained" disabled={busy} onClick={() => { target.current = undefined; input.current?.click(); }}>Add package</Button>
+      </Stack>
     </Stack>
     <input ref={input} hidden type="file" accept=".zip" onChange={event => {
       const selected = event.target.files?.[0]; event.target.value = ''; if (selected) void inspect(selected);
@@ -78,6 +93,10 @@ export default function DatabasePackages({ active }: { active: boolean }) {
     {error && !review && <Alert severity="error">{error}</Alert>}
     {notice && <Alert severity="success">{notice}</Alert>}
     {busy && <LinearProgress />}
+    {!!drafts.length && <Paper variant="outlined" sx={{ p: 2 }}><Typography variant="subtitle1">Saved drafts</Typography>
+      {drafts.map(d => <Stack key={d.id} direction="row" alignItems="center"><Typography sx={{ flex: 1 }}>{d.name}</Typography>
+        <Button onClick={() => setWizard(d.id)}>Resume</Button><Button color="error" onClick={() => setRemoveDraft(d)}>Remove draft</Button></Stack>)}
+    </Paper>}
     {!packages.length && !busy && <Typography>No packages installed.</Typography>}
     <Paper variant="outlined">
       {packages.map(pkg => <Box key={pkg.id} sx={{ p: 2, borderBottom: 1, borderColor: 'divider', '&:last-child': { borderBottom: 0 } }}>
@@ -91,6 +110,12 @@ export default function DatabasePackages({ active }: { active: boolean }) {
           </Box>
           {pkg.running > 0 && <Typography variant="body2">In use</Typography>}
           <Stack direction="row" spacing={1}>
+            {pkg.tools.some(t => t.kind === 'report') && <Button disabled={busy || pkg.running > 0} onClick={async () => {
+              try {
+                const [mapping, profiles] = await Promise.all([api.get(`/api/database/tools/packages/${pkg.id}/sources`), api.get('/api/database/tools/sources')]);
+                setSources(profiles.data); setBinding({ id: pkg.id, ...mapping.data });
+              } catch (e) { setError(message(e)); }
+            }}>Connections</Button>}
             <Button variant="outlined" disabled={busy || pkg.running > 0} aria-label={`Update ${pkg.name}`}
               onClick={() => { target.current = pkg.id; input.current?.click(); }}>Update</Button>
             <Button color="error" disabled={busy || pkg.running > 0} aria-label={`Remove ${pkg.name}`} onClick={() => setRemove(pkg)}>Remove</Button>
@@ -114,6 +139,28 @@ export default function DatabasePackages({ active }: { active: boolean }) {
       <DialogActions><Button disabled={busy} onClick={() => { setReview(undefined); setFile(undefined); }}>Cancel</Button>
         <Button variant="contained" disabled={busy || unchanged || !!review?.running} onClick={install}>{action}</Button>
       </DialogActions>
+    </Dialog>
+    <ReportConnections open={connectionsOpen} onClose={() => { setConnectionsOpen(false); if (binding) void api.get('/api/database/tools/sources').then(r => setSources(r.data)); }} />
+    <Dialog open={!!removeDraft} onClose={() => !busy && setRemoveDraft(undefined)}>
+      <DialogTitle>Remove draft?</DialogTitle><DialogContent>{removeDraft?.name}: its saved scripts and input settings will be deleted. Installed reports are kept.</DialogContent>
+      <DialogActions><Button disabled={busy} onClick={() => setRemoveDraft(undefined)}>Cancel</Button><Button disabled={busy} color="error" onClick={async () => {
+        if (!removeDraft) return; setBusy(true);
+        try { await api.delete(`/api/database/tools/drafts/${removeDraft.id}`); setRemoveDraft(undefined); await load(); }
+        catch (e) { setError(message(e)); } finally { setBusy(false); }
+      }}>Remove draft</Button></DialogActions>
+    </Dialog>
+    <Dialog open={!!binding} onClose={() => !busy && setBinding(undefined)} fullWidth maxWidth="sm">
+      <DialogTitle>Assign report connections</DialogTitle><DialogContent><Stack spacing={2} sx={{ pt: 1 }}>
+        {error && <Alert severity="error">{error}</Alert>}
+        <Button onClick={() => setConnectionsOpen(true)}>Configure connections</Button>
+        {binding && <SourceMappings aliases={binding.aliases} sources={sources} mappings={binding.mappings}
+          onChange={mappings => setBinding({ ...binding, mappings })} disabled={busy} />}
+      </Stack></DialogContent><DialogActions><Button onClick={() => setBinding(undefined)} disabled={busy}>Cancel</Button>
+        <Button disabled={busy} onClick={async () => {
+          if (!binding) return; setBusy(true); setError('');
+          try { await api.put(`/api/database/tools/packages/${binding.id}/sources`, { mappings: Object.fromEntries(binding.aliases.map(x => [x, binding.mappings[x]])) }); setBinding(undefined); }
+          catch (e) { setError(message(e)); } finally { setBusy(false); }
+        }}>Save connections</Button></DialogActions>
     </Dialog>
     <Dialog open={!!remove} onClose={() => !busy && setRemove(undefined)}>
       <DialogTitle>Remove {remove?.name}?</DialogTitle><DialogContent>Its operations and reports will no longer be available.</DialogContent>

@@ -4,8 +4,8 @@ import { api } from '../services/api';
 
 export type Experiment = { ExperimentID: number; UserDefinedID?: string; Note?: string };
 
-export default function ExperimentBrowser({ selected, onSelect, disabled, active }: {
-  selected?: Experiment; onSelect: (row: Experiment) => void; disabled: boolean; active: boolean;
+export default function ExperimentBrowser({ selected, onSelect, disabled, active, reportId }: {
+  selected?: Experiment; onSelect: (row: Experiment) => void; disabled: boolean; active: boolean; reportId?: string;
 }) {
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(0);
@@ -19,7 +19,7 @@ export default function ExperimentBrowser({ selected, onSelect, disabled, active
     setLoading(true);
     const timer = window.setTimeout(async () => {
       try {
-        const { data } = await api.get('/api/database/tools/experiments', { params: { search: query, page: page + 1 }, signal: controller.signal });
+        const { data } = await api.get('/api/database/tools/experiments', { params: { search: query, page: page + 1, report_id: reportId }, signal: controller.signal });
         if (controller.signal.aborted) return;
         setRows(data.rows); setTotal(data.total_count); setError('');
       } catch {
@@ -27,7 +27,7 @@ export default function ExperimentBrowser({ selected, onSelect, disabled, active
       } finally { if (!controller.signal.aborted) setLoading(false); }
     }, 250);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [query, page, active]);
+  }, [query, page, active, reportId]);
   return <Paper variant="outlined" sx={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
     <Box sx={{ p: 2 }}>
       <Typography component="h2" variant="subtitle1" fontWeight={600} sx={{ mb: 1 }}>Experiments</Typography>

@@ -11,12 +11,14 @@ import sys
 import threading
 import time
 import uuid
+import copy
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 
 from backend.services.database import get_database_service
 from backend.services.database_packages import PackageCatalogue, PackageError
+from backend.services.report_sources import ReportSources, lookup_rows
 from backend.utils.audit import log_action
 from backend.utils.data_paths import get_path_manager
 
@@ -32,6 +34,9 @@ class DatabaseTools:
         self.root = Path(root)
         self.catalogue = PackageCatalogue(self.root / "packages", defaults)
         self.database = database or get_database_service()
+        self.sources = ReportSources(self.root)
+        from backend.services.report_authoring import ReportAuthoring
+        self.authoring = ReportAuthoring(self.root, self)
         self.guard = guard or self._guard
         self.lock = threading.RLock()
         self.previews = {}
@@ -146,22 +151,62 @@ class DatabaseTools:
             result['warning'] = 'Result could not be saved to the operation journal. Do not repeat without checking the database.'
         return result
 
-    def start_report(self, tool_id, inputs, owner):
+    def public_catalogue(self, kind):
+        tools = copy.deepcopy(self.catalogue.tools(kind))
+        for tool in tools:
+            if kind == 'report':
+                try:
+                    self.sources.snapshot(tool['package_id'], tool.get('sources') or ['primary'])
+                    tool['setup_needed'] = False
+                except PackageError:
+                    tool['setup_needed'] = True
+            for field in tool['inputs']:
+                if field.get('lookup'):
+                    field['lookup'] = {k: v for k, v in field['lookup'].items() if k in {'parameters', 'value_type'}}
+        return tools
+
+    def choices(self, tool_id, field_name, inputs, search, page, catalogue=None, mapping=None):
+        catalogue = catalogue or self.catalogue
+        with catalogue.reserve(tool_id, 'report') as (entry, tool):
+            values = tool.validate_values(inputs, partial=True)
+            field = next((x for x in tool.inputs if x.name == field_name and x.lookup), None)
+            if field is None:
+                raise PackageError('Database choice not found', 404)
+            snapshot = self.sources.snapshot(entry['manifest']['id'], tool.sources or ['primary'], mapping)
+            with self.sources.open(snapshot[field.lookup.source]) as conn:
+                return lookup_rows(conn, field, values, search, page)
+
+    def report_experiments(self, tool_id, search, page):
+        with self.catalogue.reserve(tool_id, 'report') as (entry, tool):
+            if not any(x.type == 'experiment' for x in tool.inputs):
+                raise PackageError('Report has no experiment input', 404)
+            snapshot = self.sources.snapshot(entry['manifest']['id'], tool.sources or ['primary'])
+            with self.sources.open(snapshot.get('primary', next(iter(snapshot.values())))) as conn, conn.cursor() as cursor:
+                pattern = '%' + search.replace('[', '[[]').replace('%', '[%]').replace('_', '[_]') + '%'
+                where = '(CAST(ExperimentID AS nvarchar(40)) LIKE ? OR UserDefinedID LIKE ? OR Note LIKE ?)'
+                params = [pattern] * 3
+                total = cursor.execute('SELECT COUNT(*) FROM dbo.Experiments WHERE ' + where, params).fetchone()[0]
+                rows = cursor.execute('SELECT ExperimentID, UserDefinedID, Note FROM (SELECT ExperimentID, UserDefinedID, Note, ROW_NUMBER() OVER (ORDER BY ExperimentID DESC) AS rn FROM dbo.Experiments WHERE ' + where + ') AS numbered WHERE rn>? AND rn<=? ORDER BY rn', params + [(page-1)*25, page*25]).fetchall()
+                return dict(rows=[dict(zip(('ExperimentID', 'UserDefinedID', 'Note'), row)) for row in rows], total_count=total)
+
+    def start_report(self, tool_id, inputs, owner, catalogue=None, mapping=None):
+        catalogue = catalogue or self.catalogue
         if not self.slots.acquire(blocking=False):
             raise PackageError("Two reports are already running. Try again when one finishes.", 429)
-        reservation = self.catalogue.reserve(tool_id, 'report')
+        reservation = catalogue.reserve(tool_id, 'report')
         entered = False
         try:
             entry, tool = reservation.__enter__()
             entered = True
             inputs = tool.validate_values(inputs)
+            snapshot = self.sources.snapshot(entry['manifest']['id'], tool.sources or ['primary'], mapping)
             key = uuid.uuid4().hex
             folder = self.temp / key
             folder.mkdir()
             with self.lock:
                 self.jobs[key] = dict(id=key, owner=owner, status='pending', tool_id=tool_id,
                                      package_version=entry['manifest']['version'], expires=time.time()+900)
-            self.pool.submit(self._report, key, entry, tool, inputs, reservation)
+            self.pool.submit(self._report, key, entry, tool, inputs, reservation, catalogue, snapshot)
             return self.report(key, owner)
         except Exception:
             if entered:
@@ -169,14 +214,22 @@ class DatabaseTools:
             self.slots.release()
             raise
 
-    def _report(self, key, entry, tool, inputs, reservation):
+    def _report(self, key, entry, tool, inputs, reservation, catalogue, snapshot):
         folder = self.temp / key
         with self.lock:
             self.jobs[key]['status'] = 'running'
         try:
-            with self.database.get_connection() as conn:
-                conn.timeout = 120
-                output = self.catalogue.function(entry, tool.entrypoint)(SimpleNamespace(connection=conn, output_dir=folder), inputs)
+            with self.sources.connections(snapshot) as connections:
+                for field in tool.inputs:
+                    if field.lookup and field.name in inputs:
+                        options = lookup_rows(connections[field.lookup.source], field, inputs, selected=inputs[field.name])['options']
+                        if not any(x['value'] == inputs[field.name] for x in options):
+                            raise PackageError(f'{field.label} is no longer available. Choose it again.')
+                for conn in connections.values():
+                    conn.timeout = 120
+                context = SimpleNamespace(connection=connections.get('primary', next(iter(connections.values()))),
+                                          connections=connections, output_dir=folder)
+                output = catalogue.function(entry, tool.entrypoint)(context, inputs)
             path = (folder / output).resolve()
             if path.parent != folder.resolve() or path.suffix != '.xlsx' or not path.is_file() or path.is_symlink():
                 raise ValueError("Report did not produce an Excel file in its output directory")

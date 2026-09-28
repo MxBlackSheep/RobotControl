@@ -22,7 +22,7 @@ from backend.api.database_tools import router
 from backend.api.database import router as legacy_router
 from backend.services.auth import get_current_user
 from backend.services.database_tools import DatabaseTools, get_database_tools
-from backend.e2e.database_fixture import DatabaseFixture, package_zip
+from backend.e2e.database_fixture import DatabaseFixture, package_zip, configure_fixture_report_sources
 
 ROOT = Path(__file__).resolve().parents[2]
 BASE = '/api/database/tools'
@@ -34,6 +34,7 @@ def run(evidence=ROOT/'recovery/database-verification'):
     with tempfile.TemporaryDirectory(prefix='rc-database-') as temp:
         database = DatabaseFixture(temp)
         service = DatabaseTools(Path(temp)/'tools', ROOT/'database_packages', database, database.guard)
+        configure_fixture_report_sources(service)
         from backend.services.scheduling.scheduler_engine import SchedulerEngine
         engine = SchedulerEngine.__new__(SchedulerEngine)
         engine._schedules_lock, engine._jobs_lock = threading.RLock(), threading.RLock()
@@ -261,6 +262,7 @@ def run(evidence=ROOT/'recovery/database-verification'):
                 assert client.delete(BASE+'/packages/delete-experiment').status_code==200
             service.close()
             service=DatabaseTools(Path(temp)/'tools', ROOT/'database_packages', database, database.guard)
+            configure_fixture_report_sources(service)
             assert not service.catalogue.tools('operation')
             checks.append('Removal persists across restart: passed')
             checks.append(compare_upstream(database, evidence))

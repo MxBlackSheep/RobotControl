@@ -94,6 +94,20 @@ activation request includes the reviewed installed hash so another administrator
 intervening update requires a fresh review. A request failure does not clear the
 selected file. Unexpected report errors have a short message and expandable Details.
 
-Package creation is a development-PC workflow, not an in-browser Python editor.
-The script scaffold/build commands and coding-agent handoff are in the authoring
-guide. Updating the executable does not update existing installed packages.
+Package creation now has a saved wizard in Manage packages. `ReportWizard.tsx`
+owns its draft, revision, inputs and trial; `ReportInputs.tsx` renders shared runtime
+fields and cancels superseded dropdown requests. Parent changes clear all dependent
+values. `ReportConnections.tsx` configures named local sources; packages map logical
+aliases separately. Original uploads and completed handlers remain distinct. Editing
+Python happens outside the browser. Removing drafts requires confirmation.
+
+Unconfigured reports show Connection setup needed before generation, including on
+phones. Local admins get Configure; ordinary users get concise setup guidance.
+Multiple reports retain the labelled Report chooser. Updating the executable does
+not replace installed packages. See the [authoring guide](../../../database_packages/README.md).
+
+Run `npx playwright test report-wizard.spec.ts --trace retain-on-failure` from
+`frontend` after building. It exercises saved-draft reload, adapter download/upload,
+dependent fields, trial, export, installation, multiple reports and phone layout.
+Use the real SQL HTTP check separately for permissions; the browser fixture is not
+proof of SQL Server grants. Evidence is linked in `recovery/report-wizard-verification`.

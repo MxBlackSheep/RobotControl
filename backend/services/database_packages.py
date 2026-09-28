@@ -13,6 +13,7 @@ import sys
 import threading
 import uuid
 import zipfile
+from datetime import date
 from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 from typing import Literal
@@ -32,13 +33,22 @@ class PackageError(ValueError):
         self.status = status
 
 
+class LookupDefinition(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source: str = Field(pattern=IDENTIFIER)
+    query: str = Field(min_length=1, max_length=12000)
+    parameters: list[str] = Field(default_factory=list, max_length=20)
+    value_type: Literal['text', 'integer', 'number'] = 'text'
+
+
 class InputDefinition(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
     label: str = Field(min_length=1, max_length=100)
-    type: Literal["text", "integer", "number", "boolean", "choice", "experiment"]
+    type: Literal["text", "integer", "number", "boolean", "choice", "experiment", "date", "lookup"]
     required: bool = True
     choices: list[str] = Field(default_factory=list, max_length=100)
+    lookup: LookupDefinition | None = None
 
 
 class ToolDefinition(BaseModel):
@@ -50,6 +60,7 @@ class ToolDefinition(BaseModel):
     preview: str | None = Field(default=None, pattern=ENTRY)
     confirmation_field: str | None = None
     inputs: list[InputDefinition] = Field(default_factory=list, max_length=20)
+    sources: list[str] = Field(default_factory=list, max_length=8)
 
     @model_validator(mode="after")
     def valid_inputs(self):
@@ -58,26 +69,59 @@ class ToolDefinition(BaseModel):
             raise ValueError("Input names must be unique")
         if any(field.type == "choice" and not field.choices for field in self.inputs):
             raise ValueError("Choice fields need choices")
+        if len(set(self.sources)) != len(self.sources) or any(not re.fullmatch(IDENTIFIER, x) for x in self.sources):
+            raise ValueError('Source aliases must be unique lowercase identifiers')
+        dependencies = {}
+        for field in self.inputs:
+            if (field.type == 'lookup') != (field.lookup is not None):
+                raise ValueError('Database choices require a lookup definition')
+            deps = field.lookup.parameters if field.lookup else []
+            if field.lookup and field.lookup.source not in self.sources:
+                raise ValueError(f'{field.label}: unknown source alias')
+            if any(x not in names for x in deps):
+                raise ValueError(f'{field.label}: unknown input dependency')
+            dependencies[field.name] = deps
+        visited = set()
+        def visit(name, trail):
+            if name in trail:
+                raise ValueError('Input dependencies contain a cycle')
+            if name in visited:
+                return
+            for parent in dependencies[name]:
+                visit(parent, trail | {name})
+            visited.add(name)
+        for name in names:
+            visit(name, set())
+        if self.kind == 'operation' and (self.sources or any(f.type in {'lookup', 'date'} for f in self.inputs)):
+            raise ValueError('Report sources and lookups are for reports only')
         if self.kind == "operation" and (not self.preview or not any(field.name == self.confirmation_field and field.required for field in self.inputs)):
             raise ValueError("Operations require a preview and confirmation field")
         return self
 
-    def validate_values(self, values):
+    def validate_values(self, values, partial=False):
         if set(values) - {field.name for field in self.inputs}:
             raise PackageError("Unexpected input field")
         clean = {}
         for field in self.inputs:
             value = values.get(field.name)
             if value is None or value == "":
-                if field.required:
+                if field.required and not partial:
                     raise PackageError(f"{field.label} is required")
                 continue
+            value_type = field.lookup.value_type if field.lookup else field.type
+            if value_type == 'date':
+                try:
+                    if not isinstance(value, str) or date.fromisoformat(value).isoformat() != value:
+                        raise ValueError()
+                except (ValueError, TypeError):
+                    raise PackageError(f'Invalid {field.label}')
             valid = {"text": lambda: isinstance(value, str) and len(value) <= 2000,
                      "integer": lambda: type(value) is int,
                      "experiment": lambda: type(value) is int and value > 0,
                      "number": lambda: type(value) in (int, float) and math.isfinite(value),
                      "boolean": lambda: type(value) is bool,
-                     "choice": lambda: isinstance(value, str) and value in field.choices}[field.type]()
+                     "date": lambda: True,
+                     "choice": lambda: isinstance(value, str) and value in field.choices}[value_type]()
             if not valid:
                 raise PackageError(f"Invalid {field.label}")
             clean[field.name] = value
@@ -86,12 +130,18 @@ class ToolDefinition(BaseModel):
 
 class Manifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    contract_version: Literal[1]
+    contract_version: Literal[1, 2]
     id: str = Field(pattern=IDENTIFIER)
     name: str = Field(min_length=1, max_length=100)
     version: str = Field(pattern=r"^\d+\.\d+\.\d+$", max_length=40)
     libraries: list[str] = Field(default_factory=list, max_length=20)
     tools: list[ToolDefinition] = Field(min_length=1, max_length=20)
+
+    @model_validator(mode='after')
+    def contract(self):
+        if self.contract_version == 1 and any(t.sources or any(f.type in {'lookup', 'date'} for f in t.inputs) for t in self.tools):
+            raise ValueError('Sources, dates and database choices require contract version 2')
+        return self
 
 
 def inspect_archive(content):

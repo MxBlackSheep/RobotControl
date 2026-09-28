@@ -1,12 +1,59 @@
 # Make a report from your Python script
 
-A package is a ZIP containing your Python code and the settings RobotControl needs
-to display its input form. **You edit the Python; the helper builds the ZIP.**
+A package contains your Python and the settings for its input form. **You edit
+Python; RobotControl handles the form settings and ZIP.**
+
+## Recommended: create it in RobotControl
+
+1. As a local administrator, open **Database → Manage packages → Report connections**.
+   Configure a dedicated SQL Server account with SELECT-only access. Ask your SQL
+   administrator to provide it; do not use the application's normal write account.
+2. Choose **Create report**. Name it and upload your existing Python as a reference.
+3. In **Data and inputs**, name the sources your Python will use and choose local
+   connections. Add text, numbers, dates, checkboxes or dropdowns. Database choices
+   can come from different sources and depend on earlier inputs.
+4. In **Try report**, download the starter `handler.py`, adapt it yourself or with a
+   coding agent, then upload the completed file. Your settings stay in the saved
+   draft. **Download saved handler** retrieves your edited version; **Download
+   starter** always creates a new starting template.
+5. Try representative inputs and inspect the Excel download. Choose **Install** to
+   use it here, or **Export package** to move it to another installation.
+
+The wizard does not translate arbitrary Python calculations. Your handler implements
+`run(context, inputs)`, uses `context.connections['source-name']`, writes Excel under
+`context.output_dir`, and returns its filename. For example, a Plate dropdown sends
+the selected ID as `inputs['plate_id']`; its displayed label is not passed to Python.
+
+For database dropdowns, **Build from columns** creates a simple SELECT. For filtered
+choices, return columns named `value` and `label`, use `?` for each parent value, and
+select those parents in parameter order. Example:
+
+```sql
+SELECT PlateID AS value, PlateName AS label FROM dbo.Plates WHERE ProjectID = ?
+```
+
+Choose `project_id` under **Depends on**. Changing Project clears Plate. Choose the
+correct value type (integer for an integer ID). No experiment table is required.
+
+Use **Save and close**, then **Resume** to continue later. Drafts belong to their
+author. To update, resume the draft, keep its package ID, increase the version and
+upload the edited handler. Review installation before replacing the working report.
+
+Connection passwords stay on this computer and are not exported with settings.
+Installation on another computer needs local source assignments. Existing reports,
+including Culture history, need **Connections → primary** assigned once after the
+application upgrade; generation is blocked until configured. No write connection
+is used as a fallback. Reviewed Python remains required; this is not a code sandbox.
 
 Already have a ZIP? Use **Database → Manage packages → Add package**, or **Update**
 beside the installed package. You do not need the steps below just to install it.
 
-## 1. Create a working folder
+## Alternative: command-line authoring
+
+Keep this route for existing source folders and database operations. These commands
+require Python/UV on the development PC; the wizard and installed reports do not.
+
+### 1. Create a working folder
 
 On your development PC, open PowerShell in the RobotControl repository:
 
@@ -42,7 +89,7 @@ The helper creates `C:/Users/Hamilton/Desktop/MyDatabasePackages/my-report`:
 
 **This creates a starting folder. It does not convert your original script.**
 
-## 2. Finish handler.py
+### 2. Finish handler.py
 
 Keep your calculations, record-selection rules and workbook formatting. Change
 how the script receives its input, connection and output location:
@@ -89,7 +136,7 @@ correct. If it reports an unfinished adapter, go back to step 2.
 
 Keep the `my-report` source folder. You will edit it for future updates.
 
-## Update your report later
+### Update your command-line project later
 
 Edit the existing `handler.py`; **do not run create again**. Then build a new version:
 

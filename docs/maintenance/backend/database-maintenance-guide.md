@@ -208,6 +208,30 @@ The Tables section has a searchable catalogue, Important-only filter, and a sepa
 
 ## Portable operations and reports (2026-09-27)
 
+### Report authoring and source permissions (2026-09-28)
+
+`report_authoring.py` owns private, revisioned JSON drafts and generated archives.
+`report_sources.py` owns named SQL Server profiles, encrypted credentials, package
+source mappings, effective-permission checking and bounded dropdown queries.
+`database_tools.py` owns trial/installed report workers and source snapshots.
+No report falls back to the application's writer connection. After upgrading,
+assign a read-only `primary` connection to each legacy report package. A connection
+needs SELECT access and `VIEW ANY DATABASE` for the cross-database grant check.
+See [the contract](../../../database_packages/CONTRACT.md) for accepted grants and
+limits; do not work around a rejected identity by disabling permission checks.
+
+The API adds local-admin `/sources`, `/drafts`, draft handler/package downloads,
+trial/review/install actions and `/packages/{id}/sources`. Ordinary report clients
+use registered `/reports/{id}/choices/{field}` lookups; catalogue responses omit
+query text and source details. Dependency membership is checked again during runs.
+SQL Server 2008-compatible ROW_NUMBER paging is intentional. No SQLite report
+provider is implemented yet. Normal operation safety/transactions are unchanged.
+
+Focused real-SQL workflow: `.venv/Scripts/python.exe -m backend.e2e.report_wizard_check`.
+It creates uniquely named disposable databases/login using local Windows-admin
+authentication, then removes them. Never point this at a deployment server without
+reviewing the fixture scope. Evidence: `recovery/report-wizard-verification`.
+
 See [the package contract](../../../database_packages/README.md) for formats, limits
 and authoring. The host owns installation, confirmations, receipts, SQL transactions
 and private downloads. Public APIs are in `backend/api/database_tools.py`; raw SQL

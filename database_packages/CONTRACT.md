@@ -24,8 +24,9 @@ tool has a globally unique `id`, `name`, `kind` (`operation` or `report`),
 `type`, `required` and optionally `choices`. Types: `text`, `integer`, `number`,
 `boolean`, `choice`, `experiment`. Unknown inputs and invalid types are rejected.
 
-Both kinds implement `run(context, inputs)`. The context supplies a database
-`connection`; reports also receive `output_dir`. Use parameterized queries. Close
+Both kinds implement `run(context, inputs)`. Operations receive the application
+`connection`; reports receive an explicitly assigned read-only connection and
+`output_dir`. Use parameterized queries. Close
 cursors. Never keep a connection or per-request state in module globals.
 
 - **Operation:** also declare `preview` (`module:function`) and
@@ -39,6 +40,62 @@ cursors. Never keep a connection or per-request state in module globals.
   directly inside `output_dir`. Never write fixed paths. Reports may run concurrently;
   do not change globals. A Python package can technically bypass these conventions:
   code review is the trust boundary.
+
+## Report contract version 2
+
+Version 1 remains supported without changing its calculations. Its report connection
+requires an explicit `primary` mapping in Manage packages; a missing mapping blocks
+generation. Operations retain their existing writer and safety checks.
+
+Version 2 reports declare `sources`, a list of logical aliases (up to eight). Local
+administrators map these to named SQL Server connections. Python receives them in
+`context.connections[alias]`; `context.connection` remains the `primary` alias or
+the first declared source. SQL dialect conversion is not automatic; SQLite is not
+implemented. Source mappings and credentials are excluded from exported packages.
+
+New input types: `date` (ISO `YYYY-MM-DD`) and `lookup`. A lookup field supplies:
+
+```json
+{"name":"plate_id","label":"Plate","type":"lookup","required":true,
+ "lookup":{"source":"plates","query":"SELECT PlateID AS value, PlateName AS label FROM dbo.Plates WHERE ProjectID = ?",
+           "parameters":["project_id"],"value_type":"integer"}}
+```
+
+Declare `project_id` separately. Parameters refer to input names in placeholder
+order; unknown names and cycles are rejected. Choices are searchable and paginated
+(25 per page); a query must be a composable SELECT without comments/trailing
+semicolon, and must return `value` and `label`. Use unique stable values. The host
+checks submitted membership with the same query before running Python. Values stay
+typed (`text`, `integer`, `number`); labels are only for display. Lookups time out
+after 30 seconds. SQL statement restrictions aid composition, not security.
+
+Supplied SQL Server identities must have SELECT-only access. Effective permissions
+are checked on every opened connection, including other accessible databases,
+column grants and privileged EXECUTE/IMPERSONATE grants. `VIEW ANY DATABASE` is
+required to enumerate those databases (normally provided by SQL Server's public
+role). The empty system guest schema and temporary objects do not contain report
+data. System metadata read permissions and endpoint CONNECT are allowed. Unknown
+or elevated grants fail closed; errors identify the grant to review. No production
+grants are changed automatically. Python can still bypass supplied connections;
+these permissions do not sandbox trusted code or restrict other credentials.
+
+Passwords use the existing machine-bound Windows DPAPI helper. Re-enter credentials
+after moving a connection configuration to another machine. SQL credentials should
+be scoped by the database administrator to the tables/views the reports need.
+
+## Saved authoring drafts
+
+Local-admin drafts retain the original Python, edited handler, inputs, aliases and
+local source mappings under `data/database-tools/report-drafts`. Saving and exporting
+do not import Python. Only explicit trial or installation imports the handler.
+Original reference scripts are never included in the runnable ZIP. Inspection is
+not calculation validation. Draft saves carry a revision; stale saves return 409.
+Drafts are private to the author, capped at 100 with 1 MiB per Python file. Removing
+a draft removes its trial package but does not remove the installed report.
+
+Reports use a captured connection configuration while running; later source changes
+apply to future runs. Trials share the two-report worker limit and private download
+expiry with installed reports. Do not store per-run globals in package code.
 
 Installation imports modules to check entry points. Keep imports free of side
 effects; there are no installation hooks or automatic SQL migrations. Any required

@@ -37,6 +37,8 @@ class Cursor:
     @property
     def rowcount(self): return self.cursor.rowcount
     def close(self): self.cursor.close()
+    def __enter__(self): return self
+    def __exit__(self, *args): self.close()
     def fetchone(self): return self.cursor.fetchone()
     def fetchall(self): return self.cursor.fetchall()
     def nextset(self): return False
@@ -123,3 +125,16 @@ class DatabaseFixture:
             rows = [dict(row) for row in conn.execute('SELECT * FROM Experiments ORDER BY ExperimentID DESC')]
         rows = [row for row in rows if search.lower() in str(row).lower()]
         return SimpleNamespace(rows=rows[offset:offset+limit], total_count=len(rows))
+
+
+def configure_fixture_report_sources(service):
+    """Legacy workflow fixture only. SQL Server permission checks use a real fixture."""
+    @contextmanager
+    def open_source(source):
+        with service.database.get_connection() as conn:
+            conn.raw.execute('PRAGMA query_only=ON')
+            yield conn
+    service.sources.open = open_source
+    service.sources.snapshot = lambda package_id, aliases, mapping=None: {alias: {'id': 'fixture'} for alias in aliases}
+    service.sources.state['sources'] = {name: dict(id=name, name=name.title(), server='fixture', database='disposable',
+        username='fixture', driver='fixture', trust_certificate=False) for name in ('primary', 'plates')}

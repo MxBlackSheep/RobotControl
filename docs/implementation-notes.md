@@ -1,3 +1,9 @@
+## 2026-09-28 Saved report wizard and read-only SQL sources
+
+- Added Create report with saved private drafts, original/handler separation, starter download and edited-handler upload, trial Excel, package export and reviewed installation. Python calculations remain author-owned; multiple reports use the existing chooser. The product specialist reviewed desktop/phone screenshots and draft/result handling.
+- Report connections use dedicated SQL Server accounts, encrypted local credentials and package source aliases. Effective permissions are checked on connection, including cross-database grants; no writer fallback. Existing reports need a primary source assignment. Added typed dates and searchable dependent database choices with server-side membership checks. Operations and Culture history calculations remain unchanged.
+- Focused browser/HTTP workflows, real SQL Server 2008 read/write-denial checks, legacy workbook parity and operation safety checks passed. No new unit tests. Commands, fixture identities, failure traces, screenshots and separate relocated Windows candidate results: `recovery/report-wizard-verification/index.html`. See `database_packages/README.md` for the shorter wizard-first authoring guide.
+
 ## 2026-09-28 Restore Culture history reference behavior (1.0.2)
 
 - Removed the 1.0.1 missing-well rejection, which incorrectly changed Data.py's sorting/first-N culture selection. Explicit SQL NULL-to-string conversion preserves the original legacy pandas behavior under bundled pandas 3; no culture-ID pattern is special-cased.

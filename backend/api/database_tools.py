@@ -1,20 +1,29 @@
 """Authenticated public interface; never accepts SQL or Python entry points."""
 from typing import Any, Literal
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.routing import APIRoute
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from backend.api.dependencies import require_local_access, ConnectionContext
 from backend.services.auth import get_current_user
 from backend.services.database_tools import get_database_tools
 from backend.services.database_packages import MAX_UPLOAD, PackageError
 from backend.utils.audit import log_action
+from backend.services.report_authoring import ReportDraft
+from backend.services.report_sources import ReportSource, lookup_rows
 
 
 class ToolRoute(APIRoute):
     def get_route_handler(self):
         original = super().get_route_handler()
         async def handler(request):
+            if request.method in {'POST', 'PUT'} and '/packages' not in request.url.path:
+                try:
+                    length = int(request.headers.get('content-length', '-1'))
+                except ValueError:
+                    raise HTTPException(400, 'Invalid request length')
+                if length < 0 or length > 4 * 1024 * 1024:
+                    raise HTTPException(413, 'Request requires Content-Length and must be under 4 MiB')
             if request.method == 'POST' and request.url.path.rstrip('/').endswith(('/packages', '/packages/inspect')):
                 try:
                     length = int(request.headers.get('content-length', '-1'))
@@ -28,6 +37,9 @@ class ToolRoute(APIRoute):
                 return await original(request)
             except PackageError as exc:
                 raise HTTPException(exc.status, str(exc)) from exc
+            except ValidationError as exc:
+                error = exc.errors()[0]
+                raise HTTPException(400, f"{'.'.join(map(str, error['loc'])) or 'Report'}: {error['msg']}") from exc
             except ValueError as exc:
                 raise HTTPException(400, str(exc)) from exc
         return handler
@@ -62,11 +74,161 @@ class Execution(BaseModel):
 def catalogue(kind: Literal['operation', 'report'], user=Depends(get_current_user), service=Depends(get_database_tools)):
     if kind == 'operation' and user.get('role') != 'admin':
         return []
-    return service.catalogue.tools(kind)
+    return service.public_catalogue(kind)
+
+
+class ChoiceRequest(Inputs):
+    search: str = Field(default='', max_length=200)
+    page: int = Field(default=1, ge=1, le=100000)
+
+
+@router.post('/reports/{tool_id}/choices/{field_name}')
+def report_choices(tool_id: str, field_name: str, payload: ChoiceRequest, service=Depends(get_database_tools)):
+    return service.choices(tool_id, field_name, payload.inputs, payload.search, payload.page)
+
+
+@router.get('/sources')
+def sources(user=Depends(local_admin), service=Depends(get_database_tools)):
+    return service.sources.list()
+
+
+@router.post('/sources')
+def save_source(payload: ReportSource, user=Depends(local_admin), service=Depends(get_database_tools)):
+    result = service.sources.save(payload)
+    log_action(actor=owner(user), action='save_report_source', scope='database', client_ip=None, success=True, details={'id': payload.id})
+    return result
+
+
+@router.delete('/sources/{source_id}')
+def delete_source(source_id: str, user=Depends(local_admin), service=Depends(get_database_tools)):
+    service.sources.remove(source_id)
+    return {'message': 'Connection removed.'}
+
+
+class Mappings(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    mappings: dict[str, str] = Field(max_length=8)
+
+
+@router.get('/packages/{package_id}/sources')
+def package_sources(package_id: str, user=Depends(local_admin), service=Depends(get_database_tools)):
+    with service.catalogue.lock:
+        entry = service.catalogue.index.get(package_id)
+        if not entry:
+            raise HTTPException(404, 'Package not found')
+        return dict(aliases=service.sources.aliases(entry['manifest']), mappings=service.sources.bindings(package_id))
+
+
+@router.put('/packages/{package_id}/sources')
+def bind_sources(package_id: str, payload: Mappings, user=Depends(local_admin), service=Depends(get_database_tools)):
+    with service.catalogue.lock:
+        entry = service.catalogue.index.get(package_id)
+        if not entry:
+            raise HTTPException(404, 'Package not found')
+        if service.catalogue.running.get(package_id):
+            raise HTTPException(409, 'Package is running. Wait until it finishes.')
+        service.sources.bind(package_id, service.sources.aliases(entry['manifest']), payload.mappings)
+    return {'message': 'Report connections assigned.'}
+
+
+class DraftSave(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    draft: ReportDraft
+    revision: int = Field(default=0, ge=0)
+
+
+@router.get('/drafts')
+def drafts(user=Depends(local_admin), service=Depends(get_database_tools)):
+    return service.authoring.list(owner(user))
+
+
+@router.post('/drafts')
+def new_draft(payload: DraftSave, user=Depends(local_admin), service=Depends(get_database_tools)):
+    return service.authoring.save(payload.draft, owner(user))
+
+
+@router.get('/drafts/{key}')
+def get_draft(key: str, user=Depends(local_admin), service=Depends(get_database_tools)):
+    return service.authoring.get(key, owner(user))
+
+
+@router.put('/drafts/{key}')
+def save_draft(key: str, payload: DraftSave, user=Depends(local_admin), service=Depends(get_database_tools)):
+    return service.authoring.save(payload.draft, owner(user), key, payload.revision)
+
+
+@router.delete('/drafts/{key}')
+def delete_draft(key: str, user=Depends(local_admin), service=Depends(get_database_tools)):
+    service.authoring.remove(key, owner(user))
+    return {'message': 'Draft removed.'}
+
+
+@router.get('/drafts/{key}/handler')
+def starter(key: str, user=Depends(local_admin), service=Depends(get_database_tools)):
+    return Response(service.authoring.starter(key, owner(user)), media_type='text/x-python',
+                    headers={'Content-Disposition': 'attachment; filename="handler.py"'})
+
+
+@router.get('/drafts/{key}/package')
+def export_draft(key: str, user=Depends(local_admin), service=Depends(get_database_tools)):
+    draft = service.authoring.draft(key, owner(user))
+    return Response(service.authoring.archive(draft), media_type='application/zip',
+                    headers={'Content-Disposition': f'attachment; filename="{draft.package_id}-{draft.version}.zip"'})
+
+
+@router.get('/drafts/{key}/review')
+def review_draft(key: str, user=Depends(local_admin), service=Depends(get_database_tools)):
+    return service.catalogue.inspect(service.authoring.archive(service.authoring.draft(key, owner(user))))
+
+
+@router.post('/drafts/{key}/choices/{field_name}')
+def draft_choices(key: str, field_name: str, payload: ChoiceRequest, user=Depends(local_admin), service=Depends(get_database_tools)):
+    draft = service.authoring.draft(key, owner(user))
+    tool = draft.manifest().tools[0]
+    values = tool.validate_values(payload.inputs, partial=True)
+    field = next((x for x in tool.inputs if x.name == field_name and x.lookup), None)
+    if not field:
+        raise HTTPException(404, 'Choice not found')
+    snapshot = service.sources.snapshot(draft.package_id, tool.sources or ['primary'], draft.mappings)
+    with service.sources.open(snapshot[field.lookup.source]) as conn:
+        return lookup_rows(conn, field, values, payload.search, payload.page)
+
+
+@router.post('/drafts/{key}/try')
+def try_draft(key: str, payload: Inputs, user=Depends(local_admin), service=Depends(get_database_tools)):
+    # Explicit trial permits importing the trusted handler; loading forms does not.
+    with service.authoring.lock:
+        draft = service.authoring.trial(key, owner(user))
+        return service.start_report(draft.package_id, payload.inputs, owner(user), service.authoring.trials, draft.mappings)
+
+
+class DraftInstall(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    expected_current: str = Field(max_length=64)
+    revision: int = Field(ge=1)
+
+
+@router.post('/drafts/{key}/install')
+def install_draft(key: str, payload: DraftInstall, user=Depends(local_admin), service=Depends(get_database_tools)):
+    with service.authoring.lock, service.catalogue.lock, service.sources.lock:
+        if service.authoring.get(key, owner(user))['revision'] != payload.revision:
+            raise HTTPException(409, 'Draft changed. Review it again.')
+        draft = service.authoring.draft(key, owner(user))
+        aliases = draft.sources or ['primary']
+        service.sources.snapshot(draft.package_id, aliases, draft.mappings)
+        if set(draft.mappings) != set(aliases):
+            raise HTTPException(400, 'Map exactly the declared source aliases.')
+        result = service.catalogue.install(service.authoring.archive(draft), expected_current=payload.expected_current)
+        service.sources.bind(draft.package_id, aliases, draft.mappings)
+    log_action(actor=owner(user), action='install_report_draft', scope='database', client_ip=None, success=True,
+               details={'package': result['id'], 'version': result['version']})
+    return result
 
 
 @router.get('/experiments')
-def experiments(search: str = Query('', max_length=200), page: int = Query(1, ge=1), service=Depends(get_database_tools)):
+def experiments(search: str = Query('', max_length=200), page: int = Query(1, ge=1), report_id: str | None = None, service=Depends(get_database_tools)):
+    if report_id:
+        return service.report_experiments(report_id, search, page)
     result = service.database.get_table_data('Experiments', limit=25, offset=(page-1)*25,
                                             search=search, order_by='ExperimentID', sort_direction='desc')
     return dict(rows=result.rows, total_count=result.total_count)
@@ -104,6 +266,7 @@ def inspect_package(file: UploadFile = File(...), user=Depends(local_admin), ser
 def remove(package_id: str, user=Depends(local_admin),
            connection: ConnectionContext=Depends(require_local_access), service=Depends(get_database_tools)):
     service.catalogue.remove(package_id)
+    service.sources.unbind(package_id)
     log_action(actor=owner(user), action='remove_database_package', scope='database', client_ip=connection.client_ip,
                success=True, details=dict(package=package_id))
     return dict(message='Package removed.')

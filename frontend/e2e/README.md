@@ -132,3 +132,31 @@ The browser update uses fixture version 9.0.0, independently of release versions
 For a package-only correction, `packaged_database_smoke` accepts `--report-package`
 to verify the ZIP against an existing executable without recompiling. Both HTTP and
 packaged checks accept `--evidence` to preserve earlier release results.
+
+## Report creation wizard
+
+Failure cases are in `database-failure-scenarios.md`. Use the current reference
+`upstream.py` from the preceding report verification, or fetch the pinned revision
+in `database_packages/culture-history/UPSTREAM.txt`, into the evidence directory.
+
+```powershell
+.venv/Scripts/python.exe -m backend.e2e.report_wizard_check
+.venv/Scripts/python.exe -X utf8 -W ignore::UserWarning -m backend.e2e.database_tools_check --evidence recovery/report-wizard-verification
+.venv/Scripts/python.exe -c "from pathlib import Path; from backend.e2e.database_fixture import package_zip; Path('recovery/report-wizard-verification/culture-history.zip').write_bytes(package_zip('database_packages/culture-history', {'version':'9.0.0'}))"
+npm --prefix frontend run build
+Set-Location frontend
+$env:ROBOTCONTROL_E2E_EVIDENCE='../recovery/report-wizard-verification'
+npx playwright test database-tools.spec.ts report-wizard.spec.ts --grep 'local admin|phone report|report author' --trace on
+Set-Location ..
+.venv/Scripts/python.exe -m backend.e2e.packaged_database_smoke dist/<candidate>/RobotControl --wizard --evidence recovery/report-wizard-verification
+```
+
+`report_wizard_check` uses local SQL Server `.\HAMILTON` with Windows administrator
+authentication to create uniquely named disposable databases and a SELECT-only
+login. It verifies actual SQL permission denial and removes its owned SQL objects.
+The browser fixture uses read-only SQLite data; do not infer SQL permissions from
+it. The packaged `--wizard` check uses the real disposable SQL fixture, checks DPAPI
+storage, package upload and Excel from a relocated executable with Python/UV absent
+from PATH. These commands neither inspect production rows nor change production
+grants. Evidence is under `recovery/report-wizard-verification`; Playwright's current
+HTML report and traces are under `recovery/viewer-verification`.
