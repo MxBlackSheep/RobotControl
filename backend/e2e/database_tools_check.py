@@ -71,14 +71,14 @@ def run(evidence=ROOT/'recovery/database-verification'):
                 checks.append('Local administrator checks, forwarded-header denial and retired SQL route: passed')
                 # Exercise the author's actual CLI, then upload its output through HTTP.
                 project = Path(temp)/'author-report'
-                original = ROOT/'database_packages/culture-history/handler.py'
+                original = ROOT/'database_packages/culture-history/culture_history.py'
                 def helper(*args):
                     return subprocess.run([sys.executable, str(ROOT/'build_scripts/database_package.py'), *map(str,args)],
                         cwd=ROOT, capture_output=True, text=True, encoding='utf-8')
                 created = helper('create', project, '--script', original, '--name', 'Culture history', '--id', 'culture-history',
                     '--kind', 'report', '--libraries', 'pandas,openpyxl,pyodbc')
                 assert created.returncode == 0, created.stderr
-                assert (project/'reference/handler.py').read_bytes() == original.read_bytes()
+                assert (project/'reference'/original.name).read_bytes() == original.read_bytes()
                 assert helper('build', project).returncode != 0  # Unfinished adapter cannot masquerade as a package.
                 (project/'handler.py').write_bytes(original.read_bytes())
                 built = helper('build', project, '--version', '9.0.0')

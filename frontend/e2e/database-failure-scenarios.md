@@ -128,6 +128,13 @@ display the returned reason. No new unit tests; extend focused HTTP/browser chec
 
 ## Python-defined reports and operations (before implementation)
 
+Bundled-tool conversion: each of Culture history and Delete Experiment must import
+as one Python file and update its existing identity. Changing the filename must
+not alter calculation functions, workbook values/formatting, deletion parameters,
+preview or typed confirmation. Check report generation and operation preview,
+rollback and confirmed execution over HTTP with the existing disposable fixture.
+Existing installations must not be overwritten by changing bundled defaults.
+
 - Importing a prepared Python file must not execute it. Reject nonliteral definitions,
   bad inputs/dependency cycles, missing entry functions, unavailable libraries and
   unsafe or duplicate supporting filenames. An ordinary script needs an explicit

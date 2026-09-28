@@ -1,3 +1,8 @@
+## 2026-09-28 Existing database tools as single Python files
+
+- Converted Culture history and Delete Experiment to `culture_history.py` and `delete_experiment.py`, with literal `TOOL` definitions and searchable experiment inputs. Function bodies are unchanged; bundled manifests now target those sources. Existing installations update through Edit → Replace all files → Try → Publish update, without rebuilding RobotControl.
+- Focused HTTP checks preserved both installed identities, compared complete workbook values/formatting against `5e9b4ff`, and checked deletion preview, typed confirmation, rollback and duplicate execution with disposable data. Repeat command and evidence: `recovery/bundled-tools-verification/index.html`. No application/frontend changes or new unit tests.
+
 ## 2026-09-28 Python-defined reports and operations
 
 - Manage packages now has one Add tool workflow: upload prepared Python, choose connections, try, then enable. A small `TOOL` definition produces the form; imports identify bundled libraries, and RobotControl builds versions/manifests/ZIPs. Authors still adapt their calculations; Python is trusted code, not sandboxed.

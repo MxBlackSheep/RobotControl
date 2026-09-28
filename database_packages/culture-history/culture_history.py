@@ -1,10 +1,29 @@
-"""Culture history report; calculation rules retained from UPSTREAM.txt."""
+"""Culture history Excel report for the EvoYeast schema.
+
+Add this file through RobotControl's Add tool, or replace the source when editing
+the installed Culture history report. Select the lab's read-only connection.
+Calculations follow Data.py at revision ed676fbe3b113329b7748935c87f6d3219743cb5;
+see UPSTREAM.txt in the repository for the original source URL.
+"""
 import re
 import logging
 from datetime import datetime
 from typing import Dict, List, Optional, Set, Tuple
 import pandas as pd
 import pyodbc
+
+TOOL = {
+    "name": "Culture history",
+    "kind": "report",
+    "connections": ["primary"],
+    "inputs": {
+        "experiment_id": {
+            "label": "Experiment",
+            "type": "integer",
+            "query": "SELECT ExperimentID AS value, UserDefinedID AS label FROM dbo.Experiments",
+        },
+    },
+}
 
 log = logging.getLogger(__name__).info
 

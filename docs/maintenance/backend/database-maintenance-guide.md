@@ -408,3 +408,19 @@ exclude rows independently of the reference script. The regression compares whol
 workbooks with an extra NULL-well culture 98500000 on plate 985 and with selected
 missing/ancestral wells. SQL Server validation of the actual experiment remains a
 VM check. This correction ships as a ZIP compatible with the existing executable.
+
+## Bundled tools as Python sources
+
+Culture history and Delete Experiment now have self-contained `TOOL` definitions
+in `database_packages/culture-history/culture_history.py` and
+`database_packages/delete-experiment/delete_experiment.py`. Their calculation and
+operation functions are unchanged. Bundled manifests use these entry points at
+versions 1.0.3 and 1.0.1 respectively; existing installed packages are never
+automatically replaced. Use Edit → Replace all files → Try → Publish update.
+Both selectors use a read-only `primary` connection; Delete Experiment also
+requires the operation connection to that same EvoYeast database.
+
+Repeat `.venv/Scripts/python.exe -m backend.e2e.bundled_tools_check` for the focused
+HTTP update/import checks and before/after workbook comparison. Evidence lives in
+`recovery/bundled-tools-verification`. This package-only change works with the
+Python-tools candidate without rebuilding RobotControl.

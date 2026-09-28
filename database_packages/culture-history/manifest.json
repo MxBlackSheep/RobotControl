@@ -1,14 +1,39 @@
 {
-  "contract_version": 1,
+  "contract_version": 2,
   "id": "culture-history",
   "name": "Culture history",
-  "version": "1.0.2",
-  "libraries": ["pandas", "openpyxl", "pyodbc"],
-  "tools": [{
-    "id": "culture-history",
-    "name": "Culture history",
-    "kind": "report",
-    "entrypoint": "handler:run",
-    "inputs": [{"name": "experiment_id", "label": "Experiment", "type": "experiment", "required": true}]
-  }]
+  "version": "1.0.3",
+  "libraries": [
+    "openpyxl",
+    "pandas",
+    "pyodbc"
+  ],
+  "tools": [
+    {
+      "id": "culture-history",
+      "name": "Culture history",
+      "kind": "report",
+      "entrypoint": "culture_history:run",
+      "preview": null,
+      "confirmation_field": null,
+      "inputs": [
+        {
+          "name": "experiment_id",
+          "label": "Experiment",
+          "type": "lookup",
+          "required": true,
+          "choices": [],
+          "lookup": {
+            "source": "primary",
+            "query": "SELECT ExperimentID AS value, UserDefinedID AS label FROM dbo.Experiments",
+            "parameters": [],
+            "value_type": "integer"
+          }
+        }
+      ],
+      "sources": [
+        "primary"
+      ]
+    }
+  ]
 }

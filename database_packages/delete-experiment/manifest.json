@@ -1,16 +1,35 @@
 {
-  "contract_version": 1,
+  "contract_version": 2,
   "id": "delete-experiment",
   "name": "Delete Experiment",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "libraries": [],
-  "tools": [{
-    "id": "delete-experiment",
-    "name": "Delete Experiment",
-    "kind": "operation",
-    "entrypoint": "handler:run",
-    "preview": "handler:preview",
-    "confirmation_field": "experiment_id",
-    "inputs": [{"name": "experiment_id", "label": "Experiment", "type": "experiment", "required": true}]
-  }]
+  "tools": [
+    {
+      "id": "delete-experiment",
+      "name": "Delete Experiment",
+      "kind": "operation",
+      "entrypoint": "delete_experiment:run",
+      "preview": "delete_experiment:preview",
+      "confirmation_field": "experiment_id",
+      "inputs": [
+        {
+          "name": "experiment_id",
+          "label": "Experiment",
+          "type": "lookup",
+          "required": true,
+          "choices": [],
+          "lookup": {
+            "source": "primary",
+            "query": "SELECT ExperimentID AS value, UserDefinedID AS label FROM dbo.Experiments",
+            "parameters": [],
+            "value_type": "integer"
+          }
+        }
+      ],
+      "sources": [
+        "primary"
+      ]
+    }
+  ]
 }

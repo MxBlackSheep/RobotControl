@@ -1,4 +1,24 @@
-"""Delete through the existing database procedure; the host owns the transaction."""
+"""Delete one EvoYeast experiment through dbo.DeleteExperiment.
+
+Add this file through RobotControl's Add tool, or replace the source when editing
+the installed Delete Experiment operation. Use a read-only connection for choices
+and the corresponding operation connection for preview/execution. RobotControl
+owns the transaction, safety checks and typed confirmation.
+"""
+
+TOOL = {
+    "name": "Delete Experiment",
+    "kind": "operation",
+    "connections": ["primary"],
+    "confirm": "experiment_id",
+    "inputs": {
+        "experiment_id": {
+            "label": "Experiment",
+            "type": "integer",
+            "query": "SELECT ExperimentID AS value, UserDefinedID AS label FROM dbo.Experiments",
+        },
+    },
+}
 
 
 def preview(context, inputs):

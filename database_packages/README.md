@@ -6,6 +6,18 @@ administrator chooses this lab's connections, tries the tool and enables it.
 
 ## Start with an example
 
+The two existing EvoYeast tools are also ready as single Python files:
+
+- [culture_history.py](culture-history/culture_history.py): the existing Culture history calculations and Excel formatting.
+- [delete_experiment.py](delete-experiment/delete_experiment.py): preview and execution through `dbo.DeleteExperiment`.
+
+For an installed tool, choose **Edit report/operation → Replace all files**, select
+its `.py` file, check the connections, try, then **Publish update**. For a new
+installation, use **Add tool** instead. No manifest or supporting file upload is
+needed. Both use this lab's EvoYeast schema; they are not generic database tools.
+Delete Experiment uses a reader for its experiment choices and an operation
+connection to the **same database** for preview/execution.
+
 In **Database → Manage packages → Add tool**, download **Report example** or
 **Operation example**. Edit it yourself, optionally with a coding agent.
 
