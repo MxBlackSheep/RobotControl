@@ -123,8 +123,10 @@ def build_with_pyinstaller(layout: str = "onedir", console: bool = False, output
         
         # Include other commonly missing modules
         "--hidden-import", "pyodbc",
-        "--collect-all", "pandas",
-        "--collect-all", "openpyxl",
+        # These are loaded by uploaded reports. Standard hooks collect runtime
+        # extensions/data; collect-all also pulled in pandas' entire test suite.
+        "--hidden-import", "pandas",
+        "--hidden-import", "openpyxl",
         "--add-data", "database_packages;database_packages",
         "--hidden-import", "bcrypt",
         
@@ -149,6 +151,10 @@ def build_with_pyinstaller(layout: str = "onedir", console: bool = False, output
         "--exclude-module", "jupyter",
         "--exclude-module", "IPython",
         "--exclude-module", "backend.tests",
+        "--exclude-module", "backend.e2e",
+        "--exclude-module", "pandas.tests",
+        "--exclude-module", "numpy.tests",
+        "--exclude-module", "openpyxl.tests",
         "--exclude-module", "pytest",
         
         # Optimization

@@ -69,7 +69,7 @@ class DatabaseAccess:
             token = uuid.uuid4().hex
             self.reviews[token] = dict(source=source, owner=owner, expires=time.time()+600)
         return dict(token=token, server=source.server, database=source.database, account=source.username,
-                    grants=['CONNECT', 'SELECT on this database', 'VIEW DEFINITION on this database'],
+                    grants=['CONNECT', 'SELECT on this database', 'VIEW DEFINITION on this database', 'EXECUTE denied on this database'],
                     sql=self.script(source, '<REPLACE_WITH_STRONG_PASSWORD>'))
 
     @staticmethod
@@ -77,7 +77,8 @@ class DatabaseAccess:
         login = identifier(source.username)
         return (f"CREATE LOGIN {login} WITH PASSWORD=N'{password.replace(chr(39), chr(39)*2)}', CHECK_POLICY=ON;\n"
                 f"USE {identifier(source.database)};\nCREATE USER {login} FOR LOGIN {login};\n"
-                f"GRANT CONNECT, SELECT, VIEW DEFINITION TO {login};\n")
+                f"GRANT CONNECT, SELECT, VIEW DEFINITION TO {login};\n"
+                f"DENY EXECUTE TO {login};\n")
 
     def create(self, authority, owner):
         with self.sources.lock:
@@ -117,6 +118,9 @@ class DatabaseAccess:
                 conn.execute(f'CREATE USER {login} FOR LOGIN {login}')
                 stage = 'grant read-only access'
                 conn.execute(f'GRANT CONNECT, SELECT, VIEW DEFINITION TO {login}')
+                # Database diagram procedures commonly grant EXECUTE to public.
+                # Override inherited execution for this new reader; never relax verification.
+                conn.execute(f'DENY EXECUTE TO {login}')
                 stage = 'commit account'
                 conn.commit()
                 created = True
@@ -132,6 +136,14 @@ class DatabaseAccess:
                         raise PackageError(f'{detail} Rollback could not be confirmed. Ask the SQL administrator to check the new login {source.username} before retrying.') from None
                     if created:
                         try:
+                            # Verification closed its connection, but ODBC pooling
+                            # can retain a session and prevent DROP LOGIN. Only this
+                            # newly created identity belongs to the failed setup.
+                            conn.autocommit = True
+                            sessions = conn.execute('SELECT session_id FROM sys.dm_exec_sessions WHERE login_name=?', (source.username,)).fetchall()
+                            for session in sessions:
+                                conn.execute(f'KILL {int(session[0])}')
+                            conn.autocommit = False
                             conn.execute(f'USE {identifier(source.database)}')
                             conn.execute(f'DROP USER {identifier(source.username)}')
                             conn.execute('USE master')

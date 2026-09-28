@@ -33,6 +33,8 @@ def run():
             admin.execute('CREATE SCHEMA other')
             admin.execute("CREATE TABLE other.Projects (id int PRIMARY KEY, label nvarchar(80)); INSERT other.Projects VALUES (7, 'Other schema')")
             admin.execute('CREATE PROCEDURE other.PreviewOnly AS SELECT 1 AS value')
+            admin.execute('CREATE PROCEDURE dbo.sp_helpdiagrams AS SELECT 1 AS value')
+            admin.execute('GRANT EXECUTE ON dbo.sp_helpdiagrams TO public')
             admin.execute('USE master')
             service = DatabaseTools(Path(temp)/'tools', ROOT/'database_packages', database=object(), guard=nullcontext)
             app = FastAPI(); app.include_router(router); app.include_router(viewer_router)
@@ -50,8 +52,16 @@ def run():
                         return r.json() if 'application/json' in r.headers.get('content-type','') else r.content
                     source = dict(id='lab-a', name='Lab A', server=fixture['server'], database=fixture['names'][0],
                                   username=new_login, trust_certificate=True)
+                    # Verification fails after commit, with a pooled reader session.
+                    admin.execute('USE ['+fixture['names'][0]+']; GRANT INSERT ON dbo.Projects TO public; USE master')
+                    failed_login = new_login+'_verification'
+                    failed_review = call('POST',BASE+'/sources/access/review',dict(source,id='failed-verification',username=failed_login))
+                    failure = call('POST',BASE+'/sources/access/create',dict(token=failed_review['token'],windows_auth=True),400)
+                    assert 'INSERT' in failure['detail'] and 'check/remove' not in failure['detail'], failure
+                    assert not admin.execute('SELECT 1 FROM sys.server_principals WHERE name=?', failed_login).fetchone()
+                    admin.execute('USE ['+fixture['names'][0]+']; REVOKE INSERT ON dbo.Projects FROM public; USE master')
                     review = call('POST', BASE+'/sources/access/review', source)
-                    assert review['account']==new_login and 'SELECT' in review['sql']
+                    assert review['account']==new_login and 'SELECT' in review['sql'] and 'DENY EXECUTE' in review['sql']
                     assert not admin.execute('SELECT name FROM sys.server_principals WHERE name=?',new_login).fetchone()
                     client.headers['authorization']='other-admin'
                     call('POST',BASE+'/sources/access/create',dict(token=review['token'],windows_auth=True),409)
@@ -62,10 +72,14 @@ def run():
                     assert 'password' not in json.dumps(call('GET',BASE+'/viewer-sources'))
                     with service.sources.open(created) as conn:
                         assert conn.execute('SELECT COUNT(*) FROM dbo.Projects').fetchone()[0] == 2
-                        for sql in ["INSERT dbo.Projects VALUES(99,'bad')", 'DELETE dbo.Projects', "UPDATE dbo.Projects SET label='bad'", 'CREATE TABLE dbo.Bad(id int)']:
+                        for sql in ["INSERT dbo.Projects VALUES(99,'bad')", 'DELETE dbo.Projects', "UPDATE dbo.Projects SET label='bad'", 'CREATE TABLE dbo.Bad(id int)', 'EXEC dbo.sp_helpdiagrams']:
                             try: conn.execute(sql)
                             except Exception: conn.rollback()
                             else: raise AssertionError('New identity can write')
+                    inherited = call('POST',BASE+'/sources',dict(source,id='inherited',username=fixture['login'],password=fixture['password']),400)
+                    assert 'EXECUTE' in inherited['detail'] and 'sp_helpdiagrams' in inherited['detail'], inherited
+                    admin.execute('USE ['+fixture['names'][0]+']; REVOKE EXECUTE ON dbo.sp_helpdiagrams FROM public; USE master')
+                    result['checks'].append('New reader denies inherited public EXECUTE; existing reader with EXECUTE rejected; failed verification removes only newly created login and pooled session')
                     collision = call('POST',BASE+'/sources/access/review',dict(source,id='collision',username=fixture['login']))
                     conflict = call('POST',BASE+'/sources/access/create',dict(token=collision['token'],windows_auth=True),400)
                     assert 'already exists' in conflict['detail'] and 'RobotControl_ReadOnly' in conflict['detail']

@@ -141,6 +141,13 @@ other scripts remain reference material until the author uploads an adapter. Rep
 Python clears old results/reviews. The example is an ordinary saved draft with zero
 sources and bundled sample rows; it does not install a report or touch a database.
 
+The wizard offers **Save and close** to retain work and **Discard and close** to
+delete the current draft after confirmation. Discard uses the existing owner-checked
+draft endpoint, creates no draft for an unsaved report, and leaves installed packages
+unchanged. A failed deletion keeps the editor/confirmation open. Busy operations and
+running trials block both exit actions. Keep editing, Escape or the backdrop dismisses
+the confirmation without deleting the draft.
+
 Focused browser checks: `database-workspace.spec.ts` and `report-wizard.spec.ts`.
 The former checks account review, a no-database Excel example and viewer switching;
 the latter retains resume/dependent-input/install coverage. SQL permissions and

@@ -24,9 +24,18 @@ provisioning credentials are never stored or audited. DDL runs in a transaction;
 after commit, reader verification and encrypted persistence must succeed or the new
 identity is removed. Cleanup failure gives explicit administrator instructions.
 Existing logins are rejected, never altered. Grants are database-wide CONNECT,
-SELECT and VIEW DEFINITION. This includes future tables; use an existing narrowly
+SELECT and VIEW DEFINITION, with database-wide DENY EXECUTE for the new reader.
+This overrides public execution grants such as SQL diagram procedures without
+exempting them from permission verification. It also appears in downloaded setup
+SQL and the access review. This includes future tables; use an existing narrowly
 scoped account if the lab needs table-level restrictions. Windows setup authentication
 uses the identity running RobotControl, not the browser user's Windows identity.
+
+On post-creation verification failure, cleanup terminates pooled sessions belonging
+only to the newly created login before dropping that user/login. SQL authority must
+allow terminating those sessions; otherwise the error explicitly requests manual
+cleanup. This does not repair identities left by an earlier release: a SQL
+administrator must review/remove that failed new identity before reusing its name.
 
 Setup errors identify duplicate login/user names, rejected sign-in, insufficient SQL
 authority, inaccessible databases and missing ODBC drivers. Other failures show the

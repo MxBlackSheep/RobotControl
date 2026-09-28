@@ -128,6 +128,8 @@ This guide explains how the FastAPI entry point, logging, static assets, and bui
 3. **Build executable**  
    - `uv run --locked --group build python build_scripts/pyinstaller_build.py --layout onedir` (or `--layout onefile`).
    - Script collects application modules and embedded assets without copying backend source, local `.env` files, runtime data, or tests into the bundle. PyInstaller runs through the same uv environment as the application.
+   - pandas/openpyxl are explicit hidden imports for uploaded reports, using standard PyInstaller hooks for runtime extensions/data. Do not use `--collect-all pandas`: it also bundles the library's test suite. Backend E2E/unit packages and pandas/numpy/openpyxl test packages are excluded. Public runtime helpers such as `numpy.testing` are separate from test suites and may be imported by the libraries.
+   - `backend.e2e.packaged_database_smoke` inspects both the frozen Python archive and support files for test suites, then generates Excel through pandas/openpyxl in a relocated executable. Current evidence: `recovery/report-release-verification`.
 
 4. **Output**  
    - `dist/RobotControl/RobotControl.exe` (onedir) or `dist/RobotControl.exe` (onefile).  

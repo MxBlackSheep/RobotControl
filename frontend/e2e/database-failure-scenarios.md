@@ -104,3 +104,8 @@ suggest that the new login was removed. Existing principals remain untouched.
 The form must retain non-secret settings after a failed creation, clear authority
 credentials, explain that the new login is separate from the administrator, and
 display the returned reason. No new unit tests; extend focused HTTP/browser checks.
+### Report discard, release contents and inherited EXECUTE (2026-09-28, before changes)
+
+- Discarding a fresh report must close without creating a draft. For an autosaved/resumed draft, confirmation removes only that draft; cancel keeps it. Failed deletion must keep the editor open with its values. A running trial must still block deletion. Save and close must continue to retain the draft.
+- Dropping broad pandas collection must remove its test suite from the frozen archive without losing pandas/openpyxl Excel generation in a relocated executable.
+- A disposable database with a public EXECUTE grant on a diagram-style procedure must produce a newly provisioned reader that cannot execute it or write data. Existing-account validation must still reject EXECUTE. Failed post-creation verification must remove only the new login, including its pooled verification session; existing identities remain untouched.

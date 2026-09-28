@@ -18,6 +18,48 @@ async function choose(page: any, label: string, option: string) {
   await page.getByRole('option', { name: option, exact: true }).click();
 }
 
+test('discard closes a fresh report and removes a saved draft only after confirmation', async ({ page }) => {
+  mkdirSync(evidence, { recursive: true }); await login(page);
+  await page.goto('/database?section=packages');
+  let created = 0;
+  page.on('request', r => { if (r.method() === 'POST' && r.url().endsWith('/drafts')) created++; });
+  await page.getByRole('button', { name: 'Create report', exact: true }).click();
+  await page.getByRole('button', { name: 'Discard and close', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Discard and close' }).click();
+  await expect(page.getByRole('button', { name: 'Create report', exact: true })).toBeVisible();
+  expect(created).toBe(0);
+
+  await page.getByRole('button', { name: 'Create report', exact: true }).click();
+  await page.getByLabel('Report name', { exact: true }).fill('Discard fixture');
+  await page.getByRole('button', { name: 'Save and close', exact: true }).click();
+  const row = page.getByText('Discard fixture', { exact: true }).locator('..');
+  await row.getByRole('button', { name: 'Resume', exact: true }).click();
+  await expect(page.getByLabel('Report name', { exact: true })).toHaveValue('Discard fixture');
+  await page.getByRole('button', { name: 'Discard and close', exact: true }).click();
+  await page.getByRole('button', { name: 'Keep editing', exact: true }).click();
+  await expect(page.getByRole('dialog')).not.toBeVisible();
+  await expect(page.getByLabel('Report name', { exact: true })).toHaveValue('Discard fixture');
+  await page.screenshot({ path: `${evidence}/discard-desktop.png`, animations: 'disabled' });
+  await page.route('**/api/database/tools/drafts/*', route => route.request().method() === 'DELETE'
+    ? route.fulfill({ status: 409, json: { detail: 'This package is running. Try again when it finishes.' } }) : route.continue());
+  await page.getByRole('button', { name: 'Discard and close', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Discard and close' }).click();
+  await expect(page.getByRole('dialog').getByRole('alert')).toContainText('This package is running');
+  await page.getByRole('button', { name: 'Keep editing', exact: true }).click();
+  await expect(page.getByRole('dialog')).not.toBeVisible();
+  await expect(page.getByLabel('Report name', { exact: true })).toHaveValue('Discard fixture');
+  await page.unroute('**/api/database/tools/drafts/*');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: 'Discard and close', exact: true }).click();
+  await page.screenshot({ path: `${evidence}/discard-phone.png`, animations: 'disabled' });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+  await page.getByRole('dialog').getByRole('button', { name: 'Discard and close' }).click();
+  await expect(page.getByRole('button', { name: 'Create report', exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByText('Discard fixture', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Culture history · 1.0.2', { exact: false })).toBeVisible();
+});
+
 test('report author resumes a draft, configures dependent inputs and installs a tried report', async ({ page }) => {
   mkdirSync(evidence, { recursive: true });
   await login(page);

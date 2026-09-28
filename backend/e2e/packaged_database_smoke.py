@@ -34,6 +34,10 @@ def wizard_check(request, token, result, evidence):
                     database=database, username=fixture['login'], password=fixture['password'], trust_certificate=True), token)
             profile = dict(id='created-reader', name='Created reader', server=fixture['server'], database=fixture['names'][0],
                 username=created_login, trust_certificate=True)
+            fixture['admin'].execute('USE ['+fixture['names'][0]+']')
+            fixture['admin'].execute('CREATE PROCEDURE dbo.sp_helpdiagrams AS SELECT 1 AS value')
+            fixture['admin'].execute('GRANT EXECUTE ON dbo.sp_helpdiagrams TO public')
+            fixture['admin'].execute('USE master')
             review = request('/api/database/tools/sources/access/review', profile, token)
             request('/api/database/tools/sources/access/create', {'token':review['token'], 'windows_auth':True}, token)
             conflict = request('/api/database/tools/sources/access/review', dict(profile, id='conflicting-reader'), token)
@@ -47,21 +51,23 @@ def wizard_check(request, token, result, evidence):
             tables = request('/api/database/tables?source_id=created-reader', token=token)['data']['tables']
             assert '[dbo].[Projects]' in tables
             assert request('/api/database/tables/%5Bdbo%5D.%5BProjects%5D?source_id=created-reader',token=token)['data']['total_count']==2
+            fixture['admin'].execute('USE ['+fixture['names'][0]+']; REVOKE EXECUTE ON dbo.sp_helpdiagrams FROM public; USE master')
+            result['checks'].append('Packaged account creation succeeds with inherited public EXECUTE while retaining read-only verification')
             request('/api/database/stored-procedures?source_id=created-reader',token=token)
             scan = request('/api/database/tools/authoring/inspect-python',{'source':'def example():\n    import openpyxl\n'},token)
             assert scan['available']==['openpyxl']
             result['checks'].append('Packaged read-only account provisioning, schema-qualified viewer and upload import detection passed')
-            handler = '''import openpyxl
+            handler = '''import pandas as pd
 def run(context, inputs):
-    book = openpyxl.Workbook()
+    rows = []
     for source in ('primary', 'plates'):
         row = context.connections[source].cursor().execute('SELECT label FROM dbo.Projects WHERE id=?', inputs['project']).fetchone()
-        book.active.append([source, row[0]])
-    book.save(context.output_dir / 'portable.xlsx')
+        rows.append([source, row[0]])
+    pd.DataFrame(rows).to_excel(context.output_dir / 'portable.xlsx', engine='openpyxl', index=False, header=False)
     return 'portable.xlsx'
 '''
             draft = dict(name='Portable SQL report', package_id='portable-sql-report', version='1.0.0',
-                libraries=['openpyxl'], original='raise RuntimeError("reference only")', handler=handler,
+                libraries=['pandas','openpyxl'], original='raise RuntimeError("reference only")', handler=handler,
                 sources=['primary','plates'], mappings={'primary':'primary','plates':'plates'}, step=2,
                 inputs=[dict(name='project',label='Project',type='lookup',required=True,choices=[],
                     lookup=dict(source='primary',query='SELECT id AS value, label FROM dbo.Projects',parameters=[],value_type='integer'))])
@@ -109,6 +115,13 @@ def run(context, inputs):
 def run(candidate, report_package=None, evidence=ROOT/'recovery/database-verification', wizard=False):
     evidence.mkdir(parents=True, exist_ok=True)
     result = dict(candidate=str(candidate), checks=[], passed=False)
+    from PyInstaller.archive.readers import CArchiveReader
+    archive = CArchiveReader(str(candidate/'RobotControl.exe')).open_embedded_archive('PYZ.pyz')
+    tests = [name for name in archive.toc if name.endswith('.tests') or '.tests.' in name or name.startswith('backend.e2e')]
+    test_files = [str(p.relative_to(candidate)) for p in candidate.rglob('*') if p.is_file() and 'tests' in p.relative_to(candidate).parts]
+    (evidence/'release-contents.json').write_text(json.dumps({'modules':len(archive.toc),'test_modules':tests,'test_files':test_files},indent=2))
+    assert not tests and not test_files, 'Test suites included in the release; see release-contents.json'
+    result['checks'].append('Frozen module archive and support files contain no test suites')
     def request(path, body=None, token=None, method=None, upload=None):
         headers={}
         if token: headers['Authorization']='Bearer '+token

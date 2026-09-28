@@ -1,3 +1,10 @@
+## 2026-09-28 Report discard, release contents and inherited SQL execution
+
+- Added confirmed Discard and close alongside Save and close in report authoring. Fresh reports leave no draft; saved drafts use existing ownership/running checks, failures retain work, and installed packages remain untouched.
+- Replaced broad pandas/openpyxl collection with standard runtime hooks and explicit test-suite exclusions. The prior candidate contained 1,122 pandas test modules. The packaged check now inspects release contents and generates Excel through pandas/openpyxl.
+- New read-only SQL identities explicitly deny database EXECUTE, including public diagram-procedure grants. Verification stays strict; failed post-creation cleanup closes only the new login's pooled sessions. Earlier orphaned identities still require administrator review.
+- Failure scenarios, disposable SQL/browser checks, retained dialog failure trace and separate Windows candidate results: `recovery/report-release-verification/index.html`. No new unit tests; actual VM permissions remain a deployment check.
+
 ## 2026-09-28 Read-only account setup diagnostics
 
 - Replaced the generic SQL setup error with specific name-conflict, sign-in, authority, database and driver guidance. Unknown failures retain stage/numeric diagnostics without exposing SQL or passwords; existing logins remain untouched.

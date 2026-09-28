@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, Box, Button, Checkbox, FormControlLabel, LinearProgress, MenuItem, Paper, Stack, Step, StepLabel, Stepper, TextField, Typography } from '@mui/material';
+import { Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, FormControlLabel, LinearProgress, MenuItem, Paper, Stack, Step, StepLabel, Stepper, TextField, Typography } from '@mui/material';
 import { api } from '../services/api';
 import ReportInputs, { changedInputs, ReportField, requestMessage, saveBlob } from './ReportInputs';
 import ReportConnections, { Source, SourceMappings } from './ReportConnections';
@@ -49,6 +49,7 @@ export default function ReportWizard({ draftId, onClose }: { draftId?: string; o
   const [saved, setSaved] = useState<Saved>(), [draft, setDraft] = useState<Draft>(empty);
   const [inspection, setInspection] = useState<Inspection>();
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState('');
+  const [discardOpen, setDiscardOpen] = useState(false);
   const [sources, setSources] = useState<Source[]>([]), [connectionsOpen, setConnectionsOpen] = useState(false);
   const [values, setValues] = useState<Record<string, any>>({}), [job, setJob] = useState<any>(), [review, setReview] = useState<any>();
   const loadSources = () => api.get(`${base}/sources`).then(r => setSources(r.data));
@@ -103,8 +104,11 @@ export default function ReportWizard({ draftId, onClose }: { draftId?: string; o
   const fieldChange = (index: number, f: ReportField) => update({ inputs: draft.inputs.map((x, i) => i === index ? f : x) });
   const ready = !draft.inputs.some(f => f.required && f.type !== 'boolean' && (values[f.name] == null || values[f.name] === ''));
   return <Stack spacing={2}>
-    <Stack direction="row" justifyContent="space-between" alignItems="center"><Typography variant="h6">Create report</Typography>
-      <Button disabled={busy || running} onClick={() => action(async () => { await persist(); onClose(); })}>Save and close</Button></Stack>
+    <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}><Typography variant="h6">Create report</Typography>
+      <Stack direction="row" flexWrap="wrap" gap={1}>
+        <Button disabled={busy || running} onClick={() => setDiscardOpen(true)}>Discard and close</Button>
+        <Button disabled={busy || running} onClick={() => action(async () => { await persist(); onClose(); })}>Save and close</Button>
+      </Stack></Stack>
     <Stepper activeStep={draft.step} alternativeLabel>{['Script', 'Data and inputs', 'Try report', 'Install or export'].map(x => <Step key={x}><StepLabel>{x}</StepLabel></Step>)}</Stepper>
     {error && <Alert severity="error">{error}</Alert>}{notice && <Alert severity="success">{notice}</Alert>}{busy && <LinearProgress />}
     <Paper variant="outlined" sx={{ p: { xs: 1.5, md: 3 } }}><Box component="fieldset" disabled={busy || running} sx={{ border: 0, p: 0, m: 0, minWidth: 0 }}>
@@ -196,5 +200,19 @@ export default function ReportWizard({ draftId, onClose }: { draftId?: string; o
       <Button disabled={busy || running} onClick={() => action(async () => { await persist(); setNotice('Draft saved.'); })}>Save draft</Button>
       <Button disabled={draft.step === 3 || busy || running} onClick={() => navigate(draft.step + 1)}>Next</Button></Stack>
     <ReportConnections open={connectionsOpen} onClose={() => { setConnectionsOpen(false); void loadSources(); }} />
+    <Dialog open={discardOpen} onClose={() => { if (!busy) setDiscardOpen(false); }} aria-labelledby="discard-report-title">
+      <DialogTitle id="discard-report-title">Discard this draft?</DialogTitle>
+      <DialogContent><DialogContentText>The draft will be deleted. Installed reports stay available.</DialogContentText>
+        {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
+      </DialogContent>
+      <DialogActions>
+        <Button disabled={busy} onClick={() => setDiscardOpen(false)}>Keep editing</Button>
+        <Button color="error" disabled={busy || running} onClick={() => action(async () => {
+          const id = saved?.id || draftId;
+          if (id) await api.delete(`${base}/drafts/${id}`);
+          onClose();
+        })}>Discard and close</Button>
+      </DialogActions>
+    </Dialog>
   </Stack>;
 }
