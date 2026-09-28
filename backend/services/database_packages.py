@@ -241,6 +241,28 @@ class PackageCatalogue:
         return [dict(tool, package_id=package["id"], package_version=package["version"])
                 for package in self.packages() for tool in package["tools"] if tool["kind"] == kind]
 
+    def export(self, package_id):
+        with self.lock:
+            entry = self.index.get(package_id)
+            if not entry:
+                raise PackageError('Package is not installed', 404)
+            directory = self.root / entry['directory']
+            original = directory / '.package.zip'
+            if original.exists():
+                content = original.read_bytes()
+                if hashlib.sha256(content).hexdigest() != entry['sha256']:
+                    raise PackageError('The retained package ZIP has changed. Reinstall a reviewed copy before exporting.', 409)
+            else:
+                # Older installations retained flat authored files, not the ZIP.
+                output = io.BytesIO()
+                with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
+                    for file in sorted(directory.iterdir()):
+                        if file.is_file() and not file.is_symlink() and file.suffix in {'.py', '.json', '.md', '.txt'}:
+                            archive.writestr(file.name, file.read_bytes())
+                content = output.getvalue()
+            manifest, _ = inspect_archive(content)
+            return content, f'{manifest.id}-{manifest.version}.zip'
+
     def resolve(self, tool_id, kind):
         for package_id, entry in self.index.items():
             for value in entry["manifest"]["tools"]:
@@ -303,6 +325,7 @@ class PackageCatalogue:
             directory.mkdir()
             for name, payload in payloads.items():
                 (directory / name).write_bytes(payload)
+            (directory / '.package.zip').write_bytes(content)
             entry = {"manifest": manifest.model_dump(), "directory": directory.name,
                      "sha256": hashlib.sha256(content).hexdigest()}
             with self.lock:

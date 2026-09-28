@@ -1,5 +1,12 @@
 # Database inspection failure scenarios
 
+## Package and configuration workflows (before implementation, 2026-09-28)
+
+- Export must use the installed version, exclude generated/cache/config files, preserve authored assets, and reinstall without executing during export. Unauthorized exports and missing packages fail. Old updates cannot replace an intervening version unnoticed.
+- Editing downloads retain original Python and configured inputs; missing adaptation is visible before trying. Multiple report/operation choices retain the correct classification, form and target. No demonstration package ships installed.
+- Connection settings expose assignments and uses. Certificate trust is remembered only for the same exact server after explicit successful setup, never on failed connections. Account review distinguishes target, new identity and temporary authority.
+- Scheduling settings are local-admin-only. Review reads schema without preparation writes. Save rechecks configuration/source revision, robot idle, healthy safety store, recovery and active/queued work under launch protection. Active schedules must be disabled; existing bindings remain unchanged. Active and pending settings differ until restart; cancelling restores the original file. Changing sources after review must reject the save. Existing EvoYeast configuration and unrelated schedule edits retain their behavior.
+
 Written before production changes for the September 2026 viewer work.
 
 - A narrow screen puts the complete catalogue above the selected table or SQL; Back loses the current selection, search draft or scroll position.

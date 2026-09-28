@@ -73,6 +73,9 @@ def run(context, inputs):
                     lookup=dict(source='primary',query='SELECT id AS value, label FROM dbo.Projects',parameters=[],value_type='integer'))])
             saved = request('/api/database/tools/drafts', {'draft': draft}, token)
             prefix = '/api/database/tools/drafts/' + saved['id']
+            with zipfile.ZipFile(io.BytesIO(request(prefix+'/editing-files',token=token))) as editing:
+                assert editing.read('original.py').decode() == draft['original']
+                assert 'EDITING.md' in editing.namelist()
             choices = request(prefix+'/choices/project', {'inputs':{}}, token)
             assert {x['value'] for x in choices['options']} == {1,2}
             def finished(job):
@@ -88,6 +91,7 @@ def run(context, inputs):
             (evidence/'packaged-two-source.xlsx').write_bytes(content)
             package=request(prefix+'/package',token=token)
             request('/api/database/tools/packages',token=token,upload=package)
+            assert request('/api/database/tools/packages/portable-sql-report/export',token=token) == package
             request('/api/database/tools/packages/portable-sql-report/sources',{'mappings':draft['mappings']},token,method='PUT')
             finished(request('/api/database/tools/reports/portable-sql-report',{'inputs':{'project':2}},token))
             result['checks'].append('Relocated executable: DPAPI source storage, SQL permission checks, private draft, dependent input API, trial workbook, exported ZIP upload and installed generation passed')

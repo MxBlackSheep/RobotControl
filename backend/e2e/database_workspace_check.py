@@ -14,7 +14,8 @@ import openpyxl
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.testclient import TestClient
 from backend.e2e.report_wizard_check import sql_fixture, ROOT, BASE
-from backend.api.database_tools import router
+from backend.api.database_tools import router, get_lab_settings
+from backend.e2e.database_fixture import configure_fixture_lab_settings
 from backend.api.database import router as viewer_router
 from backend.services.auth import get_current_user
 from backend.services.database_tools import DatabaseTools, get_database_tools
@@ -44,6 +45,8 @@ def run():
                 return dict(username=name, role='user' if name == 'user' else 'admin')
             app.dependency_overrides[get_current_user] = user
             app.dependency_overrides[get_database_tools] = lambda: service
+            settings = configure_fixture_lab_settings(service, Path(temp)/'lab')
+            app.dependency_overrides[get_lab_settings] = lambda: settings
             try:
                 with TestClient(app, client=('127.0.0.1', 1234), headers={'authorization':'admin'}) as client:
                     def call(method, path, body=None, status=200):
@@ -122,6 +125,57 @@ def run():
                     admin.execute('GRANT DELETE TO ['+fixture['login']+']')
                     writer=dict(source,id='writer',name='Disposable writer',database=fixture['names'][1],username=fixture['login'],password=fixture['password'],access='operation')
                     call('POST',BASE+'/sources',writer)
+                    admin.execute('CREATE TABLE Experiments(ExperimentID int, UserDefinedID nvarchar(100), Note nvarchar(100), ScheduledToRun bit); INSERT Experiments VALUES(42,\'Unchanged\',NULL,0)')
+                    admin.execute("CREATE PROCEDURE ResetHamiltonTables AS BEGIN RAISERROR('Compatibility must not execute preparation',16,1) END")
+                    admin.execute('GRANT VIEW DEFINITION ON ResetHamiltonTables TO ['+fixture['login']+']')
+                    cfg = dict(adapter='evoyeast', source_id='writer')
+                    initial = call('GET',BASE+'/scheduling-settings')
+                    checked = call('POST',BASE+'/scheduling-settings/review',cfg)
+                    assert not admin.execute('SELECT ScheduledToRun FROM Experiments').fetchone()[0]
+                    client.headers['authorization']='other-admin'
+                    call('POST',BASE+'/scheduling-settings/apply',dict(token=checked['token']),409)
+                    client.headers['authorization']='user'
+                    call('GET',BASE+'/scheduling-settings',status=403)
+                    client.headers['authorization']='admin'
+                    with TestClient(app, client=('10.2.3.4',5),headers={'authorization':'admin','x-forwarded-for':'127.0.0.1'}) as remote:
+                        assert remote.post(BASE+'/scheduling-settings/review',json=cfg).status_code==403
+                    with settings.manager.sqlite_db._get_connection() as conn:
+                        conn.execute("INSERT INTO ScheduledExperiments(schedule_id,experiment_name,experiment_path,schedule_type,prerequisites) VALUES('config-fixture','Retained schedule','never-launch.med','once','[\"Batch:B-01\"]')")
+                        conn.commit()
+                    call('POST',BASE+'/scheduling-settings/apply',dict(token=checked['token']),409)
+                    with settings.manager.sqlite_db._get_connection() as conn:
+                        conn.execute("UPDATE ScheduledExperiments SET is_active=0,recovery_required=1");conn.commit()
+                    call('POST',BASE+'/scheduling-settings/apply',dict(token=checked['token']),409)
+                    with settings.manager.sqlite_db._get_connection() as conn:
+                        conn.execute("UPDATE ScheduledExperiments SET recovery_required=0")
+                        conn.execute("INSERT INTO JobExecutions(execution_id,schedule_id,status) VALUES('queued','config-fixture','queued')");conn.commit()
+                    call('POST',BASE+'/scheduling-settings/apply',dict(token=checked['token']),409)
+                    with settings.manager.sqlite_db._get_connection() as conn:
+                        conn.execute("DELETE FROM JobExecutions WHERE execution_id='queued'");conn.commit()
+                    call('POST',BASE+'/sources',writer)
+                    call('POST',BASE+'/scheduling-settings/apply',dict(token=checked['token']),409)
+                    checked = call('POST',BASE+'/scheduling-settings/review',cfg)
+                    # Existing launch guard exceptions must remain actionable HTTP errors.
+                    from backend.services.sqlite_safety import SafetyConflict, StorageUnavailable
+                    def blocked(): raise SafetyConflict('Robot is busy')
+                    settings.guard=blocked
+                    call('POST',BASE+'/scheduling-settings/apply',dict(token=checked['token']),409)
+                    def unavailable(): raise StorageUnavailable('fixture storage failure')
+                    settings.guard=unavailable
+                    call('POST',BASE+'/scheduling-settings/apply',dict(token=checked['token']),503)
+                    settings.guard=nullcontext
+                    pending=call('POST',BASE+'/scheduling-settings/apply',dict(token=checked['token']))
+                    assert pending['pending'] and pending['active']==initial['active'] and pending['saved']==cfg
+                    call('POST',BASE+'/sources',writer,409)
+                    call('DELETE',BASE+'/sources/writer',status=409)
+                    call('POST',BASE+'/scheduling-settings/apply',dict(token=checked['token']),409)
+                    call('POST',BASE+'/scheduling-settings/cancel',dict(revision=initial['revision']),409)
+                    cancelled=call('POST',BASE+'/scheduling-settings/cancel',dict(revision=pending['revision']))
+                    assert not cancelled['pending'] and cancelled['saved']==initial['saved']
+                    with settings.manager.sqlite_db._get_connection() as conn:
+                        assert conn.execute('SELECT prerequisites FROM ScheduledExperiments').fetchone()[0]=='["Batch:B-01"]'
+                    assert not admin.execute('SELECT ScheduledToRun FROM Experiments').fetchone()[0]
+                    result['checks'].append('Scheduling HTTP review only reads; active/recovery/queued/robot/storage/changed-source/owner/stale reviews blocked; pending settings protect sources and cancel restores exact active configuration without changing schedule bindings')
                     call('GET','/api/database/tables?source_id=writer',status=409)
                     call('PUT',BASE+'/packages/culture-history/sources',dict(mappings={'primary':'writer'}),400)
                     manifest=dict(contract_version=1,id='remove-project',name='Remove project',version='1.0.0',libraries=[],tools=[dict(id='remove-project',name='Remove project',kind='operation',preview='handler:preview',entrypoint='handler:run',confirmation_field='id',inputs=[dict(name='id',label='Project',type='integer',required=True)])])
@@ -130,6 +184,22 @@ def run():
                     with zipfile.ZipFile(output,'w') as z:
                         z.writestr('manifest.json',json.dumps(manifest));z.writestr('handler.py',handler)
                     assert client.post(BASE+'/packages',files={'file':('operation.zip',output.getvalue())}).status_code==200
+                    exported = call('GET', BASE+'/packages/remove-project/export')
+                    assert exported == output.getvalue()
+                    with zipfile.ZipFile(io.BytesIO(exported)) as archive:
+                        assert set(archive.namelist()) == {'manifest.json', 'handler.py'}
+                        assert archive.read('handler.py').decode() == handler
+                    # Older installations have no retained upload ZIP.
+                    directory = service.catalogue.root/service.catalogue.index['remove-project']['directory']
+                    (directory/'.package.zip').unlink()
+                    (directory/'cache').mkdir(); (directory/'cache'/'private.json').write_text('{}')
+                    with zipfile.ZipFile(io.BytesIO(call('GET', BASE+'/packages/remove-project/export'))) as archive:
+                        assert set(archive.namelist()) == {'manifest.json', 'handler.py'}
+                    client.headers['authorization']='user'
+                    call('GET',BASE+'/packages/remove-project/export',status=403)
+                    client.headers['authorization']='admin'
+                    call('GET',BASE+'/packages/missing/export',status=404)
+                    result['checks'].append('Installed package exports exact original bytes; legacy export excludes cache; unavailable and non-admin exports denied')
                     call('PUT',BASE+'/packages/remove-project/sources',dict(mappings={},operation_source='writer'))
                     def preview(i): return call('POST',BASE+'/operations/remove-project/preview',dict(inputs={'id':i}))
                     def execute(p,i): return call('POST',BASE+'/operations/execute',dict(token=p['token'],confirmation=str(i)))
@@ -148,6 +218,15 @@ def run():
                     assert call('POST',BASE+'/authoring/inspect-python',{'source':example})['compatible']
                     draft=dict(name='Example',package_id='example',sources=[],mappings={},handler=example,original=example,inputs=[dict(name='label',label='Sample name',type='text')])
                     saved=call('POST',BASE+'/drafts',{'draft':draft})
+                    editing=call('GET',BASE+'/drafts/'+saved['id']+'/editing-files')
+                    with zipfile.ZipFile(io.BytesIO(editing)) as archive:
+                        assert set(archive.namelist()) == {'original.py','handler.py','inputs.json','EDITING.md'}
+                        assert archive.read('original.py').decode() == example
+                        assert json.loads(archive.read('inputs.json'))['inputs'][0]['name'] == 'label'
+                    client.headers['authorization']='other-admin'
+                    call('GET',BASE+'/drafts/'+saved['id']+'/editing-files',status=404)
+                    client.headers['authorization']='admin'
+                    result['checks'].append('Editing download retains original, handler and input contract; another author cannot download it')
                     job=call('POST',BASE+'/drafts/'+saved['id']+'/try',dict(inputs={'label':'Demo'}))
                     deadline=time.monotonic()+30
                     while job['status'] in {'pending','running'}:

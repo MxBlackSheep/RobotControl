@@ -1,5 +1,26 @@
 # Frontend database maintenance guide
 
+## Database settings and author workflow (2026-09-28)
+
+The local-admin **Database settings** section (`DatabaseSettings.tsx`) shows saved
+connections, their uses, package assignments and scheduling's active/pending target.
+It reuses `ReportConnections` and `SourceMappings`; there is no second credential
+store. Viewers still select their own read-only connection. Package rows show tool
+counts, Download package, Connections, Update and Remove. Tool `kind` controls
+Operations versus Data retrieval; the selector remains visible with one tool.
+
+Create report distinguishes import inspection from Python adaptation. Download
+editing files preserves the original, a configured handler and input contract;
+Upload adapted script enables a trial once its entry point and libraries are
+available. Inspection is not a correctness or sandbox guarantee. Install package
+accepts a reviewed ZIP; it does not adapt a standalone Python file.
+
+Read-only account review describes capabilities before technical grants. The
+Windows account is the application's process identity. Certificate trust stays
+visible; successful connection saves remember the checkbox in this browser's
+`database-certificate-trust` map under the exact server string. New servers default
+to verification; connection failure never changes this preference.
+
 The Database page is a read-only inspector for table rows, stored procedures and functions. Restore and Operations are separate existing tools with their existing permissions and confirmations. Viewing a SQL definition never executes it.
 
 ## Where the code lives

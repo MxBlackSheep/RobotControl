@@ -240,7 +240,8 @@ def load_lab_integration(storage, native_database, root):
     """Use existing credentials by default; optional profiles are captured once."""
     root = Path(root)
     path = root / 'scheduling-lab.json'
-    config = json.loads(path.read_text('utf-8')) if path.exists() else {'adapter': 'evoyeast'}
+    configuration_bytes = path.read_bytes() if path.exists() else None
+    config = json.loads(configuration_bytes) if configuration_bytes is not None else {'adapter': 'evoyeast'}
     if not isinstance(config, dict) or set(config) - {'adapter', 'source_id', 'sqlite_path'}:
         raise ValueError('Invalid scheduling-lab.json settings.')
     adapter_id = config.get('adapter')
@@ -276,4 +277,7 @@ def load_lab_integration(storage, native_database, root):
         raise ValueError('Unknown scheduling lab adapter. Use evoyeast or batch-sqlite.')
     if native_database is not None:
         target['hamilton_revision'] = hashlib.sha256(json.dumps(native_database._primary_config, sort_keys=True).encode()).hexdigest()
-    return LabIntegration(adapter, storage, target, legacy_default=not path.exists())
+    lab = LabIntegration(adapter, storage, target, legacy_default=not path.exists())
+    lab.configuration = copy.deepcopy(config)
+    lab.configuration_bytes = configuration_bytes
+    return lab

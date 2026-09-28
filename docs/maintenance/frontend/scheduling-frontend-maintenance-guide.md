@@ -1,5 +1,13 @@
 ## September 2026 responsive workspace
 
+## Laboratory configuration entry (2026-09-28)
+
+Local administrators can open Database settings from schedule preparation controls.
+That page configures only the existing EvoYeast/Batch integration and shows Active
+now separately from Saved; restart required. It reviews affected schedules before
+saving and offers Cancel change. Per-schedule experiment/batch selection stays in
+the schedule form; unrelated edits retain preparation tokens.
+
 - `SchedulingPage` owns selection, edit state, permissions and queue/recovery state. Its `InspectionWorkspace` keeps the list and details mounted; narrow containers show one pane with Back. `ScheduleCollection` searches/sorts the current list without changing backend query semantics. The existing `ScheduleList` remains the archived-schedule table/detail view.
 - Keep recovery and queue status above the workspace. Opening or resizing a view must never start/resume/archive/delete a schedule. Local access, recovery-required restrictions, and expected revisions still come from existing handlers/services.
 - Visited sections stay mounted through `SectionPanel`. Execution history receives `active`; leaving History stops its polling without losing filters. Email settings remain mounted when switching notification tabs. Document visibility retains the shared polling policy.

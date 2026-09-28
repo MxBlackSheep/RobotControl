@@ -1,5 +1,6 @@
 """Authenticated public interface; never accepts SQL or Python entry points."""
 from typing import Any, Literal
+import sqlite3
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, Response
 from fastapi.routing import APIRoute
@@ -12,6 +13,8 @@ from backend.utils.audit import log_action
 from backend.services.report_authoring import ReportDraft, inspect_python
 from backend.services.report_sources import ReportSource, lookup_rows
 from backend.services.database_access import ProvisionAuthority
+from backend.services.scheduling.lab_settings import LabConfiguration, LabSettings
+from backend.services.sqlite_safety import SafetyConflict, StorageUnavailable
 
 
 class ToolRoute(APIRoute):
@@ -38,6 +41,12 @@ class ToolRoute(APIRoute):
                 return await original(request)
             except PackageError as exc:
                 raise HTTPException(exc.status, str(exc)) from exc
+            except SafetyConflict as exc:
+                raise HTTPException(409, str(exc)) from exc
+            except StorageUnavailable:
+                raise HTTPException(503, 'Scheduler safety storage is unavailable.') from None
+            except sqlite3.Error:
+                raise HTTPException(503, 'Local database storage is unavailable. Check the application logs before retrying.') from None
             except ValidationError as exc:
                 error = exc.errors()[0]
                 raise HTTPException(400, f"{'.'.join(map(str, error['loc'])) or 'Report'}: {error['msg']}") from exc
@@ -58,6 +67,48 @@ def local_admin(user=Depends(get_current_user), connection: ConnectionContext=De
 
 def owner(user):
     return str(user.get('user_id') or user['username'])
+
+
+def get_lab_settings(service=Depends(get_database_tools)):
+    from backend.services.scheduling import get_scheduler_engine, get_scheduling_database_manager
+    from backend.utils.data_paths import get_data_path
+    manager = get_scheduling_database_manager()
+    with service.sources.lock:
+        if not hasattr(manager, '_settings_service'):
+            manager._settings_service = LabSettings(manager, service.sources, get_data_path(), get_scheduler_engine().database_change_guard)
+        return manager._settings_service
+
+
+@router.get('/scheduling-settings')
+def scheduling_settings(user=Depends(local_admin), settings=Depends(get_lab_settings)):
+    return settings.status()
+
+
+@router.post('/scheduling-settings/review')
+def review_scheduling(payload: LabConfiguration, user=Depends(local_admin), settings=Depends(get_lab_settings)):
+    return settings.review(payload, owner(user))
+
+
+class SettingsSave(BaseModel):
+    token: str = Field(pattern=r'^[0-9a-f]{32}$')
+
+
+class SettingsCancel(BaseModel):
+    revision: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+
+@router.post('/scheduling-settings/apply')
+def apply_scheduling(payload: SettingsSave, user=Depends(local_admin), settings=Depends(get_lab_settings)):
+    result = settings.save(payload.token, owner(user))
+    log_action(actor=owner(user), action='save_scheduling_database', scope='scheduling', client_ip=None, success=True, details=result['saved'])
+    return result
+
+
+@router.post('/scheduling-settings/cancel')
+def cancel_scheduling(payload: SettingsCancel, user=Depends(local_admin), settings=Depends(get_lab_settings)):
+    result = settings.cancel(payload.revision)
+    log_action(actor=owner(user), action='cancel_scheduling_database', scope='scheduling', client_ip=None, success=True, details={})
+    return result
 
 
 class Inputs(BaseModel):
@@ -99,8 +150,8 @@ def viewer_sources(service=Depends(get_database_tools)):
 
 
 @router.post('/sources')
-def save_source(payload: ReportSource, user=Depends(local_admin), service=Depends(get_database_tools)):
-    result = service.sources.save(payload)
+def save_source(payload: ReportSource, user=Depends(local_admin), service=Depends(get_database_tools), settings=Depends(get_lab_settings)):
+    result = settings.change_source(payload.id, lambda: service.sources.save(payload))
     log_action(actor=owner(user), action='save_report_source', scope='database', client_ip=None, success=True, details={'id': payload.id})
     return result
 
@@ -122,8 +173,8 @@ def create_access(payload: ProvisionAuthority, user=Depends(local_admin), servic
 
 
 @router.delete('/sources/{source_id}')
-def delete_source(source_id: str, user=Depends(local_admin), service=Depends(get_database_tools)):
-    service.sources.remove(source_id)
+def delete_source(source_id: str, user=Depends(local_admin), service=Depends(get_database_tools), settings=Depends(get_lab_settings)):
+    settings.change_source(source_id, lambda: service.sources.remove(source_id))
     return {'message': 'Connection removed.'}
 
 
@@ -283,6 +334,18 @@ def experiments(search: str = Query('', max_length=200), page: int = Query(1, ge
 @router.get('/packages')
 def packages(user=Depends(local_admin), service=Depends(get_database_tools)):
     return service.catalogue.packages()
+
+
+@router.get('/packages/{package_id}/export')
+def export_package(package_id: str, user=Depends(local_admin), service=Depends(get_database_tools)):
+    content, filename = service.catalogue.export(package_id)
+    return Response(content, media_type='application/zip', headers={'Content-Disposition': f'attachment; filename="{filename}"'})
+
+
+@router.get('/drafts/{key}/editing-files')
+def editing_files(key: str, user=Depends(local_admin), service=Depends(get_database_tools)):
+    return Response(service.authoring.editing_files(key, owner(user)), media_type='application/zip',
+                    headers={'Content-Disposition': 'attachment; filename="report-editing-files.zip"'})
 
 
 @router.post('/packages')

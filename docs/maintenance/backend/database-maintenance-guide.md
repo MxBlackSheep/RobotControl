@@ -1,5 +1,19 @@
 # Database Maintenance Guide
 
+## Package downloads and configuration (2026-09-28)
+
+Local administrators can GET `/api/database/tools/packages/{id}/export`. New
+installations retain the reviewed ZIP and verify its checksum on download; older
+installations reconstruct the flat authored files. Exports contain neither local
+source assignments nor app output/cache folders. Authored code may itself contain
+secrets. Draft owners can GET `/drafts/{id}/editing-files` for original Python,
+configured handler, input definitions and editing instructions; it is not an
+installable package and downloading does not execute Python.
+
+`LabSettings.change_source` rejects changes/removal of active or pending scheduling
+sources. Create a separate profile and use the reviewed scheduling change instead.
+See the scheduling maintenance guide for restart and recovery constraints.
+
 ## Configurable Database workspace (2026-09-28)
 
 `workspace_database.py` uses an explicit snapshot from `report_sources.py` for

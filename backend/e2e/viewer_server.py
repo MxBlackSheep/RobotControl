@@ -168,12 +168,14 @@ async def video(ws: WebSocket, ident: str):
         pass
 
 
-from backend.api.database_tools import router as database_tools_router
+from backend.api.database_tools import router as database_tools_router, get_lab_settings
 from backend.services.database_tools import DatabaseTools, get_database_tools
-from backend.e2e.database_fixture import DatabaseFixture, configure_fixture_report_sources
+from backend.e2e.database_fixture import DatabaseFixture, configure_fixture_report_sources, configure_fixture_lab_settings
 app.state.database_tools = DatabaseTools(fixture / 'database-tools', ROOT / 'database_packages', DatabaseFixture(fixture))
 configure_fixture_report_sources(app.state.database_tools)
 app.state.database_tools.guard = app.state.database_tools.database.guard
+app.state.lab_settings = configure_fixture_lab_settings(app.state.database_tools, fixture / 'lab')
+app.dependency_overrides[get_lab_settings] = lambda: app.state.lab_settings
 app.dependency_overrides[get_database_tools] = lambda: app.state.database_tools
 app.include_router(database_tools_router)
 

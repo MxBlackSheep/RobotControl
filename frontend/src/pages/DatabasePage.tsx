@@ -22,6 +22,7 @@ import { useAuth } from "../context/AuthContext";
 import { api, databaseAPI } from "../services/api";
 import DatabaseTable from "../components/DatabaseTable";
 import StoredProcedures from "../components/StoredProcedures";
+import DatabaseSettings from "../components/DatabaseSettings";
 import DatabaseRestore from "../components/DatabaseRestore";
 import DatabaseTools, { DatabasePackages } from "../components/DatabaseTools";
 
@@ -190,6 +191,7 @@ export default function DatabasePage() {
       <SectionPanel active={section === 5}>
         {isLocalUser(user) && user?.role === "admin" ? <DatabasePackages active={section === 5} /> : null}
       </SectionPanel>
+      <SectionPanel active={section === 6}>{isLocalUser(user) && user?.role === "admin" ? <DatabaseSettings active={section === 6} /> : null}</SectionPanel>
     </PageContent>
   );
 }

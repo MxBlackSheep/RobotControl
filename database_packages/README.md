@@ -3,6 +3,18 @@
 A package contains your Python and the settings for its input form. **You edit
 Python; RobotControl handles the form settings and ZIP.**
 
+## Edit an installed package
+
+Choose **Manage packages → Download package** on the installed version. Unzip it,
+edit the Python, increase `version` in `manifest.json`, then ZIP the files with
+`manifest.json` at the root. Choose **Update** on the same package and review the
+version before installing. Local connection assignments and passwords are not
+added to the download; inspect your own code for any hard-coded secrets before sharing.
+
+A tool's `kind` in the manifest decides its page: `report` appears in Data retrieval;
+`operation` appears in Operations. A package can contain both. Each page always
+shows its selector; installing more tools adds choices, not new tabs.
+
 ## Recommended: create it in RobotControl
 
 1. Open **Database → Manage packages → Create report → Upload Python**.
@@ -14,15 +26,19 @@ Python; RobotControl handles the form settings and ZIP.**
    manual library overrides are under **Details**; source aliases are under
    **Source names in Python**.
 3. If the script already supplies `run(context, inputs)`, it can proceed directly.
-   Otherwise download the starter, keep your calculations and adapt the connection,
-   input and output handling. Upload the completed `handler.py`. Your draft retains
+   Otherwise choose **Download editing files**. The ZIP contains `original.py`,
+   a configured `handler.py`, `inputs.json` and `EDITING.md` for you or a coding
+   agent. Keep your calculations and adapt connection, input and output handling.
+   Choose **Upload adapted script** when ready. This ZIP is for editing, not installation.
+   Your draft retains
    its form settings while you edit outside RobotControl, with or without a coding agent.
 4. **Try report**, check the Excel output, then **Install** here or **Export package**
    for another installation. A successful trial does not establish calculation accuracy.
 
 ### Set up a connection once
 
-Open **Database connections**, enter a name, server and database, then choose:
+Open **Database → Database settings → Manage connections**, enter a name,
+server and database, then choose:
 
 - **Create read-only account:** name a new SQL login, choose **Review access**, check
   the database and grants, and supply SQL administrator credentials for **Create account**.
@@ -33,6 +49,10 @@ Open **Database connections**, enter a name, server and database, then choose:
 - **Use existing account:** enter the credentials your lab provides. Choose
   **Read-only: viewers and reports** or **Operations: database changes**. The latter
   must not be used for reports. **Check and save** verifies the supplied access.
+
+Certificate trust is explicit. After a successful save, this browser remembers
+your choice for that exact server name only. Encryption remains enabled; checking
+**Trust server certificate** skips verification of the server certificate.
 
 If you do not have SQL authority, download the reviewed SQL for your administrator.
 They replace the password placeholder and run it, then give you the reader credentials
@@ -70,7 +90,7 @@ including Culture history, need **Connections → primary** assigned once after 
 application upgrade; generation is blocked until configured. No write connection
 is used as a fallback. Reviewed Python remains required; this is not a code sandbox.
 
-Already have a ZIP? Use **Database → Manage packages → Add package**, or **Update**
+Already have a ZIP? Use **Database → Manage packages → Install package**, or **Update**
 beside the installed package. You do not need the steps below just to install it.
 
 ## Alternative: command-line authoring
@@ -154,7 +174,7 @@ correct. If it reports an unfinished adapter, go back to step 2.
 
 ## 4. Install and check the report
 
-1. Open **Database → Manage packages → Add package**.
+1. Open **Database → Manage packages → Install package**.
 2. Choose `my-report-1.0.0.zip`, review the name/version, then install.
 3. Open **Database → Data retrieval** and choose **My culture report**.
 4. Select an experiment from disposable data, generate Excel and check its contents.

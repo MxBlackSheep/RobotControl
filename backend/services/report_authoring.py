@@ -171,6 +171,22 @@ class ReportAuthoring:
         inspect_archive(content)
         return content
 
+    def editing_files(self, key, owner):
+        draft = self.draft(key, owner)
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr('original.py', draft.original)
+            archive.writestr('handler.py', draft.handler or self.starter(key, owner))
+            archive.writestr('inputs.json', json.dumps({'inputs': draft.inputs, 'sources': draft.sources}, indent=2))
+            archive.writestr('EDITING.md', '# Adapt this report\n\n'
+                'Keep the original calculation and selection rules. Edit handler.py yourself or with a coding agent.\n'
+                'Provide run(context, inputs). Use context.connections[name] for the configured database; '
+                'input names and connection names are in inputs.json. Use parameterized queries.\n'
+                'Write Excel under context.output_dir and return its filename. Do not include connection passwords.\n'
+                'Upload the adapted script in RobotControl, try it with known data, and check the downloaded workbook '
+                'before installing. This editing ZIP is not an installable package.\n')
+        return output.getvalue()
+
     def trial(self, key, owner):
         draft = self.draft(key, owner)
         # Each saved revision gets a private execution snapshot. Import occurs only

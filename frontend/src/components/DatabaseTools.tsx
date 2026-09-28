@@ -145,10 +145,10 @@ export default function DatabaseTools({ kind, active }: { kind: 'operation' | 'r
   const invalid = tool?.inputs.some(field => field.required && field.type !== 'boolean' && (values[field.name] == null || values[field.name] === ''));
   return <>
     <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 1, minHeight: 48 }}>
-      {tools.length > 1 ? <TextField select size="small" label={kind === 'operation' ? 'Operation' : 'Report'} value={selected}
+      {<TextField select size="small" label={kind === 'operation' ? 'Operation' : 'Report'} value={selected}
         disabled={locked} onChange={event => chooseTool(event.target.value)} sx={{ width: 420, maxWidth: '100%' }}>
         {tools.map(item => <MenuItem key={item.id} value={item.id}>{item.name}</MenuItem>)}
-      </TextField> : <Typography component="h2" variant="h6">{tool?.name || (kind === 'operation' ? 'Operations' : 'Data retrieval')}</Typography>}
+      </TextField>}
     </Stack>
     {tool?.target && <Typography variant="body2" sx={{ mb: 1, overflowWrap: 'anywhere' }}>Target: {tool.target}</Typography>}
     <InspectionWorkspace label="Database task workspace">

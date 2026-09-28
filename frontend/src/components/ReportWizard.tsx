@@ -103,13 +103,14 @@ export default function ReportWizard({ draftId, onClose }: { draftId?: string; o
   const download = async (url: string, name: string) => { const r = await api.get(url, { responseType: 'blob' }); saveBlob(r.data, name); };
   const fieldChange = (index: number, f: ReportField) => update({ inputs: draft.inputs.map((x, i) => i === index ? f : x) });
   const ready = !draft.inputs.some(f => f.required && f.type !== 'boolean' && (values[f.name] == null || values[f.name] === ''));
+  const scriptReady = !!draft.handler && !!inspection?.compatible && !inspection.unavailable.length;
   return <Stack spacing={2}>
     <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}><Typography variant="h6">Create report</Typography>
       <Stack direction="row" flexWrap="wrap" gap={1}>
         <Button disabled={busy || running} onClick={() => setDiscardOpen(true)}>Discard and close</Button>
         <Button disabled={busy || running} onClick={() => action(async () => { await persist(); onClose(); })}>Save and close</Button>
       </Stack></Stack>
-    <Stepper activeStep={draft.step} alternativeLabel>{['Script', 'Data and inputs', 'Try report', 'Install or export'].map(x => <Step key={x}><StepLabel>{x}</StepLabel></Step>)}</Stepper>
+    <Stepper activeStep={draft.step} alternativeLabel>{['Script', 'Data and inputs', 'Try report', 'Install or export'].map(x => <Step key={x} completed={draft.step > ['Script', 'Data and inputs', 'Try report', 'Install or export'].indexOf(x) && (x !== 'Script' || !!draft.handler)}><StepLabel>{x}</StepLabel></Step>)}</Stepper>
     {error && <Alert severity="error">{error}</Alert>}{notice && <Alert severity="success">{notice}</Alert>}{busy && <LinearProgress />}
     <Paper variant="outlined" sx={{ p: { xs: 1.5, md: 3 } }}><Box component="fieldset" disabled={busy || running} sx={{ border: 0, p: 0, m: 0, minWidth: 0 }}>
       {draft.step === 0 && <Stack spacing={2}>
@@ -128,7 +129,7 @@ export default function ReportWizard({ draftId, onClose }: { draftId?: string; o
           {!!inspection.unavailable.length && <Alert severity="warning">Not bundled: {inspection.unavailable.join(', ')}. Adapt the script or upgrade RobotControl.</Alert>}
           {inspection.undetermined.map(text => <Alert key={text} severity="info">{text}</Alert>)}
           {inspection.adaptation.map(text => <Typography variant="body2" key={text}>{text}</Typography>)}
-          {draft.handler && <Typography variant="body2">Report entry point found. Ready to configure and try.</Typography>}
+          {scriptReady ? <Alert severity="success">Ready to configure and try.</Alert> : <Alert severity="info">Script needs adaptation before it can run here.</Alert>}
         </Stack>}
         <Box component="details"><Typography component="summary">Details</Typography><Stack spacing={2} sx={{ mt: 2 }}>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}><TextField fullWidth label="Package ID" value={draft.package_id} onChange={e => update({ package_id: e.target.value })} />
@@ -162,11 +163,11 @@ export default function ReportWizard({ draftId, onClose }: { draftId?: string; o
         <Button onClick={() => update({ inputs: [...draft.inputs, { name: `input_${draft.inputs.length + 1}`, label: 'Input', type: 'text', required: true, choices: [] }] })}>Add input</Button>
       </Stack>}
       {draft.step === 2 && <Stack spacing={2}>
-        {!draft.handler && <><Typography variant="subtitle1">Adapt your Python</Typography>
-          <Typography variant="body2">Download the starter with your inputs and connections. Add your calculations, then upload it.</Typography></>}
+        {!draft.handler && <><Typography variant="subtitle1">Script needs adaptation</Typography>
+          <Typography variant="body2">Download your script and editing template. Adapt it yourself or with a coding agent, then upload the result.</Typography></>}
         <Stack direction="row" flexWrap="wrap" gap={1}>
-          {!draft.handler && <Button variant="outlined" onClick={() => action(async () => { const s = await persist(); await download(`${base}/drafts/${s.id}/handler`, 'handler.py'); })}>Download starter</Button>}
-          <Button component="label" variant="outlined">Upload handler.py<input hidden type="file" accept=".py" aria-label="Completed handler" onChange={e => { upload('handler', e.target.files?.[0]); e.target.value = ''; }} /></Button>
+          {!draft.handler && <Button variant="outlined" onClick={() => action(async () => { const s = await persist(); await download(`${base}/drafts/${s.id}/editing-files`, 'report-editing-files.zip'); })}>Download editing files</Button>}
+          <Button component="label" variant="outlined">Upload adapted script<input hidden type="file" accept=".py" aria-label="Completed handler" onChange={e => { upload('handler', e.target.files?.[0]); e.target.value = ''; }} /></Button>
           {draft.handler && <Button onClick={() => saveBlob(new Blob([draft.handler], { type: 'text/x-python' }), 'handler.py')}>Download saved handler</Button>}
           {!draft.handler && inspection?.compatible && <Button title="Original already defines run(context, inputs)" onClick={() => action(async () => {
             await persist({ ...draft, handler: draft.original }); setJob(undefined); setReview(undefined); setNotice('Original selected as handler.');
@@ -174,9 +175,10 @@ export default function ReportWizard({ draftId, onClose }: { draftId?: string; o
         </Stack>
         {draft.handler && <Typography variant="body2">Handler saved · {draft.handler.split('\n').length} lines</Typography>}
         <Typography variant="subtitle1">Try report</Typography>
+        {!draft.handler && <Typography variant="body2" color="text.secondary">Upload the adapted script to enable Try report.</Typography>}
         {saved && <ReportInputs fields={draft.inputs} values={values} disabled={busy || running} choiceBase={`${base}/drafts/${saved.id}/choices`}
           onChange={(name, v) => { setValues(old => changedInputs(draft.inputs, old, name, v)); setJob(undefined); }} />}
-        <Button variant="contained" sx={{ alignSelf: 'flex-start' }} disabled={!draft.handler || !ready || busy || running} onClick={() => action(async () => {
+        <Button variant="contained" sx={{ alignSelf: 'flex-start' }} disabled={!scriptReady || !ready || busy || running} onClick={() => action(async () => {
           const s = await persist(); const inputs = { ...values }; draft.inputs.forEach(f => { if (f.type === 'boolean' && inputs[f.name] == null) inputs[f.name] = false; });
           const r = await api.post(`${base}/drafts/${s.id}/try`, { inputs }); setJob(r.data);
         })}>Try report</Button>

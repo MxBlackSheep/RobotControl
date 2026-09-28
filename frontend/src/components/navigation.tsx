@@ -13,7 +13,7 @@ export const schedulingSections = [
 export type Section = {id: string; label: string; index: number; local?: boolean; admin?: boolean; adminOrLocal?: boolean};
 export const sectionRegistry: Record<string, Section[]> = {
   '/scheduling': schedulingSections,
-  '/database': [{id: 'tables', label: 'Tables', index: 0}, {id: 'procedures', label: 'Stored procedures', index: 1}, {id: 'restore', label: 'Restore', index: 2, adminOrLocal: true}, {id: 'operations', label: 'Operations', index: 3, local: true, admin: true}, {id: 'retrieval', label: 'Data retrieval', index: 4}, {id: 'packages', label: 'Manage packages', index: 5, local: true, admin: true}],
+  '/database': [{id: 'tables', label: 'Tables', index: 0}, {id: 'procedures', label: 'Stored procedures', index: 1}, {id: 'restore', label: 'Restore', index: 2, adminOrLocal: true}, {id: 'operations', label: 'Operations', index: 3, local: true, admin: true}, {id: 'retrieval', label: 'Data retrieval', index: 4}, {id: 'packages', label: 'Manage packages', index: 5, local: true, admin: true}, {id: 'settings', label: 'Database settings', index: 6, local: true, admin: true}],
   '/camera': [{id: 'archive', label: 'Video archive', index: 0}, {id: 'live', label: 'Live streaming', index: 1}],
   '/labware': [{id: 'tips', label: 'Tip tracking', index: 0}, {id: 'cytomat', label: 'Cytomat', index: 1}],
   '/logfile': [{id: 'python', label: 'Python logs', index: 0}, {id: 'hamilton', label: 'Hamilton traces', index: 1}, {id: 'robotcontrol', label: 'RobotControl logs', index: 2, adminOrLocal: true}],

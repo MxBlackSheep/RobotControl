@@ -17,6 +17,8 @@ import { isAxiosError } from 'axios';
 import { useTheme } from '@mui/material/styles';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import MethodPicker from './MethodPicker';
+import { useAuth } from '../../context/AuthContext';
+import { isLocalUser } from '../navigation';
 import { StatusSeverity } from '../StatusDialog';
 import {
   Dialog,
@@ -105,6 +107,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
   contacts,
   catalogueVersion = 0,
 }) => {
+  const { user } = useAuth();
   // Form state
   const [formData, setFormData] = useState<ScheduleFormData>({
     experiment_name: '',
@@ -812,6 +815,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
               <Stack spacing={2}>
                 {labError && <Alert severity="error" action={<Button onClick={() => loadEvoExperiments()}>Retry</Button>}>{labError}</Alert>}
                 <FormControl component="fieldset">
+                  {user?.role === 'admin' && isLocalUser(user) && <Button href="/database?section=settings" target="_blank" rel="noopener">Database settings</Button>}
                   <FormLabel id="experiment-prep-options">{labDefinition ? `${labDefinition.name} preparation` : 'Before running'}</FormLabel>
                   <RadioGroup
                     aria-labelledby="experiment-prep-options"

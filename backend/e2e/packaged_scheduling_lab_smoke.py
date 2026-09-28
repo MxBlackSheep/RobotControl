@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def run(candidate):
-    evidence=ROOT/'recovery/scheduling-lab-verification'
+    evidence=Path(os.environ.get('ROBOTCONTROL_E2E_EVIDENCE', str(ROOT/'recovery/scheduling-lab-verification')))
     evidence.mkdir(parents=True,exist_ok=True)
     result=dict(passed=False, candidate=str(candidate), checks=[],
                 exe_sha256=hashlib.sha256((candidate/'RobotControl.exe').read_bytes()).hexdigest())
@@ -39,6 +39,7 @@ def run(candidate):
             data=relocated/'data';data.mkdir()
             with closing(sqlite3.connect(data/'batches.db')) as conn,conn:
                 conn.executescript((ROOT/'backend/services/scheduling/examples/batch-schema.sql').read_text('utf-8'))
+            (data/'batches-next.db').write_bytes((data/'batches.db').read_bytes())
             (data/'scheduling-lab.json').write_text(json.dumps(dict(adapter='batch-sqlite',sqlite_path='batches.db')),'utf-8')
             password=secrets.token_urlsafe(24)
             environment={k:v for k,v in os.environ.items() if k not in {'PYTHONPATH','PYTHONHOME','VIRTUAL_ENV','UV_PROJECT_ENVIRONMENT'}}
@@ -70,7 +71,21 @@ def run(candidate):
                     with closing(sqlite3.connect(data/'robotcontrol_scheduling.db')) as conn:
                         assert conn.execute('SELECT COUNT(*) FROM ScheduledExperiments').fetchone()[0]==0
                         identity=json.loads(conn.execute('SELECT identity FROM LabInstallation WHERE id=1').fetchone()[0])
-                        assert identity['database']==str((data/'batches.db').resolve())
+                        assert identity['database']==str((data/('batches-next.db' if iteration else 'batches.db')).resolve())
+                    base='/api/database/tools/scheduling-settings'
+                    status=request(base,token=token)
+                    assert not status['pending']
+                    if iteration==0:
+                        config=dict(adapter='batch-sqlite',sqlite_path='batches-next.db')
+                        review=request(base+'/review',config,token)
+                        pending=request(base+'/apply',dict(token=review['token']),token)
+                        assert pending['pending'] and pending['active']['sqlite_path']=='batches.db'
+                        restored=request(base+'/cancel',dict(revision=pending['revision']),token)
+                        assert not restored['pending'] and restored['saved']['sqlite_path']=='batches.db'
+                        review=request(base+'/review',config,token)
+                        assert request(base+'/apply',dict(token=review['token']),token)['pending']
+                    else:
+                        assert status['active']['sqlite_path']=='batches-next.db'
                     result['checks'].append('Restart catalogue and captured lab identity passed' if iteration else 'Relocated executable: bundled lab adapter and relative SQLite path passed; no writes or schedules')
                 finally:
                     if process is not None:
@@ -81,7 +96,7 @@ def run(candidate):
         result.update(passed=True,process_stopped=True,fixture_removed=True,
             limit='Python/UV absent from child PATH, not uninstalled from host. No hardware launch or second laboratory validation.')
     finally:
-        (evidence/'packaged-results.json').write_text(json.dumps(result,indent=2),'utf-8')
+        (evidence/'packaged-scheduling-results.json').write_text(json.dumps(result,indent=2),'utf-8')
         print(json.dumps(result,indent=2))
 
 

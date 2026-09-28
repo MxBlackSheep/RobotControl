@@ -1,3 +1,10 @@
+## 2026-09-28 Portable package editing and reviewed database settings
+
+- Added installed-package ZIP downloads and report editing downloads containing the original Python, configured handler, inputs and concise editing instructions. Report/operation selectors stay visible; package rows identify both kinds.
+- Added local-admin Database settings for connection uses, package assignments and the existing scheduling integrations. Scheduling changes are reviewed, blocked by work/recovery/active schedules, and saved for restart with cancellation; active and pending connection profiles cannot be changed underneath them.
+- Clarified read-only account review and kept its actions visible. Certificate trust stays explicit and is remembered only for the same server after a successful save.
+- Focused disposable SQL/HTTP and desktop/phone browser checks, product-review corrections, repeat commands and Windows candidate evidence: `recovery/database-settings-verification/index.html`. Existing preparation algorithms and bindings remain unchanged; no new unit tests.
+
 ## 2026-09-28 Report discard, release contents and inherited SQL execution
 
 - Added confirmed Discard and close alongside Save and close in report authoring. Fresh reports leave no draft; saved drafts use existing ownership/running checks, failures retain work, and installed packages remain untouched.

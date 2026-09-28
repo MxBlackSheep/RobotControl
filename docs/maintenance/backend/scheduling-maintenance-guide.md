@@ -1,5 +1,30 @@
 # Scheduling Service Maintenance Guide
 
+## Reviewed database settings (2026-09-28)
+
+Local admins use **Database settings / Before a robot run** to choose an existing
+EvoYeast operation connection or the existing Batch SQLite adapter. This does not
+add arbitrary SQL or new preparation algorithms. The schedule editor still selects
+the experiment/batch, preserving existing preparation tokens.
+
+`lab_settings.py` and `/api/database/tools/scheduling-settings` provide status,
+review, apply and cancel. Compatibility checks read table/procedure metadata only;
+they never run ResetHamiltonTables or prepare an experiment. Passing does not
+prove permissions to execute preparation or the scientific/hardware method.
+Review tokens are owner-bound, expire after ten minutes, and capture config and
+source revisions. Apply repeats safety checks under `database_change_guard` (the
+scheduler launch locks), then an IMMEDIATE scheduler-storage transaction. Active
+schedules, queued/running work and unresolved recovery block saving.
+
+The current integration keeps its startup snapshot. Atomic saves replace
+`data/scheduling-lab.json` for restart and keep startup bytes in
+`scheduling-lab.previous.json`; Cancel change restores those exact startup bytes
+(or removes the file when the native default was active). Active/pending source
+profiles cannot be edited or removed through connection APIs. Use a separate
+profile, review, save, restart, then review/rebind existing disabled schedules.
+Old schedule bindings never silently switch to the new laboratory. Existing
+startup identity/recovery checks remain authoritative, including offline JSON edits.
+
 ## SQLite recovery safety (2026-09-14)
 
 Recovery acknowledgement and queued dispatch resumption are separate. Recovery, running executions and unfinished monitoring block schedule deletion/archive inside the database transaction. Ordinary edits must never write recovery columns. Schedule/global recovery changes use one transaction with a safety revision. Use the [SQLite safety guide](sqlite-safety-maintenance-guide.md) for the missing-schedule path, API contracts, lock order, repair workflow and rollback instructions.

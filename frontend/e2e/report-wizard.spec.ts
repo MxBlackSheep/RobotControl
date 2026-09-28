@@ -97,8 +97,10 @@ test('report author resumes a draft, configures dependent inputs and installs a 
   await page.getByRole('button', { name: 'Resume', exact: true }).click();
   await expect(page.getByLabel('Input name in Python').nth(1)).toHaveValue('culture');
   await page.getByRole('button', { name: 'Next', exact: true }).click();
-  const starter = page.waitForEvent('download'); await page.getByRole('button', { name: 'Download starter', exact: true }).click();
-  expect((await starter).suggestedFilename()).toBe('handler.py');
+  await expect(page.getByRole('button', { name: 'Try report', exact: true })).toBeDisabled();
+  await page.screenshot({ path: `${evidence}/adaptation.png`, animations: 'disabled', fullPage: true });
+  const starter = page.waitForEvent('download'); await page.getByRole('button', { name: 'Download editing files', exact: true }).click();
+  expect((await starter).suggestedFilename()).toBe('report-editing-files.zip');
   await page.getByLabel('Completed handler', { exact: true }).setInputFiles({ name: 'handler.py', mimeType: 'text/x-python', buffer: Buffer.from(handler) });
   await expect(page.getByText('Handler saved.', { exact: true })).toBeVisible();
   await expect(page.getByRole('combobox', { name: 'Culture', exact: true })).toBeDisabled();

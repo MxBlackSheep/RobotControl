@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, LinearProgress, MenuItem, TextField, Paper, Stack, Typography } from '@mui/material';
 import { api } from '../services/api';
+import { saveBlob } from './ReportInputs';
+import { Link } from 'react-router-dom';
 import ReportWizard from './ReportWizard';
 import ReportConnections, { Source, SourceMappings } from './ReportConnections';
 
@@ -81,15 +83,15 @@ export default function DatabasePackages({ active }: { active: boolean }) {
     <Stack direction="row" justifyContent="space-between" gap={2} alignItems="center" flexWrap="wrap">
       <Typography component="h2" variant="h6">Manage packages</Typography>
       <Stack direction="row" gap={1} flexWrap="wrap">
-        <Button disabled={busy} onClick={() => setConnectionsOpen(true)}>Database connections</Button>
+        <Button component={Link} to="/database?section=settings">Database settings</Button>
         <Button variant="outlined" disabled={busy} onClick={() => setWizard('')}>Create report</Button>
-        <Button variant="contained" disabled={busy} onClick={() => { target.current = undefined; input.current?.click(); }}>Add package</Button>
+        <Button variant="contained" disabled={busy} onClick={() => { target.current = undefined; input.current?.click(); }}>Install package</Button>
       </Stack>
     </Stack>
     <input ref={input} hidden type="file" accept=".zip" onChange={event => {
       const selected = event.target.files?.[0]; event.target.value = ''; if (selected) void inspect(selected);
     }} />
-    <Typography color="text.secondary" variant="body2">Install reviewed code only. Updating RobotControl does not replace installed packages.</Typography>
+    <Typography color="text.secondary" variant="body2">Install a reviewed package ZIP, or create a report from Python.</Typography>
     {error && !review && <Alert severity="error">{error}</Alert>}
     {notice && <Alert severity="success">{notice}</Alert>}
     {busy && <LinearProgress />}
@@ -104,12 +106,14 @@ export default function DatabasePackages({ active }: { active: boolean }) {
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Typography fontWeight={600}>{pkg.name} · {pkg.version}</Typography>
             <Typography color="text.secondary">{pkg.tools.map(tool => tool.name).join(', ')}</Typography>
+            <Typography variant="body2">{pkg.tools.filter(t => t.kind === 'report').length} reports · {pkg.tools.filter(t => t.kind === 'operation').length} operations</Typography>
             <Box component="details"><Typography component="summary" variant="body2">Details</Typography>
               <Typography variant="caption" sx={{ overflowWrap: 'anywhere' }}>{pkg.id}<br />Libraries: {pkg.libraries.join(', ') || 'Standard library'}<br />SHA-256: {pkg.sha256}</Typography>
             </Box>
           </Box>
           {pkg.running > 0 && <Typography variant="body2">In use</Typography>}
-          <Stack direction="row" spacing={1}>
+          <Stack direction="row" gap={1} flexWrap="wrap">
+            <Button disabled={busy} onClick={async () => { try { const r = await api.get(`/api/database/tools/packages/${pkg.id}/export`, { responseType: 'blob' }); saveBlob(r.data, /filename="([^"]+)"/.exec(r.headers['content-disposition'] || '')?.[1] || `${pkg.id}-${pkg.version}.zip`); } catch (e) { setError(message(e)); } }}>Download package</Button>
             {<Button disabled={busy || pkg.running > 0} onClick={async () => {
               try {
                 const [mapping, profiles] = await Promise.all([api.get(`/api/database/tools/packages/${pkg.id}/sources`), api.get('/api/database/tools/sources')]);
@@ -129,7 +133,7 @@ export default function DatabasePackages({ active }: { active: boolean }) {
         {error && <Alert severity="error">{error}</Alert>}
         <Typography variant="h6">{review?.package.name}</Typography>
         <Typography>{review?.current_version ? `${review.current_version} → ${review.package.version}` : `Version ${review?.package.version}`}</Typography>
-        <Typography>{review?.package.tools.map(tool => tool.name).join(', ')}</Typography>
+        <Typography>{review?.package.tools.map(tool => `${tool.name} (${tool.kind === 'report' ? 'Report' : 'Operation'})`).join(', ')}</Typography>
         <Typography variant="body2" color="text.secondary">Package structure and declared libraries checked. Python code has not been run.</Typography>
         {unchanged && <Alert severity="info">This package is already installed.</Alert>}
         {downgrade && <Alert severity="warning">This replaces the installed code with an older version.</Alert>}
