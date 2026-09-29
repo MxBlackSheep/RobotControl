@@ -12,6 +12,17 @@ These rules keep `main` readable for people and coding agents alike.
 - Pull requests are squash-merged, and GitHub deletes the branch afterwards.
   Do not keep long-lived or "backup" branches; tag a commit instead if it must be found again.
 
+## Delivering a change
+
+1. Update `main` (`git switch main`, `git pull`) and create the branch (`git switch -c fix/<topic>`).
+2. Commit, run the verification the change needs, and push (`git push -u origin fix/<topic>`).
+3. Open a pull request into `main`. Write the title and description as the final commit
+   message (see below); the description says what changed, why, and what was checked.
+4. Review the diff on GitHub, then choose **Squash and merge**. GitHub deletes the remote branch.
+5. Once GitHub shows the pull request as **Merged**: `git switch main`, `git pull`, `git fetch --prune`,
+   then `git branch -D fix/<topic>`. The capital `-D` is needed because squashing gives `main` a new
+   commit, so Git cannot tell the branch was merged; check the pull request state instead.
+
 ## Commit messages and pull request titles
 
 With squash merging, the pull request title becomes the single commit on `main`,
