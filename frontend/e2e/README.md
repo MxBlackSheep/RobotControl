@@ -28,6 +28,7 @@ This example checks Labware sizing. Narrow or broaden it to the actual change:
 | Tip editing and saving | `labware.spec.ts` |
 | Cytomat | `cytomat-spatial.spec.ts` |
 | Tables and SQL | `database.spec.ts`, `inspection-pagination.spec.ts` |
+| Database restore | `database-restore.spec.ts`, `database.spec.ts` |
 | Log readers | `logs.spec.ts` |
 | Camera | `camera.spec.ts` |
 | Scheduling and archives | `operations.spec.ts` |
