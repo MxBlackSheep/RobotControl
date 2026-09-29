@@ -6,7 +6,7 @@
 import { useState, useCallback } from 'react';
 import { useSerialPolling } from './useSerialPolling';
 import { useAuth } from '../context/AuthContext';
-import { buildApiUrl, buildWsUrl } from '@/utils/apiBase';
+import { buildApiUrl } from '@/utils/apiBase';
 
 // Types for monitoring data
 export interface ExperimentData {
@@ -55,15 +55,6 @@ export interface MonitoringData {
   last_updated: string;
   streaming_status?: StreamingServiceStatus | null;
 }
-
-export interface WebSocketMessage {
-  type: 'connection' | 'current_data' | 'experiments_update' | 'system_health' | 'database_performance' | 'ping' | 'pong';
-  data?: any;
-  timestamp: string;
-  status?: string;
-  channel?: string;
-}
-
 export interface MonitoringHookReturn {
   // Data
   monitoringData: MonitoringData | null;
@@ -85,11 +76,9 @@ export interface MonitoringHookReturn {
   resetError: () => void;
 }
 
-const getWebSocketUrl = () => buildWsUrl('/api/monitoring/ws/general');
 const getMonitoringApiUrl = (path: string) => buildApiUrl(`/api/monitoring${path}`);
 const getStreamingStatusUrl = () => buildApiUrl('/api/camera/streaming/status');
 const MAX_RETRIES = 5;
-const RETRY_DELAY = 2000;
 
 export const useMonitoring = (options: { autoRetry?: boolean; retryInterval?: number } = {}): MonitoringHookReturn => {
   // State

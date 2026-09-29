@@ -224,29 +224,6 @@ const normalizeQueueStatus = (payload: unknown): { queue?: QueueStatus; hamilton
   };
 };
 
-const normalizeEvoYeastExperiments = (payload: unknown): EvoYeastExperimentOption[] => {
-  if (!Array.isArray(payload)) {
-    return [];
-  }
-
-  return payload.map((item) => {
-    const experimentId = coerceString(item?.ExperimentID ?? item?.experiment_id);
-    const userDefinedId = coerceOptionalString(item?.UserDefinedID ?? item?.user_defined_id);
-    const note = coerceOptionalString(item?.Note ?? item?.note);
-    const experimentName = coerceOptionalString(
-      item?.ExperimentName ?? item?.experiment_name ?? userDefinedId ?? note,
-    );
-
-    return {
-      experiment_id: experimentId,
-      experiment_name: experimentName,
-      user_defined_id: userDefinedId,
-      note,
-      scheduled_to_run: Boolean(item?.ScheduledToRun ?? item?.scheduled_to_run),
-    };
-  });
-};
-
 const parseAPIError = (error: unknown): string => {
   if (isAxiosError(error)) {
     const axiosError = error as AxiosError<any>;
@@ -269,8 +246,6 @@ export const schedulingAPI = {
     api.get<ScheduleListResponse>('/api/scheduling/list', {
       params: { active_only: activeOnly, archived_only: archivedOnly },
     }),
-
-  getSchedule: (scheduleId: string) => api.get<ScheduleResponse>(`/api/scheduling/${scheduleId}`),
 
   updateSchedule: (
     scheduleId: string,
@@ -313,9 +288,6 @@ export const schedulingAPI = {
       expected_revision: options?.expectedRevision, robot_ready: true,
     }),
 
-  getUpcomingSchedules: (hoursAhead = 48) =>
-    api.get<ScheduleListResponse>('/api/scheduling/upcoming', { params: { hours_ahead: hoursAhead } }),
-
   getCalendarData: (startDate?: string, endDate?: string) =>
     api.get<CalendarDataResponse>(
       '/api/scheduling/calendar',
@@ -341,10 +313,6 @@ export const schedulingAPI = {
   getAvailableExperiments: (rescan = false) =>
     api.get('/api/scheduling/experiments/available', { params: { rescan } }),
 
-  getAvailablePrerequisites: () => api.get('/api/scheduling/experiments/prerequisites'),
-
-  getEvoYeastExperiments: (limit = 100) => api.get('/api/scheduling/experiments/evo-yeast', { params: { limit } }),
-
   previewExperimentImport: (selection: MethodImportSelection) =>
     api.post<ApiResponse<MethodImportPreview>>('/api/scheduling/experiments/import-preview', selection, { timeout: 60000 }),
 
@@ -359,9 +327,6 @@ export const schedulingAPI = {
     api.post<ApiResponse<MethodPathPreview>>(`/api/scheduling/experiments/library/${encodeURIComponent(method_id)}/path-preview`, { new_path }, { timeout: 30000 }),
   changeMethodPath: (method_id: string, payload: MethodPathChange) =>
     api.post<ApiResponse<{ updated_schedule_ids: string[] }>>(`/api/scheduling/experiments/library/${encodeURIComponent(method_id)}/change-path`, payload, { timeout: 30000 }),
-
-  importExperimentFiles: (selection: MethodImportSelection) =>
-    api.post<ApiResponse<MethodImportResult>>('/api/scheduling/experiments/import-files', selection, { timeout: 60000 }),
 
   importExperimentFolder: (folderPath: string, relativePaths?: string[]) =>
     api.post<ApiResponse<MethodImportResult>>('/api/scheduling/experiments/import-folder',
@@ -378,9 +343,6 @@ export const schedulingAPI = {
 
   getScheduleExecutionSummary: (scheduleId: string) =>
     api.get(`/api/scheduling/executions/summary/${scheduleId}`),
-
-  getRecentExecutions: (hours = 24) =>
-    api.get('/api/scheduling/executions/recent', { params: { hours } }),
 
   getNotificationSettings: () =>
     api.get('/api/scheduling/notifications/settings'),
@@ -460,25 +422,6 @@ export const schedulingService = {
         return { error: response.message || 'Failed to create schedule' };
       }
       return { scheduleId: response.data?.schedule_id };
-    } catch (error) {
-      return { error: parseAPIError(error) };
-    }
-  },
-
-  async updateSchedule(
-    scheduleId: string,
-    data: CreateScheduleFormData,
-    expectedUpdatedAt?: string,
-  ): Promise<{ schedule?: ScheduledExperiment; error?: string }> {
-    try {
-      const payload: UpdateScheduleRequest = buildScheduleRequest(data);
-      const { data: response } = await schedulingAPI.updateSchedule(scheduleId, payload, {
-        expectedUpdatedAt,
-      });
-      if (!response.success || !response.data) {
-        return { error: response.message || 'Failed to update schedule' };
-      }
-      return { schedule: normalizeSchedule(response.data) };
     } catch (error) {
       return { error: parseAPIError(error) };
     }
@@ -736,38 +679,12 @@ export const schedulingService = {
     }
   },
 
-  async controlScheduler(action: 'start' | 'stop'): Promise<{ success: boolean; status?: string; manualRecovery?: ManualRecoveryState | null; error?: string }> {
-    try {
-      const { data } = action === 'start'
-        ? await schedulingAPI.startScheduler()
-        : await schedulingAPI.stopScheduler();
-      if (!data.success) {
-        return { success: false, error: data.message || 'Scheduler command failed' };
-      }
-      const manualState = normalizeManualRecovery(data.data?.manual_recovery);
-      return { success: true, status: data.data?.status, manualRecovery: manualState ?? null };
-    } catch (error) {
-      return { success: false, error: parseAPIError(error) };
-    }
-  },
   async getLabPreparation(limit = 100): Promise<{ definition?: { id: string; name: string; selection_step: string; selection_label: string; preparation_label: string }; experiments: EvoYeastExperimentOption[]; error?: string }> {
     try {
       const { data } = await api.get('/api/scheduling/lab/preparation', { params: { limit } });
       return { definition: data, experiments: data.choices.map((r: { value: string; label: string; note?: string; selected: boolean }) => ({
         experiment_id: r.value, user_defined_id: r.label, note: r.note, scheduled_to_run: r.selected,
       })) };
-    } catch (error) {
-      return { experiments: [], error: parseAPIError(error) };
-    }
-  },
-
-  async getEvoYeastExperiments(limit = 100): Promise<{ experiments: EvoYeastExperimentOption[]; error?: string }> {
-    try {
-      const { data } = await schedulingAPI.getEvoYeastExperiments(limit);
-      if (!data.success) {
-        return { experiments: [], error: data.message || 'Failed to load EvoYeast experiments' };
-      }
-      return { experiments: normalizeEvoYeastExperiments(data.data?.experiments) };
     } catch (error) {
       return { experiments: [], error: parseAPIError(error) };
     }

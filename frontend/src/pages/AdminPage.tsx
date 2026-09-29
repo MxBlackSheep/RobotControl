@@ -2,7 +2,6 @@ import { useModuleSection } from '../components/navigation';
 import { PageContent, PageHeader } from '../components/PageLayout';
 import React, { useState } from 'react';
 import Box from '@mui/material/Box';
-import Typography from '@mui/material/Typography';
 
 import { useAuthContext } from '../context/AuthContext';
 import ErrorAlert, { AuthorizationError } from '../components/ErrorAlert';

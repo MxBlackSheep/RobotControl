@@ -222,24 +222,4 @@ export const logFileApi = {
     return unwrapData<LogFileArchiveBrowseResponse>(response);
   },
 
-  previewArchive: async (
-    sourceId: string,
-    archiveRelativePath: string,
-    entryPath: string,
-    mode: PreviewMode = "tail",
-    maxBytes = 1024 * 1024,
-    signal?: AbortSignal,
-  ): Promise<LogFilePreview> => {
-    const response = await api.get("/api/logfiles/archive/preview", {
-      signal,
-      params: {
-        source_id: sourceId,
-        archive_relative_path: archiveRelativePath,
-        entry_path: entryPath,
-        mode,
-        max_bytes: maxBytes,
-      },
-    });
-    return unwrapData<LogFilePreview>(response);
-  },
 };

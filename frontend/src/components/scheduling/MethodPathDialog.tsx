@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, LinearProgress, Stack, TextField, Typography } from '@mui/material';
 import { LibraryMethod, MethodPathPreview, MethodReference } from '../../types/scheduling';
 import { schedulingAPI } from '../../services/schedulingApi';

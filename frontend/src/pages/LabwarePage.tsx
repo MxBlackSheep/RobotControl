@@ -1,4 +1,3 @@
-import React from 'react';
 import { PageContent, PageHeader } from '../components/PageLayout';
 import { useAuth } from '../context/AuthContext';
 import { useModuleSection } from '../components/navigation';

@@ -75,8 +75,6 @@ export const getMaintenanceRemainingMs = (): number => {
   return Math.max(currentState.expiresAt - Date.now(), 0);
 };
 
-export const getMaintenanceReason = (): string | undefined => currentState.reason;
-
 export const subscribeToMaintenance = (listener: Listener): (() => void) => {
   listeners.add(listener);
   listener(currentState);

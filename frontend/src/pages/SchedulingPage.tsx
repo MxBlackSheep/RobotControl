@@ -16,13 +16,9 @@ import { SchedulingNavigationContext, useSchedulingSection, isLocalUser } from '
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Box,
-  Container,
   Typography,
   Button,
-  Breadcrumbs,
-  Link,
   Alert,
-  Paper,
   Stack,
   Grid,
   Card,
@@ -44,26 +40,17 @@ import {
   TableRow,
   CircularProgress
 } from '@mui/material';
-import useTheme from '@mui/material/styles/useTheme';
-import useMediaQuery from '@mui/material/useMediaQuery';
 import {
   ArrowBack as ArrowBackIcon,
-  Home as HomeIcon,
-  Schedule as ScheduleIcon,
-  Dashboard as DashboardIcon,
-  PlayArrow as PlayArrowIcon,
-  CalendarMonth as CalendarIcon,
   Add as AddIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
   FolderOpen as FolderIcon,
   Refresh as RefreshIcon,
   History as HistoryIcon,
-  WarningAmber as WarningIcon,
-  Email as EmailIcon,
   Archive as ArchiveIcon
 } from '@mui/icons-material';
-import { useNavigate, Link as RouterLink } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 // Import scheduling components
@@ -81,7 +68,7 @@ import MethodPathDialog from '../components/scheduling/MethodPathDialog';
 import { LibraryMethod } from '../types/scheduling';
 import ExecutionHistory from '../components/ExecutionHistory';
 import useScheduling from '../hooks/useScheduling';
-import { formatDuration, formatExecutionStatus, ScheduledExperiment, CreateScheduleFormData, UpdateScheduleRequest, SchedulingOperationStatus } from '../types/scheduling';
+import { formatDuration, ScheduledExperiment, CreateScheduleFormData, UpdateScheduleRequest, SchedulingOperationStatus } from '../types/scheduling';
 import {
   AuthenticationError,
   AuthorizationError,
@@ -157,10 +144,7 @@ const SchedulingPage: React.FC = () => {
 
   // Initialize scheduling hook
   const { state, actions } = useScheduling();
-  const theme = useTheme();
-  const isSmallScreen = useMediaQuery(theme.breakpoints.down('sm'));
   const cardPadding = { xs: 2, md: 2 };
-  const tabPadding = { xs: 1.75, md: 2.75 };
   const isLocalSession = isLocalUser(user);
   const isLocalClient = isLocalSession;
   useEffect(() => { setRecoveryActive(!!state.manualRecovery?.active); }, [state.manualRecovery?.active, setRecoveryActive]);

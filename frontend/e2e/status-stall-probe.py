@@ -4,8 +4,8 @@ Run from the repository root: uv run --locked python frontend/e2e/status-stall-p
 Failures checked: a held health response must time out and recover (about 20 s);
 Refresh must start a new request once it has; an HTTP 502 must show an error and
 retry; releasing a late response must not change the display. No production services start.
-Open the printed loopback URL; use Hold next health response, Refresh Data,
-Allow new requests, wait over 20 seconds, press Refresh Data, then Release stalled response.
+Open the printed loopback URL; use Hold next health response, Refresh,
+Allow new requests, wait over 20 seconds, press Refresh, then Release stalled response.
 Evidence is saved to recovery/status-stall-evidence.json (Git-ignored). Stop with Ctrl+C.
 """
 import json
@@ -26,7 +26,7 @@ STATE = {"hold_next": False, "fail_next": False, "requests": [], "actions": [], 
 
 HTML = '''<!doctype html><html><head><meta charset="utf-8"><title>Remote connection reproduction</title></head>
 <body style="font-family:Arial;margin:24px"><h1>Isolated remote-connection reproduction</h1>
-<p>Actual System Status component; simulated API; no robot hardware or real credentials.</p>
+<p>Actual System Status page; simulated API; no robot hardware or real credentials.</p>
 <button onclick="control('hold')">Hold next health response</button>
 <button onclick="control('allow')">Allow new requests</button>
 <button onclick="control('release')">Release stalled response</button>
@@ -37,11 +37,11 @@ localStorage.setItem('access_token','local-disposable-probe');
 async function control(mode){await fetch('/control?mode='+mode,{method:'POST'});}
 setInterval(async()=>{
  const root=document.getElementById('root');
- const refresh=root.querySelector('button');
+ const refresh=[...root.querySelectorAll('button')].find(b=>b.textContent.trim()==='Refresh');
  const sample={at:new Date().toISOString(),refresh_disabled:refresh?.disabled,
   has_spinner:!!root.querySelector('[role="progressbar"]'),
-  connection_lost:root.innerText.includes('Monitoring connection lost'),
-  connected_icon:!!root.querySelector('[data-testid="WifiIcon"]'),
+  connection_lost:root.innerText.includes('Stale data')||root.innerText.includes('Unavailable'),
+  connected_icon:root.innerText.includes('Updated'),
   text:root.innerText.slice(0,1600)};
  const r=await fetch('/evidence',{method:'POST',body:JSON.stringify(sample)});
  document.getElementById('probe-state').textContent=JSON.stringify(await r.json(),null,2);
@@ -142,8 +142,8 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == '__main__':
     with tempfile.TemporaryDirectory(prefix='robotcontrol-remote-probe-') as directory:
         bundle = Path(directory) / 'bundle.js'
-        source = "import React from 'react'; import {createRoot} from 'react-dom/client'; import {AuthProvider} from './src/context/AuthContext'; import SystemStatus from './src/components/SystemStatus'; createRoot(document.getElementById('root')).render(<AuthProvider><SystemStatus /></AuthProvider>);"
-        options = {'stdin': {'contents': source, 'resolveDir': str(ROOT / 'frontend'), 'loader': 'tsx'}, 'bundle': True, 'format': 'esm', 'outfile': str(bundle), 'define': {'import.meta.env.VITE_API_BASE_URL': '""', 'process.env.NODE_ENV': '"production"'}, 'alias': {'@': str(ROOT / 'frontend/src')}, 'minify': True}
+        source = "import React from 'react'; import {createRoot} from 'react-dom/client'; import {AuthProvider} from './src/context/AuthContext'; import MonitoringPage from './src/pages/MonitoringPage'; createRoot(document.getElementById('root')).render(<AuthProvider><MonitoringPage /></AuthProvider>);"
+        options = {'stdin': {'contents': source, 'resolveDir': str(ROOT / 'frontend'), 'loader': 'tsx'}, 'bundle': True, 'format': 'esm', 'outfile': str(bundle), 'define': {'import.meta.env.VITE_API_BASE_URL': '""', 'process.env.NODE_ENV': '"production"'}, 'alias': {'@': str(ROOT / 'frontend/src'), '@mui/icons-material': str(ROOT / 'frontend/node_modules/@mui/icons-material/esm')}, 'minify': True}
         subprocess.run(['node', '-e', 'require("esbuild").buildSync('+json.dumps(options)+')'], cwd=ROOT / 'frontend', check=True)
         server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
         server.bundle = bundle.read_bytes()

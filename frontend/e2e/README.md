@@ -203,15 +203,15 @@ create/drop UUID-named fixture objects; no production grants/rows are changed.
 ## System Status stall check
 
 A manual browser/HTTP check for the polling request deadline. It bundles the real
-`SystemStatus` component against a simulated loopback API; no robot, SQL or
+System Status page (`MonitoringPage`) against a simulated loopback API; no robot, SQL or
 credentials are used.
 
 ```powershell
 uv run --locked python frontend/e2e/status-stall-probe.py
 ```
 
-Open the printed URL, then: Hold next health response → Refresh Data → Allow new
+Open the printed URL, then: Hold next health response → Refresh → Allow new
 requests. Within about 20 seconds the page must show "Request timed out" with
-Refresh enabled; Refresh Data then reconnects. Release stalled response last.
+Refresh enabled and the status chip showing "Stale data"; Refresh then reconnects. Release stalled response last.
 Evidence: `recovery/status-stall-evidence.json`. For remote-path timing, run
 `backend/scripts/network_probe.py` on both computers (see its header).

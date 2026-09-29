@@ -24,11 +24,9 @@ import {
   Chip,
   CircularProgress,
   LinearProgress,
-  Checkbox,
   FormControlLabel,
   Card,
   CardContent,
-  Divider,
   FormControl,
   InputLabel,
   Select,
@@ -42,14 +40,9 @@ import {
   Add as AddIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
-  PlayArrow as StartIcon,
-  Stop as StopIcon,
-  Warning as WarningIcon,
   Info as InfoIcon,
   Schedule as ScheduleIcon,
-  AccessTime as ClockIcon,
-  Science as ExperimentIcon,
-  CheckCircle as CheckCircleIcon
+  
 } from '@mui/icons-material';
 
 import {
@@ -59,7 +52,6 @@ import {
   SchedulingOperationStatus,
   ScheduleActionsProps,
   SCHEDULE_TYPE_OPTIONS,
-  SCHEDULING_CONSTANTS,
   validateScheduleFormData,
   formatScheduleType
 } from '../types/scheduling';

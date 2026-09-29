@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Alert, Box, Button, Chip, LinearProgress, List, ListItemButton, Stack, TextField, Typography } from '@mui/material';
 import { Refresh } from '@mui/icons-material';
 import { ScheduledExperiment } from '../../types/scheduling';

@@ -18,7 +18,6 @@ import {
   Checkbox,
   FormControlLabel,
   Divider,
-  LinearProgress,
   TextField,
   Tab,
   Tabs,
@@ -29,7 +28,6 @@ import {
   ListItemText,
   ListItemIcon,
   IconButton,
-  Tooltip,
   Collapse
 } from '@mui/material';
 import useTheme from '@mui/material/styles/useTheme';
@@ -38,15 +36,13 @@ import {
   Restore as RestoreIcon,
   Upload as UploadIcon,
   Warning as WarningIcon,
-  Info as InfoIcon,
   Storage as StorageIcon,
   Refresh as RefreshIcon,
   Folder as FolderIcon,
   InsertDriveFile as FileIcon,
   Computer as ComputerIcon,
   ExpandMore as ExpandMoreIcon,
-  ExpandLess as ExpandLessIcon,
-  Description as DescriptionIcon
+  ExpandLess as ExpandLessIcon
 } from '@mui/icons-material';
 import LoadingSpinner from './LoadingSpinner';
 import ErrorAlert from './ErrorAlert';

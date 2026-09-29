@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { CssBaseline, IconButton, Menu, MenuItem, ThemeProvider, Tooltip, useMediaQuery } from '@mui/material';
 import ContrastIcon from '@mui/icons-material/Contrast';
-import { Toaster } from 'react-hot-toast';
 import { createAppTheme } from '../theme';
 
 type Appearance = 'system' | 'light' | 'dark';
@@ -30,7 +29,6 @@ export function AppearanceProvider({ children }: { children: React.ReactNode }) 
   }, []);
   return <AppearanceContext.Provider value={{ preference, setPreference }}><ThemeProvider theme={theme}>
     <CssBaseline />{children}
-    <Toaster position="top-right" toastOptions={{ style: { background: theme.palette.background.paper, color: theme.palette.text.primary } }} />
   </ThemeProvider></AppearanceContext.Provider>;
 }
 
