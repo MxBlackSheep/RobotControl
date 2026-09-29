@@ -35,7 +35,8 @@ REST endpoints directly, or token storage and refresh fall out of step.
 On page load, `/api/auth/me` verifies the saved sign-in before App renders protected
 content. While the server is unavailable, App shows a connection message and retries
 after five seconds; each request still has a ten-second timeout. This request bypasses
-maintenance suppression so recovery can complete. A 401/403 rejects the sign-in;
+maintenance suppression so recovery can complete, and its 503 does not start the
+maintenance window, which would block the recovered page. A 401/403 rejects the sign-in;
 temporary failures do not remove tokens. Effect cleanup ignores late responses and
 cancels the retry timer. Browser checks: `frontend/e2e/auth-recovery.spec.ts`.
 

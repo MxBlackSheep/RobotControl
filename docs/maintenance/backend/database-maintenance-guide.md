@@ -61,6 +61,7 @@ and path restore use `RESTORE_TIMEOUT` (600 seconds). Recovery commands keep the
   `SQL_RESTORE_TEMPLATE`, which first switches to `master`, sets `SINGLE_USER WITH
   ROLLBACK IMMEDIATE`, restores `WITH REPLACE`, then sets `MULTI_USER`. A failure or
   timeout retries `MULTI_USER` from `master`; failure of that recovery adds a warning.
+  The restore failure and a failed recovery are both logged at ERROR.
   Path restore
   (`restore_backup_from_path`) first rejects a missing file, a folder or an extension other
   than `.bak`/`.bck` without running SQL, then runs the same script through sqlcmd under the
