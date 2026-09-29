@@ -124,7 +124,11 @@ const FileExplorer: React.FC<FileExplorerProps> = ({ open, onClose, onSelect }) 
       setItems(response.data.data.items || []);
     } catch (err: any) {
       if (request !== requestRef.current) return;
-      setBrowseError(err.response?.data?.detail || 'Could not load this directory. Check the path and try again.');
+      // /api/system/browse answers with ResponseFormatter's error body; auth failures use FastAPI's `detail`.
+      const body = err.response?.data;
+      const details = typeof body?.error?.details === 'string' ? body.error.details : undefined;
+      setBrowseError(details || body?.message || body?.detail
+        || 'Could not load this directory. Check the path and try again.');
       setItems([]);
     } finally {
       if (request === requestRef.current) setLoading(false);

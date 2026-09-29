@@ -20,6 +20,7 @@ import { mkdirSync } from 'node:fs';
  * - Parent navigation must retain drive roots; errors must allow retry.
  * - A typed "/" path must show the server's resolved path, and Parent must not cut
  *   characters from a path without "\".
+ * - A browse error must show the server's reason from the ResponseFormatter body.
  * - Completed restores must retain backend warnings and use warning styling.
  * The full 660 s timeout and real SQL timing are not exercised by these fixtures.
  * Real SQL Server restores and the failure body shape are checked by
@@ -250,11 +251,15 @@ test('browser uses the server path so Parent works after a typed forward-slash p
 
 test('browser reports a directory error and allows retry', async ({ page }) => {
   await openRestore(page, { json: failed });
-  await page.route('**/api/system/browse?*', route => route.fulfill({ status: 400, json: { detail: 'Directory is unavailable' } }));
+  // ResponseFormatter.not_found body from backend/api/system.py.
+  await page.route('**/api/system/browse?*', route => route.fulfill({ status: 404, json: {
+    success: false, message: 'Directory not found', data: null,
+    error: { message: 'Directory not found', code: 'NOT_FOUND', details: "The directory 'C:\\' does not exist" },
+  } }));
   await page.getByRole('tab', { name: 'Browse Files (.bck)' }).click();
   await page.getByRole('button', { name: 'Browse', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Browse for .bck Backup Files' });
-  await expect(dialog.getByRole('alert')).toContainText('Directory is unavailable');
+  await expect(dialog.getByRole('alert')).toContainText("The directory 'C:\\' does not exist");
   await page.unroute('**/api/system/browse?*');
   await page.route('**/api/system/browse?*', route => route.fulfill({ json: { success: true, data: { items: [] } } }));
   await dialog.getByRole('button', { name: 'Refresh', exact: true }).click();
