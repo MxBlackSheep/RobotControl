@@ -521,16 +521,6 @@ class SqlCommandExecutor:
             logger.warning("Simple backup error: %s", exc)
             return False, f"Simple backup error: {exc}"
 
-    def _get_database_connection(self):
-        """Return a direct database connection via the shared connection manager."""
-        try:
-            from backend.core.database_connection import db_connection_manager
-
-            return db_connection_manager.get_connection(timeout=30)
-        except ImportError:
-            logger.error("Could not import centralized database connection manager")
-            return None
-
 
 class BackupMetadataStore:
     """Manage backup metadata files and directory listings."""
@@ -1084,7 +1074,7 @@ class BackupService:
                 logger.info(f"Starting restore from: {filename}")
                 logger.warning("Database will be temporarily unavailable during restore")
                 
-                success, message = self._sql_executor.execute(sql_command)
+                success, message = self._sql_executor.execute(sql_command, timeout=RESTORE_TIMEOUT)
                 
                 if not success:
                     error_msg = f"SQL Server restore failed: {message}"
@@ -1192,54 +1182,21 @@ class BackupService:
             
             logger.info(f"Starting database restore from path: {backup_path}")
             
-            with operation_tracker('restore_from_path', {'file_path': str(backup_path)}) as metrics:
-                conn = None
-                cursor = None
-                try:
-                    conn = self._get_database_connection()
-                    if conn is None:
-                        raise BackupError("Unable to acquire database connection for restore")
+            with self._operation_lock, operation_tracker('restore_from_path', {'file_path': str(backup_path)}) as metrics:
+                sql_command = "USE master;\n" + SQL_RESTORE_TEMPLATE.format(
+                    database=self.database_name,
+                    backup_path=escape_sql_path(str(backup_path))
+                )
+                success, message = self._sql_executor.execute(sql_command, timeout=RESTORE_TIMEOUT)
 
-                    conn.autocommit = True
-                    cursor = conn.cursor()
+                if not success:
+                    logger.error(f"SQL restore operation failed: {message}")
+                    self._sql_executor.execute(f"ALTER DATABASE [{self.database_name}] SET MULTI_USER;")
+                    raise BackupError(f"Database restore failed: {message}")
 
-                    escaped_path = escape_sql_path(str(backup_path))
-                    statements = [
-                        "USE master",
-                        f"ALTER DATABASE [{self.database_name}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE",
-                        f"RESTORE DATABASE [{self.database_name}] FROM DISK = N'{escaped_path}' WITH REPLACE",
-                        f"ALTER DATABASE [{self.database_name}] SET MULTI_USER",
-                    ]
-
-                    logger.info("Executing restore SQL command...")
-
-                    for statement in statements:
-                        cursor.execute(statement)
-
-                    logger.info("Database restore completed successfully")
-                    metrics.file_size_bytes = file_size
-                    metrics.success = True
-
-                except Exception as sql_error:
-                    logger.error(f"SQL restore operation failed: {sql_error}")
-                    if cursor:
-                        try:
-                            cursor.execute(f"ALTER DATABASE [{self.database_name}] SET MULTI_USER;")
-                        except Exception:
-                            pass
-                    raise BackupError(f"Database restore failed: {sql_error}")
-
-                finally:
-                    if cursor:
-                        try:
-                            cursor.close()
-                        except Exception:
-                            pass
-                    if conn:
-                        try:
-                            conn.close()
-                        except Exception:
-                            pass
+                logger.info("Database restore completed successfully")
+                metrics.file_size_bytes = file_size
+                metrics.success = True
 
             # Create successful result
             execution_time = (datetime.now() - start_time).total_seconds()
@@ -1250,6 +1207,7 @@ class BackupService:
             
             return RestoreResult(
                 success=True,
+                message="Database restored successfully",
                 backup_filename=backup_path.name,
                 file_path=str(backup_path),
                 execution_time_seconds=execution_time,
@@ -1264,6 +1222,7 @@ class BackupService:
             
             return RestoreResult(
                 success=False,
+                message="Database restore failed",
                 backup_filename=Path(file_path).name if file_path else 'unknown',
                 file_path=file_path,
                 execution_time_seconds=execution_time,

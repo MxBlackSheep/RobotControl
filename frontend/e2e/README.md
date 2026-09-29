@@ -178,6 +178,19 @@ storage, package upload and Excel from a relocated executable with Python/UV abs
 from PATH. These commands neither inspect production rows nor change production
 grants. Evidence is under `test-output/report-wizard-verification`.
 
+## Database restore from a `.bck` path
+
+Failure cases are in the header of `backend/e2e/backup_restore_check.py`.
+
+```powershell
+.venv/Scripts/python.exe -m backend.e2e.backup_restore_check
+```
+
+It creates a uniquely named `rc_restore_check_*` database on `LOCALHOST\HAMILTON`
+(Windows administrator authentication), backs it up into its own temporary folder,
+restores it through `POST /api/admin/backup/restore`, then drops it. It never uses
+the configured application database. Evidence is `test-output/backup-restore-verification/result.json`.
+
 
 ## Configurable Database workspace
 

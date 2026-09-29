@@ -248,7 +248,7 @@ This guide explains how the database utilities (backup, restore, metadata manage
 | `BackupService.create_backup(description)` | Create `.bak` + `.json` | Validates description, disk space, and logs duration. |
 | `BackupService.list_backups()` | Get `BackupInfo` list | Delegates to metadata store; output is sorted newest-first. |
 | `BackupService.restore_backup(filename)` | Restore from `.bak` | Executes multi-step SQL script, handles warnings. |
-| `BackupService.restore_backup_from_path(path)` | Restore from arbitrary file | Use for manual `.bck` files; perform validation yourself. |
+| `BackupService.restore_backup_from_path(path)` | Restore from a `.bck`/`.bak` path | Same sqlcmd script and `RESTORE_TIMEOUT` as `restore_backup`; checks only that the file exists and its extension. Check: `backend.e2e.backup_restore_check`. |
 | `BackupService.delete_backup(filename)` | Remove files | Returns dict with `files_deleted` and optional errors. |
 | `SqlCommandExecutor.perform_backup(path)` | Run `BACKUP DATABASE` | Wraps sqlcmd call; returns `(success, message)`. |
 | `SqlCommandExecutor.execute(sql, timeout)` | Run arbitrary SQL via sqlcmd | Used for restore scripts and recovery commands. |
