@@ -7,7 +7,6 @@ export default defineConfig({
   resolve: { alias: { '@': path.resolve(__dirname, 'src') } },
   test: {
     environment: 'jsdom', setupFiles: ['./src/vitest-setup.ts'], clearMocks: true,
-    // Legacy __tests__ suites require their original Jest setup; migrate separately.
-    include: ['src/components/*.test.tsx', 'src/components/scheduling/*.test.tsx', 'src/hooks/*.test.ts'],
+    include: ['src/**/*.test.{ts,tsx}'],
   },
 });

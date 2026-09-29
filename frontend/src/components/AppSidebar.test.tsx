@@ -56,8 +56,9 @@ it('preserves navigation shortcuts and leaves open dialogs in control', () => {
 });
 
 it('keeps Database restore admin-or-local and operations local-only', () => {
-  expect(allowedSections('/database', {role:'admin', session_is_local:false}).map(s=>s.id)).toEqual(['tables','procedures','restore']);
-  expect(allowedSections('/database', {role:'viewer', session_is_local:false}).map(s=>s.id)).toEqual(['tables','procedures']);
+  expect(allowedSections('/database', {role:'admin', session_is_local:false}).map(s=>s.id)).toEqual(['tables','procedures','restore','retrieval']);
+  expect(allowedSections('/database', {role:'viewer', session_is_local:false}).map(s=>s.id)).toEqual(['tables','procedures','retrieval']);
+  expect(allowedSections('/database', {role:'admin', session_is_local:true}).map(s=>s.id)).toEqual(['tables','procedures','restore','operations','retrieval','packages','settings']);
   expect(allowedSections('/logfile', {role:'user', session_is_local:false}).map(s=>s.id)).toEqual(['python','hamilton']);
 });
 it.each([['/database','Database','Stored procedures','procedures'],['/camera','Camera','Live streaming','live'],['/labware','Labware','Cytomat','cytomat'],['/logfile','Logs','Hamilton traces','hamilton'],['/admin','Admin','Password reset requests','password-resets']])('navigates %s sections from the rail with URL history', async (path,label,child,id) => {

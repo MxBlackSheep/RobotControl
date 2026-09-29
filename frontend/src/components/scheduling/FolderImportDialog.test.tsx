@@ -5,7 +5,7 @@ import FolderImportDialog from './FolderImportDialog';
 import { schedulingAPI } from '../../services/schedulingApi';
 
 vi.mock('../../services/schedulingApi', () => ({ schedulingAPI: {
-  browseMethodFolders: vi.fn(), previewExperimentImport: vi.fn(), importExperimentFolder: vi.fn(), importExperimentFiles: vi.fn(),
+  browseMethodFolders: vi.fn(), previewExperimentImport: vi.fn(), importExperimentFolder: vi.fn(),
 } }));
 
 const rows = [
