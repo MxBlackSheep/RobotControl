@@ -23,19 +23,20 @@ Join different system utilities and provide unified control surface for the Shou
 
 ## Repository Layout
 
-For development decisions and verification scope, read [AGENTS.md](AGENTS.md).
 The [documentation map](docs/README.md) separates current maintenance instructions
-from historical reviews and release evidence.
+from historical reviews and release evidence. Branch, commit-message and tagging
+rules are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
-### backend/ 
-- FastAPI application (routers, services, utils, tests)
+### backend/
+- FastAPI application (routers, services, utils), pytest tests and HTTP end-to-end checks (`backend/e2e`)
 ### frontend/
-- React + Vite client (TypeScript, MUI)
-### build_scripts/   
-- Asset embedding & PyInstaller automation
-### Others
-- docs: Supplemental design and logging
-- AGENTS.md: Tracked project engineering, communication and verification rules.
+- React + Vite client (TypeScript, MUI) and Playwright browser checks (`frontend/e2e`)
+### database_packages/
+- Python database tools and reports that can be installed into the app; see its README
+### build_scripts/
+- Asset embedding, PyInstaller and database-package automation
+### docs/
+- Module maintenance guides, change history and dated reviews
 
 # Installation
 
