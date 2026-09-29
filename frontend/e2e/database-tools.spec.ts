@@ -1,5 +1,9 @@
 import { test, expect } from '@playwright/test';
 import path from 'node:path';
+
+/** Failure cases: Delivery Logs must show pending, sent, error and partially refused mail
+ * accurately. Server-side delivery cases are in backend/e2e/notification_delivery_check.py.
+ */
 const evidence = process.env.ROBOTCONTROL_E2E_EVIDENCE || '../test-output/database-verification';
 
 async function login(page: any) {

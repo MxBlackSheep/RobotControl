@@ -2,6 +2,11 @@
 
 Run: .venv/Scripts/python.exe -m backend.e2e.bundled_tools_check
 Uses the disposable SQL adapter, never the laboratory database or hardware.
+
+Failure cases: Culture history and Delete Experiment each import as one Python file
+and update their existing identity. Conversion must not change calculations, workbook
+values or formatting, deletion parameters, preview or typed confirmation. Changing
+bundled defaults must not overwrite existing installations.
 """
 import ast
 from contextlib import closing

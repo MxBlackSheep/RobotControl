@@ -1,5 +1,20 @@
 import { test, expect } from '@playwright/test';
 import { createHash } from 'node:crypto';
+
+/** Failure cases for log readers (real log HTTP routes, disposable files):
+ * - Development and packaged log roots agree. Remote administrators can read history;
+ *   remote non-administrators and other readers' owners cannot.
+ * - Folder, ZIP entry and relative paths cannot escape the configured root.
+ * - Every section of a large archived log is reachable, not only its start and end, with
+ *   no lost or duplicated UTF-8/UTF-16/CRLF/very long lines at section boundaries.
+ * - Appending, replacing or truncating the source never produces a mixed snapshot.
+ * - Corrupt gzip/ZIP, binary, missing or locked files, capacity limits and expiry fail
+ *   clearly without hanging or blanking text that was already shown.
+ * - Cancel or file switch stops the worker and its temporary copy; late responses never
+ *   replace a newer selection. Follow is opt-in and hidden readers stop polling.
+ * - Phones show the reader instead of the catalogue stacked above it, with no horizontal
+ *   scroll. Back, resize and expansion keep selection, section, scroll and focus.
+ */
 test.beforeEach(async ({ page }) => { await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin')); });
 const headers = { Authorization: 'Bearer viewer-admin' };
 test('real log HTTP routes reconstruct every archived section and enforce reader ownership', async ({ request }) => {

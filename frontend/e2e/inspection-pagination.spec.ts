@@ -1,5 +1,12 @@
 import { expect, test } from '@playwright/test';
 
+/** Failure cases for table paging and the SQL reader:
+ * - First, Last and page jump never produce an invalid page, including for empty tables
+ *   or a shrinking row count. A failed page or filter request keeps the previous rows
+ *   with their own page labels; Retry uses the requested query and current filters.
+ * - SQL Top/Bottom/Go to line/Find reach the last line without repeated scrolling, keep
+ *   reader state, and stay reachable on a phone.
+ */
 test.beforeEach(async ({page}) => {
   await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));
   await page.route('**/api/database/tables?*', route => route.fulfill({json:{success:true,data:{table_details:[{name:'PageSamples',has_data:true,is_important:true}]}}}));

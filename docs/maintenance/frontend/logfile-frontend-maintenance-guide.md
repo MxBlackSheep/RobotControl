@@ -67,7 +67,7 @@ above content on phones. All viewer actions have labelled, 44px touch targets.
 
 ## Verification
 
-Failure cases are written in `frontend/e2e/scenarios.md`; `logs.spec.ts` covers
+Failure cases are listed at the top of `frontend/e2e/logs.spec.ts`, which covers
 real HTTP archive reading/checksums, access, cancellation/capacity/expiry and phone
 inspection. Run `npm run build` and `npx playwright test` from frontend. Reports,
 screenshots, traces and a fixture manifest are under

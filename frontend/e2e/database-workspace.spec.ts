@@ -1,5 +1,16 @@
 import { test, expect } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
+
+/** Failure cases for database settings screens:
+ * - One viewer database is shown and the lab connection is explicit, never blank.
+ *   Switching the viewer clears the previous table and leaves Restore separate.
+ * - Changing a parent choice clears its dependent choices; labels stay readable on phones.
+ * - A failed account creation explains the reason (for example a name conflict), keeps
+ *   non-secret settings and clears administrator credentials.
+ * - Several operation choices each show their own inputs without submitting changes.
+ * - Certificate trust is remembered only for the exact server after a successful save.
+ * Server-side cases are in backend/e2e/database_workspace_check.py.
+ */
 const evidence = process.env.ROBOTCONTROL_E2E_EVIDENCE || '../test-output/database-workspace-verification';
 async function login(page: any) {
   await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));

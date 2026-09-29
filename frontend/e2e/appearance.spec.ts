@@ -1,5 +1,14 @@
 import { test, expect } from '@playwright/test';
 
+/** Failure cases for appearance and maintenance:
+ * - System/Light/Dark leaves no light panels, unreadable selection or white flash, and
+ *   changing theme never resets a reader, draft or selection.
+ * - Toolbars size to their pane, not the window width; phone, keyboard and zoom never
+ *   hide Back or Save.
+ * - At 1280x720 log text gets at least 60% of the app height by default.
+ * - A failed or malformed maintenance state never looks as if HxRun is allowed, and
+ *   Refresh or Retry never overwrites the operator's reason draft.
+ */
 test.beforeEach(async ({ page }, info) => {
   if (info.title.startsWith('system appearance')) return;
   await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));

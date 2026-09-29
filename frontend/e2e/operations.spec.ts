@@ -1,5 +1,17 @@
 import { expect, test, type Page } from '@playwright/test';
 
+/** Failure cases for Scheduling and archives:
+ * - On a phone, a selected schedule's actions appear with it, not below the whole list;
+ *   Back keeps the list position and resizing keeps the selection.
+ * - Queue and recovery state stay visible beside details. Remote users get no editing
+ *   controls; recovery-required schedules cannot be deleted or archived.
+ * - The schedule editor fits a phone and keeps its draft on Escape, close and failed save.
+ * - History, notification and method tables never widen the page; filters survive
+ *   section switches; hidden history stops polling.
+ * - Archive rows with long names stay readable; folders open without nested scroll areas
+ *   and Back returns to the selected folder.
+ * Camera cases are in camera.spec.ts.
+ */
 const schedules = Array.from({ length: 24 }, (_, index) => ({
   schedule_id: `schedule-${index}`, experiment_name: `Experiment ${String(index + 1).padStart(2, '0')}`,
   experiment_path: `C:\\Methods\\experiment-${index}.med`, schedule_type: 'interval', interval_hours: 6,

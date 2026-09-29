@@ -1,5 +1,16 @@
 import { expect, Page, test } from '@playwright/test';
 
+/** Failure cases for the read-only table and SQL viewer:
+ * - Narrow screens show the selected table or SQL, not the whole catalogue above it;
+ *   Back keeps selection, search draft and scroll. Wide data scrolls locally, never the
+ *   whole page. Reading and close controls stay reachable in short windows.
+ * - Expand does not re-request data, clear filters or reset Find; Escape restores focus.
+ * - The row inspector shows hidden columns and distinguishes NULL, empty and long values.
+ *   Copy reports a clipboard failure instead of claiming success.
+ * - Search applies on submit, sort direction persists, and older responses never replace
+ *   the current selection. A failed refresh keeps useful rows without calling them fresh.
+ * - Viewing never calls procedure execution or any other write endpoint.
+ */
 const rows = Array.from({ length: 57 }, (_, index) => ({
   ID: index + 1,
   Name: `Sample ${String(index + 1).padStart(2, '0')}`,

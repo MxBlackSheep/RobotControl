@@ -1,4 +1,9 @@
-"""Repeatable HTTP/SQLite/SMTP check. Uses disposable state and a local mail sink."""
+"""Repeatable HTTP/SQLite/SMTP check. Uses disposable state and a local mail sink.
+
+Failure cases: pending, sent and error records appear over HTTP, including manual,
+test and recovery emails. Partial refusal or log-storage failure never resends mail
+that was already accepted.
+"""
 import argparse
 import json
 import socketserver

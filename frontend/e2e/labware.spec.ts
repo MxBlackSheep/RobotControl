@@ -1,5 +1,23 @@
 import { expect, Page, test } from '@playwright/test';
 
+/** Failure cases for tip editing and saving:
+ * - Col A and Col B keep five racks each in backend order on desktop and 320px phones;
+ *   Col B never stacks below Col A. Missing tip data is unknown, not empty.
+ * - Focus and arrow keys never edit. The first click/tap/Enter anchors a corner and the
+ *   second completes a column-major rectangle in either direction; the same tip twice
+ *   changes one tip. A drag previews and commits one undoable draft on release, and a
+ *   click after a drag must not paint again. Nothing is written before Save.
+ * - Escape, pointer cancel, release outside the rack, rack/family change or resizing
+ *   cancel a preview. Phone touch scrolling never edits and keeps a chosen first corner.
+ * - Undo restores the exact prior drafts without touching another family; Save, discard
+ *   and reset clear undo history. Set entire rack is the only bulk action.
+ * - Drafts survive rack/family/section changes, phone Back and failed saves. Save freezes
+ *   every editing control; success clears only the submitted matching edits. Reload or
+ *   close warns while edits are pending.
+ * - Load failures show an error and Retry, never an empty deck; malformed snapshots do
+ *   not crash the page. Read-only sessions can inspect everything but cannot paint.
+ * - 2x device scale uses the same CSS layout as 1x.
+ */
 async function fixtures(page:Page, canUpdate=true, realDeck=false) {
   await page.addInitScript(()=>localStorage.setItem('access_token','viewer-admin'));
   const permissions={role:'admin',is_local_session:canUpdate,can_update:canUpdate};

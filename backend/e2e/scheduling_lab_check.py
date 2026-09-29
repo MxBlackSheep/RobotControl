@@ -2,7 +2,21 @@
 
 Run: .venv/Scripts/python.exe -m backend.e2e.scheduling_lab_check
 Uses the existing SQL fixture's UUID databases, never application credentials.
-Failure scenarios are recorded in frontend/e2e/scenarios.md.
+
+Failure cases:
+- Editing timing or contacts keeps the EvoYeast preparation pair and every unrelated
+  prerequisite in order. Native SQLite and Hamilton run matching stay separate from
+  the selected laboratory connection.
+- A missing or duplicate experiment leaves flags unchanged; a missing database, schema
+  or procedure cannot report successful preparation; a standalone legacy
+  ScheduledToRun marker cannot guess an experiment.
+- Unknown or foreign adapter steps are rejected before any write. A repeated
+  submission or restart cannot repeat preparation. Changing the integration or target
+  while jobs or recovery are unfinished cannot redirect them.
+- A SQLite batch failure rolls back and never changes the native/Hamilton connection.
+  SQL preparation and robot launch are not one transaction, so ambiguous partial work
+  requires recovery.
+Supervised acceptance with a real method is separate from this disposable check.
 """
 from contextlib import contextmanager, closing
 import hashlib
