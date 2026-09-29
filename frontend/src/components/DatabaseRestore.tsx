@@ -18,6 +18,8 @@ import {
   Checkbox,
   FormControlLabel,
   Divider,
+  Alert,
+  CircularProgress,
   TextField,
   Tab,
   Tabs,
@@ -45,10 +47,9 @@ import {
   ExpandLess as ExpandLessIcon
 } from '@mui/icons-material';
 import LoadingSpinner from './LoadingSpinner';
-import ErrorAlert from './ErrorAlert';
 import { api } from '../services/api';
 import { activateMaintenance, clearMaintenance } from '@/utils/MaintenanceManager';
-import StatusDialog, { StatusSeverity } from './StatusDialog';
+import StatusDialog, { StatusMessage } from './StatusDialog';
 import { useAuthContext } from '../context/AuthContext';
 
 interface BackupFile {
@@ -172,11 +173,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({ open, onClose, onSelect }) 
           </Stack>
 
           {loading ? (
-            <LoadingSpinner 
-              variant="spinner" 
-              message="Loading backup files..." 
-              minHeight={200}
-            />
+            <LoadingSpinner message="Loading backup files..." minHeight={200} />
           ) : (
             <Paper sx={{ maxHeight: 400, overflow: 'auto' }}>
               <List dense>
@@ -224,12 +221,9 @@ const FileExplorer: React.FC<FileExplorerProps> = ({ open, onClose, onSelect }) 
           )}
 
           {selectedFile && (
-            <ErrorAlert
-              message={`Selected: ${selectedFile.name}\nPath: ${selectedFile.path}\nSize: ${selectedFile.size_formatted || 'Unknown'}`}
-              severity="info"
-              category="client"
-              compact={true}
-            />
+            <Alert severity="info" sx={{ whiteSpace: 'pre-line', overflowWrap: 'anywhere' }}>
+              {`Selected: ${selectedFile.name}\nPath: ${selectedFile.path}\nSize: ${selectedFile.size_formatted || 'Unknown'}`}
+            </Alert>
           )}
         </Stack>
       </DialogContent>
@@ -300,13 +294,7 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
   const [creatingBackup, setCreatingBackup] = useState(false);
   const [createDescription, setCreateDescription] = useState('');
   const [createDialogError, setCreateDialogError] = useState<string | null>(null);
-  const [statusDialog, setStatusDialog] = useState<{
-    open: boolean;
-    title: string;
-    message: string;
-    severity: StatusSeverity;
-    autoCloseMs?: number;
-  }>({ open: false, title: '', message: '', severity: 'info' });
+  const [status, setStatus] = useState<StatusMessage | null>(null);
   const theme = useTheme();
   const isSmallScreen = useMediaQuery(theme.breakpoints.down('sm'));
 
@@ -363,19 +351,6 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
       clearMaintenancePoll();
     };
   }, []);
-
-  const showStatusDialog = (
-    title: string,
-    message: string,
-    severity: StatusSeverity,
-    autoCloseMs?: number
-  ) => {
-    setStatusDialog({ open: true, title, message, severity, autoCloseMs });
-  };
-
-  const closeStatusDialog = () => {
-    setStatusDialog(prev => ({ ...prev, open: false }));
-  };
 
   const loadBackupFiles = async (): Promise<BackupFile[]> => {
     if (!hasBackupAccess) {
@@ -437,12 +412,7 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
 
   const handleRestoreBackup = async () => {
     if (!hasBackupAccess) {
-      showStatusDialog(
-        'Access Restricted',
-        'Only administrators or trusted lab machines can restore backups.',
-        'warning',
-        5000
-      );
+      setStatus({ title: 'Access Restricted', message: 'Only administrators or trusted lab machines can restore backups.', severity: 'warning', autoCloseMs: 5000 });
       return;
     }
     if (!canProceed || !hasSelection) return;
@@ -457,11 +427,7 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
 
       activateMaintenance(60000, 'Database restore is finishing.');
       startMaintenanceRecoveryWatcher();
-      showStatusDialog(
-        'Restore Started',
-        'Database restore has begun. The system may be unavailable for several minutes while services restart. Background updates are paused briefly.',
-        'success'
-      );
+      setStatus({ title: 'Restore Started', message: 'Database restore has begun. The system may be unavailable for several minutes while services restart. Background updates are paused briefly.', severity: 'success' });
 
       // Success - close dialog and refresh
       setRestoreDialogOpen(false);
@@ -472,7 +438,7 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
     } catch (err: any) {
       console.error('Error restoring backup:', err);
       const message = err.response?.data?.detail || err.message || 'Failed to restore backup';
-      showStatusDialog('Restore Failed', message, 'error');
+      setStatus({ title: 'Restore Failed', message, severity: 'error' });
     } finally {
       setRestoreProgress(false);
     }
@@ -516,12 +482,7 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
 
   const handleCreateBackup = async () => {
     if (!hasBackupAccess) {
-      showStatusDialog(
-        'Access Restricted',
-        'Only administrators or trusted lab machines can create or manage backups.',
-        'warning',
-        5000
-      );
+      setStatus({ title: 'Access Restricted', message: 'Only administrators or trusted lab machines can create or manage backups.', severity: 'warning', autoCloseMs: 5000 });
       return;
     }
     if (!createDescription.trim()) {
@@ -543,7 +504,7 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
       setCreateDialogError(null);
       setCreateDialogOpen(false);
       setCreateDescription('');
-      showStatusDialog('Backup Created', message, 'success');
+      setStatus({ title: 'Backup Created', message, severity: 'success' });
 
       const updatedBackups = await loadBackupFiles();
       if (filename) {
@@ -556,7 +517,6 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
     } catch (err: any) {
       const message = err?.response?.data?.detail || err?.message || 'Failed to create backup.';
       setCreateDialogError(message);
-      showStatusDialog('Backup Creation Failed', message, 'error');
     } finally {
       setCreatingBackup(false);
     }
@@ -706,7 +666,7 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
               <Box sx={{ display: 'flex', gap: 2 }}>
                 <Button
                   variant="outlined"
-                  startIcon={loading ? <LoadingSpinner variant="inline" size="small" /> : <RefreshIcon />}
+                  startIcon={loading ? <CircularProgress size={20} /> : <RefreshIcon />}
                   onClick={loadBackupFiles}
                   disabled={loading || restoreProgress}
                 >
@@ -715,12 +675,9 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
               </Box>
 
               {backupFiles.length === 0 && !loading && (
-                <ErrorAlert
-                  message="No managed backup files found. Create backups using the backup manager or switch to browse mode for .bck files."
-                  severity="info"
-                  category="client"
-                  compact={true}
-                />
+                <Alert severity="info">
+                  No managed backup files found. Create backups using the backup manager or switch to browse mode for .bck files.
+                </Alert>
               )}
             </Stack>
           )}
@@ -892,8 +849,8 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
         <DialogContent sx={{ px: { xs: 2, sm: 3 } }}>
           <Stack spacing={3}>
             {restoreProgress && (
-              <LoadingSpinner 
-                variant="linear"
+              <LoadingSpinner
+                linear
                 message="Restoring database... This may take several minutes."
               />
             )}
@@ -1018,7 +975,7 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
             variant="contained"
             color="warning"
             disabled={restoreProgress || !canProceed}
-            startIcon={restoreProgress ? <LoadingSpinner variant="inline" size="small" /> : <RestoreIcon />}
+            startIcon={restoreProgress ? <CircularProgress size={20} /> : <RestoreIcon />}
             sx={{ flex: { xs: '1 1 100%', sm: '0 0 auto' } }}
           >
             {restoreProgress ? 'Restoring...' : 'Restore Database'}
@@ -1044,12 +1001,7 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
               Capture a managed `.bak` file with JSON metadata before performing a restore. This gives you a rollback point if the restore introduces issues.
             </Typography>
             {createDialogError && (
-              <ErrorAlert
-                message={createDialogError}
-                severity="error"
-                category="client"
-                compact
-              />
+              <Alert severity="error">{createDialogError}</Alert>
             )}
             <TextField
               label="Backup Description"
@@ -1082,7 +1034,7 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
           <Button
             onClick={handleCreateBackup}
             variant="contained"
-            startIcon={creatingBackup ? <LoadingSpinner variant="inline" size="small" /> : <StorageIcon />}
+            startIcon={creatingBackup ? <CircularProgress size={20} /> : <StorageIcon />}
             disabled={creatingBackup}
             sx={{ flex: { xs: '1 1 100%', sm: '0 0 auto' } }}
           >
@@ -1091,14 +1043,7 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
         </DialogActions>
       </Dialog>
 
-      <StatusDialog
-        open={statusDialog.open}
-        onClose={closeStatusDialog}
-        title={statusDialog.title}
-        message={statusDialog.message}
-        severity={statusDialog.severity}
-        autoCloseMs={statusDialog.autoCloseMs}
-      />
+      <StatusDialog status={status} onClose={() => setStatus(null)} />
 
       {/* File Explorer Dialog */}
       <FileExplorer

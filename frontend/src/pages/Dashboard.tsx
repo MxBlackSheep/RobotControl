@@ -7,7 +7,7 @@ import Grid from '@mui/material/Grid';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import Alert from '@mui/material/Alert';
-import { CardLoading } from '../components/LoadingSpinner';
+import LoadingSpinner from '../components/LoadingSpinner';
 import ExperimentStatus from '../components/ExperimentStatus';
 // Simple Error Boundary Component
 interface ErrorBoundaryProps {
@@ -53,16 +53,13 @@ class SimpleErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySta
   }
 }
 
-// Loading component for experiment widget - using shared LoadingSpinner
-const ExperimentSkeleton: React.FC = memo(() => (
-  <CardLoading 
-    lines={4} 
-    message="Loading experiment data..." 
-  />
-));
-
-// Add display name for debugging
-ExperimentSkeleton.displayName = 'ExperimentSkeleton';
+const ExperimentSkeleton: React.FC = () => (
+  <Card>
+    <CardContent>
+      <LoadingSpinner message="Loading experiment data..." minHeight={160} />
+    </CardContent>
+  </Card>
+);
 
 const Dashboard: React.FC = memo(() => {
   return (

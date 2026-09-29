@@ -34,9 +34,9 @@ when frames are sent, so it can remain unchanged after delivery stops. Neither
 belongs in this operator overview without a stronger metric contract. The regular
 CPU/memory/disk cards continue to use the system-health sampler.
 
-A held raw-fetch request still has no deadline; this existing limitation is
-recorded in `polling-maintenance-guide.md`. This UI change does not alter the
-shared hidden-document polling policy.
+A request that never answers is abandoned after 20 seconds and shown as
+"Request timed out" (see `polling-maintenance-guide.md`). Hidden pages keep the shared
+polling policy.
 
 ## Layout and verification
 

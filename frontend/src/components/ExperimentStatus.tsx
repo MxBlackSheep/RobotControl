@@ -12,7 +12,7 @@ import CardContent from '@mui/material/CardContent';
 import Typography from '@mui/material/Typography';
 import Chip from '@mui/material/Chip';
 import Skeleton from '@mui/material/Skeleton';
-import LoadingSpinner from './LoadingSpinner';
+import CircularProgress from '@mui/material/CircularProgress';
 import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import Stack from '@mui/material/Stack';
@@ -254,7 +254,7 @@ const ExperimentStatus: React.FC<ExperimentStatusProps> = memo(({
             <ExperimentIcon color="primary" sx={{ mr: 1 }} />
             <Typography variant="h6">Latest Experiment</Typography>
             <Box sx={{ ml: 'auto' }}>
-              <LoadingSpinner variant="inline" size="small" />
+              <CircularProgress size={20} />
             </Box>
           </Box>
           <Stack spacing={1}>

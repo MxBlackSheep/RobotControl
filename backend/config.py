@@ -37,14 +37,9 @@ class Settings:
     VM_SQL_USER: str = os.getenv("VM_SQL_USER", "Hamilton") 
     VM_SQL_PASSWORD: str = os.getenv("VM_SQL_PASSWORD", "mkdpw:V43")
     
-    # Backup paths
-    # LOCAL_BACKUP_PATH: Used by backup service on the host for file ops.
-    # Default to project-relative "data/backups" so installs work out of the box.
-    # Override via .env when using a network share.
+    # Backup folder, relative to the app root unless absolute. SQL Server writes
+    # the .bak to this same path, so it must be reachable under this name by both.
     LOCAL_BACKUP_PATH: str = os.getenv("LOCAL_BACKUP_PATH", "data/backups")
-    # SQL_BACKUP_PATH: Path SQL Server (on the VM) writes .bak files to.
-    # Keep default aligned with LOCAL_BACKUP_PATH so host/SQL share the same folder.
-    SQL_BACKUP_PATH: str = os.getenv("SQL_BACKUP_PATH", "data/backups")
     
     DB_CONFIG_PRIMARY = {
         "driver": "{ODBC Driver 11 for SQL Server}",

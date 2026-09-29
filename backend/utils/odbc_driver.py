@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import logging
 from functools import lru_cache
-from typing import Iterable, Optional
+from typing import Any, Iterable, Mapping, Optional
 
 try:
     import pyodbc  # type: ignore
@@ -103,7 +103,26 @@ def resolve_driver_clause(explicit_driver: Optional[str] = None) -> Optional[str
     return clause
 
 
+def build_connection_string(config: Mapping[str, Any]) -> str:
+    """ODBC connection string for a config shaped like ``settings.DB_CONFIG_PRIMARY``.
+
+    The driver is used as given; callers that must tolerate a missing configured
+    driver resolve it first with ``resolve_driver_clause``.
+    """
+    parts = [f"{key}={config[name]}" for key, name in (("DRIVER", "driver"), ("SERVER", "server"), ("DATABASE", "database"))
+             if config.get(name)]
+    trusted = str(config.get("trusted_connection", config.get("trust_connection", "no"))).lower()
+    if config.get("user") and config.get("password"):
+        parts += [f"UID={config['user']}", f"PWD={config['password']}"]
+    elif trusted in {"yes", "true", "1"}:
+        parts.append("Trusted_Connection=yes")
+    parts += [f"{key}={config[name]}" for key, name in (("Encrypt", "encrypt"), ("TrustServerCertificate", "trust_server_certificate"))
+              if config.get(name)]
+    return ";".join(parts)
+
+
 __all__ = [
+    "build_connection_string",
     "choose_driver",
     "format_driver_for_connection",
     "list_available_drivers",
