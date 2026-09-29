@@ -78,6 +78,18 @@ is preserved. Results and trace are `packaged-smoke.json` and `packaged-trace.zi
 Its real 1 MiB log-section assertions allow 20 seconds; investigate failures rather
 than repeatedly raising that limit. Copy the whole candidate, including `_internal`.
 
+To confirm every page still works against the real packaged backend (for example
+after removing code or endpoints), run the walkthrough with the same isolation:
+
+```powershell
+uv run --locked python backend/e2e/packaged_walkthrough.py dist/review-candidate/RobotControl
+```
+
+It opens all 28 page/section URLs as a local admin and fails on any API 401/403/404/405,
+missing asset, page error, lazy-load failure or blank page. Evidence (summary, per-page
+requests and screenshots) is in `recovery/packaged-walkthrough/<candidate>/`. SQL
+Server is deliberately unreachable, so it proves the app runs, not SQL behavior.
+
 ## Native zoom and practical limits
 
 When zoom behavior is affected, run `node frontend/e2e/labware-native-zoom.cjs`
