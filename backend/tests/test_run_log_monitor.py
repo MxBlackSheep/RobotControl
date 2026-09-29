@@ -547,7 +547,7 @@ def test_partial_sql_completion_waits_for_final_state(rig):
     assert alerts(r) == []
 
 
-def test_restart_cancels_delivery_interrupted_after_run_finished(rig):
+def test_restart_marks_delivery_interrupted_after_run_finished_unknown(rig):
     r = rig
     stall(r)
     log_id = alerts(r)[0].log_id
@@ -558,4 +558,5 @@ def test_restart_cancels_delivery_interrupted_after_run_finished(rig):
     r.monitor.finish("execution")
     r.monitor = RunLogMonitor(r.manager, reader=r.reader, directory=r.directory, clock=r.clock)
     assert r.monitor.restore() == []
-    assert alerts(r)[0].status == "cancelled"
+    # SMTP may have accepted it before the crash; never report it as not sent.
+    assert alerts(r)[0].status == "unknown"
