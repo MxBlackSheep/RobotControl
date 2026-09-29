@@ -85,6 +85,9 @@ interface DatabaseRestoreProps {
   onError?: (error: string) => void;
 }
 
+// The backend restore allows 600 s; include a minute for response/recovery overhead.
+const RESTORE_REQUEST_TIMEOUT_MS = (600 + 60) * 1000;
+
 const FileExplorer: React.FC<FileExplorerProps> = ({ open, onClose, onSelect }) => {
   const [currentPath, setCurrentPath] = useState('C:\\');
   const [items, setItems] = useState<FileSystemItem[]>([]);
@@ -423,7 +426,7 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
 
     setRestoreProgress(true);
     try {
-      const response = await api.post('/api/admin/backup/restore', restoreRequest);
+      const response = await api.post('/api/admin/backup/restore', restoreRequest, { timeout: RESTORE_REQUEST_TIMEOUT_MS });
 
       // A failed restore still answers HTTP 200, with { success: false, message, data.error_details }.
       if (!response.data?.success) {

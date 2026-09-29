@@ -1,3 +1,8 @@
+## 2026-09-29 Allow slow restore responses without losing failure feedback
+
+- PR #12's 660-second restore request timeout is combined with PR #10's response success check and PR #11's shared status dialog. Other API timeouts remain unchanged.
+- Resolved the overlapping restore spec into one suite, retaining failure/retry cases and checking both success and failure after a 12-second response delay. Evidence: `test-output/restore-timeout-verification/verification.json` and `report/index.html`. This verifies browser behavior with synthetic responses, not an eleven-minute or real SQL restore.
+
 ## 2026-09-29 Restore failures use the current dialog API
 
 - PR #10 now incorporates current main, including PR #11's shared `StatusDialog`. HTTP 200 with `success: false` shows the restore error without activating maintenance or clearing the confirmation. The obsolete `showStatusDialog` call is replaced with `setStatus`.
