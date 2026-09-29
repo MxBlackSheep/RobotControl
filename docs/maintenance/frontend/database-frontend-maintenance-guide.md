@@ -97,9 +97,9 @@ Restore remains available to admins or local sessions. Operations remains local-
 
 ## Repeatable checks
 
-`frontend/e2e/database-failure-scenarios.md` records failure cases written before the production changes. `frontend/e2e/database.spec.ts` exercises the built application against synthetic read responses at 390, 1280 and 1920 pixels. It covers table navigation, complete row inspection, search, expansion/focus, SQL Find/tabs, read failures and clipboard failure. The shared suite saves screenshots, traces and an HTML report; use the command in `frontend/e2e/scenarios.md` to repeat it. No unit tests were added for this change.
+Failure cases are listed at the top of `frontend/e2e/database.spec.ts`, which exercises the built application against synthetic read responses at 390, 1280 and 1920 pixels. It covers table navigation, complete row inspection, search, expansion/focus, SQL Find/tabs, read failures and clipboard failure. The shared suite saves screenshots, traces and an HTML report; run it with `npx playwright test database.spec.ts` from `frontend`.
 
-`inspection-pagination.spec.ts` adds last-page/page-jump and failed-page label checks, plus phone SQL Top/Bottom/Go to line. Its failure scenarios were recorded first in `inspection-labware-failure-scenarios.md`.
+`inspection-pagination.spec.ts` adds last-page/page-jump and failed-page label checks, plus phone SQL Top/Bottom/Go to line. Its failure cases are listed at the top of that file.
 
 ## Package-backed operations and retrieval (2026-09-27)
 

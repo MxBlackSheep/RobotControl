@@ -3,6 +3,22 @@
 Run: .venv/Scripts/python.exe -m backend.e2e.report_wizard_check
 Requires a local SQL Server administrator via Windows authentication. Never uses
 application DB credentials or modifies existing databases/users/grants.
+
+Failure cases:
+- Upload never imports Python; an unfinished adapter cannot be tried or installed.
+- Draft Back/reload keeps inputs and source settings; stale saves and another
+  administrator's requests cannot replace a draft. Discarding a fresh report creates
+  no draft; discarding a saved draft removes only it; a failed delete keeps the editor
+  open; a running trial blocks deletion.
+- Missing mappings never fall back to the writer. SQL Server permissions, not a
+  successful SELECT or query scanning, decide source eligibility: reject write, DDL,
+  elevated and EXECUTE permissions, including EXECUTE inherited through public.
+- Cycles, unknown dependencies or sources and invalid queries fail without activation.
+  Active jobs keep their source snapshot; failed or stale updates keep the package.
+- Reader account setup distinguishes an existing login and missing CREATE LOGIN
+  authority from sign-in, driver and access failures, without raw driver text or
+  credentials. Failed verification removes only the new login; existing principals
+  are untouched.
 """
 from contextlib import contextmanager
 import hashlib

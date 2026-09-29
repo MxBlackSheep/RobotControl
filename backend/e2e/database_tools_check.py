@@ -1,5 +1,26 @@
+"""HTTP checks for package lifecycle, destructive actions and downloadable reports.
+
+Failure cases:
+- Upload, update and removal reject path traversal, binaries, duplicate identifiers,
+  missing libraries and incompatible contracts. A failed update keeps the active
+  version. Inspecting an update never activates it or imports Python, and a changed
+  installation between review and activation is rejected.
+- Export uses the installed version, excludes generated/cache/config files and keeps
+  authored assets. Anonymous, remote and non-admin callers cannot manage packages.
+- Preview is bound to the user, package version and inputs. Wrong confirmation,
+  repeated execution, missing experiments and SQL failures cannot cause writes. Busy
+  or unknown robot state, unresolved recovery and unavailable safety storage block
+  changes; a scheduler launch and a database change cannot overlap.
+- Scheduling settings are local-admin-only and reviewed without writes. Save rechecks
+  revision, robot idle, safety store, recovery and active/queued work under launch
+  protection; cancelling restores the original file.
+- Report output matches the pinned original script, including plate 985's extra
+  culture 98500000 with a NULL WellID, missing wells and missing ancestral labels.
+  Downloads are private; workers reject excess work and expired files are removed.
+- Creating an author project leaves the original script untouched and never executes
+  it; an unfinished adapter fails clearly.
+"""
 from contextlib import closing
-"""HTTP checks for package lifecycle, destructive actions and downloadable reports."""
 import argparse
 import hashlib
 import io

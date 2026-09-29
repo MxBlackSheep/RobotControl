@@ -1,5 +1,22 @@
 import { expect, test, type Page } from '@playwright/test';
 
+/** Failure cases for Cytomat shelves:
+ * - Shelves stay in physical order 1 (top) to 7 whatever the database order. Positions
+ *   8/9 always show as Unused without editing. Missing active positions read Unavailable,
+ *   not Empty. Unexpected IDs (including 01) appear separately, never aliased to a shelf.
+ *   Duplicate IDs make only that position ambiguous.
+ * - Empty is a valid assignment. Edit position opens one inline selector with 44px
+ *   actions and keyboard close; its draft stays visible after closing or opening another.
+ * - Opening an editor invalidates an in-flight read. Polling pauses while an editor,
+ *   draft or write exists and resumes afterwards. Refresh must not move rows, disable
+ *   Edit, take focus or replace the last good view.
+ * - Save freezes editors; a failed save keeps every draft; success clears only matching
+ *   drafts. Read-only sessions see the full state without editing controls.
+ * - The register fills the available desktop height; all nine rows fit 1280x720 at 48px
+ *   or more. Long plate IDs wrap without widening the page or resizing other rows.
+ *   Resizing between desktop and phone keeps an open editor and its drafts. 2x device
+ *   scale uses the same CSS layout, with no whole-page zoom or transform.
+ */
 async function fixture(page: Page, canUpdate = true, duplicates = false, extraPositions = true) {
   await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));
   const rows = [9, 8, 7, 6, 5, 3, 2, 1].map(position => ({ cytomat_pos: String(position), plate_id: position === 2 ? '' : `P${position}00` }));

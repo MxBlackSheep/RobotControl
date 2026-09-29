@@ -1,7 +1,26 @@
 """Prepared Python → form → trial → activation over HTTP and disposable SQL Server.
 
 Run: .venv/Scripts/python.exe -m backend.e2e.tool_authoring_check
-Failure scenarios: frontend/e2e/database-failure-scenarios.md.
+
+Failure cases:
+- Importing a prepared Python file never executes it. Reject nonliteral definitions,
+  bad inputs or dependency cycles, missing entry functions, unavailable libraries and
+  unsafe or duplicate supporting filenames. An ordinary script gets an explicit
+  adaptation message. An existing definition is never overwritten silently.
+- The same Add flow reaches a real report download and an operation preview without a
+  manifest or ZIP. Selecting another experiment clears its plate; forged values fail
+  on the server. Relative helper imports work.
+- Only the draft owner or a local administrator can configure, try or enable. Report
+  mappings cannot use writers. Operation trials use the robot safety gate and roll
+  back, create no execution token and never call the execution function.
+- Enabling requires a successful trial and review of the current code and connection.
+  Replacement, stale draft saves, failed trials, source edits, concurrent updates and
+  restarts cannot reuse old readiness.
+- Publishing replaces a renamed defining file without losing helpers, rejects a second
+  TOOL among supporting files, retires only its draft, survives a lost response or
+  repeated submission, and leaves failed updates editable. History (publisher,
+  version, note, file changes) is saved atomically with activation.
+- Export carries code and definitions, never local credentials or mappings.
 """
 from contextlib import nullcontext
 import hashlib

@@ -36,3 +36,7 @@ backend/tests/test_notification_logging.py
 # CLI
 backend/scripts/auth_cli.py
 /backend/scripts/scheduling_api_cli.py
+
+# Agent instruction files stay local
+AGENTS.md
+CLAUDE.md

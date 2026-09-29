@@ -1,5 +1,27 @@
 import { expect, Page, test } from '@playwright/test';
 
+/** Failure cases for tip layout and background reading:
+ * - The tip surface fills the page width (no maximum). The overview/editor split is
+ *   40/60; when 60% cannot hold twelve 44px targets, keep the editor minimum and shrink
+ *   the overview to 320px; below that, show the overview plus a focused-rack dialog.
+ * - Five overview rows and eight editor rows share header, diagram and footer bounds.
+ *   Pitches may differ, but targets stay at least 44px and dots stay circular (at least
+ *   5px in miniatures). A short desktop has one stage scroll, no nested editor scroll.
+ * - Measurement must not observe its own output: no ResizeObserver loop, no size change
+ *   while scrolling, and a scrollbar near the breakpoint must not toggle modes. Hidden
+ *   retained sections must not publish zero sizes. Sidebar, toolbar wrapping and zoom
+ *   recalculate without remounting the rack or losing selection and drafts.
+ * - Heading, toolbar and workspace share one leading edge at 1280 and 3840px.
+ * - Long rack IDs ellipsize but keep their full accessible name; adding or clearing 96
+ *   unsaved tips must not move either diagram.
+ * - A background read must not move or replace rack nodes, insert a progress bar,
+ *   disable controls, pulse a focused tip or take focus from Refresh.
+ * - Starting a selection or edit invalidates an in-flight read synchronously, so a late
+ *   response cannot replace the snapshot, chosen corner or drafts. Cancelled and no-op
+ *   actions resume reading; pending drafts or writes keep it paused.
+ * - Resizing the container cancels an unfinished selection but keeps drafts.
+ * Native browser zoom is checked separately by labware-native-zoom.cjs.
+ */
 const left = ['VER_HT_0005', 'VER_HT_0001', 'VER_HT_0002', 'VER_HT_0006', 'VER_HT_0009'];
 const right = ['VER_HT_0003', 'VER_HT_0004', 'VER_HT_0007', 'VER_HT_0008', 'VER_HT_0010'];
 const statuses = ['clean', 'empty', 'dirty', 'rinsed', 'washed', 'reserved', 'unclear'];

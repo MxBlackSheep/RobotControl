@@ -1,6 +1,11 @@
 import { expect, test } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 
+/** Failure cases for laboratory preparation forms:
+ * - Default and batch forms at desktop and phone widths keep saved steps and the saved
+ *   selection when option reads fail or arrive late.
+ * Server-side preparation cases are in backend/e2e/scheduling_lab_check.py.
+ */
 const evidence = '../test-output/scheduling-lab-verification';
 for (const [id, width] of [['evoyeast', 1280], ['batch-sqlite', 390]] as const) {
   test(`${id} preparation at ${width}px preserves saved steps and failed reads`, async ({ page }) => {

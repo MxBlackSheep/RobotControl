@@ -1,8 +1,12 @@
 # Frontend browser checks
 
-Choose checks for the behavior being changed. [AGENTS.md](../../AGENTS.md) defines
-verification scope; a full suite is not required for every edit. Existing scenario
-files record failure cases, not a checklist to repeat on unrelated changes.
+Choose checks for the behavior being changed; a full suite is not required for
+every edit.
+
+Each spec file and backend check starts with a comment listing the failure cases
+for its area. Check the tests themselves before assuming a case is covered. For
+work in progress, list new failure cases in [scenarios.md](scenarios.md), then move
+them into the matching header once the checks exist.
 
 ## Routine work (PowerShell, repository root)
 
@@ -30,10 +34,7 @@ This example checks Labware sizing. Narrow or broaden it to the actual change:
 | Theme, navigation and system pages | `appearance.spec.ts`, `system-pages.spec.ts` |
 
 Use `--grep` for a specific case; use `npx playwright test --list --reporter=list`
-to list cases without running them. Keep related failure cases in the existing
-module scenario file. The Labware scenario files describe successive revisions;
-start with `labware-layout-stability-scenarios.md` for current tip sizing/refresh
-and `cytomat-spatial-scenarios.md` for Cytomat. Add only new failure information.
+to list cases without running them.
 
 ## Evidence and isolation
 
@@ -159,7 +160,7 @@ packaged checks accept `--evidence` to preserve earlier release results.
 
 ## Report creation wizard
 
-Failure cases are in `database-failure-scenarios.md`. Use the current reference
+Failure cases are in the header of `backend/e2e/report_wizard_check.py`. Use the current reference
 `upstream.py` from the preceding report verification, or fetch the pinned revision
 in `database_packages/culture-history/UPSTREAM.txt`, into the evidence directory.
 

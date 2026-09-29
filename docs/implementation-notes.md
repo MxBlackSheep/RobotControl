@@ -6,6 +6,7 @@
 - Tests: stale backend and unit tests updated (backend 308, unit 78 pass). Nine browser cases for package authoring, the report wizard and tool authoring no longer matched the screens and were removed; those screens now have HTTP/packaged checks only.
 - Version 0.1.5 in `backend/version.py`, `pyproject.toml` and `package.json`; no tag until release confirmation.
 - Repository tidy-up: test evidence moves from `recovery/` to `test-output/` (earlier entries still name `recovery/`; that evidence was deleted). Removed the unverified Docker recipe, the two build wrapper scripts, the unused `requests` dependency, and the old lab scheduling-database copies. The build writes its `.spec` and temporary files under `build/`; pytest no longer creates `.pytest_cache`.
+- Failure cases moved from ten `frontend/e2e/*scenarios*.md` files into the header comment of the spec or backend check that covers them; superseded revisions (for example fitted-card Labware sizing) were dropped. `frontend/e2e/scenarios.md` is now the single work-in-progress list. `AGENTS.md` and `CLAUDE.md` are no longer tracked by Git.
 - Verification: `backend/e2e/packaged_walkthrough.py` opens all 28 pages of the packaged executable. Still open: operation scripts holding scheduler locks, restores not checking for an active run, and hardware acceptance. See `docs/release-readiness-review-2026-09-29.md`.
 
 ## 2026-09-28 Tool replacement, publication completion and history

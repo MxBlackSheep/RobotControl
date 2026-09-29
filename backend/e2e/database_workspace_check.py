@@ -1,5 +1,19 @@
 """Focused HTTP/SQL workflow. Only UUID-named disposable SQL objects are changed.
 Run: .venv/Scripts/python.exe -m backend.e2e.database_workspace_check
+
+Failure cases:
+- Changing the viewer target never changes scheduler, labware, Restore or a pending
+  operation. Two databases with different schemas (including duplicate table names)
+  browse correctly; an unconfigured viewer or report never falls back to the writer.
+- Remote or non-admin callers cannot change connections or select another database;
+  removing the selected connection fails until it is reassigned.
+- Account creation is reviewed first, never modifies an existing login, escapes
+  identifiers, rolls back failed grants and never saves or logs the one-off
+  administrator credentials. The new identity can SELECT but not write or run DDL.
+- Editing an installed report keeps sibling tools, files, inputs and mappings; a
+  changed installed base or mapping prevents publishing an old draft.
+- Preview uses the same robot/scheduler gate as execution and rolls back. Report
+  failure, timeout or exit releases its slot and leaves the backend responsive.
 """
 from contextlib import nullcontext
 import io
