@@ -1,3 +1,11 @@
+## 2026-09-29 Release cleanup and v0.2.0-rc1
+
+- Polling owners now recover from a request that never responds: a 20-second deadline aborts it, shows "Request timed out", clears the connected state and retries. Before, a held System Status response left Refresh disabled and the page "connected" indefinitely. Verified in a real browser with `frontend/e2e/status-stall-probe.py`.
+- Backend suite is green (310 passed). 38 tests assumed a forwarded localhost header grants local access; they now use a loopback test client. SMTP fakes return smtplib's refused-recipient dict, and an interrupted monitor alert is expected as "unknown". Run pytest with `--basetemp` when the default temp folder is not writable.
+- One version, 0.2.0 (`backend/version.py`), matching `pyproject.toml` and `package.json`. Candidate `dist/v0.2.0-rc1/RobotControl/`, tag `v0.2.0-rc1`; packaged viewer check passed, evidence in `recovery/v0.2.0-rc1/`.
+- Removed unused loading helpers, the unreferenced Jest setup, a duplicate import, and anchored `.gitignore` root patterns. Deleted six superseded `dist/` candidates and pre-release `recovery/` evidence (about 2.2 GB); earlier notes that link those folders now point to removed local evidence. Kept `recovery/20260916-scheduling-conflict` (lab database copies) and `recovery/database-verification/upstream.py` (reference-comparison input).
+- Still open: nine stale frontend unit tests (Logs browser, schedule form, sidebar) and operation scripts holding scheduler locks. See `docs/release-readiness-review-2026-09-29.md`.
+
 ## 2026-09-28 Tool replacement, publication completion and history
 
 - Replace Python now replaces the defining script even when renamed, preserving helpers. Supporting uploads reject a second tool definition. Input guidance points to `TOOL['inputs']`; installed rows use Excel report/Database operation labels and one Edit action. Global ZIP import remains the alternate update path.
