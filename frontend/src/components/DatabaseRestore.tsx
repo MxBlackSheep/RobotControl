@@ -120,7 +120,8 @@ const FileExplorer: React.FC<FileExplorerProps> = ({ open, onClose, onSelect }) 
       // The server's resolved path keeps Parent Directory correct for typed "/" or ".." paths.
       const resolvedPath = response.data.data.current_path || normalizedPath;
       setCurrentPath(resolvedPath);
-      setPathInput(resolvedPath);
+      // Keep a newer draft typed while this directory was loading.
+      setPathInput(draft => draft === normalizedPath ? resolvedPath : draft);
       setItems(response.data.data.items || []);
     } catch (err: any) {
       if (request !== requestRef.current) return;

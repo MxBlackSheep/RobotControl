@@ -20,6 +20,8 @@ import { mkdirSync } from 'node:fs';
  * - Parent navigation must retain drive roots; errors must allow retry.
  * - A typed "/" path must show the server's resolved path, and Parent must not cut
  *   characters from a path without "\".
+ * - A pending browse response must not replace a newer unsubmitted path draft;
+ *   submitting that preserved draft must navigate to it.
  * - A browse error must show the server's reason from the ResponseFormatter body.
  * - Completed restores must retain backend warnings and use warning styling.
  * The full 660 s timeout and real SQL timing are not exercised by these fixtures.
@@ -274,4 +276,35 @@ test('failed restore retains recovery warnings', async ({ page }) => {
   await chooseBak(page);
   const confirm = await confirmRestore(page);
   await expectFailure(page, confirm, [failed.message, warning], 'failed-recovery-warning');
+});
+
+
+test('browser preserves a path typed while a directory response is pending', async ({ page }) => {
+  await openRestore(page, { json: failed });
+  await page.unroute('**/api/system/browse?*');
+  const paths: string[] = [];
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/api/system/browse?*', async route => {
+    const path = new URL(route.request().url()).searchParams.get('path')!;
+    paths.push(path);
+    if (paths.length === 1) await pending;
+    await route.fulfill({ json: { success: true, data: { current_path: path, items: [] } } });
+  });
+  await page.getByRole('tab', { name: 'Browse Files (.bck)' }).click();
+  await page.getByRole('button', { name: 'Browse', exact: true }).click();
+  await expect.poll(() => paths.length).toBe(1);
+  const dialog = page.getByRole('dialog', { name: 'Browse for .bck Backup Files' });
+  const input = dialog.getByLabel('Current Directory');
+  const nextPath = 'D:\\Backups\\next';
+  await input.fill(nextPath);
+  release();
+  await expect(dialog.getByText('No items found')).toBeVisible();
+  await expect(input).toHaveValue(nextPath);
+  expect(paths).toEqual(['C:\\']);
+  await page.screenshot({ path: `${evidence}/pending-response-preserves-draft.png`, animations: 'disabled' });
+  await input.press('Enter');
+  await expect.poll(() => paths).toEqual(['C:\\', nextPath]);
+  await expect(dialog.getByText('No items found')).toBeVisible();
+  await expect(input).toHaveValue(nextPath);
 });

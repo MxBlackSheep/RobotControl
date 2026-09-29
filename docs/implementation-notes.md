@@ -1,3 +1,8 @@
+## 2026-09-29 Preserve the next directory path while browsing
+
+- A completed directory request no longer replaces a different path typed while it was pending. The loaded directory still uses the server's resolved path; Enter/Go submits the retained draft.
+- Added the reproduced failure and subsequent navigation to `frontend/e2e/database-restore.spec.ts`. Final branch verification and merge review: `test-output/restore-merge-ready/verification.json`; the original failing probe remains in `test-output/restore-merge-review/`.
+
 ## 2026-09-29 Repair restore browsing and retain sign-in during outages
 
 - The `.bck` browser consumes the real response envelope, loads typed paths on Enter/Go, ignores stale responses, clears old selections and preserves drive roots. Restore results say completed and retain server warnings; the backup button now names the managed `.bak` it creates.

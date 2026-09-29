@@ -62,7 +62,8 @@ a completed restore with warnings uses warning styling. Failure also includes re
 The `.bck` browser reads `data.items` inside the standard API response body. Editing
 Current Directory changes a draft; Enter or Go loads it. Navigation clears selection,
 ignores older requests and preserves the trailing slash at a drive root. Close/reopen
-also clears selection. After a load the box shows the server's resolved `current_path`;
+also clears selection. After a load the box shows the server's resolved `current_path`
+only if the submitted text is unchanged; a newer draft stays available for Enter/Go;
 Parent Directory splits on `\` or `/`. Directory errors show `error.details` from the
 standard error body (then `message`, then FastAPI `detail`) and allow retry. The selected path is inline. `frontend/e2e/database-restore.spec.ts`
 covers both file types, failure details, retry, HTTP errors and success using synthetic API
