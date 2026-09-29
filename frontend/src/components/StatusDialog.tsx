@@ -1,112 +1,61 @@
-import React, { useEffect, useMemo } from 'react';
-import Button, { ButtonProps } from '@mui/material/Button';
+import React, { useEffect, useRef } from 'react';
 import Alert from '@mui/material/Alert';
-import Typography from '@mui/material/Typography';
+import Button from '@mui/material/Button';
+import Dialog from '@mui/material/Dialog';
+import DialogActions from '@mui/material/DialogActions';
+import DialogContent from '@mui/material/DialogContent';
+import DialogTitle from '@mui/material/DialogTitle';
 
-import Modal, { ModalProps } from './Modal';
 import { normalizeMultilineText } from '@/utils/text';
 
 export type StatusSeverity = 'success' | 'error' | 'info' | 'warning';
 
-export interface StatusDialogAction {
-  label: string;
-  onClick: () => void;
-  color?: ButtonProps['color'];
-  variant?: ButtonProps['variant'];
-  autoFocus?: boolean;
-  startIcon?: React.ReactNode;
-}
-
-export interface StatusDialogProps
-  extends Omit<ModalProps, 'open' | 'onClose' | 'title' | 'actions' | 'children'> {
-  open: boolean;
-  onClose: () => void;
+export interface StatusMessage {
+  message: string;
   title?: string;
-  message: string | React.ReactNode;
   severity?: StatusSeverity;
-  closeLabel?: string;
-  primaryAction?: StatusDialogAction;
-  secondaryAction?: StatusDialogAction;
   autoCloseMs?: number;
+  action?: { label: string; onClick: () => void };
 }
 
-const StatusDialog: React.FC<StatusDialogProps> = ({
-  open,
-  onClose,
-  title,
-  message,
-  severity = 'info',
-  closeLabel = 'Close',
-  primaryAction,
-  secondaryAction,
-  autoCloseMs,
-  fullWidth = true,
-  maxWidth = 'sm',
-  ...modalProps
-}) => {
+const DEFAULT_TITLES: Record<StatusSeverity, string> = {
+  error: 'Error',
+  warning: 'Warning',
+  info: 'Information',
+  success: 'Success',
+};
+
+/** Result of a user action. The owner holds `status` and clears it in `onClose`. */
+const StatusDialog: React.FC<{ status: StatusMessage | null; onClose: () => void }> = ({ status, onClose }) => {
+  // Keep the last message rendered while the dialog fades out after `status` is cleared.
+  const shown = useRef<StatusMessage | null>(status);
+  if (status) shown.current = status;
+  const { message = '', title, severity = 'info', action } = shown.current ?? {};
+
+  // Owners often pass an inline onClose; a re-render must not restart the timer.
+  const close = useRef(onClose);
+  close.current = onClose;
   useEffect(() => {
-    if (!open || !autoCloseMs) {
-      return;
-    }
-
-    const timeout = window.setTimeout(() => {
-      onClose();
-    }, autoCloseMs);
-
+    if (!status?.autoCloseMs) return;
+    const timeout = window.setTimeout(() => close.current(), status.autoCloseMs);
     return () => window.clearTimeout(timeout);
-  }, [open, autoCloseMs, onClose]);
-
-  const renderedMessage = useMemo(() => {
-    if (typeof message === 'string') {
-      return (
-        <Typography variant="body2" sx={{ whiteSpace: 'pre-line' }}>
-          {normalizeMultilineText(message)}
-        </Typography>
-      );
-    }
-
-    return message;
-  }, [message]);
-
-  const makeButton = (action: StatusDialogAction, fallbackVariant: ButtonProps['variant'] = 'contained') => (
-    <Button
-      key={action.label}
-      onClick={action.onClick}
-      color={action.color ?? 'primary'}
-      variant={action.variant ?? fallbackVariant}
-      autoFocus={action.autoFocus}
-      startIcon={action.startIcon}
-    >
-      {action.label}
-    </Button>
-  );
-
-  const actions = (
-    <>
-      {secondaryAction && makeButton(secondaryAction, 'outlined')}
-      {primaryAction && makeButton(primaryAction)}
-      <Button onClick={onClose} variant={primaryAction ? 'outlined' : 'contained'} color="inherit">
-        {closeLabel}
-      </Button>
-    </>
-  );
+  }, [status]);
 
   return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title={title}
-      closeButton={false}
-      actions={actions}
-      fullWidth={fullWidth}
-      maxWidth={maxWidth}
-      ariaDescribedBy="status-dialog-description"
-      {...modalProps}
-    >
-      <Alert severity={severity} role="alert">
-        {renderedMessage}
-      </Alert>
-    </Modal>
+    <Dialog open={Boolean(status)} onClose={onClose} fullWidth maxWidth="sm" aria-describedby="status-dialog-message">
+      <DialogTitle>{title || DEFAULT_TITLES[severity]}</DialogTitle>
+      <DialogContent dividers>
+        <Alert severity={severity} id="status-dialog-message" sx={{ whiteSpace: 'pre-line' }}>
+          {normalizeMultilineText(message)}
+        </Alert>
+      </DialogContent>
+      <DialogActions sx={{ px: 3, py: 2 }}>
+        {action && (
+          <Button variant="contained" onClick={() => { onClose(); action.onClick(); }}>{action.label}</Button>
+        )}
+        <Button onClick={onClose} variant={action ? 'outlined' : 'contained'} color="inherit">Close</Button>
+      </DialogActions>
+    </Dialog>
   );
 };
 

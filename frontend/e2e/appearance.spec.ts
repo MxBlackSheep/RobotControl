@@ -126,7 +126,7 @@ test('change password explains a wrong current password and confirms success', a
   expect(new URL(page.url()).pathname).toBe('/system-status');
   expect(await page.evaluate(() => localStorage.getItem('access_token'))).toBe('viewer-admin');
   expect(refreshes).toEqual([]);
-  await failure.getByRole('button', { name: 'Dismiss', exact: true }).click();
+  await failure.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(form).toBeVisible();
   await expect(form.getByLabel(/^New Password/)).toHaveValue('Fresh!Pass2');
 

@@ -10,6 +10,9 @@ import { expect, Page, test } from '@playwright/test';
  * - Search applies on submit, sort direction persists, and older responses never replace
  *   the current selection. A failed refresh keeps useful rows without calling them fresh.
  * - Viewing never calls procedure execution or any other write endpoint.
+ * - Escape in an open Find field closes Find (outside the expanded view).
+ * - Restore messages (no backups, a failed backup) appear inline, never as a second
+ *   dialog stacked over the restore screen or the create-backup dialog.
  */
 const rows = Array.from({ length: 57 }, (_, index) => ({
   ID: index + 1,
@@ -97,6 +100,10 @@ for (const size of [{ width: 390, height: 844 }, { width: 1280, height: 720 }, {
     await expect(page.getByRole('textbox', { name: 'Find in SQL' })).toHaveValue('SELECT');
     await page.keyboard.press('Escape');
     await expect(page.getByRole('button', { name: 'Expand SQL' })).toBeFocused();
+    await page.getByRole('textbox', { name: 'Find in SQL' }).press('Escape');
+    await expect(page.getByRole('textbox', { name: 'Find in SQL' })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Find in SQL', exact: true }).click();
+    await expect(page.getByRole('textbox', { name: 'Find in SQL' })).toHaveValue('SELECT');
     await page.getByRole('tab', { name: 'Parameters (2)' }).click();
     await expect(page.getByText('@description', { exact: true })).toBeVisible();
     await page.getByRole('tab', { name: 'SQL definition' }).click();
@@ -139,4 +146,21 @@ test('short narrow windows keep reading and close controls reachable', async ({ 
   await testInfo.attach('short-narrow-sql', { body: await page.screenshot(), contentType: 'image/png' });
   await page.getByRole('button', { name: 'Close expanded SQL' }).click();
   await expect(page.getByRole('button', { name: 'Expand SQL' })).toBeVisible();
+});
+
+test('restore messages stay inline instead of stacking dialogs', async ({ page }, testInfo) => {
+  await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));
+  await page.route('**/api/admin/backup/list', route => route.fulfill({ json: { success: true, data: [] } }));
+  await page.route('**/api/admin/backup/create', route => route.fulfill({ status: 500, json: { detail: 'Backup folder is not writable' } }));
+  await page.goto('/database?section=restore');
+  await expect(page.getByRole('alert').filter({ hasText: 'No managed backup files found' })).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Create JSON Backup', exact: true }).click();
+  const create = page.getByRole('dialog', { name: 'Create Managed Backup' });
+  await create.getByRole('textbox', { name: 'Backup Description' }).fill('Before restore check');
+  await create.getByRole('button', { name: 'Create Backup', exact: true }).click();
+  await expect(create.getByRole('alert').filter({ hasText: 'Backup folder is not writable' })).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(1);
+  await page.screenshot({ path: testInfo.outputPath('restore-create-failure.png') });
 });

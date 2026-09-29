@@ -7,7 +7,6 @@ rack families used by the web TipTracking UI.
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 import logging
@@ -16,8 +15,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
 import pyodbc
 
-from backend.config import settings
-from backend.utils.odbc_driver import resolve_driver_clause
+from backend.services.labware_connection import labware_connection
 
 logger = logging.getLogger(__name__)
 
@@ -131,82 +129,10 @@ class TipTrackingService:
     """Read/write operations for labware tip tracking."""
 
     def __init__(self) -> None:
-        self._config = self._build_db_config()
+        self._database = os.getenv("ROBOTCONTROL_LABWARE_DATABASE", "Labwares")
 
-    def _build_db_config(self) -> Dict[str, Any]:
-        base = {}
-        try:
-            if isinstance(settings.DB_CONFIG_PRIMARY, dict):
-                base = settings.DB_CONFIG_PRIMARY.copy()
-        except Exception:
-            base = {}
-
-        if not base:
-            base = {
-                "driver": "{ODBC Driver 11 for SQL Server}",
-                "server": "LOCALHOST\\HAMILTON",
-                "database": "EvoYeast",
-                "user": "Hamilton",
-                "password": "mkdpw:V43",
-                "trust_connection": "no",
-                "timeout": 5,
-            }
-
-        base["database"] = os.getenv("ROBOTCONTROL_LABWARE_DATABASE", "Labwares")
-        return base
-
-    def _build_connection_string(self) -> str:
-        configured_driver = self._config.get("driver")
-        driver_clause = resolve_driver_clause(configured_driver)
-        if not driver_clause:
-            raise TipTrackingDatabaseError("No SQL Server ODBC driver is available")
-
-        server = self._config.get("server")
-        database = self._config.get("database")
-
-        if not server or not database:
-            raise TipTrackingDatabaseError("Labware database configuration is incomplete")
-
-        parts = [
-            f"DRIVER={driver_clause}",
-            f"SERVER={server}",
-            f"DATABASE={database}",
-        ]
-
-        user = self._config.get("user")
-        password = self._config.get("password")
-        trusted = str(self._config.get("trusted_connection", self._config.get("trust_connection", "no"))).lower()
-
-        if user and password:
-            parts.extend([f"UID={user}", f"PWD={password}"])
-        elif trusted in {"yes", "true", "1"}:
-            parts.append("Trusted_Connection=yes")
-
-        encrypt = self._config.get("encrypt")
-        if encrypt:
-            parts.append(f"Encrypt={encrypt}")
-
-        trust_server_certificate = self._config.get("trust_server_certificate", "yes")
-        parts.append(f"TrustServerCertificate={trust_server_certificate}")
-
-        return ";".join(parts)
-
-    @contextmanager
     def _get_connection(self):
-        conn_str = self._build_connection_string()
-        timeout = int(self._config.get("timeout", 5) or 5)
-        connection = None
-        try:
-            connection = pyodbc.connect(conn_str, timeout=timeout)
-            yield connection
-        except pyodbc.Error as exc:
-            logger.error("Labware database operation failed: %s", exc)
-            raise TipTrackingDatabaseError("Unable to reach labware database") from exc
-        finally:
-            try:
-                connection.close()  # type: ignore[name-defined]
-            except Exception:
-                pass
+        return labware_connection(self._database, TipTrackingDatabaseError, "Labware")
 
     @staticmethod
     def _normalize_status(value: Any) -> str:
