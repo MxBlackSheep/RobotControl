@@ -947,14 +947,17 @@ class BackupService:
         )
         success, message = self._sql_executor.execute(command, timeout=RESTORE_TIMEOUT)
         if not success:
+            logger.error("SQL Server restore of %s failed: %s", backup_path, message)
             try:
                 recovered, detail = self._sql_executor.execute(
                     f"USE master; ALTER DATABASE [{self.database_name}] SET MULTI_USER;"
                 )
-                if not recovered:
-                    warnings.append(f"Database may still be in single-user mode: {detail}")
             except Exception as exc:
-                warnings.append(f"Database may still be in single-user mode: {exc}")
+                recovered, detail = False, str(exc)
+            if not recovered:
+                recovery_warning = f"Database may still be in single-user mode: {detail}"
+                logger.error(recovery_warning)
+                warnings.append(recovery_warning)
         return success, message
 
     def restore_backup(self, filename: str) -> RestoreResult:
