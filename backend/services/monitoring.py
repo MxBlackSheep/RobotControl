@@ -381,7 +381,6 @@ class MonitoringService:
         }
 
 
-import threading
 
 # Global service instance
 _monitoring_service = None

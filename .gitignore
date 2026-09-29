@@ -4,10 +4,10 @@ dist/
 frontend/dist/
 data/
 recovery/
-tools/
+/tools/
 backend/embedded_static.py
-*.spec
-main.py
+/*.spec
+/main.py
 
 # Python cache
 __pycache__/
