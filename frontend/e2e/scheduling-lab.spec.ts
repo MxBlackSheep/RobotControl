@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 
-const evidence = '../recovery/scheduling-lab-verification';
+const evidence = '../test-output/scheduling-lab-verification';
 for (const [id, width] of [['evoyeast', 1280], ['batch-sqlite', 390]] as const) {
   test(`${id} preparation at ${width}px preserves saved steps and failed reads`, async ({ page }) => {
     mkdirSync(evidence, { recursive: true });

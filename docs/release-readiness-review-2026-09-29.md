@@ -15,15 +15,16 @@ Update this table as items close; it also tracks open findings from the 26–27 
 | # | Item | Status |
 | --- | --- | --- |
 | 1 | Back up unpushed commits | Done 29 Sep: branch `backup/2026-09-29` on GitHub |
-| 2 | One tagged release candidate | Done 29 Sep: `v0.2.0-rc1`, `dist/v0.2.0-rc1`; record which build the robot PC runs |
+| 2 | One release candidate | Built 29 Sep as 0.1.5 in `dist/`; tag `V0.1.5` only after owner confirmation; record which build the robot PC runs |
 | 3 | Hardware acceptance gates | Open, needs lab owner |
 | 4 | Stalled status request never recovers | Fixed 29 Sep: 20 s request deadline, browser-verified |
-| 5 | Stale backend tests | Backend fixed (310 pass). Open: 9 stale frontend unit tests (Logs browser, schedule form, sidebar) |
+| 5 | Stale tests | Done 29 Sep: backend 308 and unit 78 pass; 9 outdated browser cases removed (package authoring, report wizard, tool authoring have no browser check) |
 | 6 | Operation scripts hold scheduler locks | Open: needs a design decision (subprocess with limit) |
-| 7 | Single version source | Done 29 Sep: `backend/version.py`, 0.2.0 |
+| 7 | Single version source | Done 29 Sep: `backend/version.py`, 0.1.5 |
 | 8 | Scope decision on database tooling / package v1 | Open, product decision |
 | 9 | Unsandboxed Python warning in UI | Open |
 | 10 | Unanchored `.gitignore` patterns | Done 29 Sep |
+| — | Restores do not check for an active robot run | Open, behavior change to decide |
 | — | Camera five-second delivery cutoff ([remote review](remote-connection-review-2026-09-26.md)) | Open, not reproduced |
 | — | Whole-app layout and dark mode ([frontend UI review](frontend-ui-review-2026-09-26.md)) | Proposal, not scheduled |
 

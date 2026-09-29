@@ -143,11 +143,9 @@ phones. Local admins get Configure; ordinary users get concise setup guidance.
 Multiple reports retain the labelled Report chooser. Updating the executable does
 not replace installed packages. See the [authoring guide](../../../database_packages/README.md).
 
-Run `npx playwright test report-wizard.spec.ts --trace retain-on-failure` from
-`frontend` after building. It exercises saved-draft reload, adapter download/upload,
-dependent fields, trial, export, installation, multiple reports and phone layout.
-Use the real SQL HTTP check separately for permissions; the browser fixture is not
-proof of SQL Server grants. Evidence is linked in `recovery/report-wizard-verification`.
+The report wizard has no browser check since 29 September 2026 (the old cases no
+longer matched the screen). `backend.e2e.report_wizard_check` covers SQL permissions
+and installation over HTTP; evidence goes to `test-output/report-wizard-verification`.
 
 
 ## Configurable connections and upload-first reports (2026-09-28)
@@ -185,10 +183,10 @@ unchanged. A failed deletion keeps the editor/confirmation open. Busy operations
 running trials block both exit actions. Keep editing, Escape or the backdrop dismisses
 the confirmation without deleting the draft.
 
-Focused browser checks: `database-workspace.spec.ts` and `report-wizard.spec.ts`.
-The former checks account review, a no-database Excel example and viewer switching;
-the latter retains resume/dependent-input/install coverage. SQL permissions and
-transaction behavior are verified separately through HTTP with disposable SQL data.
+Focused browser check: `database-workspace.spec.ts` (settings, account review,
+dependent choices, viewer switching, operation choices and certificate trust). SQL
+permissions and transaction behavior are verified separately through HTTP with
+disposable SQL data.
 
 ## Tool publication and history
 

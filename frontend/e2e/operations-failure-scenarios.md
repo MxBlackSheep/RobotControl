@@ -9,4 +9,4 @@ Written before the operations redesign implementation.
 - Archive file names/actions collide because fixed-height virtual rows wrap; opening a folder leaves repeated nested scroll areas; Back loses the selected folder.
 - Camera layout changes reconnect streaming or issue recording/hardware mutations; status and keyboard close become inaccessible.
 
-Repeatable evidence: run `npx playwright test operations.spec.ts camera.spec.ts` against the built frontend. Operations tests intercept only isolated browser API requests. Screenshots, traces and mutation assertions are retained in `recovery/viewer-verification`.
+Repeatable evidence: run `npx playwright test operations.spec.ts camera.spec.ts` against the built frontend. Operations tests intercept only isolated browser API requests. Screenshots, traces and mutation assertions are retained in `test-output/viewer-verification`.

@@ -3,17 +3,15 @@ build/
 dist/
 frontend/dist/
 data/
-recovery/
+test-output/
 /tools/
 backend/embedded_static.py
-/*.spec
 /main.py
 
 # Python cache
 __pycache__/
 *.pyc
 .pytest_cache/
-.build_cache/
 .uv-cache/
 
 # Local configuration (keep the checked-in example)

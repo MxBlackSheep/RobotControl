@@ -22,7 +22,7 @@ parser.add_argument('candidate', type=Path)
 args = parser.parse_args()
 candidate = args.candidate.resolve()
 assert (candidate/'RobotControl.exe').is_file(), candidate
-evidence = ROOT/'recovery/viewer-verification'
+evidence = ROOT/'test-output/viewer-verification'
 evidence.mkdir(parents=True, exist_ok=True)
 result = dict(candidate=str(candidate), checks=[], automation_disabled=True)
 
@@ -37,7 +37,7 @@ def request(path, body=None, token=None, method=None):
         return json.loads(data) if 'application/json' in response.headers.get('Content-Type','') else data
 
 
-with tempfile.TemporaryDirectory(prefix='relocated-viewer-',dir=ROOT/'recovery') as temp:
+with tempfile.TemporaryDirectory(prefix='relocated-viewer-',dir=ROOT/'test-output') as temp:
     relocated=Path(temp)/'different application folder'
     shutil.copytree(candidate,relocated,ignore=shutil.ignore_patterns('data'))
     history=relocated/'data/logs/history'

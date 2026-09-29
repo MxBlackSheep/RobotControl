@@ -28,7 +28,7 @@ ROOT = Path(__file__).resolve().parents[2]
 BASE = '/api/database/tools'
 
 
-def run(evidence=ROOT/'recovery/database-verification'):
+def run(evidence=ROOT/'test-output/database-verification'):
     evidence.mkdir(parents=True, exist_ok=True)
     checks = []
     with tempfile.TemporaryDirectory(prefix='rc-database-') as temp:
@@ -294,5 +294,5 @@ def compare_upstream(database, evidence, legacy_strings=False):
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser()
-    parser.add_argument('--evidence',type=Path,default=ROOT/'recovery/database-verification')
+    parser.add_argument('--evidence',type=Path,default=ROOT/'test-output/database-verification')
     run(parser.parse_args().evidence.resolve())

@@ -89,4 +89,4 @@ remove another running application's reader directory.
 Run `npm run build` then `npx playwright test` from `frontend`. The disposable
 fixture server exercises these real HTTP routes without importing the production
 app or starting robot services. See `frontend/e2e/scenarios.md`; retain the report,
-traces and fixture checksums under `recovery/viewer-verification`.
+traces and fixture checksums under `test-output/viewer-verification`.

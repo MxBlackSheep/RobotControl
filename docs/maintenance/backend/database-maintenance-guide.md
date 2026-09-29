@@ -95,7 +95,7 @@ existing account** in RobotControl with that new login/password. The **Create ac
 button instead generates its own password and saves the connection automatically.
 Do not run the downloaded script and then use Create account for the same login.
 
-Focused error checks and commands: `recovery/database-access-verification/index.html`.
+Focused error checks and commands: `test-output/database-access-verification/index.html`.
 
 `report_authoring.inspect_python` parses AST only. It detects nested imports,
 explicit Excel engines, compatible synchronous entry-point signatures and common
@@ -105,7 +105,7 @@ reports may explicitly use zero sources; their `context.connection` is None and
 `context.connections` is empty. Contract 1 retains its required primary mapping.
 
 Repeat commands and evidence: `frontend/e2e/README.md`, section Configurable
-Database workspace; `recovery/database-workspace-verification`.
+Database workspace; `test-output/database-workspace-verification`.
 
 
 ## uv setup and verification
@@ -336,7 +336,7 @@ endpoint and preserve the same confirmation/transaction checks.
 Focused real-SQL workflow: `.venv/Scripts/python.exe -m backend.e2e.report_wizard_check`.
 It creates uniquely named disposable databases/login using local Windows-admin
 authentication, then removes them. Never point this at a deployment server without
-reviewing the fixture scope. Evidence: `recovery/report-wizard-verification`.
+reviewing the fixture scope. Evidence: `test-output/report-wizard-verification`.
 
 See [the package contract](../../../database_packages/README.md) for formats, limits
 and authoring. The host owns installation, confirmations, receipts, SQL transactions
@@ -383,7 +383,7 @@ not credential snapshots.
 
 Focused check: `.venv/Scripts/python.exe -m backend.e2e.tool_authoring_check`.
 It uses disposable UUID-named SQL Server databases/accounts and records workbook
-checksums and cleanup in `recovery/tool-authoring-verification`.
+checksums and cleanup in `test-output/tool-authoring-verification`.
 
 `POST /api/database/tools/packages/inspect` reads and compiles the ZIP without
 importing Python or writing an installation. It returns the manifest and current
@@ -419,7 +419,7 @@ requires the operation connection to that same EvoYeast database.
 
 Repeat `.venv/Scripts/python.exe -m backend.e2e.bundled_tools_check` for the focused
 HTTP update/import checks and before/after workbook comparison. Evidence lives in
-`recovery/bundled-tools-verification`. This package-only change works with the
+`test-output/bundled-tools-verification`. This package-only change works with the
 Python-tools candidate without rebuilding RobotControl.
 
 ## Publication receipts and history

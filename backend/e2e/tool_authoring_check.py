@@ -36,7 +36,7 @@ def run(context, inputs):
 
 
 def run():
-    evidence = Path(os.environ.get('ROBOTCONTROL_E2E_EVIDENCE', ROOT/'recovery/tool-authoring-verification'))
+    evidence = Path(os.environ.get('ROBOTCONTROL_E2E_EVIDENCE', ROOT/'test-output/tool-authoring-verification'))
     evidence.mkdir(parents=True, exist_ok=True)
     result = dict(command='.venv/Scripts/python.exe -m backend.e2e.tool_authoring_check', checks=[], passed=False)
     try:

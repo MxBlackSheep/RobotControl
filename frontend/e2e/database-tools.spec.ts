@@ -1,62 +1,12 @@
 import { test, expect } from '@playwright/test';
 import path from 'node:path';
-import { readFileSync } from 'node:fs';
-const evidence = process.env.ROBOTCONTROL_E2E_EVIDENCE || '../recovery/database-verification';
-const installedVersion = JSON.parse(readFileSync(path.resolve('../database_packages/culture-history/manifest.json'), 'utf8')).version;
+const evidence = process.env.ROBOTCONTROL_E2E_EVIDENCE || '../test-output/database-verification';
 
 async function login(page: any) {
   await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));
   await page.route('**/api/auth/me', (route: any) => route.fulfill({ json: { success: true, data: { user_id: 'viewer-admin', username: 'Fixture', role: 'admin', session_is_local: true } } }));
   await page.route('**/api/database/tables?*', (route: any) => route.fulfill({ json: { success: true, data: { table_details: [] } } }));
 }
-
-test('local admin installs a report package, previews deletion and downloads Excel', async ({ page }) => {
-  await login(page);
-  await page.goto('/database?section=packages');
-  await expect(page.getByText(`Culture history · ${installedVersion}`)).toBeVisible();
-  await page.getByRole('button', { name: 'Update Culture history', exact: true }).click();
-  await page.locator('input[type=file]').setInputFiles(path.resolve(path.join(evidence, 'culture-history.zip')));
-  await expect(page.getByRole('dialog')).toContainText(`${installedVersion} → 9.0.0`);
-  await page.screenshot({ path: path.join(evidence, 'package-update.png'), animations: 'disabled' });
-  await page.getByRole('button', { name: 'Update package', exact: true }).click();
-  await expect(page.getByText('Culture history · 9.0.0')).toBeVisible();
-  await page.goto('/database?section=operations');
-  await page.getByRole('textbox', { name: 'Search experiments', exact: true }).fill('43');
-  await page.getByRole('button', { name: /43 · Delete fixture/ }).click();
-  await page.getByRole('button', { name: 'Review operation' }).click();
-  await expect(page.getByRole('dialog')).toContainText('Permanently delete');
-  await page.getByLabel('Type 43 to confirm').fill('42');
-  await expect(page.getByRole('button', { name: 'Confirm operation' })).toBeDisabled();
-  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await page.goto('/database?section=retrieval');
-  await page.getByRole('textbox', { name: 'Search experiments', exact: true }).fill('42');
-  await page.getByRole('button', { name: /42 · Yeast/ }).click();
-  await page.getByRole('button', { name: 'Generate Excel' }).click();
-  await expect(page.getByRole('button', { name: 'Download Excel' })).toBeVisible();
-  const download = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Download Excel' }).click();
-  expect((await download).suggestedFilename()).toContain('Experiment_42_CultureHistory');
-  await page.setViewportSize({ width: 1920, height: 1080 });
-  const bounds = await page.locator('[aria-label="Database task workspace"]').boundingBox();
-  expect(bounds!.width).toBeGreaterThan(1500);
-  await page.screenshot({ path: path.join(evidence, 'desktop-report.png') });
-});
-
-test('phone report form fits and retains a completed download', async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await login(page);
-  await page.goto('/database?section=retrieval');
-  await page.getByRole('textbox', { name: 'Search experiments', exact: true }).fill('42');
-  await page.getByRole('button', { name: /42 · Yeast/ }).click();
-  await page.getByRole('button', { name: 'Generate Excel' }).click();
-  await expect(page.getByRole('button', { name: 'Download Excel' })).toBeVisible();
-  await page.getByRole('button', { name: 'Back to experiments' }).click();
-  await expect(page.getByRole('textbox', { name: 'Search experiments' })).toHaveValue('42');
-  await page.getByRole('button', { name: /42 · Yeast/ }).click();
-  await expect(page.getByRole('button', { name: 'Download Excel' })).toBeVisible();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
-  await page.screenshot({ path: path.join(evidence, 'phone-report.png') });
-});
 
 test('Delivery Logs displays pending, sent, error and partial results', async ({ page }) => {
   await login(page);

@@ -22,7 +22,7 @@ robot launch are not one transaction: ambiguous partial work requires recovery.
 Acceptance: default and batch preparation forms at desktop/phone, focused HTTP
 catalogue/executor checks, existing scheduler safety checks, and a separate
 packaged candidate. Retain command, code identity, fixture identities and results
-under recovery/scheduling-lab-verification. Supervised real-method acceptance is
+under test-output/scheduling-lab-verification. Supervised real-method acceptance is
 explicitly separate from disposable verification.
 
 Run from frontend: `npx playwright test`. The fixture server uses real log HTTP
@@ -47,5 +47,5 @@ the built application. It never starts robot services or opens production data.
     keyboard-only users cannot use Find, close inspectors or restore focus.
 
 Retain Playwright HTML report, screenshots and traces plus the fixture manifest
-and checksums in recovery/viewer-verification. Fixtures/cache are temporary and
+and checksums in test-output/viewer-verification. Fixtures/cache are temporary and
 cleaned at server shutdown. Source-backed E2E tests are retained in this folder.

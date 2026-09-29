@@ -3,7 +3,7 @@ const { chromium, expect } = require('@playwright/test');
 const path = require('node:path');
 
 (async () => {
-  const output = path.resolve(__dirname, '../../recovery/viewer-verification');
+  const output = path.resolve(__dirname, '../../test-output/viewer-verification');
   const browser = await chromium.launch({ channel: 'msedge' });
   const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
   await context.tracing.start({ screenshots: true, snapshots: true });

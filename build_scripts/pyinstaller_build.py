@@ -60,7 +60,7 @@ def build_with_pyinstaller(layout: str = "onedir", console: bool = False, output
         dist_root / "init" / "data" / "backups",
     ]
     dist_backups = next((candidate for candidate in backup_candidates if candidate.exists()), None)
-    cache_root = project_root / ".build_cache"
+    cache_root = project_root / "build" / "preserved"
     preserved_backups: Optional[Path] = None
     preserved_count = 0
 
@@ -96,7 +96,6 @@ def build_with_pyinstaller(layout: str = "onedir", console: bool = False, output
         "--name", "RobotControl",
 
         # Python path setup
-        "--paths", ".",
         "--paths", str(project_root),
         
         # Include hidden imports with full paths
@@ -126,7 +125,7 @@ def build_with_pyinstaller(layout: str = "onedir", console: bool = False, output
         # extensions/data; collect-all also pulled in pandas' entire test suite.
         "--hidden-import", "pandas",
         "--hidden-import", "openpyxl",
-        "--add-data", "database_packages;database_packages",
+        "--add-data", f"{project_root / 'database_packages'};database_packages",
         "--hidden-import", "bcrypt",
         
         # Collect submodules
@@ -134,7 +133,6 @@ def build_with_pyinstaller(layout: str = "onedir", console: bool = False, output
         "--collect-submodules", "backend.services",
         "--collect-submodules", "backend.utils",
         "--collect-submodules", "backend.core",
-        "--collect-submodules", "backend.security",
         "--collect-all", "fastapi",
         "--collect-all", "uvicorn",
         "--collect-all", "pydantic",
@@ -162,6 +160,8 @@ def build_with_pyinstaller(layout: str = "onedir", console: bool = False, output
         # Output directory
         "--distpath", str(dist_root),
         "--workpath", "build",
+        # Keep the generated RobotControl.spec out of the repository root.
+        "--specpath", str(project_root / "build"),
     ]
 
     if layout == "onefile":

@@ -6,7 +6,7 @@ Refresh must start a new request once it has; an HTTP 502 must show an error and
 retry; releasing a late response must not change the display. No production services start.
 Open the printed loopback URL; use Hold next health response, Refresh,
 Allow new requests, wait over 20 seconds, press Refresh, then Release stalled response.
-Evidence is saved to recovery/status-stall-evidence.json (Git-ignored). Stop with Ctrl+C.
+Evidence is saved to test-output/status-stall-evidence.json (Git-ignored). Stop with Ctrl+C.
 """
 import json
 import subprocess
@@ -54,7 +54,7 @@ def now():
 
 
 def persist():
-    (ROOT / 'recovery' / 'status-stall-evidence.json').write_text(json.dumps(STATE, indent=2), encoding='utf-8')
+    (ROOT / 'test-output' / 'status-stall-evidence.json').write_text(json.dumps(STATE, indent=2), encoding='utf-8')
 
 
 class Handler(BaseHTTPRequestHandler):

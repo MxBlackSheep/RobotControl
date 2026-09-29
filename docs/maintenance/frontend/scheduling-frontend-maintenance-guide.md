@@ -13,7 +13,7 @@ the schedule form; unrelated edits retain preparation tokens.
 - Visited sections stay mounted through `SectionPanel`. Execution history receives `active`; leaving History stops its polling without losing filters. Email settings remain mounted when switching notification tabs. Document visibility retains the shared polling policy.
 - `ImprovedScheduleForm` is a structured form, fullscreen below the medium breakpoint. Its opening snapshot determines dirty state. Cancel/Escape/backdrop ask before discarding edits; failed saves keep values and show an inline error. Browser reload/close is guarded while dirty. A successful save closes normally. Method picking and import/path forms also use the available phone surface.
 - Calendar groups derive from the current schedule array, so timing changes are reflected even when the schedule count stays the same. History/notification/method tables scroll within their container.
-- Browser regression: build frontend, then `npx playwright test operations.spec.ts`. Tests use intercepted APIs, never robot services. Screenshots, traces and request assertions are under `recovery/viewer-verification`.
+- Browser regression: build frontend, then `npx playwright test operations.spec.ts`. Tests use intercepted APIs, never robot services. Screenshots, traces and request assertions are under `test-output/viewer-verification`.
 
 # Frontend Scheduling Maintenance Guide
 

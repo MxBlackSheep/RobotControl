@@ -25,7 +25,7 @@ from backend.services.auth import get_current_user
 from backend.services.database_tools import DatabaseTools, get_database_tools
 
 ROOT = Path(__file__).resolve().parents[2]
-EVIDENCE = ROOT / 'recovery/report-wizard-verification'
+EVIDENCE = ROOT / 'test-output/report-wizard-verification'
 BASE = '/api/database/tools'
 
 
