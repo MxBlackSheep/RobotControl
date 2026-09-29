@@ -1,3 +1,10 @@
+## 2026-09-29 Database and scheduling guides rewritten by topic
+
+- `docs/maintenance/backend/database-maintenance-guide.md`, `backend/scheduling-maintenance-guide.md` and `frontend/database-frontend-maintenance-guide.md` are now single current-state guides (files, behavior, permissions and safety gates, checks, troubleshooting) without dated sections. Each claim was checked against the code on `main`; commands and the package contract are linked to `frontend/e2e/README.md`, `database_packages/` and the SQLite safety guide instead of repeated.
+- Corrected: the worker has seven dispatch gates, not three; backup restore does not take the scheduler's `database_change_guard`; `SQL_BACKUP_PATH` is resolved but unused (SQL Server writes to `LOCAL_BACKUP_PATH`); `DatabaseService` does not use the shared connection manager; the Database viewer is chosen on the server, not per browser; the table catalogue has no Important-only filter.
+- Removed: "how to extend" and merge-checklist sections, `/api/database` health endpoints and ad-hoc query tasks that no longer exist, `_ensure_schema`, `test_scheduling_pipeline.py`, and one-off verification history. Documentation only; no build or browser run.
+- Reconciled with the duplicate-code cleanup on `main`: retained both change records, documented direct restore connectivity checks, narrowed the backup locking guarantee, and distinguished Restore visibility from local-only API access. The guide explicitly records the existing broken path-restore call rather than presenting it as a working alternative. Verification: source and Markdown-link review; no executable changes.
+
 ## 2026-09-29 One dialog, one loading indicator, one SQL connection builder
 
 - Action results use one `StatusDialog` on MUI's Dialog. Removed `ErrorAlert` (with six wrappers), `Modal`, `useModalFocus` and `Modal.md`, which re-implemented MUI's focus trap. Before, restore and backup messages opened as a second dialog over the restore screen, and a failed backup showed its error twice; now they appear inline. The unreachable non-admin branch of `AdminPage` is gone (the router already redirects).
