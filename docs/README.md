@@ -2,7 +2,6 @@
 
 | Need | Start here |
 | --- | --- |
-| Engineering rules and how much verification to run | [AGENTS.md](../AGENTS.md) |
 | Setup, running and building the application | [Root README](../README.md) |
 | Current frontend behavior and troubleshooting | `maintenance/frontend/` — choose the affected module |
 | Current backend behavior and troubleshooting | `maintenance/backend/` — choose the affected module |

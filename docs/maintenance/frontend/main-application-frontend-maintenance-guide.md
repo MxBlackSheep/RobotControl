@@ -52,7 +52,7 @@ recording and recovery state visible. Never replace unknown state with success.
    the affected consumers. A local toolbar adjustment needs the affected layout
    and width boundary; a shared shell change warrants broader navigation, theme
    and state checks. Extend the screen-size matrix only when it exposes a distinct
-   risk. Follow `AGENTS.md` and `frontend/e2e/README.md` for scope and evidence.
+   risk. Follow `frontend/e2e/README.md` for scope and evidence.
 
 ## Sidebar and section navigation
 
