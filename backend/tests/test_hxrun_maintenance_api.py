@@ -32,7 +32,8 @@ class FakeHxRunMaintenanceService:
         return self._state
 
 
-client = TestClient(app)
+# Local access is decided by the socket peer; x-forwarded-for can only restrict it.
+client = TestClient(app, client=("127.0.0.1", 50000))
 
 
 def _override_user() -> Dict[str, Any]:

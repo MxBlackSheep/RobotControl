@@ -39,7 +39,8 @@ def client(service, monkeypatch):
     app.include_router(api.router)
     app.dependency_overrides[get_current_user] = lambda: {'username': 'tester', 'role': 'user'}
     monkeypatch.setattr(api, 'get_experiment_discovery_service', lambda: service)
-    return TestClient(app, headers={'x-forwarded-for': '127.0.0.1'})
+    # Local access is decided by the socket peer; x-forwarded-for can only restrict it.
+    return TestClient(app, client=('127.0.0.1', 50000))
 
 
 def test_preview_is_read_only_and_preserves_distinct_paths(service, methods, monkeypatch):

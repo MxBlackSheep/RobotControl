@@ -172,6 +172,7 @@ def test_smtp_authentication_rejection_does_not_retry_or_log_password(monkeypatc
 
 def test_background_smtp_retries_and_clears_stale_error(monkeypatch, configured_email):
     failed_client, successful_client = Mock(), Mock()
+    successful_client.send_message.return_value = {}  # smtplib: no refused recipients
     failed_client.starttls.side_effect = TimeoutError("timed out")
     factory = Mock(side_effect=[failed_client, successful_client])
     monkeypatch.setattr(smtplib, "SMTP", factory)
@@ -185,6 +186,7 @@ def test_background_smtp_retries_and_clears_stale_error(monkeypatch, configured_
 
 def test_cleanup_failure_does_not_resend_accepted_email(monkeypatch, configured_email):
     client = Mock()
+    client.send_message.return_value = {}
     client.close.side_effect = OSError("socket already closed")
     factory = Mock(return_value=client)
     monkeypatch.setattr(smtplib, "SMTP", factory)
@@ -198,6 +200,7 @@ def test_tls_verifies_server_certificates(monkeypatch, configured_email, implici
     configured_email.config.use_ssl = implicit_ssl
     client, factory = Mock(), Mock()
     factory.return_value = client
+    client.send_message.return_value = {}
     monkeypatch.setattr(smtplib, "SMTP_SSL" if implicit_ssl else "SMTP", factory)
     assert configured_email.send("Test", "Body")
     context = factory.call_args.kwargs["context"] if implicit_ssl else client.starttls.call_args.kwargs["context"]
