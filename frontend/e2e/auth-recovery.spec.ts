@@ -3,7 +3,8 @@ import { test, expect } from '@playwright/test';
 /** Failure cases: temporary /me or refresh failures discard saved credentials or
  * grant access without verification; reconnect never retries; rejected credentials
  * remain saved; expired access cannot refresh after an outage; a reload loses the
- * destination; a late refresh reinstates credentials after logout. Synthetic HTTP fixtures exercise the real app and Axios interceptors.
+ * destination; a late refresh reinstates credentials after logout; a 503 from /me
+ * starts the maintenance window and blocks the recovered page. Synthetic HTTP fixtures exercise the real app and Axios interceptors.
  */
 for (const failure of ['network', 'server', 'timeout', 'refresh'] as const) {
   test(`saved sign-in recovers after ${failure} failure`, async ({ page }, testInfo) => {
@@ -45,6 +46,7 @@ for (const failure of ['network', 'server', 'timeout', 'refresh'] as const) {
     available = true;
     await expect(page.getByRole('button', { name: 'Account menu' })).toContainText('Recovered user', { timeout: 10_000 });
     expect(page.url()).toContain('/database?section=restore');
+    await expect(page.getByRole('dialog', { name: 'Database Maintenance In Progress' })).toHaveCount(0);
     expect(await page.evaluate(() => localStorage.getItem('refresh_token'))).toBe('saved-refresh');
     await page.screenshot({ path: testInfo.outputPath(`recovered-${failure}.png`) });
   });

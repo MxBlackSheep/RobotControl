@@ -141,7 +141,8 @@ api.interceptors.response.use(
       }
     }
 
-    if (status === 503) {
+    // AuthContext retries /me itself; a restarting server is not a database restore.
+    if (status === 503 && !/\/api\/auth\/me/i.test(requestUrl)) {
       activateMaintenance(60000, 'Database is restarting. Please wait.');
     }
 
