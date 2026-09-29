@@ -1,3 +1,27 @@
+## 2026-09-29 Allow slow restore responses without losing failure feedback
+
+- PR #12's 660-second restore request timeout is combined with PR #10's response success check and PR #11's shared status dialog. Other API timeouts remain unchanged.
+- Resolved the overlapping restore spec into one suite, retaining failure/retry cases and checking both success and failure after a 12-second response delay. Evidence: `test-output/restore-timeout-verification/verification.json` and `report/index.html`. This verifies browser behavior with synthetic responses, not an eleven-minute or real SQL restore.
+
+## 2026-09-29 Restore failures use the current dialog API
+
+- PR #10 now incorporates current main, including PR #11's shared `StatusDialog`. HTTP 200 with `success: false` shows the restore error without activating maintenance or clearing the confirmation. The obsolete `showStatusDialog` call is replaced with `setStatus`.
+- The `.bck` browser check verifies PR #11's inline selected path instead of dismissing a removed popup. Focused verification: `frontend/e2e/database-restore.spec.ts`; evidence and repeatable commands: `test-output/database-restore-verification/verification.json`.
+
+## 2026-09-29 Restore from a `.bck` path works
+
+- Database Restore → `.bck` (`POST /api/admin/backup/restore` with `file_path`) failed on every request: `BackupService.restore_backup_from_path` called `_get_database_connection`, which only `SqlCommandExecutor` defined. It now runs `SQL_RESTORE_TEMPLATE` through sqlcmd with `RESTORE_TIMEOUT` under the operation lock, like managed-file restore, and sets `MULTI_USER` again if SQL Server rejects the file. Both results now carry a message. The unused `_get_database_connection` wrapper is removed; `open_restore_connection` stays for connection recovery.
+- Not changed: a failed restore still returns HTTP 200 with `success: false`, and `DatabaseRestore.tsx` shows "Restore Started" for any 200.
+- Check: `backend.e2e.backup_restore_check` now also covers `.bck` path restore with an open session, invalid paths rejected before SQL, and an unrestorable `.bck`. Evidence: `test-output/backup-restore-verification/results.json`.
+- Merge review: the check now saves its report even when SQL authentication or cleanup fails, closes its held connection on exceptional exits, and records uncommitted changes alongside the commit identity. The restricted-process authentication failure is retained in `test-output/backup-restore-verification/authentication-failure.json`.
+
+## 2026-09-29 Database and scheduling guides rewritten by topic
+
+- `docs/maintenance/backend/database-maintenance-guide.md`, `backend/scheduling-maintenance-guide.md` and `frontend/database-frontend-maintenance-guide.md` are now single current-state guides (files, behavior, permissions and safety gates, checks, troubleshooting) without dated sections. Each claim was checked against the code on `main`; commands and the package contract are linked to `frontend/e2e/README.md`, `database_packages/` and the SQLite safety guide instead of repeated.
+- Corrected: the worker has seven dispatch gates, not three; backup restore does not take the scheduler's `database_change_guard`; `SQL_BACKUP_PATH` is resolved but unused (SQL Server writes to `LOCAL_BACKUP_PATH`); `DatabaseService` does not use the shared connection manager; the Database viewer is chosen on the server, not per browser; the table catalogue has no Important-only filter.
+- Removed: "how to extend" and merge-checklist sections, `/api/database` health endpoints and ad-hoc query tasks that no longer exist, `_ensure_schema`, `test_scheduling_pipeline.py`, and one-off verification history. Documentation only; no build or browser run.
+- Reconciled with the duplicate-code cleanup on `main`: retained both change records, documented direct restore connectivity checks, narrowed the backup locking guarantee, and distinguished Restore visibility from local-only API access. The guide explicitly records the existing broken path-restore call rather than presenting it as a working alternative. Verification: source and Markdown-link review; no executable changes.
+
 ## 2026-09-29 One dialog, one loading indicator, one SQL connection builder
 
 - Action results use one `StatusDialog` on MUI's Dialog. Removed `ErrorAlert` (with six wrappers), `Modal`, `useModalFocus` and `Modal.md`, which re-implemented MUI's focus trap. Before, restore and backup messages opened as a second dialog over the restore screen, and a failed backup showed its error twice; now they appear inline. The unreachable non-admin branch of `AdminPage` is gone (the router already redirects).
@@ -7,6 +31,8 @@
 - Checks: frontend build; Vitest 78 passed; backend pytest 308 passed; full Playwright suite 112 passed, including new cases for the result dialog (Retry/Close/focus), inline restore messages, shortcuts/help and Escape in Find. Not rebuilt as an executable.
 
 ## 2026-09-29 Code review cleanup toward 0.1.5
+
+- Backups use one folder: removed the `SQL_BACKUP_PATH` setting (left over from remote-VM development and never used), so SQL Server and RobotControl both use `LOCAL_BACKUP_PATH`, default `<app root>/data/backups`. `.env.example` no longer points at the old VM share. Restores now get the 10-minute `RESTORE_TIMEOUT` instead of the 5-minute backup limit. Check: `backend/e2e/backup_restore_check.py` (disposable SQL Server database).
 
 - Polling owners recover from a request that never responds: a 20-second deadline aborts it, shows "Request timed out" and retries. Before, a held System Status response left Refresh disabled and the page "connected" indefinitely. Check: `frontend/e2e/status-stall-probe.py`.
 - Removed code nothing reaches: about 17,400 frontend lines (unrouted pages, hooks, utilities, five never-run Jest suites, unused packages, unconfigured ESLint) and about 8,800 backend lines (six dead modules including the unused job queue, monitoring WebSockets and the System Config API that wrote secrets to `.env`, ~40 endpoints with no caller). `/recovery/require` stays as an admin safety control. The frontend build now fails on unused locals.

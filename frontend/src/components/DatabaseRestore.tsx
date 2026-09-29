@@ -85,8 +85,7 @@ interface DatabaseRestoreProps {
   onError?: (error: string) => void;
 }
 
-// The backend allows a restore up to RESTORE_TIMEOUT (600 s, backend/services/backup.py);
-// wait that long plus a minute of margin instead of the shared 10 s API timeout.
+// The backend restore allows 600 s; include a minute for response/recovery overhead.
 const RESTORE_REQUEST_TIMEOUT_MS = (600 + 60) * 1000;
 
 const FileExplorer: React.FC<FileExplorerProps> = ({ open, onClose, onSelect }) => {
@@ -427,7 +426,17 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
 
     setRestoreProgress(true);
     try {
-      await api.post('/api/admin/backup/restore', restoreRequest, { timeout: RESTORE_REQUEST_TIMEOUT_MS });
+      const response = await api.post('/api/admin/backup/restore', restoreRequest, { timeout: RESTORE_REQUEST_TIMEOUT_MS });
+
+      // A failed restore still answers HTTP 200, with { success: false, message, data.error_details }.
+      if (!response.data?.success) {
+        const details = response.data?.data?.error_details;
+        const message = [response.data?.message || 'Failed to restore backup', details]
+          .filter(Boolean)
+          .join('\n\n');
+        setStatus({ title: 'Restore Failed', message, severity: 'error' });
+        return;
+      }
 
       activateMaintenance(60000, 'Database restore is finishing.');
       startMaintenanceRecoveryWatcher();

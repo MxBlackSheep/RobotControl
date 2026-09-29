@@ -110,6 +110,24 @@ def test_api_change_password_and_refresh():
     tokens = register_response.json()["data"]
 
     headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+
+    # A wrong current password is a form error, not an expired session: 401 would
+    # make the frontend sign the user out.
+    wrong_response = client.post(
+        "/api/auth/change-password",
+        json={"current_password": "WrongPass!1", "new_password": "NewPass!2"},
+        headers=headers,
+    )
+    assert wrong_response.status_code == 400
+    assert wrong_response.json()["error"]["message"] == "Current password is incorrect"
+
+    # A missing or invalid token still means the session is gone.
+    no_session_response = client.post(
+        "/api/auth/change-password",
+        json={"current_password": "SecurePass!1", "new_password": "NewPass!2"},
+    )
+    assert no_session_response.status_code == 401
+
     change_response = client.post(
         "/api/auth/change-password",
         json={"current_password": "SecurePass!1", "new_password": "NewPass!2"},

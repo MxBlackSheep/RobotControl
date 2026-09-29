@@ -1,68 +1,159 @@
-import { expect, test } from '@playwright/test';
+import { test, expect } from '@playwright/test';
+import { mkdirSync } from 'node:fs';
 
-/** Failure cases for starting a database restore:
- * - A restore that succeeds after more than 10 s (the shared API timeout) is reported as
- *   "Restore Failed: Request timed out" instead of "Restore Started".
- * - While a long restore is in progress, Restore and Cancel become usable again and a
- *   second restore request can be sent.
- * Not checked here: the restore limit covering the backend RESTORE_TIMEOUT (600 s) plus
- * margin, and other requests keeping the shared 10 s limit; see RESTORE_REQUEST_TIMEOUT_MS
- * in DatabaseRestore.tsx.
+/** Failure cases for the Database Restore dialog. The restore API answers a failed
+ * restore with HTTP 200 and { success: false, message, data.error_details }.
+ * - A success:false answer for a managed .bak or a browsed .bck shows "Restore Started"
+ *   instead of "Restore Failed", or turns on maintenance mode.
+ * - The failure dialog hides the reason: message or error_details is missing, or an
+ *   empty text is shown instead of a fallback.
+ * - A failed restore closes the confirmation dialog or clears its choices, so retrying
+ *   means starting over.
+ * - A real success stops showing "Restore Started" or stops turning on maintenance.
+ * - A non-2xx answer no longer shows its `detail`.
+ * - One click sends the restore request more than once.
+ * - Selecting a .bck opens an obsolete modal instead of showing the path inline.
+ * - A response after the shared 10 s timeout falsely fails, enables Cancel/Restore
+ *   while pending, or loses the actual success/failure response.
+ * The full 660 s timeout and real SQL timing are not exercised by these fixtures.
+ * Real SQL Server restores and the failure body shape are checked by
+ * backend/e2e/backup_restore_check.py.
  */
-const backup = {
-  filename: 'slow_restore_fixture.bak',
-  file_size: 52428800,
-  file_size_formatted: '50.0 MB',
-  created_date: '2026-09-28T09:00:00',
-  description: 'Fixture for a restore slower than the shared API timeout',
-  is_valid: true,
-  database_name: 'EvoYeast',
-  sql_server: 'LOCALHOST\\HAMILTON',
-};
-const RESTORE_DELAY_MS = 12_000;
+const evidence = process.env.ROBOTCONTROL_E2E_EVIDENCE || '../test-output/database-restore-verification';
+const failed = { success: false, message: 'Database restore failed', data: { success: false, error_details: 'SQL Server error: The media family on device is incorrectly formed.' } };
+const bak = { filename: 'EvoYeast_20260101_120000.bak', file_size: 2048, file_size_formatted: '2 KB', created_date: '2026-01-01T12:00:00', description: 'Fixture backup', is_valid: true };
+const bckPath = 'C:\\Backups\\nightly.bck';
 
-test('restore answered after more than 10 s still shows Restore Started', async ({ page }, testInfo) => {
-  test.setTimeout(60_000);
+async function openRestore(page: any, answer: { status?: number; json: any }) {
+  mkdirSync(evidence, { recursive: true });
+  const sent: any[] = [];
   await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));
-  await page.route('**/api/admin/backup/list', route => route.fulfill({ json: { success: true, data: [backup] } }));
-  const restoreRequests: { body: unknown; answeredAfterMs: number }[] = [];
-  await page.route('**/api/admin/backup/restore', async route => {
-    const started = Date.now();
-    await new Promise(resolve => setTimeout(resolve, RESTORE_DELAY_MS));
-    restoreRequests.push({ body: route.request().postDataJSON(), answeredAfterMs: Date.now() - started });
-    await route.fulfill({ json: { success: true, data: { success: true, backup_filename: backup.filename }, message: 'Database restored successfully' } });
-  }, { times: 5 });
-
+  await page.route('**/api/auth/me', (r: any) => r.fulfill({ json: { success: true, data: { user_id: 'viewer-admin', username: 'Fixture', role: 'admin', session_is_local: true } } }));
+  await page.route('**/api/admin/backup/list', (r: any) => r.fulfill({ json: { success: true, data: [bak] } }));
+  await page.route('**/api/system/browse?*', (r: any) => r.fulfill({ json: { items: [{ name: 'nightly.bck', path: bckPath, is_directory: false }] } }));
+  await page.route('**/api/admin/backup/restore', (r: any) => { sent.push(r.request().postDataJSON()); return r.fulfill({ status: answer.status ?? 200, json: answer.json }); });
   await page.goto('/database?section=restore');
-  await page.locator('.MuiFormControl-root', { hasText: 'Select Backup File' }).getByRole('combobox').click();
-  await page.getByRole('option', { name: new RegExp(backup.filename) }).click();
+  return sent;
+}
+
+async function chooseBak(page: any) {
+  // The MUI Select is not linked to its "Select Backup File" label, so it has no accessible name.
+  await page.getByRole('main').getByRole('combobox').click();
+  await page.getByRole('option', { name: bak.filename, exact: false }).click();
+}
+
+async function chooseBck(page: any) {
+  await page.getByRole('tab', { name: 'Browse Files (.bck)' }).click();
+  await page.getByRole('button', { name: 'Browse', exact: true }).click();
+  await page.getByRole('button', { name: 'nightly.bck', exact: false }).click();
+  await expect(page.getByRole('alert')).toContainText(`Path: ${bckPath}`);
+  await expect(page.getByRole('alertdialog')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Select File', exact: true }).click();
+  await expect(page.getByLabel('Selected .bck File')).toHaveValue(bckPath);
+}
+
+async function confirmRestore(page: any) {
   await page.getByRole('button', { name: 'Restore Database', exact: true }).click();
-
-  const confirm = page.getByRole('dialog').filter({ hasText: 'Restore Database - Confirmation Required' });
-  await confirm.getByRole('checkbox', { name: /permanently replace all current database data/ }).check();
-  await confirm.getByRole('checkbox', { name: /temporarily unavailable during the restore/ }).check();
-  const clickedAt = Date.now();
+  const confirm = page.getByRole('dialog').filter({ hasText: 'Confirmation Required' });
+  await confirm.getByRole('checkbox').nth(0).check();
+  await confirm.getByRole('checkbox').nth(1).check();
   await confirm.getByRole('button', { name: 'Restore Database', exact: true }).click();
+  return confirm;
+}
 
-  // Past the shared 10 s timeout the request must still be pending, not failed.
-  await page.waitForTimeout(10_500);
-  await expect(confirm.getByRole('button', { name: 'Restoring...' })).toBeDisabled();
-  await expect(confirm.getByRole('button', { name: 'Cancel', exact: true })).toBeDisabled();
-  await expect(page.getByText('Restore Failed')).toHaveCount(0);
-  await page.screenshot({ path: testInfo.outputPath('restore-still-running-after-10s.png') });
+async function expectFailure(page: any, confirm: any, text: string[], shot: string) {
+  const status = page.getByRole('dialog', { name: 'Restore Failed' });
+  await expect(status).toBeVisible();
+  for (const t of text) await expect(status).toContainText(t);
+  await page.screenshot({ path: `${evidence}/${shot}.png`, animations: 'disabled' });
+  await expect(page.getByText('Restore Started')).toHaveCount(0);
+  await expect(page.getByText('Database Maintenance In Progress')).toHaveCount(0);
+  // The confirmation stays open with its choices so the user can retry or cancel.
+  // It is hidden from the accessibility tree while the status dialog is on top.
+  await status.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(status).toHaveCount(0);
+  await expect(confirm).toBeVisible();
+  await expect(confirm.getByRole('checkbox').nth(0)).toBeChecked();
+  await expect(confirm.getByRole('checkbox').nth(1)).toBeChecked();
+}
 
-  const started = page.getByRole('dialog').filter({ hasText: 'Restore Started' });
-  await expect(started).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByText('Restore Failed')).toHaveCount(0);
-  await expect(confirm).toHaveCount(0);
-  const shownAfterMs = Date.now() - clickedAt;
+test('failed .bak restore shows Restore Failed with the reason and no maintenance', async ({ page }) => {
+  const sent = await openRestore(page, { json: failed });
+  await chooseBak(page);
+  const confirm = await confirmRestore(page);
+  await expectFailure(page, confirm, [failed.message, failed.data.error_details], 'bak-failed');
+  expect(sent).toEqual([{ filename: bak.filename }]);
+});
 
-  expect(restoreRequests).toHaveLength(1);
-  expect(restoreRequests[0].body).toEqual({ filename: backup.filename });
-  expect(restoreRequests[0].answeredAfterMs).toBeGreaterThan(10_000);
-  await page.screenshot({ path: testInfo.outputPath('restore-started-after-slow-response.png') });
-  await testInfo.attach('restore-timing.json', {
-    contentType: 'application/json',
-    body: JSON.stringify({ restoreRequests, shownAfterMs }, null, 2),
+for (const succeeds of [true, false]) {
+  test(`slow restore preserves pending state then reports ${succeeds ? 'success' : 'failure'}`, async ({ page }, testInfo) => {
+    await openRestore(page, { json: failed });
+    await page.unroute('**/api/admin/backup/restore');
+    const requests: unknown[] = [];
+    await page.route('**/api/admin/backup/restore', async route => {
+      requests.push(route.request().postDataJSON());
+      await new Promise(resolve => setTimeout(resolve, 12_000));
+      await route.fulfill({ json: succeeds ? { success: true } : failed });
+    });
+    await chooseBak(page);
+    const startedAt = Date.now();
+    const confirm = await confirmRestore(page);
+    await page.waitForTimeout(10_500);
+    await expect(confirm.getByRole('button', { name: 'Restoring...' })).toBeDisabled();
+    await expect(confirm.getByRole('button', { name: 'Cancel', exact: true })).toBeDisabled();
+    await expect(page.getByText('Restore Failed')).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath('restore-pending-after-10s.png'), animations: 'disabled' });
+    if (succeeds) {
+      await expect(page.getByRole('dialog', { name: 'Restore Started' })).toBeVisible();
+      await expect(confirm).toHaveCount(0);
+    } else {
+      await expectFailure(page, confirm, [failed.message, failed.data.error_details], 'slow-failed');
+    }
+    expect(requests).toEqual([{ filename: bak.filename }]);
+    await testInfo.attach('restore-timing.json', {
+      contentType: 'application/json',
+      body: JSON.stringify({ requests, elapsedMs: Date.now() - startedAt, responseDelayMs: 12_000 }),
+    });
   });
+}
+
+test('failed .bck restore shows Restore Failed with the reason and no maintenance', async ({ page }) => {
+  const sent = await openRestore(page, { json: failed });
+  await chooseBck(page);
+  const confirm = await confirmRestore(page);
+  await expectFailure(page, confirm, [failed.message, failed.data.error_details], 'bck-failed');
+  expect(sent).toEqual([{ file_path: bckPath }]);
+});
+
+test('failed restore without details or message still explains itself', async ({ page }) => {
+  const sent = await openRestore(page, { json: { success: false, message: 'Backup file not found', data: { error_details: null } } });
+  await chooseBak(page);
+  const confirm = await confirmRestore(page);
+  await expectFailure(page, confirm, ['Backup file not found'], 'failed-message-only');
+  // Retry from the still-open confirmation; this time the body has no message at all.
+  await page.unroute('**/api/admin/backup/restore');
+  await page.route('**/api/admin/backup/restore', (r: any) => { sent.push(r.request().postDataJSON()); return r.fulfill({ json: { success: false } }); });
+  await confirm.getByRole('button', { name: 'Restore Database', exact: true }).click();
+  await expectFailure(page, confirm, ['Failed to restore backup'], 'failed-empty');
+  expect(sent).toHaveLength(2);
+});
+
+test('HTTP error restore shows the server detail', async ({ page }) => {
+  const sent = await openRestore(page, { status: 500, json: { detail: 'An unexpected error occurred during database restore' } });
+  await chooseBak(page);
+  const confirm = await confirmRestore(page);
+  await expectFailure(page, confirm, ['An unexpected error occurred during database restore'], 'http-500');
+  expect(sent).toHaveLength(1);
+});
+
+test('successful restore shows Restore Started and turns on maintenance', async ({ page }) => {
+  const sent = await openRestore(page, { json: { success: true, message: 'Database restored successfully', data: { success: true } } });
+  await chooseBak(page);
+  const confirm = await confirmRestore(page);
+  await expect(page.getByText('Restore Started')).toBeVisible();
+  await expect(page.getByText('Database Maintenance In Progress')).toBeVisible();
+  await expect(confirm).toHaveCount(0);
+  await expect(page.getByText('Restore Failed')).toHaveCount(0);
+  await page.screenshot({ path: `${evidence}/success.png`, animations: 'disabled' });
+  expect(sent).toHaveLength(1);
 });
