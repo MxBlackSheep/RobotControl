@@ -8,6 +8,8 @@ vi.mock('../../services/schedulingApi', () => ({
   schedulingService: { getEvoYeastExperiments: vi.fn(async () => ({ experiments: [] })) },
 }));
 
+vi.mock('../../context/AuthContext', () => ({ useAuth: () => ({ user: { username: 'operator', role: 'user' } }) }));
+
 describe('schedule draft sessions', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());

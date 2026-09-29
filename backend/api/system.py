@@ -164,8 +164,8 @@ async def get_drives(current_user: dict = Depends(get_current_user)):
             drive_path = Path(f"{drive_letter}:\\")
             if drive_path.exists():
                 try:
-                    # Try to get some basic info
-                    stat = drive_path.stat()
+                    # Raises when the drive is present but not readable.
+                    drive_path.stat()
                     drives.append({
                         'letter': drive_letter,
                         'path': str(drive_path),
