@@ -18,6 +18,8 @@ import { mkdirSync } from 'node:fs';
  * - Browser responses must use the real success/data/items envelope. Typing must not
  *   request partial paths; stale responses and old selections must not survive navigation.
  * - Parent navigation must retain drive roots; errors must allow retry.
+ * - A typed "/" path must show the server's resolved path, and Parent must not cut
+ *   characters from a path without "\".
  * - Completed restores must retain backend warnings and use warning styling.
  * The full 660 s timeout and real SQL timing are not exercised by these fixtures.
  * Real SQL Server restores and the failure body shape are checked by
@@ -222,6 +224,28 @@ test('browser submits paths explicitly, ignores old responses and preserves driv
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByRole('button', { name: 'Browse', exact: true }).click();
   await expect(dialog.getByRole('button', { name: 'Select File' })).toBeDisabled();
+});
+
+test('browser uses the server path so Parent works after a typed forward-slash path', async ({ page }) => {
+  await openRestore(page, { json: failed });
+  await page.unroute('**/api/system/browse?*');
+  const paths: string[] = [];
+  await page.route('**/api/system/browse?*', route => {
+    const path = new URL(route.request().url()).searchParams.get('path')!;
+    paths.push(path);
+    // Mirrors Path(path).resolve() in backend/api/system.py on Windows.
+    return route.fulfill({ json: { success: true, data: { current_path: path.replace(/\//g, '\\'), items: [] } } });
+  });
+  await page.getByRole('tab', { name: 'Browse Files (.bck)' }).click();
+  await page.getByRole('button', { name: 'Browse', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Browse for .bck Backup Files' });
+  const input = dialog.getByLabel('Current Directory');
+  await input.fill('C:/Backups/Robot');
+  await input.press('Enter');
+  await expect(input).toHaveValue('C:\\Backups\\Robot');
+  await dialog.getByRole('button', { name: 'Parent Directory' }).click();
+  await expect.poll(() => paths.at(-1)).toBe('C:\\Backups');
+  await expect(input).toHaveValue('C:\\Backups');
 });
 
 test('browser reports a directory error and allows retry', async ({ page }) => {

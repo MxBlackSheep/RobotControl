@@ -117,6 +117,10 @@ const FileExplorer: React.FC<FileExplorerProps> = ({ open, onClose, onSelect }) 
         params: { path: normalizedPath, filter: '.bck' }
       });
       if (request !== requestRef.current) return;
+      // The server's resolved path keeps Parent Directory correct for typed "/" or ".." paths.
+      const resolvedPath = response.data.data.current_path || normalizedPath;
+      setCurrentPath(resolvedPath);
+      setPathInput(resolvedPath);
       setItems(response.data.data.items || []);
     } catch (err: any) {
       if (request !== requestRef.current) return;
@@ -128,8 +132,10 @@ const FileExplorer: React.FC<FileExplorerProps> = ({ open, onClose, onSelect }) 
   };
 
   const navigateToParent = () => {
-    const path = currentPath.replace(/\\+$/, '');
-    const parent = path.slice(0, path.lastIndexOf('\\'));
+    const path = currentPath.replace(/[\\/]+$/, '');
+    const separator = Math.max(path.lastIndexOf('\\'), path.lastIndexOf('/'));
+    if (separator < 0) return;
+    const parent = path.slice(0, separator);
     void loadDirectory(/^[a-z]:$/i.test(parent) ? `${parent}\\` : parent || currentPath);
   };
 
