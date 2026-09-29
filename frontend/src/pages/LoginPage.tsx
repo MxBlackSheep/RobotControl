@@ -12,7 +12,7 @@ import {
 } from '@mui/material';
 import { isAxiosError } from 'axios';
 import { useAuth } from '../context/AuthContext';
-import ErrorAlert from '../components/ErrorAlert';
+import StatusDialog from '../components/StatusDialog';
 import { authAPI } from '../services/api';
 import { AppearanceControl } from '../context/AppearanceContext';
 
@@ -156,16 +156,10 @@ const LoginPage: React.FC = () => {
                 </Typography>
               </Box>
 
-              {error && (
-                <ErrorAlert
-                  message={error}
-                  severity="error"
-                  category="authentication"
-                  sx={{ mb: 1 }}
-                  closable
-                  onClose={() => setError('')}
-                />
-              )}
+              <StatusDialog
+                status={error ? { title: 'Authentication Required', message: error, severity: 'error' } : null}
+                onClose={() => setError('')}
+              />
 
               {successMessage && (
                 <Alert

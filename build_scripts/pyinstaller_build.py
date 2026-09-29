@@ -132,7 +132,6 @@ def build_with_pyinstaller(layout: str = "onedir", console: bool = False, output
         "--collect-submodules", "backend.api",
         "--collect-submodules", "backend.services",
         "--collect-submodules", "backend.utils",
-        "--collect-submodules", "backend.core",
         "--collect-all", "fastapi",
         "--collect-all", "uvicorn",
         "--collect-all", "pydantic",

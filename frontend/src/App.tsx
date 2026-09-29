@@ -13,11 +13,11 @@ import MenuIcon from '@mui/icons-material/Menu';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { loadComponent } from './utils/BundleOptimizer';
 import NavigationBreadcrumbs from './components/NavigationBreadcrumbs';
-import { PageLoading } from './components/LoadingSpinner';
+import LoadingSpinner from './components/LoadingSpinner';
 import AppSidebar from './components/AppSidebar';
 import { SchedulingNavigationContext, useSidebarLayout } from './components/navigation';
 import SkipLink from './components/SkipLink';
-import KeyboardShortcutsHelp, { useKeyboardShortcutsHelp } from './components/KeyboardShortcutsHelp';
+import KeyboardShortcutsHelp from './components/KeyboardShortcutsHelp';
 import { useKeyboardNavigation } from './hooks/useKeyboardNavigation';
 import LoginPage from './pages/LoginPage';
 import Dashboard from './pages/Dashboard';
@@ -54,8 +54,7 @@ const AppContent: React.FC = () => {
   }, [user?.role]);
 
   // Keyboard navigation and shortcuts
-  useKeyboardNavigation({ enabled: isAuthenticated });
-  const { open: shortcutsHelpOpen, hideHelp: hideShortcutsHelp } = useKeyboardShortcutsHelp();
+  const { helpOpen: shortcutsHelpOpen, closeHelp: hideShortcutsHelp } = useKeyboardNavigation({ enabled: isAuthenticated });
 
   React.useEffect(() => {
     if (user?.must_reset) {
@@ -95,7 +94,7 @@ const AppContent: React.FC = () => {
         sx={{ p: { xs: 1, sm: 1.5, lg: 2 }, minWidth: 0 }}
         tabIndex={-1} // Make focusable for skip link
       >
-        <Suspense fallback={<PageLoading message="Loading page..." />}>
+        <Suspense fallback={<LoadingSpinner message="Loading page..." minHeight={400} />}>
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/database" element={<DatabasePage />} />

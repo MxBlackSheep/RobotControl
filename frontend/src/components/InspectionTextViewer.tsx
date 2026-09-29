@@ -165,6 +165,9 @@ export default function InspectionTextViewer({
             if (event.key === "Enter") {
               event.preventDefault();
               moveMatch(event.shiftKey ? -1 : 1);
+            } else if (event.key === "Escape" && !expanded) {
+              // In the expanded view Escape closes the dialog instead.
+              setFindOpen(false);
             }
           }}
           sx={{ flex: "1 1 170px", minWidth: 120 }}
