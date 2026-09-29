@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { Box, BoxProps } from '@mui/material';
 
 /** A single current image shared by normal/fullscreen views, with no history. */

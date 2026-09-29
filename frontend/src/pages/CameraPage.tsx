@@ -16,7 +16,7 @@ import { PageContent, PageHeader } from '../components/PageLayout';
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Box, Typography, Button, Paper, Stack, LinearProgress, Chip } from '@mui/material';
-import { Refresh as RefreshIcon, PlayArrow as PlayArrowIcon, Stop as StopIcon } from '@mui/icons-material';
+import { PlayArrow as PlayArrowIcon, Stop as StopIcon } from '@mui/icons-material';
 import { ButtonLoading } from '../components/LoadingSpinner';
 import { ServerError } from '../components/ErrorAlert';
 import { buildApiUrl, buildWsUrl } from '@/utils/apiBase';
@@ -92,7 +92,7 @@ const CameraPage: React.FC = () => {
   const [archiveError, setArchiveError] = useState('');
   const [error, setError] = useState('');
   const { user } = useAuth();
-  const [currentTab, setCurrentTab] = useModuleSection('/camera', user);
+  const [currentTab] = useModuleSection('/camera', user);
   
   // Streaming state
   const [streamingStatus, setStreamingStatus] = useState<StreamingStatus | null>(null);

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Alert, Box, Button, Collapse, MenuItem, Stack, TextField, Typography } from '@mui/material';
 import { buildApiUrl } from '@/utils/apiBase';
 import { useSerialPolling } from '@/hooks/useSerialPolling';

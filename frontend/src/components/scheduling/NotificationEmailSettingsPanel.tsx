@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Accordion, AccordionDetails, AccordionSummary, Alert, Autocomplete, Box, Button,
+  Accordion, AccordionDetails, AccordionSummary, Alert, Autocomplete, Button,
   Card, CardContent, CardHeader, Chip, CircularProgress, Dialog, DialogActions,
   DialogContent, DialogTitle, Divider, FormControlLabel, MenuItem, Stack, Switch,
   TextField, Typography,

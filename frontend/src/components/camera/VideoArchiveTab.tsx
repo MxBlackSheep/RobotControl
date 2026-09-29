@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Alert, Box, Button, CircularProgress, LinearProgress, List, ListItemButton, Stack, TablePagination, TextField, Typography } from '@mui/material';
 import { Download, FolderOutlined, Refresh } from '@mui/icons-material';
 import InspectionWorkspace from '../InspectionWorkspace';

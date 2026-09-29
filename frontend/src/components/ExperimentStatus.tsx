@@ -3,7 +3,7 @@
  * Shows latest experiment from Hamilton Vector database with graceful error handling
  */
 
-import React, { useEffect, useState, memo, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, memo, useCallback } from 'react';
 
 // Optimized Material-UI imports for better tree-shaking
 import Box from '@mui/material/Box';

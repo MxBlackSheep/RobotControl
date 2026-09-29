@@ -20,7 +20,6 @@ import {
   TableHead,
   TableRow,
   TableSortLabel,
-  Checkbox,
   Radio,
   IconButton,
   Tooltip,
@@ -45,7 +44,6 @@ import {
   Info as InfoIcon,
   Refresh as RefreshIcon,
   Warning as WarningIcon,
-  CheckCircle as CheckCircleIcon,
   PlayArrow as PlayIcon,
   Pause as PauseIcon,
   Schedule as ScheduleIcon,
@@ -56,7 +54,6 @@ import {
   Delete as DeleteIcon
 } from '@mui/icons-material';
 import LoadingSpinner from './LoadingSpinner';
-import ErrorAlert from './ErrorAlert';
 
 import {
   ScheduledExperiment,
@@ -328,7 +325,6 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
     open: false,
     schedule: null as ScheduledExperiment | null
   });
-  const theme = useTheme();
   const collectionRef = useRef<HTMLDivElement>(null);
   const [isMobile, setIsMobile] = useState(true);
   useLayoutEffect(() => {

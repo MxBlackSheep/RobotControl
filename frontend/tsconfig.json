@@ -23,7 +23,7 @@
 
     /* Linting */
     "strict": false,
-    "noUnusedLocals": false,
+    "noUnusedLocals": true,
     "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": false
   },
@@ -37,7 +37,6 @@
     "src/**/*.stories.tsx",
     "src/**/*.test-utils.ts",
     "src/**/*.test-utils.tsx",
-    "src/utils/test-utils.tsx",
     "src/vitest-setup.ts"
   ],
   "references": [{ "path": "./tsconfig.node.json" }]

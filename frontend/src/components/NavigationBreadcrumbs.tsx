@@ -16,15 +16,6 @@ import Link from '@mui/material/Link';
 import Typography from '@mui/material/Typography';
 import Box from '@mui/material/Box';
 import {
-  Home as HomeIcon,
-  Storage as DatabaseIcon,
-  Videocam as CameraIcon,
-  Science as LabwareIcon,
-  Build as MaintenanceIcon,
-  MonitorHeart as MonitoringIcon,
-  Schedule as ScheduleIcon,
-  Info as InfoIcon,
-  Description as LogFileIcon,
   NavigateNext as NavigateNextIcon,
 } from '@mui/icons-material';
 

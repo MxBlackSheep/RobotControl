@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useEffect, useState } from 'react';
+import { createContext, useCallback, useEffect, useState } from 'react';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { useSearchParams } from 'react-router-dom';
 import { Dashboard, Storage, Schedule, Videocam, Science, Build, Description, MonitorHeart, AdminPanelSettings, Info } from '@mui/icons-material';
@@ -25,7 +25,6 @@ export const allowedSections = (path: string, user: NavigationUser) => {
 };
 export const allowedSchedulingSections = (user: NavigationUser) => allowedSections('/scheduling', user);
 export const moduleSectionUrl = (path: string, index: number) => index === 0 ? path : `${path}?section=${sectionRegistry[path]?.find(section => section.index === index)?.id || ''}`;
-export const sectionUrl = (index: number) => moduleSectionUrl('/scheduling', index);
 export const navigationItems = [
   { label: 'Dashboard', path: '/', icon: Dashboard }, { label: 'Database', path: '/database', icon: Storage },
   { label: 'Scheduling', path: '/scheduling', icon: Schedule, roles: ['admin', 'user'] },

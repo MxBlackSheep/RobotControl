@@ -15,7 +15,6 @@ import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
 // Optimized Material-UI imports for better tree-shaking
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
-import IconButton from '@mui/material/IconButton';
 import Typography from '@mui/material/Typography';
 import Collapse from '@mui/material/Collapse';
 import Dialog from '@mui/material/Dialog';
@@ -445,64 +444,6 @@ export const SuccessAlert: React.FC<Omit<ErrorAlertProps, 'severity'>> = memo((p
     autoHideDuration={5000}
   />
 ));
-
-// Helper function to create error alert from HTTP status codes
-export const createErrorFromStatus = (
-  status: number,
-  message?: string,
-  details?: string
-): Omit<ErrorAlertProps, 'onRetry' | 'onClose'> => {
-  switch (status) {
-    case 401:
-      return {
-        category: 'authentication',
-        severity: 'warning',
-        message: message || 'Please log in to continue.',
-        details,
-      };
-    case 403:
-      return {
-        category: 'authorization',
-        severity: 'warning',
-        message: message || 'You do not have permission to perform this action.',
-        details,
-      };
-    case 404:
-      return {
-        category: 'client',
-        severity: 'info',
-        message: message || 'The requested resource was not found.',
-        details,
-      };
-    case 408:
-      return {
-        category: 'timeout',
-        severity: 'warning',
-        message: message || 'The request took too long to complete.',
-        details,
-        retryable: true,
-      };
-    case 500:
-    case 502:
-    case 503:
-      return {
-        category: 'server',
-        severity: 'error',
-        message: message || 'A server error occurred. Please try again later.',
-        details,
-        retryable: true,
-      };
-    default:
-      return {
-        category: 'unknown',
-        severity: 'error',
-        message: message || 'An unexpected error occurred.',
-        details,
-        retryable: true,
-      };
-  }
-};
-
 // Add display names for debugging
 ErrorAlert.displayName = 'ErrorAlert';
 NetworkError.displayName = 'NetworkError';

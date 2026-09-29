@@ -54,7 +54,6 @@ import {
   Science as ScienceIcon,
   Schedule as ScheduleIcon,
   Settings as SettingsIcon,
-  ExpandMore as ExpandMoreIcon,
   Refresh as RefreshIcon,
   CheckBoxOutlineBlank as CheckBoxOutlineBlankIcon,
   CheckBox as CheckBoxIcon

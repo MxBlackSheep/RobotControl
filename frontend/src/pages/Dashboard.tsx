@@ -2,7 +2,6 @@ import { PageContent, PageHeader } from '../components/PageLayout';
 import React, { Suspense, Component, ErrorInfo, ReactNode, memo } from 'react';
 
 // Optimized Material-UI imports for better tree-shaking
-import Container from '@mui/material/Container';
 import Typography from '@mui/material/Typography';
 import Grid from '@mui/material/Grid';
 import Card from '@mui/material/Card';

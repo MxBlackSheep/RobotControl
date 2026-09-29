@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Box, Button, Chip, Dialog, DialogContent, DialogTitle, LinearProgress, Menu, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material';
 import { labwareApi, TipTrackingSnapshot, TipTrackingUpdate } from '../../services/labwareApi';
 import { useLabwareSnapshot } from './useLabwareSnapshot';

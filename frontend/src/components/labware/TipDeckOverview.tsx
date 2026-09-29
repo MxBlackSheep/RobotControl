@@ -1,4 +1,3 @@
-import React from 'react';
 import { Box, ButtonBase, Stack, Typography } from '@mui/material';
 import { TipTrackingFamilyState } from '../../services/labwareApi';
 

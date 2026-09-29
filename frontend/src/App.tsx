@@ -5,14 +5,11 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import Box from '@mui/material/Box';
 import AppBar from '@mui/material/AppBar';
 import Toolbar from '@mui/material/Toolbar';
-import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import MenuIcon from '@mui/icons-material/Menu';
-import useTheme from '@mui/material/styles/useTheme';
-import useMediaQuery from '@mui/material/useMediaQuery';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { loadComponent } from './utils/BundleOptimizer';
 import NavigationBreadcrumbs from './components/NavigationBreadcrumbs';
@@ -41,7 +38,6 @@ const AdminPage = loadComponent(() => import('./pages/AdminPage'));
 
 const AppContent: React.FC = () => {
   const { isAuthenticated, user, logout } = useAuth();
-  const theme = useTheme();
   
   // Mobile drawer state
   const [mobileDrawerOpen, setMobileDrawerOpen] = React.useState(false);
@@ -59,7 +55,7 @@ const AppContent: React.FC = () => {
 
   // Keyboard navigation and shortcuts
   useKeyboardNavigation({ enabled: isAuthenticated });
-  const { open: shortcutsHelpOpen, showHelp: showShortcutsHelp, hideHelp: hideShortcutsHelp } = useKeyboardShortcutsHelp();
+  const { open: shortcutsHelpOpen, hideHelp: hideShortcutsHelp } = useKeyboardShortcutsHelp();
 
   React.useEffect(() => {
     if (user?.must_reset) {

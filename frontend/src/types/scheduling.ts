@@ -449,10 +449,6 @@ export interface CreateScheduleFormData {
   notification_contacts: string[];
 }
 
-export interface EditScheduleFormData extends CreateScheduleFormData {
-  schedule_id: string;
-}
-
 export interface CalendarViewSettings {
   view_type: 'day' | 'week' | 'month';
   start_date: Date;
@@ -484,63 +480,6 @@ export interface ScheduleActionsProps {
   operationStatus: SchedulingOperationStatus;
   disabled?: boolean;
 }
-
-export interface CalendarViewProps {
-  events: CalendarEvent[];
-  settings: CalendarViewSettings;
-  onSettingsChange: (settings: CalendarViewSettings) => void;
-  onEventClick: (event: CalendarEvent) => void;
-  loading?: boolean;
-}
-
-export interface QueueMonitorProps {
-  queueStatus: QueueStatus | null;
-  hamiltonStatus: HamiltonStatus | null;
-  onRefresh: () => void;
-  loading?: boolean;
-}
-
-export interface ConflictDetectorProps {
-  onCheckConflicts: (experiments: ConflictCheckRequest) => void;
-  conflicts: Record<string, ConflictInfo[]> | null;
-  loading?: boolean;
-}
-
-// Hook return types
-export interface UseSchedulingReturn {
-  state: SchedulingUIState;
-  actions: {
-    loadSchedules: (activeOnly?: boolean, focusScheduleId?: string | null) => Promise<void>;
-    loadArchivedSchedules: () => Promise<void>;
-    createSchedule: (data: CreateScheduleFormData) => Promise<void>;
-    updateSchedule: (scheduleId: string, data: UpdateScheduleRequest) => Promise<void>;
-    deleteSchedule: (schedule: ScheduledExperiment) => Promise<void>;
-    archiveSchedule: (schedule: ScheduledExperiment, archived: boolean) => Promise<void>;
-    requireRecovery: (scheduleId: string, note?: string) => Promise<void>;
-    resolveRecovery: (scheduleId: string, note?: string) => Promise<void>;
-    getQueueStatus: () => Promise<void>;
-    getSchedulerStatus: () => Promise<void>;
-    getCalendarData: (startDate?: Date, endDate?: Date) => Promise<{ events: CalendarEvent[]; error?: string }>;
-    checkConflicts: (request: ConflictCheckRequest) => Promise<{ conflicts: Record<string, ConflictInfo[]>; error?: string }>;
-    getExecutionHistory: (scheduleId?: string, limit?: number) => Promise<any[]>;
-    getScheduleExecutionSummary: (scheduleId: string) => Promise<any>;
-    selectSchedule: (schedule: ScheduledExperiment | null) => void;
-    clearError: () => void;
-  };
-}
-
-export interface UseCalendarReturn {
-  events: CalendarEvent[];
-  settings: CalendarViewSettings;
-  loading: boolean;
-  error: string | null;
-  actions: {
-    loadCalendarData: (startDate?: Date, endDate?: Date) => Promise<void>;
-    updateSettings: (settings: Partial<CalendarViewSettings>) => void;
-    refresh: () => Promise<void>;
-  };
-}
-
 // Constants and validation
 export const SCHEDULING_CONSTANTS = {
   MIN_ESTIMATED_DURATION: 1, // minutes
@@ -562,55 +501,6 @@ export const SCHEDULE_TYPE_OPTIONS = [
   { value: 'daily' as const, label: 'Daily' },
   { value: 'weekly' as const, label: 'Weekly' },
 ] as const;
-
-// Type guards for runtime type checking
-export const isScheduledExperiment = (obj: any): obj is ScheduledExperiment => {
-  return (
-    typeof obj === 'object' &&
-    obj !== null &&
-    typeof obj.schedule_id === 'string' &&
-    typeof obj.experiment_name === 'string' &&
-    typeof obj.experiment_path === 'string' &&
-    typeof obj.schedule_type === 'string' &&
-    typeof obj.estimated_duration === 'number' &&
-    typeof obj.created_by === 'string' &&
-    typeof obj.created_at === 'string' &&
-    typeof obj.updated_at === 'string' &&
-    typeof obj.is_active === 'boolean' &&
-    typeof obj.timeout_config === 'object' &&
-    Array.isArray(obj.prerequisites) &&
-    typeof obj.recovery_required === 'boolean'
-  );
-};
-
-export const isCalendarEvent = (obj: any): obj is CalendarEvent => {
-  return (
-    typeof obj === 'object' &&
-    obj !== null &&
-    typeof obj.event_id === 'string' &&
-    typeof obj.schedule_id === 'string' &&
-    typeof obj.title === 'string' &&
-    typeof obj.start_time === 'string' &&
-    typeof obj.end_time === 'string' &&
-    typeof obj.event_type === 'string' &&
-    typeof obj.experiment_name === 'string' &&
-    typeof obj.estimated_duration === 'number'
-  );
-};
-
-export const isJobExecution = (obj: any): obj is JobExecution => {
-  return (
-    typeof obj === 'object' &&
-    obj !== null &&
-    typeof obj.execution_id === 'string' &&
-    typeof obj.schedule_id === 'string' &&
-    typeof obj.experiment_name === 'string' &&
-    typeof obj.status === 'string' &&
-    typeof obj.retry_count === 'number' &&
-    typeof obj.created_at === 'string'
-  );
-};
-
 // Utility functions
 export const formatScheduleType = (scheduleType: string, intervalHours?: number): string => {
   switch (scheduleType) {
@@ -656,23 +546,6 @@ export const formatDuration = (minutes: number): string => {
   }
   
   return `${hours}h ${remainingMinutes}m`;
-};
-
-export const formatExecutionStatus = (status: string): { text: string; color: string } => {
-  switch (status.toLowerCase()) {
-    case 'pending':
-      return { text: 'Pending', color: '#f59e0b' }; // amber
-    case 'running':
-      return { text: 'Running', color: '#3b82f6' }; // blue
-    case 'completed':
-      return { text: 'Completed', color: '#10b981' }; // emerald
-    case 'failed':
-      return { text: 'Failed', color: '#ef4444' }; // red
-    case 'cancelled':
-      return { text: 'Cancelled', color: '#6b7280' }; // gray
-    default:
-      return { text: status, color: '#6b7280' };
-  }
 };
 
 export const getNextExecutionTime = (schedule: ScheduledExperiment): Date | null => {
