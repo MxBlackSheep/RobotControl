@@ -8,6 +8,11 @@ import { test, expect } from '@playwright/test';
  * - At 1280x720 log text gets at least 60% of the app height by default.
  * - A failed or malformed maintenance state never looks as if HxRun is allowed, and
  *   Refresh or Retry never overwrites the operator's reason draft.
+ * - A wrong current password shows "Unable to Change Password" with the server's reason,
+ *   keeps the form and session open, and never refreshes tokens or redirects to /login.
+ * - A successful password change closes the form and shows "Password Updated", which
+ *   closes by itself after about 5 seconds and does not return when the form reopens.
+ *   (The backend's 400-versus-401 contract is checked in backend/tests/test_auth.py.)
  */
 test.beforeEach(async ({ page }, info) => {
   if (info.title.startsWith('system appearance')) return;
@@ -90,4 +95,55 @@ test('system appearance follows OS changes and login exposes the same preference
   await page.getByRole('menuitemradio', { name: 'Dark', exact: true }).click();
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('data-appearance', 'dark');
+});
+
+test('change password explains a wrong current password and confirms success', async ({ page }, info) => {
+  const refreshes: string[] = [];
+  page.on('request', request => { if (request.url().includes('/api/auth/refresh')) refreshes.push(request.url()); });
+  // Same status and body as backend/api/auth.py for a wrong and a correct current password.
+  await page.route('**/api/auth/change-password', route => {
+    const { current_password } = route.request().postDataJSON();
+    return current_password === 'Correct!Pass1'
+      ? route.fulfill({ json: { success: true, message: 'Password changed successfully', data: { message: 'Password changed successfully' } } })
+      : route.fulfill({ status: 400, json: { success: false, message: 'Current password is incorrect', data: null,
+          error: { message: 'Current password is incorrect', code: 'BAD_REQUEST' } } });
+  });
+  await page.goto('/system-status');
+  const openForm = async () => {
+    await page.getByRole('button', { name: 'Account menu', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Change password', exact: true }).click();
+  };
+  const form = page.getByRole('dialog', { name: 'Change Password' });
+  await openForm();
+  await form.getByLabel('Current Password').fill('Wrong!Pass1');
+  await form.getByLabel(/^New Password/).fill('Fresh!Pass2');
+  await form.getByLabel('Confirm New Password').fill('Fresh!Pass2');
+  await form.getByLabel('Confirm New Password').press('Enter');
+
+  const failure = page.getByRole('dialog', { name: 'Unable to Change Password' });
+  await expect(failure).toContainText('Current password is incorrect');
+  await page.screenshot({ path: info.outputPath('wrong-current-password.png'), animations: 'disabled' });
+  expect(new URL(page.url()).pathname).toBe('/system-status');
+  expect(await page.evaluate(() => localStorage.getItem('access_token'))).toBe('viewer-admin');
+  expect(refreshes).toEqual([]);
+  await failure.getByRole('button', { name: 'Dismiss', exact: true }).click();
+  await expect(form).toBeVisible();
+  await expect(form.getByLabel(/^New Password/)).toHaveValue('Fresh!Pass2');
+
+  await form.getByLabel('Current Password').fill('Correct!Pass1');
+  await form.getByLabel('Confirm New Password').press('Enter');
+  const success = page.getByRole('dialog', { name: 'Password Updated' });
+  await expect(success).toBeVisible();
+  const shownAt = Date.now();
+  await expect(form).toBeHidden();
+  await page.screenshot({ path: info.outputPath('password-updated.png'), animations: 'disabled' });
+  await expect(success).toBeHidden({ timeout: 8000 });
+  const visibleMs = Date.now() - shownAt;
+  expect(visibleMs).toBeGreaterThanOrEqual(4000);
+  await info.attach('success-visible-ms', { body: JSON.stringify({ visibleMs }), contentType: 'application/json' });
+
+  await openForm();
+  await expect(form).toBeVisible();
+  await expect(form.getByLabel('Current Password')).toHaveValue('');
+  await expect(success).toBeHidden();
 });
