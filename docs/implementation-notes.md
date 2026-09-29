@@ -1,3 +1,9 @@
+## 2026-09-29 Database and scheduling guides rewritten by topic
+
+- `docs/maintenance/backend/database-maintenance-guide.md`, `backend/scheduling-maintenance-guide.md` and `frontend/database-frontend-maintenance-guide.md` are now single current-state guides (files, behavior, permissions and safety gates, checks, troubleshooting) without dated sections. Each claim was checked against the code on `main`; commands and the package contract are linked to `frontend/e2e/README.md`, `database_packages/` and the SQLite safety guide instead of repeated.
+- Corrected: the worker has seven dispatch gates, not three; backup restore does not take the scheduler's `database_change_guard`; `SQL_BACKUP_PATH` is resolved but unused (SQL Server writes to `LOCAL_BACKUP_PATH`); `DatabaseService` does not use the shared connection manager; the Database viewer is chosen on the server, not per browser; the table catalogue has no Important-only filter.
+- Removed: "how to extend" and merge-checklist sections, `/api/database` health endpoints and ad-hoc query tasks that no longer exist, `_ensure_schema`, `test_scheduling_pipeline.py`, and one-off verification history. Documentation only; no build or browser run.
+
 ## 2026-09-29 Code review cleanup toward 0.1.5
 
 - Polling owners recover from a request that never responds: a 20-second deadline aborts it, shows "Request timed out" and retries. Before, a held System Status response left Refresh disabled and the page "connected" indefinitely. Check: `frontend/e2e/status-stall-probe.py`.
