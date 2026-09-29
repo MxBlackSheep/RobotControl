@@ -453,7 +453,17 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
 
     setRestoreProgress(true);
     try {
-      await api.post('/api/admin/backup/restore', restoreRequest);
+      const response = await api.post('/api/admin/backup/restore', restoreRequest);
+
+      // A failed restore still answers HTTP 200, with { success: false, message, data.error_details }.
+      if (!response.data?.success) {
+        const details = response.data?.data?.error_details;
+        const message = [response.data?.message || 'Failed to restore backup', details]
+          .filter(Boolean)
+          .join('\n\n');
+        showStatusDialog('Restore Failed', message, 'error');
+        return;
+      }
 
       activateMaintenance(60000, 'Database restore is finishing.');
       startMaintenanceRecoveryWatcher();

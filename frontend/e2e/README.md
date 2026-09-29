@@ -32,6 +32,7 @@ This example checks Labware sizing. Narrow or broaden it to the actual change:
 | Camera | `camera.spec.ts` |
 | Scheduling and archives | `operations.spec.ts` |
 | Theme, navigation and system pages | `appearance.spec.ts`, `system-pages.spec.ts` |
+| Database restore dialog | `database-restore.spec.ts` |
 
 Use `--grep` for a specific case; use `npx playwright test --list --reporter=list`
 to list cases without running them.
