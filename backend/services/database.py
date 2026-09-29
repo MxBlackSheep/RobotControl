@@ -15,33 +15,10 @@ from collections import defaultdict
 
 import pyodbc
 
+from backend.config import settings
+from backend.utils.odbc_driver import build_connection_string
+
 logger = logging.getLogger(__name__)
-
-
-DEFAULT_PRIMARY: Dict[str, Any] = {
-    "driver": "{ODBC Driver 11 for SQL Server}",
-    "server": "LOCALHOST\\HAMILTON",
-    "database": "EvoYeast",
-    "user": "Hamilton",
-    "password": "mkdpw:V43",
-    "timeout": 5,
-}
-
-try:  # pragma: no cover - fallback for environments without backend.config
-    from backend.config import settings  # type: ignore
-except Exception:  # pragma: no cover
-    class _DefaultSettings:
-        DB_CONFIG_PRIMARY = DEFAULT_PRIMARY
-
-    settings = _DefaultSettings()
-
-
-
-def _get_config(name: str, fallback: Dict[str, Any]) -> Dict[str, Any]:
-    value = getattr(settings, name, None)
-    if isinstance(value, dict):
-        return value.copy()
-    return fallback.copy()
 
 
 @dataclass
@@ -82,7 +59,7 @@ class DatabaseService:
     """
 
     def __init__(self) -> None:
-        self._primary_config = _get_config("DB_CONFIG_PRIMARY", DEFAULT_PRIMARY)
+        self._primary_config = dict(settings.DB_CONFIG_PRIMARY)
 
         self._lock = threading.Lock()
         self._active_mode: Optional[str] = None
@@ -97,41 +74,9 @@ class DatabaseService:
     # ------------------------------------------------------------------
     # Connection helpers
     # ------------------------------------------------------------------
-    def _build_connection_string(self, config: Dict[str, Any]) -> str:
-        parts: List[str] = []
-
-        driver = config.get("driver")
-        if driver:
-            parts.append(f"DRIVER={driver}")
-
-        server = config.get("server")
-        if server:
-            parts.append(f"SERVER={server}")
-
-        database = config.get("database")
-        if database:
-            parts.append(f"DATABASE={database}")
-
-        user = config.get("user")
-        password = config.get("password")
-        trusted = str(config.get("trusted_connection", config.get("trust_connection", "no"))).lower()
-
-        if user and password:
-            parts.append(f"UID={user}")
-            parts.append(f"PWD={password}")
-        elif trusted in ("yes", "true"):
-            parts.append("Trusted_Connection=yes")
-
-        if config.get("encrypt"):
-            parts.append(f"Encrypt={config['encrypt']}")
-        if config.get("trust_server_certificate"):
-            parts.append(f"TrustServerCertificate={config['trust_server_certificate']}")
-
-        return ';'.join(parts)
-
     def _open_connection(self) -> Tuple[pyodbc.Connection, str]:
         config = self._primary_config
-        conn_str = self._build_connection_string(config)
+        conn_str = build_connection_string(config)
         timeout = config.get("timeout", 5)
 
         try:

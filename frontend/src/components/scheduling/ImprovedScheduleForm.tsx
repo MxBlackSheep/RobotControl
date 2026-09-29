@@ -19,7 +19,7 @@ import useMediaQuery from '@mui/material/useMediaQuery';
 import MethodPicker from './MethodPicker';
 import { useAuth } from '../../context/AuthContext';
 import { isLocalUser } from '../navigation';
-import { StatusSeverity } from '../StatusDialog';
+import { StatusMessage } from '../StatusDialog';
 import {
   Dialog,
   DialogTitle,
@@ -237,31 +237,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
   useEffect(() => { if (!open) labRequest.current += 1; }, [open]);
   const [selectedExperimentId, setSelectedExperimentId] = useState<string>('');
   const [experimentPrepOption, setExperimentPrepOption] = useState<'none' | 'schedule'>('none');
-  const [statusDialog, setStatusDialog] = useState<{
-    open: boolean;
-    title: string;
-    message: string;
-    severity: StatusSeverity;
-    autoCloseMs?: number;
-  }>({ open: false, title: '', message: '', severity: 'info' });
-
-  const showStatusDialog = ({
-    title = '',
-    message,
-    severity = 'info',
-    autoCloseMs,
-  }: {
-    title?: string;
-    message: string;
-    severity?: StatusSeverity;
-    autoCloseMs?: number;
-  }) => {
-    setStatusDialog({ open: true, title, message, severity, autoCloseMs });
-  };
-
-  const closeStatusDialog = () => {
-    setStatusDialog((prev) => ({ ...prev, open: false }));
-  };
+  const [notice, setNotice] = useState<StatusMessage | null>(null);
 
   const initializedSession = useRef(false);
   const experimentControlRef = useRef<HTMLDivElement>(null);
@@ -277,8 +253,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
     } catch (error) {
       console.error('Failed to load experiments:', error);
       const detail = error instanceof Error ? error.message : undefined;
-      showStatusDialog({
-        title: 'Failed to load experiments',
+      setNotice({
         message: detail
           ? `Unable to load available experiments.\n${detail}`
           : 'Unable to load available experiments. Please try again.',
@@ -317,7 +292,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
 
     if (initializedSession.current) return;
     initializedSession.current = true;
-    setStatusDialog(prev => ({ ...prev, open: false }));
+    setNotice(null);
 
     const defaultFormData: ScheduleFormData = {
       experiment_name: '',
@@ -470,8 +445,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
     }
 
     if (newErrors.length > 0) {
-      showStatusDialog({
-        title: 'Check schedule details',
+      setNotice({
         message: newErrors.join('\n'),
         severity: 'warning',
       });
@@ -491,8 +465,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
       await onSubmit(formData);
       onClose();
     } catch (error) {
-      showStatusDialog({
-        title: isAxiosError(error) && error.response?.status === 409 ? 'Schedule changed' : 'Save failed',
+      setNotice({
         message: isAxiosError(error) && error.response?.status === 409
           ? 'Schedule changed elsewhere. Your entries are kept. Reopen after refreshing to use the latest version.'
           : error instanceof Error ? error.message : 'Failed to save schedule',
@@ -527,7 +500,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
 
       <DialogContent dividers id="schedule-dialog-description">
         <Stack spacing={3}>
-          {statusDialog.open && <Alert severity={statusDialog.severity} onClose={closeStatusDialog} sx={{ whiteSpace: 'pre-line' }}>{statusDialog.message}</Alert>}
+          {notice && <Alert severity={notice.severity} onClose={() => setNotice(null)} sx={{ whiteSpace: 'pre-line' }}>{notice.message}</Alert>}
           {/* Experiment Selection Section */}
           <Box component="section">
             <Box sx={{ mb: 1.5 }}>

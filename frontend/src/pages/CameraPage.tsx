@@ -15,10 +15,9 @@ import { PageContent, PageHeader } from '../components/PageLayout';
  */
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Box, Typography, Button, Paper, Stack, LinearProgress, Chip } from '@mui/material';
+import { Box, Typography, Button, Paper, Stack, LinearProgress, Chip, CircularProgress } from '@mui/material';
 import { PlayArrow as PlayArrowIcon, Stop as StopIcon } from '@mui/icons-material';
-import { ButtonLoading } from '../components/LoadingSpinner';
-import { ServerError } from '../components/ErrorAlert';
+import StatusDialog from '../components/StatusDialog';
 import { buildApiUrl, buildWsUrl } from '@/utils/apiBase';
 import VideoArchiveTab, {
   type ExperimentFolder
@@ -588,15 +587,10 @@ const CameraPage: React.FC = () => {
       <PageHeader title={currentTab === 0 ? "Recordings" : "Live camera"} />
 
       {/* Error Display */}
-      {error && currentTab !== 1 && (
-        <ServerError
-          message={error}
-          retryable={true}
-          onRetry={handleRefresh}
-          onClose={() => setError('')}
-          sx={{ mb: 3 }}
-        />
-      )}
+      <StatusDialog
+        status={error && currentTab !== 1 ? { title: 'Server Error', message: error, severity: 'error', action: { label: 'Retry', onClick: handleRefresh } } : null}
+        onClose={() => setError('')}
+      />
 
       {downloadProgress && (
         <Paper sx={{ mb: 3, p: 2 }}>
@@ -655,12 +649,12 @@ const CameraPage: React.FC = () => {
               color={mySession?.websocket_state === 'connected' ? 'success' : 'default'} />
             {mySession ? <>
               <Button variant="outlined" startIcon={<StopIcon />} onClick={stopStreamingSession} disabled={streamingLoading}>
-                {streamingLoading ? <ButtonLoading message="" /> : 'Stop my live view'}
+                {streamingLoading ? <CircularProgress size={20} /> : 'Stop my live view'}
               </Button>
               <Button onClick={() => void reconnectLiveView()} disabled={streamingLoading}>Reconnect live view</Button>
             </> : <Button variant="contained" startIcon={<PlayArrowIcon />} onClick={() => void createStreamingSession()}
               disabled={streamingLoading || !streamingStatus?.enabled}>
-              {streamingLoading ? <ButtonLoading message="" /> : 'Start my live view'}
+              {streamingLoading ? <CircularProgress size={20} /> : 'Start my live view'}
             </Button>}
             {streamingStatus && !streamingStatus.enabled && <Typography variant="body2" color="error">Live viewing is currently disabled</Typography>}
           </>}

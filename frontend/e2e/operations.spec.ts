@@ -10,6 +10,8 @@ import { expect, test, type Page } from '@playwright/test';
  *   section switches; hidden history stops polling.
  * - Archive rows with long names stay readable; folders open without nested scroll areas
  *   and Back returns to the selected folder.
+ * - A failed history read shows one result dialog: Retry reads again and closes it on
+ *   success; Close dismisses it without another read; Tab stays inside the dialog.
  * Camera cases are in camera.spec.ts.
  */
 const schedules = Array.from({ length: 24 }, (_, index) => ({
@@ -118,4 +120,36 @@ test('phone archive opens files with readable rows and returns to folders', asyn
   await page.screenshot({ path: testInfo.outputPath('archive-files.png'), fullPage: true });
   await page.getByRole('button', { name: 'Back to folders', exact: true }).click();
   await expect(page.getByRole('button', { name: /Open folder Experiment recordings/ })).toBeFocused();
+});
+
+test('a failed history read shows one result dialog with Retry and Close', async ({ page }, testInfo) => {
+  await operations(page);
+  let reads = 0, fail = true;
+  await page.route('**/api/scheduling/executions/history**', route => {
+    reads++;
+    return fail ? route.fulfill({ status: 500, json: { detail: 'History store unavailable' } })
+      : route.fulfill({ json: { success: true, data: [] } });
+  });
+  await page.goto('/scheduling?section=history');
+  const dialog = page.getByRole('dialog', { name: 'Server Error' });
+  await expect(dialog).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(1);
+  await expect(dialog.getByRole('button', { name: 'Retry', exact: true })).toBeVisible();
+  for (let i = 0; i < 4; i++) await page.keyboard.press('Tab');
+  expect(await dialog.evaluate(element => element.contains(document.activeElement))).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('history-error-dialog.png') });
+
+  fail = false;
+  await dialog.getByRole('button', { name: 'Retry', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  expect(reads).toBe(2);
+
+  fail = true;
+  await page.getByRole('button', { name: 'Refresh', exact: true }).first().click();
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await page.waitForTimeout(500);
+  expect(reads).toBe(3);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
 });
