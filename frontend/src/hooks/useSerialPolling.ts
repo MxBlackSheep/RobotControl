@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+// A response that never arrives would otherwise hold the single request slot
+// forever: no further polls, Refresh disabled and a stale "connected" state.
+const REQUEST_DEADLINE_MS = 20000;
+
 /** One request and timer per owner. Visibility never changes the refresh policy. */
 export function useSerialPolling<T>(options: {
   request: (signal: AbortSignal) => Promise<T>;
@@ -9,6 +13,7 @@ export function useSerialPolling<T>(options: {
   maxRetries?: number;
   enabled?: boolean;
   identity?: string | null;
+  deadline?: number;
 }) {
   const latest = useRef(options);
   latest.current = options;
@@ -31,9 +36,17 @@ export function useSerialPolling<T>(options: {
     const abort = new AbortController();
     controller.current = abort;
     setPending(true);
-    const current = () => epoch === generation.current && !abort.signal.aborted;
+    // stop() advances the generation, so it also discards this result.
+    const current = () => epoch === generation.current;
     const request = latest.current.request;
-    const operation = Promise.resolve().then(() => request(abort.signal))
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    const expired = new Promise<never>((_, reject) => {
+      deadline = setTimeout(() => {
+        abort.abort();
+        reject(new Error('Request timed out'));
+      }, latest.current.deadline ?? REQUEST_DEADLINE_MS);
+    });
+    const operation = Promise.race([Promise.resolve().then(() => request(abort.signal)), expired])
       .then(value => {
         if (!current()) return;
         latest.current.onSuccess(value);
@@ -48,6 +61,7 @@ export function useSerialPolling<T>(options: {
         setRetries(failures.current);
         setError(cause instanceof Error ? cause.message : 'Request failed');
       }).finally(() => {
+        clearTimeout(deadline);
         if (!current()) return;
         flight.current = undefined;
         controller.current = undefined;

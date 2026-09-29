@@ -14,7 +14,7 @@ it('serializes manual refresh, ignores callback churn and keeps hidden-page cade
   await act(async () => {});
   rerender();
   act(() => { void result.current.refresh(); });
-  await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(15000); });
   expect(request).toHaveBeenCalledTimes(1);
   await act(async () => { resolve(1); });
   expect(success).toHaveBeenCalledWith(1);
