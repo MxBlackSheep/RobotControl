@@ -47,6 +47,10 @@ procedures or change data.
 
 ## Restore feedback
 
+Restore requests use a 660-second timeout: the backend's 600-second restore allowance
+plus a minute of overhead. Other API calls retain the shared 10-second timeout.
+The confirmation stays busy with Restore and Cancel disabled until a response or timeout.
+
 `DatabaseRestore.tsx` checks the restore response's `success` flag, including HTTP 200
 responses. Failure shows a `StatusDialog` with the server message and `data.error_details`
 (or a fallback), keeps the selected file and confirmation checks for retry, and does not

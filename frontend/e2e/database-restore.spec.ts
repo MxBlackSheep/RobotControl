@@ -13,6 +13,9 @@ import { mkdirSync } from 'node:fs';
  * - A non-2xx answer no longer shows its `detail`.
  * - One click sends the restore request more than once.
  * - Selecting a .bck opens an obsolete modal instead of showing the path inline.
+ * - A response after the shared 10 s timeout falsely fails, enables Cancel/Restore
+ *   while pending, or loses the actual success/failure response.
+ * The full 660 s timeout and real SQL timing are not exercised by these fixtures.
  * Real SQL Server restores and the failure body shape are checked by
  * backend/e2e/backup_restore_check.py.
  */
@@ -81,6 +84,38 @@ test('failed .bak restore shows Restore Failed with the reason and no maintenanc
   await expectFailure(page, confirm, [failed.message, failed.data.error_details], 'bak-failed');
   expect(sent).toEqual([{ filename: bak.filename }]);
 });
+
+for (const succeeds of [true, false]) {
+  test(`slow restore preserves pending state then reports ${succeeds ? 'success' : 'failure'}`, async ({ page }, testInfo) => {
+    await openRestore(page, { json: failed });
+    await page.unroute('**/api/admin/backup/restore');
+    const requests: unknown[] = [];
+    await page.route('**/api/admin/backup/restore', async route => {
+      requests.push(route.request().postDataJSON());
+      await new Promise(resolve => setTimeout(resolve, 12_000));
+      await route.fulfill({ json: succeeds ? { success: true } : failed });
+    });
+    await chooseBak(page);
+    const startedAt = Date.now();
+    const confirm = await confirmRestore(page);
+    await page.waitForTimeout(10_500);
+    await expect(confirm.getByRole('button', { name: 'Restoring...' })).toBeDisabled();
+    await expect(confirm.getByRole('button', { name: 'Cancel', exact: true })).toBeDisabled();
+    await expect(page.getByText('Restore Failed')).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath('restore-pending-after-10s.png'), animations: 'disabled' });
+    if (succeeds) {
+      await expect(page.getByRole('dialog', { name: 'Restore Started' })).toBeVisible();
+      await expect(confirm).toHaveCount(0);
+    } else {
+      await expectFailure(page, confirm, [failed.message, failed.data.error_details], 'slow-failed');
+    }
+    expect(requests).toEqual([{ filename: bak.filename }]);
+    await testInfo.attach('restore-timing.json', {
+      contentType: 'application/json',
+      body: JSON.stringify({ requests, elapsedMs: Date.now() - startedAt, responseDelayMs: 12_000 }),
+    });
+  });
+}
 
 test('failed .bck restore shows Restore Failed with the reason and no maintenance', async ({ page }) => {
   const sent = await openRestore(page, { json: failed });
