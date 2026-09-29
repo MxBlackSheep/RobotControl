@@ -161,7 +161,7 @@ This guide explains how the database utilities (backup, restore, metadata manage
    `BackupMetadataStore.list_backups` walks the `BACKUP_DIR`, pairs `.bak` files with `.json` metadata, and returns `BackupInfo` objects (or marks orphaned files as invalid).
 
 7. **Restore** (`POST /api/backup/restore`).  
-   Validates the filename, builds a multi-statement `RESTORE` script, and passes it to `SqlCommandExecutor.execute`. On failure it attempts to set the database back to multi-user mode before returning an error. On success the service immediately clears the connection pool, then pings the database until a fresh `SELECT 1` succeeds so the API is ready before the frontend resumes polling.
+   Validates the filename, builds a multi-statement `RESTORE` script, and passes it to `SqlCommandExecutor.execute` with `RESTORE_TIMEOUT`. On failure it attempts to set the database back to multi-user mode before returning an error. On success the service immediately clears the connection pool, then pings the database until a fresh `SELECT 1` succeeds so the API is ready before the frontend resumes polling.
 
 8. **Delete** (`DELETE /api/backup/{filename}`).
    Removes the `.bak` file, asks `BackupMetadataStore.delete_metadata_file` to remove the `.json`, and reports which files were deleted.
@@ -173,8 +173,10 @@ This guide explains how the database utilities (backup, restore, metadata manage
 
 ## 3. Key Data Structures & Configuration
 
-- `BACKUP_DIR`, `SQL_BACKUP_DIR` (`backend/services/backup.py`)  
-  Paths resolved from `LOCAL_BACKUP_PATH` / `SQL_BACKUP_PATH`. `BACKUP_DIR` is where `.bak` and `.json` files live on the host. `SQL_BACKUP_DIR` is the path SQL Server writes to (often the same as `BACKUP_DIR`, but may be a network share). Make sure SQL Server has permission to write to this location.
+- `BACKUP_DIR` (`backend/services/backup.py`)  
+  Resolved from `LOCAL_BACKUP_PATH` (default `data/backups`, relative to the app root). The `.bak` and `.json` files live here, and `BACKUP DATABASE` / `RESTORE DATABASE` receive this same path. SQL Server must therefore run on the same machine or see the folder under exactly the same name (for example the same UNC path), and its service account needs write access. The former `SQL_BACKUP_PATH` setting, meant for a SQL Server on a remote development VM, was removed; a leftover value in `.env` is ignored.
+- `BACKUP_TIMEOUT` (300 s) / `RESTORE_TIMEOUT` (600 s)  
+  How long `sqlcmd` may run for a backup or a restore before the service reports a timeout.
 
 - `BackupInfo`, `BackupResult`, `RestoreResult` (`backend/services/backup.py`)  
   Dataclasses used to serialise backup metadata/results. Frontend types map closely to these shapes.
@@ -232,7 +234,7 @@ This guide explains how the database utilities (backup, restore, metadata manage
 ## 6. Extension Points & Gotchas
 
 - **sqlcmd required**: The service no longer falls back to pyodbc. Ensure `sqlcmd` is installed and in PATH on the machine running RobotControl.
-- **Permissions**: SQL Server must have permission to write to `SQL_BACKUP_DIR`. Likewise, the RobotControl process must have permission to delete files there.
+- **Permissions**: SQL Server must have permission to write to `BACKUP_DIR`. Likewise, the RobotControl process must have permission to delete files there.
 - **Disk space**: Backups can be large. `create_backup` warns when disk checks fail but does not prevent the OS from running out of space. Monitor `get_performance_metrics()["health_info"]["available_disk_space_mb"]`.
 - **Metadata consistency**: Always use `BackupMetadataStore` to manipulate metadata. Writing JSON manually bypasses validation and breaks the UI.
 - **Maintenance mode**: The frontend sets a maintenance window when a restore starts. Keep this behaviour; cutting the restore short can leave the database in single-user mode.
@@ -266,7 +268,7 @@ This guide explains how the database utilities (backup, restore, metadata manage
    - The error message will mention “sqlcmd failed … not recognized”. Install the tool and rerun.
 
 2. **Backup file missing after success**  
-   - Confirm `SQL_BACKUP_DIR` points to a writable location.  
+   - Confirm SQL Server can write to `BACKUP_DIR` under that exact path (see section 3).  
    - Check antivirus or security software (they can quarantine `.bak` files).  
    - Make sure UNC paths are accessible under the service account.
 
