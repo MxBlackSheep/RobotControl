@@ -36,11 +36,13 @@ section bar. `SectionPanel` keeps visited sections mounted, and readers receive 
 sections do not load or poll.
 
 - Tables, Stored procedures and Data retrieval: any signed-in user.
-- Restore: admins or local sessions.
+- Restore is visible to admins or local sessions. Executing a restore requires a local
+  session with role `admin` or `user`; remote administrators can see the section but the API
+  rejects their restore request.
 - Operations, Manage packages and Database settings: local administrators only; the page does
   not render them for others.
 
-The backend enforces the same rules and is authoritative. The viewers never edit SQL, execute
+The backend is authoritative for every request. The viewers never edit SQL, execute
 procedures or change data.
 
 ## Tables

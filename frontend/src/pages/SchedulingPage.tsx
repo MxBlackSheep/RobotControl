@@ -41,7 +41,6 @@ import {
   CircularProgress
 } from '@mui/material';
 import {
-  ArrowBack as ArrowBackIcon,
   Add as AddIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
@@ -69,11 +68,7 @@ import { LibraryMethod } from '../types/scheduling';
 import ExecutionHistory from '../components/ExecutionHistory';
 import useScheduling from '../hooks/useScheduling';
 import { formatDuration, ScheduledExperiment, CreateScheduleFormData, UpdateScheduleRequest, SchedulingOperationStatus } from '../types/scheduling';
-import {
-  AuthenticationError,
-  AuthorizationError,
-  ServerError
-} from '../components/ErrorAlert';
+import StatusDialog from '../components/StatusDialog';
 import { DeleteConfirmationDialog } from '../components/ScheduleActions';
 
 type ScheduleFormValues = Partial<{
@@ -397,18 +392,8 @@ const SchedulingPage: React.FC = () => {
   // Access control - users and admins can view, only admins can control scheduler service
   if (!user) {
     return (
-      <AuthenticationError
-        title="Authentication Required"
-        message="Please log in to access experiment scheduling functionality."
-        retryable={false}
-        actions={
-          <Button
-            variant="contained"
-            onClick={() => navigate('/login')}
-          >
-            Go to Login
-          </Button>
-        }
+      <StatusDialog
+        status={{ title: 'Authentication Required', message: 'Please log in to access experiment scheduling functionality.', severity: 'warning', action: { label: 'Go to Login', onClick: () => navigate('/login') } }}
         onClose={() => navigate('/login')}
       />
     );
@@ -416,19 +401,8 @@ const SchedulingPage: React.FC = () => {
 
   if (!['admin', 'user'].includes(user.role)) {
     return (
-      <AuthorizationError
-        title="Insufficient Permissions"
-        message="Experiment scheduling requires user or administrator privileges. Contact your system administrator for access."
-        retryable={false}
-        actions={
-          <Button
-            startIcon={<ArrowBackIcon />}
-            onClick={() => navigate('/')}
-            variant="outlined"
-          >
-            Return to Dashboard
-          </Button>
-        }
+      <StatusDialog
+        status={{ title: 'Insufficient Permissions', message: 'Experiment scheduling requires user or administrator privileges. Contact your system administrator for access.', severity: 'warning', action: { label: 'Return to Dashboard', onClick: () => navigate('/') } }}
         onClose={() => navigate('/')}
       />
     );
@@ -583,7 +557,7 @@ const SchedulingPage: React.FC = () => {
           {!state.queueStatus.running_jobs && !state.queueStatus.queued_jobs && <Typography variant="body2">Queue empty</Typography>}
         </Stack>
       </Box>}
-      {state.error && <ServerError message={state.error} onClose={actions.clearError} retryable={false} />}
+      <StatusDialog status={state.error ? { title: 'Server Error', message: state.error, severity: 'error' } : null} onClose={actions.clearError} />
 
       {/* Main Content */}
       <Box sx={{ minWidth: 0 }}>
@@ -773,14 +747,10 @@ const SchedulingPage: React.FC = () => {
                       </Button>
                     </Stack>
 
-                    {logsError && (
-                      <ServerError
-                        title="Notification Logs Error"
-                        message={logsError}
-                        onClose={() => setLogsError(null)}
-                        onRetry={handleLogsRefresh}
-                      />
-                    )}
+                    <StatusDialog
+                      status={logsError ? { title: 'Notification Logs Error', message: logsError, severity: 'error', action: { label: 'Retry', onClick: handleLogsRefresh } } : null}
+                      onClose={() => setLogsError(null)}
+                    />
 
                     {logsLoading && state.notificationLogs.length === 0 ? (
                       <Box display="flex" justifyContent="center" py={4}>

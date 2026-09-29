@@ -26,6 +26,8 @@ Use this document whenever you need to touch real-time monitoring, experiment tr
 - `frontend/src/pages/MonitoringPage.tsx`  
   The System Status page: renders the data from `useMonitoring`, freshness chip and Refresh.
 
+SQL status calls and blocking Database/Experiments API calls run in Starlette's bounded worker pool. These display paths never cache scheduler dispatch decisions or Hamilton terminal state.
+
 **Rule of thumb:** Let the service singletons (`get_monitoring_service()`, `get_experiment_monitor()`) own their threads. Do not start extra loops somewhere else, or you will double-poll the database and spam clients.
 
 ---
@@ -36,7 +38,7 @@ Use this document whenever you need to touch real-time monitoring, experiment tr
 
 2. **Background loop** (`MonitoringService._monitoring_loop`) runs every 5 seconds:  
    - `_update_experiment_data()` pulls the latest experiment from `ExperimentMonitor`.  
-   - `_update_system_health()` takes the latest CPU/memory/disk sample from `health_sampler`.  
+   - `_update_system_health()` takes the latest CPU/memory/disk sample from `health_sampler`, which owns one five-second sampler started and stopped with the application. `/system-health` includes `sampled_at` (the frontend shows sample time, not request time); the first CPU sample is a warm-up value.  
    - `_update_db_performance()` calls `get_database_service().get_performance_stats()`.
 
 3. **Cached snapshots** live in `MonitoringService.last_experiment_data`, `last_system_health`, `last_db_performance`. These keep REST endpoints fast.
@@ -153,6 +155,3 @@ Call `get_monitoring_service().stop_monitoring()` (REST `/api/monitoring/stop` d
 
 Treat the services as the single source of truth. Update cached snapshots carefully, keep callbacks quick, and always double-check that the frontend normalises whatever shape you emit.
 
-# System metrics and API responsiveness (September 2026)
-
-`health_sampler` owns one five-second background sampler, started/stopped by application lifespan. `/system-health` includes `sampled_at`; CPU/memory/disk fields preserve their existing names. The first CPU sample is a warm-up value. The frontend uses sample time, not request time, for these metrics. SQL status calls run in Starlette's bounded worker pool, as do blocking Database/Experiments API calls. These display optimizations do not cache scheduler dispatch decisions or Hamilton terminal state.

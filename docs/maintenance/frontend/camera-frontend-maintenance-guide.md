@@ -1,11 +1,3 @@
-## September 2026 archive workspace
-
-- `VideoArchiveTab` uses the shared inspection workspace: folder selector plus files on wide containers, folder-to-files navigation with Back on phones. Selection, search and page state stay mounted across width changes.
-- File rows use natural height and local scrolling. Pagination (25/50/100 files) replaces fixed-height virtualization, bounding rendered rows while allowing long filenames and touch controls to wrap safely.
-- Keep lazy folder-loading callbacks, the folder cache and the existing download lifecycle. Display changes do not call camera hardware or recording APIs.
-- `CameraControls.active` pauses status polling when the live section is inactive. Collapsing camera settings does not pause polling. The shared document-visibility policy is unchanged.
-- Verify archive behavior with `operations.spec.ts`; retain `camera.spec.ts` for Fit, Fill, zoom, source resets, Escape focus, disconnect and mutation checks. Evidence is written to `test-output/viewer-verification`.
-
 # Camera frontend maintenance
 
 ## Active components
@@ -28,6 +20,8 @@ CameraControls uses one serial polling owner: cached health every five seconds, 
 
 Show camera capture and recording separately from Streaming Session's browser connection. Device changes, connect/reconnect and recording controls are admin-only; ordinary users retain live viewing permissions. Errors are persistent inline messages. Operation IDs/revisions prevent a status response from an earlier request prematurely replacing operation progress.
 
+`CameraControls.active` pauses status polling while the live section is not shown; collapsing the settings does not.
+
 Reconnect camera affects the shared source and can interrupt all viewers. Reconnect live view closes/replaces only that user's streaming session. It never changes recording intent or starts another camera. Stop My Stream remains independent of recording.
 
 ## Frames and performance
@@ -36,8 +30,22 @@ The page stores image availability; CameraViewport stores dimensions and viewing
 
 FrameFreshness samples monotonic receive time once per second and visibly marks an image stale after ten seconds without a frame. Identical image bytes still refresh receive time: this is not a motion detector. The overlay exists in inline and fullscreen views. Source generation changes clear obsolete images. Socket close/unmount detaches handlers and releases the local frame reference.
 
-## Archive behavior and checks
+## Archive
 
-Retain existing folder browsing, video preview and resumable downloads. Camera recovery does not change archive metadata or execute Hamilton methods.
+`VideoArchiveTab` uses the shared inspection workspace: folders beside files on wide
+containers, folder then files with Back on phones. Selection, search and page stay
+mounted across width changes. Rows have natural height and scroll locally; pagination
+(25/50/100 files) bounds the rendered rows so long names and touch controls can wrap.
+Keep the lazy folder loading, folder cache, video preview and resumable downloads.
+Archive display never calls camera hardware or recording APIs, changes archive metadata
+or runs Hamilton methods.
 
-The browser failure scenarios are declared in `frontend/e2e/camera.spec.ts` before the viewer implementation. Run the Playwright camera suite against the isolated E2E fixture. It checks 4:3, widescreen and portrait frames on desktop/phone, Fit geometry, Fill warnings, zoom/reset, one visible frame, unchanged session requests, stale/disconnected expanded viewing, polling while settings are collapsed and touch target sizes. It saves screenshots and JSON geometry/request reports alongside the Playwright report. Also retain the existing CameraControls and LiveFrame regression checks; do not add unit tests after implementation. Use an isolated package/data directory for actual camera checks. Physical disconnect/reconnect and long-duration recording remain hardware acceptance tasks.
+## Checks
+
+Failure cases are in the headers of `camera.spec.ts` (viewer: 4:3, widescreen and
+portrait frames, Fit/Fill/zoom, one visible frame, stale and disconnected expanded view,
+polling with settings collapsed, touch targets) and `operations.spec.ts` (archive). Both
+run against the isolated fixture and save screenshots and JSON reports to
+`test-output/viewer-verification`; `CameraControls.test.tsx` and `LiveFrame.test.tsx`
+remain. Physical disconnect/reconnect and long recordings are hardware acceptance tasks
+on an isolated package and data folder.

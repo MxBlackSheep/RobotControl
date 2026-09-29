@@ -12,13 +12,18 @@ versions, bundled tool details and authoring steps are owned by
 
 ## Files and ownership
 
-- `services/backup.py`: `BackupService` is the only entry point for backup, restore and
-  delete; it serializes them with `_operation_lock`. `SqlCommandExecutor` runs `sqlcmd -E`;
+- `services/backup.py`: `BackupService` is the entry point for backup, restore and
+  delete. Only creation and managed-file restore take `_operation_lock`; path restore and
+  deletion do not. `SqlCommandExecutor` runs `sqlcmd -E`;
   `BackupMetadataStore` owns the `.json` file beside each `.bak`. API routes and new code
   must not call the executor or write metadata directly. Routes: `api/backup.py`.
 - `services/database.py`: `DatabaseService` (singleton `get_database_service()`) opens its
   own pyodbc connections to the native SQL Server in `settings.DB_CONFIG_PRIMARY`. Monitoring
   and scheduling use it internally; there is no public raw-SQL route.
+- `utils/odbc_driver.py`: `build_connection_string` builds the native Database, Labware and
+  backup connection strings. `services/labware_connection.py` shares connection handling for
+  tip tracking and Cytomat, including driver fallback. Saved report sources keep their own
+  quoted connection strings and permission checks.
 - `services/workspace_database.py`: `WorkspaceDatabase` subclasses `DatabaseService` to browse
   the selected viewer connection, never the native connection. Routes: `api/database.py`.
 - `services/report_sources.py`: `ReportSources` owns saved connections, encrypted passwords,
@@ -50,16 +55,21 @@ included, times out after 300 seconds.
   a warning. After `BACKUP DATABASE` the service confirms the file exists, then saves metadata.
 - **List** (`GET /api/backup/list`): pairs `.bak` and `.json`, newest first. A `.bak` without
   metadata is listed as "[Orphaned backup - no metadata]".
-- **Restore** (`POST /api/backup/restore`): an admin, or a local user or admin. The request
-  names either a managed `filename` or a `file_path` to a `.bak`/`.bck`, never both. The script
-  sets `SINGLE_USER WITH ROLLBACK IMMEDIATE`, restores `WITH REPLACE`, then sets `MULTI_USER`;
-  a failure retries `MULTI_USER` and warns that the database may still be single-user. A path
-  restore runs the same statements through `db_connection_manager`
-  (`backend/core/database_connection.py`) and warns about files under 1 KB. After success,
-  `_recover_database_connections` resets the pools and retries `SELECT 1` for up to 30 seconds
-  so the API does not answer while SQL Server restarts; a timeout becomes a warning. Every
-  attempt is audit-logged. Restore does **not** take the scheduler's `database_change_guard`,
-  so it does not check for an active run; the operator must.
+- **Restore** (`POST /api/backup/restore`): local session with role `admin` or `user`;
+  `require_local_access` rejects remote administrators too. The request names either a managed
+  `filename` or a `file_path` to a `.bak`/`.bck`, never both. Managed-file restore sets
+  `SINGLE_USER WITH ROLLBACK IMMEDIATE`, restores `WITH REPLACE`, then sets `MULTI_USER`;
+  a failure retries `MULTI_USER` but does not check the executor's returned success flag,
+  so verify the database state after a failed restore. The path-restore method
+  currently fails before executing SQL: it calls `self._get_database_connection()`, which
+  `BackupService` does not define. Its file validation and intended pyodbc statements do not
+  make it a working alternative to managed-file restore.
+  After a successful managed restore, `_recover_database_connections` retries `SELECT 1`
+  through `open_restore_connection` with a 30-second retry window; a timeout becomes a warning.
+  Each attempt opens and closes a direct connection, trying Windows authentication to
+  `LOCALHOST\HAMILTON` first, then the configured `VM_SQL_*` login. There is no shared pool to
+  reset. Requests handled by the restore route are audit-logged. Restore does **not** take the
+  scheduler's `database_change_guard`, so it does not check for an active run; the operator must.
 - **Delete** (`DELETE /api/backup/{filename}`, local admin): removes `.bak` and `.json` and
   reports partial success if one remains. **Health** (`GET /api/backup/health`): admin.
 
@@ -211,8 +221,8 @@ catalogue → connections; publication takes catalogue then connections.
 ## Checks
 
 Commands, fixtures and evidence folders are in
-[frontend/e2e/README.md](../../../frontend/e2e/README.md) (sections Database packages and
-delivery logs, Report creation wizard, Configurable Database workspace). Each check lists its
+[frontend/e2e/README.md](../../../frontend/e2e/README.md) (section Database tools, packages and
+notifications). Each check lists its
 failure cases in its header:
 
 - `backend.e2e.database_tools_check`: operations, receipts, scheduler guard, workbook parity.

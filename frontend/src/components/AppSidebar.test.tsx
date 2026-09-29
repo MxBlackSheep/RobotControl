@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import { beforeEach, expect, it, vi } from 'vitest';
 import AppSidebar from './AppSidebar';
-import useKeyboardNavigation from '../hooks/useKeyboardNavigation';
+import { useKeyboardNavigation } from '../hooks/useKeyboardNavigation';
 import { allowedSections, useModuleSection, allowedSchedulingSections, SchedulingNavigationContext, useSchedulingSection, useSidebarLayout, visibleNavigation } from './navigation';
 import useMediaQuery from '@mui/material/useMediaQuery';
 vi.mock('@mui/material/useMediaQuery', () => ({default: vi.fn(() => false)}));

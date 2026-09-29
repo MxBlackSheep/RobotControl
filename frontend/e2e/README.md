@@ -107,101 +107,49 @@ Historical results and candidate paths belong in
 [implementation notes](../../docs/implementation-notes.md) and the corresponding
 release evidence, not in this current run guide. Existing reports are preserved.
 
-## Database packages and delivery logs
+## Database tools, packages and notifications
 
 Browser checks for package authoring, the report wizard and tool authoring were
-removed on 29 September 2026 because they no longer matched the screens; the HTTP
-and packaged checks below remain. Add new browser cases in the existing spec files
-when these screens next change.
+removed on 29 September 2026 because they no longer matched the screens; add cases to
+the existing spec files when those screens next change. The HTTP and packaged checks
+below remain. Run them from the repository root; each check's header lists its failure cases.
 
-For Python-defined tool addition/editing:
+| Check | Data it uses | What it covers |
+| --- | --- | --- |
+| `backend.e2e.database_tools_check` | Disposable SQLite-backed SQL rows | Authoring from an existing script, rejecting an unfinished adapter, ZIP build, update review/activation, workbook parity with the original script |
+| `backend.e2e.tool_authoring_check` | Disposable SQL Server databases and logins | Python-defined tool addition and editing |
+| `backend.e2e.report_wizard_check` | Disposable SQL Server databases and a SELECT-only login | Report creation; real SQL permission denial |
+| `backend.e2e.database_workspace_check` | The report-wizard SQL fixture plus a reader created through the API | Provisioning rollback, existing-login rejection, write denial, schema-qualified browsing, operation target revision, rollback/deduplication, nested import inspection, the zero-database example |
+| `backend.e2e.notification_delivery_check` | Local mail sink, disposable storage | Notification email delivery |
+| `database-tools.spec.ts`, `database-workspace.spec.ts` | Disposable package APIs, synthetic viewer data | Browser flows (the account flow stops at review) |
+| `backend.e2e.packaged_database_smoke` | A relocated copy of the candidate, Python/UV removed from PATH | Package upload and Excel output from the executable; `--wizard` adds DPAPI storage, a reader and browsing of the real SQL fixture |
 
 ```powershell
+.venv/Scripts/python.exe -X utf8 -W ignore::UserWarning -m backend.e2e.database_tools_check --evidence test-output/database-verification
 .venv/Scripts/python.exe -m backend.e2e.tool_authoring_check
-```
-
-The HTTP check creates/removes UUID-named disposable SQL Server databases and logins
-using Windows administrator authentication. It does not use laboratory tables.
-Evidence and downloaded workbook checksums belong in `test-output/tool-authoring-verification`.
-
-Focused checks from the repository root:
-
-```powershell
-.venv/Scripts/python.exe -W ignore::UserWarning -m backend.e2e.database_tools_check
+.venv/Scripts/python.exe -m backend.e2e.report_wizard_check
+.venv/Scripts/python.exe -m backend.e2e.database_workspace_check
 .venv/Scripts/python.exe -W ignore::UserWarning -m backend.e2e.notification_delivery_check
 Set-Location frontend
 npx playwright test database-tools.spec.ts --trace on
-Set-Location ..
-.venv/Scripts/python.exe -m backend.e2e.packaged_database_smoke dist/<candidate>/RobotControl
-```
-
-Evidence: `test-output/database-verification` and the current Playwright HTML report.
-Before the first reference comparison, download the revision in
-`database_packages/culture-history/UPSTREAM.txt` to
-`test-output/database-verification/upstream.py`.
-
-HTTP checks use disposable SQLite-backed SQL rows and real package/API code. SMTP
-uses a local mail sink and disposable storage. Browser checks use real package/report
-endpoints; notification rows are UI fixtures. The packaged check strips Python/UV
-from the child PATH and uploads a trusted fixture package into a temporary relocated
-executable. It substitutes database connections only in that disposable process;
-no production test endpoint is added. Real SQL Server/procedure/hardware behavior
-remains a VM check. Owned temporary processes and databases are removed afterwards.
-
-
-For authoring/update/workspace changes only, run `database_tools_check`. It also
-creates an author project from an existing script, rejects an unfinished adapter,
-builds its ZIP and exercises update review/activation without production data.
-Missing well fixtures compare selection and workbook output against the original
-script with legacy pandas string inference, including culture 98500000 on plate 985.
-For a package-only correction, `packaged_database_smoke` accepts `--report-package`
-to verify the ZIP against an existing executable without recompiling. Both HTTP and
-packaged checks accept `--evidence` to preserve earlier release results.
-
-## Report creation wizard
-
-Failure cases are in the header of `backend/e2e/report_wizard_check.py`. Use the current reference
-`upstream.py` from the preceding report verification, or fetch the pinned revision
-in `database_packages/culture-history/UPSTREAM.txt`, into the evidence directory.
-
-```powershell
-.venv/Scripts/python.exe -m backend.e2e.report_wizard_check
-.venv/Scripts/python.exe -X utf8 -W ignore::UserWarning -m backend.e2e.database_tools_check --evidence test-output/report-wizard-verification
-.venv/Scripts/python.exe -m backend.e2e.packaged_database_smoke dist/<candidate>/RobotControl --wizard --evidence test-output/report-wizard-verification
-```
-
-`report_wizard_check` uses local SQL Server `.\HAMILTON` with Windows administrator
-authentication to create uniquely named disposable databases and a SELECT-only
-login. It verifies actual SQL permission denial and removes its owned SQL objects.
-The packaged `--wizard` check uses the real disposable SQL fixture, checks DPAPI
-storage, package upload and Excel from a relocated executable with Python/UV absent
-from PATH. These commands neither inspect production rows nor change production
-grants. Evidence is under `test-output/report-wizard-verification`.
-
-
-## Configurable Database workspace
-
-```powershell
-.venv/Scripts/python.exe -m backend.e2e.database_workspace_check
-# Copy the pinned upstream.py from the preceding report evidence first.
-.venv/Scripts/python.exe -X utf8 -W ignore::UserWarning -m backend.e2e.database_tools_check --evidence test-output/database-workspace-verification
-npm --prefix frontend run build
-Set-Location frontend
 $env:ROBOTCONTROL_E2E_EVIDENCE='../test-output/database-workspace-verification'
 npx playwright test database-workspace.spec.ts --trace retain-on-failure
 Set-Location ..
-.venv/Scripts/python.exe -m backend.e2e.packaged_database_smoke dist/<candidate>/RobotControl --wizard --evidence test-output/database-workspace-verification
+.venv/Scripts/python.exe -m backend.e2e.packaged_database_smoke dist/<candidate>/RobotControl --wizard --evidence test-output/database-verification
 ```
 
-The workspace HTTP check reuses the real SQL fixture above and creates an additional
-reader through the reviewed API. It verifies provisioning rollback, existing-login
-rejection, write denial, schema-qualified browsing, operation target revision and
-rollback/deduplication, nested import inspection and the zero-database example.
-The legacy check retains scheduler safety gates and workbook parity. The browser
-uses disposable package APIs and synthetic viewer data; its account flow stops at
-review. The packaged wizard check now also creates a reader and browses the real
-SQL fixture. These SQL checks require Windows SQL administrator access only to
-create/drop UUID-named fixture objects; no production grants/rows are changed.
+Run only the rows that match the change. Before a workbook comparison, download the
+revision named in `database_packages/culture-history/UPSTREAM.txt` to `upstream.py`
+in the evidence folder; it checks selection and output against the original script with
+legacy pandas string inference, including culture 98500000 on plate 985. `--evidence`
+keeps an earlier release's results; `packaged_database_smoke --report-package ZIP`
+checks a package-only correction against an existing executable without recompiling.
+
+The SQL Server checks use local `.\HAMILTON` with Windows administrator authentication
+only to create and drop UUID-named databases and logins. No check reads laboratory rows,
+changes production grants or adds a production test endpoint, and each removes the
+processes and databases it created. Real SQL Server procedures, the ODBC driver and
+hardware remain a check on the VM; do not describe these fixtures as SQL Server validation.
 
 ## System Status stall check
 

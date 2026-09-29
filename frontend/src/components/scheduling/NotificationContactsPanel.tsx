@@ -32,7 +32,7 @@ import {
   Refresh as RefreshIcon,
 } from '@mui/icons-material';
 import { NotificationContact, NotificationContactPayload } from '../../types/scheduling';
-import StatusDialog, { StatusSeverity } from '../StatusDialog';
+import StatusDialog, { StatusMessage } from '../StatusDialog';
 
 interface NotificationContactsPanelProps {
   contacts: NotificationContact[];
@@ -67,31 +67,7 @@ const NotificationContactsPanel: React.FC<NotificationContactsPanelProps> = ({
   const [editingContact, setEditingContact] = useState<NotificationContact | null>(null);
   const [formData, setFormData] = useState<NotificationContactPayload>(defaultForm);
   const [saving, setSaving] = useState(false);
-  const [statusDialog, setStatusDialog] = useState<{
-    open: boolean;
-    title: string;
-    message: string;
-    severity: StatusSeverity;
-    autoCloseMs?: number;
-  }>({ open: false, title: '', message: '', severity: 'info' });
-
-  const showStatusDialog = ({
-    title = '',
-    message,
-    severity = 'info',
-    autoCloseMs,
-  }: {
-    title?: string;
-    message: string;
-    severity?: StatusSeverity;
-    autoCloseMs?: number;
-  }) => {
-    setStatusDialog({ open: true, title, message, severity, autoCloseMs });
-  };
-
-  const closeStatusDialog = () => {
-    setStatusDialog(prev => ({ ...prev, open: false }));
-  };
+  const [status, setStatus] = useState<StatusMessage | null>(null);
 
   const sortedContacts = useMemo(
     () =>
@@ -121,7 +97,7 @@ const NotificationContactsPanel: React.FC<NotificationContactsPanelProps> = ({
 
     if (result.error) {
       if (!options.silentError) {
-        showStatusDialog({
+        setStatus({
           title: 'Refresh Failed',
           message: result.error,
           severity: 'error',
@@ -131,7 +107,7 @@ const NotificationContactsPanel: React.FC<NotificationContactsPanelProps> = ({
     }
 
     if (!options.silentSuccess) {
-      showStatusDialog({
+      setStatus({
         title: 'Contacts Refreshed',
         message: 'Notification contacts updated.',
         severity: 'success',
@@ -179,7 +155,7 @@ const NotificationContactsPanel: React.FC<NotificationContactsPanelProps> = ({
   const handleSubmit = async () => {
     const validationError = validateForm();
     if (validationError) {
-      showStatusDialog({
+      setStatus({
         title: editingContact ? 'Unable to update contact' : 'Unable to create contact',
         message: validationError,
         severity: 'warning',
@@ -201,7 +177,7 @@ const NotificationContactsPanel: React.FC<NotificationContactsPanelProps> = ({
     setSaving(false);
 
     if (result.error) {
-      showStatusDialog({
+      setStatus({
         title: editingContact ? 'Update failed' : 'Creation failed',
         message: result.error,
         severity: 'error',
@@ -219,7 +195,7 @@ const NotificationContactsPanel: React.FC<NotificationContactsPanelProps> = ({
       ? 'Notification contact updated successfully.'
       : 'Notification contact created successfully.';
 
-    showStatusDialog({
+    setStatus({
       title: successTitle,
       message: refreshed
         ? successMessage
@@ -241,7 +217,7 @@ const NotificationContactsPanel: React.FC<NotificationContactsPanelProps> = ({
 
     const result = await onDelete(contact.contact_id);
     if (result.error) {
-      showStatusDialog({
+      setStatus({
         title: 'Delete failed',
         message: result.error,
         severity: 'error',
@@ -254,7 +230,7 @@ const NotificationContactsPanel: React.FC<NotificationContactsPanelProps> = ({
       silentError: true,
     });
 
-    showStatusDialog({
+    setStatus({
       title: 'Contact deleted',
       message: refreshed
         ? 'Notification contact deleted successfully.'
@@ -410,14 +386,7 @@ const NotificationContactsPanel: React.FC<NotificationContactsPanelProps> = ({
         </DialogActions>
       </Dialog>
       </Card>
-      <StatusDialog
-        open={statusDialog.open}
-        onClose={closeStatusDialog}
-        title={statusDialog.title}
-        message={statusDialog.message}
-        severity={statusDialog.severity}
-        autoCloseMs={statusDialog.autoCloseMs}
-      />
+      <StatusDialog status={status} onClose={() => setStatus(null)} />
     </>
   );
 };

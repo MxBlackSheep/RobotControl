@@ -70,7 +70,8 @@ Remote sessions are read-only; the backend enforces this.
 4. **Timeout action.** Timeout is measured from the scheduled start at actual launch, so queue
    delay counts. `continue` runs the method; `run_cleanup_and_terminate` runs the configured
    cleanup method instead and deactivates the schedule (a missing cleanup path fails the run).
-5. **Laboratory preparation** runs next (see below); a failure fails the run before launch.
+5. **Laboratory preparation** runs next for the original method (see below); a failure fails
+   the run before launch. The late-start cleanup method skips this preparation.
 6. **Launch.** `launch_guard` holds `_schedules_lock` and `_jobs_lock`, rechecks storage,
    recovery, Resume, maintenance and HxRun absence, then under the SQLite connection lock
    rechecks that the schedule is still active, unarchived and not flagged, writes the
