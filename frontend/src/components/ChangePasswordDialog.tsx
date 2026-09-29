@@ -49,7 +49,6 @@ const ChangePasswordDialog: React.FC<ChangePasswordDialogProps> = ({
     setNewPassword('');
     setConfirmPassword('');
     setError(null);
-    setSuccessMessage(null);
   };
 
   const handleSubmit = async (event: React.FormEvent) => {
