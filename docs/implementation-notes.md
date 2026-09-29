@@ -15,6 +15,8 @@
 
 ## 2026-09-29 Code review cleanup toward 0.1.5
 
+- Backups use one folder: removed the `SQL_BACKUP_PATH` setting (left over from remote-VM development and never used), so SQL Server and RobotControl both use `LOCAL_BACKUP_PATH`, default `<app root>/data/backups`. `.env.example` no longer points at the old VM share. Restores now get the 10-minute `RESTORE_TIMEOUT` instead of the 5-minute backup limit. Check: `backend/e2e/backup_restore_check.py` (disposable SQL Server database).
+
 - Polling owners recover from a request that never responds: a 20-second deadline aborts it, shows "Request timed out" and retries. Before, a held System Status response left Refresh disabled and the page "connected" indefinitely. Check: `frontend/e2e/status-stall-probe.py`.
 - Removed code nothing reaches: about 17,400 frontend lines (unrouted pages, hooks, utilities, five never-run Jest suites, unused packages, unconfigured ESLint) and about 8,800 backend lines (six dead modules including the unused job queue, monitoring WebSockets and the System Config API that wrote secrets to `.env`, ~40 endpoints with no caller). `/recovery/require` stays as an admin safety control. The frontend build now fails on unused locals.
 - Fixed restore from a `.bck` path, which always failed with NameError.
