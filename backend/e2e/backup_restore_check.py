@@ -16,6 +16,8 @@ or returns an empty message. A missing file, a folder or a wrong extension runs 
 failing first. An unrestorable `.bck` changes rows, hides SQL Server's error or leaves the
 database single-user. The disposable database and its backup files are removed afterwards,
 also when a step fails.
+Unavailable SQL authentication or cleanup errors must still produce the evidence report;
+the held connection must close even when the restore request or an assertion query fails.
 """
 import json
 import os
@@ -61,6 +63,7 @@ def run():
     server = backup_module.SQL_SERVER
     database = f'RC_BackupCheck_{uuid.uuid4().hex[:8]}'
     checks, commands, created = [], [], []
+    held = None
 
     def check(name, passed, detail=None):
         checks.append({'name': name, 'passed': bool(passed), 'detail': detail})
@@ -145,6 +148,7 @@ def run():
             check('.bck path restore uses RESTORE_TIMEOUT (600 s)', restore_timeouts() == [600], restore_timeouts())
             check('.bck path restore disconnects an open session', not session_alive(held))
             held.close()
+            held = None
             check('database is MULTI_USER after the .bck path restore', access() == 'MULTI_USER', access())
 
             sql(server, f"UPDATE [{database}].dbo.Sample SET Value = N'kept'")
@@ -159,7 +163,7 @@ def run():
             check('missing file, folder and .txt fail with a message before any SQL runs',
                   not commands and all(not b.get('success') and b.get('message') == 'Database restore failed'
                                        and (b.get('data') or {}).get('error_details') for b in bodies),
-                  {'bodies': bodies, 'sql': commands})
+                  {'bodies': bodies, 'sql': list(commands)})
             check('data unchanged after rejected paths', value() == 'kept', value())
 
             # Right extension and size, so the rejection has to come from SQL Server.
@@ -176,6 +180,11 @@ def run():
     except Exception:
         check('check ran without errors', False, traceback.format_exc())
     finally:
+        if held is not None:
+            try:
+                held.close()
+            except Exception:
+                check('held connection closed', False, traceback.format_exc())
         try:
             sql(server, f"IF DB_ID(N'{database}') IS NOT NULL BEGIN "
                         f'ALTER DATABASE [{database}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{database}] END')
@@ -183,13 +192,20 @@ def run():
             check('disposable database dropped', False, traceback.format_exc())
         for name in created:
             for path in (Path(service.backup_dir) / name, Path(service.backup_dir) / name.replace('.bak', '.json')):
-                path.unlink(missing_ok=True)
-        check('disposable database and backup files removed',
-              not sql(server, f"SELECT name FROM sys.databases WHERE name = N'{database}'")
-              and not any((Path(service.backup_dir) / name).exists() for name in created))
+                try:
+                    path.unlink(missing_ok=True)
+                except Exception:
+                    check('disposable backup file removed', False, traceback.format_exc())
+        try:
+            check('disposable database and backup files removed',
+                  not sql(server, f"SELECT name FROM sys.databases WHERE name = N'{database}'")
+                  and not any((Path(service.backup_dir) / name).exists() for name in created))
+        except Exception:
+            check('disposable cleanup verified', False, traceback.format_exc())
 
     result = {'command': '.venv/Scripts/python.exe -m backend.e2e.backup_restore_check',
               'commit': subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=ROOT, capture_output=True, text=True).stdout.strip(),
+              'working_tree': subprocess.run(['git', 'status', '--porcelain'], cwd=ROOT, capture_output=True, text=True).stdout.strip(),
               'server': server, 'database': database, 'backup_dir': service.backup_dir,
               'passed': all(c['passed'] for c in checks), 'checks': checks}
     EVIDENCE.mkdir(parents=True, exist_ok=True)
