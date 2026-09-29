@@ -37,7 +37,7 @@ import {
 } from '@mui/icons-material';
 import { schedulingAPI } from '../services/schedulingApi';
 import { useSerialPolling } from '../hooks/useSerialPolling';
-import ErrorAlert from './ErrorAlert';
+import StatusDialog from './StatusDialog';
 
 interface ExecutionHistoryProps {
   scheduleId?: string;
@@ -449,17 +449,10 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
       </Card>
 
       {/* Error Display */}
-      {error && (
-        <ErrorAlert
-          message={error}
-          severity="error"
-          category="server"
-          sx={{ mb: 2 }}
-          retryable={true}
-          onRetry={loadExecutionHistory}
-          onClose={polling.resetError}
-        />
-      )}
+      <StatusDialog
+        status={error ? { title: 'Server Error', message: error, severity: 'error', action: { label: 'Retry', onClick: loadExecutionHistory } } : null}
+        onClose={polling.resetError}
+      />
 
       {/* Loading */}
       {loading && <LinearProgress sx={{ mb: 2 }} />}

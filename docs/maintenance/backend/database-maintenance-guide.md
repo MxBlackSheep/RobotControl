@@ -122,7 +122,7 @@ This guide explains how the database utilities (backup, restore, metadata manage
   Contains `BackupService` plus two helpers: `SqlCommandExecutor` (runs sqlcmd commands) and `BackupMetadataStore` (writes/reads `.json` metadata). This is the core logic behind backup/restore features.
 
 - `backend/services/database.py`  
-  Houses utility functions for running ad-hoc SQL queries and listing tables (used by the “Database” admin page). It now targets only the primary SQL Server instance and sits in front of the shared database connection manager.
+  `DatabaseService` lists tables and reads data for the Database pages. It connects to the primary SQL Server with `settings.DB_CONFIG_PRIMARY`; every SQL Server connection string is built by `build_connection_string` in `backend/utils/odbc_driver.py` (Labware and Cytomat add driver fallback in `labware_connection.py`).
 
 - `backend/api/backup.py`  
   FastAPI routes for listing backups, creating/deleting them, restoring, and fetching health metrics. Calls into `BackupService` and emits audit logs.
@@ -180,10 +180,10 @@ This guide explains how the database utilities (backup, restore, metadata manage
   Dataclasses used to serialise backup metadata/results. Frontend types map closely to these shapes.
 
 - `SqlCommandExecutor`  
-  Provides `perform_backup` and `execute(sql, timeout=...)`. It always uses `sqlcmd`; if `sqlcmd` is missing or the command fails, the calling service handles the error. There is no pyodbc fallback anymore.
+  Provides `perform_backup` and `execute(sql, timeout=...)` through `sqlcmd`; if `sqlcmd` is missing or the command fails, the calling service handles the error. Restoring from a `.bck` path instead uses `open_restore_connection` (pyodbc: Windows login to `LOCALHOST\HAMILTON` first, then the `VM_SQL_*` login).
 
 - `BackupService._recover_database_connections`  
-  Runs right after a successful restore. It clears the pooled connections via `db_connection_manager.reset_pools()` and keeps trying `SELECT 1` until SQL Server responds, so the API does not hand control back while the database is still restarting.
+  Runs right after a successful restore and keeps trying `SELECT 1` through `open_restore_connection` for up to 30 seconds, so the API does not hand control back while the database is still restarting.
 
 - `BackupMetadataStore`  
   Handles writing `.json`, listing backups and removing metadata files. Keeps metadata logic out of the core service.

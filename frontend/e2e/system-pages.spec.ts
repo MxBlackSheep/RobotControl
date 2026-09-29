@@ -8,6 +8,9 @@ import { test, expect } from '@playwright/test';
 // - Database failures disappear inside a disclosure that was collapsed before data arrived.
 // - Opening details creates another polling owner or loses the retained stale reading.
 // - Connection identifiers or session counts overflow a 320px screen or trap keyboard focus.
+// Keyboard shortcuts:
+// - Alt+number stops navigating, or navigates while a dialog is open.
+// - ? no longer opens the help list, or the list disagrees with the shortcuts that work.
 
 test.beforeEach(async ({ page }) => { await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin')); });
 
@@ -98,4 +101,24 @@ test('administration gives storage health its own local section', async ({ page 
   await page.goto('/admin?section=storage');
   await expect(page.getByRole('heading', { name: 'Storage health', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'User Accounts', exact: true })).toHaveCount(0);
+});
+
+test('keyboard shortcuts navigate, show their help and yield to dialogs', async ({ page }) => {
+  await page.route('**/api/monitoring/**', route => route.fulfill({ json: { data: [] } }));
+  await page.route('**/api/camera/streaming/status', route => route.fulfill({ status: 503, json: {} }));
+  await page.goto('/about');
+  await page.keyboard.press('Alt+6');
+  await expect(page).toHaveURL(/\/system-status$/);
+  await page.keyboard.press('?');
+  const help = page.getByRole('dialog', { name: 'Keyboard Shortcuts' });
+  await expect(help).toBeVisible();
+  for (const text of ['Go to Scheduling', 'Go Back', 'Show Keyboard Shortcuts (this dialog)']) {
+    await expect(help.getByText(text, { exact: true })).toBeVisible();
+  }
+  await page.keyboard.press('Alt+8');
+  await expect(page).toHaveURL(/\/system-status$/);
+  await page.keyboard.press('Escape');
+  await expect(help).toBeHidden();
+  await page.keyboard.press('Alt+8');
+  await expect(page).toHaveURL(/\/about$/);
 });

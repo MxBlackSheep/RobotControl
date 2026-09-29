@@ -55,7 +55,7 @@ import {
   validateScheduleFormData,
   formatScheduleType
 } from '../types/scheduling';
-import { ServerError } from './ErrorAlert';
+import StatusDialog from './StatusDialog';
 
 interface CreateScheduleDialogProps {
   open: boolean;
@@ -182,14 +182,10 @@ const CreateScheduleDialog: React.FC<CreateScheduleDialogProps> = ({
 
   return (
     <>
-      {errors.length > 0 && (
-        <ServerError
-          title="Cannot Create Schedule"
-          message={errors.map((item) => `• ${item}`).join('\n')}
-          onClose={() => setErrors([])}
-          retryable={false}
-        />
-      )}
+      <StatusDialog
+        status={errors.length ? { title: 'Cannot Create Schedule', message: errors.map((item) => `• ${item}`).join('\n'), severity: 'error' } : null}
+        onClose={() => setErrors([])}
+      />
       <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
         <DialogTitle>
           <Stack direction="row" alignItems="center" spacing={1}>
@@ -461,14 +457,10 @@ const EditScheduleDialog: React.FC<EditScheduleDialogProps> = ({
 
   return (
     <>
-      {errors.length > 0 && (
-        <ServerError
-          title="Cannot Update Schedule"
-          message={errors.map((item) => `• ${item}`).join('\n')}
-          onClose={() => setErrors([])}
-          retryable={false}
-        />
-      )}
+      <StatusDialog
+        status={errors.length ? { title: 'Cannot Update Schedule', message: errors.map((item) => `• ${item}`).join('\n'), severity: 'error' } : null}
+        onClose={() => setErrors([])}
+      />
     <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
       <DialogTitle>
         <Stack direction="row" alignItems="center" spacing={1}>
