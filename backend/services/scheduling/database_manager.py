@@ -16,19 +16,11 @@ import sqlite3
 from backend.services.sqlite_safety import SafetyConflict, StorageUnavailable
 from pathlib import Path
 from typing import Dict, Any, List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from backend.services.database import get_database_service
 from backend.services.scheduling.sqlite_database import get_sqlite_scheduling_database
-from backend.models import (
-    HxRunMaintenanceState,
-    ScheduledExperiment,
-    JobExecution,
-    ManualRecoveryState,
-    NotificationContact,
-    NotificationLogEntry,
-    NotificationSettings,
-)
+from backend.models import HxRunMaintenanceState, ScheduledExperiment, JobExecution, NotificationContact, NotificationLogEntry, NotificationSettings
 from backend.constants import HAMILTON_STATE_MAPPING
 
 
@@ -383,13 +375,6 @@ class SchedulingDatabaseManager:
             raise SafetyConflict(self._lab_error)
         return self._lab
 
-    def get_evo_yeast_experiments(self, limit=200):
-        # Compatibility endpoint; never reinterpret another lab's identifiers.
-        if self.lab.adapter.id != 'evoyeast':
-            raise SafetyConflict('This installation uses a different lab integration.')
-        return [dict(ExperimentID=r['value'], UserDefinedID=r['label'], Note=r['note'],
-                     ScheduledToRun=r['selected']) for r in self.lab.adapter.choices(limit)]
-
     def get_latest_hamilton_run_state_by_name(
         self,
         method_name: str,
@@ -502,33 +487,6 @@ class SchedulingDatabaseManager:
         except Exception as exc:  # pragma: no cover - log only
             logger.debug("Abort state check failed for %s: %s", experiment.experiment_name, exc)
             return None
-
-    def get_upcoming_schedules(self, hours_ahead: int = 48) -> List[ScheduledExperiment]:
-        """Get scheduled experiments for the next N hours."""
-        try:
-            current_time = datetime.now()
-            end_time = current_time + timedelta(hours=hours_ahead)
-
-            # Get all active schedules and filter by time
-            all_schedules = self.sqlite_db.get_active_schedules()
-
-            upcoming: List[ScheduledExperiment] = []
-            for schedule in all_schedules:
-                if (
-                    schedule.start_time
-                    and schedule.start_time >= current_time
-                    and schedule.start_time <= end_time
-                ):
-                    upcoming.append(schedule)
-
-            # Sort by start time
-            upcoming.sort(key=lambda s: s.start_time or datetime.max)
-
-            return upcoming
-        except Exception as exc:  # pragma: no cover - log only
-            logger.error("Error getting upcoming schedules: %s", exc)
-            return []
-
 
 # Singleton instance management
 _db_manager_instance: Optional[SchedulingDatabaseManager] = None

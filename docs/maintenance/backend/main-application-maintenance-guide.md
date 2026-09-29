@@ -16,7 +16,7 @@ This guide explains how the FastAPI entry point, logging, static assets, and bui
   Builds rotating file handlers, optional JSON logs, and log rate limiting. Imported early in `main.py`.
 
 - API routers included by `main.py`:
-  - `backend/api/auth`, `backend/api/database`, `backend/api/camera`, `backend/api/monitoring`, `backend/api/scheduling`, `backend/api/labware`, `backend/api/maintenance`, `backend/api/admin`, `backend/api/system_config`, `backend/api/system`, `backend/api/experiments`.
+  - `backend/api/auth`, `backend/api/database`, `backend/api/camera`, `backend/api/monitoring`, `backend/api/scheduling`, `backend/api/labware`, `backend/api/maintenance`, `backend/api/admin`, `backend/api/system`, `backend/api/experiments`.
   - `backend/api/logfiles` (restricted read-only log browser/preview API for the LogFile frontend page).
 
 - Static asset helpers
@@ -176,7 +176,7 @@ This guide explains how the FastAPI entry point, logging, static assets, and bui
 
 2. **Static files return 404 in packaged build**  
    - Ensure `backend/embedded_static.py` exists and `EMBEDDED_MODE` is `True` (happens automatically when running as PyInstaller bundle).  
-   - From the repository root, run `uv run --locked python -c "from backend.services.embedded_resources import get_resource_manager; print(len(get_resource_manager().list_resources()))"` before rebuilding. Then start the executable and check `/` and a JavaScript asset URL to verify the compiled bundle itself.
+   - From the repository root, run `uv run --locked python -c "from backend.services.embedded_resources import get_resource_manager; print(get_resource_manager().get_resource('index.html') is not None)"` before rebuilding. Then start the executable and check `/` and a JavaScript asset URL to verify the compiled bundle itself.
 
 3. **Scheduler auto-starts when it should not**  
    - Confirm env var is exactly `disable`/`off`/`never`. A blank string resets to default (60 seconds).  

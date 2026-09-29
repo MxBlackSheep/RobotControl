@@ -67,7 +67,7 @@ def teardown_function():
 @pytest.mark.parametrize("threshold", [0, -1, 1.5, True, None, "3"])
 def test_create_rejects_invalid_log_inactivity_threshold(monkeypatch, threshold):
     scheduler = FakeScheduler()
-    monkeypatch.setattr(scheduling_api, "get_services", lambda: (scheduler, FakeDB(), object(), object()))
+    monkeypatch.setattr(scheduling_api, "get_services", lambda: (scheduler, FakeDB(), object()))
     response = client.post("/api/scheduling/create", json={
         "experiment_name": "test", "experiment_path": "test.med", "schedule_type": "once",
         "estimated_duration": 30, "log_inactivity_threshold_minutes": threshold,
@@ -78,7 +78,7 @@ def test_create_rejects_invalid_log_inactivity_threshold(monkeypatch, threshold)
 
 def test_threshold_defaults_and_update_omission_preserves_value(monkeypatch):
     scheduler, db = FakeScheduler(), FakeDB()
-    monkeypatch.setattr(scheduling_api, "get_services", lambda: (scheduler, db, object(), object()))
+    monkeypatch.setattr(scheduling_api, "get_services", lambda: (scheduler, db, object()))
     response = client.post("/api/scheduling/create", json={
         "experiment_name": "test", "experiment_path": "test.med", "schedule_type": "once", "estimated_duration": 30,
     }, headers={"x-forwarded-for": "127.0.0.1"})
@@ -101,7 +101,7 @@ def test_create_schedule_allows_same_start_minute(monkeypatch):
     monkeypatch.setattr(
         scheduling_api,
         "get_services",
-        lambda: (fake_scheduler, fake_db, object(), object()),
+        lambda: (fake_scheduler, fake_db, object()),
     )
 
     future_start = (datetime.now() + timedelta(days=1)).replace(hour=10, minute=0, second=45, microsecond=0)
@@ -127,7 +127,7 @@ def test_create_schedule_preserves_start_time_precision(monkeypatch):
     monkeypatch.setattr(
         scheduling_api,
         "get_services",
-        lambda: (fake_scheduler, fake_db, object(), object()),
+        lambda: (fake_scheduler, fake_db, object()),
     )
 
     future_start = (datetime.now() + timedelta(days=1)).replace(hour=10, minute=7, second=59, microsecond=0)
@@ -165,7 +165,7 @@ def test_update_schedule_allows_same_start_minute(monkeypatch):
     monkeypatch.setattr(
         scheduling_api,
         "get_services",
-        lambda: (fake_scheduler, fake_db, object(), object()),
+        lambda: (fake_scheduler, fake_db, object()),
     )
 
     response = client.put(
@@ -187,7 +187,7 @@ def test_create_schedule_rejects_past_start_time(monkeypatch):
     monkeypatch.setattr(
         scheduling_api,
         "get_services",
-        lambda: (fake_scheduler, fake_db, object(), object()),
+        lambda: (fake_scheduler, fake_db, object()),
     )
 
     past_start = (datetime.now() - timedelta(minutes=5)).replace(microsecond=0)

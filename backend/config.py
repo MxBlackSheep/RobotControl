@@ -3,8 +3,6 @@ Simplified Configuration Management for RobotControl Backend
 """
 
 import os
-import sys
-from typing import Dict, Any
 from pathlib import Path
 
 try:

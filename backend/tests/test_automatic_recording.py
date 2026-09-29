@@ -9,11 +9,9 @@ and proper integration with camera service and monitoring components.
 import pytest
 import threading
 import time
-import tempfile
-import shutil
-from unittest.mock import Mock, patch, MagicMock, PropertyMock, call
+from unittest.mock import Mock, patch, PropertyMock
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime
 from collections import deque
 
 import sys

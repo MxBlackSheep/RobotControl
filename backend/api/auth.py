@@ -39,13 +39,6 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=8, max_length=256)
 
-class RegisterResponse(BaseModel):
-    access_token: str
-    refresh_token: str
-    token_type: str = "bearer"
-    expires_in: int
-    user: Dict[str, Any]
-
 class ChangePasswordRequest(BaseModel):
     current_password: str = Field(..., min_length=1, max_length=256)
     new_password: str = Field(..., min_length=8, max_length=256)
@@ -55,27 +48,8 @@ class PasswordResetRequestBody(BaseModel):
     email: Optional[EmailStr] = None
     note: Optional[str] = Field(default=None, max_length=500)
 
-class LoginResponse(BaseModel):
-    access_token: str
-    refresh_token: str
-    token_type: str = "bearer"
-    expires_in: int
-    user: Dict[str, Any]
-
-
 class RefreshTokenRequest(BaseModel):
     refresh_token: str
-
-
-class UserResponse(BaseModel):
-    user_id: str
-    username: str
-    role: str
-    is_active: bool
-
-
-class MessageResponse(BaseModel):
-    message: str
 
 
 # Dependency to get auth service
@@ -118,33 +92,6 @@ async def get_current_user(
         )
     
     return user
-
-
-# Dependency to require admin role
-async def require_admin(
-    current_user: User = Depends(get_current_user),
-    auth_service: AuthService = Depends(get_auth_service_dep)
-) -> User:
-    """
-    FastAPI dependency to require admin role
-    
-    Args:
-        current_user: Current authenticated user
-        auth_service: Authentication service
-        
-    Returns:
-        User object if user is admin
-        
-    Raises:
-        HTTPException: If user is not admin
-    """
-    if not auth_service.is_admin(current_user):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin privileges required"
-        )
-    
-    return current_user
 
 
 # Authentication Endpoints
@@ -407,46 +354,6 @@ async def refresh_token(
         )
 
 
-@router.post("/logout")
-async def logout(
-    current_user: User = Depends(get_current_user)
-):
-    """
-    Logout user (token invalidation handled client-side)
-    
-    Args:
-        current_user: Current authenticated user
-        
-    Returns:
-        Success message
-        
-    Note:
-        In a stateless JWT system, logout is handled client-side by discarding tokens.
-        For additional security, a token blacklist could be implemented.
-    """
-    start_time = time.time()
-    
-    try:
-        # Create metadata
-        metadata = ResponseMetadata()
-        metadata.set_execution_time(start_time)
-        metadata.add_metadata("operation", "logout")
-        metadata.add_metadata("username", current_user.username)
-        
-        logger.info(f"User '{current_user.username}' logged out")
-        return ResponseFormatter.success(
-            data={"message": "Logged out successfully"},
-            metadata=metadata
-        )
-        
-    except Exception as e:
-        logger.error(f"Logout error for user '{current_user.username}': {e}")
-        return ResponseFormatter.server_error(
-            message="Logout failed due to server error",
-            details=str(e)
-        )
-
-
 @router.get("/me")
 async def get_current_user_info(
     current_user: User = Depends(get_current_user),
@@ -490,50 +397,6 @@ async def get_current_user_info(
         logger.error(f"Error getting user info for '{current_user.username}': {e}")
         return ResponseFormatter.server_error(
             message="Failed to get user information",
-            details=str(e)
-        )
-
-
-@router.get("/users")
-async def get_users(
-    current_user: User = Depends(require_admin),
-    auth_service: AuthService = Depends(get_auth_service_dep)
-):
-    """
-    Get list of all users (admin only)
-    
-    Args:
-        current_user: Current authenticated admin user
-        auth_service: Authentication service
-        
-    Returns:
-        List of all users
-    """
-    start_time = time.time()
-    
-    try:
-        user_list = auth_service.get_user_list()
-        stats = auth_service.get_auth_stats()
-        
-        data = {
-            "users": user_list,
-            "total_count": len(user_list),
-            "statistics": stats
-        }
-        
-        # Create metadata
-        metadata = ResponseMetadata()
-        metadata.set_execution_time(start_time)
-        metadata.add_metadata("operation", "get_user_list")
-        metadata.add_metadata("requested_by", current_user.username)
-        metadata.set_pagination(len(user_list))
-        
-        return ResponseFormatter.success(data=data, metadata=metadata)
-        
-    except Exception as e:
-        logger.error(f"Error getting user list: {e}")
-        return ResponseFormatter.server_error(
-            message="Failed to get user list",
             details=str(e)
         )
 
@@ -583,45 +446,6 @@ async def get_auth_status():
         logger.error(f"Auth status error: {e}")
         return ResponseFormatter.server_error(
             message="Authentication service status check failed",
-            details=str(e)
-        )
-
-
-@router.get("/health")
-async def health_check():
-    """
-    Authentication service health check endpoint
-    
-    Returns:
-        Service health status
-    """
-    start_time = time.time()
-    
-    try:
-        auth_service = get_auth_service()
-        stats = auth_service.get_auth_stats()
-        
-        data = {
-            "service": "authentication",
-            "status": "healthy",
-            "timestamp": datetime.now().isoformat(),
-            "details": {
-                "users_configured": stats["total_users"] > 0,
-                "admin_users_available": stats["admin_users"] > 0
-            }
-        }
-        
-        # Create metadata
-        metadata = ResponseMetadata()
-        metadata.set_execution_time(start_time)
-        metadata.add_metadata("operation", "health_check")
-        
-        return ResponseFormatter.success(data=data, metadata=metadata)
-        
-    except Exception as e:
-        logger.error(f"Auth health check error: {e}")
-        return ResponseFormatter.server_error(
-            message="Authentication service health check failed",
             details=str(e)
         )
 

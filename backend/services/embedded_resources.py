@@ -5,7 +5,7 @@ Provides caching and efficient serving of embedded frontend files.
 
 import hashlib
 from typing import Dict, Optional, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime
 import logging
 
 try:
@@ -33,10 +33,6 @@ class EmbeddedResourceManager:
             logger.info(f"Embedded mode active with {len(list_embedded_files())} files")
         else:
             logger.info("Running in development mode - serving files from disk")
-    
-    def is_embedded(self) -> bool:
-        """Check if running in embedded mode."""
-        return self._is_embedded
     
     def get_resource(self, path: str) -> Optional[Tuple[bytes, str, str]]:
         """
@@ -96,35 +92,6 @@ class EmbeddedResourceManager:
         """Generate ETag for content."""
         return f'"{hashlib.md5(content).hexdigest()}"'
     
-    def check_etag(self, path: str, client_etag: str) -> bool:
-        """
-        Check if client's ETag matches current resource.
-        
-        Args:
-            path: Resource path
-            client_etag: ETag from client's If-None-Match header
-            
-        Returns:
-            True if ETags match (resource not modified)
-        """
-        if not client_etag:
-            return False
-        
-        # Get current ETag
-        if path in self._etag_cache:
-            current_etag = self._etag_cache[path]
-        else:
-            resource = self.get_resource(path)
-            if not resource:
-                return False
-            _, _, current_etag = resource
-        
-        return client_etag == current_etag
-    
-    def list_resources(self) -> list:
-        """List all available embedded resources."""
-        return list_embedded_files()
-    
     def clear_cache(self):
         """Clear the resource cache."""
         self._cache.clear()
@@ -156,27 +123,6 @@ class EmbeddedResourceManager:
         
         return headers
     
-    def get_resource_info(self, path: str) -> Optional[Dict]:
-        """
-        Get information about a resource without loading its content.
-        
-        Args:
-            path: Resource path
-            
-        Returns:
-            Dictionary with resource metadata or None
-        """
-        file_data = get_embedded_file(path)
-        if not file_data:
-            return None
-        
-        return {
-            'path': path,
-            'mime_type': file_data.get('mime_type', 'application/octet-stream'),
-            'size': file_data.get('size', 0),
-            'compressed': file_data.get('compressed', False)
-        }
-
 # Global instance
 _resource_manager: Optional[EmbeddedResourceManager] = None
 

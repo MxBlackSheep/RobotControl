@@ -26,9 +26,6 @@ This guide walks through the authentication stack so you always know **which fil
 - `backend/api/admin.py` (`password_reset_*`, `users` routes)  
   Admin-only endpoints for resolving reset requests, toggling users, and updating emails.
 
-- `backend/security/security_manager.py`  
-  Optional “extra guard” (rate limits, IP blocking). Currently used selectively; keep it in mind if you add high-risk routes.
-
 - Frontend helpers  
   - `frontend/src/services/api.ts` (`authAPI.*`) – wraps REST calls.  
   - `frontend/src/context/AuthContext.tsx` – stores tokens, exposes `login`, `register`, `logout`, etc. All UI logins go through here.
@@ -126,9 +123,6 @@ This guide walks through the authentication stack so you always know **which fil
 1. Change `ROBOTCONTROL_ACCESS_TOKEN_MINUTES` / `ROBOTCONTROL_REFRESH_TOKEN_HOURS`.  
 2. Restart backend.  
 3. Tell the team: shorter windows mean more frequent refreshes—warn about UI prompts.
-
-### 6.4 Hook into the security manager
-If you wire routes through `SecurityManager`, call `security_manager.validate_request(request, "auth")` at the start of the endpoint. This enforces IP block lists and rate limits from a single place.
 
 ---
 

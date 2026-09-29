@@ -4,19 +4,14 @@ Experiments API endpoints
 Provides access to experiment data from Hamilton Vector database
 """
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, Depends
 from backend.services.database import get_database_service
 from backend.services.auth import get_current_user
 import logging
 import time
 
 # Import standardized response formatter
-from backend.api.response_formatter import (
-    ResponseFormatter, 
-    ResponseMetadata, 
-    format_success, 
-    format_error
-)
+from backend.api.response_formatter import ResponseFormatter, ResponseMetadata
 
 logger = logging.getLogger(__name__)
 
@@ -99,67 +94,3 @@ async def get_latest_experiment(current_user: dict = Depends(get_current_user)):
             details=str(e) if logger.level <= logging.DEBUG else None
         )
 
-@router.get("/health")
-async def experiments_health():
-    """
-    Health check endpoint for experiments service
-    """
-    start_time = time.time()
-    
-    try:
-        db = get_database_service()
-        # Simple query to test connection
-        result = await run_in_threadpool(db.execute_query, "SELECT 1 as test")
-        
-        if result.get("error"):
-            health_data = {
-                "status": "degraded", 
-                "database_accessible": False,
-                "service": "experiments"
-            }
-            
-            # Create metadata for degraded state
-            metadata = ResponseMetadata()
-            metadata.set_execution_time(start_time)
-            metadata.add_metadata("operation", "experiments_health")
-            metadata.add_metadata("health_status", "degraded")
-            metadata.add_metadata("database_accessible", False)
-            
-            return ResponseFormatter.service_unavailable(
-                message="Experiments service degraded",
-                details=result["error"],
-                data=health_data,
-                metadata=metadata
-            )
-        
-        health_data = {
-            "status": "healthy", 
-            "database_accessible": True,
-            "service": "experiments"
-        }
-        
-        # Create metadata for healthy state
-        metadata = ResponseMetadata()
-        metadata.set_execution_time(start_time)
-        metadata.add_metadata("operation", "experiments_health")
-        metadata.add_metadata("health_status", "healthy")
-        metadata.add_metadata("database_accessible", True)
-        
-        return ResponseFormatter.success(
-            data=health_data,
-            metadata=metadata,
-            message="Experiments service is healthy"
-        )
-        
-    except Exception as e:
-        health_data = {
-            "status": "degraded", 
-            "database_accessible": False,
-            "service": "experiments"
-        }
-        
-        return ResponseFormatter.server_error(
-            message="Experiments service health check failed",
-            details=str(e),
-            data=health_data
-        )

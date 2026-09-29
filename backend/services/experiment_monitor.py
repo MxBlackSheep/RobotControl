@@ -9,7 +9,7 @@ recording system. Includes graceful database failure handling and lazy connectio
 import threading
 import logging
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, Any, Optional, Callable, List
 from dataclasses import dataclass, field
 
@@ -181,14 +181,6 @@ class ExperimentMonitor:
         if callback not in self.completion_callbacks:
             self.completion_callbacks.append(callback)
         logger.debug(f"Added experiment completion callback: {callback.__name__}")
-    
-    def remove_completion_callback(self, callback: Callable[[ExperimentState], None]):
-        """Remove a completion callback"""
-        try:
-            self.completion_callbacks.remove(callback)
-            logger.debug(f"Removed experiment completion callback: {callback.__name__}")
-        except ValueError:
-            logger.warning(f"Callback {callback.__name__} not found in completion callbacks")
     
     def get_current_experiment(self) -> Optional[ExperimentState]:
         """Get the current experiment state (thread-safe)"""
@@ -421,28 +413,6 @@ class ExperimentMonitor:
         """Check if monitoring is currently active"""
         return self.is_running
     
-    def get_experiment_history(self, limit: int = 10) -> List[ExperimentState]:
-        """
-        Get recent experiment history
-        
-        Args:
-            limit: Maximum number of experiments to return
-            
-        Returns:
-            List of recent experiments, sorted by start time (newest first)
-        """
-        with self.monitor_lock:
-            experiments = list(self.experiment_history.values())
-            
-        # Sort by start time (newest first)
-        experiments.sort(
-            key=lambda exp: exp.start_time or datetime.min,
-            reverse=True
-        )
-        
-        return experiments[:limit]
-
-
 # Global instance management
 _experiment_monitor = None
 _monitor_lock = threading.Lock()

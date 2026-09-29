@@ -3,8 +3,6 @@ import { AxiosError, isAxiosError } from 'axios';
 import { schedulingAPI, schedulingService, normalizeManualRecovery } from '../services/schedulingApi';
 import {
   CalendarEvent,
-  ConflictCheckRequest,
-  ConflictInfo,
   CreateScheduleFormData,
   UpdateScheduleRequest,
   HamiltonStatus,
@@ -386,67 +384,6 @@ const useScheduling = () => {
     loadContacts(false);
   }, [loadContacts]);
 
-  const requireRecovery = useCallback(
-    async (scheduleId: string, note?: string): Promise<void> => {
-      setOperationStatus(SchedulingOperationStatus.Updating);
-      setError(null);
-      const scheduleFromState = schedules.find((schedule) => schedule.schedule_id === scheduleId);
-      const expected = scheduleFromState?.updated_at;
-      try {
-        const result = await schedulingService.requireRecovery(scheduleId, note, expected);
-        if (result.error) {
-          setError(result.error);
-          setOperationStatus(SchedulingOperationStatus.Error);
-          return;
-        }
-        if (result.manualRecovery !== undefined) {
-          setManualRecovery(result.manualRecovery ?? null);
-        }
-        const focusId = result.schedule?.schedule_id ?? scheduleId;
-        await loadSchedules(false, focusId);
-      } catch (err) {
-        setError(extractErrorMessage(err));
-        if (isAxiosError(err) && err.response?.status === 409) {
-          await loadSchedules(false, scheduleId);
-        }
-        setOperationStatus(SchedulingOperationStatus.Error);
-      }
-    },
-    [loadSchedules, schedules],
-  );
-
-  const resolveRecovery = useCallback(
-    async (scheduleId: string, note?: string): Promise<void> => {
-      if (!window.confirm('Confirm the robot is ready and HxRun is closed. Acknowledgement keeps queued jobs paused until you choose Resume queued jobs.')) return;
-      setOperationStatus(SchedulingOperationStatus.Updating);
-      setError(null);
-      const scheduleFromState = schedules.find((schedule) => schedule.schedule_id === scheduleId);
-      const expected = scheduleFromState?.updated_at;
-      try {
-        const result = await schedulingService.resolveRecovery(scheduleId, note, expected, manualRecovery?.safety_revision);
-        if (result.error) {
-          const refreshed = await schedulingService.getQueueStatus();
-          if (refreshed.manualRecovery) setManualRecovery(refreshed.manualRecovery);
-          setError(result.error);
-          setOperationStatus(SchedulingOperationStatus.Error);
-          return;
-        }
-        if (result.manualRecovery !== undefined) {
-          setManualRecovery(result.manualRecovery ?? null);
-        }
-        const focusId = result.schedule?.schedule_id ?? scheduleId;
-        await loadSchedules(false, focusId);
-      } catch (err) {
-        setError(extractErrorMessage(err));
-        if (isAxiosError(err) && err.response?.status === 409) {
-          await loadSchedules(false, scheduleId);
-        }
-        setOperationStatus(SchedulingOperationStatus.Error);
-      }
-    },
-    [loadSchedules, schedules, manualRecovery],
-  );
-
   const getQueueStatus = useCallback(async (): Promise<void> => {
     try {
       const result = await schedulingService.getQueueStatus();
@@ -497,14 +434,6 @@ const useScheduling = () => {
     [],
   );
 
-  const checkConflicts = useCallback(
-    async (
-      request: ConflictCheckRequest,
-    ): Promise<{ conflicts: Record<string, ConflictInfo[]>; error?: string }> =>
-      schedulingService.checkConflicts(request),
-    [],
-  );
-
   const getExecutionHistory = useCallback(
     async (scheduleId?: string, limit = 50): Promise<any[]> => {
       try {
@@ -513,21 +442,6 @@ const useScheduling = () => {
           throw new Error(data.message || 'Failed to load execution history');
         }
         return (data.data as any[]) ?? [];
-      } catch (err) {
-        throw new Error(extractErrorMessage(err));
-      }
-    },
-    [],
-  );
-
-  const getScheduleExecutionSummary = useCallback(
-    async (scheduleId: string): Promise<any> => {
-      try {
-        const { data } = await schedulingAPI.getScheduleExecutionSummary(scheduleId);
-        if (!data.success) {
-          throw new Error(data.message || 'Failed to load execution summary');
-        }
-        return data.data;
       } catch (err) {
         throw new Error(extractErrorMessage(err));
       }
@@ -626,14 +540,10 @@ const useScheduling = () => {
       updateNotificationSettings,
       sendNotificationTestEmail,
       loadNotificationLogs,
-      requireRecovery,
-      resolveRecovery,
       getQueueStatus,
       getSchedulerStatus,
       getCalendarData,
-      checkConflicts,
       getExecutionHistory,
-      getScheduleExecutionSummary,
       selectSchedule,
       clearError,
     }),
@@ -652,14 +562,10 @@ const useScheduling = () => {
       updateNotificationSettings,
       sendNotificationTestEmail,
       loadNotificationLogs,
-      requireRecovery,
-      resolveRecovery,
       getQueueStatus,
       getSchedulerStatus,
       getCalendarData,
-      checkConflicts,
       getExecutionHistory,
-      getScheduleExecutionSummary,
       selectSchedule,
       clearError,
     ],

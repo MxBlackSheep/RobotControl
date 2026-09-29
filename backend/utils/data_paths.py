@@ -3,7 +3,6 @@ Data path management for RobotControl executable.
 Handles creating and resolving data directories relative to executable location.
 """
 
-import os
 import sys
 import logging
 from pathlib import Path
@@ -92,40 +91,14 @@ class DataPathManager:
         """Get the temp directory path"""
         return self._data_dirs['temp']
     
-    def get_path(self, path_type: str) -> Path:
-        """Get a specific data path by type"""
-        if path_type not in self._data_dirs:
-            raise ValueError(f"Unknown path type: {path_type}. Available: {list(self._data_dirs.keys())}")
-        return self._data_dirs[path_type]
-    
     def get_backup_file_path(self, filename: str) -> Path:
         """Get full path for a backup file"""
         return self.backups_path / filename
-    
-    def get_video_file_path(self, filename: str) -> Path:
-        """Get full path for a video file"""
-        return self.videos_path / filename
-    
-    def get_log_file_path(self, filename: str) -> Path:
-        """Get full path for a log file"""
-        return self.logs_path / filename
-    
-    def get_config_file_path(self, filename: str) -> Path:
-        """Get full path for a config file"""
-        return self.config_path / filename
     
     def is_compiled_mode(self) -> bool:
         """Check if running in compiled executable mode"""
         return getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS')
     
-    def get_directory_info(self) -> Dict[str, str]:
-        """Get information about all data directories"""
-        return {
-            'base_path': str(self._base_path),
-            'mode': 'compiled' if self.is_compiled_mode() else 'development',
-            'directories': {name: str(path) for name, path in self._data_dirs.items()}
-        }
-
 # Global instance for easy access
 _path_manager: Optional[DataPathManager] = None
 
@@ -152,10 +125,6 @@ def get_videos_path() -> Path:
 def get_logs_path() -> Path:
     """Get the logs directory path"""
     return get_path_manager().logs_path
-
-def get_config_path() -> Path:
-    """Get the config directory path"""
-    return get_path_manager().config_path
 
 def get_backup_file_path(filename: str) -> Path:
     """Get full path for a backup file"""

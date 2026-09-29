@@ -399,31 +399,6 @@ class SchedulerEngine:
         with self._schedules_lock:
             return self._active_schedules.get(schedule_id)
     
-    def get_upcoming_jobs(self, hours_ahead: int = 48) -> List[ScheduledExperiment]:
-        """
-        Get scheduled experiments for the next N hours
-        
-        Args:
-            hours_ahead: Number of hours to look ahead
-            
-        Returns:
-            List of ScheduledExperiment objects
-        """
-        cutoff_time = datetime.now() + timedelta(hours=hours_ahead)
-        
-        with self._schedules_lock:
-            upcoming = []
-            for experiment in self._active_schedules.values():
-                if (experiment.is_active and 
-                    experiment.start_time and 
-                    self._ensure_naive_datetime(experiment.start_time) <= cutoff_time and
-                    self._ensure_naive_datetime(experiment.start_time) >= datetime.now()):
-                    upcoming.append(experiment)
-            
-            # Sort by start time
-            upcoming.sort(key=lambda x: x.start_time or datetime.max)
-            return upcoming
-    
     def get_status(self) -> Dict[str, Any]:
         """
         Get current scheduler status and statistics
@@ -504,25 +479,6 @@ class SchedulerEngine:
             "hamilton_available": not self.process_monitor.is_hamilton_running(),
         }
     
-    def add_event_callback(self, callback: Callable[[SchedulingEvent], None]):
-        """
-        Add event callback for scheduler notifications
-        
-        Args:
-            callback: Function to call when events occur
-        """
-        self._event_callbacks.append(callback)
-    
-    def remove_event_callback(self, callback: Callable[[SchedulingEvent], None]):
-        """
-        Remove event callback
-        
-        Args:
-            callback: Function to remove from callbacks
-        """
-        if callback in self._event_callbacks:
-            self._event_callbacks.remove(callback)
-
     def invalidate_schedule(self, schedule_id: str) -> None:
         """Remove a schedule from the in-memory cache without touching persistence."""
         with self._schedules_lock:
@@ -1238,11 +1194,6 @@ class SchedulerEngine:
             return None
         with self._contacts_lock:
             return self._notification_contacts.get(contact_id)
-
-    def iter_notification_contacts(self) -> List[NotificationContact]:
-        """Return a snapshot list of cached notification contacts."""
-        with self._contacts_lock:
-            return list(self._notification_contacts.values())
 
     # ------------------------------------------------------------------
     # Execution watchdog helpers

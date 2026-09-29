@@ -1,6 +1,6 @@
 """Local administrator review and repair of application SQLite storage."""
 import os
-from typing import Literal, Optional
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, StrictBool

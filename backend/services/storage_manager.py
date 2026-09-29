@@ -6,17 +6,16 @@ experiment folder management, and video archiving. Extracted from
 camera service for modular storage management.
 """
 
-import os
 import shutil
 import logging
 import threading
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional
 from collections import deque
 import time
 
-from backend.config import AUTO_RECORDING_CONFIG, CAMERA_CONFIG, VIDEO_PATH
+from backend.config import AUTO_RECORDING_CONFIG, VIDEO_PATH
 from backend.services.automatic_recording_types import (
     ArchiveResult, StorageCleanupResult
 )

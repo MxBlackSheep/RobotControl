@@ -147,7 +147,7 @@ def test_ordinary_edit_cannot_overwrite_a_concurrent_path_correction(client, ser
     import backend.api.scheduling as api
     method, schedule, target, preview = change
     manager = SimpleNamespace(get_schedule_by_id=service.db.get_schedule_by_id)
-    monkeypatch.setattr(api, 'get_services', lambda: (engine, manager, None, None))
+    monkeypatch.setattr(api, 'get_services', lambda: (engine, manager, None))
     normalize = api._normalize_schedule_request
     def relink_during_validation(*args):
         engine.change_library_method_path(service.db, method['method_id'], target, method['revision'], select(preview))
@@ -165,7 +165,7 @@ def test_schedule_archive_waits_for_path_change_and_preserves_it(client, service
     method, schedule, target, preview = change
     client.app.dependency_overrides[get_current_user] = lambda: {'username': 'tester', 'role': 'admin'}
     manager = SimpleNamespace(get_schedule_by_id=service.db.get_schedule_by_id, update_scheduled_experiment=service.db.update_schedule)
-    monkeypatch.setattr(api, 'get_services', lambda: (engine, manager, None, None))
+    monkeypatch.setattr(api, 'get_services', lambda: (engine, manager, None))
     entered, release, finished = Event(), Event(), Event()
     original = service.db.apply_method_path_change
     def blocked(*args):

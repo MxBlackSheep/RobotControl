@@ -51,7 +51,6 @@ export interface MonitoringData {
   experiments: ExperimentData[];
   system_health: SystemHealth;
   database_status: DatabaseStatus;
-  websocket_connections: number;
   last_updated: string;
   streaming_status?: StreamingServiceStatus | null;
 }
@@ -183,10 +182,6 @@ export const useMonitoring = (options: { autoRetry?: boolean; retryInterval?: nu
         experiments: normalizedExperiments,
         system_health: systemMetrics,
         database_status: systemPayload.database || null,
-        websocket_connections:
-          systemPayload.connections?.active
-          ?? systemPayload.websockets?.total_connections
-          ?? 0,
         last_updated: systemHealthData?.metadata?.timestamp || new Date().toISOString(),
         streaming_status: streamingStatus,
       };

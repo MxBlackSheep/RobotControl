@@ -70,7 +70,6 @@ from backend.api.admin import router as admin_router
 from backend.api.monitoring import router as monitoring_router
 from backend.api.experiments import router as experiments_router
 from backend.api.backup import router as backup_router
-from backend.api.system_config import router as system_config_router
 from backend.api.camera import router as camera_router
 from backend.api.scheduling import router as scheduling_router
 from backend.api.sqlite_health import router as sqlite_health_router
@@ -81,7 +80,6 @@ from backend.api.logfiles import router as logfiles_router
 
 # Import services for initialization
 from backend.services.database import get_database_service
-from backend.services.auth import get_auth_service
 from backend.services.monitoring import get_monitoring_service
 from backend.services.hxrun_maintenance import get_hxrun_maintenance_service
 
@@ -561,7 +559,6 @@ app.include_router(camera_router, prefix="/api", tags=["camera"])
 app.include_router(admin_router, prefix="/api/admin", tags=["admin"])
 app.include_router(backup_router, prefix="/api/admin/backup", tags=["backup", "admin"])
 app.include_router(monitoring_router, prefix="/api/monitoring", tags=["monitoring"])
-app.include_router(system_config_router, prefix="/api/admin/system", tags=["admin", "system"])
 app.include_router(system_router, tags=["system"])
 app.include_router(logfiles_router, tags=["logfiles"])
 app.include_router(scheduling_router, tags=["scheduling"])
@@ -774,11 +771,6 @@ async def api_info():
             "openapi_json": "/openapi.json"
         }
     }
-
-
-def create_app() -> FastAPI:
-    """Factory function to create the FastAPI app"""
-    return app
 
 
 def main():

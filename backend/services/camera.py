@@ -15,21 +15,18 @@ Features:
 
 import os
 import json
-import cv2
 import threading
 import time
 import logging
 import shutil
-from datetime import datetime, timedelta
+from datetime import datetime
 from collections import deque
 from pathlib import Path
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Any
 from concurrent.futures import ThreadPoolExecutor
 
 from backend.config import CAMERA_CONFIG, VIDEO_PATH
 from backend.services.camera_runtime import CameraRuntime
-from backend.constants import CAMERA_STREAM_FPS, VIDEO_CODEC, CAMERA_DETECTION_TIMEOUT
-from backend.models import CameraRecordingModel
 from backend.services.shared_frame_buffer import get_shared_frame_buffer
 from backend.services.storage_manager import get_storage_manager
 from backend.utils.data_paths import get_videos_path, is_compiled_mode
@@ -261,65 +258,6 @@ class CameraService:
             self.rolling_clips.clear()
             self.rolling_clips.extend(self._read_finalized_clips())
 
-    def _cleanup_old_clips(self):
-        """Clean up old clips beyond the rolling buffer limit"""
-        try:
-            with self.clips_lock:
-                current_count = len(self.rolling_clips)
-                logger.info(f"Auto-cleanup check: {current_count}/{self.rolling_clips_count} clips in buffer")
-                
-                # More aggressive cleanup - maintain exactly at limit, not over it
-                if current_count > self.rolling_clips_count:
-                    # Remove excess clips from filesystem
-                    clips_to_remove = current_count - self.rolling_clips_count
-                    logger.info(f"Removing {clips_to_remove} old clips to maintain limit of {self.rolling_clips_count}")
-                    
-                    removed_count = 0
-                    for _ in range(clips_to_remove):
-                        if self.rolling_clips:
-                            old_clip = self.rolling_clips.popleft()
-                            clip_path = Path(old_clip["path"])
-                            
-                            if clip_path.exists():
-                                try:
-                                    # Use os.remove for permanent deletion (bypasses recycle bin)
-                                    os.remove(str(clip_path))
-                                    removed_count += 1
-                                    logger.debug(f"Permanently deleted old clip: {clip_path.name}")
-                                except Exception as e:
-                                    logger.warning(f"Failed to permanently delete old clip {clip_path}: {e}")
-                    
-                    if removed_count > 0:
-                        logger.info(f"Cleanup completed: Permanently deleted {removed_count} old clips")
-                else:
-                    logger.info(f"No cleanup needed - within limit ({current_count} <= {self.rolling_clips_count})")
-                                    
-        except Exception as e:
-            logger.error(f"Error cleaning up old clips: {e}")
-    
-    def get_live_frame(self, camera_id: int) -> Optional[bytes]:
-        """
-        Get the latest frame from camera for live streaming
-        
-        Args:
-            camera_id: ID of the camera
-            
-        Returns:
-            JPEG encoded frame bytes or None
-        """
-        try:
-            from backend.services.live_streaming import get_live_streaming_service
-            streaming_service = get_live_streaming_service()
-            frame_bytes = streaming_service.get_latest_frame_bytes(timeout=0.05)
-            if frame_bytes:
-                return frame_bytes
-
-            return None
-                
-        except Exception as e:
-            logger.debug(f"Error getting live frame from camera {camera_id}: {e}")
-            return None
-    
     def archive_experiment_videos(self, experiment_id: int, method_name: str) -> str:
         """
         Archive recent rolling clips for an experiment without re-encoding.

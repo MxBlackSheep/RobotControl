@@ -53,7 +53,7 @@ def test_health_responds_while_email_or_recovery_is_waiting(monkeypatch, route, 
         return schedule  # Recovery succeeds even when its notification fails.
 
     engine = SimpleNamespace(require_manual_recovery=recovery, resolve_manual_recovery=recovery, get_manual_recovery_state=lambda: ManualRecoveryState())
-    monkeypatch.setattr(scheduling, "get_services", lambda: (engine, db, None, None))
+    monkeypatch.setattr(scheduling, "get_services", lambda: (engine, db, None))
 
     async def scenario():
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1") as client:
