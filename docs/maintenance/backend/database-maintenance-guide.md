@@ -44,11 +44,12 @@ versions, bundled tool details and authoring steps are owned by
 
 ## Backup and restore
 
-`LOCAL_BACKUP_PATH` resolves to `BACKUP_DIR` (relative paths from the application folder).
+`LOCAL_BACKUP_PATH` resolves to `BACKUP_DIR` (default `data/backups`, relative to the application folder).
 SQL Server writes the `.bak` directly to that path, so the SQL Server service account needs
-write access there and RobotControl needs read and delete access. `SQL_BACKUP_PATH` is
-resolved to `SQL_BACKUP_DIR`, but no code currently uses it. Every `sqlcmd` call, restore
-included, times out after 300 seconds.
+write access there and RobotControl needs read and delete access. Both must see the folder
+under the same path. The unused `SQL_BACKUP_PATH` setting has been removed; old values in
+`.env` are ignored. Backup commands use `BACKUP_TIMEOUT` (300 seconds); managed-file restore
+uses `RESTORE_TIMEOUT` (600 seconds). Recovery commands keep the 300-second default.
 
 - **Create** (`POST /api/backup/create`, local session): description required, at most 1,000
   characters; file name `<database>_<yyyymmdd_hhmmss>.bak`. The disk-space estimate only logs
@@ -231,14 +232,20 @@ failure cases in its header:
 - `backend.e2e.report_wizard_check`, `tool_authoring_check`, `bundled_tools_check`: real SQL
   permissions, authoring, publication and bundled tool updates.
 - `backend.e2e.packaged_database_smoke`: the same boundary in a relocated executable.
+- `.venv/Scripts/python.exe -m backend.e2e.backup_restore_check`: real SQL Server backup,
+  listing, managed-file restore, the restore timeout argument, invalid-backup rejection and
+  multi-user recovery using a disposable `RC_BackupCheck_<id>` database. Requires `sqlcmd`
+  and local Windows access to `LOCALHOST\HAMILTON`; evidence is written to
+  `test-output/backup-restore-verification/results.json`.
 - `uv run --locked python -m pytest backend/tests/test_database_service.py`: mocked native
   connection, paging and failure handling; no SQL Server.
 
 Real-SQL checks create UUID-named disposable databases and logins with local Windows
 administrator authentication and remove them; never point them at a deployment server. Fixture
 checks translate SQL and are not SQL Server validation: verify the actual ODBC driver, schema,
-`dbo.DeleteExperiment` and report output on the VM. No automated check covers backup and
-restore; after changing them, exercise create, list, restore and delete on a disposable database.
+`dbo.DeleteExperiment` and report output on the VM. The backup check removes its own files;
+it does not exercise the delete API, path restore or a restore lasting ten minutes. Verify
+those separately with disposable data when changing their behavior.
 
 ## Troubleshooting
 

@@ -264,21 +264,11 @@ try:
     else:
         # Relative path - resolve from compiled/dev base directory
         BACKUP_DIR = str((base_path / configured_backup_path).resolve())
-
-    sql_backup_path = str(settings.SQL_BACKUP_PATH).strip()
-    if not sql_backup_path:
-        SQL_BACKUP_DIR = BACKUP_DIR
-    elif os.path.isabs(sql_backup_path) or sql_backup_path.startswith(r"\\"):
-        SQL_BACKUP_DIR = sql_backup_path
-    else:
-        SQL_BACKUP_DIR = str((base_path / sql_backup_path).resolve())
     logger.debug(f"Backup directory resolved to: {BACKUP_DIR}")
-    logger.debug(f"SQL backup directory: {SQL_BACKUP_DIR}")
 
 except ImportError:
     # Fallback to the managed data/backups directory
     BACKUP_DIR = str(get_backups_path())
-    SQL_BACKUP_DIR = BACKUP_DIR
     logger.warning(f"Config import failed, using fallback directory: {BACKUP_DIR}")
 SQL_SERVER = "LOCALHOST\\HAMILTON"
 DATABASE_NAME = "EvoYeast"
@@ -897,10 +887,7 @@ class BackupService:
         # Use single path approach like PyQt5 (simpler and more reliable)
         backup_file_path = os.path.join(self.backup_dir, backup_filename)
         metadata_file_path = backup_file_path.replace('.bak', '.json')
-        
-        # For SQL Server command, use the same path (SQL Server can access local directories)
-        sql_backup_path = backup_file_path
-        
+
         # Use comprehensive operation tracking
         with operation_tracker('backup_create', {
             'filename': backup_filename,
@@ -934,8 +921,9 @@ class BackupService:
                     except Exception as e:
                         logger.warning(f"WARNING: Could not check disk space: {e}")
                     
-                    # Execute backup using streamlined sqlcmd command (compatible with Express)
-                    success, message = self._sql_executor.perform_backup(sql_backup_path)
+                    # SQL Server writes to the same path RobotControl reads, so it must
+                    # run on this machine or see BACKUP_DIR under the same name.
+                    success, message = self._sql_executor.perform_backup(backup_file_path)
                     if not success:
                         raise BackupOperationError(
                             f"SQL Server backup failed: {message}",
@@ -1047,8 +1035,8 @@ class BackupService:
                 logger.info(f"Starting restore from: {filename}")
                 logger.warning("Database will be temporarily unavailable during restore")
                 
-                success, message = self._sql_executor.execute(sql_command)
-                
+                success, message = self._sql_executor.execute(sql_command, timeout=RESTORE_TIMEOUT)
+
                 if not success:
                     error_msg = f"SQL Server restore failed: {message}"
                     logger.error(error_msg)
