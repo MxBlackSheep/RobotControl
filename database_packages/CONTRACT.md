@@ -16,7 +16,8 @@ its root (no enclosing folder, binaries, symlinks or nested directories). Use on
 self-contained Python module per entry point; sibling-module imports are not part
 of this first contract. Upload through **Database → Manage packages**.
 
-Use the same `build` command for a starter package. No manual ZIP assembly is needed.
+Build a starter package with the `build` command in the [README](README.md#existing-projects-and-drafts);
+no manual ZIP assembly is needed.
 
 The manifest declares `contract_version: 1`, a unique lowercase hyphenated package
 `id`, display `name`, three-part `version`, `libraries`, and a `tools` array. Each
@@ -46,13 +47,17 @@ cursors. Never keep a connection or per-request state in module globals.
 
 Version 1 remains supported without changing its calculations. Its report connection
 requires an explicit `primary` mapping in Manage packages; a missing mapping blocks
-generation. Operations retain their existing writer and safety checks.
+generation. Operations retain their existing writer and safety checks. An operation's writable
+target is assigned locally in Manage packages, never in the package; changing it
+invalidates pending operation confirmations.
 
 Version 2 reports declare `sources`, a list of logical aliases (up to eight). Local
 administrators map these to named SQL Server connections. Python receives them in
 `context.connections[alias]`; `context.connection` remains the `primary` alias or
-the first declared source. SQL dialect conversion is not automatic; SQLite is not
-implemented. Source mappings and credentials are excluded from exported packages.
+the first declared source. `sources: []` declares a report without a database:
+`context.connections` is empty and `context.connection` is None. SQL dialect conversion
+is not automatic; SQLite is not implemented. Source mappings and credentials are
+excluded from exported packages.
 
 Version 2 operations may also declare reading `sources` for lookup inputs and
 receive them in `context.connections`. Their `context.connection` remains the
@@ -125,20 +130,7 @@ Operation receipts survive restart under `data/database-tools/operations.sqlite3
 an interrupted execution is unknown and must be checked before repeating. There is
 no automatic retry of database changes. Temporary reports are removed on restart.
 
-## Verify and maintain
-
-Use the focused commands in `frontend/e2e/README.md`. The culture-history package
-records its exact upstream revision in `UPSTREAM.txt`. Its calculation functions
-retain upstream behavior, including latest-plate/first-parent choices. The adapter
-uses RobotControl's connection and output directory, reads rows through pyodbc
-directly, and avoids selecting the same OD column twice under different casing.
-Version 1.0.2 restores the original well sorting and first-N culture selection.
-It explicitly converts SQL NULL well labels to the string `None`, matching the
-original script's legacy pandas conversion. The pandas 3 crash and the additional
-1.0.1 rejection are removed. No CultureID pattern is filtered or special-cased.
-The reference check runs the original script with legacy string inference in the
-synchronous verifier; the production package never changes global pandas options.
-
+## API
 
 The application exposes `/api/database/tools/catalogue`, `/experiments`, `/packages`,
 `/operations/{id}/preview`, `/operations/execute`, `/reports/{id}` (POST), and
@@ -146,14 +138,19 @@ The application exposes `/api/database/tools/catalogue`, `/experiments`, `/packa
 removal, preview and execution additionally require a local administrator. The
 former `/api/database/query` and `/execute-procedure` routes return HTTP 410.
 
-Do not describe fixture checks as SQL Server validation: the disposable adapter
-translates the procedure and metadata queries. Verify the actual ODBC driver,
-schema, `dbo.DeleteExperiment` transaction behavior and report output on the VM.
+## Culture history package
 
+`culture-history/UPSTREAM.txt` records the exact upstream revision. The calculation
+functions keep upstream behavior, including latest-plate/first-parent choices, the
+original well sorting and first-N culture selection. The adapter supplies RobotControl's
+connection and output folder, reads rows through pyodbc, avoids selecting the same OD
+column twice under different casing, and converts SQL NULL well labels to the string
+`None` as the original script's pandas did. No CultureID pattern is filtered. The
+reference check runs the original script with legacy string inference in the verifier;
+the package never changes global pandas options.
 
-Contract 2 reports can declare `sources: []` for a report that needs no database.
-Then `context.connections` is empty and `context.connection` is None. Contract 1
-still requires its explicit `primary` read-only mapping. Operation packages are
-assigned a writable target locally through Manage packages; connection settings
-and credentials do not belong in the package. Updating those settings invalidates
-pending operation confirmations.
+## Verify
+
+Use the database section of `frontend/e2e/README.md`. Those checks use disposable
+fixtures; verify the actual ODBC driver, schema, `dbo.DeleteExperiment` transaction
+behavior and report output on the VM.
