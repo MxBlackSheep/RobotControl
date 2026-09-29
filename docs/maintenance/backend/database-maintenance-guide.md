@@ -49,7 +49,7 @@ SQL Server writes the `.bak` directly to that path, so the SQL Server service ac
 write access there and RobotControl needs read and delete access. Both must see the folder
 under the same path. The unused `SQL_BACKUP_PATH` setting has been removed; old values in
 `.env` are ignored. Backup commands use `BACKUP_TIMEOUT` (300 seconds); managed-file restore
-uses `RESTORE_TIMEOUT` (600 seconds). Recovery commands keep the 300-second default.
+and path restore use `RESTORE_TIMEOUT` (600 seconds). Recovery commands keep the 300-second default.
 
 - **Create** (`POST /api/backup/create`, local session): description required, at most 1,000
   characters; file name `<database>_<yyyymmdd_hhmmss>.bak`. The disk-space estimate only logs
@@ -61,11 +61,12 @@ uses `RESTORE_TIMEOUT` (600 seconds). Recovery commands keep the 300-second defa
   `filename` or a `file_path` to a `.bak`/`.bck`, never both. Managed-file restore sets
   `SINGLE_USER WITH ROLLBACK IMMEDIATE`, restores `WITH REPLACE`, then sets `MULTI_USER`;
   a failure retries `MULTI_USER` but does not check the executor's returned success flag,
-  so verify the database state after a failed restore. The path-restore method
-  currently fails before executing SQL: it calls `self._get_database_connection()`, which
-  `BackupService` does not define. Its file validation and intended pyodbc statements do not
-  make it a working alternative to managed-file restore.
-  After a successful managed restore, `_recover_database_connections` retries `SELECT 1`
+  so verify the database state after a failed restore. Path restore
+  (`restore_backup_from_path`) first rejects a missing file, a folder or an extension other
+  than `.bak`/`.bck` without running SQL, then runs the same script through sqlcmd under the
+  same operation lock. If SQL Server rejects it, `MULTI_USER` is set again. It does not
+  confine the path to the backup folder; SQL Server must be able to read the file.
+  After either restore succeeds, `_recover_database_connections` retries `SELECT 1`
   through `open_restore_connection` with a 30-second retry window; a timeout becomes a warning.
   Each attempt opens and closes a direct connection, trying Windows authentication to
   `LOCALHOST\HAMILTON` first, then the configured `VM_SQL_*` login. There is no shared pool to
@@ -233,8 +234,8 @@ failure cases in its header:
   permissions, authoring, publication and bundled tool updates.
 - `backend.e2e.packaged_database_smoke`: the same boundary in a relocated executable.
 - `.venv/Scripts/python.exe -m backend.e2e.backup_restore_check`: real SQL Server backup,
-  listing, managed-file restore, the restore timeout argument, invalid-backup rejection and
-  multi-user recovery using a disposable `RC_BackupCheck_<id>` database. Requires `sqlcmd`
+  listing, managed-file and `.bck` path restore (with an open session), the restore timeout
+  argument, invalid path and invalid-backup rejection and multi-user recovery using a disposable `RC_BackupCheck_<id>` database. Requires `sqlcmd`
   and local Windows access to `LOCALHOST\HAMILTON`; evidence is written to
   `test-output/backup-restore-verification/results.json`.
 - `uv run --locked python -m pytest backend/tests/test_database_service.py`: mocked native

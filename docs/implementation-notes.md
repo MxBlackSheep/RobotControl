@@ -1,3 +1,10 @@
+## 2026-09-29 Restore from a `.bck` path works
+
+- Database Restore → `.bck` (`POST /api/admin/backup/restore` with `file_path`) failed on every request: `BackupService.restore_backup_from_path` called `_get_database_connection`, which only `SqlCommandExecutor` defined. It now runs `SQL_RESTORE_TEMPLATE` through sqlcmd with `RESTORE_TIMEOUT` under the operation lock, like managed-file restore, and sets `MULTI_USER` again if SQL Server rejects the file. Both results now carry a message. The unused `_get_database_connection` wrapper is removed; `open_restore_connection` stays for connection recovery.
+- Not changed: a failed restore still returns HTTP 200 with `success: false`, and `DatabaseRestore.tsx` shows "Restore Started" for any 200.
+- Check: `backend.e2e.backup_restore_check` now also covers `.bck` path restore with an open session, invalid paths rejected before SQL, and an unrestorable `.bck`. Evidence: `test-output/backup-restore-verification/results.json`.
+- Merge review: the check now saves its report even when SQL authentication or cleanup fails, closes its held connection on exceptional exits, and records uncommitted changes alongside the commit identity. The restricted-process authentication failure is retained in `test-output/backup-restore-verification/authentication-failure.json`.
+
 ## 2026-09-29 Database and scheduling guides rewritten by topic
 
 - `docs/maintenance/backend/database-maintenance-guide.md`, `backend/scheduling-maintenance-guide.md` and `frontend/database-frontend-maintenance-guide.md` are now single current-state guides (files, behavior, permissions and safety gates, checks, troubleshooting) without dated sections. Each claim was checked against the code on `main`; commands and the package contract are linked to `frontend/e2e/README.md`, `database_packages/` and the SQLite safety guide instead of repeated.
