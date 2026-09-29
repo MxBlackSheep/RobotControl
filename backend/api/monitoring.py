@@ -100,7 +100,6 @@ async def get_system_health(current_user: dict = Depends(get_current_user)):
     start_time = time.time()
     
     try:
-        import psutil
         from datetime import datetime
         
         metrics = await run_in_threadpool(health_sampler.snapshot)

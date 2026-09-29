@@ -284,6 +284,7 @@ MAX_FILENAME_LENGTH = 255
 
 # SQL Commands
 SQL_RESTORE_TEMPLATE = """
+USE master;
 ALTER DATABASE [{database}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; 
 RESTORE DATABASE [{database}] 
 FROM DISK = N'{backup_path}' 
@@ -417,56 +418,22 @@ class SqlCommandExecutor:
 
     def perform_backup(self, backup_file_path: str) -> Tuple[bool, str]:
         """Execute a BACKUP DATABASE command using sqlcmd."""
-        import tempfile
-
+        sql = (
+            f"BACKUP DATABASE [{self.database}] "
+            f"TO DISK = N'{escape_sql_path(backup_file_path)}' "
+            "WITH FORMAT, INIT, NAME = 'Full Backup';"
+        )
+        success, message = self.execute(sql, timeout=BACKUP_TIMEOUT)
+        if not success:
+            return False, message
         try:
-            backup_sql_path = escape_sql_path(backup_file_path)
-            sql = (
-                f"BACKUP DATABASE [{self.database}] "
-                f"TO DISK = N'{backup_sql_path}' "
-                "WITH FORMAT, INIT, NAME = 'Full Backup';"
-            )
-
-            with tempfile.NamedTemporaryFile(mode="w", suffix=".sql", delete=False) as handle:
-                handle.write(sql)
-                temp_sql_file = handle.name
-
-            try:
-                command = f'sqlcmd -S "{self.server}" -i "{temp_sql_file}" -E'
-                logger.debug("Executing backup via sqlcmd: %s", sql)
-                result = subprocess.run(
-                    command,
-                    shell=True,
-                    capture_output=True,
-                    text=True,
-                    timeout=BACKUP_TIMEOUT,
-                )
-
-                output_text = (result.stdout or "") + (result.stderr or "")
-                if "Msg " in output_text and ("Level 15" in output_text or "Level 16" in output_text):
-                    logger.error("SQL Server reported errors: %s", output_text)
-                    return False, f"SQL Server error: {output_text}"
-
-                if result.returncode != 0:
-                    error_msg = result.stderr.strip() or "Unknown sqlcmd error"
-                    logger.warning("Simple backup failed: %s", error_msg)
-                    return False, f"sqlcmd failed: {error_msg}"
-            finally:
-                try:
-                    os.unlink(temp_sql_file)
-                except OSError:
-                    pass
-
             if os.path.exists(backup_file_path):
                 file_size = os.path.getsize(backup_file_path)
-                logger.info("Backup successful: %s", format_file_size(file_size))
                 return True, f"Backup created successfully ({format_file_size(file_size)})"
             return False, "Backup file was not created"
-        except subprocess.TimeoutExpired:
-            return False, f"Backup operation timed out after {BACKUP_TIMEOUT} seconds"
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.warning("Simple backup error: %s", exc)
-            return False, f"Simple backup error: {exc}"
+        except OSError as exc:
+            return False, f"Could not verify backup file: {exc}"
+
 
 
 def open_restore_connection(timeout: int):
@@ -956,9 +923,6 @@ class BackupService:
                     duration_ms=metrics.duration_ms
                 )
                 
-            except subprocess.TimeoutExpired as e:
-                raise BackupOperationError(f"Backup operation timed out after {BACKUP_TIMEOUT} seconds", "TIMEOUT")
-            
             except (BackupValidationError, BackupSecurityError) as e:
                 raise BackupOperationError(str(e), "VALIDATION_ERROR")
                 
@@ -976,6 +940,23 @@ class BackupService:
         """
         return self._metadata_store.list_backups()
     
+    def _restore_database(self, backup_path: str, warnings: List[str]) -> Tuple[bool, str]:
+        """Run under the caller's operation lock; recover MULTI_USER on SQL failure or timeout."""
+        command = SQL_RESTORE_TEMPLATE.format(
+            database=self.database_name, backup_path=escape_sql_path(backup_path)
+        )
+        success, message = self._sql_executor.execute(command, timeout=RESTORE_TIMEOUT)
+        if not success:
+            try:
+                recovered, detail = self._sql_executor.execute(
+                    f"USE master; ALTER DATABASE [{self.database_name}] SET MULTI_USER;"
+                )
+                if not recovered:
+                    warnings.append(f"Database may still be in single-user mode: {detail}")
+            except Exception as exc:
+                warnings.append(f"Database may still be in single-user mode: {exc}")
+        return success, message
+
     def restore_backup(self, filename: str) -> RestoreResult:
         """
         Restore database from backup file
@@ -1020,31 +1001,9 @@ class BackupService:
                 warnings.append("No metadata file found - proceeding with caution")
             
             with self._operation_lock:
-                # Execute SQL Server restore command
-                escaped_path = escape_sql_path(backup_path)
-                sql_command = SQL_RESTORE_TEMPLATE.format(
-                    database=self.database_name,
-                    backup_path=escaped_path
-                )
-                
-                # Execute restore via sqlcmd
-                logger.info(f"Starting restore from: {filename}")
-                logger.warning("Database will be temporarily unavailable during restore")
-                
-                success, message = self._sql_executor.execute(sql_command, timeout=RESTORE_TIMEOUT)
-
+                success, message = self._restore_database(backup_path, warnings)
                 if not success:
                     error_msg = f"SQL Server restore failed: {message}"
-                    logger.error(error_msg)
-                    
-                    # Try to return database to multi-user mode if possible
-                    try:
-                        recovery_cmd = f"ALTER DATABASE [{self.database_name}] SET MULTI_USER;"
-                        self._sql_executor.execute(recovery_cmd)
-                    except Exception as recovery_error:
-                        logger.error(f"Failed to recover database to multi-user mode: {recovery_error}")
-                        warnings.append("Database may still be in single-user mode")
-                    
                     return RestoreResult(
                         success=False,
                         message="Database restore failed",
@@ -1069,23 +1028,6 @@ class BackupService:
                     warnings=warnings if warnings else None
                 )
                 
-        except subprocess.TimeoutExpired:
-            logger.error(f"Restore operation timed out after {RESTORE_TIMEOUT} seconds")
-            
-            # Try to recover database state
-            try:
-                recovery_cmd = f"ALTER DATABASE [{self.database_name}] SET MULTI_USER;"
-                self._sql_executor.execute(recovery_cmd)
-            except Exception:
-                warnings.append("Database may be in an inconsistent state")
-            
-            return RestoreResult(
-                success=False,
-                message=f"Restore operation timed out after {RESTORE_TIMEOUT} seconds",
-                backup_filename=filename,
-                warnings=warnings if warnings else None
-            )
-            
         except (BackupValidationError, BackupSecurityError) as e:
             logger.error(f"Validation error during restore: {e}")
             return RestoreResult(
@@ -1140,15 +1082,8 @@ class BackupService:
             logger.info(f"Starting database restore from path: {backup_path}")
             
             with self._operation_lock, operation_tracker('restore_from_path', {'file_path': str(backup_path)}) as metrics:
-                sql_command = "USE master;\n" + SQL_RESTORE_TEMPLATE.format(
-                    database=self.database_name,
-                    backup_path=escape_sql_path(str(backup_path))
-                )
-                success, message = self._sql_executor.execute(sql_command, timeout=RESTORE_TIMEOUT)
-
+                success, message = self._restore_database(str(backup_path), warnings)
                 if not success:
-                    logger.error(f"SQL restore operation failed: {message}")
-                    self._sql_executor.execute(f"ALTER DATABASE [{self.database_name}] SET MULTI_USER;")
                     raise BackupError(f"Database restore failed: {message}")
 
                 logger.info("Database restore completed successfully")

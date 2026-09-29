@@ -9,7 +9,9 @@ Failure cases: with default settings the backup folder is <app root>/data/backup
 to the working directory. SQL Server writes the .bak to the same path RobotControl then checks
 and lists with its description. Restore returns a row changed after the backup to its
 backup-time value, and sqlcmd gets RESTORE_TIMEOUT (600 s), not the 300 s backup default. A file
-SQL Server rejects reports failure and leaves the database MULTI_USER.
+SQL Server rejects reports failure and leaves the database MULTI_USER. Both restore
+formats must work when the restoring connection starts inside the target database.
+A command timeout must attempt MULTI_USER recovery; failed recovery must warn.
 Restore from a `.bck` path (file_path) never reaches SQL Server; reports success while the old
 rows remain; is blocked by an open session instead of disconnecting it; uses the backup timeout;
 or returns an empty message. A missing file, a folder or a wrong extension runs SQL instead of
@@ -83,6 +85,10 @@ def run():
     execute = service._sql_executor.execute
     def recording_execute(command, *, timeout=backup_module.BACKUP_TIMEOUT):
         commands.append((command, timeout))
+        # Reproduce a login whose default database is the restore target, without
+        # changing any real login's settings.
+        if 'RESTORE DATABASE' in command:
+            command = f"USE [{database}];\n" + command
         return execute(command, timeout=timeout)
     service._sql_executor.execute = recording_execute
 
@@ -177,6 +183,16 @@ def run():
                   and 'SQL Server error' in ((body.get('data') or {}).get('error_details') or ''), body)
             check('unrestorable .bck leaves data unchanged and the database MULTI_USER',
                   value() == 'kept' and access() == 'MULTI_USER', {'value': value(), 'access': access()})
+            # Inject runner timeouts at the HTTP boundary, then confirm recovery is
+            # attempted and a failed recovery is retained in the API warning list.
+            for payload in ({'filename': filename}, {'file_path': str(Path(service.backup_dir) / bck)}):
+                commands.clear()
+                with patch.object(backup_module.subprocess, 'run', side_effect=subprocess.TimeoutExpired('sqlcmd', 600)):
+                    body = client.post('/api/admin/backup/restore', json=payload).json()
+                check('runner timeout fails restore and warns about failed MULTI_USER recovery',
+                      not body.get('success') and len(commands) == 2
+                      and 'timed out' in body['data']['error_details']
+                      and any('single-user' in w for w in body['data']['warnings']), body)
     except Exception:
         check('check ran without errors', False, traceback.format_exc())
     finally:

@@ -8,14 +8,10 @@ from dataclasses import dataclass, field
 from datetime import datetime
 import uuid
 
-try:
-    from backend.utils.datetime import (
-        ensure_local_naive,
-        parse_iso_datetime_to_local,
-        utc_now_as_local_naive,
-    )
-except ImportError:  # pragma: no cover - fallback for legacy packaging
-    from utils.datetime import parse_iso_datetime_to_local, utc_now_as_local_naive
+from backend.utils.datetime import (
+    parse_iso_datetime_to_local,
+    utc_now_as_local_naive,
+)
 
 
 @dataclass

@@ -1,3 +1,11 @@
+## 2026-09-29 Repair restore browsing and retain sign-in during outages
+
+- The `.bck` browser consumes the real response envelope, loads typed paths on Enter/Go, ignores stale responses, clears old selections and preserves drive roots. Restore results say completed and retain server warnings; the backup button now names the managed `.bak` it creates.
+- Both restore paths share SQL execution and recovery, starting in `master`. Backup creation reuses the command runner. Removed unreachable timeout handlers, obsolete package import fallbacks, unused compatibility model copies/imports and frontend debug logging.
+- Saved sign-in survives temporary `/me` and token-refresh failures. The app waits for verification and retries; rejected credentials still return to login. A late refresh cannot undo logout.
+- The original 140-pass/168-error backend run was caused by access denied to the existing pytest temporary directory. A fresh workspace `--basetemp` allows all 308 tests to pass. Browser fixtures cover recovery, rejected credentials, restore failure/success/warnings and directory navigation; the SQL E2E check restores only a disposable database, including connections starting inside the target database and simulated timeout recovery. Commands, build identity, outcomes and screenshots: `test-output/restore-session-review/verification.json`.
+- No executable candidate was requested or rebuilt; this verifies source and the production frontend build, not packaged deployment or robot hardware.
+
 ## 2026-09-29 Allow slow restore responses without losing failure feedback
 
 - PR #12's 660-second restore request timeout is combined with PR #10's response success check and PR #11's shared status dialog. Other API timeouts remain unchanged.

@@ -100,15 +100,9 @@ if not EMBEDDED_MODE:
     logger.info("Running in development mode - serving from filesystem")
 
 # Configure comprehensive logging with rotation and rate limiting
-try:
-    from backend.utils.data_paths import DataPathManager
-except ImportError:  # pragma: no cover - fallback for legacy packaging
-    from utils.data_paths import DataPathManager
+from backend.utils.data_paths import DataPathManager
 
-try:
-    from backend.utils.logging_setup import apply_rate_limit_filters, setup_logging
-except ImportError:  # pragma: no cover - fallback for legacy packaging
-    from utils.logging_setup import apply_rate_limit_filters, setup_logging
+from backend.utils.logging_setup import apply_rate_limit_filters, setup_logging
 
 
 def _env_flag(name: str, default: str = "0") -> bool:

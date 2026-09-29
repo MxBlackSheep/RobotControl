@@ -25,10 +25,19 @@ REST endpoints directly, or token storage and refresh fall out of step.
 1. `LoginPage` calls `useAuth().login`, which stores `access_token` and `refresh_token`
    in localStorage and sets `user`; App then renders the signed-in shell.
 2. On a 401 the response interceptor calls `/api/auth/refresh` once, stores the new
-   token and retries. If refresh fails it removes both tokens and returns to login.
-3. Anything that changes the tokens dispatches `ACCESS_TOKEN_UPDATED_EVENT` so other
-   tabs pick them up.
+   token and retries. A rejected refresh (401/403) removes both tokens and returns to login.
+   Network errors, timeouts and server errors retain credentials. A late refresh cannot
+   overwrite credentials after logout or a different login.
+3. A refreshed token dispatches `ACCESS_TOKEN_UPDATED_EVENT` to update the current
+   page's authentication context. This is not cross-tab synchronization.
 4. `logout` clears both tokens and `user`.
+
+On page load, `/api/auth/me` verifies the saved sign-in before App renders protected
+content. While the server is unavailable, App shows a connection message and retries
+after five seconds; each request still has a ten-second timeout. This request bypasses
+maintenance suppression so recovery can complete. A 401/403 rejects the sign-in;
+temporary failures do not remove tokens. Effect cleanup ignores late responses and
+cancels the retry timer. Browser checks: `frontend/e2e/auth-recovery.spec.ts`.
 
 Show failures with the shared `StatusDialog` (see the main application guide), using
 the server's message; do not swallow `AxiosError`. Password-reset requests send no

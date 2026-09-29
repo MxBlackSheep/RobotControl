@@ -29,20 +29,11 @@ from backend.services.auth import get_current_user, get_current_admin_user
 from backend.services.camera import get_camera_service
 
 # Import types and config with proper package resolution
-try:
-    from backend.models import UserModel, ApiResponse
-except ImportError:  # pragma: no cover - fallback for legacy packaging
-    from models import UserModel, ApiResponse
+from backend.models import UserModel, ApiResponse
 
-try:
-    from backend.config import VIDEO_PATH, CAMERA_CONFIG
-except ImportError:  # pragma: no cover - fallback for legacy packaging
-    from config import VIDEO_PATH, CAMERA_CONFIG
+from backend.config import VIDEO_PATH, CAMERA_CONFIG
 
-try:
-    from backend.constants import ERROR_MESSAGES, WS_HEARTBEAT_INTERVAL
-except ImportError:  # pragma: no cover - fallback for legacy packaging
-    from constants import ERROR_MESSAGES, WS_HEARTBEAT_INTERVAL
+from backend.constants import ERROR_MESSAGES, WS_HEARTBEAT_INTERVAL
 
 # Import standardized response formatter
 
