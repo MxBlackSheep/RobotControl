@@ -8,6 +8,7 @@
 | Current backend behavior and troubleshooting | `maintenance/backend/` — choose the affected module |
 | Browser checks, fixture limits and repeat commands | [Browser run guide](../frontend/e2e/README.md) |
 | What changed and why | [Implementation notes](implementation-notes.md), newest first |
+| Open release work and review actions | [Release-readiness review](release-readiness-review-2026-09-29.md) — status table at the top |
 | Findings behind the current engineering rules | [Engineering review](engineering-review-2026-09-27.md) |
 
 Dated reviews and `plans/` record decisions and proposals at a point in time. They

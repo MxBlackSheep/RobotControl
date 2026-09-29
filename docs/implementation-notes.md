@@ -144,6 +144,12 @@
 - Validation: all 29 browser/HTTP E2E checks passed, including deterministic camera focus recovery during a source-change gap. Frontend build, resource embedding and Windows compilation passed. The relocated candidate passed authenticated archive reconstruction, actual log-root, orphan cleanup and desktop/phone browser checks with disposable data and automation disabled. Physical camera/SQL and native phone-keyboard/browser-zoom acceptance remain VM/operator checks.
 - Verification commands and limits: `frontend/e2e/README.md`. Retained reports, screenshots, traces and checksums: `recovery/viewer-verification/`. Windows candidate: `dist/viewer-review-20260926/RobotControl/` (copy the whole folder for VM testing).
 
+## 2026-09-26 Remote timeout investigation
+
+- Read-only probes reproduced intermittent pre-HTTP connection failure: 7/12 TCP timeouts, then five HTTP 200 responses; successful responses began about 0.30 seconds after connection. The development VM routes through its gateway, and ZeroTier peer state remained unavailable; the specific tunnel cause is unconfirmed.
+- Actual-browser/HTTP reproduction confirmed that a held System Status response blocks serial polling and disables Refresh without showing a connection error. An explicit HTTP failure recovered after 30 seconds. Reviewed the separate five-second camera-delivery cutoff; no production code/settings changed.
+- Repeatable harnesses and evidence remain Git-ignored under `recovery/20260926-remote-investigation/`. See `docs/remote-connection-review-2026-09-26.md` for findings, limitations and paired remote/local diagnostic steps. No executable rebuild was needed for this documentation-only review.
+
 ## 2026-09-17 Deployment recovery guidance and GitHub validation
 
 - Documented full executable/support-folder replacement and reviewed offline reconciliation of conflicting live/archive run history, preserving originals and explicit scheduler resume.
