@@ -38,7 +38,7 @@ The disposable fixture bundles the unchanged production `SystemStatus`, authenti
 - An explicit HTTP 502 instead displayed the connection error and automatically recovered after **30.030 seconds**, showing that pending and failed requests follow different paths.
 - The executable available under the local deployment folder contains source maps matching the reviewed `useSerialPolling.ts`, `useMonitoring.ts` and `services/api.ts`. This does not independently establish the executable on the remote LabPC.
 
-Harnesses and timestamped JSON evidence are retained locally under `recovery/20260926-remote-investigation/` and excluded from Git. `scenarios.md` was written before reproduction code. Run `serve_probe.py` with the project Python and follow its browser controls; run `network_probe.py` for a fresh timing capture. The disposable browser/server and generated bundle were cleaned up. This was a browser/HTTP integration reproduction, not a complete real-robot E2E or endurance test.
+Harnesses and timestamped JSON evidence were retained locally under `recovery/20260926-remote-investigation/`, excluded from Git. On 29 September 2026 the harnesses moved to `frontend/e2e/status-stall-probe.py` and `backend/scripts/network_probe.py`; that evidence folder was removed. `scenarios.md` was written before reproduction code. Run `serve_probe.py` with the project Python and follow its browser controls; run `network_probe.py` for a fresh timing capture. The disposable browser/server and generated bundle were cleaned up. This was a browser/HTTP integration reproduction, not a complete real-robot E2E or endurance test.
 
 ## Recommended next step
 
