@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def run(candidate):
-    evidence=Path(os.environ.get('ROBOTCONTROL_E2E_EVIDENCE', str(ROOT/'recovery/scheduling-lab-verification')))
+    evidence=Path(os.environ.get('ROBOTCONTROL_E2E_EVIDENCE', str(ROOT/'test-output/scheduling-lab-verification')))
     evidence.mkdir(parents=True,exist_ok=True)
     result=dict(passed=False, candidate=str(candidate), checks=[],
                 exe_sha256=hashlib.sha256((candidate/'RobotControl.exe').read_bytes()).hexdigest())
@@ -33,7 +33,7 @@ def run(candidate):
         with urllib.request.urlopen(req,timeout=15) as response: return json.load(response)
     process=None
     try:
-        with tempfile.TemporaryDirectory(prefix='relocated-scheduling-',dir=ROOT/'recovery') as temporary:
+        with tempfile.TemporaryDirectory(prefix='relocated-scheduling-',dir=ROOT/'test-output') as temporary:
             relocated=Path(temporary)/'Lab candidate in another folder'
             shutil.copytree(candidate,relocated,ignore=shutil.ignore_patterns('data'))
             data=relocated/'data';data.mkdir()

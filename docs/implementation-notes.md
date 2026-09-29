@@ -1,10 +1,12 @@
-## 2026-09-29 Release cleanup and v0.2.0-rc1
+## 2026-09-29 Code review cleanup toward 0.1.5
 
-- Polling owners now recover from a request that never responds: a 20-second deadline aborts it, shows "Request timed out", clears the connected state and retries. Before, a held System Status response left Refresh disabled and the page "connected" indefinitely. Verified in a real browser with `frontend/e2e/status-stall-probe.py`.
-- Backend suite is green (310 passed). 38 tests assumed a forwarded localhost header grants local access; they now use a loopback test client. SMTP fakes return smtplib's refused-recipient dict, and an interrupted monitor alert is expected as "unknown". Run pytest with `--basetemp` when the default temp folder is not writable.
-- One version, 0.2.0 (`backend/version.py`), matching `pyproject.toml` and `package.json`. Candidate `dist/v0.2.0-rc1/RobotControl/`, tag `v0.2.0-rc1`; packaged viewer check passed, evidence in `recovery/v0.2.0-rc1/`.
-- Removed unused loading helpers, the unreferenced Jest setup, a duplicate import, and anchored `.gitignore` root patterns. Deleted six superseded `dist/` candidates and pre-release `recovery/` evidence (about 2.2 GB); earlier notes that link those folders now point to removed local evidence. Kept `recovery/20260916-scheduling-conflict` (lab database copies) and `recovery/database-verification/upstream.py` (reference-comparison input).
-- Still open: nine stale frontend unit tests (Logs browser, schedule form, sidebar) and operation scripts holding scheduler locks. See `docs/release-readiness-review-2026-09-29.md`.
+- Polling owners recover from a request that never responds: a 20-second deadline aborts it, shows "Request timed out" and retries. Before, a held System Status response left Refresh disabled and the page "connected" indefinitely. Check: `frontend/e2e/status-stall-probe.py`.
+- Removed code nothing reaches: about 17,400 frontend lines (unrouted pages, hooks, utilities, five never-run Jest suites, unused packages, unconfigured ESLint) and about 8,800 backend lines (six dead modules including the unused job queue, monitoring WebSockets and the System Config API that wrote secrets to `.env`, ~40 endpoints with no caller). `/recovery/require` stays as an admin safety control. The frontend build now fails on unused locals.
+- Fixed restore from a `.bck` path, which always failed with NameError.
+- Tests: stale backend and unit tests updated (backend 308, unit 78 pass). Nine browser cases for package authoring, the report wizard and tool authoring no longer matched the screens and were removed; those screens now have HTTP/packaged checks only.
+- Version 0.1.5 in `backend/version.py`, `pyproject.toml` and `package.json`; no tag until release confirmation.
+- Repository tidy-up: test evidence moves from `recovery/` to `test-output/` (earlier entries still name `recovery/`; that evidence was deleted). Removed the unverified Docker recipe, the two build wrapper scripts, the unused `requests` dependency, and the old lab scheduling-database copies. The build writes its `.spec` and temporary files under `build/`; pytest no longer creates `.pytest_cache`.
+- Verification: `backend/e2e/packaged_walkthrough.py` opens all 28 pages of the packaged executable. Still open: operation scripts holding scheduler locks, restores not checking for an active run, and hardware acceptance. See `docs/release-readiness-review-2026-09-29.md`.
 
 ## 2026-09-28 Tool replacement, publication completion and history
 

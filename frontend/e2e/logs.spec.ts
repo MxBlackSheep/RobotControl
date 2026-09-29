@@ -61,7 +61,7 @@ test('phone history reader, section search and expansion retain selected file', 
   await page.getByRole('button',{name:'Latest',exact:true}).click();
   await expect(page.getByLabel('Log content')).toContainText('END-MARKER');
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBeTruthy();
-  await page.screenshot({path:'../recovery/viewer-verification/log-phone.png',fullPage:true});
+  await page.screenshot({path:'../test-output/viewer-verification/log-phone.png',fullPage:true});
 });
 
 test('follow is opt-in and section navigation stops polling without Latest restarting it', async ({ page }) => {
@@ -105,7 +105,7 @@ test('phone Back then desktop resize keeps the retained log reader usable', asyn
   await page.getByRole('button', { name: 'Beginning', exact: true }).click();
   await expect(page.getByRole('checkbox', { name: 'Follow latest' })).not.toBeChecked();
   await expect(page.getByLabel('Log content')).toContainText('ACTIVE-START');
-  await page.screenshot({path:'../recovery/viewer-verification/log-phone-back-desktop.png',fullPage:true});
+  await page.screenshot({path:'../test-output/viewer-verification/log-phone-back-desktop.png',fullPage:true});
 });
 
 test('cancel, capacity, expiry and source growth preserve bounded reader behavior', async ({ request }) => {

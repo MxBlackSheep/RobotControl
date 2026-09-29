@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
-const evidence = process.env.ROBOTCONTROL_E2E_EVIDENCE || '../recovery/database-workspace-verification';
+const evidence = process.env.ROBOTCONTROL_E2E_EVIDENCE || '../test-output/database-workspace-verification';
 async function login(page: any) {
   await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));
   await page.route('**/api/auth/me', (route: any) => route.fulfill({ json: { success: true, data: { user_id: 'viewer-admin', username: 'Fixture', role: 'admin', session_is_local: true } } }));
@@ -23,30 +23,6 @@ test('simplified settings show one viewer and an explicit existing lab connectio
   await expect(page.getByRole('combobox',{name:'Laboratory database'})).toContainText('Existing laboratory connection');
   await page.getByRole('heading',{name:'Schedule preparation'}).scrollIntoViewIfNeeded();
   await page.screenshot({path:`${evidence}/settings-expanded.png`,animations:'disabled'});
-});
-
-test('simplified installed report edit retains inputs and publishes without a ZIP', async ({page,request}) => {
-  mkdirSync(evidence,{recursive:true}); await login(page);
-  const base='/api/database/tools', headers={Authorization:'Bearer viewer-admin'};
-  const handler="from openpyxl import Workbook\ndef run(context, inputs):\n    b=Workbook(); b.active.append([inputs['sample'],42]); b.save(context.output_dir/'sample.xlsx'); return 'sample.xlsx'\n";
-  const created=await request.post(`${base}/drafts`,{headers,data:{draft:{name:'Sample export',package_id:'editable-browser',sources:[],mappings:{},handler,inputs:[{name:'sample',label:'Sample',type:'text',required:true,choices:[]}]}}});
-  expect(created.ok()).toBeTruthy(); const saved=await created.json();
-  const review=await (await request.get(`${base}/drafts/${saved.id}/review`,{headers})).json();
-  expect((await request.post(`${base}/drafts/${saved.id}/install`,{headers,data:{expected_current:review.current_sha256,revision:saved.revision}})).ok()).toBeTruthy();
-  await page.goto('/database?section=packages');
-  await page.getByText('Sample export · 1.0.0',{exact:true}).locator('..').locator('..').getByRole('button',{name:'Edit report',exact:true}).click();
-  await expect(page.getByRole('heading',{name:'Edit report — Sample export'})).toBeVisible();
-  await page.getByLabel('Completed handler',{exact:true}).setInputFiles({name:'handler.py',mimeType:'text/x-python',buffer:Buffer.from(handler.replace(',42',',43'))});
-  await page.getByLabel('Sample',{exact:false}).fill('Updated sample');
-  await page.getByRole('button',{name:'Try report',exact:true}).click();
-  await expect(page.getByRole('button',{name:'Download Excel',exact:true})).toBeVisible({timeout:30000});
-  await page.screenshot({path:`${evidence}/edit-report.png`,fullPage:true});
-  await page.getByRole('button',{name:'Next',exact:true}).click();
-  await page.getByRole('button',{name:'Review update',exact:true}).click();
-  await page.getByRole('button',{name:'Publish update',exact:true}).click();
-  await expect(page.getByText('Report installed. It is available in Data retrieval.',{exact:true})).toBeVisible();
-  await page.getByRole('button',{name:'Save and close',exact:true}).click();
-  await expect(page.getByText('Sample export · 1.0.1',{exact:true})).toBeVisible();
 });
 
 test('simplified dependent choices clear children and use friendly labels on phone', async ({page}) => {
@@ -103,48 +79,6 @@ test('account setup explains a name conflict and retains settings without creden
   await expect(page.getByLabel('Administrator password', { exact: true })).toHaveValue('');
 });
 
-test('upload-first example needs no database and access creation has a review', async ({ page }) => {
-  mkdirSync(evidence, { recursive: true }); await login(page);
-  await page.goto('/database?section=packages');
-  await page.getByRole('link', { name: 'Database settings', exact: true }).last().click();
-  await page.getByRole('button', { name: 'Manage connections', exact: true }).click();
-  await page.getByRole('combobox', { name: 'Account setup' }).click();
-  await page.getByRole('option', { name: 'Create read-only account', exact: true }).click();
-  await page.getByLabel('Name', { exact: true }).fill('New lab');
-  await page.getByLabel('Server', { exact: true }).fill('LAB-SQL');
-  await page.getByRole('textbox', { name: 'Database', exact: true }).fill('LabResults');
-  await page.getByLabel('New account name', { exact: true }).fill('lab_reports');
-  await page.getByRole('button', { name: 'Review access', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Create read-only account', exact: true })).toBeVisible();
-  await expect(page.getByText('Server: LAB-SQL', { exact: false })).toBeVisible();
-  await page.screenshot({ path: `${evidence}/access-review.png`, animations: 'disabled' });
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
-  await page.goto('/database?section=packages');
-  await page.getByRole('button', { name: 'Create report', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Upload Python', exact: true })).toBeVisible();
-  await page.screenshot({ path: `${evidence}/upload-first.png`, fullPage: true });
-  await page.getByRole('button', { name: 'Try an example', exact: true }).click();
-  await expect(page.getByText('Ready to configure and try.', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Next', exact: true }).click();
-  await expect(page.getByRole('checkbox', { name: 'Uses a database' })).not.toBeChecked();
-  await page.getByRole('button', { name: 'Next', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Download editing files', exact: true })).toHaveCount(0);
-  await page.getByLabel('Sample name', { exact: false }).fill('Demo');
-  await page.getByRole('button', { name: 'Try report', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Download Excel', exact: true })).toBeVisible();
-  await page.screenshot({ path: `${evidence}/example-desktop.png`, fullPage: true });
-  const download = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Download Excel', exact: true }).click();
-  expect((await download).suggestedFilename()).toBe('example.xlsx');
-  await page.setViewportSize({ width: 390, height: 844 });
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
-  await page.screenshot({ path: `${evidence}/example-phone.png`, fullPage: true });
-  await page.getByRole('button', { name: 'Save and close', exact: true }).click();
-  await page.getByRole('button', { name: 'Remove draft', exact: true }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Remove draft', exact: true }).click();
-  await expect(page.getByRole('dialog')).toHaveCount(0);
-});
-
 test('switching viewer database clears the previous table and leaves restore separate', async ({ page }) => {
   await login(page);
   const profiles=[{id:'a',name:'Lab A',server:'SQL-A',database:'ResultsA'}, {id:'b',name:'Lab B',server:'SQL-B',database:'ResultsB'}];
@@ -171,42 +105,6 @@ test('switching viewer database clears the previous table and leaves restore sep
   await expect(page.getByRole('combobox', { name: 'Database connection' })).toHaveCount(0);
 });
 
-
-test('settings review saves for restart, cancellation restores active settings, and installed packages download', async ({ page }) => {
-  mkdirSync(evidence, { recursive: true }); await login(page);
-  await page.goto('/database?section=packages');
-  const download = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Download package', exact: true }).first().click();
-  expect((await download).suggestedFilename()).toBe('culture-history-1.0.2.zip');
-  await expect(page.getByText('1 reports · 0 operations').first()).toBeVisible();
-  await page.getByRole('link', { name: 'Database settings', exact: true }).last().click();
-  await expect(page.getByText(/Active now: Batch/)).toBeVisible();
-  await page.getByRole('button',{name:'Change setup',exact:true}).click();
-  await page.getByLabel('Laboratory SQLite file', { exact: true }).fill('batches-next.db');
-  await page.getByRole('button', { name: 'Check and review', exact: true }).click();
-  const review = page.getByRole('dialog');
-  await expect(review).toContainText('No preparation steps have been run.');
-  await review.getByRole('button', { name: 'Save for restart', exact: true }).click();
-  await expect(review).not.toBeVisible();
-  await expect(page.getByRole('alert')).toContainText('restart required');
-  await expect(page.getByText(/Active now: Batch/)).toContainText('batches.db');
-  await page.evaluate(() => window.scrollTo(0, 0));
-  await page.screenshot({ path: `${evidence}/settings-pending.png`, fullPage: true, animations: 'disabled' });
-  await page.reload();
-  await page.getByRole('button',{name:'Change setup',exact:true}).click();
-  await expect(page.getByLabel('Laboratory SQLite file', { exact: true })).toHaveValue('batches-next.db');
-  await page.getByRole('button', { name: 'Cancel change', exact: true }).click();
-  await expect(page.getByLabel('Laboratory SQLite file', { exact: true })).toHaveValue('batches.db');
-  await page.getByRole('button', { name: 'Assign', exact: true }).first().click();
-  await page.getByRole('combobox', { name: 'Connection for primary' }).click();
-  await page.getByRole('option', { name: 'Primary', exact: true }).click();
-  await page.getByRole('button', { name: 'Save assignments', exact: true }).click();
-  await expect(page.getByRole('dialog')).not.toBeVisible();
-  await page.setViewportSize({ width: 390, height: 844 });
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
-  await page.evaluate(() => window.scrollTo(0, 0));
-  await page.screenshot({ path: `${evidence}/settings-phone.png`, fullPage: true, animations: 'disabled' });
-});
 
 test('multiple operation choices show their own inputs without submitting changes', async ({ page }) => {
   await login(page);

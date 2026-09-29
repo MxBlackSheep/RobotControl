@@ -139,7 +139,7 @@ def run(baseline=False):
                 assert len(rows)==1 and rows[0].status=='sent'
                 results.append('Existing automatic-alert success and deduplication: passed')
         smtp.shutdown()
-    evidence = Path('recovery/database-verification')
+    evidence = Path('test-output/database-verification')
     evidence.mkdir(parents=True, exist_ok=True)
     (evidence/('notification-baseline.json' if baseline else 'notification-results.json')).write_text(json.dumps(results, indent=2))
     print('\n'.join(results))

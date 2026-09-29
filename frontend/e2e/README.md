@@ -42,7 +42,7 @@ port 8016. Do not run another harness on that port concurrently. The fixture use
 real log routes and disposable files; most other APIs, including Labware writes,
 are synthetic. It starts no robot services and cleans its temporary files at exit.
 
-`recovery/viewer-verification/report/index.html` is the latest run, which may be
+`test-output/viewer-verification/report/index.html` is the latest run, which may be
 focused rather than full. `results.json` identifies the cases actually run.
 Successful screenshots requested by the config/specs remain available. Traces are
 retained on failure by default; use `--trace on` for a release or investigation
@@ -87,7 +87,7 @@ uv run --locked python backend/e2e/packaged_walkthrough.py dist/review-candidate
 
 It opens all 28 page/section URLs as a local admin and fails on any API 401/403/404/405,
 missing asset, page error, lazy-load failure or blank page. Evidence (summary, per-page
-requests and screenshots) is in `recovery/packaged-walkthrough/<candidate>/`. SQL
+requests and screenshots) is in `test-output/packaged-walkthrough/<candidate>/`. SQL
 Server is deliberately unreachable, so it proves the app runs, not SQL behavior.
 
 ## Native zoom and practical limits
@@ -108,36 +108,36 @@ release evidence, not in this current run guide. Existing reports are preserved.
 
 ## Database packages and delivery logs
 
-For Python-defined tool addition/editing, use the focused pair:
+Browser checks for package authoring, the report wizard and tool authoring were
+removed on 29 September 2026 because they no longer matched the screens; the HTTP
+and packaged checks below remain. Add new browser cases in the existing spec files
+when these screens next change.
+
+For Python-defined tool addition/editing:
 
 ```powershell
 .venv/Scripts/python.exe -m backend.e2e.tool_authoring_check
-Set-Location frontend
-npx playwright test tool-authoring.spec.ts --trace on
-Set-Location ..
 ```
 
 The HTTP check creates/removes UUID-named disposable SQL Server databases and logins
 using Windows administrator authentication. It does not use laboratory tables.
-The browser fixture uses its existing disposable SQLite adapter. Evidence and
-downloaded workbook checksums belong in `recovery/tool-authoring-verification`.
+Evidence and downloaded workbook checksums belong in `test-output/tool-authoring-verification`.
 
 Focused checks from the repository root:
 
 ```powershell
 .venv/Scripts/python.exe -W ignore::UserWarning -m backend.e2e.database_tools_check
 .venv/Scripts/python.exe -W ignore::UserWarning -m backend.e2e.notification_delivery_check
-.venv/Scripts/python.exe -c "from pathlib import Path; from backend.e2e.database_fixture import package_zip; Path('recovery/database-verification/culture-history.zip').write_bytes(package_zip('database_packages/culture-history', {'version':'9.0.0'}))"
 Set-Location frontend
 npx playwright test database-tools.spec.ts --trace on
 Set-Location ..
 .venv/Scripts/python.exe -m backend.e2e.packaged_database_smoke dist/<candidate>/RobotControl
 ```
 
-Evidence: `recovery/database-verification` and the current Playwright HTML report.
+Evidence: `test-output/database-verification` and the current Playwright HTML report.
 Before the first reference comparison, download the revision in
 `database_packages/culture-history/UPSTREAM.txt` to
-`recovery/database-verification/upstream.py`.
+`test-output/database-verification/upstream.py`.
 
 HTTP checks use disposable SQLite-backed SQL rows and real package/API code. SMTP
 uses a local mail sink and disposable storage. Browser checks use real package/report
@@ -148,13 +148,11 @@ no production test endpoint is added. Real SQL Server/procedure/hardware behavio
 remains a VM check. Owned temporary processes and databases are removed afterwards.
 
 
-For authoring/update/workspace changes only, run `database_tools_check` and select
-`database-tools.spec.ts --grep "local admin|phone report"`. The HTTP command also
+For authoring/update/workspace changes only, run `database_tools_check`. It also
 creates an author project from an existing script, rejects an unfinished adapter,
 builds its ZIP and exercises update review/activation without production data.
 Missing well fixtures compare selection and workbook output against the original
 script with legacy pandas string inference, including culture 98500000 on plate 985.
-The browser update uses fixture version 9.0.0, independently of release versions.
 For a package-only correction, `packaged_database_smoke` accepts `--report-package`
 to verify the ZIP against an existing executable without recompiling. Both HTTP and
 packaged checks accept `--evidence` to preserve earlier release results.
@@ -167,25 +165,17 @@ in `database_packages/culture-history/UPSTREAM.txt`, into the evidence directory
 
 ```powershell
 .venv/Scripts/python.exe -m backend.e2e.report_wizard_check
-.venv/Scripts/python.exe -X utf8 -W ignore::UserWarning -m backend.e2e.database_tools_check --evidence recovery/report-wizard-verification
-.venv/Scripts/python.exe -c "from pathlib import Path; from backend.e2e.database_fixture import package_zip; Path('recovery/report-wizard-verification/culture-history.zip').write_bytes(package_zip('database_packages/culture-history', {'version':'9.0.0'}))"
-npm --prefix frontend run build
-Set-Location frontend
-$env:ROBOTCONTROL_E2E_EVIDENCE='../recovery/report-wizard-verification'
-npx playwright test database-tools.spec.ts report-wizard.spec.ts --grep 'local admin|phone report|report author' --trace on
-Set-Location ..
-.venv/Scripts/python.exe -m backend.e2e.packaged_database_smoke dist/<candidate>/RobotControl --wizard --evidence recovery/report-wizard-verification
+.venv/Scripts/python.exe -X utf8 -W ignore::UserWarning -m backend.e2e.database_tools_check --evidence test-output/report-wizard-verification
+.venv/Scripts/python.exe -m backend.e2e.packaged_database_smoke dist/<candidate>/RobotControl --wizard --evidence test-output/report-wizard-verification
 ```
 
 `report_wizard_check` uses local SQL Server `.\HAMILTON` with Windows administrator
 authentication to create uniquely named disposable databases and a SELECT-only
 login. It verifies actual SQL permission denial and removes its owned SQL objects.
-The browser fixture uses read-only SQLite data; do not infer SQL permissions from
-it. The packaged `--wizard` check uses the real disposable SQL fixture, checks DPAPI
+The packaged `--wizard` check uses the real disposable SQL fixture, checks DPAPI
 storage, package upload and Excel from a relocated executable with Python/UV absent
 from PATH. These commands neither inspect production rows nor change production
-grants. Evidence is under `recovery/report-wizard-verification`; Playwright's current
-HTML report and traces are under `recovery/viewer-verification`.
+grants. Evidence is under `test-output/report-wizard-verification`.
 
 
 ## Configurable Database workspace
@@ -193,13 +183,13 @@ HTML report and traces are under `recovery/viewer-verification`.
 ```powershell
 .venv/Scripts/python.exe -m backend.e2e.database_workspace_check
 # Copy the pinned upstream.py from the preceding report evidence first.
-.venv/Scripts/python.exe -X utf8 -W ignore::UserWarning -m backend.e2e.database_tools_check --evidence recovery/database-workspace-verification
+.venv/Scripts/python.exe -X utf8 -W ignore::UserWarning -m backend.e2e.database_tools_check --evidence test-output/database-workspace-verification
 npm --prefix frontend run build
 Set-Location frontend
-$env:ROBOTCONTROL_E2E_EVIDENCE='../recovery/database-workspace-verification'
-npx playwright test database-workspace.spec.ts report-wizard.spec.ts --trace retain-on-failure
+$env:ROBOTCONTROL_E2E_EVIDENCE='../test-output/database-workspace-verification'
+npx playwright test database-workspace.spec.ts --trace retain-on-failure
 Set-Location ..
-.venv/Scripts/python.exe -m backend.e2e.packaged_database_smoke dist/<candidate>/RobotControl --wizard --evidence recovery/database-workspace-verification
+.venv/Scripts/python.exe -m backend.e2e.packaged_database_smoke dist/<candidate>/RobotControl --wizard --evidence test-output/database-workspace-verification
 ```
 
 The workspace HTTP check reuses the real SQL fixture above and creates an additional
@@ -225,5 +215,5 @@ uv run --locked python frontend/e2e/status-stall-probe.py
 Open the printed URL, then: Hold next health response → Refresh → Allow new
 requests. Within about 20 seconds the page must show "Request timed out" with
 Refresh enabled and the status chip showing "Stale data"; Refresh then reconnects. Release stalled response last.
-Evidence: `recovery/status-stall-evidence.json`. For remote-path timing, run
+Evidence: `test-output/status-stall-evidence.json`. For remote-path timing, run
 `backend/scripts/network_probe.py` on both computers (see its header).

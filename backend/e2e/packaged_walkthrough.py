@@ -2,7 +2,7 @@
 
 Run: uv run --locked python backend/e2e/packaged_walkthrough.py <candidate folder>
 Uses disposable login data, an unreachable SQL Server address and disabled automation,
-like packaged_viewer_smoke.py. Evidence: recovery/packaged-walkthrough/<candidate name>/
+like packaged_viewer_smoke.py. Evidence: test-output/packaged-walkthrough/<candidate name>/
 (summary.json, visits.json and one screenshot per page/section). The candidate is preserved.
 
 Pass criteria: no API 401/403/404/405 for the local admin, no failed asset, no page error or lazy-load failure, no blank
@@ -25,7 +25,7 @@ parser.add_argument('candidate', type=Path)
 args = parser.parse_args()
 candidate = args.candidate.resolve()
 assert (candidate / 'RobotControl.exe').is_file(), candidate
-evidence = ROOT / 'recovery/packaged-walkthrough' / candidate.parent.name
+evidence = ROOT / 'test-output/packaged-walkthrough' / candidate.parent.name
 if evidence.exists():
     shutil.rmtree(evidence)
 evidence.mkdir(parents=True)
@@ -42,7 +42,7 @@ def request(path, body=None, token=None):
 
 
 summary = dict(candidate=str(candidate), sql_server='127.0.0.1,1 (deliberately unreachable)', automation_disabled=True)
-with tempfile.TemporaryDirectory(prefix='relocated-walkthrough-', dir=ROOT / 'recovery') as temp:
+with tempfile.TemporaryDirectory(prefix='relocated-walkthrough-', dir=ROOT / 'test-output') as temp:
     relocated = Path(temp) / 'RobotControl'
     shutil.copytree(candidate, relocated, ignore=shutil.ignore_patterns('data'))
     password = secrets.token_urlsafe(24)

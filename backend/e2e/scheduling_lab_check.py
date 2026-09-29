@@ -31,7 +31,7 @@ from backend.models import ScheduledExperiment, JobExecution
 import backend.api.scheduling as api
 
 ROOT = Path(__file__).resolve().parents[2]
-EVIDENCE = ROOT / 'recovery/scheduling-lab-verification'
+EVIDENCE = ROOT / 'test-output/scheduling-lab-verification'
 
 
 def run():

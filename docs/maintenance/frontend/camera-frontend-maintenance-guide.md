@@ -4,7 +4,7 @@
 - File rows use natural height and local scrolling. Pagination (25/50/100 files) replaces fixed-height virtualization, bounding rendered rows while allowing long filenames and touch controls to wrap safely.
 - Keep lazy folder-loading callbacks, the folder cache and the existing download lifecycle. Display changes do not call camera hardware or recording APIs.
 - `CameraControls.active` pauses status polling when the live section is inactive. Collapsing camera settings does not pause polling. The shared document-visibility policy is unchanged.
-- Verify archive behavior with `operations.spec.ts`; retain `camera.spec.ts` for Fit, Fill, zoom, source resets, Escape focus, disconnect and mutation checks. Evidence is written to `recovery/viewer-verification`.
+- Verify archive behavior with `operations.spec.ts`; retain `camera.spec.ts` for Fit, Fill, zoom, source resets, Escape focus, disconnect and mutation checks. Evidence is written to `test-output/viewer-verification`.
 
 # Camera frontend maintenance
 

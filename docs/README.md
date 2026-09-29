@@ -13,7 +13,7 @@
 
 Dated reviews and `plans/` record decisions and proposals at a point in time. They
 do not impose permanent acceptance gates. For current behavior, read the module
-guide and source. Local reports in `recovery/` and candidates in `dist/` are
+guide and source. Local reports in `test-output/` and candidates in `dist/` are
 Git-ignored evidence/output, not another documentation hierarchy.
 
 Update an existing guide or scenario before adding a new one. Preserve historical

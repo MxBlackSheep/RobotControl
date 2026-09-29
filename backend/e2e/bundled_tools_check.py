@@ -37,7 +37,7 @@ def workbook_signature(content):
 
 
 def run():
-    evidence = ROOT/'recovery/bundled-tools-verification'
+    evidence = ROOT/'test-output/bundled-tools-verification'
     evidence.mkdir(parents=True, exist_ok=True)
     result = dict(command='.venv/Scripts/python.exe -m backend.e2e.bundled_tools_check', baseline=BASELINE,
                   fixture='backend/e2e/database_fixture.py: disposable SQLite adapter, experiments 42 and 43', checks=[], passed=False)

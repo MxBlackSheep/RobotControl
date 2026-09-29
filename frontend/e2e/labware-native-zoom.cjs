@@ -5,7 +5,7 @@ const { spawn } = require('node:child_process');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const root = path.resolve(__dirname, '../..');
-const output = path.join(root, 'recovery/viewer-verification');
+const output = path.join(root, 'test-output/viewer-verification');
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 (async () => {
   const server = spawn(path.join(root, '.venv/Scripts/python.exe'), [path.join(root, 'backend/e2e/viewer_server.py')], { cwd: root, windowsHide: true, stdio: 'ignore' });

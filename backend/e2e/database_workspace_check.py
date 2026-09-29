@@ -20,7 +20,7 @@ from backend.api.database import router as viewer_router
 from backend.services.auth import get_current_user
 from backend.services.database_tools import DatabaseTools, get_database_tools
 
-EVIDENCE = Path(os.environ.get('ROBOTCONTROL_E2E_EVIDENCE', str(ROOT / 'recovery/database-workspace-verification')))
+EVIDENCE = Path(os.environ.get('ROBOTCONTROL_E2E_EVIDENCE', str(ROOT / 'test-output/database-workspace-verification')))
 
 
 def run():

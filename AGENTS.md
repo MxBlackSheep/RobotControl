@@ -127,7 +127,7 @@ or sandbox uploaded Python.
 - `docs/implementation-notes.md`: prepend a concise record of meaningful changes;
   link evidence rather than copying a test transcript.
 - `docs/*review*.md` and `docs/plans`: dated findings/proposals, not standing rules.
-- `recovery/`, `build/`, `dist/`: local evidence/build outputs, not source guidance.
+- `test-output/`, `build/`, `dist/`: local evidence/build outputs, not source guidance.
 
 Write for a competent maintainer unfamiliar with this module. Define necessary
 terms and show the relevant command/path. Avoid duplicate policy, per-change

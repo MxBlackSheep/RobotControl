@@ -71,5 +71,5 @@ Failure cases are written in `frontend/e2e/scenarios.md`; `logs.spec.ts` covers
 real HTTP archive reading/checksums, access, cancellation/capacity/expiry and phone
 inspection. Run `npm run build` and `npx playwright test` from frontend. Reports,
 screenshots, traces and a fixture manifest are under
-`recovery/viewer-verification`. The fixture server uses disposable filesystem data
+`test-output/viewer-verification`. The fixture server uses disposable filesystem data
 and synthetic database/camera endpoints; it never starts production services.

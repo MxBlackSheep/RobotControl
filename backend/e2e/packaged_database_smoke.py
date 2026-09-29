@@ -140,7 +140,7 @@ def run(context, inputs):
     result['passed']=True
 
 
-def run(candidate, report_package=None, evidence=ROOT/'recovery/database-verification', wizard=False):
+def run(candidate, report_package=None, evidence=ROOT/'test-output/database-verification', wizard=False):
     evidence.mkdir(parents=True, exist_ok=True)
     result = dict(candidate=str(candidate), checks=[], passed=False)
     from PyInstaller.archive.readers import CArchiveReader
@@ -164,7 +164,7 @@ def run(candidate, report_package=None, evidence=ROOT/'recovery/database-verific
         with urllib.request.urlopen(req,timeout=40) as response:
             data=response.read()
             return json.loads(data) if 'application/json' in response.headers.get('Content-Type','') else data
-    with tempfile.TemporaryDirectory(prefix='relocated-database-',dir=ROOT/'recovery') as temp:
+    with tempfile.TemporaryDirectory(prefix='relocated-database-',dir=ROOT/'test-output') as temp:
         relocated=Path(temp)/'Application in another folder'
         shutil.copytree(candidate, relocated, ignore=shutil.ignore_patterns('data'))
         password=secrets.token_urlsafe(24)
@@ -247,7 +247,7 @@ def run(context, inputs):
 if __name__=='__main__':
     parser=argparse.ArgumentParser(); parser.add_argument('candidate',type=Path)
     parser.add_argument('--report-package',type=Path)
-    parser.add_argument('--evidence',type=Path,default=ROOT/'recovery/database-verification')
+    parser.add_argument('--evidence',type=Path,default=ROOT/'test-output/database-verification')
     parser.add_argument('--wizard',action='store_true')
     args=parser.parse_args()
     run(args.candidate.resolve(),args.report_package,args.evidence.resolve(),args.wizard)

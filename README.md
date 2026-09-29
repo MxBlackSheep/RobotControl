@@ -135,24 +135,7 @@ Python, uv, or Node installed. Runtime data stays in the `data` folder beside th
 executable. Keep that folder when updating a deployed installation.
 
 Use `--layout onefile` instead for `dist/RobotControl.exe`, or add `--console` to
-show diagnostic output. The convenience scripts `pyinstaller_build_onedir.py`
-and `pyinstaller_build_onefile.py` accept `--console` too; run either with
-`uv run --locked --group build python build_scripts/SCRIPT_NAME.py`.
-
-### Existing Linux container recipe
-
-After building the frontend, run from the repository root:
-
-```powershell
-docker build -f backend/Dockerfile -t robotcontrol .
-docker run --rm -p 8005:8005 -v robotcontrol-data:/app/data robotcontrol
-```
-
-The backend image uses the same uv lockfile and serves the frontend on port 8005.
-It includes ODBC Driver 18, but the application's SQL connection configuration must
-be adapted to the container's reachable server and installed driver. Windows-only
-Hamilton integration and DPAPI secret storage are unavailable in Linux. This
-recipe is aligned with uv; Linux deployment has not been verified by this migration.
+show diagnostic output. RobotControl is delivered only as this Windows executable.
 
 # Contacts/Issues
 

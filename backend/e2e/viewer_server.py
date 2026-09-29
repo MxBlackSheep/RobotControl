@@ -40,7 +40,7 @@ ansi = 'ASCII prefix\r\n' * 90000 + 'café\r\n'
 files.append(dict(path='history/legacy.log.gz',entry=None,sha256=hashlib.sha256(ansi.encode()).hexdigest()))
 (history / 'corrupt.gz').write_bytes(b'not gzip')
 (logs / 'robotcontrol_backend.log').write_text('ACTIVE-START\nCurrent log\nACTIVE-END\n', encoding='utf-8')
-evidence = ROOT / 'recovery' / 'viewer-verification'
+evidence = ROOT / 'test-output' / 'viewer-verification'
 evidence.mkdir(parents=True, exist_ok=True)
 (evidence / 'fixture-manifest.json').write_text(json.dumps(dict(files=files, temporary_root=str(fixture)), indent=2))
 camera = dict(width=640, height=480, send_frames=True, disconnect=False, generation='g1')

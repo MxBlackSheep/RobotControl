@@ -425,7 +425,7 @@ npx playwright test scheduling-lab.spec.ts --trace retain-on-failure
 
 The HTTP/executor check uses UUID-named disposable SQL Server databases and two
 separate SQLite files. The process launch boundary is a recorder; no robot runs.
-Evidence is in `recovery/scheduling-lab-verification`: results, logs, screenshots
+Evidence is in `test-output/scheduling-lab-verification`: results, logs, screenshots
 and the retained maintenance-modal failure trace. The obsolete stub-only
 `test_scheduling_pipeline.py` was replaced by this integration coverage; its
 assumptions included the removed success-without-a-write placeholders.
