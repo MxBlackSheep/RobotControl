@@ -63,6 +63,7 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
 # Import our simplified API routers
+from backend.version import __version__
 from backend.api.database import router as database_router
 from backend.api.auth import router as auth_router
 from backend.api.admin import router as admin_router
@@ -472,7 +473,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="RobotControl Backend",
     description="Unified backend for Hamilton VENUS liquid handling robot management",
-    version="1.0.0",
+    version=__version__,
     docs_url="/docs",
     redoc_url="/redoc",
     lifespan=lifespan,
@@ -697,7 +698,7 @@ async def root():
     """Root endpoint with basic information - respects lazy loading"""
     return {
         "service": "RobotControl Backend",
-        "version": "1.0.0",
+        "version": __version__,
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
         "message": "Services are lazy-loaded on first access",
@@ -721,7 +722,7 @@ async def api_info():
     """API information and available endpoints"""
     return {
         "api": "RobotControl API",
-        "version": "1.0.0",
+        "version": __version__,
         "endpoints": {
             "authentication": {
                 "base_url": "/api/auth",
@@ -801,7 +802,7 @@ Examples:
                        help='Host to bind the server to (default: 0.0.0.0)')
     parser.add_argument('--no-browser', action='store_true',
                        help='Do not automatically open browser')
-    parser.add_argument('--version', action='version', version='RobotControl 1.0.0')
+    parser.add_argument('--version', action='version', version=f"RobotControl {__version__}")
     
     args = parser.parse_args()
 

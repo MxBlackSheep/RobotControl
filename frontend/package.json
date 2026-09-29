@@ -1,6 +1,6 @@
 {
   "name": "robotcontrol-simplified-frontend",
-  "version": "2.0.0",
+  "version": "0.2.0",
   "description": "Simplified React frontend for RobotControl",
   "private": true,
   "type": "module",
