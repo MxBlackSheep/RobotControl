@@ -12,8 +12,9 @@ import { mkdirSync } from 'node:fs';
  * - A real success stops showing "Restore Started" or stops turning on maintenance.
  * - A non-2xx answer no longer shows its `detail`.
  * - One click sends the restore request more than once.
+ * - Selecting a .bck opens an obsolete modal instead of showing the path inline.
  * Real SQL Server restores and the failure body shape are checked by
- * backend/e2e/backup_restore_check.py (added on the fix/restore-from-path branch).
+ * backend/e2e/backup_restore_check.py.
  */
 const evidence = process.env.ROBOTCONTROL_E2E_EVIDENCE || '../test-output/database-restore-verification';
 const failed = { success: false, message: 'Database restore failed', data: { success: false, error_details: 'SQL Server error: The media family on device is incorrectly formed.' } };
@@ -42,8 +43,8 @@ async function chooseBck(page: any) {
   await page.getByRole('tab', { name: 'Browse Files (.bck)' }).click();
   await page.getByRole('button', { name: 'Browse', exact: true }).click();
   await page.getByRole('button', { name: 'nightly.bck', exact: false }).click();
-  // Choosing a file opens an info note titled "Application Error" that covers Select File.
-  await page.getByRole('alertdialog').getByRole('button').click();
+  await expect(page.getByRole('alert')).toContainText(`Path: ${bckPath}`);
+  await expect(page.getByRole('alertdialog')).toHaveCount(0);
   await page.getByRole('button', { name: 'Select File', exact: true }).click();
   await expect(page.getByLabel('Selected .bck File')).toHaveValue(bckPath);
 }

@@ -45,6 +45,18 @@ sections do not load or poll.
 The backend is authoritative for every request. The viewers never edit SQL, execute
 procedures or change data.
 
+## Restore feedback
+
+`DatabaseRestore.tsx` checks the restore response's `success` flag, including HTTP 200
+responses. Failure shows a `StatusDialog` with the server message and `data.error_details`
+(or a fallback), keeps the selected file and confirmation checks for retry, and does not
+activate maintenance. HTTP errors show the server's `detail`. Success closes and resets
+the confirmation and activates the existing maintenance recovery flow.
+
+The `.bck` browser displays the selected path inline. `frontend/e2e/database-restore.spec.ts`
+covers both file types, failure details, retry, HTTP errors and success using synthetic API
+responses; the real SQL restore boundary is covered by `backend/e2e/backup_restore_check.py`.
+
 ## Tables
 
 The catalogue (300 pixels when space allows) lists all schemas, with search; labels mean Has

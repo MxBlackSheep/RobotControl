@@ -1,3 +1,8 @@
+## 2026-09-29 Restore failures use the current dialog API
+
+- PR #10 now incorporates current main, including PR #11's shared `StatusDialog`. HTTP 200 with `success: false` shows the restore error without activating maintenance or clearing the confirmation. The obsolete `showStatusDialog` call is replaced with `setStatus`.
+- The `.bck` browser check verifies PR #11's inline selected path instead of dismissing a removed popup. Focused verification: `frontend/e2e/database-restore.spec.ts`; evidence and repeatable commands: `test-output/database-restore-verification/verification.json`.
+
 ## 2026-09-29 Restore from a `.bck` path works
 
 - Database Restore → `.bck` (`POST /api/admin/backup/restore` with `file_path`) failed on every request: `BackupService.restore_backup_from_path` called `_get_database_connection`, which only `SqlCommandExecutor` defined. It now runs `SQL_RESTORE_TEMPLATE` through sqlcmd with `RESTORE_TIMEOUT` under the operation lock, like managed-file restore, and sets `MULTI_USER` again if SQL Server rejects the file. Both results now carry a message. The unused `_get_database_connection` wrapper is removed; `open_restore_connection` stays for connection recovery.
