@@ -6,13 +6,10 @@ Integrates camera service, experiment monitoring, and storage management
 to provide seamless automatic recording with experiment-synchronized archiving.
 """
 
-import asyncio
 import threading
 import logging
-import time
-from datetime import datetime, timedelta
-from typing import Optional, Dict, Any, Callable
-from pathlib import Path
+from datetime import datetime
+from typing import Optional, Dict, Any
 
 from backend.config import AUTO_RECORDING_CONFIG
 from backend.services.automatic_recording_types import (

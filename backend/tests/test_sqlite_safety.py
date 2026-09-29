@@ -274,7 +274,7 @@ def test_recovery_routes_require_revision_and_local_confirmation(db, monkeypatch
     from backend.api import scheduling
     from backend.api.dependencies import ConnectionContext
     value = engine(db)
-    monkeypatch.setattr(scheduling, 'get_services', lambda: (value, value.db_manager, None, None))
+    monkeypatch.setattr(scheduling, 'get_services', lambda: (value, value.db_manager, None))
     monkeypatch.setattr(scheduling, 'log_action', Mock())
     app = FastAPI(); app.include_router(scheduling.router)
     app.dependency_overrides[scheduling.get_current_user] = lambda: {'username': 'tester', 'role': 'user'}
@@ -453,7 +453,7 @@ def test_locked_recovery_request_does_not_block_health(db, monkeypatch):
         entered.set()
         return original(key)
     monkeypatch.setattr(value.db_manager, 'get_schedule_by_id', read)
-    monkeypatch.setattr(scheduling, 'get_services', lambda: (value, value.db_manager, None, None))
+    monkeypatch.setattr(scheduling, 'get_services', lambda: (value, value.db_manager, None))
     monkeypatch.setattr(scheduling, 'log_action', Mock())
     app = FastAPI(); app.include_router(scheduling.router)
     app.dependency_overrides[scheduling.get_current_user] = lambda: {'username': 'tester', 'role': 'user'}

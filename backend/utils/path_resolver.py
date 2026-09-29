@@ -3,13 +3,11 @@ Portable path resolution for single-exe deployment.
 Handles relative paths, read-only media, and temp directory fallbacks.
 """
 
-import os
 import sys
 import tempfile
 import logging
 from pathlib import Path
-from typing import Optional, Union
-import shutil
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -158,87 +156,6 @@ class PathResolver:
         except (PermissionError, OSError):
             return False
     
-    def resolve_path(self, path: Union[str, Path], path_type: str = "data") -> Path:
-        """
-        Resolve a path relative to the appropriate base directory.
-        
-        Args:
-            path: Path to resolve (can be relative or absolute)
-            path_type: Type of path ("data", "logs", "config")
-            
-        Returns:
-            Resolved absolute path
-        """
-        path = Path(path)
-        
-        if path.is_absolute():
-            return path
-        
-        # Get base directory based on type
-        if path_type == "data":
-            base_dir = self.get_data_directory()
-        elif path_type == "logs":
-            base_dir = self.get_logs_directory()
-        elif path_type == "config":
-            base_dir = self.get_config_directory()
-        else:
-            # Default to exe directory
-            base_dir = self._exe_dir
-        
-        return base_dir / path
-    
-    def ensure_path_writable(self, path: Path) -> Path:
-        """
-        Ensure a path is writable, creating fallback if necessary.
-        
-        Args:
-            path: Path to check/ensure
-            
-        Returns:
-            Writable path (may be different from input if fallback was used)
-        """
-        try:
-            # Try to create parent directories
-            path.parent.mkdir(parents=True, exist_ok=True)
-            
-            # Test write access
-            if path.exists():
-                # Test by trying to append
-                if path.is_file():
-                    with open(path, 'a') as f:
-                        pass
-                return path
-            else:
-                # Test by creating then removing
-                if path.suffix:
-                    # It's a file
-                    path.write_text("test")
-                    path.unlink()
-                else:
-                    # It's a directory
-                    path.mkdir(exist_ok=True)
-                return path
-        except (PermissionError, OSError) as e:
-            logger.warning(f"Path {path} not writable: {e}")
-            
-            # Create fallback in temp directory
-            fallback_path = Path(tempfile.gettempdir()) / "RobotControl_Fallback" / path.name
-            fallback_path.parent.mkdir(parents=True, exist_ok=True)
-            
-            logger.info(f"Using fallback path: {fallback_path}")
-            return fallback_path
-    
-    def cleanup_temp_directories(self):
-        """Clean up temporary directories created during portable execution."""
-        if self._temp_fallback and self._temp_fallback.exists():
-            try:
-                # Only clean up if it's in temp directory
-                if str(self._temp_fallback).startswith(tempfile.gettempdir()):
-                    shutil.rmtree(self._temp_fallback)
-                    logger.info(f"Cleaned up temporary directory: {self._temp_fallback}")
-            except Exception as e:
-                logger.warning(f"Failed to clean up temporary directory: {e}")
-    
     @property
     def exe_directory(self) -> Path:
         """Get the executable directory."""
@@ -263,21 +180,3 @@ class PathResolver:
 # Global instance
 _path_resolver: Optional[PathResolver] = None
 
-def get_path_resolver() -> PathResolver:
-    """Get or create the global path resolver instance."""
-    global _path_resolver
-    if _path_resolver is None:
-        _path_resolver = PathResolver()
-    return _path_resolver
-
-def resolve_data_path(path: Union[str, Path]) -> Path:
-    """Convenience function to resolve a data path."""
-    return get_path_resolver().resolve_path(path, "data")
-
-def resolve_logs_path(path: Union[str, Path]) -> Path:
-    """Convenience function to resolve a logs path."""
-    return get_path_resolver().resolve_path(path, "logs")
-
-def resolve_config_path(path: Union[str, Path]) -> Path:
-    """Convenience function to resolve a config path."""
-    return get_path_resolver().resolve_path(path, "config")

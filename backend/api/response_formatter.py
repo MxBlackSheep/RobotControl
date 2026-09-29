@@ -29,7 +29,7 @@ This ensures consistent response handling in the frontend:
 - Error responses: response.data.success === false, error info in response.data.error
 """
 
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional
 from datetime import datetime
 from fastapi import HTTPException, status
 from fastapi.responses import JSONResponse
@@ -363,44 +363,3 @@ class ResponseFormatter:
         )
 
 
-# Convenience functions for common use cases
-def format_success(data: Any = None, start_time: float = None, cache_used: bool = False, message: Optional[str] = None) -> JSONResponse:
-    """Quick success response with optional timing metadata"""
-    metadata = ResponseMetadata()
-    if start_time:
-        metadata.set_execution_time(start_time)
-    if cache_used:
-        metadata.set_cache_used(cache_used)
-
-    return ResponseFormatter.success(data, metadata, message=message)
-
-
-def format_error(message: str, status_code: int = 500, details: Any = None) -> JSONResponse:
-    """Quick error response"""
-    error_codes = {
-        400: "BAD_REQUEST",
-        401: "UNAUTHORIZED", 
-        403: "FORBIDDEN",
-        404: "NOT_FOUND",
-        500: "SERVER_ERROR"
-    }
-    
-    error_code = error_codes.get(status_code, "UNKNOWN_ERROR")
-    
-    return ResponseFormatter.error(
-        message=message,
-        error_code=error_code,
-        details=details,
-        status_code=status_code
-    )
-
-
-# Error handler decorator
-def handle_api_exceptions(func):
-    """Decorator to automatically handle exceptions and format responses"""
-    def wrapper(*args, **kwargs):
-        try:
-            return func(*args, **kwargs)
-        except Exception as e:
-            return ResponseFormatter.from_exception(e)
-    return wrapper

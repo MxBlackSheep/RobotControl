@@ -19,7 +19,6 @@ import uuid
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
-import pyodbc
 
 from backend.e2e.report_wizard_check import sql_fixture
 from backend.services.auth import get_current_user
@@ -75,7 +74,7 @@ def run():
                     ok = executor.execute_experiment(experiment, execution)
                 return ok, execution
 
-            with patch.object(api, 'get_services', return_value=(None, manager, None, None)), TestClient(app) as client:
+            with patch.object(api, 'get_services', return_value=(None, manager, None)), TestClient(app) as client:
                 response = client.get('/api/scheduling/lab/preparation')
                 assert response.status_code == 200, response.text
                 assert response.json()['choices'][0]['value']=='42'

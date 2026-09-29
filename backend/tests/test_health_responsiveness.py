@@ -13,9 +13,7 @@ def test_sql_health_probe_does_not_block_the_event_loop():
             time.sleep(.15)
             return SimpleNamespace(is_connected=True, mode="primary", database_name="test", server_name="test", error_message=None)
         db = Mock(get_status=slow_status)
-        monitoring = Mock()
-        monitoring.websocket_manager.get_connection_stats.return_value = {}
-        with patch('backend.api.monitoring.get_database_service', return_value=db), patch('backend.api.monitoring.get_monitoring_service', return_value=monitoring):
+        with patch('backend.api.monitoring.get_database_service', return_value=db):
             request = asyncio.create_task(get_system_health(current_user={}))
             await asyncio.sleep(.03)
             assert not request.done(), "blocking SQL ran on the API event loop"

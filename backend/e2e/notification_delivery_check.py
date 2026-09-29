@@ -71,7 +71,7 @@ def run(baseline=False):
         app = FastAPI()
         app.include_router(scheduling.router)
         app.dependency_overrides[get_current_user] = lambda: {'username': 'fixture', 'role': 'admin'}
-        with patch.object(scheduling, 'get_services', return_value=(None, manager, None, None)), patch.object(scheduling, 'EmailNotificationService', side_effect=email), patch('backend.services.scheduling.get_scheduling_database_manager', return_value=manager), TestClient(app, client=('127.0.0.1', 1234)) as client:
+        with patch.object(scheduling, 'get_services', return_value=(None, manager, None)), patch.object(scheduling, 'EmailNotificationService', side_effect=email), patch('backend.services.scheduling.get_scheduling_database_manager', return_value=manager), TestClient(app, client=('127.0.0.1', 1234)) as client:
             for status in ['pending', 'sent', 'error']:
                 db.create_notification_log(NotificationLogEntry('', None, None, 'seed', status))
             records = client.get('/api/scheduling/notifications/logs').json()['data']

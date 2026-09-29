@@ -226,20 +226,6 @@ class DatabaseService:
             "last_error": self._last_error,
         }
 
-    def perform_pool_health_check(self) -> Dict[str, Any]:
-        """Expose a simple health check report for callers expecting the old API."""
-        healthy = self.perform_health_check()
-        return {"healthy": healthy, "active_mode": self._active_mode or "unknown"}
-
-    def warm_up_pool(self, min_connections: int = 1) -> Dict[str, Any]:
-        """Attempt to establish a connection so the first query is fast."""
-        try:
-            with self.get_connection():
-                pass
-            return {"status": "success", "created_connections": 1}
-        except Exception as exc:  # pragma: no cover - depends on environment
-            return {"status": "error", "detail": str(exc)}
-
     # ------------------------------------------------------------------
     # Query helpers
     # ------------------------------------------------------------------
@@ -557,51 +543,6 @@ class DatabaseService:
             "rowcount": rowcount,
             "execution_time_ms": round(duration_ms, 2),
         }
-
-    def get_monitoring_data(self) -> List[Dict[str, Any]]:  # pragma: no cover - thin wrapper
-        try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT COLUMN_NAME
-                    FROM INFORMATION_SCHEMA.COLUMNS
-                    WHERE TABLE_NAME = 'Experiments'
-                """)
-                available = {row[0] for row in cursor.fetchall()}
-
-                if not available:
-                    cursor.close()
-                    return []
-
-                preferred_order = [
-                    "StartTime",
-                    "LastUpdated",
-                    "ExperimentID",
-                ]
-                order_column = next((col for col in preferred_order if col in available), next(iter(available)))
-
-                fields = [col for col in (
-                    "ExperimentID",
-                    "MethodName",
-                    "PlateID",
-                    "StartTime",
-                    "EndTime",
-                    "Status",
-                    "Progress",
-                    "LastUpdated",
-                ) if col in available]
-
-                select_columns = ', '.join(f"[{col}]" for col in fields)
-                cursor.execute(
-                    f"SELECT TOP 10 {select_columns} FROM [Experiments] ORDER BY [{order_column}] DESC"
-                )
-                columns = [column[0] for column in cursor.description]
-                rows = [self._format_row(columns, row) for row in cursor.fetchall()]
-                cursor.close()
-                return rows
-        except Exception as exc:
-            logger.warning("Monitoring query failed: %s", exc)
-            return []
 
     def clear_cache(self, pattern: Optional[str] = None) -> int:
         """Compatibility shim - caching removed, so nothing to clear."""

@@ -12,8 +12,7 @@ from backend.services.frame_encoder import FrameEncoder
 from collections import deque
 from datetime import datetime, timedelta
 import psutil
-import cv2
-from typing import Dict, List, Optional, Any, Deque
+from typing import Dict, Optional, Any, Deque
 from fastapi import WebSocket
 
 from backend.services.streaming_types import (
@@ -171,18 +170,6 @@ class LiveStreamingService:
 
 
             logger.info("Streaming | event=service_stopped")
-
-    def get_latest_frame_bytes(self, timeout: float = 0.05) -> Optional[bytes]:
-        """Return the most recent frame encoded as JPEG bytes for ad-hoc previews."""
-        frame_data = self.frame_buffer.get_frame_for_streaming(timeout=timeout)
-        if not frame_data or frame_data.frame is None:
-            return None
-        try:
-            _, buffer = cv2.imencode('.jpg', frame_data.frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-            return buffer.tobytes()
-        except Exception as exc:  # pragma: no cover - guard path
-            logger.debug("Streaming | event=frame_encode_failed | error=%s", exc)
-            return None
 
     async def create_session(
         self,
@@ -370,40 +357,6 @@ class LiveStreamingService:
             if handler.websocket is None and handler.session.is_timed_out(timeout):
                 await self.terminate_session(session_id, expected=handler)
 
-    async def get_active_sessions(self) -> List[StreamingSession]:
-        """
-        Get list of active streaming sessions.
-        
-        Returns:
-            List of active StreamingSession objects
-        """
-        async with self.session_lock:
-            return [handler.session for handler in self.sessions.values()]
-    
-    async def toggle_streaming(self, session_id: str, enabled: bool) -> bool:
-        """
-        Enable or disable streaming for a specific session.
-        
-        Args:
-            session_id: Session identifier
-            enabled: True to enable, False to disable
-            
-        Returns:
-            True if toggle was successful
-        """
-        async with self.session_lock:
-            if session_id in self.sessions:
-                handler = self.sessions[session_id]
-                if enabled:
-                    handler.is_paused = False
-                    handler.session.is_active = True
-                else:
-                    handler.is_paused = True
-                    handler.session.is_active = False
-                logger.info("Streaming | event=session_toggle | session=%s | enabled=%s", session_id, enabled)
-                return True
-            return False
-    
     async def _frame_distribution_loop(self) -> None:
         last_frame = None
         while self.distribution_active:

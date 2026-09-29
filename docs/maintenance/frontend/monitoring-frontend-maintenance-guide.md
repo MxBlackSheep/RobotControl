@@ -2,9 +2,8 @@
 
 `pages/MonitoringPage.tsx` is the active System Status page. It owns exactly one
 `useMonitoring()` call. Its status chips, resource cards and details are presentation
-only. Do not mount the older `MonitoringDashboard` and `SystemStatus` components
-under this page: each starts another polling owner. They remain as legacy code;
-neither is imported by an active route.
+only. Do not call `useMonitoring()` a second time elsewhere on the page: each call
+starts another polling owner.
 
 ## Data and state
 

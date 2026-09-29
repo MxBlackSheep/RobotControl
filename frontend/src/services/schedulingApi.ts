@@ -5,22 +5,18 @@ import { coalesceRead } from '../utils/coalesceRead';
 import {
   CreateScheduleRequest,
   UpdateScheduleRequest,
-  ConflictCheckRequest,
   ScheduleListResponse,
   ScheduleCreateResponse,
   ScheduleResponse,
   CalendarDataResponse,
-  ConflictCheckResponse,
   QueueStatusResponse,
   SchedulerServiceResponse,
   ScheduledExperiment,
   CalendarEvent,
-  ConflictInfo,
   QueueStatus,
   HamiltonStatus,
   ManualRecoveryState,
   CreateScheduleFormData,
-  RecoveryActionResponse,
   EvoYeastExperimentOption,
   NotificationContact,
   NotificationContactPayload,
@@ -197,21 +193,6 @@ const normalizeCalendarEvents = (payload: unknown): CalendarEvent[] => {
   }));
 };
 
-const normalizeConflicts = (payload: unknown): Record<string, ConflictInfo[]> => {
-  if (!payload || typeof payload !== 'object') {
-    return {};
-  }
-  return Object.entries(payload as Record<string, unknown>).reduce<Record<string, ConflictInfo[]>>(
-    (acc, [key, value]) => {
-      if (Array.isArray(value)) {
-        acc[key] = value as ConflictInfo[];
-      }
-      return acc;
-    },
-    {},
-  );
-};
-
 const normalizeQueueStatus = (payload: unknown): { queue?: QueueStatus; hamilton?: HamiltonStatus; manual_recovery?: ManualRecoveryState | null } => {
   if (!payload || typeof payload !== 'object') {
     return {};
@@ -270,24 +251,6 @@ export const schedulingAPI = {
   archiveSchedule: (scheduleId: string, archived: boolean, expectedUpdatedAt?: string) =>
     api.post<ScheduleResponse>(`/api/scheduling/${scheduleId}/archive`, { archived, expected_updated_at: expectedUpdatedAt }),
 
-  requireRecovery: (scheduleId: string, note?: string, options?: { expectedUpdatedAt?: string | null }) => {
-    const expected = options?.expectedUpdatedAt ?? undefined;
-    const payload =
-      note != null
-        ? { note, ...(expected ? { expected_updated_at: expected } : {}) }
-        : expected
-        ? { expected_updated_at: expected }
-        : {};
-    const config = expected ? { headers: { 'If-Unmodified-Since': expected } } : undefined;
-    return api.post<RecoveryActionResponse>(`/api/scheduling/${scheduleId}/recovery/require`, payload, config);
-  },
-
-  resolveRecovery: (scheduleId: string, note?: string, options?: { expectedUpdatedAt?: string | null; expectedRevision?: number }) =>
-    api.post<RecoveryActionResponse>('/api/scheduling/recovery/resolve', {
-      schedule_id: scheduleId, note, expected_updated_at: options?.expectedUpdatedAt,
-      expected_revision: options?.expectedRevision, robot_ready: true,
-    }),
-
   getCalendarData: (startDate?: string, endDate?: string) =>
     api.get<CalendarDataResponse>(
       '/api/scheduling/calendar',
@@ -302,13 +265,6 @@ export const schedulingAPI = {
   getQueueStatus: () => coalesceRead(`queue:${localStorage.getItem('access_token')}`, () => api.get<QueueStatusResponse>('/api/scheduling/status/queue')),
 
   getSchedulerStatus: () => coalesceRead(`scheduler:${localStorage.getItem('access_token')}`, () => api.get<SchedulerServiceResponse>('/api/scheduling/status/scheduler')),
-
-  checkConflicts: (request: ConflictCheckRequest) =>
-    api.post<ConflictCheckResponse>('/api/scheduling/conflicts/check', request.experiments),
-
-  startScheduler: () => api.post<SchedulerServiceResponse>('/api/scheduling/start-scheduler'),
-
-  stopScheduler: () => api.post<SchedulerServiceResponse>('/api/scheduling/stop-scheduler'),
 
   getAvailableExperiments: (rescan = false) =>
     api.get('/api/scheduling/experiments/available', { params: { rescan } }),
@@ -340,9 +296,6 @@ export const schedulingAPI = {
         limit,
       },
     }),
-
-  getScheduleExecutionSummary: (scheduleId: string) =>
-    api.get(`/api/scheduling/executions/summary/${scheduleId}`),
 
   getNotificationSettings: () =>
     api.get('/api/scheduling/notifications/settings'),
@@ -586,49 +539,6 @@ export const schedulingService = {
     }
   },
 
-  async requireRecovery(
-    scheduleId: string,
-    note?: string,
-    expectedUpdatedAt?: string,
-  ): Promise<{ schedule?: ScheduledExperiment; manualRecovery?: ManualRecoveryState | null; error?: string }> {
-    try {
-      const { data } = await schedulingAPI.requireRecovery(scheduleId, note, { expectedUpdatedAt });
-      if (!data.success || !data.data) {
-        return { error: data.message || 'Failed to mark recovery requirement' };
-      }
-      const schedulePayload = data.data?.schedule;
-      const manualState = normalizeManualRecovery(data.data?.manual_recovery);
-      return {
-        schedule: schedulePayload ? normalizeSchedule(schedulePayload) : undefined,
-        manualRecovery: manualState ?? null,
-      };
-    } catch (error) {
-      return { error: parseAPIError(error) };
-    }
-  },
-
-  async resolveRecovery(
-    scheduleId: string,
-    note?: string,
-    expectedUpdatedAt?: string,
-    expectedRevision?: number,
-  ): Promise<{ schedule?: ScheduledExperiment; manualRecovery?: ManualRecoveryState | null; error?: string }> {
-    try {
-      const { data } = await schedulingAPI.resolveRecovery(scheduleId, note, { expectedUpdatedAt, expectedRevision });
-      if (!data.success || !data.data) {
-        return { error: data.message || 'Failed to resolve recovery' };
-      }
-      const schedulePayload = data.data?.schedule;
-      const manualState = normalizeManualRecovery(data.data?.manual_recovery);
-      return {
-        schedule: schedulePayload ? normalizeSchedule(schedulePayload) : undefined,
-        manualRecovery: manualState ?? null,
-      };
-    } catch (error) {
-      return { error: parseAPIError(error) };
-    }
-  },
-
   async getCalendarData(
     startDate?: Date,
     endDate?: Date,
@@ -644,20 +554,6 @@ export const schedulingService = {
       return { events: normalizeCalendarEvents(data.data) };
     } catch (error) {
       return { events: [], error: parseAPIError(error) };
-    }
-  },
-
-  async checkConflicts(
-    request: ConflictCheckRequest,
-  ): Promise<{ conflicts: Record<string, ConflictInfo[]>; error?: string }> {
-    try {
-      const { data } = await schedulingAPI.checkConflicts(request);
-      if (!data.success) {
-        return { conflicts: {}, error: data.message || 'Failed to check conflicts' };
-      }
-      return { conflicts: normalizeConflicts(data.data) };
-    } catch (error) {
-      return { conflicts: {}, error: parseAPIError(error) };
     }
   },
 

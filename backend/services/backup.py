@@ -22,11 +22,10 @@ import subprocess
 import threading
 import time
 import traceback
-from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional, Tuple, Union
+from datetime import datetime
+from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass, asdict
 from pathlib import Path
-import hashlib
 from contextlib import contextmanager
 
 from backend.utils.data_paths import get_path_manager, get_backups_path
@@ -271,30 +270,6 @@ class BackupPerformanceMonitor:
         else:
             self.error_count += 1
     
-    def get_performance_summary(self) -> Dict[str, Any]:
-        """Get performance summary for monitoring dashboard"""
-        avg_duration = (self.total_duration_ms / self.operations_count) if self.operations_count > 0 else 0
-        success_rate = (self.success_count / self.operations_count * 100) if self.operations_count > 0 else 100
-        
-        return {
-            'total_operations': self.operations_count,
-            'success_count': self.success_count,
-            'error_count': self.error_count,
-            'success_rate_percent': round(success_rate, 1),
-            'average_duration_ms': round(avg_duration, 2),
-            'total_duration_seconds': round(self.total_duration_ms / 1000, 2),
-            'monitoring_period_hours': (datetime.now() - self.last_reset).total_seconds() / 3600
-        }
-    
-    def reset_metrics(self):
-        """Reset performance metrics (useful for periodic reporting)"""
-        self.operations_count = 0
-        self.total_duration_ms = 0
-        self.success_count = 0
-        self.error_count = 0
-        self.last_reset = datetime.now()
-        logger.info("🔄 Performance metrics reset")
-
 # Global performance monitor
 performance_monitor = BackupPerformanceMonitor()
 
@@ -422,25 +397,6 @@ class RestoreResult:
     duration_ms: Optional[int] = None
     warnings: Optional[List[str]] = None
     error_details: Optional[str] = None
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for API response"""
-        return asdict(self)
-
-
-@dataclass
-class BackupDetails:
-    """Detailed backup information including metadata"""
-    filename: str
-    description: str
-    timestamp: str
-    created_date: str
-    file_size: int
-    file_size_formatted: str
-    database_name: str
-    sql_server: str
-    metadata: Dict[str, Any]
-    is_valid: bool
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for API response"""
@@ -656,27 +612,6 @@ class BackupMetadataStore:
         except Exception as exc:
             logger.error("Error listing backups: %s", exc)
         return backups
-
-    def load_details(self, filename: str) -> Optional[BackupDetails]:
-        backup_path = os.path.join(self.backup_dir, filename)
-        metadata_path = self.metadata_path(filename)
-        if not os.path.exists(backup_path) or not os.path.exists(metadata_path):
-            return None
-        with open(metadata_path, "r", encoding="utf-8") as handle:
-            metadata = json.load(handle)
-        file_size = os.path.getsize(backup_path)
-        return BackupDetails(
-            filename=filename,
-            description=metadata.get("description", "No description"),
-            timestamp=metadata.get("timestamp", ""),
-            created_date=metadata.get("created_date", ""),
-            file_size=file_size,
-            file_size_formatted=format_file_size(file_size),
-            database_name=metadata.get("database_name", "Unknown"),
-            sql_server=metadata.get("sql_server", "Unknown"),
-            metadata=metadata,
-            is_valid=True,
-        )
 
     def delete_metadata_file(self, filename: str) -> Tuple[bool, str, Optional[str]]:
         metadata_filename = filename.replace(".bak", ".json")
@@ -1094,32 +1029,6 @@ class BackupService:
         """
         return self._metadata_store.list_backups()
     
-    def get_backup_details(self, filename: str) -> Optional[BackupDetails]:
-        """
-        Get detailed information about a specific backup
-        
-        Args:
-            filename: Name of backup file
-            
-        Returns:
-            BackupDetails object or None if not found
-        """
-        try:
-            # Validate filename
-            filename = validate_filename(filename)
-            details = self._metadata_store.load_details(filename)
-            if not details:
-                logger.warning("Backup details not found for: %s", filename)
-            return details
-            
-        except (BackupValidationError, BackupSecurityError) as e:
-            logger.error(f"Validation error getting backup details: {e}")
-            return None
-            
-        except Exception as e:
-            logger.error(f"Error getting backup details for {filename}: {e}")
-            return None
-    
     def restore_backup(self, filename: str) -> RestoreResult:
         """
         Restore database from backup file
@@ -1281,7 +1190,7 @@ class BackupService:
             if file_size < 1024:  # Less than 1KB is suspicious for a database backup
                 warnings.append(f"Warning: Backup file is very small ({file_size} bytes)")
             
-            backup_logger.info(f"Starting database restore from path: {backup_path}")
+            logger.info(f"Starting database restore from path: {backup_path}")
             
             with operation_tracker('restore_from_path', {'file_path': str(backup_path)}) as metrics:
                 conn = None
@@ -1302,17 +1211,17 @@ class BackupService:
                         f"ALTER DATABASE [{self.database_name}] SET MULTI_USER",
                     ]
 
-                    backup_logger.info("Executing restore SQL command...")
+                    logger.info("Executing restore SQL command...")
 
                     for statement in statements:
                         cursor.execute(statement)
 
-                    backup_logger.info("Database restore completed successfully")
+                    logger.info("Database restore completed successfully")
                     metrics.file_size_bytes = file_size
                     metrics.success = True
 
                 except Exception as sql_error:
-                    backup_logger.error(f"SQL restore operation failed: {sql_error}")
+                    logger.error(f"SQL restore operation failed: {sql_error}")
                     if cursor:
                         try:
                             cursor.execute(f"ALTER DATABASE [{self.database_name}] SET MULTI_USER;")
@@ -1350,7 +1259,7 @@ class BackupService:
             )
             
         except Exception as e:
-            backup_logger.error(f"Restore from path failed: {e}")
+            logger.error(f"Restore from path failed: {e}")
             execution_time = (datetime.now() - start_time).total_seconds()
             
             return RestoreResult(
@@ -1453,57 +1362,6 @@ class BackupService:
                 "error_details": str(e)
             }
     
-    def get_performance_metrics(self) -> Dict[str, Any]:
-        """
-        Get comprehensive performance metrics for backup operations
-        
-        Returns:
-            Dictionary containing performance statistics and health information
-        """
-        with operation_tracker('performance_metrics_collection', {
-            'request_type': 'performance_summary'
-        }) as metrics:
-            
-            base_metrics = performance_monitor.get_performance_summary()
-            
-            # Add backup-specific health information
-            health_info = {
-                'backup_directory_exists': os.path.exists(self.backup_dir),
-                'backup_directory_writable': os.access(self.backup_dir, os.W_OK),
-                'available_disk_space_mb': round(get_available_disk_space(self.backup_dir) / (1024*1024), 2),
-                'database_name': self.database_name,
-                'sql_server': self.sql_server,
-                'service_initialized': True
-            }
-            
-            # Get backup count
-            try:
-                backup_count = len(self.list_backups())
-            except Exception:
-                backup_count = -1  # Error getting count
-            
-            # Combine all metrics
-            comprehensive_metrics = {
-                **base_metrics,
-                'health_info': health_info,
-                'backup_count': backup_count,
-                'timestamp': datetime.now().isoformat(),
-                'service_version': '1.0.0',
-                'feature_status': {
-                    'backup_creation': True,
-                    'backup_restoration': True,
-                    'backup_deletion': True,
-                    'metadata_management': True,
-                    'performance_monitoring': True,
-                    'comprehensive_logging': True
-                }
-            }
-            
-            logger.debug(f"Performance metrics collected: {len(comprehensive_metrics)} metrics")
-            return comprehensive_metrics
-    
-
-
 # Global service instance for dependency injection
 _backup_service_instance = None
 _service_lock = threading.Lock()

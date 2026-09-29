@@ -2,7 +2,6 @@ import asyncio
 import json
 from unittest.mock import Mock, patch
 
-import pytest
 
 from backend.services.experiment_monitor import ExperimentMonitor
 from backend.services.automatic_recording_types import ExperimentStateType

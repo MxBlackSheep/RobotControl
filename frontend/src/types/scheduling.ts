@@ -40,21 +40,6 @@ export interface TimeoutConfig {
   cleanup_experiment_path?: string | null;
 }
 
-export interface JobExecution {
-  execution_id: string;
-  schedule_id: string;
-  experiment_name: string;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
-  started_at?: string | null; // ISO format
-  completed_at?: string | null; // ISO format
-  duration_seconds?: number | null;
-  exit_code?: number | null;
-  error_message?: string | null;
-  hamilton_command?: string | null;
-  retry_count: number;
-  created_at: string; // ISO format
-}
-
 export interface CalendarEvent {
   event_id: string;
   schedule_id: string;
@@ -67,27 +52,6 @@ export interface CalendarEvent {
   estimated_duration: number;
   status: string;
   created_by: string;
-}
-
-// Conflict detection interfaces
-export interface ConflictInfo {
-  conflict_type: 'time_overlap' | 'resource_conflict' | 'hamilton_busy' | 'dependency_conflict';
-  conflicting_schedule_ids: string[];
-  message: string;
-  suggested_resolution: string;
-  alternative_times: string[]; // ISO format
-  severity: 'low' | 'medium' | 'high' | 'critical';
-}
-
-export interface ConflictCheckRequest {
-  experiments: Array<{
-    schedule_id?: string;
-    experiment_name: string;
-    experiment_path?: string;
-    schedule_type?: string;
-    start_time?: string; // ISO format
-    estimated_duration?: number;
-  }>;
 }
 
 // Manual recovery state
@@ -368,24 +332,12 @@ export interface ScheduleCreateResponse extends ApiResponse<{
 
 export interface ScheduleResponse extends ApiResponse<ScheduledExperiment> {}
 
-export interface RecoveryActionResponse extends ApiResponse<{
-  schedule: ScheduledExperiment;
-  manual_recovery: ManualRecoveryState | null;
-}> {}
-
 
 export interface CalendarDataResponse extends ApiResponse<CalendarEvent[]> {
   metadata: {
     start_date: string;
     end_date: string;
     event_count: number;
-  };
-}
-
-export interface ConflictCheckResponse extends ApiResponse<Record<string, ConflictInfo[]>> {
-  metadata: {
-    experiments_analyzed: number;
-    conflicts_found: number;
   };
 }
 
@@ -412,25 +364,6 @@ export enum SchedulingOperationStatus {
   Error = 'error'
 }
 
-export interface SchedulingUIState {
-  schedules: ScheduledExperiment[];
-  archivedSchedules: ScheduledExperiment[];
-  selectedSchedule: ScheduledExperiment | null;
-  operationStatus: SchedulingOperationStatus;
-  loading: boolean;
-  archivedLoading: boolean;
-  error: string | null;
-  archivedError: string | null;
-  lastRefresh: Date | null;
-  calendarEvents: CalendarEvent[];
-  queueStatus: QueueStatus | null;
-  hamiltonStatus: HamiltonStatus | null;
-  schedulerRunning: boolean;
-  manualRecovery: ManualRecoveryState | null;
-  initialized: boolean;
-  archivedInitialized: boolean;
-}
-
 // Form interfaces
 export interface CreateScheduleFormData {
   experiment_name: string;
@@ -447,14 +380,6 @@ export interface CreateScheduleFormData {
   timeout_cleanup_experiment_path?: string | null;
   prerequisites: string[];
   notification_contacts: string[];
-}
-
-export interface CalendarViewSettings {
-  view_type: 'day' | 'week' | 'month';
-  start_date: Date;
-  end_date: Date;
-  show_completed: boolean;
-  show_failed: boolean;
 }
 
 // Component prop interfaces

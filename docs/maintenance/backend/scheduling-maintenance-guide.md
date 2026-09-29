@@ -60,7 +60,6 @@ All three endpoints below use the scheduling API prefix, require an authenticate
 
 - `POST /experiments/import-preview`: `{folder_path, relative_paths?}`; read-only discovery and validation. Omit relative paths to scan regular subfolders; an empty selection is rejected.
 - `POST /experiments/import-folder`: the same payload, importing the selected paths after fresh validation.
-- `POST /experiments/import-files`: the same payload for browser selections. Legacy lists (or `{files: [...]}`) with absolute file paths remain supported. Relative-only legacy requests fail with guidance to provide the host folder.
 
 `ExperimentDiscoveryService.preview_methods` is the shared validator. Require an existing absolute host folder, case-insensitive `.med` extension, readable filesystem metadata, and a resolved path beneath that folder. Reject traversal, escaping links, invalid files and duplicate canonical paths. Skip linked directories during whole-folder discovery. Host metadata supplies names, sizes and modification times; browser metadata is never trusted. Preview classifies canonical catalogue paths as New or Update without changing records. Existing malformed catalogue paths are left alone.
 
@@ -70,9 +69,6 @@ Run `python -m pytest backend/tests/test_method_import.py -q` for preview, neste
 
 - `backend/services/scheduling/scheduler_engine.py`  
   Runs the background thread that decides when jobs should execute. Uses a single-worker in-memory queue to execute one schedule at a time, plus notifications and state transitions.
-
-- `backend/services/scheduling/job_queue.py`  
-  Lightweight wrapper around `Queue` that the engine uses to hand work to worker threads.
 
 - `backend/services/scheduling/experiment_executor.py`  
   Bridges between schedule metadata and the Hamilton controller (builds the command line, launches HxRun, tracks process exit codes).

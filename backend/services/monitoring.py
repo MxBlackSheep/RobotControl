@@ -1,146 +1,26 @@
 """
 RobotControl Monitoring Service
 
-Real-time monitoring service that provides WebSocket-based updates for:
+Background monitoring service that caches readings for:
 - Experiment status changes
 - System health metrics  
 - Database performance
 - Camera status
 
-Consolidates functionality from db_monitor.py and websocket.py into a simplified interface.
 """
 
-import asyncio
 import logging
-import json
-from datetime import datetime, timedelta
-from typing import Dict, Set, List, Any, Optional
-from fastapi import WebSocket, WebSocketDisconnect
+from datetime import datetime
+from typing import Dict, Any
 import threading
 import time
 
 # Import project services
 from backend.services.database import get_database_service
-from backend.services.auth import get_auth_service
 from backend.services.experiment_monitor import get_experiment_monitor
 from backend.constants import HAMILTON_STATE_MAPPING
 
 logger = logging.getLogger(__name__)
-
-
-class WebSocketManager:
-    """
-    Simplified WebSocket connection manager for real-time communication
-    """
-    
-    def __init__(self):
-        # Store active connections by channel
-        self.active_connections: Dict[str, Set[WebSocket]] = {}
-        # Store connection metadata
-        self.connection_metadata: Dict[WebSocket, Dict[str, Any]] = {}
-        # Connection statistics
-        self.connection_count: int = 0
-        
-    async def connect(self, websocket: WebSocket, channel: str = "general"):
-        """Accept a WebSocket connection and add to channel"""
-        try:
-            await websocket.accept()
-            
-            # Initialize channel if not exists
-            if channel not in self.active_connections:
-                self.active_connections[channel] = set()
-            
-            # Add connection to channel
-            self.active_connections[channel].add(websocket)
-            
-            # Store connection metadata
-            self.connection_metadata[websocket] = {
-                "channel": channel,
-                "connected_at": datetime.now(),
-                "last_ping": datetime.now()
-            }
-            
-            self.connection_count += 1
-            logger.info(f"WebSocket connected to channel '{channel}'. Total connections: {self.connection_count}")
-            
-            # Skip automatic welcome message to avoid timing issues
-            # Let the client send the first message instead
-            logger.info(f"WebSocket ready for messages in channel '{channel}'")
-            
-        except Exception as e:
-            logger.error(f"Error accepting WebSocket connection: {e}")
-            
-    async def disconnect(self, websocket: WebSocket):
-        """Remove a WebSocket connection"""
-        try:
-            # Find and remove from channel
-            metadata = self.connection_metadata.get(websocket)
-            if metadata:
-                channel = metadata["channel"]
-                if channel in self.active_connections:
-                    self.active_connections[channel].discard(websocket)
-                    
-                    # Remove empty channels
-                    if not self.active_connections[channel]:
-                        del self.active_connections[channel]
-                
-                # Remove metadata
-                del self.connection_metadata[websocket]
-                self.connection_count -= 1
-                
-                logger.info(f"WebSocket disconnected from channel '{channel}'. Total connections: {self.connection_count}")
-                
-        except Exception as e:
-            logger.error(f"Error disconnecting WebSocket: {e}")
-    
-    async def send_personal_message(self, message: Dict[str, Any], websocket: WebSocket):
-        """Send message to a specific WebSocket"""
-        try:
-            # Check if websocket is still connected before sending
-            if websocket.client_state.value == 1:  # WebSocketState.CONNECTED
-                await websocket.send_text(json.dumps(message))
-            else:
-                logger.warning(f"Cannot send message: WebSocket is not in connected state (state: {websocket.client_state.value})")
-                await self.disconnect(websocket)
-        except Exception as e:
-            logger.warning(f"Failed to send personal message: {e}")
-            await self.disconnect(websocket)
-    
-    async def broadcast_to_channel(self, message: Dict[str, Any], channel: str):
-        """Broadcast message to all connections in a channel"""
-        if channel not in self.active_connections:
-            return
-        
-        # Copy the set to avoid modification during iteration
-        connections = self.active_connections[channel].copy()
-        disconnected = []
-        
-        for websocket in connections:
-            try:
-                await websocket.send_text(json.dumps(message))
-            except Exception as e:
-                logger.warning(f"Failed to send message to WebSocket: {e}")
-                disconnected.append(websocket)
-        
-        # Clean up disconnected websockets
-        for websocket in disconnected:
-            await self.disconnect(websocket)
-    
-    async def broadcast_to_all(self, message: Dict[str, Any]):
-        """Broadcast message to all active connections"""
-        for channel in self.active_connections:
-            await self.broadcast_to_channel(message, channel)
-    
-    def get_connection_stats(self) -> Dict[str, Any]:
-        """Get connection statistics"""
-        return {
-            "total_connections": self.connection_count,
-            "active_channels": list(self.active_connections.keys()),
-            "channels": {
-                channel: len(connections) 
-                for channel, connections in self.active_connections.items()
-            }
-        }
 
 
 class MonitoringService:
@@ -151,12 +31,10 @@ class MonitoringService:
     - Real-time experiment status monitoring
     - System health tracking
     - Database performance monitoring
-    - WebSocket-based real-time updates
     """
     
     def __init__(self):
         """Initialize the monitoring service"""
-        self.websocket_manager = WebSocketManager()
         self.is_running = False
         self.monitor_thread = None
         self.monitor_interval = 5  # seconds
@@ -191,9 +69,6 @@ class MonitoringService:
                 self._update_experiment_data()
                 self._update_system_health()
                 self._update_db_performance()
-                
-                # Broadcast updates via WebSocket (handled synchronously to avoid thread issues)
-                # The actual broadcasting will happen when WebSocket connections request data
                 
                 time.sleep(self.monitor_interval)
                 
@@ -240,7 +115,6 @@ class MonitoringService:
         try:
             from backend.services.health_sampler import health_sampler
             system_health = health_sampler.snapshot()
-            system_health["connections"] = self.websocket_manager.get_connection_stats()
 
             # Check for significant changes (>5% change or every minute)
             if (not self.last_system_health or 
@@ -273,106 +147,13 @@ class MonitoringService:
         except Exception as e:
             logger.error(f"Error updating database performance: {e}")
     
-    async def _broadcast_updates(self):
-        """Broadcast monitoring updates via WebSocket"""
-        try:
-            # Broadcast experiment updates
-            if self.last_experiment_data:
-                await self.websocket_manager.broadcast_to_channel({
-                    "type": "experiments_update",
-                    "data": self.last_experiment_data,
-                    "timestamp": datetime.now().isoformat()
-                }, "experiments")
-            
-            # Broadcast system health updates
-            if self.last_system_health:
-                await self.websocket_manager.broadcast_to_channel({
-                    "type": "system_health",
-                    "data": self.last_system_health,
-                    "timestamp": datetime.now().isoformat()
-                }, "system")
-            
-            # Broadcast database performance updates
-            if self.last_db_performance:
-                await self.websocket_manager.broadcast_to_channel({
-                    "type": "database_performance",
-                    "data": self.last_db_performance,
-                    "timestamp": datetime.now().isoformat()
-                }, "database")
-                
-        except Exception as e:
-            logger.error(f"Error broadcasting updates: {e}")
-    
     # Public API methods
-    
-    async def connect_websocket(self, websocket: WebSocket, channel: str = "general"):
-        """Connect a WebSocket to monitoring updates"""
-        await self.websocket_manager.connect(websocket, channel)
-    
-    async def disconnect_websocket(self, websocket: WebSocket):
-        """Disconnect a WebSocket"""
-        await self.websocket_manager.disconnect(websocket)
-    
-    async def handle_websocket_message(self, websocket: WebSocket, data: dict):
-        """Handle incoming WebSocket messages"""
-        try:
-            message_type = data.get("type")
-            logger.info(f"WebSocket message received: {message_type}")
-            
-            if message_type == "ping":
-                # Update last ping time
-                if websocket in self.websocket_manager.connection_metadata:
-                    self.websocket_manager.connection_metadata[websocket]["last_ping"] = datetime.now()
-                
-                # Send pong response
-                await self.websocket_manager.send_personal_message({
-                    "type": "pong",
-                    "timestamp": datetime.now().isoformat()
-                }, websocket)
-                logger.info("Sent pong response to WebSocket client")
-            
-            elif message_type == "subscribe":
-                # Handle channel subscription
-                channel = data.get("channel", "general")
-                # Move websocket to new channel (implementation would be here)
-                logger.info(f"WebSocket subscription request for channel: {channel}")
-            
-            elif message_type == "get_current_data":
-                # Send current monitoring data
-                logger.info("Sending current monitoring data to WebSocket client")
-                await self.send_current_data(websocket)
-                logger.info("Successfully sent current data to WebSocket client")
-            
-        except Exception as e:
-            logger.error(f"Error handling WebSocket message: {e}", exc_info=True)
-    
-    async def send_current_data(self, websocket: WebSocket):
-        """Send current monitoring data to a specific websocket"""
-        try:
-            current_data = {
-                "type": "current_data",
-                "data": {
-                    "experiments": self.last_experiment_data,
-                    "system_health": self.last_system_health,
-                    "database_performance": self.last_db_performance
-                },
-                "timestamp": datetime.now().isoformat()
-            }
-            
-            logger.info(f"Preparing to send WebSocket data: {len(self.last_experiment_data) if self.last_experiment_data else 0} experiments, system_health={bool(self.last_system_health)}, db_performance={bool(self.last_db_performance)}")
-            
-            await self.websocket_manager.send_personal_message(current_data, websocket)
-            logger.info("Current data sent successfully via WebSocket")
-            
-        except Exception as e:
-            logger.error(f"Error sending current data: {e}", exc_info=True)
     
     def get_monitoring_stats(self) -> Dict[str, Any]:
         """Get monitoring service statistics"""
         return {
             "is_running": self.is_running,
             "monitor_interval": self.monitor_interval,
-            "websocket_stats": self.websocket_manager.get_connection_stats(),
             "last_update": {
                 "experiments": len(self.last_experiment_data),
                 "system_health_timestamp": self.last_system_health.get("timestamp"),
@@ -397,61 +178,3 @@ def get_monitoring_service() -> MonitoringService:
                 logger.info("MonitoringService singleton instance created")
     return _monitoring_service
 
-
-# Convenience function for WebSocket management
-async def websocket_endpoint(websocket: WebSocket, channel: str = "general"):
-    """
-    WebSocket endpoint handler for real-time monitoring
-    
-    Usage in FastAPI:
-    @router.websocket("/ws/{channel}")
-    async def websocket_monitoring(websocket: WebSocket, channel: str):
-        await websocket_endpoint(websocket, channel)
-    """
-    monitoring_service = get_monitoring_service()
-    
-    # Ensure monitoring is started
-    if not monitoring_service.is_running:
-        monitoring_service.start_monitoring()
-    
-    await monitoring_service.connect_websocket(websocket, channel)
-    
-    try:
-        logger.info(f"Starting WebSocket message loop for channel: {channel}")
-        while True:
-            # Receive messages from client
-            logger.info("WebSocket waiting for client message...")
-            data = await websocket.receive_text()
-            logger.info(f"WebSocket received raw data: {data}")
-            
-            message = json.loads(data)
-            logger.info(f"WebSocket parsed message: {message}")
-            
-            # Handle the message
-            await monitoring_service.handle_websocket_message(websocket, message)
-            
-    except WebSocketDisconnect:
-        logger.info(f"WebSocket disconnected from channel: {channel}")
-    except Exception as e:
-        logger.error(f"WebSocket error: {e}", exc_info=True)
-    finally:
-        await monitoring_service.disconnect_websocket(websocket)
-
-
-if __name__ == "__main__":
-    # Example usage
-    monitoring = get_monitoring_service()
-    
-    print("=== RobotControl Monitoring Service ===")
-    
-    # Start monitoring
-    monitoring.start_monitoring()
-    
-    # Get stats
-    stats = monitoring.get_monitoring_stats()
-    print(f"Monitoring Stats: {stats}")
-    
-    # Stop monitoring
-    monitoring.stop_monitoring()
-    
-    print("=== Monitoring Service Example Complete ===")

@@ -105,20 +105,6 @@ class SharedFrameBuffer:
             logger.error(f"Error putting frame in buffer: {e}")
             return False
     
-    def get_frame_for_recording(self) -> Optional[FrameData]:
-        """
-        Priority access for recording service.
-        Always returns the latest frame if available.
-        Never blocks or waits.
-        
-        Returns:
-            Latest frame data or None if no frames available
-        """
-        with self.recording_lock:
-            if self.latest_frame:
-                self.frames_read_recording += 1
-            return self.latest_frame
-
     def subscribe_frames(self, loop, event):
         """One coalesced wake-up per reader; no frame payloads queued on the loop."""
         with self.streaming_lock:
@@ -181,38 +167,6 @@ class SharedFrameBuffer:
             self.frames_dropped_streaming += 1
             return None
     
-    def get_recent_frames(self, count: int = 5) -> List[FrameData]:
-        """
-        Get multiple recent frames for adaptive streaming.
-        Non-blocking access for quality adjustment algorithms.
-        
-        Args:
-            count: Number of recent frames to retrieve
-            
-        Returns:
-            List of recent frames (may be less than requested)
-        """
-        with self.streaming_lock:
-            # Return up to 'count' most recent frames
-            if not self.buffer:
-                return []
-            
-            frames_to_return = min(count, len(self.buffer))
-            return list(self.buffer)[-frames_to_return:]
-    
-    def register_streaming_callback(self, callback: Callable[[FrameData], None]) -> None:
-        """
-        Register a callback for frame distribution.
-        Used by streaming sessions for push-based frame delivery.
-        
-        Args:
-            callback: Function to call with each new frame
-        """
-        with self.streaming_lock:
-            if callback not in self.streaming_callbacks:
-                self.streaming_callbacks.append(callback)
-                logger.debug(f"Registered streaming callback, total: {len(self.streaming_callbacks)}")
-    
     def unregister_streaming_callback(self, callback: Callable[[FrameData], None]) -> None:
         """
         Unregister a streaming callback.
@@ -259,37 +213,6 @@ class SharedFrameBuffer:
             logger.error(f"Error in streaming callback: {e}")
             # Remove failed callback
             self.unregister_streaming_callback(callback)
-    
-    def get_buffer_status(self) -> dict:
-        """
-        Get current buffer status and statistics.
-        
-        Returns:
-            Dictionary with buffer metrics
-        """
-        with self.streaming_lock:
-            buffer_size = len(self.buffer)
-            buffer_usage = (buffer_size / self.max_frames * 100) if self.max_frames > 0 else 0
-            
-        return {
-            "buffer_size": buffer_size,
-            "buffer_capacity": self.max_frames,
-            "buffer_usage_percent": round(buffer_usage, 1),
-            "frames_written": self.frames_written,
-            "frames_read_recording": self.frames_read_recording,
-            "frames_read_streaming": self.frames_read_streaming,
-            "frames_dropped_streaming": self.frames_dropped_streaming,
-            "active_callbacks": len(self.streaming_callbacks),
-            "latest_frame_number": self.frame_counter,
-            "recording_efficiency": round(
-                (self.frames_read_recording / self.frames_written * 100) 
-                if self.frames_written > 0 else 0, 1
-            ),
-            "streaming_efficiency": round(
-                (self.frames_read_streaming / (self.frames_read_streaming + self.frames_dropped_streaming) * 100)
-                if (self.frames_read_streaming + self.frames_dropped_streaming) > 0 else 0, 1
-            )
-        }
     
     def clear(self) -> None:
         """
@@ -363,13 +286,3 @@ def get_shared_frame_buffer(max_frames: int = 30) -> SharedFrameBuffer:
     return _shared_buffer_instance
 
 
-def clear_shared_frame_buffer() -> None:
-    """
-    Clear and reset the global shared frame buffer.
-    Used during shutdown or reset.
-    """
-    global _shared_buffer_instance
-    
-    if _shared_buffer_instance is not None:
-        _shared_buffer_instance.clear()
-        logger.info("Cleared global SharedFrameBuffer")

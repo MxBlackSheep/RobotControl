@@ -5,13 +5,9 @@ Handles WebSocket communication, frame encoding, and quality adaptation.
 
 import asyncio
 import base64
-import io
-import json
 import logging
 import time
-from datetime import datetime
-from typing import Optional, Dict, Any
-import cv2
+from typing import Optional
 import numpy as np
 from fastapi import WebSocket
 
@@ -325,29 +321,6 @@ class StreamingSessionHandler:
             
         except Exception as e:
             logger.error(f"Error sending error message for session {self.session.session_id}: {e}")
-    
-    def get_statistics(self) -> Dict[str, Any]:
-        """
-        Get session statistics.
-        
-        Returns:
-            Dictionary with session statistics
-        """
-        uptime = time.time() - self.start_time
-        
-        return {
-            "session_id": self.session.session_id,
-            "user_id": self.session.user_id,
-            "uptime_seconds": uptime,
-            "frames_sent": self.session.frames_sent,
-            "bytes_sent": self.session.bytes_sent,
-            "actual_fps": self.session.actual_fps,
-            "target_fps": self.quality_settings.fps,
-            "bandwidth_mbps": self.session.bandwidth_usage_mbps,
-            "quality_level": self.session.quality_level,
-            "is_active": self.session.is_active,
-            "is_paused": self.is_paused
-        }
     
     def is_healthy(self) -> bool:
         """

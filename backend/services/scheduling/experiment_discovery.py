@@ -293,59 +293,6 @@ class ExperimentDiscoveryService:
         self.scan_for_experiments()
         return [exp.to_dict() for exp in self.discovered_experiments]
         
-    def get_experiment_by_name(self, name: str) -> Optional[ExperimentFile]:
-        """
-        Get experiment by name
-        
-        Args:
-            name: Experiment name (without .med extension)
-            
-        Returns:
-            ExperimentFile object or None if not found
-        """
-        for experiment in self.discovered_experiments:
-            if experiment.name.lower() == name.lower():
-                return experiment
-        return None
-        
-    def get_experiments_by_category(self, category: str) -> List[ExperimentFile]:
-        """
-        Get all experiments in a specific category
-        
-        Args:
-            category: Category name
-            
-        Returns:
-            List of ExperimentFile objects in that category
-        """
-        return [exp for exp in self.discovered_experiments 
-                if exp.category.lower() == category.lower()]
-        
-    def get_available_prerequisites(self) -> List[Dict[str, Any]]:
-        """
-        Get list of available prerequisite flags
-        
-        Returns:
-            List of prerequisite flag definitions
-        """
-        return self.AVAILABLE_PREREQUISITES.copy()
-        
-    def validate_experiment_path(self, path: str) -> bool:
-        """
-        Validate that an experiment path exists and is accessible
-        
-        Args:
-            path: Path to experiment .med file
-            
-        Returns:
-            True if path is valid and accessible
-        """
-        try:
-            path_obj = Path(path)
-            return path_obj.exists() and path_obj.suffix.lower() == '.med'
-        except Exception:
-            return False
-            
     def _determine_category(self, experiment_name: str) -> str:
         """
         Determine experiment category based on name patterns

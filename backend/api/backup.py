@@ -14,23 +14,18 @@ Features:
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from typing import List, Dict, Any, Optional
+from typing import Dict, Any, Optional
 from datetime import datetime
 import logging
 import time
 
 from backend.services.auth import get_current_admin_user, get_current_user
-from backend.services.backup import get_backup_service, BackupInfo, BackupResult, RestoreResult, BackupDetails
+from backend.services.backup import get_backup_service
 from backend.api.dependencies import ConnectionContext, require_local_access, get_connection_context
 from backend.utils.audit import log_action
 
 # Import standardized response formatter
-from backend.api.response_formatter import (
-    ResponseFormatter, 
-    ResponseMetadata, 
-    format_success, 
-    format_error
-)
+from backend.api.response_formatter import ResponseFormatter, ResponseMetadata
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -57,49 +52,6 @@ class CreateBackupRequest(BaseModel):
         max_length=1000,
         description="Description for the backup"
     )
-
-class BackupInfoResponse(BaseModel):
-    """Response model for backup information"""
-    filename: str
-    description: str
-    timestamp: str
-    created_date: str
-    file_size: int
-    file_size_formatted: str
-    is_valid: bool
-    database_name: Optional[str] = None
-    sql_server: Optional[str] = None
-
-class BackupResultResponse(BaseModel):
-    """Response model for backup operation results"""
-    success: bool
-    message: str
-    filename: Optional[str] = None
-    file_size: Optional[int] = None
-    duration_ms: Optional[int] = None
-    error_details: Optional[str] = None
-
-class RestoreResultResponse(BaseModel):
-    """Response model for restore operation results"""
-    success: bool
-    message: str
-    backup_filename: str
-    duration_ms: Optional[int] = None
-    warnings: Optional[List[str]] = None
-    error_details: Optional[str] = None
-
-class BackupDetailsResponse(BaseModel):
-    """Response model for detailed backup information"""
-    filename: str
-    description: str
-    timestamp: str
-    created_date: str
-    file_size: int
-    file_size_formatted: str
-    database_name: str
-    sql_server: str
-    metadata: Dict[str, Any]
-    is_valid: bool
 
 # Helper function to ensure consistent API response format (DEPRECATED - use ResponseFormatter)
 # This function is maintained for backward compatibility but should use ResponseFormatter
@@ -260,64 +212,6 @@ async def list_backups(
         logger.error(f"Unexpected error listing backups: {e}")
         return ResponseFormatter.server_error(
             message="An unexpected error occurred while listing backups",
-            details=str(e)
-        )
-
-
-@router.get("/{filename}/details", response_model=Dict[str, Any])
-async def get_backup_details(
-    filename: str,
-    current_user: dict = Depends(get_current_admin_user)
-):
-    """
-    Get detailed information about a specific backup
-    
-    Args:
-        filename: Name of backup file
-        current_user: Current authenticated admin user
-        
-    Returns:
-        Standardized API response with detailed backup information
-    """
-    start_time = time.time()
-    
-    try:
-        logger.info(f"Getting backup details for {filename} requested by user: {current_user['username']}")
-        
-        backup_service = get_backup_service()
-        details = backup_service.get_backup_details(filename)
-        
-        # Create metadata
-        metadata = ResponseMetadata()
-        metadata.set_execution_time(start_time)
-        metadata.add_metadata("operation", "get_backup_details")
-        metadata.add_metadata("admin_user", current_user['username'])
-        metadata.add_metadata("filename", filename)
-        
-        if details is None:
-            logger.warning(f"Backup not found: {filename}")
-            metadata.add_metadata("backup_found", False)
-            
-            return ResponseFormatter.not_found(
-                message=f"Backup file not found: {filename}",
-                details=f"No backup file named '{filename}' exists in the backup directory",
-                metadata=metadata
-            )
-        
-        logger.info(f"Retrieved details for backup: {filename}")
-        metadata.add_metadata("backup_found", True)
-        metadata.add_metadata("backup_size", details.file_size)
-        
-        return ResponseFormatter.success(
-            data=details.to_dict(),
-            metadata=metadata,
-            message="Backup details retrieved successfully"
-        )
-        
-    except Exception as e:
-        logger.error(f"Unexpected error getting backup details: {e}")
-        return ResponseFormatter.server_error(
-            message="An unexpected error occurred while getting backup details",
             details=str(e)
         )
 

@@ -3,7 +3,7 @@ RobotControl Backend Types
 Consolidated type definitions for camera service and API responses
 """
 
-from typing import Optional, Any, Dict, List, Union
+from typing import Optional, Any, Dict, List
 from dataclasses import dataclass, field
 from datetime import datetime
 import uuid
@@ -15,11 +15,7 @@ try:
         utc_now_as_local_naive,
     )
 except ImportError:  # pragma: no cover - fallback for legacy packaging
-    from utils.datetime import (  # type: ignore
-        ensure_local_naive,
-        parse_iso_datetime_to_local,
-        utc_now_as_local_naive,
-    )
+    from utils.datetime import parse_iso_datetime_to_local, utc_now_as_local_naive
 
 
 @dataclass

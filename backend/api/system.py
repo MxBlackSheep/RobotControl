@@ -2,24 +2,17 @@
 System API endpoints for file browsing and system operations
 """
 
-import os
 import logging
 import time
 from datetime import datetime
-from typing import Dict, Any, List
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, Depends, Query
 from pathlib import Path
 from backend.utils.filesystem import restricted_directory, visible_children
 
 from backend.services.auth import get_current_user
 
 # Import standardized response formatter
-from backend.api.response_formatter import (
-    ResponseFormatter, 
-    ResponseMetadata, 
-    format_success, 
-    format_error
-)
+from backend.api.response_formatter import ResponseFormatter, ResponseMetadata
 
 logger = logging.getLogger(__name__)
 
@@ -153,51 +146,3 @@ async def browse_directory(
             details=str(e)
         )
 
-@router.get("/drives")
-async def get_drives(current_user: dict = Depends(get_current_user)):
-    """Get available drives on Windows system"""
-    start_time = time.time()
-    
-    try:
-        drives = []
-        for drive_letter in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ':
-            drive_path = Path(f"{drive_letter}:\\")
-            if drive_path.exists():
-                try:
-                    # Raises when the drive is present but not readable.
-                    drive_path.stat()
-                    drives.append({
-                        'letter': drive_letter,
-                        'path': str(drive_path),
-                        'name': f"Drive {drive_letter}:",
-                        'accessible': True
-                    })
-                except (OSError, PermissionError):
-                    # Drive exists but not accessible
-                    drives.append({
-                        'letter': drive_letter,
-                        'path': str(drive_path),
-                        'name': f"Drive {drive_letter}: (restricted)",
-                        'accessible': False
-                    })
-        
-        # Create metadata
-        metadata = ResponseMetadata()
-        metadata.set_execution_time(start_time)
-        metadata.add_metadata("operation", "get_drives")
-        metadata.add_metadata("user_id", current_user.get("user_id"))
-        metadata.add_metadata("drive_count", len(drives))
-        metadata.add_metadata("accessible_drives", sum(1 for d in drives if d['accessible']))
-        
-        return ResponseFormatter.success(
-            data=drives,
-            metadata=metadata,
-            message=f"Found {len(drives)} drives on the system"
-        )
-        
-    except Exception as e:
-        logger.error(f"Error getting drives: {e}")
-        return ResponseFormatter.server_error(
-            message="Failed to get drives",
-            details=str(e)
-        )

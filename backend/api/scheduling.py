@@ -1,4 +1,4 @@
-from typing import Dict, Any, List, Optional, Union, Tuple
+from typing import Dict, Any, List, Optional, Tuple
 import logging
 import sqlite3
 from fastapi.routing import APIRoute
@@ -14,22 +14,13 @@ from backend.services.auth import get_current_user
 from backend.services.scheduling import (
     get_scheduler_engine,
     get_scheduling_database_manager,
-    get_job_queue_manager,
     get_hamilton_process_monitor,
 )
 from backend.services.notifications import EmailNotificationService
 from backend.services.notification_delivery import send_recorded
 from backend.services.scheduling.experiment_discovery import get_experiment_discovery_service
 from backend.services.scheduling.experiment_executor import resolve_experiment_path
-from backend.models import (
-    ScheduledExperiment,
-    JobExecution,
-    TimeoutConfig,
-    CalendarEvent,
-    ApiResponse,
-    NotificationContact,
-    NotificationSettings,
-)
+from backend.models import ScheduledExperiment, TimeoutConfig, CalendarEvent, ApiResponse, NotificationContact, NotificationSettings
 from backend.api.dependencies import ConnectionContext, require_local_access
 from backend.utils.audit import log_action
 from backend.utils.secret_cipher import encrypt_secret, SecretCipherError
@@ -84,9 +75,8 @@ def get_services():
     """Return the scheduler service dependencies."""
     scheduler = get_scheduler_engine()
     db_mgr = get_scheduling_database_manager()
-    queue_mgr = get_job_queue_manager()
     proc_monitor = get_hamilton_process_monitor()
-    return scheduler, db_mgr, queue_mgr, proc_monitor
+    return scheduler, db_mgr, proc_monitor
 
 
 def _normalize_contact_ids(contact_ids: Optional[Any], db_mgr) -> List[str]:
@@ -296,7 +286,7 @@ def get_notification_settings_endpoint(
     if current_user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin role required to manage notification settings")
 
-    scheduler, db_mgr, _, _ = get_services()
+    scheduler, db_mgr, _ = get_services()
     settings = db_mgr.get_notification_settings()
     data = settings.to_public_dict()
 
@@ -386,7 +376,7 @@ def update_notification_settings_endpoint(
         manual_recovery_recipients=manual_recipients or None,
     )
 
-    scheduler, db_mgr, _, _ = get_services()
+    scheduler, db_mgr, _ = get_services()
     updated = db_mgr.update_notification_settings(
         settings,
         password_encrypted=encrypted_password,
@@ -500,7 +490,7 @@ def send_schedule_notification_email_endpoint(
     subject = subject_value.strip()
     body = body_value
 
-    _, db_mgr, _, _ = get_services()
+    _, db_mgr, _ = get_services()
     schedule = db_mgr.get_schedule_by_id(schedule_id)
     if not schedule:
         raise HTTPException(status_code=404, detail="Schedule not found")
@@ -585,7 +575,7 @@ def list_notification_contacts(
 ):
     """List notification contacts for scheduling."""
     try:
-        _, db_mgr, _, _ = get_services()
+        _, db_mgr, _ = get_services()
         contacts = db_mgr.get_notification_contacts(include_inactive=include_inactive)
         response = ApiResponse(
             success=True,
@@ -618,7 +608,7 @@ def create_notification_contact_endpoint(
 
     actor = current_user.get("username", "unknown")
 
-    scheduler, db_mgr, _, _ = get_services()
+    scheduler, db_mgr, _ = get_services()
 
     contact = NotificationContact(
         contact_id="",
@@ -668,7 +658,7 @@ def update_notification_contact_endpoint(
 
     actor = current_user.get("username", "unknown")
 
-    scheduler, db_mgr, _, _ = get_services()
+    scheduler, db_mgr, _ = get_services()
     contact = NotificationContact(
         contact_id=contact_id,
         display_name=display_name.strip(),
@@ -717,7 +707,7 @@ def delete_notification_contact_endpoint(
 
     actor = current_user.get("username", "unknown")
 
-    scheduler, db_mgr, _, _ = get_services()
+    scheduler, db_mgr, _ = get_services()
     deleted = db_mgr.delete_notification_contact(contact_id)
     if not deleted:
         log_action(
@@ -764,7 +754,7 @@ def list_notification_logs(
         raise HTTPException(status_code=400, detail="limit must be between 1 and 200")
 
     try:
-        scheduler, db_mgr, _, _ = get_services()
+        scheduler, db_mgr, _ = get_services()
         logs = db_mgr.get_notification_logs(
             limit,
             schedule_id=schedule_id,
@@ -808,7 +798,7 @@ def create_schedule(
         if current_user.get("role") not in ["admin", "user"]:
             raise HTTPException(status_code=403, detail="Insufficient permissions")
         
-        scheduler, db_mgr, queue_mgr, proc_mon = get_services()
+        scheduler, db_mgr, proc_mon = get_services()
         
         # Validate required fields
         required_fields = ["experiment_name", "experiment_path", "schedule_type", "estimated_duration"]
@@ -924,7 +914,7 @@ def list_schedules(
     Requires: any authenticated user
     """
     try:
-        scheduler, db_mgr, queue_mgr, proc_mon = get_services()
+        scheduler, db_mgr, proc_mon = get_services()
         
         logger.info(f"Getting schedules: active_only={active_only} archived_only={archived_only}")
 
@@ -974,50 +964,6 @@ def list_schedules(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@router.get("/upcoming")
-def get_upcoming_schedules(
-    hours_ahead: int = Query(48, description="Hours to look ahead"),
-    current_user: dict = Depends(get_current_user)
-):
-    """
-    Get scheduled experiments for the next N hours
-    
-    Requires: any authenticated user
-    """
-    try:
-        if hours_ahead < 1 or hours_ahead > 168:  # Max 1 week
-            raise HTTPException(status_code=400, detail="hours_ahead must be between 1 and 168")
-        
-        scheduler, db_mgr, queue_mgr, proc_mon = get_services()
-        
-        upcoming = scheduler.get_upcoming_jobs(hours_ahead)
-        
-        upcoming_list = []
-        for schedule in upcoming:
-            schedule_dict = schedule.to_dict()
-            upcoming_list.append(schedule_dict)
-        
-        response = ApiResponse(
-            success=True,
-            message=f"Retrieved {len(upcoming_list)} upcoming schedules",
-            data=upcoming_list,
-            metadata={
-                "hours_ahead": hours_ahead,
-                "count": len(upcoming_list)
-            }
-        )
-        
-        return response.to_dict()
-        
-    except HTTPException:
-        raise
-    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
-        raise
-    except Exception as e:
-        logger.error(f"Error getting upcoming schedules: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
 @router.get("/calendar")
 def get_calendar_data(
     start_date: Optional[str] = Query(None, description="Start date (ISO format)"),
@@ -1047,7 +993,7 @@ def get_calendar_data(
         else:
             end_dt = start_dt + timedelta(hours=48)  # Default 48-hour view
         
-        scheduler, db_mgr, queue_mgr, proc_mon = get_services()
+        scheduler, db_mgr, proc_mon = get_services()
         
         # Get schedules in date range
         all_schedules = scheduler.get_active_schedules()
@@ -1098,7 +1044,7 @@ def get_schedule(
     Requires: any authenticated user
     """
     try:
-        scheduler, db_mgr, queue_mgr, proc_mon = get_services()
+        scheduler, db_mgr, proc_mon = get_services()
         
         schedule = scheduler.get_schedule(schedule_id)
         
@@ -1140,7 +1086,7 @@ def update_schedule(
         if current_user.get("role") not in ["admin", "user"]:
             raise HTTPException(status_code=403, detail="Insufficient permissions")
         
-        scheduler, db_mgr, _, _ = get_services()
+        scheduler, db_mgr, _ = get_services()
 
         expected_token = update_data.pop("expected_updated_at", None) or if_unmodified_since
         base_schedule = _load_current_schedule(schedule_id, db_mgr, expected_token)
@@ -1252,7 +1198,7 @@ def require_schedule_recovery(
     if current_user.get('role') not in ['admin', 'user']:
         raise HTTPException(status_code=403, detail='Insufficient permissions')
 
-    scheduler, db_mgr, _, _ = get_services()
+    scheduler, db_mgr, _ = get_services()
     note = (payload or {}).get('note') if payload else None
     expected_token = (payload or {}).get('expected_updated_at') or if_unmodified_since
     actor = current_user.get('username') or current_user.get('user_id', 'system')
@@ -1320,7 +1266,7 @@ def _resolve_recovery_request(payload, current_user, connection):
         raise HTTPException(status_code=403, detail='Insufficient permissions')
     if not payload.robot_ready:
         raise HTTPException(status_code=400, detail='Confirm the robot is ready before acknowledging recovery.')
-    scheduler, _, _, _ = get_services()
+    scheduler, _, _ = get_services()
     actor = current_user.get('username') or 'unknown'
     updated = scheduler.resolve_manual_recovery(payload.schedule_id, payload.note, actor,
                     payload.expected_revision, payload.expected_updated_at)
@@ -1351,7 +1297,7 @@ def resume_queued_jobs(payload: DispatchResume, current_user: dict = Depends(get
                        connection: ConnectionContext = Depends(require_local_access)):
     if current_user.get('role') not in ('admin', 'user'):
         raise HTTPException(status_code=403, detail='Insufficient permissions')
-    scheduler, _, _, _ = get_services()
+    scheduler, _, _ = get_services()
     actor = current_user.get('username') or 'unknown'
     state = scheduler.resume_queued_jobs(payload.expected_revision, actor)
     log_action(actor=actor, action='resume_queued_jobs', scope='scheduling', client_ip=connection.client_ip,
@@ -1373,7 +1319,7 @@ def delete_schedule(
     """
     actor = current_user.get("username", "unknown")
     try:
-        scheduler, db_mgr, queue_mgr, proc_mon = get_services()
+        scheduler, db_mgr, proc_mon = get_services()
 
         existing_schedule = db_mgr.get_schedule_by_id(schedule_id)
         if not existing_schedule:
@@ -1474,7 +1420,7 @@ def set_schedule_archived(
         raise HTTPException(status_code=400, detail="archived flag is required")
     archived = bool(archived_flag)
 
-    scheduler, db_mgr, _, _ = get_services()
+    scheduler, db_mgr, _ = get_services()
     # Serialize the complete read/write with reviewed method-path changes.
     with scheduler._schedules_lock:
         schedule = db_mgr.get_schedule_by_id(schedule_id)
@@ -1526,7 +1472,7 @@ def get_scheduler_status(
     Requires: any authenticated user
     """
     try:
-        scheduler, db_mgr, queue_mgr, proc_mon = get_services()
+        scheduler, db_mgr, proc_mon = get_services()
         
         # Get scheduler status
         scheduler_status = scheduler.get_status()
@@ -1556,7 +1502,7 @@ def get_queue_status(
     Requires: any authenticated user
     """
     try:
-        scheduler, db_mgr, queue_mgr, proc_mon = get_services()
+        scheduler, db_mgr, proc_mon = get_services()
         
         # Get queue status from scheduler runtime (single-worker queue)
         queue_status = scheduler.get_runtime_queue_status()
@@ -1588,200 +1534,6 @@ def get_queue_status(
     except Exception as e:
         logger.error(f"Error getting queue status: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@router.post("/conflicts/check")
-def check_conflicts(
-    experiments_data: List[Dict[str, Any]],
-    current_user: dict = Depends(get_current_user)
-):
-    """
-    Check for scheduling conflicts among experiments
-    
-    Requires: any authenticated user
-    """
-    try:
-        scheduler, db_mgr, queue_mgr, proc_mon = get_services()
-        
-        # Convert to ScheduledExperiment objects
-        experiments = []
-        for exp_data in experiments_data:
-            # Parse start_time if provided
-            start_time = None
-            if exp_data.get("start_time"):
-                try:
-                    start_time = parse_iso_datetime_to_local(exp_data["start_time"])
-                except ValueError:
-                    continue  # Skip invalid entries
-            
-            experiment = ScheduledExperiment(
-                schedule_id=exp_data.get("schedule_id", ""),
-                experiment_name=exp_data["experiment_name"],
-                experiment_path=exp_data.get("experiment_path", ""),
-                schedule_type=exp_data.get("schedule_type", "once"),
-                interval_hours=None,
-                start_time=start_time,
-                estimated_duration=exp_data.get("estimated_duration", 60),
-                log_inactivity_threshold_minutes=_log_inactivity_threshold(exp_data.get("log_inactivity_threshold_minutes", 3)),
-                created_by="system",
-                is_active=True,
-                timeout_config=None,
-                prerequisites=[],
-                created_at=None,
-                updated_at=None
-            )
-            experiments.append(experiment)
-        
-        # Detect conflicts
-        conflicts = queue_mgr.detect_scheduling_conflicts(experiments)
-        
-        response = ApiResponse(
-            success=True,
-            message=f"Conflict analysis completed for {len(experiments)} experiments",
-            data=conflicts,
-            metadata={
-                "experiments_analyzed": len(experiments),
-                "conflicts_found": len(conflicts)
-            }
-        )
-        
-        return response.to_dict()
-        
-    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
-        raise
-    except Exception as e:
-        logger.error(f"Error checking conflicts: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@router.post("/start-scheduler")
-def start_scheduler_service(
-    current_user: dict = Depends(get_current_user)
-):
-    """
-    Start the scheduler service
-    
-    Requires: admin role
-    """
-    try:
-        # Check user permissions
-        if current_user.get("role") != "admin":
-            raise HTTPException(status_code=403, detail="Admin role required")
-        
-        scheduler, db_mgr, queue_mgr, proc_mon = get_services()
-        
-        success = scheduler.start()
-        
-        if not success:
-            raise HTTPException(status_code=500, detail="Failed to start scheduler service")
-        
-        response = ApiResponse(
-            success=True,
-            message="Scheduler service started successfully",
-            data={"status": "running"}
-        )
-        
-        return response.to_dict()
-        
-    except HTTPException:
-        raise
-    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
-        raise
-    except Exception as e:
-        logger.error(f"Error starting scheduler service: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@router.post("/stop-scheduler")
-def stop_scheduler_service(
-    current_user: dict = Depends(get_current_user)
-):
-    """
-    Stop the scheduler service
-    
-    Requires: admin role
-    """
-    try:
-        # Check user permissions
-        if current_user.get("role") != "admin":
-            raise HTTPException(status_code=403, detail="Admin role required")
-        
-        scheduler, db_mgr, queue_mgr, proc_mon = get_services()
-        
-        scheduler.stop()
-        
-        response = ApiResponse(
-            success=True,
-            message="Scheduler service stopped successfully",
-            data={"status": "stopped"}
-        )
-        
-        return response.to_dict()
-        
-    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
-        raise
-    except Exception as e:
-        logger.error(f"Error stopping scheduler service: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@router.post("/experiments/scan-defaults")
-def scan_default_experiment_paths(
-    current_user: dict = Depends(get_current_user)
-):
-    """
-    Scan default Hamilton paths for experiment files and import them
-    
-    Scans common Hamilton installation directories and imports any found
-    .med files into the database automatically.
-    
-    Requires: admin or user role
-    """
-    try:
-        # Check user permissions
-        if current_user.get("role") not in ["admin", "user"]:
-            raise HTTPException(status_code=403, detail="Insufficient permissions")
-        
-        discovery_service = get_experiment_discovery_service()
-        
-        # Perform scan of default paths
-        discovered = discovery_service.scan_for_experiments()
-        
-        if discovered:
-            # Import discovered experiments
-            methods_data = [exp.to_dict() for exp in discovered]
-            outcomes = discovery_service.db.import_experiment_methods(methods_data, current_user.get('username', 'system'))
-            new_count = sum(row["status"] == "added" for row in outcomes)
-            updated_count = sum(row["status"] == "updated" for row in outcomes)
-            
-            response = ApiResponse(
-                success=True,
-                message=f"Scanned default paths and imported {new_count} new, {updated_count} updated experiments",
-                data={
-                    "scanned_paths": discovery_service.DEFAULT_SEARCH_PATHS,
-                    "total_found": len(discovered),
-                    "new_methods": new_count,
-                    "updated_methods": updated_count,
-                    "experiments": methods_data
-                }
-            )
-        else:
-            response = ApiResponse(
-                success=False,
-                message="No experiment files found in default Hamilton paths",
-                data={
-                    "scanned_paths": discovery_service.DEFAULT_SEARCH_PATHS,
-                    "total_found": 0
-                }
-            )
-        
-        return response.to_dict()
-        
-    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
-        raise
-    except Exception as e:
-        logger.error(f"Error scanning default paths: {e}")
-        raise HTTPException(status_code=500, detail="Failed to scan for experiments")
 
 
 @router.get("/experiments/available")
@@ -1830,82 +1582,19 @@ def get_available_experiments(
         raise HTTPException(status_code=500, detail="Failed to retrieve experiments")
 
 
-@router.get("/experiments/evo-yeast")
-def get_evo_yeast_experiments(
-    limit: int = Query(100, ge=1, le=500, description="Maximum number of experiments to return"),
-    current_user: dict = Depends(get_current_user)
-):
-    """Return EvoYeast experiments with their ScheduledToRun flag states."""
-    try:
-        scheduler, db_mgr, _, _ = get_services()
-        experiments = db_mgr.get_evo_yeast_experiments(limit)
-
-        response = ApiResponse(
-            success=True,
-            message=f"Retrieved {len(experiments)} EvoYeast experiments",
-            data={
-                "experiments": experiments,
-                "limit": limit
-            }
-        )
-
-        return response.to_dict()
-
-    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
-        raise
-    except Exception as e:
-        logger.error(f"Error getting EvoYeast experiments: {e}")
-        raise HTTPException(status_code=500, detail="Failed to retrieve EvoYeast experiments")
-
-
 @router.get("/lab/preparation")
 def get_lab_preparation(
     limit: int = Query(100, ge=1, le=500),
     current_user: dict = Depends(get_current_user),
 ):
     """Choices belong to this installation, never the Database viewer target."""
-    _, manager, _, _ = get_services()
+    _, manager, _ = get_services()
     lab = manager.lab
     try:
         return lab.catalogue(limit)
     except Exception:
         logger.exception('Lab preparation choices unavailable')
         raise HTTPException(502, 'Cannot load lab choices. Check the lab database connection and schema.')
-
-
-@router.get("/experiments/prerequisites")
-def get_available_prerequisites(
-    current_user: dict = Depends(get_current_user)
-):
-    """
-    Get list of available prerequisite database flags
-    
-    Returns the available database flags that can be set as prerequisites
-    before running scheduled experiments.
-    
-    Requires: any authenticated user
-    """
-    try:
-        discovery_service = get_experiment_discovery_service()
-        
-        prerequisites = discovery_service.get_available_prerequisites()
-        
-        response = ApiResponse(
-            success=True,
-            message="Retrieved available prerequisites",
-            data={
-                "prerequisites": prerequisites,
-                "count": len(prerequisites)
-            }
-        )
-        
-        return response.to_dict()
-        
-    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
-        raise
-    except Exception as e:
-        logger.error(f"Error getting prerequisites: {e}")
-        raise HTTPException(status_code=500, detail="Failed to retrieve prerequisites")
 
 
 class MethodImportRequest(BaseModel):
@@ -2029,50 +1718,6 @@ def preview_experiment_import(
         raise HTTPException(status_code=500, detail="Could not preview methods; try again.") from exc
 
 
-def _import_method_selection(service, payload, actor):
-    """Accept the new host-root selection and existing absolute-path metadata callers."""
-    if isinstance(payload, dict) and "folder_path" in payload:
-        request = MethodImportRequest.model_validate(payload)
-        return service.import_methods_from_folder(request.folder_path, actor, request.relative_paths)
-    files = payload if isinstance(payload, list) else payload.get("files", [])
-    if not files:
-        raise ValueError("Select at least one method to import.")
-    groups = {}
-    for item in files:
-        raw = item.get("path") if isinstance(item, dict) else None
-        if not isinstance(raw, str) or not Path(raw).is_absolute():
-            raise ValueError("Browser paths are relative. Supply folder_path and relative_paths for the RobotControl computer.")
-        path = Path(raw)
-        groups.setdefault(str(path.parent), []).append(path.name)
-    rows = []
-    for folder, names in groups.items():
-        try:
-            rows.extend(service.import_methods_from_folder(folder, actor, names)["methods"])
-        except ValueError as exc:
-            rows.extend({"name": Path(name).stem, "path": str(Path(folder, name)), "relative_path": name,
-                         "status": "failed", "reason": str(exc)} for name in names)
-    return service.import_summary(rows)
-
-
-@router.post("/experiments/import-files")
-def import_experiment_files(
-    files_data: Union[List[Dict[str, Any]], Dict[str, Any]],
-    current_user: dict = Depends(get_current_user),
-    connection: ConnectionContext = Depends(require_local_access),
-):
-    _require_method_import_role(current_user)
-    try:
-        result = _import_method_selection(get_experiment_discovery_service(), files_data, current_user.get('username', 'unknown'))
-        return ApiResponse(success=result["success"], message="Method import finished", data=result).to_dict()
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
-        raise
-    except Exception as exc:
-        logger.exception("Method file import failed")
-        raise HTTPException(status_code=500, detail="Could not import methods; try again.") from exc
-
-
 @router.post("/experiments/import-folder")
 def import_experiment_folder(
     request: MethodImportRequest,
@@ -2090,48 +1735,6 @@ def import_experiment_folder(
     except Exception as exc:
         logger.exception("Method folder import failed")
         raise HTTPException(status_code=500, detail="Could not import methods; try again.") from exc
-
-
-@router.post("/experiments/validate-path")
-def validate_experiment_path(
-    path_data: Dict[str, str],
-    current_user: dict = Depends(get_current_user)
-):
-    """
-    Validate an experiment file path
-    
-    Checks if the provided path exists and is a valid .med file.
-    
-    Requires: any authenticated user
-    """
-    try:
-        path = path_data.get("path", "")
-        
-        if not path:
-            raise HTTPException(status_code=400, detail="Path is required")
-        
-        discovery_service = get_experiment_discovery_service()
-        
-        is_valid = discovery_service.validate_experiment_path(path)
-        
-        response = ApiResponse(
-            success=is_valid,
-            message="Path is valid" if is_valid else "Path is invalid or inaccessible",
-            data={
-                "path": path,
-                "valid": is_valid
-            }
-        )
-        
-        return response.to_dict()
-        
-    except HTTPException:
-        raise
-    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
-        raise
-    except Exception as e:
-        logger.error(f"Error validating path: {e}")
-        raise HTTPException(status_code=500, detail="Failed to validate path")
 
 
 @router.get("/executions/history")
@@ -2155,7 +1758,7 @@ def get_execution_history(
         if limit < 1 or limit > 200:
             raise HTTPException(status_code=400, detail="Limit must be between 1 and 200")
         
-        scheduler, db_mgr, queue_mgr, proc_mon = get_services()
+        scheduler, db_mgr, proc_mon = get_services()
         
         # Get execution history from SQLite database
         sqlite_db = db_mgr.sqlite_db
@@ -2182,88 +1785,3 @@ def get_execution_history(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@router.get("/executions/summary/{schedule_id}")
-def get_schedule_execution_summary(
-    schedule_id: str,
-    current_user: dict = Depends(get_current_user)
-):
-    """
-    Get execution summary for a specific schedule (like Windows Task Scheduler)
-    
-    Returns:
-    - Total runs, successful runs, failed runs
-    - Last run time and status
-    - Next scheduled run time
-    - Success rate and average duration
-    - Last execution details
-    
-    Requires: any authenticated user
-    """
-    try:
-        scheduler, db_mgr, queue_mgr, proc_mon = get_services()
-        
-        # Get execution summary from SQLite database
-        sqlite_db = db_mgr.sqlite_db
-        summary = sqlite_db.get_schedule_execution_summary(schedule_id)
-        
-        if not summary:
-            raise HTTPException(status_code=404, detail="Schedule not found")
-        
-        response = ApiResponse(
-            success=True,
-            message="Retrieved execution summary",
-            data=summary
-        )
-        
-        return response.to_dict()
-        
-    except HTTPException:
-        raise
-    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
-        raise
-    except Exception as e:
-        logger.error(f"Error getting execution summary: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@router.get("/executions/recent")
-def get_recent_executions(
-    hours: int = Query(24, description="Hours to look back"),
-    current_user: dict = Depends(get_current_user)
-):
-    """
-    Get recent executions within the specified time period
-    
-    Useful for monitoring dashboard and recent activity display
-    
-    Requires: any authenticated user
-    """
-    try:
-        if hours < 1 or hours > 168:  # Max 1 week
-            raise HTTPException(status_code=400, detail="Hours must be between 1 and 168")
-        
-        scheduler, db_mgr, queue_mgr, proc_mon = get_services()
-        
-        # Get recent executions from SQLite database
-        sqlite_db = db_mgr.sqlite_db
-        executions = sqlite_db.get_recent_executions(hours)
-        
-        response = ApiResponse(
-            success=True,
-            message=f"Retrieved {len(executions)} recent executions",
-            data=executions,
-            metadata={
-                "hours": hours,
-                "count": len(executions)
-            }
-        )
-        
-        return response.to_dict()
-        
-    except HTTPException:
-        raise
-    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
-        raise
-    except Exception as e:
-        logger.error(f"Error getting recent executions: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")

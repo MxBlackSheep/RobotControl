@@ -12,7 +12,6 @@ Features:
 
 import csv
 import logging
-import time
 import threading
 import subprocess
 import platform
@@ -172,31 +171,6 @@ class HamiltonProcessMonitor:
         return [ProcessInfo(int(row[1]), row[0], None, None)
                 for row in rows if row[0].lower() == "hxrun.exe"]
     
-    def wait_for_hamilton_available(self, timeout_minutes: int = 10) -> bool:
-        """
-        Wait for Hamilton to become available (not running)
-        
-        Args:
-            timeout_minutes: Maximum time to wait
-            
-        Returns:
-            bool: True if Hamilton becomes available, False if timeout
-        """
-        start_time = time.time()
-        timeout_seconds = timeout_minutes * 60
-        
-        logger.info(f"Waiting for Hamilton to become available (timeout: {timeout_minutes} minutes)")
-        
-        while time.time() - start_time < timeout_seconds:
-            if not self.is_hamilton_running():
-                logger.info("Hamilton is now available")
-                return True
-            
-            time.sleep(5)  # Check every 5 seconds
-        
-        logger.warning(f"Timeout waiting for Hamilton availability ({timeout_minutes} minutes)")
-        return False
-    
     def get_status(self) -> HamiltonStatus:
         """
         Get current Hamilton status
@@ -221,17 +195,6 @@ class HamiltonProcessMonitor:
             callback: Function to call with HamiltonStatus when status changes
         """
         self._status_callbacks.append(callback)
-    
-    def remove_status_callback(self, callback: Callable[[HamiltonStatus], None]):
-        """
-        Remove a status callback function
-        
-        Args:
-            callback: Function to remove from callbacks
-        """
-        if callback in self._status_callbacks:
-            self._status_callbacks.remove(callback)
-    
     
     def _monitor_loop(self, check_interval: float):
         """

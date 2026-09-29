@@ -111,7 +111,6 @@ def build_with_pyinstaller(layout: str = "onedir", console: bool = False, output
         "--hidden-import", "backend.api.monitoring",
         "--hidden-import", "backend.api.experiments",
         "--hidden-import", "backend.api.backup",
-        "--hidden-import", "backend.api.system_config",
         "--hidden-import", "backend.services.database",
         "--hidden-import", "backend.services.auth",
         "--hidden-import", "backend.services.monitoring",

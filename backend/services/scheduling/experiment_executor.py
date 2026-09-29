@@ -18,7 +18,6 @@ import subprocess
 import time
 import threading
 import os
-import signal
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 from dataclasses import dataclass
@@ -213,71 +212,6 @@ class ExperimentExecutor:
         finally:
             if pre_run and pre_run.cleanup_required:
                 self.pre_execution.cleanup(pre_run.steps)
-
-    def stop_experiment(self, schedule_id: str) -> bool:
-        """
-        Stop a running experiment
-        
-        Args:
-            schedule_id: ID of the experiment to stop
-            
-        Returns:
-            bool: True if stopped successfully
-        """
-        try:
-            with self._execution_lock:
-                if schedule_id not in self._active_executions:
-                    logger.warning(f"No active execution found for schedule: {schedule_id}")
-                    return False
-                
-                process = self._active_executions[schedule_id]
-                
-                # Terminate HxRun.exe process
-                if os.name == 'nt':  # Windows
-                    try:
-                        process.send_signal(signal.CTRL_BREAK_EVENT)
-                    except ProcessLookupError:
-                        logger.warning(f"Process {schedule_id} already terminated")
-                    except Exception as e:
-                        logger.warning(f"Failed to send CTRL_BREAK to {schedule_id}: {e}")
-                        process.terminate()
-                else:
-                    process.terminate()
-                
-                # Wait for process to terminate
-                try:
-                    process.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                
-                # Remove from active executions
-                del self._active_executions[schedule_id]
-                
-                logger.info(f"Experiment stopped: {schedule_id}")
-                return True
-                
-        except Exception as e:
-            logger.error(f"Error stopping experiment {schedule_id}: {e}")
-            return False
-    
-    def get_active_executions(self) -> Dict[str, Dict[str, Any]]:
-        """
-        Get information about active executions
-        
-        Returns:
-            Dictionary mapping schedule_id to execution info
-        """
-        active_info = {}
-        
-        with self._execution_lock:
-            for schedule_id, process in self._active_executions.items():
-                active_info[schedule_id] = {
-                    "pid": process.pid,
-                    "poll": process.poll(),
-                    "returncode": process.returncode
-                }
-        
-        return active_info
 
     def _refresh_timeout_context(
         self,

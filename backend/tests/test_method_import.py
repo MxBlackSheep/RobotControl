@@ -174,31 +174,20 @@ def test_ambiguous_existing_canonical_paths_fail_without_repair(service, methods
     assert len(service.db.get_experiment_methods()) == 2
 
 
-@pytest.mark.parametrize('endpoint', ['import-preview', 'import-folder', 'import-files'])
+@pytest.mark.parametrize('endpoint', ['import-preview', 'import-folder'])
 def test_import_endpoints_require_local_access(client, methods, endpoint):
     response = client.post(f'/api/scheduling/experiments/{endpoint}', json={'folder_path': str(methods)}, headers={'x-forwarded-for': '8.8.8.8'})
     assert response.status_code == 403
 
 
-def test_api_preview_selection_and_legacy_absolute_files(client, service, methods):
+def test_api_preview_then_selected_import_and_update(client, service, methods):
     preview = client.post('/api/scheduling/experiments/import-preview', json={'folder_path': str(methods)}).json()['data']
     assert len(preview['methods']) == 2
     assert service.db.get_experiment_methods() == []
-    response = client.post('/api/scheduling/experiments/import-files', json={'folder_path': str(methods), 'relative_paths': ['Same.med']})
+    response = client.post('/api/scheduling/experiments/import-folder', json={'folder_path': str(methods), 'relative_paths': ['Same.med']})
     assert response.json()['data']['new_methods'] == 1
-    response = client.post('/api/scheduling/experiments/import-files', json={'files': [{'path': str(methods / 'nested' / 'Same.MED'), 'name': 'FAKE', 'size': 999}]})
-    row = response.json()['data']['methods'][0]
-    assert row['name'] == 'Same'
-    assert row['size'] == len('second method')
-    assert row['status'] == 'added'
     response = client.post('/api/scheduling/experiments/import-folder', json={'folder_path': str(methods), 'relative_paths': ['Same.med']})
     assert response.json()['data']['updated_methods'] == 1
-
-
-def test_relative_only_legacy_requests_are_actionable(client):
-    response = client.post('/api/scheduling/experiments/import-files', json={'files': [{'path': 'Methods/Test.med'}]})
-    assert response.status_code == 400
-    assert 'folder_path and relative_paths' in response.json()['detail']
 
 
 @pytest.mark.parametrize('payload', [{'folder_path': 'relative'}, {'folder_path': ''}, {'folder_path': 4}, {}])

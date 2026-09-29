@@ -1,5 +1,4 @@
 """Camera tests use isolated storage and never enumerate or open physical devices."""
-from collections import deque
 from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import Mock, patch

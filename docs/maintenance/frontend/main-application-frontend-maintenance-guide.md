@@ -73,7 +73,7 @@ This guide explains the overall React shell: routing, theming, providers, and na
 ## 1. High-Level Architecture
 
 - `frontend/src/main.tsx`  
-  App entry point. Wraps `<App />` with React Router (`BrowserRouter`), Material UI theme provider, React Query client, and `react-hot-toast`.
+  App entry point. Wraps `<App />` with React Router (`BrowserRouter`) and `AppearanceProvider` (Material UI theme and light/dark preference).
 
 - `frontend/src/App.tsx`  
   Defines the navigation shell. Handles authentication gating, top app bar, responsive sidebar, password change dialog, and route rendering via `<Routes>`.

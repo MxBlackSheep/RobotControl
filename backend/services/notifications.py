@@ -5,14 +5,12 @@ from __future__ import annotations
 import logging
 import mimetypes
 import os
-import shutil
 import smtplib
 import ssl
 import tempfile
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
@@ -750,19 +748,6 @@ class SchedulingNotificationService:
         if size_bytes < 1024 * 1024:
             return f"{size_bytes / 1024:.1f} KB"
         return f"{size_bytes / (1024 * 1024):.1f} MB"
-
-    def _zip_archive_folder(self, folder: Path) -> Optional[Path]:
-        """Zip the archive folder and return the zip path."""
-        if not folder.exists():
-            return None
-        try:
-            temp_dir = Path(tempfile.mkdtemp(prefix="robotcontrol_alert_"))
-            archive_base = temp_dir / f"{folder.name}"
-            zip_path = Path(shutil.make_archive(str(archive_base), "zip", folder))
-            return zip_path
-        except Exception as exc:  # pragma: no cover - filesystem dependent
-            logger.debug("Failed to zip archive folder %s: %s", folder, exc)
-            return None
 
     def _collect_recent_rolling_clips(self, limit: int = 5) -> List[Path]:
         """Collect the most recent rolling clips to attach as fallback."""

@@ -2,28 +2,21 @@ from starlette.concurrency import run_in_threadpool
 from backend.services.health_sampler import health_sampler
 """
 RobotControl Monitoring API
-Real-time monitoring endpoints for system status, experiments, and WebSocket connections
+Monitoring endpoints for system status and experiments
 """
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException, status
-from typing import List, Dict, Any, Optional
+from fastapi import APIRouter, Depends, status
 import logging
-import asyncio
 import time
 
 from backend.services.auth import get_current_user
-from backend.services.monitoring import get_monitoring_service, websocket_endpoint
+from backend.services.monitoring import get_monitoring_service
 from backend.services.database import get_database_service
 from backend.services.experiment_monitor import get_experiment_monitor
 from backend.constants import HAMILTON_STATE_MAPPING
 
 # Import standardized response formatter
-from backend.api.response_formatter import (
-    ResponseFormatter, 
-    ResponseMetadata, 
-    format_success, 
-    format_error
-)
+from backend.api.response_formatter import ResponseFormatter, ResponseMetadata
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -117,10 +110,6 @@ async def get_system_health(current_user: dict = Depends(get_current_user)):
         db_service = get_database_service()
         db_status = await run_in_threadpool(db_service.get_status)
         
-        # Get monitoring service stats
-        monitoring_service = get_monitoring_service()
-        websocket_stats = monitoring_service.websocket_manager.get_connection_stats()
-        
         health_data = {
             "timestamp": datetime.now().isoformat(),
             "system": metrics,
@@ -131,8 +120,7 @@ async def get_system_health(current_user: dict = Depends(get_current_user)):
                 "database_name": db_status.database_name,
                 "server_name": db_status.server_name,
                 "error_message": db_status.error_message
-            },
-            "websockets": websocket_stats
+            }
         }
         
         # Create metadata
@@ -254,92 +242,3 @@ async def stop_monitoring(current_user: dict = Depends(get_current_user)):
             details=str(e)
         )
 
-@router.get("/websocket-stats")
-async def get_websocket_stats(current_user: dict = Depends(get_current_user)):
-    """Get WebSocket connection statistics"""
-    start_time = time.time()
-    
-    try:
-        monitoring_service = get_monitoring_service()
-        stats = monitoring_service.websocket_manager.get_connection_stats()
-        
-        # Create metadata
-        metadata = ResponseMetadata()
-        metadata.set_execution_time(start_time)
-        metadata.add_metadata("operation", "get_websocket_stats")
-        metadata.add_metadata("user_id", current_user.get("user_id"))
-        metadata.add_metadata("connection_count", stats.get("connection_count", 0))
-        
-        return ResponseFormatter.success(
-            data=stats,
-            metadata=metadata,
-            message="WebSocket statistics retrieved successfully"
-        )
-        
-    except Exception as e:
-        logger.error(f"Error getting WebSocket stats: {e}")
-        return ResponseFormatter.server_error(
-            message="Error retrieving WebSocket statistics",
-            details=str(e)
-        )
-
-# WebSocket endpoints
-@router.websocket("/ws")
-async def websocket_general(websocket: WebSocket):
-    """General WebSocket endpoint for real-time monitoring"""
-    await websocket_endpoint(websocket, "general")
-
-@router.websocket("/ws/{channel}")
-async def websocket_channel(websocket: WebSocket, channel: str):
-    """Channel-specific WebSocket endpoint for real-time monitoring"""
-    await websocket_endpoint(websocket, channel)
-
-@router.websocket("/ws/experiments")
-async def websocket_experiments(websocket: WebSocket):
-    """WebSocket endpoint specifically for experiment monitoring"""
-    await websocket_endpoint(websocket, "experiments")
-
-@router.websocket("/ws/system")
-async def websocket_system(websocket: WebSocket):
-    """WebSocket endpoint specifically for system health monitoring"""
-    await websocket_endpoint(websocket, "system")
-
-@router.websocket("/ws/database")
-async def websocket_database(websocket: WebSocket):
-    """WebSocket endpoint specifically for database performance monitoring"""
-    await websocket_endpoint(websocket, "database")
-
-# Health check endpoint
-@router.get("/health")
-async def monitoring_health_check():
-    """Monitoring service health check (public endpoint)"""
-    start_time = time.time()
-    
-    try:
-        monitoring_service = get_monitoring_service()
-        
-        health_data = {
-            "service": "RobotControl Monitoring API",
-            "status": "healthy",
-            "monitoring_running": monitoring_service.is_running,
-            "websocket_connections": monitoring_service.websocket_manager.connection_count
-        }
-        
-        # Create metadata
-        metadata = ResponseMetadata()
-        metadata.set_execution_time(start_time)
-        metadata.add_metadata("operation", "health_check")
-        metadata.add_metadata("service", "monitoring")
-        
-        return ResponseFormatter.success(
-            data=health_data,
-            metadata=metadata,
-            message="Health check completed successfully"
-        )
-        
-    except Exception as e:
-        logger.error(f"Monitoring health check error: {e}")
-        return ResponseFormatter.server_error(
-            message="Health check failed",
-            details=str(e)
-        )

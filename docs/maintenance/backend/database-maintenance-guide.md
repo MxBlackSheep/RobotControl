@@ -17,7 +17,7 @@ See the scheduling maintenance guide for restart and recovery constraints.
 ## Configurable Database workspace (2026-09-28)
 
 `workspace_database.py` uses an explicit snapshot from `report_sources.py` for
-viewers. `/api/database/tables` (including count/columns) and `/stored-procedures`
+viewers. `/api/database/tables` and `/stored-procedures`
 require authenticated requests. `ReportSources.viewer()` resolves the admin's
 `viewer_source` setting; a supplied stale/different `source_id` returns 409 and
 cannot override it. On upgrade the first available reader is persisted once,
@@ -130,8 +130,8 @@ This guide explains how the database utilities (backup, restore, metadata manage
 - `backend/api/database.py`  
   Exposes authenticated external-database viewers plus native health/monitoring endpoints. Public SQL and procedure execution routes return 410; installed operations use the guarded tools API.
 
-- `frontend/src/pages/BackupPage.tsx` & related components (`DatabaseRestore`, `BackupListComponent`, `BackupActions`)  
-  UI surfaces for the backup workflow. Show progress to operators, trigger REST API calls, and display maintenance mode warnings.
+- `frontend/src/components/DatabaseRestore.tsx` (Database → Restore)  
+  UI surface for the backup workflow. Show progress to operators, trigger REST API calls, and display maintenance mode warnings.
 
 - `frontend/src/pages/DatabasePage.tsx` & related components (`DatabaseTable`, `StoredProcedures`, etc.)  
   Read-only view into schema/table data for quick inspection; calls the database API route.
@@ -176,7 +176,7 @@ This guide explains how the database utilities (backup, restore, metadata manage
 - `BACKUP_DIR`, `SQL_BACKUP_DIR` (`backend/services/backup.py`)  
   Paths resolved from `LOCAL_BACKUP_PATH` / `SQL_BACKUP_PATH`. `BACKUP_DIR` is where `.bak` and `.json` files live on the host. `SQL_BACKUP_DIR` is the path SQL Server writes to (often the same as `BACKUP_DIR`, but may be a network share). Make sure SQL Server has permission to write to this location.
 
-- `BackupInfo`, `BackupDetails`, `BackupResult`, `RestoreResult` (`backend/services/backup.py`)  
+- `BackupInfo`, `BackupResult`, `RestoreResult` (`backend/services/backup.py`)  
   Dataclasses used to serialise backup metadata/results. Frontend types map closely to these shapes.
 
 - `SqlCommandExecutor`  
@@ -186,13 +186,13 @@ This guide explains how the database utilities (backup, restore, metadata manage
   Runs right after a successful restore. It clears the pooled connections via `db_connection_manager.reset_pools()` and keeps trying `SELECT 1` until SQL Server responds, so the API does not hand control back while the database is still restarting.
 
 - `BackupMetadataStore`  
-  Handles writing `.json`, listing backups, loading details, and removing metadata files. Keeps metadata logic out of the core service.
+  Handles writing `.json`, listing backups and removing metadata files. Keeps metadata logic out of the core service.
 
 - `get_path_manager()` / `settings.LOCAL_BACKUP_PATH` (`backend/config.py`)  
   Determine where backups live. Update these paths when deploying to new environments.
 
-- Frontend components (`BackupListComponent`, `BackupActions`, `DatabaseRestore`)  
-  Rely on the API responses above and surface success/error messages to operators. `DatabaseRestore` also triggers maintenance mode banners via `MaintenanceManager`.
+- Frontend component `DatabaseRestore` (Database → Restore)  
+  Relies on the API responses above and surface success/error messages to operators. `DatabaseRestore` also triggers maintenance mode banners via `MaintenanceManager`.
 
 ---
 
@@ -200,8 +200,8 @@ This guide explains how the database utilities (backup, restore, metadata manage
 
 ### 4.1 Add Metadata Fields
 1. Update `create_backup_metadata` in `backup.py` to include the new field.
-2. Adjust `BackupMetadataStore.save` so the field is persisted; update `BackupInfo`/`BackupDetails` dataclasses with the new attribute.
-3. Thread the field through API responses (`backend/api/backup.py`) and frontend types/components (`frontend/src/types/backup.ts`, `BackupListComponent`, etc.).
+2. Adjust `BackupMetadataStore.save` so the field is persisted; update the `BackupInfo` dataclass with the new attribute.
+3. Thread the field through API responses (`backend/api/backup.py`) and `frontend/src/components/DatabaseRestore.tsx`.
 4. Document the change and test listing/backups to ensure the JSON round-trip works.
 
 ### 4.2 Support Differential or Compressed Backups
@@ -212,8 +212,7 @@ This guide explains how the database utilities (backup, restore, metadata manage
 
 ### 4.3 Modify Restore Validation
 1. Update `BackupService.restore_backup` to include your new checks (e.g., verify database compatibility level from metadata).
-2. If you need extra details, load them via `BackupMetadataStore.load_details` before running the restore.
-3. Surface warnings in the `warnings` list so the frontend can display them.
+2. Surface warnings in the `warnings` list so the frontend can display them.
 4. Test both success and failure paths—always confirm the database returns to multi-user mode when errors occur.
 
 ---
@@ -226,7 +225,6 @@ This guide explains how the database utilities (backup, restore, metadata manage
 | List backups | `BackupMetadataStore.list_backups()` or `BackupService.list_backups()` | Returns newest-first. Invalid entries are marked so the UI can warn operators. |
 | Restore backup | `BackupService.restore_backup(filename)` | Takes exclusive control of the database; warn users first. |
 | Delete backup | `BackupService.delete_backup(filename)` | Removes `.bak` and `.json`; returns partial success if one file couldn’t be deleted. |
-| Health check | `BackupService.get_performance_metrics()` | Includes disk space, backup count, and average durations—feed this into monitoring dashboards. |
 | Run ad-hoc query | `backend/services/database.py` helpers (internal callers only) | UI is read-only; hammering production with heavy queries is discouraged. |
 
 ---
@@ -249,7 +247,6 @@ This guide explains how the database utilities (backup, restore, metadata manage
 |-------------------|---------|-------|
 | `BackupService.create_backup(description)` | Create `.bak` + `.json` | Validates description, disk space, and logs duration. |
 | `BackupService.list_backups()` | Get `BackupInfo` list | Delegates to metadata store; output is sorted newest-first. |
-| `BackupService.get_backup_details(filename)` | Read metadata | Returns `BackupDetails` or `None` if files missing. |
 | `BackupService.restore_backup(filename)` | Restore from `.bak` | Executes multi-step SQL script, handles warnings. |
 | `BackupService.restore_backup_from_path(path)` | Restore from arbitrary file | Use for manual `.bck` files; perform validation yourself. |
 | `BackupService.delete_backup(filename)` | Remove files | Returns dict with `files_deleted` and optional errors. |

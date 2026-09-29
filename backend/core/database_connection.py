@@ -9,10 +9,9 @@ import asyncio
 import pyodbc
 import logging
 import threading
-import time
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any, List, Callable
-from contextlib import asynccontextmanager, contextmanager
+from typing import Optional, Dict
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from queue import Queue, Empty
 from concurrent.futures import ThreadPoolExecutor

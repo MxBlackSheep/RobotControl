@@ -10,7 +10,7 @@
 
 ## Active components
 
-The active page is `frontend/src/pages/CameraPage.tsx`. `CameraControls.tsx` owns the camera control panel. `CameraViewport.tsx` owns image sizing, zoom, pan and expanded viewing. `LiveFrame.tsx` owns the current image store and freshness status. `components/camera/VideoArchiveTab.tsx` handles archive browsing. Older CameraViewer/LiveCamerasTab components are not the main live page; do not implement recovery only in those legacy components.
+The active page is `frontend/src/pages/CameraPage.tsx`. `CameraControls.tsx` owns the camera control panel. `CameraViewport.tsx` owns image sizing, zoom, pan and expanded viewing. `LiveFrame.tsx` owns the current image store and freshness status. `components/camera/VideoArchiveTab.tsx` handles archive browsing.
 
 ## Reading the live image
 
