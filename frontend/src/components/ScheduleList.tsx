@@ -660,7 +660,6 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
       : 'Loading scheduled experiments...';
     return (
       <LoadingSpinner
-        variant="spinner"
         message={loadingMessage}
         minHeight={300}
       />

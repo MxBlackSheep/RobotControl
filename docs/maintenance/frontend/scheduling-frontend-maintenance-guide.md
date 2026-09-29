@@ -1,294 +1,171 @@
-## September 2026 responsive workspace
-
-## Laboratory configuration entry (2026-09-28)
-
-Local administrators can open Database settings from schedule preparation controls.
-That page configures only the existing EvoYeast/Batch integration and shows Active
-now separately from Saved; restart required. It reviews affected schedules before
-saving and offers Cancel change. Per-schedule experiment/batch selection stays in
-the schedule form; unrelated edits retain preparation tokens.
-
-- `SchedulingPage` owns selection, edit state, permissions and queue/recovery state. Its `InspectionWorkspace` keeps the list and details mounted; narrow containers show one pane with Back. `ScheduleCollection` searches/sorts the current list without changing backend query semantics. The existing `ScheduleList` remains the archived-schedule table/detail view.
-- Keep recovery and queue status above the workspace. Opening or resizing a view must never start/resume/archive/delete a schedule. Local access, recovery-required restrictions, and expected revisions still come from existing handlers/services.
-- Visited sections stay mounted through `SectionPanel`. Execution history receives `active`; leaving History stops its polling without losing filters. Email settings remain mounted when switching notification tabs. Document visibility retains the shared polling policy.
-- `ImprovedScheduleForm` is a structured form, fullscreen below the medium breakpoint. Its opening snapshot determines dirty state. Cancel/Escape/backdrop ask before discarding edits; failed saves keep values and show an inline error. Browser reload/close is guarded while dirty. A successful save closes normally. Method picking and import/path forms also use the available phone surface.
-- Calendar groups derive from the current schedule array, so timing changes are reflected even when the schedule count stays the same. History/notification/method tables scroll within their container.
-- Browser regression: build frontend, then `npx playwright test operations.spec.ts`. Tests use intercepted APIs, never robot services. Screenshots, traces and request assertions are under `test-output/viewer-verification`.
-
-# Frontend Scheduling Maintenance Guide
-
-## Recovery acknowledgement and Resume (2026-09-14)
-
-`RecoverySafetyPanel` lists all pending incidents, including missing and archived schedules. Acknowledgement requires the displayed safety revision and robot-ready confirmation; missing schedules also require a note. It never resumes jobs. The separate Resume button warns that due jobs may start immediately. Remote sessions have no mutation controls. Refresh after conflicts; do not retry automatically with a newer revision. Storage errors remain visible and keep controls disabled. Deletion and archive controls also respect schedule recovery flags; the backend is authoritative.
-
-The local Administration page includes `SQLiteHealthPanel` for administrator-reviewed repairs and separate abandoned-run reconciliation. Preview first; apply submits the reviewed token and reports the retained backup. See the [SQLite safety guide](../backend/sqlite-safety-maintenance-guide.md).
-
-## Compact workspace layout
-
-Scheduling uses the shared PageContent/PageHeader shell and sidebar section URLs. The heading owns Create schedule and Import methods; MethodLibraryPanel receives `showImportAction={false}` here to avoid duplicating the import button. The service strip reports the scheduler service, while Runtime Queue retains separate Hamilton run and log conditions. Scheduling content starts around 190px at 1280×720 without alerts.
-
-The list and runtime queue use a named CSS container query: two columns only when at least 1100px remains after navigation and outer gutters. Do not replace this with a viewport-only breakpoint. The Methods table uses page scrolling, not another vertical table scrollbar; its tree can scroll independently. Folder breadcrumbs retain original path case. All/search views shorten paths relative to the sole imported root when one exists, display that root once, and retain full paths in details/tooltips and Copy full path. Multiple roots and legacy entries remain distinguishable. Method selection and library refresh do not scan the filesystem.
-
-Tests use 1,000 methods and cover folder/search state, paging, page-only checkboxes, saved unavailable paths and cancelled choices. Browser validation additionally keeps a dropdown open across two 30-second polls and checks focus restoration after primary/cleanup selection. See the main application guide for shared spacing and the zoom-test limitation.
-
-## Section navigation
-
-Scheduling sections live beneath Scheduling in the application sidebar, using the shared `useSchedulingSection` URL mapping. Keep the existing internal panel indices only as implementation details; links use stable section names. Do not add a second horizontal Scheduling section bar. Notifications retains its own Contacts/History/Email settings tabs. Existing polling provides the sidebar's latest recovery warning through context.
-
-## Catalogue folder navigation
-
-`MethodExplorer` and `methodFolders` derive a case-insensitive folder hierarchy from current catalogue paths only. They do not call the host filesystem browser. Absolute drive and UNC paths are supported; relative or unresolved paths remain in Needs path review. Empty single-child ancestor chains are compressed for display without rewriting saved paths or catalogue records.
-
-`MethodPicker` wraps the explorer for both primary and cleanup fields. Choosing a radio row is provisional until Use this method; Cancel leaves the form unchanged. The picker starts at the saved method's folder/page when reopening. Global search temporarily overrides the folder; clearing it returns to that folder. Keep component identity stable on catalogue refresh to preserve search, focus, expansion and scrolling.
-
-The Methods table uses the same explorer, with 25 rows per page by default (50/100 optional). Header selection affects only that page; selection persists across page changes but clears on folder/search/status/archive filter changes. Full paths remain in details and Copy full path; table rows show paths relative to the selected folder. `MethodExplorer.test.tsx` exercises 1,000 methods and path/keyboard/refresh behavior; library tests cover selection across pages.
-
-## Drafts and background refresh
-
-Create/edit and method import use MUI Dialog focus management, not `useModalFocus`. Do not reapply initial focus on polling updates. A schedule draft is initialized once per open session; refreshing method choices or parent props must preserve focus, cursor, scroll, accordion expansion and field values. Only closing/reopening starts a new draft. The edit timestamp is captured at opening; a 409 response keeps entries and asks the operator to cancel, refresh and reopen. Creation/update each refresh the list once. `Email alert recipients` must show a clear warning when no active contact is selected.
-
-Hamilton status and log condition are separate: SQL 1 means Running and 2 means Paused. Runtime rows show both (for example, `Hamilton: Paused · Log inactive`). A paused method remains an active execution occupying the robot, and log inactivity monitoring continues.
-
-Run `npm test` for the focused Vitest suites beside scheduling components/hooks. `vitest.config.ts` deliberately excludes older Jest suites under `__tests__`; those require separate migration. `npm run build` remains the production TypeScript/Vite check.
-
-## Email setup
-
-The account address normally supplies both SMTP login and From address. `smtpForm.ts` converts saved settings to a draft and back to the existing API. Keep custom login/From addresses and null-login fallback compatible. Password keep omits the field; update sends the new value; clear sends an empty string. Never return the stored password to the browser. Security is one selector mapped to the existing `use_ssl`/`use_tls` booleans, without automatic port changes.
-
-Save settings first, then send a test. Unsaved changes disable testing; saving never sends mail. Refresh/discard asks before replacing a dirty draft and only replaces it after a successful fetch. Results are persistent inline alerts, not timed dialogs. The SMTP test request still waits up to 60 seconds; the backend uses one send attempt with a ten-second timeout per SMTP operation. Keep detailed backend errors to distinguish connection, TLS and authentication failures. Manual-recovery recipient overrides are separate from the schedule's normal alert recipients.
-
-## Change a method path
-
-Open a method's details in the Methods tab, then choose Change path. `MethodPathDialog` accepts a manual absolute `.med` path or a file selected with `HostMethodBrowser`. Review shows the original/replacement path and separates busy, archived, active and inactive schedule references. Primary and cleanup references have separate checkboxes. All start unchecked, and busy/archived references are disabled. The summary explains how many references retain their old paths.
-
-Save sends the preview's method revision and only the selected schedule references with their exact version strings. Do not round timestamps or preselect matching schedules. A 409/error retains the preview, entries and choices. Review again fetches current references and clears the choices for explicit review. Success reports the actual number of changed schedules and retained references; it refreshes the library, method choices and schedule list. Closing the dialog restores focus using MUI. A catalogue-only correction must leave every existing schedule unchanged.
-
-`MethodPathDialog.test.tsx` covers partial selection, disabled paused/archived references, confirmation results and conflict draft retention. The host-browser tests cover file selection and navigation failures without losing the current folder.
-
-## Import Hamilton methods
-
-The local Methods tab uses `MethodLibraryPanel`: filters and sorting apply to loaded catalogue rows; changing filters clears bulk selection so hidden entries cannot be changed accidentally. Archive/restore requires explicit selected rows and confirmation, sends each row's revision, and reports partial failures. Check paths refreshes validation; Refresh library reloads stored data. Details include both primary and cleanup schedule references. `catalogueVersion` refreshes choices without resetting schedule drafts. Saved paths absent from current choices remain visible with an explanation. Archiving never stops existing schedules or deletes files.
-
-`FolderImportDialog` has three stages: Choose folder, Review methods, Import results. Import adds catalogue entries only; it never creates schedules or starts Hamilton. `HostMethodBrowser` navigates the RobotControl host and supplies its absolute path directly with Use this folder. Manual absolute-path entry remains available. Both discover regular subfolders; linked folders are not scanned. No browser file upload or second path entry is involved. The same browser supports `.med` selection for path correction. Keep its last usable folder/selection after navigation errors.
-
-Call the read-only preview endpoint first. Display every returned method and full host path, with New/Update/Invalid labels. Select valid rows by default, allow deselection, and disable invalid rows. Search filters the displayed list without silently changing selection. Submit the chosen relative paths with the preview's canonical folder; the server revalidates and returns actual Added/Updated/Failed results. Partial failures still have useful result data: do not discard it just because `success` is false. Lists are scrollable and searchable without a ten-row limit.
-
-Successful imports invalidate method choices through `catalogueVersion`, preserving any open schedule draft. Only the explicit Create a schedule action opens the schedule form. Local-access controls exist in both UI and backend. Component tests cover browser/manual selection, required host paths, deselection, invalid entries, long results and partial failures; backend tests cover filesystem/database validation.
-
-This document spells out how the scheduling UI is wired together. It assumes you need every instruction spelled out—no prior knowledge required. Follow it exactly so you don’t break experiment management.
-
----
-
-## 1. High-Level Architecture
-
-- `frontend/src/pages/SchedulingPage.tsx`  
-  Primary screen. Renders tabs for schedules, notifications, execution history, etc. Manages dialogs (create/update schedule, folder import).
-
-- `frontend/src/hooks/useScheduling.ts`  
-  Single source of truth for scheduling data. Fetches schedules, archived schedules, queue status, manual recovery flags, contacts, and notification logs. Exposes `actions` for CRUD operations.
-
-- Key components:
-  - `frontend/src/components/ScheduleList.tsx` – Displays active/archived schedules, handles selection, action buttons.
-  - `frontend/src/components/scheduling/ImprovedScheduleForm.tsx` – Dialog form for creating/editing schedules.
-  - `frontend/src/components/scheduling/NotificationContactsPanel.tsx` – UI for managing notification contacts.
-  - `frontend/src/components/scheduling/NotificationEmailSettingsPanel.tsx` – SMTP configuration panel.
-  - `frontend/src/components/scheduling/FolderImportDialog.tsx` – Bulk import wizard.
-  - `frontend/src/components/ExecutionHistory.tsx` – Combined execution log viewer.
-
-- `frontend/src/services/schedulingApi.ts`  
-  Low-level Axios helpers (`schedulingAPI`) and a higher-level convenience wrapper (`schedulingService`). Handles response normalisation and manual recovery mapping.
-
-**Rule of thumb:** Let `useScheduling` manage all backend interactions. Components should consume `state` and `actions` from the hook instead of talking to the REST API directly.
-
----
-
-## 1.5 Local vs Remote Sessions
-
-- `SchedulingPage` calculates `isLocalSession` from the authenticated user (`session_is_local` when available, otherwise it falls back to checking whether the browser is hitting a localhost hostname). Do not try to outsmart this—fetch the flag from `useAuth()` instead of inventing your own detection.
-- When `isLocalSession` is `false`, all destructive controls disappear: the Create/Edit/Delete/Archive buttons are replaced with a notice, and the manual recovery buttons (“View Schedule”, “Resolve Manual Recovery”) are hidden. The read-only cards stay visible so remote viewers still see status updates.
-- The confirm handlers (`handleViewRecoverySchedule`, `handleResolveManualRecovery`) bail out early if `isLocalSession` is false. Leave those guards in place—remote browsers should never trigger backend mutations through devtools tricks.
-- Folder import is also gated; the button stays visible only when the session is local (and falls back to hostname detection for development). Remote users should see the explanatory caption instead of touchy file dialogs.
-- The archived schedules tab only wires up the delete callback when the session is local, so remote users never see the trash icon and cannot purge historical runs.
-
----
-
-## 2. Scheduling Workflow Overview
-
-1. **Page mount** → `const { state, actions } = useScheduling();`.  
-   - `useScheduling` immediately calls `loadSchedules()` and `loadQueueStatus()`.  
-   - While loading, `SchedulingPage` shows skeletons or progress indicators.
-
-2. **Viewing schedules**  
-   - `ScheduleList` receives `state.schedules` and displays them with quick-action buttons (activate/deactivate, archive, delete).  
-   - Selecting a schedule updates `state.selectedSchedule`, which drives detail panels and the edit form.
-
-3. **Creating a schedule**  
-   - Clicking “New Schedule” opens `ImprovedScheduleForm` (modal).  
-   - Form enforces local-time guard: create requests cannot use a `start_time` earlier than current local time.
-   - Timeout behavior is configured in the same form (`timeout_minutes`, `timeout_action`, optional cleanup method).
-   - On submit, `actions.createSchedule(formData)` calls the backend, then reloads schedules and focuses the new entry.
-
-4. **Editing a schedule**  
-   - `scheduleFormMode` switches to `"edit"` and pre-populates the form using `state.selectedSchedule`.  
-   - `actions.updateSchedule(scheduleId, payload)` handles optimistic concurrency by passing `expected_updated_at`.
-
-5. **Archive / Manual Recovery / Notifications**  
-   - Tabs inside `SchedulingPage` let users view archived schedules (`actions.loadArchivedSchedules`), manage contacts (`actions.loadContacts`), update SMTP config, and review notification logs.
-
-6. **Execution history**  
-   - `ExecutionHistory` fetches logs from the hook (`actions.loadExecutionHistory`) when the tab opens.  
-   - Filters (schedule ID, status) are stored locally in the component, but the hook owns the actual network call.
-
----
-
-## 3. Key State Fields
-
-From `useScheduling`:
-
-- `state.schedules`, `archivedSchedules` – arrays of `ScheduledExperiment`.  
-- `state.selectedSchedule` – the item currently highlighted.  
-- `state.operationStatus` – one of `Idle`, `Loading`, `Creating`, `Updating`, etc. Use this to show spinners on buttons.  
-- `state.queueStatus`, `state.hamiltonStatus` – metadata for the robot queue (including `running_job_details` and `queued_job_details`).  
-  `queued_job_details[].waiting_reason` now explains why a queued job is blocked (for example maintenance/manual recovery/HxRun busy).
-- `state.manualRecovery` – indicates if manual recovery is required and who flagged it.  
-- `state.contacts`, `state.notificationLogs`, `state.notificationSettings` – used on the Notifications tab.
-
-Useful derived flags provided by the hook:
-
-- `state.loading` / `state.archivedLoading` – drive `LoadingSpinner` placements.  
-- `state.error` / `state.archivedError` – show the inline warning cards in the schedule list panels.  
-- `state.initialized` – prevents the page from showing “empty” states before the first load completes.
-
----
-
-## 4. Working With the Hook
-
-1. **Always destructure `state` and `actions`.**  
-   ```ts
-   const { state, actions } = useScheduling();
-   const { schedules, selectedSchedule } = state;
-   const { loadSchedules, createSchedule } = actions;
-   ```
-
-2. **Reload data after every mutation.** Actions like `createSchedule` already call `loadSchedules` internally. If you add new actions (e.g., pause scheduler), make sure they refresh the relevant state.
-   - Queue telemetry refreshes every 30 seconds via `getQueueStatus()`; keep this interval when adding new queue-dependent widgets.
-   - Do not recalculate next-run interval times on the client. Use backend-provided `next_run`/`start_time` as the canonical timestamp so UI matches actual launch timing.
-
-3. **Handle errors gracefully.** Read-path failures still surface through `state.error`. Create/update form mutations now reject (`throw`) without setting the page-level error banner, so submit handlers must stay in `try/catch` and show a modal status dialog.
-
-4. **Respect optimistic locking.** When updating a schedule, include `expected_updated_at`. The hook already injects it, but if you add new update flows, reuse the same pattern to prevent 409 conflicts.
-
-5. **Keep forms and dialog state local to `SchedulingPage`.** The hook should not store modal flags—leave that to the page to avoid unwanted rerenders.
-
----
-
-## 5. Common Maintenance Tasks
-
-| Task | Where | Step-by-step |
-|------|-------|--------------|
-| Add a new schedule field (e.g., priority) | `ImprovedScheduleForm`, `useScheduling`, `ScheduleList` | Update form inputs, extend `CreateScheduleFormData`/`UpdateScheduleRequest`, pass through `schedulingService.buildScheduleRequest`, and display the field in lists and detail panels. |
-| Show additional execution log columns | `ExecutionHistory.tsx` | Adjust the table header and row renderer. Ensure the backend includes the new field in the history API. |
-| Reorder tabs or rename them | `SchedulingPage.tsx` | Update the `Tabs` component and the `TabPanel` labels. Ensure indexes still align with the correct content. |
-| Add bulk schedule actions | `ScheduleList.tsx` + new action in `useScheduling` | Track selected rows, send a bulk request, then reload schedules. Show a toast to confirm completion. |
-| Surface manual recovery banner globally | `SchedulingPage` | Read `state.manualRecovery` and display a `Warning` chip or banner at the top of the page. |
-
----
-
-## 6. Passive vs Active Messaging
-
-- **Passive dashboard** – List and detail panels show inline warning cards for errors (e.g., failed schedule fetch). If you add new read-only panels, keep the message in the panel and add a retry button.
-- **Active operations** – Deleting schedules, resolving recovery, or other destructive changes must go through the shared `DeleteConfirmationDialog` / modal flows. Create/update form failures should surface in `StatusDialog` (not silent close). Don’t revert to `window.confirm` prompts.
-- **Titles & buttons** – Keep inline card titles short (“Failed to load schedules”) and wire the existing action buttons (`Try Again`, `Retry`). Only escalate to modal to confirm irreversible changes.
-
----
-
-## 7. Extending or Modifying Behaviour
-
-### 6.1 Calendar view for schedules
-1. Use `state.calendarEvents` (already provided by the hook).  
-2. Add a new tab or component (`SchedulerCalendar`) that renders the events using your preferred calendar library.  
-3. Provide a click handler so selecting a calendar event sets `selectedSchedule`.
-
-### 6.2 Integrate drag-and-drop rescheduling
-1. Allow dragging an event/date in your calendar component.  
-2. On drop, call `actions.updateSchedule(scheduleId, { start_time: newDate })`.  
-3. Handle concurrency errors by reloading the schedule list if the backend returns 409.
-
-### 6.3 Send custom notifications from the UI
-1. Add a button in the Notifications tab.  
-2. Call a new backend endpoint (`POST /api/scheduling/notifications/custom`).  
-3. Use `setNotificationLogs` to append the result so the log reflects the manual send.
-
----
-
-## 8. Quick Reference
-
-| Function / Component | Purpose | Notes |
-|----------------------|---------|-------|
-| `useScheduling()` | Returns `{ state, actions }` | Centralised data + mutations. Do not replicate this logic elsewhere. |
-| `actions.loadSchedules(activeOnly, focusId)` | Refresh schedules | Pass `focusId` to keep selection highlighted. |
-| `actions.createSchedule(formData)` | Create new schedule | Handles errors, reloads list, focuses new entry. |
-| `actions.updateSchedule(id, payload)` | Update schedule | Adds `expected_updated_at`. Automatically reloads list. |
-| `actions.toggleScheduleActive(id, bool)` | Activate/deactivate | Use when wiring toggle buttons. |
-| `ScheduleList` | Renders schedule cards | Takes selection/refresh callbacks plus optional `onDeleteSchedule` for the archived tab delete buttons. |
-| `ImprovedScheduleForm` | Schedule editor dialog | Controlled via props from the page (`open`, `mode`, `initialValues`). |
-
----
-
-## 9. When Something Goes Wrong
-
-1. **Schedules never load (spinner forever)**  
-   - Check browser network tab for `/api/scheduling/schedules`. If it fails, the hook sets `state.error`; ensure you display it.  
-   - Confirm the component is inside `<AuthProvider>` so the token exists.
-
-2. **Form keeps submitting old values**  
-   - Ensure you pass the latest `scheduleFormInitialData` when opening the dialog. After closing, reset the form state to avoid stale data.
-
-3. **409 conflicts when editing schedules**  
-   - Means optimistic locking detected stale `updated_at`. The hook already re-fetches; show an `Alert` prompting the user to reopen the form.
-
-4. **Notification settings never save**  
-   - `NotificationEmailSettingsPanel` uses `actions.updateNotificationSettings`. Double-check the payload matches backend expectations (e.g., encryption flags).
-
-5. **Archived schedules do not display**  
-   - Call `actions.loadArchivedSchedules()` when the archived tab first opens. The hook sets `archivedInitialized`; use it to avoid duplicate loads.
-
-Stick to this blueprint and the scheduling UI will stay maintainable even for new contributors.
-
-
-## Run log monitoring controls (September 2026)
-
-- The create/edit schedule form includes **Log inactivity threshold (minutes)**, default 3. Enter a positive whole number. It is separate from estimated duration and the optional late-start cleanup timeout. Changes affect the next launch.
-- `ScheduledExperiment`, create/update request types, request normalization and form payloads carry `log_inactivity_threshold_minutes`. Omitted update values preserve the saved setting; older server payloads normalize to 3. Copying schedule data must preserve this field. The older forms in `ScheduleActions` expose it too.
-- Notification Contacts help text explains that an active contact is needed for email. A continuing pause sends one email; new trace activity rearms the monitor for a later pause. A missing SQL connection or trace produces an unavailable-monitoring warning instead of claiming the method stalled.
-- Running jobs display **Waiting for run/log**, **Monitoring**, **Log inactive**, **Monitoring unavailable**, or **Run ended; finalizing**, plus the threshold, trace filename, last observed activity and available diagnostic reason. The queue API's optional `monitoring` object supplies these values. Old payloads without this object still render.
-- Notification history retains historical `long_running` entries and shows new `log_inactive` / `monitoring_unavailable` events. `cancelled` means the condition resolved before an email could be sent. Errors can retry; a sent pause is not repeated after restart.
-- To test, save a non-default threshold, reopen the edit form, and verify it round-trips. Use the backend's controlled trace tests for state transitions; the operator should perform the simulator/email acceptance sequence described in the backend scheduling guide.
-
-The service strip keeps Queue details beside Refresh and Recovery required; expanding it reveals running/queued entries without a permanent extra toolbar row.
-
-## Delivery Logs refresh (2026-09-27)
-
-All statuses are shown by default. Filters include sent, pending, error, partial,
-unknown and cancelled. Visible logs refresh serially every five seconds; hidden pages
-stop polling. Request generations prevent stale filter responses replacing new results.
-SMTP test log-storage warnings appear even when the email was successfully submitted.
-## Installation-specific preparation (2026-09-28)
-
-`GET /api/scheduling/lab/preparation` supplies the selected lab's short labels and
-choices. The schedule editor shows Experiment for EvoYeast or Batch for the SQLite
-example. Its independent read generation rejects stale results after refresh/close;
-failed reads retain the saved ID and show Retry. A downstream lab failure uses 502,
-because the existing global 503 handler opens the database-maintenance dialog.
-
-Opening/saving a schedule or editing timing/contacts preserves its entire
-prerequisite array and order. Only explicit selection changes replace the selection
-tokens. Other steps, such as ResetHamiltonTables, remain and are listed separately.
-“No experiment selection” does not imply those other steps are removed. Saved IDs
-absent from current choices are still shown; execution revalidates the record.
-
-Default EvoYeast saves the existing ScheduledToRun + EvoYeastExperiment pair;
-the batch example saves Batch:<code>. Changing a Database viewer connection does
-not change this installation's preparation choices. See the
-[backend guide](../backend/scheduling-maintenance-guide.md) for switching targets.
-Focused browser coverage: `frontend/e2e/scheduling-lab.spec.ts`.
+# Frontend scheduling
+
+The Scheduling page: schedules and their editor, the runtime queue and recovery, the
+method library, notifications and history. Backend behavior is in
+[the backend scheduling guide](../backend/scheduling-maintenance-guide.md).
+
+## Ownership
+
+- `pages/SchedulingPage.tsx` owns selection, dialogs, permissions and the queue/recovery
+  view. Its `InspectionWorkspace` keeps list and details mounted; narrow containers show
+  one pane with Back.
+- `hooks/useScheduling.ts` owns every schedule, archive, calendar, queue, contact and
+  notification request. Components use its `state` and `actions`, never the REST API. It
+  refreshes scheduler and queue status every 30 seconds. Mutations reload what they change;
+  `updateSchedule` adds `expected_updated_at` so a stale edit returns 409.
+- `ExecutionHistory` polls history itself through `useSerialPolling` and must not create
+  another `useScheduling` (that would start a second scheduler poller); see the polling guide.
+- `services/schedulingApi.ts` normalizes responses (older payloads get defaults, for
+  example a 3-minute log inactivity threshold).
+
+`ScheduleCollection` searches and sorts the loaded list; `ScheduleList` remains the
+archived table. Calendar groups derive from the current schedule array. Use the
+backend's `next_run`/`start_time`; never recalculate run times in the browser.
+
+## Layout and sections
+
+Scheduling uses `PageContent`/`PageHeader`; the heading owns **Create schedule** and
+**Import methods** (so `MethodLibraryPanel` gets `showImportAction={false}`). Sections are
+sidebar URLs through `useSchedulingSection` (`/scheduling?section=methods`); internal panel
+indices are implementation details and there is no second section bar. Notifications keeps
+its own Contacts/History/Email settings tabs. Visited sections stay mounted through
+`SectionPanel`: History receives `active`, so leaving it stops polling but keeps filters.
+
+The list and runtime queue use a named CSS container query: two columns only when at
+least 1100px remains after navigation and gutters (not a viewport breakpoint). The
+service strip shows scheduler state, Refresh, Recovery required and a Queue details
+disclosure. History, notification and method tables scroll inside their container; the
+Methods table uses page scrolling while its folder tree scrolls on its own. Opening or
+resizing any view never starts, resumes, archives or deletes a schedule.
+
+## Local and remote sessions
+
+`isLocalUser(user)` uses the server's `session_is_local`, falling back to a localhost
+hostname only when the flag is absent. Remote sessions get no Create, Edit, Delete,
+Archive, Import, recovery or archived-delete controls; handlers also return early. The
+backend enforces the same rules and is authoritative.
+
+## Schedule editor
+
+`ImprovedScheduleForm` is full screen below the medium breakpoint. A draft starts once per
+opening; background refreshes of method choices or props must keep focus, cursor, scroll,
+expanded sections and values, and must not reapply initial focus (MUI Dialog owns focus).
+Cancel, Escape and the backdrop ask before discarding edits, and reload/close is guarded
+while dirty. A failed save keeps the values and shows the error inline; a 409 asks the
+operator to cancel, refresh and reopen. Create and update each reload the list once.
+
+- New schedules cannot start before the current local time.
+- **Log inactivity threshold (minutes)** defaults to 3, takes a positive whole number, is
+  separate from estimated duration and the late-start cleanup timeout, and applies from the
+  next launch. Omitted update values keep the saved setting; copies must keep it.
+- **Email alert recipients** warns when no active contact is selected.
+- Preparation choices come from `GET /api/scheduling/lab/preparation`: Experiment for
+  EvoYeast or Batch for the SQLite example. Stale reads are discarded after refresh/close;
+  a failed read keeps the saved ID and offers Retry. A downstream lab failure is a 502,
+  because a 503 opens the database-maintenance dialog.
+- Saving keeps the whole prerequisite array and its order; only an explicit selection
+  replaces the selection tokens. Other steps such as ResetHamiltonTables stay and are
+  listed separately. Saved IDs missing from the current choices are still shown.
+  EvoYeast saves the ScheduledToRun + EvoYeastExperiment pair; the batch example saves
+  `Batch:<code>`. Changing the Database viewer connection does not change these choices.
+- Local administrators can open Database settings from the preparation controls. That
+  page changes only the EvoYeast/Batch integration, shows Active now separately from
+  Saved (restart required), reviews affected schedules and offers Cancel change.
+
+## Runtime queue and recovery
+
+Hamilton status and log condition are separate: SQL status 1 is Running and 2 is Paused
+(`Hamilton: Paused · Log inactive`). A paused method still occupies the robot and log
+monitoring continues. Running jobs show **Waiting for run/log**, **Monitoring**, **Log
+inactive**, **Monitoring unavailable** or **Run ended; finalizing**, with threshold, trace
+file, last activity and reason from the queue's optional `monitoring` object; payloads
+without it still render. `queued_job_details[].waiting_reason` explains blocked jobs.
+
+`RecoverySafetyPanel` lists every pending incident, including missing and archived
+schedules. Acknowledgement needs the displayed safety revision and a robot-ready
+confirmation (and a note for a missing schedule); it never resumes jobs. Resume is a
+separate button that warns due jobs may start at once. After a conflict, refresh; never
+retry automatically with a newer revision. Storage errors stay visible and keep the
+controls disabled. Delete and archive respect recovery flags. Local administrators find
+SQLite repairs in Administration (`SQLiteHealthPanel`; see the SQLite safety guide).
+
+## Methods
+
+`MethodExplorer` and `methodFolders` build a case-insensitive folder tree from catalogue
+paths only (never the host filesystem). Drive and UNC paths are supported; relative or
+unresolved paths go to Needs path review. Single-child folder chains are compressed for
+display only. Breadcrumbs keep the original case. With one imported root, paths are shown
+relative to it once; full paths stay in details, tooltips and Copy full path.
+
+- **Picker** (`MethodPicker`, primary and cleanup fields): a row is provisional until
+  **Use this method**; Cancel changes nothing. Reopening starts at the saved method's
+  folder and page. Search overrides the folder until cleared. Keep component identity
+  stable on refresh so search, focus, expansion and scroll survive. Choosing a method
+  never scans the filesystem.
+- **Library table** (`MethodLibraryPanel`): 25 rows per page (50/100 optional). Header
+  selection covers the page; selection survives paging and clears when folder, search,
+  status or archive filter changes. Archive/restore needs explicit rows and confirmation,
+  sends each row's revision and reports partial failures; archiving never stops schedules
+  or deletes files. Check paths revalidates; Refresh library reloads. Saved paths missing
+  from the choices stay visible with an explanation. `catalogueVersion` refreshes choices
+  without resetting an open schedule draft.
+- **Import** (`FolderImportDialog`): Choose folder → Review methods → Import results. It
+  only adds catalogue entries. `HostMethodBrowser` browses the RobotControl host (regular
+  subfolders; linked folders are not scanned) and keeps the last usable folder after an
+  error; manual absolute paths also work. The read-only preview lists every method as
+  New/Update/Invalid with valid rows selected; search never changes the selection. The
+  server revalidates and returns Added/Updated/Failed; show partial results even when
+  `success` is false.
+- **Change path** (`MethodPathDialog`, from a method's details): a manual absolute `.med`
+  path or a host-browser file. Review separates busy, archived, active and inactive
+  schedule references with separate primary/cleanup checkboxes, all unchecked, busy and
+  archived disabled. Save sends the preview's revision and only the chosen references
+  with their exact version strings. A 409 keeps the preview and choices; Review again
+  clears the choices. A catalogue-only correction leaves every schedule unchanged.
+
+## Notifications
+
+The account address normally supplies both SMTP login and From address; custom values
+and a null login stay supported (`smtpForm.ts`). Password: keep omits the field, update
+sends it, clear sends an empty string; the stored password never reaches the browser.
+One Security selector maps to `use_ssl`/`use_tls` without changing the port. Save before
+testing: unsaved changes disable Send test and saving never sends mail. Refresh/discard
+asks before replacing a dirty draft and only replaces it after a successful read. Results
+stay as inline alerts. The test request waits up to 60 seconds; keep the backend's
+detailed connection/TLS/authentication errors. Manual-recovery recipient overrides are
+separate from a schedule's alert recipients. Contacts help explains that email needs an
+active contact.
+
+Delivery logs show all statuses by default (sent, pending, error, partial, unknown,
+cancelled), refresh serially every five seconds while visible and stop when hidden;
+request generations stop an old filter's response replacing a newer one. `long_running`
+entries remain for history; new events are `log_inactive` and `monitoring_unavailable`.
+`cancelled` means the condition cleared before sending. A sent pause is not repeated
+after restart. SMTP-test log-storage warnings appear even when the email was sent.
+
+## Messages
+
+Failed reads show inline in their panel with Retry. Destructive actions go through
+`DeleteConfirmationDialog`, never `window.confirm`. Create/update failures are always
+shown (inline in the open editor or in `StatusDialog`) and keep the draft.
+
+## Checks
+
+Failure cases are in the headers of `frontend/e2e/operations.spec.ts` and
+`scheduling-lab.spec.ts`; run them after `npm --prefix frontend run build`. They use
+intercepted APIs, never robot services, and write evidence to
+`test-output/viewer-verification`. Vitest suites sit beside the components
+(`MethodExplorer`, `MethodLibraryPanel`, `MethodPathDialog`, `HostMethodBrowser`,
+`FolderImportDialog`, `ImprovedScheduleForm`, `NotificationEmailSettingsPanel`,
+`RecoverySafetyPanel`); run `npx vitest run` from `frontend`. Run-log state transitions
+are covered by the backend trace tests; the simulator/email acceptance sequence is in
+the backend guide.
+
+## Troubleshooting
+
+- **Schedules never load:** check `/api/scheduling/list` in the network tab;
+  the hook's `state.error` must be displayed.
+- **Editor shows old values:** the page must pass the current initial data when opening.
+- **Edit returns 409:** someone else saved first; reopen after refresh.
+- **Archived list empty:** `loadArchivedSchedules` runs when the section first opens
+  (`archivedInitialized` prevents repeats).

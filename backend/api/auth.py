@@ -282,7 +282,9 @@ async def change_password(
         )
 
         if not success:
-            return ResponseFormatter.unauthorized(
+            # 400, not 401: the session is valid, and the frontend treats 401 as a
+            # lost session and signs the user out.
+            return ResponseFormatter.bad_request(
                 message="Current password is incorrect",
                 details={"username": current_user.username}
             )

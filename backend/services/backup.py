@@ -14,7 +14,6 @@ Features:
 """
 
 import os
-import sys
 import json
 import logging
 import logging.handlers
@@ -29,18 +28,9 @@ from pathlib import Path
 from contextlib import contextmanager
 
 from backend.utils.data_paths import get_path_manager, get_backups_path
+from backend.utils.odbc_driver import build_connection_string, resolve_driver_clause
 
-# Import configuration from project root
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, project_root)
-
-try:
-    import config
-except ImportError:
-    # Create minimal config if none exists
-    class Config:
-        pass
-    config = Config()
 
 # Enhanced Logging Configuration
 def setup_backup_logging():
@@ -248,38 +238,6 @@ def _get_recovery_suggestions(operation_type: str, error: Exception) -> List[str
     
     return suggestions
 
-# Performance monitoring
-class BackupPerformanceMonitor:
-    """Monitor and track backup system performance metrics"""
-    
-    def __init__(self):
-        self.operations_count = 0
-        self.total_duration_ms = 0
-        self.success_count = 0
-        self.error_count = 0
-        self.last_reset = datetime.now()
-    
-    def record_operation(self, metrics: OperationMetrics):
-        """Record operation metrics for performance tracking"""
-        self.operations_count += 1
-        if metrics.duration_ms:
-            self.total_duration_ms += metrics.duration_ms
-        
-        if metrics.success:
-            self.success_count += 1
-        else:
-            self.error_count += 1
-    
-# Global performance monitor
-performance_monitor = BackupPerformanceMonitor()
-
-# Custom Exception Classes
-class BackupOperationError(Exception):
-    """Exception raised during backup operations with error code"""
-    def __init__(self, message: str, error_code: str = "BACKUP_ERROR"):
-        self.error_code = error_code
-        super().__init__(message)
-
 def get_available_disk_space(path: str) -> int:
     """Get available disk space for given path in bytes"""
     try:
@@ -306,29 +264,18 @@ try:
     else:
         # Relative path - resolve from compiled/dev base directory
         BACKUP_DIR = str((base_path / configured_backup_path).resolve())
-
-    sql_backup_path = str(settings.SQL_BACKUP_PATH).strip()
-    if not sql_backup_path:
-        SQL_BACKUP_DIR = BACKUP_DIR
-    elif os.path.isabs(sql_backup_path) or sql_backup_path.startswith(r"\\"):
-        SQL_BACKUP_DIR = sql_backup_path
-    else:
-        SQL_BACKUP_DIR = str((base_path / sql_backup_path).resolve())
     logger.debug(f"Backup directory resolved to: {BACKUP_DIR}")
-    logger.debug(f"SQL backup directory: {SQL_BACKUP_DIR}")
 
 except ImportError:
     # Fallback to the managed data/backups directory
     BACKUP_DIR = str(get_backups_path())
-    SQL_BACKUP_DIR = BACKUP_DIR
     logger.warning(f"Config import failed, using fallback directory: {BACKUP_DIR}")
-SQL_SERVER = getattr(config, 'SQL_SERVER', "LOCALHOST\\HAMILTON")
-DATABASE_NAME = getattr(config, 'DATABASE_NAME', "EvoYeast")
+SQL_SERVER = "LOCALHOST\\HAMILTON"
+DATABASE_NAME = "EvoYeast"
 
 # Operation timeouts (in seconds)
 BACKUP_TIMEOUT = 300  # 5 minutes
 RESTORE_TIMEOUT = 600  # 10 minutes
-FILE_OPERATION_TIMEOUT = 30  # 30 seconds
 
 # File validation patterns
 ALLOWED_EXTENSIONS = {'.bak', '.bck', '.json'}
@@ -521,16 +468,31 @@ class SqlCommandExecutor:
             logger.warning("Simple backup error: %s", exc)
             return False, f"Simple backup error: {exc}"
 
-    def _get_database_connection(self):
-        """Return a direct database connection via the shared connection manager."""
+
+def open_restore_connection(timeout: int):
+    """Autocommit connection for restore, or None: integrated login to the local
+    instance first, then the configured development VM login."""
+    import pyodbc
+    from backend.config import settings
+
+    driver = resolve_driver_clause(settings.DB_CONFIG_PRIMARY.get("driver"))
+    if not driver:
+        return None
+    logins = (
+        ("integrated", {"server": SQL_SERVER, "trusted_connection": "yes"}),
+        ("VM", {"server": settings.VM_SQL_SERVER, "user": settings.VM_SQL_USER, "password": settings.VM_SQL_PASSWORD,
+                "encrypt": "no", "trust_server_certificate": "yes"}),
+    )
+    for name, login in logins:
         try:
-            from backend.core.database_connection import db_connection_manager
-
-            return db_connection_manager.get_connection(timeout=30)
-        except ImportError:
-            logger.error("Could not import centralized database connection manager")
-            return None
-
+            conn = pyodbc.connect(build_connection_string({"driver": driver, "database": DATABASE_NAME, **login}), timeout=2)
+            conn.timeout = timeout
+            conn.autocommit = True
+            return conn
+        except Exception as exc:
+            logger.debug("%s SQL Server connection failed: %s", name, exc)
+    logger.error("All database connection methods failed")
+    return None
 
 class BackupMetadataStore:
     """Manage backup metadata files and directory listings."""
@@ -857,31 +819,21 @@ class BackupService:
             return None
 
     def _recover_database_connections(self, timeout_seconds: int = 30) -> Optional[str]:
-        """Reset pooled connections and verify the database is reachable after a restore."""
-        try:
-            from backend.core.database_connection import db_connection_manager
-        except ImportError:
-            return "Database connection manager unavailable during recovery"
-
-        try:
-            db_connection_manager.reset_pools()
-        except AttributeError:
-            # Older builds may not expose pool reset; continue with verification attempts
-            pass
-
+        """Verify the database is reachable after a restore."""
         deadline = time.time() + timeout_seconds
         last_error: Optional[str] = None
 
         while time.time() < deadline:
             conn = None
             try:
-                conn = db_connection_manager.get_connection(timeout=5)
+                conn = open_restore_connection(timeout=5)
                 if conn:
                     cursor = conn.cursor()
                     cursor.execute("SELECT 1")
                     cursor.fetchone()
                     cursor.close()
                     return None
+                time.sleep(2)  # no login succeeded; wait as after an error
             except Exception as exc:
                 last_error = str(exc)
                 time.sleep(2)
@@ -931,10 +883,7 @@ class BackupService:
         # Use single path approach like PyQt5 (simpler and more reliable)
         backup_file_path = os.path.join(self.backup_dir, backup_filename)
         metadata_file_path = backup_file_path.replace('.bak', '.json')
-        
-        # For SQL Server command, use the same path (SQL Server can access local directories)
-        sql_backup_path = backup_file_path
-        
+
         # Use comprehensive operation tracking
         with operation_tracker('backup_create', {
             'filename': backup_filename,
@@ -968,8 +917,9 @@ class BackupService:
                     except Exception as e:
                         logger.warning(f"WARNING: Could not check disk space: {e}")
                     
-                    # Execute backup using streamlined sqlcmd command (compatible with Express)
-                    success, message = self._sql_executor.perform_backup(sql_backup_path)
+                    # SQL Server writes to the same path RobotControl reads, so it must
+                    # run on this machine or see BACKUP_DIR under the same name.
+                    success, message = self._sql_executor.perform_backup(backup_file_path)
                     if not success:
                         raise BackupOperationError(
                             f"SQL Server backup failed: {message}",
@@ -996,9 +946,6 @@ class BackupService:
                     self.sql_server,
                     file_size
                 )
-                
-                # Record performance metrics
-                performance_monitor.record_operation(metrics)
                 
                 # operation_tracker will log success automatically
                 return BackupResult(
@@ -1084,8 +1031,8 @@ class BackupService:
                 logger.info(f"Starting restore from: {filename}")
                 logger.warning("Database will be temporarily unavailable during restore")
                 
-                success, message = self._sql_executor.execute(sql_command)
-                
+                success, message = self._sql_executor.execute(sql_command, timeout=RESTORE_TIMEOUT)
+
                 if not success:
                     error_msg = f"SQL Server restore failed: {message}"
                     logger.error(error_msg)
@@ -1192,54 +1139,21 @@ class BackupService:
             
             logger.info(f"Starting database restore from path: {backup_path}")
             
-            with operation_tracker('restore_from_path', {'file_path': str(backup_path)}) as metrics:
-                conn = None
-                cursor = None
-                try:
-                    conn = self._get_database_connection()
-                    if conn is None:
-                        raise BackupError("Unable to acquire database connection for restore")
+            with self._operation_lock, operation_tracker('restore_from_path', {'file_path': str(backup_path)}) as metrics:
+                sql_command = "USE master;\n" + SQL_RESTORE_TEMPLATE.format(
+                    database=self.database_name,
+                    backup_path=escape_sql_path(str(backup_path))
+                )
+                success, message = self._sql_executor.execute(sql_command, timeout=RESTORE_TIMEOUT)
 
-                    conn.autocommit = True
-                    cursor = conn.cursor()
+                if not success:
+                    logger.error(f"SQL restore operation failed: {message}")
+                    self._sql_executor.execute(f"ALTER DATABASE [{self.database_name}] SET MULTI_USER;")
+                    raise BackupError(f"Database restore failed: {message}")
 
-                    escaped_path = escape_sql_path(str(backup_path))
-                    statements = [
-                        "USE master",
-                        f"ALTER DATABASE [{self.database_name}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE",
-                        f"RESTORE DATABASE [{self.database_name}] FROM DISK = N'{escaped_path}' WITH REPLACE",
-                        f"ALTER DATABASE [{self.database_name}] SET MULTI_USER",
-                    ]
-
-                    logger.info("Executing restore SQL command...")
-
-                    for statement in statements:
-                        cursor.execute(statement)
-
-                    logger.info("Database restore completed successfully")
-                    metrics.file_size_bytes = file_size
-                    metrics.success = True
-
-                except Exception as sql_error:
-                    logger.error(f"SQL restore operation failed: {sql_error}")
-                    if cursor:
-                        try:
-                            cursor.execute(f"ALTER DATABASE [{self.database_name}] SET MULTI_USER;")
-                        except Exception:
-                            pass
-                    raise BackupError(f"Database restore failed: {sql_error}")
-
-                finally:
-                    if cursor:
-                        try:
-                            cursor.close()
-                        except Exception:
-                            pass
-                    if conn:
-                        try:
-                            conn.close()
-                        except Exception:
-                            pass
+                logger.info("Database restore completed successfully")
+                metrics.file_size_bytes = file_size
+                metrics.success = True
 
             # Create successful result
             execution_time = (datetime.now() - start_time).total_seconds()
@@ -1250,6 +1164,7 @@ class BackupService:
             
             return RestoreResult(
                 success=True,
+                message="Database restored successfully",
                 backup_filename=backup_path.name,
                 file_path=str(backup_path),
                 execution_time_seconds=execution_time,
@@ -1264,6 +1179,7 @@ class BackupService:
             
             return RestoreResult(
                 success=False,
+                message="Database restore failed",
                 backup_filename=Path(file_path).name if file_path else 'unknown',
                 file_path=file_path,
                 execution_time_seconds=execution_time,
