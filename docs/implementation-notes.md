@@ -1,3 +1,10 @@
+## 2026-09-30 Trim tests to the checks that can catch real failures
+
+- New rule in `frontend/e2e/README.md`: a bug fix gets a new check only for robot safety, data integrity, scheduling or a returning bug. Browser specs with faked APIs keep one success and one failure case per screen.
+- `database-restore.spec.ts` went from 12 cases to 2; its path-browsing and 12-second timeout cases were removed. Real restores remain covered by `backend/e2e/backup_restore_check.py`. Screen-size lists now cover phone, desktop and 4K only where 4K was the concern (full browser run: 132 to 95 cases).
+- Removed 7 display-only component tests and 31 tests in `test_automatic_recording.py` that checked internals; the start/stop race checks remain. Permission, safety and data-write component tests were kept.
+- The keyboard-shortcut browser check fails on main 3024ee1 as well; it is a separate fix. Commands and outcomes: `test-output/viewer-verification/RUN.md`.
+
 ## 2026-09-29 Preserve the next directory path while browsing
 
 - A completed directory request no longer replaces a different path typed while it was pending. The loaded directory still uses the server's resolved path; Enter/Go submits the retained draft.
