@@ -19,6 +19,8 @@ or returns an empty message. A missing file, a folder or a wrong extension runs 
 failing first. An unrestorable `.bck` changes rows, hides SQL Server's error or leaves the
 database single-user. The disposable database and its backup files are removed afterwards,
 also when a step fails.
+A backup must not freeze the server either, and two backups created in the same second (their
+names are per second; BACKUP ... WITH INIT overwrites) must each keep their own listed file.
 A restore must not freeze the server: while one waits for or holds the backup lock, other
 requests still answer, a second operation still waits its turn, and the restore still
 reports success and reverts the data.
@@ -127,6 +129,41 @@ def run():
             listed = client.get('/api/admin/backup/list').json()
             entry = next((b for b in (listed.get('data') or []) if b.get('filename') == filename), None)
             check('backup is listed with its description', entry and entry.get('description') == 'backup check', entry)
+
+            # Two creates in the same second while the lock is held: the server keeps answering and
+            # neither backup overwrites the other (names are per second; BACKUP ... WITH INIT overwrites).
+            same_second = f'{database}_20260101_000000.bak'
+            answers = {}
+            def post_create(key):
+                answers[key] = client.post('/api/admin/backup/create', json={'description': key})
+            creates = [threading.Thread(target=post_create, args=(key,)) for key in ('pair one', 'pair two')]
+            listing = threading.Thread(target=lambda: answers.update(listing=client.get('/api/admin/backup/list')))
+            with patch.object(backup_module, 'generate_backup_filename', return_value=same_second):
+                with service._operation_lock:
+                    for thread in creates:
+                        thread.start()
+                    time.sleep(1)
+                    listing.start()
+                    listing.join(timeout=5)
+                    check('server answers other requests while a backup waits or runs',
+                          'listing' in answers and answers['listing'].status_code == 200, sorted(answers))
+                for thread in creates + [listing]:
+                    thread.join(timeout=120)
+            pair = {key: (answers[key].json() if key in answers else {}) for key in ('pair one', 'pair two')}
+            names = [(body.get('data') or {}).get('filename') for body in pair.values()]
+            created.extend(name for name in names if name)
+            listed = {b.get('filename'): b.get('description') for b in client.get('/api/admin/backup/list').json().get('data') or []}
+            check('same-second backups both succeed with separate files',
+                  all(body.get('success') for body in pair.values()) and None not in names and len(set(names)) == 2
+                  and all((Path(service.backup_dir) / name).is_file() for name in names if name), pair)
+            check('same-second backups are both listed with their own descriptions',
+                  sorted(listed.get(name) for name in names) == ['pair one', 'pair two'], {n: listed.get(n) for n in names})
+            suffixed = next((name for name in names if name and name != same_second), None)
+            sql(server, f"UPDATE [{database}].dbo.Sample SET Value = N'after backup'")
+            response = client.post('/api/admin/backup/restore', json={'filename': suffixed})
+            check('the suffixed backup restores', response.json().get('success') and value() == 'before backup',
+                  {'filename': suffixed, 'body': response.json(), 'value': value()})
+            commands.clear()
 
             sql(server, f"UPDATE [{database}].dbo.Sample SET Value = N'after backup'")
             response = client.post('/api/admin/backup/restore', json={'filename': filename})

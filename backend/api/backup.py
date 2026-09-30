@@ -106,7 +106,8 @@ async def create_backup(
         logger.info(f"Creating backup requested by user: {current_user['username']}")
         
         backup_service = get_backup_service()
-        result = backup_service.create_backup(request.description)
+        # sqlcmd can run for BACKUP_TIMEOUT (300 s); a worker thread keeps the server answering.
+        result = await run_in_threadpool(backup_service.create_backup, request.description)
         
         # Create metadata
         metadata = ResponseMetadata()

@@ -843,30 +843,23 @@ class BackupService:
                 message=f"Description too long (max {MAX_DESCRIPTION_LENGTH} characters)"
             )
         
-        # Generate backup filename
-        start_time = datetime.now()
-        backup_filename = generate_backup_filename(self.database_name, start_time)
-        
-        # Use single path approach like PyQt5 (simpler and more reliable)
-        backup_file_path = os.path.join(self.backup_dir, backup_filename)
-        metadata_file_path = backup_file_path.replace('.bak', '.json')
+        backup_file_path = None
 
         # Use comprehensive operation tracking
         with operation_tracker('backup_create', {
-            'filename': backup_filename,
             'database': self.database_name,
             'server': self.sql_server,
             'description_length': len(description)
         }) as metrics:
-            
+
             try:
-                # Validate paths
-                backup_file_path = validate_file_path(backup_file_path)
-                validate_file_path(metadata_file_path)
-                
-                logger.debug(f"Backup paths validated - File: {backup_file_path}")
-                
                 with self._operation_lock:
+                    # Chosen under the lock, when the backup starts: overlapping creates must not share a name.
+                    backup_filename = self._unused_backup_filename()
+                    backup_file_path = validate_file_path(os.path.join(self.backup_dir, backup_filename))
+                    validate_file_path(backup_file_path.replace('.bak', '.json'))
+                    logger.debug(f"Backup paths validated - File: {backup_file_path}")
+
                     # Check available disk space
                     try:
                         available_space = get_available_disk_space(self.backup_dir)
@@ -903,7 +896,7 @@ class BackupService:
                 file_size = os.path.getsize(backup_file_path)
                 metrics.file_size_bytes = file_size
                 
-                logger.info("Backup file created: %s", format_file_size(file_size))
+                logger.info("Backup file created: %s (%s)", backup_filename, format_file_size(file_size))
                 
                 # Save metadata alongside the backup
                 self._metadata_store.save(
@@ -931,6 +924,17 @@ class BackupService:
                 logger.debug(f"Backup operation context - File: {backup_file_path}, Description length: {len(description)}")
                 raise BackupOperationError(f"Unexpected error during backup: {str(e)}", "UNEXPECTED_ERROR")
     
+    def _unused_backup_filename(self) -> str:
+        """Call under _operation_lock. Names are per second and BACKUP ... WITH INIT overwrites,
+        so a name already on disk gets a _2, _3, ... suffix instead."""
+        base = generate_backup_filename(self.database_name)
+        name, attempt = base, 1
+        while any(os.path.exists(os.path.join(self.backup_dir, candidate))
+                  for candidate in (name, name.replace('.bak', '.json'))):
+            attempt += 1
+            name = base.replace('.bak', f'_{attempt}.bak')
+        return name
+
     def list_backups(self) -> List[BackupInfo]:
         """
         List all available backups with metadata
