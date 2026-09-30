@@ -201,7 +201,7 @@ const ExperimentStatus: React.FC<ExperimentStatusProps> = memo(({
         setError('Authentication required - please log in');
       } else if (err.response?.status === 404) {
         setError('Experiment service not available');
-      } else if (err.name === 'TimeoutError' || err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
+      } else if (err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT') {
         setError('Database connection timeout - check database status');
       } else if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND') {
         setError('Backend service unavailable');

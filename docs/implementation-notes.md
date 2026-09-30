@@ -1,3 +1,7 @@
+## 2026-09-30 Error-handling audit fixes (#16–#20)
+
+- #16: a sign-in storage error (for example SQLite `database is locked`) now answers 503 from `/me`, protected routes and `/api/auth/refresh`, so the browser keeps its tokens; bad, expired, wrong-type and revoked tokens still answer 401. Request timeouts keep the Axios error and say "Request timed out" instead of blaming the database. The 503 maintenance-overlay part landed in #15. Check: `backend/e2e/auth_storage_check.py` (3 of 13 cases failed before the fix).
+
 ## 2026-09-30 Keep essential coverage while trimming test duplication
 
 - The suite now requires a concrete essential failure and no equivalent retained coverage, rather than a fixed success/failure quota per screen. Routine presentation, internal-state copies and recoverable read-only browsing are removed.
