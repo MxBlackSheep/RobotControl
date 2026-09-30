@@ -8,6 +8,17 @@ for its area. Check the tests themselves before assuming a case is covered. For
 work in progress, list new failure cases in [scenarios.md](scenarios.md), then move
 them into the matching header once the checks exist.
 
+## When to add a check
+
+A bug fix gets a new or extended check only when it touches robot safety, data
+integrity or scheduling, or when the same bug has returned. Otherwise verify the fix
+in the running app and put the evidence in the PR.
+
+Most specs here answer API calls with `page.route` fakes. That proves the screen
+follows the fake, not that the real backend answers that way. Keep one success and
+one failure case per screen here; test backend, SQL Server or hardware behavior with
+a check that reaches that boundary (`backend/e2e`).
+
 ## Routine work (PowerShell, repository root)
 
 Install dependencies once using the root README. Rebuild when frontend inputs
