@@ -26,6 +26,7 @@ import DatabaseRestore from "../components/DatabaseRestore";
 import DatabaseTools, { DatabasePackages } from "../components/DatabaseTools";
 
 import { Source } from "../components/ReportConnections";
+import { fontMono } from "../theme";
 
 // has_data is null when the server could not check the table (not the same as empty).
 type TableInfo = { name: string; has_data?: boolean | null; is_important?: boolean };
@@ -90,56 +91,58 @@ export default function DatabasePage() {
         flex: 1,
         minHeight: 0,
         overflow: "hidden",
+        borderRadius: 2,
       }}
     >
-      <Stack spacing={1} sx={{ p: 1.5 }}>
-        <Typography variant="h6" component="h2">
-          Tables
-        </Typography>
+      <Stack spacing={1.25} sx={{ p: 1.5 }}>
+        <Stack direction="row" alignItems="center" justifyContent="space-between">
+          <Typography component="h2" sx={{ fontSize: 15, fontWeight: 600 }}>
+            Tables
+          </Typography>
+          <Button size="small" onClick={load} disabled={loading}>
+            Refresh tables
+          </Button>
+        </Stack>
         <TextField
           size="small"
           label="Find a table"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
         />
-        <Button onClick={load} disabled={loading}>
-          Refresh tables
-        </Button>
       </Stack>
       {loading && <LinearProgress />}
       <List
         aria-label="Database tables"
-        sx={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden" }}
+        disablePadding
+        sx={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", borderTop: 1, borderColor: "divider" }}
       >
-        {filtered.map((table) => (
-          <ListItemButton
-            key={table.name}
-            selected={selected === table.name}
-            aria-current={selected === table.name ? "true" : undefined}
-            title={table.name}
-            onClick={() => {
-              setSelected(table.name);
-              setShowTable(true);
-            }}
-            sx={{ minHeight: 52 }}
-          >
-            <ListItemText
-              primary={table.name}
-              primaryTypographyProps={{ sx: { overflowWrap: "anywhere" } }}
-              secondary={
-                table.has_data === true
-                  ? "Has data"
-                  : table.has_data === false
-                    ? "Empty"
-                    : table.has_data === null
-                      ? "Could not check"
-                      : undefined
-              }
-            />
-          </ListItemButton>
-        ))}
+        {filtered.map((table) => {
+          const state = table.has_data === true ? "Has data" : table.has_data === false ? "Empty"
+            : table.has_data === null ? "Could not check" : undefined;
+          return (
+            <ListItemButton
+              key={table.name}
+              selected={selected === table.name}
+              aria-current={selected === table.name ? "true" : undefined}
+              title={table.name}
+              onClick={() => {
+                setSelected(table.name);
+                setShowTable(true);
+              }}
+              sx={{ minHeight: 44, gap: 1, px: 1.5 }}
+            >
+              <ListItemText
+                primary={table.name}
+                primaryTypographyProps={{ sx: { fontFamily: fontMono, fontSize: 13, overflowWrap: "anywhere" } }}
+              />
+              {/* "Could not check" is unknown, not empty: amber like other states that need a look. */}
+              {state && <Typography component="span" sx={{ fontSize: 12, flexShrink: 0,
+                color: table.has_data === null ? (theme) => theme.palette.tone.attention.fg : table.has_data ? "success.main" : "text.secondary" }}>{state}</Typography>}
+            </ListItemButton>
+          );
+        })}
         {!loading && !filtered.length && (
-          <Typography sx={{ p: 2 }}>No tables match this view.</Typography>
+          <Typography sx={{ p: 2, color: "text.secondary" }}>No tables match this view.</Typography>
         )}
       </List>
     </Paper>

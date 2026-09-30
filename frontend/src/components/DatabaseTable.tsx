@@ -27,6 +27,7 @@ import {
 } from "@mui/material";
 import { databaseAPI } from "../services/api";
 import { collectMatchingRows, formatExport } from "./databaseExport";
+import { fontMono } from "../theme";
 type Filter = { column: string; operator: string; value: string };
 type Query = {
   page: number;
@@ -257,6 +258,7 @@ function TableView({
         minWidth: 0,
         minHeight: 0,
         overflow: "auto",
+        borderRadius: 2,
         "& .MuiButton-root, & .MuiIconButton-root": {
           minHeight: 44,
           minWidth: 44,
@@ -272,9 +274,8 @@ function TableView({
           justifyContent="space-between"
         >
           <Typography
-            variant="h6"
             component="h2"
-            sx={{ overflowWrap: "anywhere", minWidth: 0 }}
+            sx={{ overflowWrap: "anywhere", minWidth: 0, fontFamily: fontMono, fontSize: 16, fontWeight: 500 }}
           >
             {tableName}
           </Typography>
@@ -451,6 +452,8 @@ function TableView({
                           row[column] == null ? "text.secondary" : "inherit",
                         textAlign: "left",
                         font: "inherit",
+                        fontFamily: fontMono,
+                        fontSize: 13,
                         cursor: "pointer",
                         minHeight: 44,
                         minWidth: 80,
