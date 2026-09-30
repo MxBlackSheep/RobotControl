@@ -44,12 +44,16 @@ All work lands on the branch `redesign/instrument-panel`, one commit per verifie
 Each step: failure cases in `frontend/e2e/scenarios.md` first, build, focused checks,
 screenshots at phone/desktop, commit.
 
-## Items in the mock that need new data (decide when the screen is built)
+## Scope decision (30 September 2026): refactor only
 
-- Maintenance: remaining-time estimate and the "Right now" summary.
-- Logs: warning count and highlighted warning lines.
-- Admin: declining a password reset request.
-- Status bar "Next run": needs the schedule list, not only the queue status.
+This phase restyles each screen into the approved look and shared patterns without
+adding features or removing existing ones. Each screen keeps its current content,
+actions and permissions. Not built in this phase (they need new data or are new
+features): the Overview cards beyond today's Dashboard content (Up next, Instrument
+health, Recent runs, Needs attention), Maintenance's remaining-time estimate and "Right
+now" summary, Logs' warning count and warning highlighting, declining a password reset
+request, and "Next run" in the status bar. The step-1 status bar stays: it is the
+recovery indicator the old sidebar already showed, now visible on every page.
 
 ## Acceptance
 

@@ -15,7 +15,7 @@ interface BoundShortcut extends Shortcut {
 
 // Alt+1 … Alt+9 in this order.
 const PAGES: Array<[path: string, name: string]> = [
-  ['/', 'Dashboard'],
+  ['/', 'Overview'],
   ['/database', 'Database'],
   ['/camera', 'Camera'],
   ['/labware', 'Labware'],

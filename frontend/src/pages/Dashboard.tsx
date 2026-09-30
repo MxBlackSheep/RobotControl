@@ -1,33 +1,14 @@
 import { PageContent, PageHeader } from '../components/PageLayout';
-import React, { Suspense, Component, ErrorInfo, ReactNode, memo } from 'react';
-
-// Optimized Material-UI imports for better tree-shaking
-import Typography from '@mui/material/Typography';
-import Grid from '@mui/material/Grid';
-import Card from '@mui/material/Card';
-import CardContent from '@mui/material/CardContent';
-import Alert from '@mui/material/Alert';
-import LoadingSpinner from '../components/LoadingSpinner';
+import React, { Component, ErrorInfo, ReactNode, memo } from 'react';
+import { Alert, Card } from '@mui/material';
 import ExperimentStatus from '../components/ExperimentStatus';
-// Simple Error Boundary Component
-interface ErrorBoundaryProps {
-  children: ReactNode;
-  fallback?: ReactNode;
-}
 
-interface ErrorBoundaryState {
-  hasError: boolean;
-  error?: Error;
-}
+/** Keeps a render error in the card from taking the page down. */
+class WidgetErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  state = { hasError: false };
 
-class SimpleErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  constructor(props: ErrorBoundaryProps) {
-    super(props);
-    this.state = { hasError: false };
-  }
-
-  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
-    return { hasError: true, error };
+  static getDerivedStateFromError() {
+    return { hasError: true };
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
@@ -35,51 +16,21 @@ class SimpleErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySta
   }
 
   render() {
-    if (this.state.hasError) {
-      return this.props.fallback || (
-        <Card>
-          <CardContent>
-            <Alert severity="warning">
-              <Typography variant="body2">
-                Experiment widget temporarily unavailable
-              </Typography>
-            </Alert>
-          </CardContent>
-        </Card>
-      );
-    }
-
-    return this.props.children;
+    return this.state.hasError
+      ? <Card sx={{ p: 2 }}><Alert severity="warning">Experiment widget temporarily unavailable</Alert></Card>
+      : this.props.children;
   }
 }
 
-const ExperimentSkeleton: React.FC = () => (
-  <Card>
-    <CardContent>
-      <LoadingSpinner message="Loading experiment data..." minHeight={160} />
-    </CardContent>
-  </Card>
-);
+const Dashboard: React.FC = memo(() => (
+  <PageContent>
+    <PageHeader title="Overview" />
+    <WidgetErrorBoundary>
+      <ExperimentStatus />
+    </WidgetErrorBoundary>
+  </PageContent>
+));
 
-const Dashboard: React.FC = memo(() => {
-  return (
-    <PageContent>
-      <PageHeader title="Dashboard" />
-
-      <Grid container spacing={{ xs: 2, md: 3 }}>
-        <Grid item xs={12}>
-          <SimpleErrorBoundary>
-            <Suspense fallback={<ExperimentSkeleton />}>
-              <ExperimentStatus compact={true} />
-            </Suspense>
-          </SimpleErrorBoundary>
-        </Grid>
-      </Grid>
-    </PageContent>
-  );
-});
-
-// Add display name for debugging
 Dashboard.displayName = 'Dashboard';
 
 export default Dashboard;

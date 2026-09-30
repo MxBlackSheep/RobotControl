@@ -1,3 +1,9 @@
+## 2026-09-30 Redesign step 2: Overview
+
+- Scope for the rest of the redesign is refactor only: new look and shared patterns, no new features, nothing removed (recorded in the plan).
+- Dashboard is renamed Overview (sidebar, title, Alt+1). The Latest Experiment card keeps its content, 60 s refresh and Refresh button. Before, a failed refresh replaced the card with an error; now the last good experiment stays on screen with "Showing data from HH:MM:SS". Its timer moved from `setInterval` to `useSerialPolling`, so a slow earlier reply can no longer overwrite a newer one; the 1 s start delay (waiting for sign-in) is gone because the shell now renders only after sign-in.
+- Verified with a temporary fake-clock browser run (failed state, error after data, recovery on the timer, first-load error, no experiments); not kept as a permanent check (read-only card). Evidence: `test-output/redesign-step2/`.
+
 ## 2026-09-30 Redesign step 1: app shell
 
 - Brief and approved mock: `docs/plans/2026-09-30-frontend-redesign.md`. Branch `redesign/instrument-panel`.

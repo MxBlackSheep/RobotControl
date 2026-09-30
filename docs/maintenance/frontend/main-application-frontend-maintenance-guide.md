@@ -111,7 +111,7 @@ isolation; `system-pages.spec.ts` also covers the status bar's failure cases.
 ## Troubleshooting
 
 - **Blank page after login:** a route is missing or its component throws; check the
-  console. Only Dashboard is imported eagerly.
+  console. Only the Overview page (`pages/Dashboard.tsx`) is imported eagerly.
 - **Wrong sidebar item or section tab:** check the section name and permission filters in
   `navigation.tsx` and the `section` query parameter.
 - **Mobile menu does not open:** the status bar's Open navigation button must update

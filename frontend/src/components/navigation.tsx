@@ -26,7 +26,7 @@ export const allowedSections = (path: string, user: NavigationUser) => {
 export const allowedSchedulingSections = (user: NavigationUser) => allowedSections('/scheduling', user);
 export const moduleSectionUrl = (path: string, index: number) => index === 0 ? path : `${path}?section=${sectionRegistry[path]?.find(section => section.index === index)?.id || ''}`;
 export const navigationItems = [
-  { label: 'Dashboard', path: '/', icon: Dashboard }, { label: 'Database', path: '/database', icon: Storage },
+  { label: 'Overview', path: '/', icon: Dashboard }, { label: 'Database', path: '/database', icon: Storage },
   { label: 'Scheduling', path: '/scheduling', icon: Schedule, roles: ['admin', 'user'] },
   { label: 'Camera', path: '/camera', icon: Videocam }, { label: 'Labware', path: '/labware', icon: Science, roles: ['admin', 'user'] },
   { label: 'Maintenance', path: '/maintenance', icon: Build }, { label: 'Logs', path: '/logfile', icon: Description },
