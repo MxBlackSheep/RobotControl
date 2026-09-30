@@ -2,6 +2,7 @@
 
 - #16: a sign-in storage error (for example SQLite `database is locked`) now answers 503 from `/me`, protected routes and `/api/auth/refresh`, so the browser keeps its tokens; bad, expired, wrong-type and revoked tokens still answer 401. Request timeouts keep the Axios error and say "Request timed out" instead of blaming the database. The 503 maintenance-overlay part landed in #15. Check: `backend/e2e/auth_storage_check.py` (3 of 13 cases failed before the fix).
 - #17: Scheduling queue and scheduler status reads each own an inline error that clears on their next success; a failed poll no longer opens the "Server Error" dialog, and a schedule reload no longer hides it. Recovery state comes from the most recently requested status answer. Checks: two cases in `frontend/e2e/operations.spec.ts` (both failed before the fix).
+- #18: the dashboard "Latest Experiment" card keeps its refresh timer after an error and clears the error on the next success, so it recovers without a manual Refresh. Verified with a temporary fake-clock browser run (failed on the old build, passed after); screenshots in `test-output/error-audit-verification/issue-18/`.
 
 ## 2026-09-30 Keep essential coverage while trimming test duplication
 

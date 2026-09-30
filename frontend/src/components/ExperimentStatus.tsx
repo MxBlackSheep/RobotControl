@@ -165,8 +165,6 @@ const ExperimentStatus: React.FC<ExperimentStatusProps> = memo(({
 
   const loadExperiment = useCallback(async () => {
     try {
-      setError('');
-      
       // Check if user is authenticated
       const token = localStorage.getItem('access_token');
       if (!token) {
@@ -177,13 +175,16 @@ const ExperimentStatus: React.FC<ExperimentStatusProps> = memo(({
       
       const response = await experimentsAPI.getLatest();
       
+      // Clear an earlier error only on success, so a retry keeps it on screen until then.
       if (response.data && response.data.success && response.data.data) {
         setExperiment(response.data.data);
         setLastUpdate(new Date());
+        setError('');
       } else if (response.data && response.data.success && !response.data.data) {
         // No experiments found - valid state
         setExperiment(null);
         setLastUpdate(new Date());
+        setError('');
       } else {
         // API returned error
         setError(response.data?.error || 'Failed to load experiment data');
@@ -223,16 +224,16 @@ const ExperimentStatus: React.FC<ExperimentStatusProps> = memo(({
     return () => clearTimeout(timer);
   }, []);
 
-  // Auto refresh timer
+  // Auto refresh timer; it keeps running after an error so the card recovers on its own.
   useEffect(() => {
-    if (!autoRefresh || loading || error) return;
+    if (!autoRefresh) return;
 
     const interval = setInterval(() => {
       loadExperiment();
     }, refreshInterval * 1000);
 
     return () => clearInterval(interval);
-  }, [autoRefresh, refreshInterval, loading, error]);
+  }, [autoRefresh, refreshInterval, loadExperiment]);
 
   const handleRefresh = () => {
     setLoading(true);
