@@ -12,6 +12,9 @@ import { expect, test, type Page } from '@playwright/test';
  *   and Back returns to the selected folder.
  * - A failed history read shows one result dialog: Retry reads again and closes it on
  *   success; Close dismisses it without another read; Tab stays inside the dialog.
+ * - A failed status read shows its own inline error, not the Server Error dialog; the next
+ *   successful read of that status clears it and a schedule reload does not.
+ * - An older status answer arriving last cannot overwrite newer recovery state.
  * Camera cases are in camera.spec.ts.
  */
 const schedules = Array.from({ length: 24 }, (_, index) => ({
@@ -152,4 +155,46 @@ test('a failed history read shows one result dialog with Retry and Close', async
   await page.waitForTimeout(500);
   expect(reads).toBe(3);
   await expect(page.getByRole('dialog')).toHaveCount(0);
+});
+
+test('a failed status read shows its own error until that status reads again', async ({ page }, testInfo) => {
+  await operations(page);
+  let failQueue = true;
+  await page.route('**/api/scheduling/status/queue', route => failQueue
+    ? route.fulfill({ status: 500, json: { detail: 'Queue store unavailable' } })
+    : route.fallback());
+  await page.goto('/scheduling?section=schedules');
+  const statusError = page.getByRole('alert').filter({ hasText: 'Queue store unavailable' });
+  await expect(statusError).toHaveCount(1);
+  await expect(page.getByRole('dialog', { name: 'Server Error' })).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Refresh schedules', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Open Experiment 01', exact: true })).toBeVisible();
+  await expect(statusError).toHaveCount(1);
+  await page.screenshot({ path: testInfo.outputPath('status-error.png') });
+
+  failQueue = false;
+  await page.getByRole('button', { name: 'Refresh queue', exact: true }).click();
+  await expect(statusError).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Recovery required', exact: true })).toBeVisible();
+});
+
+test('an older status answer arriving last cannot overwrite newer recovery state', async ({ page }) => {
+  await operations(page);
+  let queueAnswered = false;
+  // Queue is requested before scheduler status on load; hold its (older) answer until the newer one lands.
+  await page.route('**/api/scheduling/status/queue', async route => {
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    await route.fulfill({ json: { success: true, data: { queue: { running_jobs: 0, queued_jobs: 0 },
+      manual_recovery: { active: true, storage_healthy: true, safety_revision: 7, resume_required: true, pending_recoveries: [] } } } });
+    queueAnswered = true;
+  });
+  await page.route('**/api/scheduling/status/scheduler', route => route.fulfill({ json: { success: true, data: {
+    is_running: true, manual_recovery: { active: false, storage_healthy: true, safety_revision: 8, resume_required: false, pending_recoveries: [] },
+  } } }));
+  await page.goto('/scheduling?section=schedules');
+  await expect(page.getByText('Scheduler service: Running', { exact: true })).toBeVisible();
+  await expect.poll(() => queueAnswered).toBe(true);
+  await expect(page.getByText('0 running · 0 queued', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Recovery required', exact: true })).toHaveCount(0);
 });
