@@ -28,6 +28,7 @@ import {
   Security as SecurityIcon,
 } from '@mui/icons-material';
 import { adminAPI } from '../services/api';
+import StatusChip from './StatusChip';
 
 interface UserSummary {
   username: string;
@@ -289,9 +290,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ onError, section }) => 
                         <Typography variant="subtitle1" fontWeight={600}>
                           {user.username}
                         </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {user.role}
-                        </Typography>
+                        <StatusChip tone={user.role === 'admin' ? 'running' : 'neutral'} label={user.role} />
                       </Stack>
                     }
                     secondary={
