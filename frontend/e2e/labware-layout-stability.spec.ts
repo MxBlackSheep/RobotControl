@@ -69,7 +69,7 @@ test('background reads preserve geometry, mounted tips and Refresh keyboard focu
   const reads = state.reads; await refresh.focus(); await refresh.press('Enter');
   await expect.poll(() => state.reads).toBeGreaterThan(reads);
   await expect(refresh).toBeFocused(); await expect(refresh).toBeEnabled();
-  await expect(page.getByRole('combobox', { name: 'Set tips to', exact: true })).toBeEnabled();
+  await expect(page.getByRole('group', { name: 'Set tips to', exact: true }).getByRole('button', { name: 'Dirty', exact: true })).toBeEnabled();
   const during = await grid.boundingBox(); expect(during).toEqual(before);
   await expect(page.getByRole('progressbar', { name: 'Refreshing tips' })).toHaveCount(0);
   release(); state.gate = null; await expect(page.getByText('Updating…', { exact: true })).toHaveCount(0);
@@ -81,7 +81,7 @@ test('background reads preserve geometry, mounted tips and Refresh keyboard focu
 
 test('selection during an in-flight read rejects its late snapshot and keeps one undoable draft', async ({ page }, info) => {
   const state = await fixture(page); await page.setViewportSize({ width: 1920, height: 1080 }); await page.goto('/labware'); await openRack(page);
-  await page.getByRole('combobox', { name: 'Set tips to', exact: true }).click(); await page.getByRole('option', { name: 'Dirty', exact: true }).click();
+  await page.getByRole('group', { name: 'Set tips to', exact: true }).getByRole('button', { name: 'Dirty', exact: true }).click();
   let release!: () => void; state.gate = new Promise<void>(resolve => release = resolve); state.lateStatus = 'reserved';
   const reads = state.reads; await page.getByRole('button', { name: 'Refresh', exact: true }).click(); await expect.poll(() => state.reads).toBeGreaterThan(reads);
   await page.getByRole('button', { name: 'Tip 1, clean', exact: true }).click(); await expect(page.getByRole('button', { name: 'Cancel selection', exact: true })).toBeVisible();
@@ -97,8 +97,8 @@ test('selection during an in-flight read rejects its late snapshot and keeps one
 
 test('setting an unchanged rack keeps background reading and the chosen status', async ({ page }, info) => {
   const state = await fixture(page); await page.setViewportSize({ width: 1920, height: 1080 }); await page.goto('/labware'); await openRack(page);
-  const status = page.getByRole('combobox', { name: 'Set tips to', exact: true });
-  await status.click(); await page.getByRole('option', { name: 'Clean', exact: true }).click();
+  const status = page.getByRole('group', { name: 'Set tips to', exact: true });
+  await status.getByRole('button', { name: 'Clean', exact: true }).click();
   const reads = state.reads; await page.getByRole('button', { name: 'Set entire rack', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Save changes (0)', exact: true })).toBeDisabled();
   await expect.poll(() => state.reads).toBeGreaterThan(reads); await expect(status).toContainText('Clean'); expect(state.writes).toEqual([]);
@@ -107,7 +107,7 @@ test('setting an unchanged rack keeps background reading and the chosen status',
 
 test('sidebar resizing keeps the rack mounted and its draft geometry settles', async ({ page }, info) => {
   await fixture(page); await page.setViewportSize({ width: 1920, height: 1080 }); await page.goto('/labware'); await openRack(page);
-  await page.getByRole('combobox', { name: 'Set tips to', exact: true }).click(); await page.getByRole('option', { name: 'Dirty', exact: true }).click();
+  await page.getByRole('group', { name: 'Set tips to', exact: true }).getByRole('button', { name: 'Dirty', exact: true }).click();
   const tip = page.getByRole('button', { name: 'Tip 1, clean', exact: true }); await tip.dblclick();
   const edited = page.getByRole('button', { name: 'Tip 1, dirty', exact: true });
   await edited.evaluate(element => { (window as any).__stableTip = element; });
@@ -167,7 +167,7 @@ for (const viewport of [{ width: 3840, height: 2160 }, { width: 1280, height: 72
   }
   if (viewport.width === 1280 || viewport.width === 3840) {
     const heading = await page.getByRole('heading', { name: 'Labware', exact: true }).boundingBox();
-    const toolbar = await page.getByRole('combobox', { name: 'Tip family', exact: true }).locator('xpath=ancestor::*[contains(@class,"MuiTextField-root")]').boundingBox();
+    const toolbar = await page.getByRole('group', { name: 'Tip family', exact: true }).boundingBox();
     expect(Math.abs(heading!.x - toolbar!.x)).toBeLessThanOrEqual(1);
     const surface = await page.locator('[data-tip-workspace]').boundingBox();
     expect(Math.abs(heading!.x - surface!.x)).toBeLessThanOrEqual(1);
@@ -185,7 +185,7 @@ test('short desktop has one stage scroll and container resizing cancels only the
   await page.getByRole('button', { name: 'Tip 96, clean', exact: true }).scrollIntoViewIfNeeded();
   await expect(page.getByText('Choose a status to edit tips.', { exact: true })).toBeVisible();
   await stage.evaluate(element => { element.scrollTop = 0; });
-  await page.getByRole('combobox', { name: 'Set tips to', exact: true }).click(); await page.getByRole('option', { name: 'Dirty', exact: true }).click();
+  await page.getByRole('group', { name: 'Set tips to', exact: true }).getByRole('button', { name: 'Dirty', exact: true }).click();
   await page.getByRole('button', { name: 'Tip 1, clean', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Cancel selection', exact: true })).toBeVisible();
   await page.getByRole('button', { name: /^(Collapse|Expand) navigation$/ }).click();
@@ -220,7 +220,7 @@ test('long rack names and unsaved counts cannot move the diagram', async ({ page
   const rack = 'VER_HT_0005__LONG_STORAGE_RACK_LOCATION_ALPHANUMERIC_IDENTIFIER';
   await fixture(page, rack); await page.setViewportSize({ width: 1280, height: 720 }); await page.goto('/labware');
   const opener = page.getByRole('button', { name: `Open rack ${rack}`, exact: true }); await opener.click();
-  await page.getByRole('combobox', { name: 'Set tips to', exact: true }).click(); await page.getByRole('option', { name: 'Dirty', exact: true }).click();
+  await page.getByRole('group', { name: 'Set tips to', exact: true }).getByRole('button', { name: 'Dirty', exact: true }).click();
   // Clicking an offscreen control can legitimately scroll the stage. Compare
   // layout in its content coordinates, not its changing viewport position.
   const geometry = async () => page.locator('[data-tip-workspace]').evaluate(stage => {

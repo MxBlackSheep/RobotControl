@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Box, Button, MenuItem, Stack, TextField, Typography } from '@mui/material';
+import { Box, Button, Stack, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
 
 interface Props {
   rack: string;
@@ -102,6 +102,10 @@ export default function TipRackEditor({ rack, headingId, joined, side, rows, col
     onSelect(next); grid.current?.querySelector<HTMLButtonElement>(`[data-tip="${next}"]`)?.focus();
   };
   const stateName = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
+  const tips = Array.from({ length: positions }, (_, index) => index + 1);
+  const hasDrafts = tips.some(pendingAt);
+  const afterSaving = hasDrafts ? statuses.map(status => [status, tips.filter(tip => statusAt(tip) === status).length] as const)
+    .filter(([, count]) => count).map(([status, count]) => `${count} ${status}`).join(' · ') : '';
   const dotSize = `max(14px, min(calc((100cqw - ${(columns - 1) * 4}px) / ${columns} * 0.32), calc((100cqh - ${(rows - 1) * 4}px) / ${rows} * 0.32)))`;
   const fontSize = `clamp(12px, min(calc(100cqw / ${columns} * 0.21), calc(100cqh / ${rows} * 0.21)), 22px)`;
 
@@ -109,10 +113,13 @@ export default function TipRackEditor({ rack, headingId, joined, side, rows, col
     <Stack gap={0.75} sx={{ gridRow: 1, px: 1.5, py: 1 }}>
       <Stack direction="row" gap={1} alignItems="baseline" flexWrap="wrap"><Typography id={headingId} variant="h6" component="h2" sx={{ overflowWrap: 'anywhere' }}>{rack}</Typography><Typography variant="caption" color="text.secondary">{side}</Typography></Stack>
       {canUpdate && <Stack direction="row" flexWrap="wrap" alignItems="center" gap={1}>
-        <TextField select size="small" label="Set tips to" value={paint || ''} disabled={disabled} onChange={event => onPaintChange(event.target.value || null)} InputLabelProps={{ shrink: true }} SelectProps={{ displayEmpty: true, SelectDisplayProps: { 'aria-label': 'Set tips to', 'aria-labelledby': undefined } }} sx={{ flex: '1 1 136px', maxWidth: 240 }}>
-          <MenuItem value="">Choose status</MenuItem>
-          {statuses.map(status => <MenuItem key={status} value={status}><Box component="span" aria-hidden="true" sx={{ display: 'inline-block', verticalAlign: 'middle', mr: 1, bgcolor: colors[status] || 'text.disabled', width: 12, height: 12, borderRadius: '50%', border: 1, borderColor: 'divider' }} />{stateName(status)}</MenuItem>)}
-        </TextField>
+        {/* Pick a status, then click or drag tips; pressing the chosen status again clears it. */}
+        <ToggleButtonGroup size="small" exclusive value={paint} disabled={disabled} aria-label="Set tips to" onChange={(_, value: string | null) => onPaintChange(value)}
+          sx={{ flexWrap: 'wrap', gap: 0.5, '& .MuiToggleButtonGroup-grouped': { m: 0, border: 1, borderColor: 'divider', borderRadius: 1 } }}>
+          {statuses.map(status => <ToggleButton key={status} value={status} sx={{ gap: 0.75, px: 1.25 }}>
+            <Box component="span" aria-hidden="true" sx={{ bgcolor: colors[status] || 'text.disabled', width: 12, height: 12, borderRadius: '50%', border: 1, borderColor: 'divider' }} />{stateName(status)}
+          </ToggleButton>)}
+        </ToggleButtonGroup>
         <Button disabled={!enabled || Boolean(corners)} onClick={() => apply(Array.from({ length: positions }, (_, index) => index + 1))} sx={{ whiteSpace: 'nowrap' }}>Set entire rack</Button>
       </Stack>}
     </Stack>
@@ -161,6 +168,7 @@ export default function TipRackEditor({ rack, headingId, joined, side, rows, col
           <Typography role="status" variant="body2" sx={{ minWidth: 0 }}>{corners ? `${preview.size} tips selected` : canUpdate ? paint ? 'Choose two corners or drag.' : 'Choose a status to edit tips.' : `Tip ${position}: ${stateName(statusAt(position))}`}</Typography>
           <Button onClick={cancel} disabled={!corners} aria-hidden={!corners} tabIndex={corners ? 0 : -1} sx={{ visibility: corners ? 'visible' : 'hidden' }}>Cancel selection</Button>
         </Box>
+        {canUpdate && hasDrafts && <Typography variant="body2" color="text.secondary" aria-label="This rack after saving">After saving: {afterSaving}</Typography>}
         {!canUpdate && !joined && <Stack direction="row" gap={1} flexWrap="wrap" aria-label="Tip status legend">{statuses.map(status => <Stack key={status} direction="row" gap={0.5} alignItems="center"><Box aria-hidden="true" sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: colors[status] || 'text.disabled', border: 1, borderColor: 'divider' }} /><Typography variant="caption">{stateName(status)}</Typography></Stack>)}</Stack>}
       </Stack>
   </Box>;

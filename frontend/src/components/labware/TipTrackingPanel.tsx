@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Box, Button, Dialog, DialogContent, DialogTitle, LinearProgress, Menu, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material';
+import { Alert, Box, Button, Dialog, DialogContent, DialogTitle, LinearProgress, Menu, MenuItem, Paper, Stack, TextField, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
 import StatusChip from '../StatusChip';
 import { labwareApi, TipTrackingSnapshot, TipTrackingUpdate } from '../../services/labwareApi';
 import { useLabwareSnapshot } from './useLabwareSnapshot';
@@ -131,9 +131,14 @@ export default function TipTrackingPanel({ active = true }: { active?: boolean }
 
   const actions = <Stack gap={0.5}>
     <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap">
-      <TextField select size="small" label="Tip family" value={family.family_id} disabled={busy} onChange={event => { setFamilyId(event.target.value); setRackOpen(false); }} SelectProps={{ SelectDisplayProps: { 'aria-label': 'Tip family', 'aria-labelledby': undefined } }} sx={{ minWidth: 160, maxWidth: '100%' }}>
-        {families.map(item => <MenuItem key={item.family_id} value={item.family_id}>{item.display_name}{Object.keys(pending[item.family_id] || {}).length ? ' · Unsaved' : ''}</MenuItem>)}
-      </TextField>
+      {/* Buttons as in the mock; a long family list falls back to a menu that cannot overflow the toolbar. */}
+      {families.length <= 4
+        ? <ToggleButtonGroup size="small" exclusive value={family.family_id} disabled={busy} aria-label="Tip family" onChange={(_, value: string | null) => { if (value) { setFamilyId(value); setRackOpen(false); } }} sx={{ flexWrap: 'wrap' }}>
+            {families.map(item => <ToggleButton key={item.family_id} value={item.family_id} sx={{ px: 1.5 }}>{item.display_name}{Object.keys(pending[item.family_id] || {}).length ? ' · Unsaved' : ''}</ToggleButton>)}
+          </ToggleButtonGroup>
+        : <TextField select size="small" label="Tip family" value={family.family_id} disabled={busy} onChange={event => { setFamilyId(event.target.value); setRackOpen(false); }} SelectProps={{ SelectDisplayProps: { 'aria-label': 'Tip family', 'aria-labelledby': undefined } }} sx={{ minWidth: 160, maxWidth: '100%' }}>
+            {families.map(item => <MenuItem key={item.family_id} value={item.family_id}>{item.display_name}{Object.keys(pending[item.family_id] || {}).length ? ' · Unsaved' : ''}</MenuItem>)}
+          </TextField>}
       <Button onClick={() => void refresh()} disabled={busy || totalPending > 0 || gesture}>Refresh</Button>
       {canUpdate ? <>
         <Button variant="contained" onClick={() => void save()} disabled={busy || !count || gesture}>Save changes ({count})</Button>
