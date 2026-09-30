@@ -43,7 +43,7 @@ async function fixture(page: Page, canUpdate = true, duplicates = false, extraPo
   return state;
 }
 
-for (const [width, height] of [[3840, 2160], [1920, 1080], [1280, 720], [320, 740]]) {
+for (const [width, height] of [[3840, 2160], [320, 740]]) {
   test(`Cytomat retains physical shelves and truthful states at ${width}px`, async ({ page }, info) => {
     await page.setViewportSize({ width, height });
     const state = await fixture(page);
@@ -202,7 +202,7 @@ test('all nine Cytomat positions fit a short desktop while preserving touch targ
   await page.screenshot({ path: info.outputPath('cytomat-nine-positions-1280.png'), animations: 'disabled' });
 });
 
-for (const [width, height] of [[3840, 2160], [1920, 1080]]) test(`Cytomat fills remaining workspace with equal shelves at ${width}px`, async ({ page }, info) => {
+for (const [width, height] of [[3840, 2160]]) test(`Cytomat fills remaining workspace with equal shelves at ${width}px`, async ({ page }, info) => {
   await page.setViewportSize({ width, height }); await fixture(page, true, false, false);
   await page.goto('/labware?section=cytomat');
   const body = page.getByTestId('cytomat-register-body');

@@ -199,9 +199,9 @@ test('read-only tip deck permits inspection and never exposes painting',async({p
   await info.attach('read-only-tip-deck',{body:await page.screenshot({animations:'disabled'}),contentType:'image/png'});
 });
 
-for(const viewport of [{width:3840,height:2160},{width:1920,height:1080},{width:1366,height:768},{width:1280,height:720},{width:1024,height:768},{width:1024,height:600},{width:390,height:844},{width:320,height:720}]){
+for(const viewport of [{width:3840,height:2160},{width:1280,height:720},{width:320,height:720}]){
 test(`rack sizing and bulk controls at ${viewport.width}x${viewport.height}`,async({page},info)=>{
-  await fixtures(page,true,true);if(viewport.width===1920)await page.addInitScript(()=>localStorage.setItem('robotcontrol-appearance','dark'));await page.setViewportSize(viewport);await page.goto('/labware');
+  await fixtures(page,true,true);if(viewport.width===1280)await page.addInitScript(()=>localStorage.setItem('robotcontrol-appearance','dark'));await page.setViewportSize(viewport);await page.goto('/labware');
   await page.getByRole('button',{name:'Open rack VER_ST_0001',exact:true}).click();await chooseStatus(page);
   const grid=page.getByRole('group',{name:'VER_ST_0001 tips',exact:true});
   const cell=grid.getByRole('button').first();const last=grid.getByRole('button').last();

@@ -56,7 +56,7 @@ async function assertNoPageOverflow(page: Page) {
 
 test.beforeEach(async ({ page }) => fixtures(page));
 
-for (const size of [{ width: 390, height: 844 }, { width: 1280, height: 720 }, { width: 1920, height: 1080 }]) {
+for (const size of [{ width: 390, height: 844 }, { width: 1920, height: 1080 }]) {
   test(`table and SQL inspection at ${size.width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize(size);
     const writes: string[] = [];

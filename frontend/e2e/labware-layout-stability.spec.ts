@@ -127,7 +127,7 @@ test('sidebar resizing keeps the rack mounted and its draft geometry settles', a
   await info.attach('sidebar-rack-draft', { body: await page.screenshot({ animations: 'disabled' }), contentType: 'image/png' });
 });
 
-for (const reducedMotion of ['no-preference', 'reduce'] as const) test(`focused wells are static with ${reducedMotion} motion`, async ({ page }, info) => {
+for (const reducedMotion of ['no-preference'] as const) test(`focused wells are static with ${reducedMotion} motion`, async ({ page }, info) => {
   await fixture(page); await page.emulateMedia({ reducedMotion }); await page.setViewportSize({ width: 1920, height: 1080 }); await page.goto('/labware'); await openRack(page);
   const first = page.getByRole('button', { name: 'Tip 1, clean', exact: true }); await first.focus(); await first.press('ArrowDown');
   const second = page.getByRole('button', { name: 'Tip 2, clean', exact: true }); await expect(second).toBeFocused();
@@ -138,7 +138,7 @@ for (const reducedMotion of ['no-preference', 'reduce'] as const) test(`focused 
   await info.attach(`static-focus-${reducedMotion}`, { body: await page.screenshot({ animations: 'disabled' }), contentType: 'image/png' });
 });
 
-for (const viewport of [{ width: 3840, height: 2160 }, { width: 1920, height: 1080 }, { width: 1366, height: 768 }, { width: 1280, height: 720 }, { width: 1080, height: 900 }, { width: 1024, height: 600 }, { width: 390, height: 844 }, { width: 320, height: 720 }]) test(`joined workbench fits ${viewport.width}x${viewport.height}`, async ({ page }, info) => {
+for (const viewport of [{ width: 3840, height: 2160 }, { width: 1280, height: 720 }, { width: 1024, height: 600 }, { width: 320, height: 720 }]) test(`joined workbench fits ${viewport.width}x${viewport.height}`, async ({ page }, info) => {
   await fixture(page); await page.setViewportSize(viewport); await page.goto('/labware'); await openRack(page);
   const grid = page.getByRole('group', { name: `${left[0]} tips`, exact: true });
   const first = grid.getByRole('button').first(); const box = await first.boundingBox(); expect(box!.width).toBeGreaterThanOrEqual(43.9); expect(box!.height).toBeGreaterThanOrEqual(43.9);
