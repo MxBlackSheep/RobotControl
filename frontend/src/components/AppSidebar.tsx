@@ -4,7 +4,7 @@ import { ChevronLeft, ChevronRight } from '@mui/icons-material';
 import { Link, useLocation } from 'react-router-dom';
 import { NavigationUser, visibleNavigation } from './navigation';
 import { robotAttention, useRobotStatusContext } from '../hooks/useRobotStatus';
-import { fontMono } from '../theme';
+import { fontMono, layout } from '../theme';
 import { APP_VERSION } from '../version';
 
 /** Modules only; a module's sections are tabs in its page header. */
@@ -14,13 +14,13 @@ export default function AppSidebar({ user, mobile, expanded, open, onClose, onTo
   const location = useLocation();
   const attention = robotAttention(useRobotStatusContext().status);
   const wide = mobile || expanded;
-  const width = mobile ? 280 : wide ? 224 : 64;
+  const width = mobile ? 280 : wide ? layout.rail : layout.railCollapsed;
   return <Drawer variant={mobile ? 'temporary' : 'permanent'} open={mobile ? open : true} onClose={onClose}
     sx={{ width: mobile ? 0 : width, flexShrink: 0, '& .MuiDrawer-paper': { width, boxSizing: 'border-box', border: 0, bgcolor: 'rail.bg', color: 'rail.text' } }}>
-    <Box component="nav" aria-label="Main navigation" sx={{ display: 'flex', flexDirection: 'column', height: '100%', py: 1.5, px: wide ? 1.5 : 1 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: wide ? 'space-between' : 'center', minHeight: 48, pl: wide ? 1.25 : 0, mb: 1.5 }}>
-        {wide && <Box><Typography sx={{ fontSize: 16, fontWeight: 600, color: 'rail.activeText' }}>RobotControl</Typography>
-          <Typography sx={{ fontFamily: fontMono, fontSize: 12, color: 'rail.muted' }}>v{APP_VERSION}</Typography></Box>}
+    <Box component="nav" aria-label="Main navigation" sx={{ display: 'flex', flexDirection: 'column', height: '100%', py: 2, px: wide ? 1.5 : 1 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: wide ? 'space-between' : 'center', height: layout.header, pl: wide ? 1.5 : 0, mb: 2 }}>
+        {wide && <Box><Typography sx={{ fontSize: 15, fontWeight: 600, lineHeight: '20px', color: 'rail.activeText' }}>RobotControl</Typography>
+          <Typography sx={{ fontFamily: fontMono, fontSize: 11, lineHeight: '16px', color: 'rail.muted' }}>v{APP_VERSION}</Typography></Box>}
         <IconButton aria-label={mobile ? 'Close navigation' : wide ? 'Collapse navigation' : 'Expand navigation'} onClick={mobile ? onClose : onToggle} sx={{ color: 'rail.text' }}>
           {wide ? <ChevronLeft /> : <ChevronRight />}
         </IconButton>
@@ -32,13 +32,13 @@ export default function AppSidebar({ user, mobile, expanded, open, onClose, onTo
           return <Tooltip key={item.path} title={wide ? '' : item.label} placement="right">
             <ListItemButton component={Link} to={item.path} selected={selected} aria-label={badge ? `${item.label}, recovery requires attention` : item.label}
               aria-current={selected ? 'page' : undefined} onClick={() => { if (mobile) onClose(); }}
-              sx={{ flex: '0 0 auto', minHeight: 44, px: 1.25, borderRadius: 1, color: selected ? 'rail.activeText' : 'rail.text', justifyContent: wide ? 'flex-start' : 'center',
+              sx={{ flex: '0 0 auto', minHeight: layout.row, px: 1.5, borderRadius: `${layout.radius}px`, color: selected ? 'rail.activeText' : 'rail.text', justifyContent: wide ? 'flex-start' : 'center',
                 '&.Mui-selected, &.Mui-selected:hover': { bgcolor: 'rail.activeBg' }, '&:hover': { bgcolor: 'rail.activeBg' } }}>
-              <ListItemIcon sx={{ minWidth: wide ? 34 : 0, color: 'inherit', position: 'relative' }}>
+              <ListItemIcon sx={{ minWidth: wide ? 30 : 0, color: 'inherit', position: 'relative' }}>
                 <item.icon fontSize="small" />
-                {badge && !wide && <Box component="span" aria-hidden sx={{ position: 'absolute', top: -3, right: -5, width: 9, height: 9, borderRadius: 5, bgcolor: '#F2B544' }} />}
+                {badge && !wide && <Box component="span" aria-hidden sx={{ position: 'absolute', top: -3, right: -5, width: 9, height: 9, borderRadius: 5, bgcolor: 'attentionSurface.action' }} />}
               </ListItemIcon>
-              {wide && <ListItemText primary={item.label} primaryTypographyProps={{ fontSize: 14, fontWeight: selected ? 500 : 400 }} />}
+              {wide && <ListItemText primary={item.label} primaryTypographyProps={{ fontSize: 14, fontWeight: selected ? 600 : 400 }} />}
               {badge && wide && <Box component="span" sx={{ minWidth: 20, height: 20, px: 0.5, borderRadius: 10, bgcolor: '#F2B544', color: '#15171C', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{attention?.kind === 'recovery' ? attention.count : '!'}</Box>}            </ListItemButton>
           </Tooltip>;
         })}

@@ -3,6 +3,7 @@ import { Box, Button, Link as MuiLink } from '@mui/material';
 import WarningAmber from '@mui/icons-material/WarningAmber';
 import { Link } from 'react-router-dom';
 import { robotAttention, ROBOT_STATUS_INTERVAL_MS, useRobotStatusContext } from '../hooks/useRobotStatus';
+import { layout } from '../theme';
 
 function age(ms: number) {
   const seconds = Math.max(0, Math.round(ms / 1000));
@@ -23,8 +24,8 @@ export default function RobotAttentionBanner() {
   const unavailable = !status && !!error;
   if (!attention && !stale && !unavailable) return null;
 
-  return <Box role="region" aria-label="Robot status" sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', columnGap: 2, rowGap: 0.5, minHeight: 44, px: { xs: 2, sm: 3 }, py: 0.5,
-    fontSize: 14, bgcolor: theme => theme.palette.tone.attention.bg, color: theme => theme.palette.tone.attention.fg, borderBottom: 1, borderColor: 'divider' }}>
+  return <Box role="region" aria-label="Robot status" sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', columnGap: 2, minHeight: layout.touchRow, px: { xs: `${layout.pagePhone}px`, sm: `${layout.page}px` },
+    fontSize: 14, bgcolor: 'attentionSurface.head', color: 'attentionSurface.text', borderBottom: 1, borderColor: 'attentionSurface.line' }}>
     {attention && <MuiLink component={Link} to="/scheduling?section=recovery" underline="hover" color="inherit" aria-label={attention.label}
       sx={{ display: 'flex', alignItems: 'center', gap: 1, fontWeight: 600, minHeight: 36 }}>
       <WarningAmber fontSize="small" />{attention.label}

@@ -25,6 +25,7 @@ import Dashboard from './pages/Dashboard';
 import ChangePasswordDialog from './components/ChangePasswordDialog';
 import MaintenanceDialog from './components/MaintenanceDialog';
 import { AppearanceControl } from './context/AppearanceContext';
+import { layout } from './theme';
 
 // Lazy load non-critical pages for better initial load performance
 const DatabasePage = loadComponent(() => import('./pages/DatabasePage'));
@@ -95,7 +96,7 @@ function AppShell() {
       <Box
         component="main"
         id="main-content"
-        sx={{ px: { xs: 2, sm: 3, lg: 3.5 }, py: { xs: 1.5, sm: 2 }, minWidth: 0 }}
+        sx={{ p: { xs: `${layout.pagePhone}px`, sm: `${layout.page}px` }, minWidth: 0 }}
         tabIndex={-1} // Make focusable for skip link
       >
         <Suspense fallback={<LoadingSpinner message="Loading page..." minHeight={400} />}>

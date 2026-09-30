@@ -8,7 +8,8 @@ export function dayTime(value: string) {
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const days = Math.round((new Date(date).setHours(0, 0, 0, 0) - today.getTime()) / 86400000);
   const day = days === 0 ? 'Today' : days === 1 ? 'Tomorrow' : days === -1 ? 'Yesterday'
-    : date.getFullYear() !== today.getFullYear() ? date.toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' })
-    : date.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
+    // UK day-month order ("Mon 28 Sep"), as used in the lab; the comma-free form fits list columns.
+    : date.getFullYear() !== today.getFullYear() ? date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+    : date.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }).replace(',', '');
   return `${day} ${clockTime(date)}`;
 }

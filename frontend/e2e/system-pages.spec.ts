@@ -159,7 +159,7 @@ test('Overview shows elapsed time against the estimate and keeps other panels wh
   // Soonest first, whatever order the list arrives in.
   await expect(page.getByRole('region', { name: 'Up next' })).toContainText(/Today 15:00Weekly deck cleanupWeekly30 min.*Today 16:00Plate reader QCOnce20 min/);
   const health = page.getByRole('region', { name: 'Instrument health' });
-  await expect(health).toContainText('SQL Server databaseConnected');
+  await expect(health).toContainText('SQL ServerConnected');
   await expect(health).toContainText('HxRunRunning');
   await expect(health).toContainText('CameraRecording');
   const recent = page.getByRole('region', { name: 'Recent runs' });

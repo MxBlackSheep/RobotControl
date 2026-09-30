@@ -1,13 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Box, Button, Card, LinearProgress, Skeleton, Stack, Typography } from '@mui/material';
+import { Box, Button, LinearProgress, Skeleton, Stack, Typography } from '@mui/material';
 import { Link } from 'react-router-dom';
 import StatusChip from '../StatusChip';
-import { PanelLabel } from '../PageLayout';
-import { panelPadding, fontMono } from '../../theme';
+import { DetailTitle, Panel } from '../PageLayout';
+import { fontMono } from '../../theme';
 import { clockTime } from '../../utils/displayTime';
 import type { RobotStatus } from '../../hooks/useRobotStatus';
 import type { RunningJobDetail } from '../../types/scheduling';
-
 
 export type RunTiming = { started: Date | null; elapsed: number | null; estimate: number | null; fraction: number | null; overBy: number | null };
 
@@ -57,42 +56,47 @@ function LogActivity({ job, heldFor }: { job: RunningJobDetail; heldFor: number 
 }
 
 /** The scheduler's current run, with elapsed time against the user's estimate. */
-export default function NowRunning({ status, error }: { status: RobotStatus | null; error: string | null }) {
+export default function NowRunning({ status, error, span }: { status: RobotStatus | null; error: string | null; span?: number }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 15000); return () => clearInterval(timer); }, []);
   const job = status?.running[0];
   const timing = job ? runTiming(job.monitoring?.launched_at, job.estimated_duration, now) : null;
+  const stateChip = status && (job ? <StatusChip tone="running" label="Running" />
+    : <StatusChip tone="neutral" label={status.schedulerRunning ? 'Idle' : 'Scheduler stopped'} />);
 
-  return <Card component="section" aria-label="Now running" variant="outlined" sx={{ p: panelPadding, display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
-    <Stack direction="row" alignItems="center" gap={1.25} flexWrap="wrap">
-      <PanelLabel>Now running</PanelLabel>
-      {status && (job ? <StatusChip tone="running" label="Running" />
-        : <StatusChip tone="neutral" label={status.schedulerRunning ? 'Idle' : 'Scheduler stopped'} />)}
-      {status && job && status.queued > 0 && <Typography sx={{ ml: 'auto', fontSize: 13, color: 'text.secondary' }}>{status.queued} waiting</Typography>}
-    </Stack>
-
+  return <Panel title="Now running" span={span} headerExtra={stateChip}
+    actions={status && job && status.queued > 0 && <Typography variant="caption" color="text.secondary">{status.queued} waiting</Typography>}
+    bodySx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
     {!status && (error
-      ? <Typography sx={{ color: 'text.secondary' }}>Robot status is unavailable. The banner above retries it.</Typography>
-      : <Stack spacing={1} aria-label="Loading robot status"><Skeleton variant="text" width="45%" height={32} /><Skeleton variant="text" width="70%" /></Stack>)}
+      ? <Typography variant="body2" color="text.secondary">Robot status is unavailable. The banner above retries it.</Typography>
+      : <Stack spacing={1} aria-label="Loading robot status"><Skeleton variant="text" width="45%" height={28} /><Skeleton variant="text" width="70%" /></Stack>)}
 
     {status && !job && <Box>
-      <Typography sx={{ fontSize: { xs: 18, sm: 20 }, fontWeight: 600 }}>Nothing running</Typography>
-      <Typography sx={{ fontSize: 14, color: 'text.secondary' }}>
+      <DetailTitle component="p">Nothing running</DetailTitle>
+      <Typography variant="body2" color="text.secondary">
         {status.schedulerRunning ? 'The scheduler starts the next run when it is due.' : 'The scheduler is stopped, so scheduled runs will not start.'}
         {status.queued > 0 && ` ${status.queued} waiting in the queue.`}
       </Typography>
     </Box>}
 
     {job && timing && <>
-      <Box sx={{ minWidth: 0 }}>
-        <Typography sx={{ fontSize: { xs: 18, sm: 22 }, fontWeight: 600, overflowWrap: 'anywhere' }}>{job.experiment_name}</Typography>
-        {job.experiment_path && <Typography sx={{ fontFamily: fontMono, fontSize: 13, color: 'text.secondary', overflowWrap: 'anywhere' }}>{job.experiment_path}</Typography>}
+      <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 3, minWidth: 0 }}>
+        <Box sx={{ minWidth: 0, flex: 1 }}>
+          <DetailTitle component="p">{job.experiment_name}</DetailTitle>
+          {job.experiment_path && <Typography sx={{ fontFamily: fontMono, fontSize: 12, lineHeight: '16px', color: 'text.secondary', overflowWrap: 'anywhere' }}>{job.experiment_path}</Typography>}
+        </Box>
+        {timing.elapsed !== null && <Box sx={{ display: { xs: 'none', sm: 'flex' }, flexDirection: 'column', alignItems: 'flex-end', flexShrink: 0 }}>
+          <Typography component="span" sx={{ fontFamily: fontMono, fontSize: 32, lineHeight: '32px', fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
+            {timing.elapsed}{timing.estimate !== null && <Box component="span" sx={{ fontSize: 14, color: 'text.secondary' }}> / ~{timing.estimate} min</Box>}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">{timing.overBy !== null ? `${timing.overBy} min past the estimate` : 'Estimate from the schedule'}</Typography>
+        </Box>}
       </Box>
       <Box>
         {timing.fraction !== null
-          ? <LinearProgress variant="determinate" value={timing.fraction * 100} aria-label="Elapsed time against the estimate" sx={{ height: 8, borderRadius: 4 }} />
-          : timing.overBy !== null && <LinearProgress variant="indeterminate" color="inherit" aria-label="Running past the estimate" sx={{ height: 8, borderRadius: 4, color: 'text.disabled' }} />}
-        <Stack direction={{ xs: 'column', sm: 'row' }} columnGap={2} rowGap={0.5} justifyContent="space-between" sx={{ mt: 1, fontSize: 13, color: 'text.secondary' }}>
+          ? <LinearProgress variant="determinate" value={timing.fraction * 100} aria-label="Elapsed time against the estimate" sx={{ height: 8, borderRadius: 1, bgcolor: 'surface.track' }} />
+          : timing.overBy !== null && <LinearProgress variant="indeterminate" color="inherit" aria-label="Running past the estimate" sx={{ height: 8, borderRadius: 1, color: 'text.disabled', bgcolor: 'surface.track' }} />}
+        <Stack direction={{ xs: 'column', sm: 'row' }} columnGap={2} rowGap={0.5} justifyContent="space-between" sx={{ mt: 1.5, fontSize: 13, color: 'text.secondary' }}>
           <span>{timingText(timing)}</span>
           <LogActivity job={job} heldFor={(now - status!.receivedAt) / 1000} />
         </Stack>
@@ -100,8 +104,8 @@ export default function NowRunning({ status, error }: { status: RobotStatus | nu
     </>}
 
     {status && <Stack direction="row" gap={1} flexWrap="wrap">
-      {job && <Button variant="outlined" size="small" component={Link} to="/logfile?section=hamilton">View run log</Button>}
-      <Button variant="outlined" size="small" component={Link} to="/camera">Open camera</Button>
+      {job && <Button variant="outlined" component={Link} to="/logfile?section=hamilton">View run log</Button>}
+      <Button variant="outlined" component={Link} to="/camera">Open camera</Button>
     </Stack>}
-  </Card>;
+  </Panel>;
 }

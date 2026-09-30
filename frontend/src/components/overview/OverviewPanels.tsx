@@ -1,43 +1,40 @@
 import React, { useState } from 'react';
-import { Box, Button, Card, Link as MuiLink, Stack, Typography } from '@mui/material';
+import { Box, Button, Link as MuiLink, Stack, Typography } from '@mui/material';
 import { Link } from 'react-router-dom';
 import StatusChip from '../StatusChip';
-import { PanelHeader, PanelLabel } from '../PageLayout';
+import { ListRow, Panel, StatusDot } from '../PageLayout';
 import { cameraStateLabels } from '../CameraControls';
 import { api } from '../../services/api';
 import { schedulingService, schedulingAPI } from '../../services/schedulingApi';
 import { useSerialPolling } from '../../hooks/useSerialPolling';
 import { robotAttention, type RobotStatus } from '../../hooks/useRobotStatus';
 import type { ScheduledExperiment } from '../../types/scheduling';
-import type { StatusTone } from '../../theme';
-import { panelPadding } from '../../theme';
+import { fontMono, layout, type StatusTone } from '../../theme';
 import { clockTime, dayTime } from '../../utils/displayTime';
 import { repeatLabel } from '../scheduling/ScheduleCollection';
 import { executionTone } from '../scheduling/executionStatus';
 
 const PANEL_REFRESH_MS = 60000;
+/** Rows shown in the Overview lists (the approved mock's seven). */
+const LIST_ROWS = 7;
+const mono = { fontFamily: fontMono, fontSize: 12, color: 'text.secondary' } as const;
 
-function Panel({ title, link, children }: { title: string; link?: { to: string; text: string } | null; children: React.ReactNode }) {
-  return <Card component="section" aria-label={title} variant="outlined" sx={{ p: panelPadding, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 1 }}>
-    <PanelHeader title={title} actions={link && <MuiLink component={Link} to={link.to} sx={{ fontSize: 14 }}>{link.text}</MuiLink>} />
-    {children}
-  </Card>;
-}
-
-function Rows({ children }: { children: React.ReactNode }) {
-  return <Box sx={{ '& > *': { py: 1.25, borderTop: 1, borderColor: 'divider', minWidth: 0 }, '& > *:first-of-type': { borderTop: 0 } }}>{children}</Box>;
-}
+const headerLink = (to: string, text: string) => <MuiLink component={Link} to={to} underline="hover" sx={{ fontSize: 13 }}>{text}</MuiLink>;
 
 /** A panel's read failed: keep what was shown and offer a retry, without blanking the page. */
 function ReadProblem({ error, stale, onRetry, pending }: { error: string; stale: boolean; onRetry: () => void; pending: boolean }) {
-  return <Stack direction="row" alignItems="center" gap={1} role="alert" sx={{ fontSize: 13, color: theme => theme.palette.tone.attention.fg, mb: 0.5 }}>
+  return <Stack direction="row" alignItems="center" gap={1} role="alert" sx={{ minHeight: layout.row, px: `${layout.inset}px`, fontSize: 13, color: 'attentionSurface.text', borderBottom: 1, borderColor: 'surface.rowLine' }}>
     <span>{stale ? 'Could not refresh. Showing earlier data.' : error}</span>
     <Button size="small" onClick={onRetry} disabled={pending}>Retry</Button>
   </Stack>;
 }
 
+function EmptyRow({ children }: { children: React.ReactNode }) {
+  return <Typography variant="body2" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', height: layout.row, px: `${layout.inset}px` }}>{children}</Typography>;
+}
+
 /** Shown only while the scheduler is holding runs for an operator. */
-export function NeedsAttention({ status }: { status: RobotStatus | null }) {
+export function NeedsAttention({ status, span }: { status: RobotStatus | null; span?: number }) {
   const attention = robotAttention(status);
   if (!attention || !status?.recovery) return null;
   const recovery = status.recovery;
@@ -49,18 +46,19 @@ export function NeedsAttention({ status }: { status: RobotStatus | null }) {
       ? ['Recovery required', first?.experiment_name || recovery.experiment_name || 'A scheduled run',
           `${first?.triggered_at ? `Stopped at ${clockTime(new Date(first.triggered_at))}. ` : ''}New runs are held until someone checks the deck and resolves this.${attention.count > 1 ? ` ${attention.count - 1} more waiting.` : ''}`]
       : ['Waiting for Resume', 'Queued jobs are paused', 'Recovery is acknowledged. Queued jobs stay paused until someone chooses Resume queued jobs.'];
-  return <Card component="section" aria-label="Needs attention" variant="outlined"
-    sx={{ p: panelPadding, minWidth: 0, borderColor: theme => theme.palette.tone.attention.fg, display: 'flex', flexDirection: 'column', gap: 2 }}>
-    <Stack direction="row" alignItems="center" gap={1.25} flexWrap="wrap"><PanelLabel>Needs attention</PanelLabel><StatusChip tone="attention" label={chip} /></Stack>
-    <Typography sx={{ fontSize: 18, fontWeight: 600, overflowWrap: 'anywhere' }}>{heading}</Typography>
-    {note && <Typography sx={{ fontSize: 14, overflowWrap: 'anywhere' }}>{note}</Typography>}
-    <Typography sx={{ fontSize: 14, color: 'text.secondary' }}>{body}</Typography>
-    <Box sx={{ flex: 1 }} />
-    <Button variant="contained" color="warning" component={Link} to="/scheduling?section=recovery" sx={{ alignSelf: 'flex-start' }}>Review recovery</Button>
-  </Card>;
+  // On phones the hold comes first, right after the status strip: it blocks every other run.
+  return <Panel title="Needs attention" tone="attention" span={span} actions={<StatusChip tone="attention" label={chip} />} sx={{ order: { xs: -1, md: 0 } }}
+    bodySx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+    <Typography sx={{ fontSize: 16, lineHeight: '24px', fontWeight: 600, overflowWrap: 'anywhere' }}>{heading}</Typography>
+    {note && <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>{note}</Typography>}
+    <Typography variant="body2" color="text.secondary">{body}</Typography>
+    <Box sx={{ flex: 1, minHeight: 8 }} />
+    <Button variant="contained" component={Link} to="/scheduling?section=recovery"
+      sx={{ alignSelf: 'flex-start', bgcolor: 'attentionSurface.action', color: 'attentionSurface.actionText', '&:hover': { bgcolor: 'attentionSurface.action', filter: 'brightness(0.94)' } }}>Review recovery</Button>
+  </Panel>;
 }
 
-export function UpNext({ canOpenScheduling }: { canOpenScheduling: boolean }) {
+export function UpNext({ canOpenScheduling, span }: { canOpenScheduling: boolean; span?: number }) {
   const [schedules, setSchedules] = useState<ScheduledExperiment[] | null>(null);
   const polling = useSerialPolling<ScheduledExperiment[]>({
     interval: PANEL_REFRESH_MS,
@@ -74,26 +72,26 @@ export function UpNext({ canOpenScheduling }: { canOpenScheduling: boolean }) {
   const upcoming = (schedules ?? [])
     .filter(schedule => schedule.is_active && !schedule.archived && schedule.next_run && !Number.isNaN(new Date(schedule.next_run).getTime()))
     .sort((a, b) => new Date(a.next_run!).getTime() - new Date(b.next_run!).getTime())
-    .slice(0, 4);
-  return <Panel title="Up next" link={canOpenScheduling ? { to: '/scheduling', text: 'All schedules' } : null}>
+    .slice(0, LIST_ROWS);
+  return <Panel title="Up next" span={span} inset={false} fill actions={canOpenScheduling && headerLink('/scheduling', 'All schedules')}>
     {polling.error && <ReadProblem error="Could not load schedules." stale={!!schedules} onRetry={() => void polling.refresh()} pending={polling.pending} />}
-    {schedules && !upcoming.length && <Typography sx={{ fontSize: 14, color: 'text.secondary', py: 1 }}>No scheduled runs.</Typography>}
-    <Rows>{upcoming.map(schedule => {
+    {schedules && !upcoming.length && <EmptyRow>No scheduled runs.</EmptyRow>}
+    {upcoming.map(schedule => {
       const duration = schedule.estimated_duration > 0 ? `${schedule.estimated_duration} min` : '';
-      return <Box key={schedule.schedule_id} sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0,1fr)', sm: '130px minmax(0,1fr) auto 64px' }, columnGap: 2, rowGap: 0.25, alignItems: 'baseline', fontSize: 14 }}>
-        <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' }, color: 'text.secondary', fontVariantNumeric: 'tabular-nums' }}>{dayTime(schedule.next_run!)}</Box>
-        <Box component="span" sx={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{schedule.experiment_name}</Box>
-        <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' }, color: 'text.secondary' }}>{repeatLabel(schedule)}</Box>
-        <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' }, color: 'text.secondary', textAlign: 'right' }}>{duration}</Box>
-        <Box component="span" sx={{ display: { xs: 'inline', sm: 'none' }, color: 'text.secondary', fontSize: 13 }}>{[dayTime(schedule.next_run!), repeatLabel(schedule), duration].filter(Boolean).join(' · ')}</Box>
-      </Box>;
-    })}</Rows>
+      return <ListRow key={schedule.schedule_id} columns={{ xs: '104px minmax(0, 1fr) 48px', sm: '128px minmax(0, 1fr) 96px 56px' }}>
+        <Box component="span" sx={mono}>{dayTime(schedule.next_run!)}</Box>
+        <Box component="span" sx={{ fontWeight: 500 }}>{schedule.experiment_name}</Box>
+        <Box component="span" sx={{ display: { xs: 'none', sm: 'block' }, color: 'text.secondary' }}>{repeatLabel(schedule)}</Box>
+        <Box component="span" sx={{ ...mono, textAlign: 'right' }}>{duration}</Box>
+      </ListRow>;
+    })}
   </Panel>;
 }
 
 type CameraHealth = { capture_state?: string; recording_state?: string; error?: string | null };
 type Health = { database: boolean | null; camera: CameraHealth | null };
 
+/** One-line strip of instrument states across the page, like a console status bar. */
 export function InstrumentHealth({ status }: { status: RobotStatus | null }) {
   const [health, setHealth] = useState<Health | null>(null);
   const polling = useSerialPolling<Health>({
@@ -117,29 +115,34 @@ export function InstrumentHealth({ status }: { status: RobotStatus | null }) {
     : camera.recording_state === 'recording' ? ['Recording', 'running']
     : camera.capture_state === 'connected' ? ['Connected', 'completed']
     : [cameraStateLabels[camera.capture_state ?? ''] ?? 'Unknown', camera.capture_state === 'disconnected' ? 'attention' : 'neutral'];
-  const rows: [string, [string, StatusTone]][] = [
+  const cells: [string, [string, StatusTone]][] = [
     ['Scheduler', !status ? unknown : status.schedulerRunning ? ['Running', 'running'] : ['Stopped', 'neutral']],
-    ['Scheduler storage', !status?.recovery ? unknown : status.recovery.storage_healthy ? ['Healthy', 'completed'] : ['Needs attention', 'attention']],
-    ['SQL Server database', health?.database === true ? ['Connected', 'completed'] : health?.database === false ? ['Disconnected', 'fault'] : unknown],
+    ['Storage', !status?.recovery ? unknown : status.recovery.storage_healthy ? ['Healthy', 'completed'] : ['Needs attention', 'attention']],
+    ['SQL Server', health?.database === true ? ['Connected', 'completed'] : health?.database === false ? ['Disconnected', 'fault'] : unknown],
     ['HxRun', status?.hamiltonRunning === true ? ['Running', 'running'] : status?.hamiltonRunning === false ? ['Not running', 'neutral'] : unknown],
     ['Camera', cameraState],
   ];
-  return <Panel title="Instrument health" link={{ to: '/system-status', text: 'System status' }}>
+  return <Box component="section" aria-label="Instrument health" sx={{ gridColumn: '1 / -1', order: { xs: -2, md: 0 }, minWidth: 0, bgcolor: 'background.paper', border: 1, borderColor: 'divider', borderRadius: `${layout.radius}px`, overflow: 'hidden' }}>
     {polling.error && <ReadProblem error="Could not check the database and camera." stale={!!health} onRetry={() => void polling.refresh()} pending={polling.pending} />}
-    <Rows>{rows.map(([name, [state, tone]]) => <Stack key={name} direction="row" alignItems="center" justifyContent="space-between" gap={1} sx={{ fontSize: 14 }}>
-      <span>{name}</span><StatusChip tone={tone} label={state} />
-    </Stack>)}</Rows>
-  </Panel>;
+    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(5, minmax(0, 1fr)) auto' } }}>
+      {cells.map(([name, [state, tone]]) => <Box key={name} sx={{ display: 'flex', alignItems: 'center', gap: 1, height: layout.row, px: `${layout.inset}px`, minWidth: 0,
+        borderRight: 1, borderBottom: { xs: 1, md: 0 }, borderColor: 'surface.rowLine' }}>
+        <Typography component="span" variant="overline" sx={{ textTransform: 'uppercase', color: 'surface.label', whiteSpace: 'nowrap' }}>{name}</Typography>
+        <Box sx={{ ml: 'auto', minWidth: 0 }}><StatusDot tone={tone} label={state} /></Box>
+      </Box>)}
+      <Box sx={{ display: 'flex', alignItems: 'center', height: layout.row, px: `${layout.inset}px` }}>{headerLink('/system-status', 'System status')}</Box>
+    </Box>
+  </Box>;
 }
 
 type Run = { id: string; name: string; started?: string | null; minutes: number | null; status: string };
 
-export function RecentRuns() {
+export function RecentRuns({ canOpenScheduling, span }: { canOpenScheduling: boolean; span?: number }) {
   const [runs, setRuns] = useState<Run[] | null>(null);
   const polling = useSerialPolling<Run[]>({
     interval: PANEL_REFRESH_MS,
     request: async () => {
-      const { data } = await schedulingAPI.getExecutionHistory(undefined, 5);
+      const { data } = await schedulingAPI.getExecutionHistory(undefined, LIST_ROWS);
       if (!data?.success || !Array.isArray(data.data)) throw new Error(data?.message || 'Could not load recent runs');
       return data.data.map((record: Record<string, any>) => ({
         id: String(record.execution_id),
@@ -152,17 +155,17 @@ export function RecentRuns() {
     },
     onSuccess: setRuns,
   });
-  return <Panel title="Recent runs">
+  return <Panel title="Recent runs" span={span} inset={false} fill actions={canOpenScheduling && headerLink('/scheduling?section=history', 'History')}>
     {polling.error && <ReadProblem error="Could not load recent runs." stale={!!runs} onRetry={() => void polling.refresh()} pending={polling.pending} />}
-    {runs && !runs.length && <Typography sx={{ fontSize: 14, color: 'text.secondary', py: 1 }}>No runs yet.</Typography>}
-    <Rows>{(runs ?? []).map(run => {
+    {runs && !runs.length && <EmptyRow>No runs yet.</EmptyRow>}
+    {(runs ?? []).map(run => {
       const [label, tone] = executionTone(run.status);
-      return <Box key={run.id} sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0,1fr) auto', sm: 'minmax(0,1fr) 140px 80px 170px' }, columnGap: 2, rowGap: 0.5, alignItems: 'center', fontSize: 14 }}>
-        <Box component="span" sx={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{run.name}</Box>
-        <Box component="span" sx={{ color: 'text.secondary', display: { xs: 'none', sm: 'inline' } }}>{run.started ? dayTime(run.started) : '—'}</Box>
-        <Box component="span" sx={{ color: 'text.secondary', display: { xs: 'none', sm: 'inline' } }}>{run.minutes !== null ? `${run.minutes} min` : '—'}</Box>
-        <Box component="span" sx={{ justifySelf: { xs: 'end', sm: 'start' } }}><StatusChip tone={tone} label={label} /></Box>
-      </Box>;
-    })}</Rows>
+      return <ListRow key={run.id} columns={{ xs: 'minmax(0, 1fr) auto', sm: 'minmax(0, 1fr) 128px 56px 136px' }}>
+        <Box component="span" sx={{ fontWeight: 500 }}>{run.name}</Box>
+        <Box component="span" sx={{ ...mono, display: { xs: 'none', sm: 'block' } }}>{run.started ? dayTime(run.started) : '—'}</Box>
+        <Box component="span" sx={{ ...mono, display: { xs: 'none', sm: 'block' }, textAlign: 'right' }}>{run.minutes !== null ? `${run.minutes} min` : '—'}</Box>
+        <Box component="span" sx={{ justifySelf: 'end' }}><StatusChip tone={tone} label={label} /></Box>
+      </ListRow>;
+    })}
   </Panel>;
 }

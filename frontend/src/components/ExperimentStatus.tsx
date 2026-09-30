@@ -2,14 +2,14 @@
  * Latest experiment from the Hamilton run database, refreshed every minute.
  */
 import React, { memo, useState } from 'react';
-import { Box, Button, Card, Skeleton, Stack, Typography } from '@mui/material';
+import { Box, Button, Skeleton, Stack, Typography } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { experimentsAPI } from '../services/api';
 import { useSerialPolling } from '../hooks/useSerialPolling';
 import StatusChip from './StatusChip';
-import { PanelHeader } from './PageLayout';
+import { ListRow, Panel } from './PageLayout';
 import { clockTime, dayTime } from '../utils/displayTime';
-import { fontMono, panelPadding, StatusTone } from '../theme';
+import { fontMono, layout, StatusTone } from '../theme';
 
 interface ExperimentData {
   run_guid: string;
@@ -57,10 +57,6 @@ const describeError = (err: any): string => {
   return 'Experiment data temporarily unavailable';
 };
 
-function Fact({ label, value }: { label: string; value: string }) {
-  return <Box><Typography sx={{ fontSize: 13, color: 'text.secondary' }}>{label}</Typography><Typography sx={{ fontSize: 15 }}>{value}</Typography></Box>;
-}
-
 const ExperimentStatus: React.FC<{ refreshInterval?: number }> = memo(({ refreshInterval = 60 }) => {
   const [latest, setLatest] = useState<Latest | null>(null);
   const polling = useSerialPolling<Latest>({
@@ -78,43 +74,33 @@ const ExperimentStatus: React.FC<{ refreshInterval?: number }> = memo(({ refresh
   const experiment = latest?.experiment;
   const state = experiment ? getRunStateDisplay(experiment.run_state) : null;
 
-  return <Card component="section" aria-label="Latest experiment" variant="outlined" sx={{ p: panelPadding, display: 'flex', flexDirection: 'column', gap: 2 }}>
-    <PanelHeader title="Latest experiment" actions={
-      <Button size="small" startIcon={<RefreshIcon />} onClick={() => { void polling.refresh(); }} disabled={polling.pending}>Refresh</Button>
-    } />
+  const methodName = experiment ? experiment.method_name?.split('\\').pop()?.replace('.hsl', '') || 'Unknown Method' : '';
+  const facts: [string, string][] = experiment ? [
+    ['Started', formatTimestamp(experiment.start_time)],
+    ...(experiment.end_time ? [['Ended', formatTimestamp(experiment.end_time)] as [string, string]] : []),
+    ['Duration', calculateDuration(experiment.start_time, experiment.end_time)],
+  ] : [];
 
-    {!latest && !error && <Stack spacing={1} aria-label="Loading experiment">
-      <Skeleton variant="text" width="50%" height={32} /><Skeleton variant="text" width="30%" /><Skeleton variant="text" width="70%" />
-    </Stack>}
+  return <Panel title="Latest experiment" inset={false}
+    headerExtra={latest && !error && <Typography variant="caption" color="text.secondary" sx={{ fontFamily: fontMono }}>Updated {clockTime(latest.checkedAt)}</Typography>}
+    actions={<Button size="small" startIcon={<RefreshIcon />} onClick={() => { void polling.refresh(); }} disabled={polling.pending}>Refresh</Button>}>
+    {!latest && !error && <Stack aria-label="Loading experiment" sx={{ px: 2, justifyContent: 'center', height: layout.row }}><Skeleton variant="text" width="50%" /></Stack>}
 
-    {error && <Box role="alert" sx={{ p: 1.5, borderRadius: 1, border: 1, borderColor: theme => theme.palette.tone.attention.fg, bgcolor: theme => theme.palette.tone.attention.bg }}>
-      <Typography sx={{ fontSize: 14, fontWeight: 600, color: theme => theme.palette.tone.attention.fg }}>
-        {latest ? 'Could not refresh experiment data' : 'Experiment data is temporarily unavailable'}
-      </Typography>
-      <Typography sx={{ fontSize: 14 }}>{error}{latest && ` · Showing data from ${clockTime(latest.checkedAt)}`}</Typography>
+    {error && <Box role="alert" sx={{ display: 'flex', alignItems: 'center', gap: 1, minHeight: layout.row, px: 2, bgcolor: 'attentionSurface.head', color: 'attentionSurface.text', fontSize: 13, borderBottom: 1, borderColor: 'surface.rowLine' }}>
+      <Box component="strong">{latest ? 'Could not refresh experiment data' : 'Experiment data is temporarily unavailable'}</Box>
+      <span>· {error}{latest && ` · Showing data from ${clockTime(latest.checkedAt)}`}</span>
     </Box>}
 
-    {latest && !experiment && <Typography sx={{ color: 'text.secondary' }}>No experiments found</Typography>}
+    {latest && !experiment && <ListRow columns="minmax(0, 1fr)"><Box component="span" sx={{ color: 'text.secondary' }}>No experiments found</Box></ListRow>}
 
-    {experiment && <>
-      <Box>
-        <Stack direction="row" alignItems="center" justifyContent="space-between" gap={1}>
-          <Typography sx={{ fontSize: 18, overflowWrap: 'anywhere', fontWeight: 600, minWidth: 0 }}>
-            {experiment.method_name?.split('\\').pop()?.replace('.hsl', '') || 'Unknown Method'}
-          </Typography>
-          {state && <Box sx={{ flexShrink: 0 }}><StatusChip tone={state.tone} label={state.label} /></Box>}
-        </Stack>
-        <Typography sx={{ fontFamily: fontMono, fontSize: 13, color: 'text.secondary' }}>ID: {experiment.run_guid?.substring(0, 8) || 'Unknown'}</Typography>
-      </Box>
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', columnGap: 3, rowGap: 1 }}>
-        <Fact label="Started" value={formatTimestamp(experiment.start_time)} />
-        {experiment.end_time && <Fact label="Ended" value={formatTimestamp(experiment.end_time)} />}
-        <Fact label="Duration" value={calculateDuration(experiment.start_time, experiment.end_time)} />
-      </Box>
-    </>}
-
-    {latest && !error && <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>Updated {clockTime(latest.checkedAt)}</Typography>}
-  </Card>;
+    {experiment && <ListRow columns={{ xs: 'minmax(0, 1fr) auto', md: `minmax(0, 1fr) 120px repeat(${facts.length}, 160px) auto` }} sx={{ borderBottom: 0 }}>
+      <Box component="span" sx={{ fontWeight: 600 }}>{methodName}</Box>
+      <Box component="span" sx={{ display: { xs: 'none', md: 'block' }, fontFamily: fontMono, fontSize: 12, color: 'text.secondary' }}>ID: {experiment.run_guid?.substring(0, 8) || 'Unknown'}</Box>
+      {facts.map(([label, value]) => <Box key={label} component="span" sx={{ display: { xs: 'none', md: 'block' } }}>
+        <Box component="span" sx={{ color: 'text.secondary' }}>{label} </Box>{value}</Box>)}
+      {state && <StatusChip tone={state.tone} label={state.label} />}
+    </ListRow>}
+  </Panel>;
 });
 
 ExperimentStatus.displayName = 'ExperimentStatus';
