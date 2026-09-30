@@ -9,7 +9,7 @@ every page shares.
 - `main.tsx`: imports the bundled IBM Plex fonts (`@fontsource`, so offline lab PCs render
   the same), then `BrowserRouter` → `AppearanceProvider` → `App`.
 - `App.tsx`: wraps the shell in `AuthProvider`. Signed out, it renders only `LoginPage`.
-  Signed in, `AppShell` renders `AppSidebar`, `RobotStatusBar`, the lazily loaded routes
+  Signed in, `AppShell` renders `AppSidebar`, `RobotAttentionBanner`, the lazily loaded routes
   (`loadComponent` in `utils/BundleOptimizer.ts` retries a failed chunk load), and the
   global dialogs: `MaintenanceDialog` (temporary API pause during a database restore),
   `ChangePasswordDialog` (opens when `user.must_reset`) and `KeyboardShortcutsHelp`.
@@ -20,7 +20,7 @@ every page shares.
 ## Navigation and sections
 
 `AppSidebar` is the dark module rail: 224px expanded, 64px collapsed, an overlay drawer
-below 900px (opened from the menu button at the start of the status bar). It lists modules
+below 900px (opened from the menu button in the phone header). It lists modules
 only; the account menu (Change password, About, Log out) and Appearance sit at its foot.
 Collapsed, the account button shows the initial, with the name and role as a tooltip and
 screen-reader text, so the signed-in user is always identifiable. Page titles name the
@@ -36,31 +36,57 @@ mounts a section on first visit and keeps its drafts and scroll for the page ses
 retained panel that polls must take an `active` flag and stop its timer when hidden (CSS
 hiding alone does not stop effects).
 
-## Robot status bar
+## Robot status and attention banner
 
 `useRobotStatus` (in `hooks/useRobotStatus.ts`) is the shell's one owner of robot state: it
 polls `GET /api/scheduling/status/queue` and `/status/scheduler` every 15 s through
-`useSerialPolling` and publishes the result in `RobotStatusContext`. `RobotStatusBar`, the
-rail's Scheduling badge and the Recovery tab badge all read that context; nothing else
-polls for them. Scheduling keeps its own `safety_revision`-ordered view for its screens.
+`useSerialPolling` and publishes the result in `RobotStatusContext`. `RobotAttentionBanner`,
+the rail's Scheduling badge, the Recovery tab badge, Overview and Maintenance's Right now
+panel all read that context; nothing else polls for them. Scheduling keeps its own view.
 
-- A failed read keeps the last known state (so an active recovery never disappears) and
-  the bar shows "Updated N s ago · Retry" instead of "Live".
-- With no successful read yet, a failure or a reply missing `queue`, `manual_recovery` or
-  the boolean `is_running` shows "Status unavailable", never "Scheduler running".
-- Unhealthy scheduler storage (`storage_healthy: false`) counts as needing attention.
+- Both replies carry `manual_recovery`. `newerRecovery` keeps the higher `safety_revision`;
+  unhealthy storage always wins (fail closed), and a reply without the field clears nothing.
+- `robotAttention` names why runs are held: unhealthy storage, pending recoveries, or an
+  acknowledged recovery whose queued jobs still wait for Resume (`resume_required`).
+- There is no always-on status bar. The banner appears on every page only while runs are
+  held, while status is older than two polls ("Robot status updated N s ago · Retry"), or
+  when no read has succeeded ("Robot status unavailable"). A failed read keeps the last
+  known hold visible. Scheduler, HxRun, camera and database state live on Overview.
 
 Permission rules shown in the UI: Database Restore is admin **or** local; Database
 Operations and Scheduling Methods are local-only; Notifications are admin-only;
 RobotControl logs are for local users or remote administrators. Camera navigation never
 starts or stops a live-view session.
 
+## Overview
+
+`pages/Dashboard.tsx` arranges the panels in `components/overview/`: Now running and Needs
+attention (from the robot status context), Up next (active schedules by `next_run`),
+Instrument health (scheduler, storage, HxRun from the context; SQL Server and camera from
+one 60 s read that tolerates either source failing), Recent runs (last five executions) and
+the Latest experiment card. Each panel has its own error boundary and Retry, so one failed
+read never blanks the page.
+
+Now running shows elapsed time from the run log monitor's `launched_at` against the
+schedule's `estimated_duration`, which the user typed and may be wrong. `runTiming` never
+extrapolates: within the estimate the bar shows elapsed/estimate; past it the bar becomes
+indeterminate and the text says "N min past the M min estimate". Unknown start or estimate
+shows no bar. When PyHSL supplies better estimates, change only the estimate source.
+
+## Shared presentation
+
+`PageLayout.tsx` also exports `PanelLabel` (small uppercase status label), `DetailTitle`
+(the selected item's name, 18px) and `EmptyPanel` (a plain "choose something" prompt, not
+an alert). Panel titles use the theme `h6`. Refresh is always a labelled button. Times use
+`utils/displayTime.ts` (`Today 14:30`, 24-hour). Execution statuses map to tones in
+`components/scheduling/executionStatus.ts`, shared by Overview and History.
+
 ## Page layout and appearance
 
 `PageLayout.tsx` provides `PageContent` variants: `overview` (dashboards), `inspection`
 (viewers), `spatial` (labware) and `task` (forms, capped at 1120px; `reading` is a legacy
-alias). App owns the outer gutter (16/24/28px) and the sticky status bar (52px, 44px on
-phones). Use one `PageHeader` (title, section tabs, actions) and no extra Container or
+alias). App owns the outer gutter (16/24/28px), the phone header (52px, below 900px) and
+the sticky attention banner. Use one `PageHeader` (title, section tabs, actions) and no extra Container or
 header row.
 
 `InspectionWorkspace` fills the remaining viewport height (320px minimum, then the page
@@ -99,7 +125,7 @@ sidebar order, Ctrl+H, Ctrl+B, Ctrl+Shift+R, `/` to focus search, Escape to clea
 and `?` for the help dialog, which renders the same list. Shortcuts do nothing while a
 MUI modal is open or (except Escape) while typing. To change a shortcut, edit that list.
 `navigation.test.tsx` and `system-pages.spec.ts` cover navigation, help and dialog
-isolation; `system-pages.spec.ts` also covers the status bar's failure cases.
+isolation; `system-pages.spec.ts` also covers the attention banner's failure cases.
 
 ## Adding a page or section
 
@@ -117,9 +143,9 @@ isolation; `system-pages.spec.ts` also covers the status bar's failure cases.
   console. Only the Overview page (`pages/Dashboard.tsx`) is imported eagerly.
 - **Wrong sidebar item or section tab:** check the section name and permission filters in
   `navigation.tsx` and the `section` query parameter.
-- **Mobile menu does not open:** the status bar's Open navigation button must update
+- **Mobile menu does not open:** the phone header's Open navigation button must update
   `mobileDrawerOpen`, and `AppSidebar` needs `open`/`onClose`.
-- **Status bar stuck on "Status unavailable":** open the two status URLs above; the reply
+- **Banner stuck on "Robot status unavailable":** open the two status URLs above; the reply
   must carry `data.queue`, `data.manual_recovery` (may be null) and a boolean
   `data.is_running`.
 - **Shortcuts do nothing:** `AppShell` calls `useKeyboardNavigation`; an open dialog

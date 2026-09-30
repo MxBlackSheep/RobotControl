@@ -24,7 +24,7 @@
 
 ## Space and appearance
 
-Folder shortcuts, breadcrumbs, sorting and filters live inside the file selector.
+Folder shortcuts, breadcrumbs, sorting and filters live inside the file selector. Shortcuts are one button group; Up and Refresh files are icon buttons that keep those accessible names; Search is inside the filename field.
 The reader has one compact filename/action row, Find on demand and a section/status
 footer. At1280×720 the default text pane must occupy at least 60% of window height;
 `appearance.spec.ts` measures this without Expand. Surfaces use the shared light/dark

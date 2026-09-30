@@ -55,6 +55,23 @@ now" summary, Logs' warning count and warning highlighting, declining a password
 request, and "Next run" in the status bar. The step-1 status bar stays: it is the
 recovery indicator the old sidebar already showed, now visible on every page.
 
+## Review round (30 September 2026): mock gaps and estimates
+
+After the review (Codex and the owner's inspection), the owner asked for the remaining
+gaps with the mock to be closed in this branch. This supersedes part of the scope decision
+above: the Overview cards (Now running with estimate, Needs attention, Up next, Instrument
+health, Recent runs), Maintenance's Right now panel and remaining-time note, and the mock's
+list/table layouts are now built. The always-on status bar is replaced by a banner shown
+only when runs are held or status cannot be read; its state moved to Overview.
+
+Estimated time is the user's own guess, so it is shown as a hint: elapsed time is the fact,
+and past the estimate the UI says by how much instead of showing 100 % or an end time.
+PyHSL is expected to supply better estimates later; only the estimate source should change.
+
+Still not built: the Logs warning count and highlighting, declining a password reset
+request, "Next run" in a status bar, and the Password resets tab badge. Tip numbers keep
+Hamilton's 1-96 numbering instead of the mock's A-H/1-12 labels.
+
 ## Acceptance
 
 - Each screen matches its artboard at 1440x900 and 390x844, in light and dark.

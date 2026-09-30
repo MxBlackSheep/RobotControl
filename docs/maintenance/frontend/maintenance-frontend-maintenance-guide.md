@@ -28,8 +28,12 @@ does not grant permission to change the flag.
 
 ## Layout and checks
 
-This is a task/form PageContent, limited to1120px, with one status/action card.
-Do not stretch the small form to fill the height or add decorative summary cards.
+The page has the HxRun launches card (up to 880px) and, from 1200px, a Right now panel
+beside it (below it on smaller screens). Right now reads the shell's robot status context
+(HxRun, scheduler, current run, whether scheduled runs are held) and starts no request.
+While HxRun runs, the card names the run and the time left by the user's estimate (or how
+far past it); this is information only, and the backend still decides with its 409.
+Do not stretch the small form to fill the height.
 Use the common theme and compact PageHeader. The page scrolls naturally on short
 screens and with an onscreen keyboard.
 
