@@ -74,7 +74,7 @@ for (const width of [320, 1920]) {
       // A fixture error dialog can temporarily hide the shell from the accessibility tree.
       // This assertion measures the underlying layout, not modal interaction.
       expect((await page.locator('main h1').boundingBox())!.width, `${route} page title`).toBeGreaterThan(30);
-      await expect(page.getByRole('region', { name: 'Robot status' })).toBeVisible();
+      await expect(width === 320 ? page.getByRole('button', { name: 'Open navigation' }) : page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
       await expect(page.locator('html')).toHaveAttribute('data-appearance', 'dark');
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), route).toBeTruthy();
       await page.screenshot({ path: info.outputPath(`${route.replace(/[^a-z0-9]/gi, '-') || 'dashboard'}.png`), fullPage: true });

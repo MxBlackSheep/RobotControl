@@ -7,6 +7,8 @@ export const ROBOT_STATUS_INTERVAL_MS = 15000;
 
 export type RobotStatus = {
   schedulerRunning: boolean;
+  /** HxRun process seen on this PC; null when the reply did not say. */
+  hamiltonRunning: boolean | null;
   running: RunningJobDetail[];
   queued: number;
   recovery: ManualRecoveryState | null;
@@ -67,6 +69,7 @@ export function useRobotStatus(identity: string | null): RobotStatusState {
       const schedulerRecovery = schedulerData && 'manual_recovery' in schedulerData ? normalizeManualRecovery(schedulerData.manual_recovery) : null;
       return {
         schedulerRunning,
+        hamiltonRunning: typeof queueData.hamilton?.is_running === 'boolean' ? queueData.hamilton.is_running : null,
         running: Array.isArray(queueData.queue.running_job_details) ? queueData.queue.running_job_details : [],
         queued: Number(queueData.queue.queued_jobs) || 0,
         recovery: newerRecovery(normalizeManualRecovery(queueData.manual_recovery), schedulerRecovery),

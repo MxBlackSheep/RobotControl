@@ -19,7 +19,7 @@ interface CameraStatus {
   cameras: { id: number; name: string; device_identity: string | null }[];
   health: Health;
 }
-const labels: Record<string, string> = {
+export const cameraStateLabels: Record<string, string> = {
   no_frames: 'No frames', connected: 'Connected', disconnected: 'Disconnected', connecting: 'Connecting',
   reconnecting: 'Reconnecting', error: 'Error', recording: 'Recording', starting: 'Starting', stopped: 'Stopped',
 };
@@ -103,7 +103,7 @@ export default function CameraControls({ admin, onSourceChange, collapsible = fa
   const recordingRequested = Boolean(health?.recording_requested);
   const selectionLocked = recordingRequested && Boolean(saved);
   const error = actionError || health?.operation?.error || health?.error || polling.error;
-  const summary = `Camera: ${labels[health?.capture_state ?? ''] ?? 'Checking'} · Recording: ${labels[health?.recording_state ?? ''] ?? 'Checking'}`;
+  const summary = `Camera: ${cameraStateLabels[health?.capture_state ?? ''] ?? 'Checking'} · Recording: ${cameraStateLabels[health?.recording_state ?? ''] ?? 'Checking'}`;
   useEffect(() => { onSummaryChange?.({ text: summary, error: error || null }); }, [summary, error, onSummaryChange]);
   // Beside the image (not collapsible) the controls are a card; below it on phones they collapse.
   return <Stack spacing={1} sx={{ my: collapsible ? 2 : 0, '& button': { minHeight: 44 },

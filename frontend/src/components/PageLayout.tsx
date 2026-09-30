@@ -34,3 +34,8 @@ export function PageHeader({ title, description, actions }: { title: string; des
     {description && <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>{description}</Typography>}
   </Box>;
 }
+
+/** Small uppercase label that names a status panel ("NOW RUNNING", "RESOURCE USE"). */
+export function PanelLabel({ children, component = 'h2' }: { children: React.ReactNode; component?: React.ElementType }) {
+  return <Typography component={component} sx={{ fontSize: 12, fontWeight: 600, letterSpacing: 0.8, textTransform: 'uppercase', color: 'text.secondary', lineHeight: 1.5 }}>{children}</Typography>;
+}

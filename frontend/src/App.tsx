@@ -8,12 +8,13 @@ import IconButton from '@mui/material/IconButton';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import Tooltip from '@mui/material/Tooltip';
+import Typography from '@mui/material/Typography';
 import MenuIcon from '@mui/icons-material/Menu';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { loadComponent } from './utils/BundleOptimizer';
 import LoadingSpinner from './components/LoadingSpinner';
 import AppSidebar from './components/AppSidebar';
-import RobotStatusBar from './components/RobotStatusBar';
+import RobotAttentionBanner from './components/RobotAttentionBanner';
 import { useSidebarLayout } from './components/navigation';
 import SkipLink from './components/SkipLink';
 import KeyboardShortcutsHelp from './components/KeyboardShortcutsHelp';
@@ -84,7 +85,11 @@ function AppShell() {
       <MaintenanceDialog />
 
       <Box component="header" sx={{ position: 'sticky', top: 0, zIndex: theme => theme.zIndex.appBar }}>
-        <RobotStatusBar compact={isMobile} leading={isMobile && <IconButton aria-label="Open navigation" onClick={() => setMobileDrawerOpen(true)}><MenuIcon /></IconButton>} />
+        {isMobile && <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minHeight: 52, pl: 0.5, pr: 2, bgcolor: 'rail.bg', color: 'rail.activeText' }}>
+          <IconButton aria-label="Open navigation" color="inherit" onClick={() => setMobileDrawerOpen(true)}><MenuIcon /></IconButton>
+          <Typography component="span" sx={{ fontWeight: 600, fontSize: 16 }}>RobotControl</Typography>
+        </Box>}
+        <RobotAttentionBanner />
       </Box>
 
       <Box
