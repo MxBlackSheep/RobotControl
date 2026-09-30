@@ -10,7 +10,8 @@ import { useSerialPolling } from '../../hooks/useSerialPolling';
 import { robotAttention, type RobotStatus } from '../../hooks/useRobotStatus';
 import type { ScheduledExperiment } from '../../types/scheduling';
 import type { StatusTone } from '../../theme';
-import { clockTime } from './NowRunning';
+import { clockTime, dayTime } from '../../utils/displayTime';
+import { repeatLabel } from '../scheduling/ScheduleCollection';
 import { executionTone } from '../scheduling/executionStatus';
 
 const PANEL_REFRESH_MS = 60000;
@@ -60,17 +61,6 @@ export function NeedsAttention({ status }: { status: RobotStatus | null }) {
     <Button variant="contained" color="warning" component={Link} to="/scheduling?section=recovery" sx={{ alignSelf: 'flex-start' }}>Review recovery</Button>
   </Card>;
 }
-
-function dayTime(value: string) {
-  const date = new Date(value);
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const days = Math.round((new Date(date).setHours(0, 0, 0, 0) - today.getTime()) / 86400000);
-  const day = days === 0 ? 'Today' : days === 1 ? 'Tomorrow' : date.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
-  return `${day} ${clockTime(date)}`;
-}
-
-const repeatLabel = (schedule: ScheduledExperiment) => schedule.schedule_type === 'interval' && schedule.interval_hours
-  ? `Every ${schedule.interval_hours} h` : schedule.schedule_type.charAt(0).toUpperCase() + schedule.schedule_type.slice(1);
 
 export function UpNext({ canOpenScheduling }: { canOpenScheduling: boolean }) {
   const [schedules, setSchedules] = useState<ScheduledExperiment[] | null>(null);

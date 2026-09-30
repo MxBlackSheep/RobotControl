@@ -52,7 +52,7 @@ import { useAuth } from '../context/AuthContext';
 
 // Import scheduling components
 import ScheduleList from '../components/ScheduleList';
-import ScheduleCollection, { scheduleState } from '../components/scheduling/ScheduleCollection';
+import ScheduleCollection, { repeatLabel, scheduleState } from '../components/scheduling/ScheduleCollection';
 import StatusChip from '../components/StatusChip';
 import { fontMono, StatusTone } from '../theme';
 import WarningAmber from '@mui/icons-material/WarningAmber';
@@ -518,7 +518,7 @@ const SchedulingPage: React.FC = () => {
       <Box sx={{ minWidth: 0 }}>
         {/* Tab Panels */}
         <TabPanel value={currentTab} index={0}>
-          <InspectionWorkspace label="Schedule workspace" selectorLabel="Schedules" detailOpen={detailOpen}
+          <InspectionWorkspace label="Schedule workspace" selectorLabel="Schedules" layout="table" detailOpen={detailOpen}
             onBack={() => setDetailOpen(false)} selector={<ScheduleCollection schedules={state.schedules}
               selected={state.selectedSchedule} onSelect={schedule => { actions.selectSchedule(schedule); setDetailOpen(true); }}
               onRefresh={() => void actions.loadSchedules(false)} loading={state.loading} error={state.error} />}>
@@ -533,7 +533,7 @@ const SchedulingPage: React.FC = () => {
               {state.selectedSchedule.recovery_required && <Alert severity="warning" action={<Button color="inherit" onClick={() => setCurrentTab(1)}>Review recovery</Button>}>Recovery required</Alert>}
               <Box component="dl" sx={{ m: 0, display: 'grid', gridTemplateColumns: { xs: 'minmax(100px, 1fr) minmax(0, 2fr)', sm: '150px minmax(0, 1fr)' }, rowGap: 1.25, columnGap: 1.5, fontSize: 14, '& dt': { color: 'text.secondary', fontSize: 14 }, '& dd': { m: 0, overflowWrap: 'anywhere', fontSize: 14 } }}>
                 <Typography component="dt">Status</Typography><Typography component="dd">{state.selectedSchedule.is_active ? 'Active' : 'Inactive'}</Typography>
-                <Typography component="dt">Timing</Typography><Typography component="dd">{state.selectedSchedule.schedule_type}{state.selectedSchedule.interval_hours ? ` · every ${state.selectedSchedule.interval_hours} hours` : ''}</Typography>
+                <Typography component="dt">Timing</Typography><Typography component="dd">{repeatLabel(state.selectedSchedule)}</Typography>
                 <Typography component="dt">Next run</Typography><Typography component="dd">{formatTimestamp(state.selectedSchedule.next_run)}</Typography>
                 <Typography component="dt">Duration</Typography><Typography component="dd">{formatDuration(state.selectedSchedule.estimated_duration)}</Typography>
                 <Typography component="dt">Preparation</Typography><Typography component="dd">{state.selectedSchedule.prerequisites.join(', ') || 'None'}</Typography>

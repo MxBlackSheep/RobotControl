@@ -4,10 +4,10 @@ import { Link } from 'react-router-dom';
 import StatusChip from '../StatusChip';
 import { PanelLabel } from '../PageLayout';
 import { fontMono } from '../../theme';
+import { clockTime } from '../../utils/displayTime';
 import type { RobotStatus } from '../../hooks/useRobotStatus';
 import type { RunningJobDetail } from '../../types/scheduling';
 
-export const clockTime = (date: Date) => date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 
 export type RunTiming = { started: Date | null; elapsed: number | null; estimate: number | null; fraction: number | null; overBy: number | null };
 

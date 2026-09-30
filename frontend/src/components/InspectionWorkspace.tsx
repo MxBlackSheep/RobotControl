@@ -10,6 +10,8 @@ interface InspectionWorkspaceProps {
   detailOpen?: boolean;
   onBack?: () => void;
   onDetailVisibilityChange?: (visible: boolean) => void;
+  /** "table": the selector is a wide table and the detail a fixed side panel (Scheduling). */
+  layout?: 'list' | 'table';
   children: ReactNode;
 }
 
@@ -21,8 +23,10 @@ export default function InspectionWorkspace({
   detailOpen = true,
   onBack,
   onDetailVisibilityChange,
+  layout = 'list',
   children,
 }: InspectionWorkspaceProps) {
+  const tableLayout = layout === 'table';
   const workspace = useRef<HTMLDivElement>(null);
   const detail = useRef<HTMLDivElement>(null);
   const catalogue = useRef<HTMLDivElement>(null);
@@ -77,10 +81,12 @@ export default function InspectionWorkspace({
   useLayoutEffect(() => {
     if (narrow && detailOpen !== previousOpen.current) {
       if (detailOpen) detail.current?.focus({ preventScroll: true });
-      else
-        catalogue.current
-          ?.querySelector<HTMLElement>('[aria-current="true"], .Mui-selected')
+      else {
+        // The open item first: a selected filter button is also .Mui-selected.
+        const list = catalogue.current;
+        (list?.querySelector<HTMLElement>('[aria-current="true"]') ?? list?.querySelector<HTMLElement>('.Mui-selected'))
           ?.focus({ preventScroll: true });
+      }
     }
     previousOpen.current = detailOpen;
   }, [detailOpen, narrow]);
@@ -95,7 +101,7 @@ export default function InspectionWorkspace({
         minWidth: 0,
         width: "100%",
         display: "flex",
-        gap: narrow ? 0 : 0.5,
+        gap: narrow ? 0 : tableLayout ? 2 : 0.5,
       }}
     >
       {selector && (
@@ -106,7 +112,8 @@ export default function InspectionWorkspace({
           sx={{
             display: (narrow ? !detailOpen : selectorVisible) ? "flex" : "none",
             flexDirection: "column",
-            width: narrow ? "100%" : selectorWidth,
+            width: narrow ? "100%" : tableLayout ? "auto" : selectorWidth,
+            flex: tableLayout && !narrow ? 1 : undefined,
             flexShrink: 0,
             minWidth: 0,
             minHeight: 0,
@@ -115,7 +122,7 @@ export default function InspectionWorkspace({
           {selector}
         </Box>
       )}
-      {selector && !narrow && <Box sx={{ width: 28, flexShrink: 0, position: 'relative' }}>
+      {selector && !narrow && !tableLayout && <Box sx={{ width: 28, flexShrink: 0, position: 'relative' }}>
         <Tooltip title={`${selectorVisible ? 'Hide' : 'Show'} ${selectorLabel.toLowerCase()}`}>
           <IconButton size="small" aria-label={`${selectorVisible ? 'Hide' : 'Show'} ${selectorLabel.toLowerCase()}`} aria-expanded={selectorVisible} onClick={() => setSelectorVisible(value => !value)} sx={{ position: 'relative', zIndex: 1, width: 28 }}>
             {selectorVisible ? <ChevronLeft fontSize="small" /> : <ChevronRight fontSize="small" />}
@@ -133,7 +140,7 @@ export default function InspectionWorkspace({
         tabIndex={-1}
         sx={{
           display: detailVisible ? "flex" : "none",
-          flex: 1,
+          flex: tableLayout && !narrow ? "0 0 400px" : 1,
           flexDirection: "column",
           minWidth: 0,
           minHeight: 0,
