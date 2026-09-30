@@ -48,7 +48,7 @@ test('maintenance scheduled runs reflects maintenance and recovery holds', async
     manual_recovery: recoveryKnown ? { active: recovering, storage_healthy: true, safety_revision: 3, resume_required: false, pending_recoveries: [] } : null,
   } } }));
   await page.goto('/maintenance');
-  const scheduled = page.getByRole('complementary', { name: 'Right now' }).locator('div.MuiStack-root').filter({ has: page.getByText('Scheduled runs', { exact: true }) });
+  const scheduled = page.getByRole('complementary', { name: 'Right now' }).getByRole('group', { name: 'Scheduled runs', exact: true });
   await expect(scheduled).toContainText('Held');
   await expect(scheduled).toContainText('Maintenance');
   await expect(scheduled).not.toContainText('Allowed');
@@ -111,7 +111,7 @@ test('maintenance initial failure is unknown and a retry preserves reason edits'
   await page.goto('/maintenance');
   await expect(page.getByText('State unavailable', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Enter maintenance', exact: true })).toBeDisabled();
-  const scheduled = page.getByRole('complementary', { name: 'Right now' }).locator('div.MuiStack-root').filter({ has: page.getByText('Scheduled runs', { exact: true }) });
+  const scheduled = page.getByRole('complementary', { name: 'Right now' }).getByRole('group', { name: 'Scheduled runs', exact: true });
   await expect(scheduled).toContainText('Unknown');
   await expect(scheduled).not.toContainText('Allowed');
   broken = false;

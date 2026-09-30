@@ -172,7 +172,7 @@ const MaintenancePage: React.FC = () => {
           </Box>}
         </Panel>
 
-        <Panel title="Reason" span={robot ? 8 : 12} fill actions={<Typography variant="caption" color="text.secondary">Optional · recorded with the change</Typography>}
+        <Panel title="Reason" label="Maintenance details" span={robot ? 8 : 12} fill actions={<Typography variant="caption" color="text.secondary">Optional · recorded with the change</Typography>}
           bodySx={{ display: 'flex', flexDirection: 'column' }}>
           <TextField
             value={reasonInput}
@@ -187,7 +187,7 @@ const MaintenancePage: React.FC = () => {
         </Panel>
 
         {robot && <Panel title="Right now" component="aside" span={4} inset={false}>
-          {rightNow.map(([name, detail, label, tone]) => <ListRow key={name} columns="112px minmax(0, 1fr) auto">
+          {rightNow.map(([name, detail, label, tone]) => <ListRow key={name} role="group" aria-label={name} columns="112px minmax(0, 1fr) auto">
             <Box component="span" sx={{ fontWeight: 500 }}>{name}</Box>
             <Box component="span" sx={{ color: 'text.secondary' }} title={detail}>{detail}</Box>
             <StatusDot tone={tone} label={label} />
