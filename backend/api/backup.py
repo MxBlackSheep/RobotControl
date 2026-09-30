@@ -353,7 +353,8 @@ async def delete_backup(
         logger.info(f"Deleting backup {filename} requested by user: {actor}")
         
         backup_service = get_backup_service()
-        result = backup_service.delete_backup(filename)
+        # Deletion waits for a running backup or restore; wait in a worker thread, not on the event loop.
+        result = await run_in_threadpool(backup_service.delete_backup, filename)
         
         if result["success"]:
             logger.info(f"Backup deleted successfully: {filename}")

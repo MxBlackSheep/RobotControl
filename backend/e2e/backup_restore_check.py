@@ -21,6 +21,9 @@ database single-user. The disposable database and its backup files are removed a
 also when a step fails.
 A backup must not freeze the server either, and two backups created in the same second (their
 names are per second; BACKUP ... WITH INIT overwrites) must each keep their own listed file.
+A delete that arrives during a create or restore must wait for it (not remove the .bak under
+sqlcmd) without freezing the server, then delete both files; a create must keep the lock until
+its metadata is saved, so no delete lands between the .bak and its .json.
 A restore must not freeze the server: while one waits for or holds the backup lock, other
 requests still answer, a second operation still waits its turn, and the restore still
 reports success and reverts the data.
@@ -164,6 +167,38 @@ def run():
             check('the suffixed backup restores', response.json().get('success') and value() == 'before backup',
                   {'filename': suffixed, 'body': response.json(), 'value': value()})
             commands.clear()
+
+            # A delete waits for a running create or restore, without holding up the server.
+            doomed = Path(service.backup_dir) / same_second
+            answers = {}
+            deleting = threading.Thread(target=lambda: answers.update(delete=client.delete(f'/api/admin/backup/{same_second}')))
+            listing = threading.Thread(target=lambda: answers.update(listing=client.get('/api/admin/backup/list')))
+            with service._operation_lock:
+                deleting.start()
+                time.sleep(1)
+                listing.start()
+                listing.join(timeout=5)
+                check('server answers other requests while a delete waits',
+                      'listing' in answers and answers['listing'].status_code == 200, sorted(answers))
+                check('a delete waits for a running backup or restore',
+                      'delete' not in answers and doomed.is_file(), {'answered': sorted(answers), 'bak exists': doomed.is_file()})
+            deleting.join(timeout=30)
+            listing.join(timeout=5)
+            body = answers['delete'].json() if 'delete' in answers else None
+            check('the waiting delete then removes the backup and its metadata',
+                  body and body.get('success') and not doomed.exists() and not doomed.with_suffix('.json').exists(), body)
+
+            save = service._metadata_store.save
+            saved_locked = []
+            def recording_save(*args, **kwargs):
+                saved_locked.append(service._operation_lock.locked())
+                return save(*args, **kwargs)
+            with patch.object(service._metadata_store, 'save', side_effect=recording_save):
+                body = client.post('/api/admin/backup/create', json={'description': 'locked metadata'}).json()
+            if (body.get('data') or {}).get('filename'):
+                created.append(body['data']['filename'])
+            check('a backup saves its metadata while still holding the lock',
+                  body.get('success') and saved_locked == [True], {'body': body, 'locked during save': saved_locked})
 
             sql(server, f"UPDATE [{database}].dbo.Sample SET Value = N'after backup'")
             response = client.post('/api/admin/backup/restore', json={'filename': filename})

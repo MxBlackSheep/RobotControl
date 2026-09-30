@@ -891,22 +891,23 @@ class BackupService:
                     # Verify backup file was created and get size
                     if not os.path.exists(backup_file_path):
                         raise BackupOperationError("Backup file was not created by SQL Server", "FILE_NOT_CREATED")
-                
-                # Get file size and update metrics
-                file_size = os.path.getsize(backup_file_path)
-                metrics.file_size_bytes = file_size
-                
-                logger.info("Backup file created: %s (%s)", backup_filename, format_file_size(file_size))
-                
-                # Save metadata alongside the backup
-                self._metadata_store.save(
-                    backup_filename,
-                    description.strip(),
-                    self.database_name,
-                    self.sql_server,
-                    file_size
-                )
-                
+
+                    # Get file size and update metrics
+                    file_size = os.path.getsize(backup_file_path)
+                    metrics.file_size_bytes = file_size
+
+                    logger.info("Backup file created: %s (%s)", backup_filename, format_file_size(file_size))
+
+                    # Save metadata alongside the backup, still under the lock so a delete cannot
+                    # run between the .bak and its .json.
+                    self._metadata_store.save(
+                        backup_filename,
+                        description.strip(),
+                        self.database_name,
+                        self.sql_server,
+                        file_size
+                    )
+
                 # operation_tracker will log success automatically
                 return BackupResult(
                     success=True,
@@ -1152,33 +1153,35 @@ class BackupService:
             
             files_deleted = []
             errors = []
-            
-            # Delete backup file
-            if os.path.exists(backup_path):
-                try:
-                    os.remove(backup_path)
-                    files_deleted.append(filename)
-                    logger.info(f"Deleted backup file: {filename}")
-                except Exception as e:
-                    error_msg = f"Failed to delete backup file: {e}"
-                    logger.error(error_msg)
-                    errors.append(error_msg)
-            else:
-                logger.warning(f"Backup file not found: {filename}")
-            
-            # Delete metadata file
-            deleted_metadata, metadata_filename, metadata_error = self._metadata_store.delete_metadata_file(filename)
-            if deleted_metadata:
-                files_deleted.append(metadata_filename)
-                logger.info(f"Deleted metadata file: {metadata_filename}")
-            else:
-                if metadata_error:
-                    error_msg = f"Failed to delete metadata file: {metadata_error}"
-                    logger.error(error_msg)
-                    errors.append(error_msg)
+
+            # Wait for any running create or restore, which may be writing or reading this file.
+            with self._operation_lock:
+                # Delete backup file
+                if os.path.exists(backup_path):
+                    try:
+                        os.remove(backup_path)
+                        files_deleted.append(filename)
+                        logger.info(f"Deleted backup file: {filename}")
+                    except Exception as e:
+                        error_msg = f"Failed to delete backup file: {e}"
+                        logger.error(error_msg)
+                        errors.append(error_msg)
                 else:
-                    logger.warning(f"Metadata file not found: {metadata_filename}")
-            
+                    logger.warning(f"Backup file not found: {filename}")
+
+                # Delete metadata file
+                deleted_metadata, metadata_filename, metadata_error = self._metadata_store.delete_metadata_file(filename)
+                if deleted_metadata:
+                    files_deleted.append(metadata_filename)
+                    logger.info(f"Deleted metadata file: {metadata_filename}")
+                else:
+                    if metadata_error:
+                        error_msg = f"Failed to delete metadata file: {metadata_error}"
+                        logger.error(error_msg)
+                        errors.append(error_msg)
+                    else:
+                        logger.warning(f"Metadata file not found: {metadata_filename}")
+
             # Determine overall success
             if files_deleted and not errors:
                 return {
