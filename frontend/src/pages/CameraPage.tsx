@@ -551,7 +551,7 @@ const CameraPage: React.FC = () => {
   return (
     <>
       <PageContent variant="inspection">
-      <PageHeader title={currentTab === 0 ? "Recordings" : "Live camera"} />
+      <PageHeader title="Camera" />
 
       {/* Error Display */}
       <StatusDialog

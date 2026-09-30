@@ -22,6 +22,9 @@ every page shares.
 `AppSidebar` is the dark module rail: 224px expanded, 64px collapsed, an overlay drawer
 below 900px (opened from the menu button at the start of the status bar). It lists modules
 only; the account menu (Change password, About, Log out) and Appearance sit at its foot.
+Collapsed, the account button shows the initial, with the name and role as a tooltip and
+screen-reader text, so the signed-in user is always identifiable. Page titles name the
+module; the selected tab names the section.
 `useSidebarLayout` starts expanded from 1440px and remembers an explicit desktop choice in
 `robotcontrol.sidebar.expanded`; without localStorage the choice lasts for the session.
 

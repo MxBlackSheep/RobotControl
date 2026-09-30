@@ -177,7 +177,7 @@ test('live view configuration stays unknown when the status contract is incomple
 test('administration gives storage health its own local section', async ({ page }) => {
   await page.route('**/api/auth/me', route => route.fulfill({ json: { success: true, data: { user_id: 'viewer-admin', username: 'operator', role: 'admin', session_is_local: true, session: { is_local: true } } } }));
   await page.goto('/admin?section=storage');
-  await expect(page.getByRole('heading', { name: 'Storage health', exact: true })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Storage health', exact: true })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('heading', { name: 'User Accounts', exact: true })).toHaveCount(0);
 });
 

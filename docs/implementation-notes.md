@@ -1,3 +1,9 @@
+## 2026-09-30 Redesign step 6: module titles and final verification
+
+- Camera and Admin headings are now the module name ("Camera", "Admin"); the section is shown by the selected tab, as on every other module. The storage-health check in `system-pages.spec.ts` now asserts the selected "Storage health" tab instead of a heading of that name, because the title no longer names the section.
+- Found by the full suite: four `auth-recovery.spec.ts` cases failed because the collapsed rail (the default below 1440px) showed only the account initial. The old header always showed who was signed in. The collapsed rail now shows the name and role as a tooltip and keeps them as screen-reader text; expanded and phone views show them as before.
+- Full verification: type check, 51 component tests, full browser suite 106 passed. Evidence: `test-output/redesign-final/verification.json`. Not exercised: real scheduler, SQL Server, camera hardware, a packaged Windows build and native browser zoom.
+
 ## 2026-09-30 Redesign step 5: shared status labels on the remaining screens
 
 - Camera ("My view"), Maintenance ("HxRun launches"), System Status (freshness, database, live view) and Database Restore (file type, Valid/Invalid) use `StatusChip` with unchanged text. Blocked for maintenance is amber; Invalid and Database disconnected are red. Logs had no status chips and needed no change.
