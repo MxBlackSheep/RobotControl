@@ -322,7 +322,7 @@ class RunLogMonitor:
             state = next((s for s in self._states.values() if s.schedule_id == schedule_id and not s.finished), None)
             if state is None:
                 return None
-            return {"state": state.state, "run_guid": state.run_guid,
+            return {"state": state.state, "run_guid": state.run_guid, "launched_at": state.launched_at or None,
                     "run_state": state.run_state, "raw_run_state": state.raw_run_state,
                     "trace_filename": Path(state.trace_path).name if state.trace_path else None,
                     "last_activity_at": state.last_activity_at, "observed_at": state.observed_at,
