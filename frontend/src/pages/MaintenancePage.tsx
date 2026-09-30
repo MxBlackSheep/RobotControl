@@ -6,7 +6,6 @@ import {
   Button,
   Card,
   CardContent,
-  Chip,
   CircularProgress,
   Dialog,
   DialogActions,
@@ -18,6 +17,7 @@ import {
   Typography,
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import StatusChip from '../components/StatusChip';
 import BlockIcon from '@mui/icons-material/Block';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 
@@ -136,11 +136,8 @@ const MaintenancePage: React.FC = () => {
             <Stack spacing={2}>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
                 <Typography variant="h6">HxRun launches</Typography>
-                <Chip
-                  color={!state || error ? 'default' : state.enabled ? 'warning' : 'success'}
-                  icon={!state || error ? undefined : state.enabled ? <BlockIcon /> : <CheckCircleOutlineIcon />}
-                  label={!state || error ? 'State unavailable' : state.enabled ? 'Blocked for maintenance' : 'Allowed'}
-                />
+                <StatusChip tone={!state || error ? 'neutral' : state.enabled ? 'attention' : 'completed'}
+                  label={!state || error ? 'State unavailable' : state.enabled ? 'Blocked for maintenance' : 'Allowed'} />
               </Stack>
 
               <Typography variant="body2" color="text.secondary">

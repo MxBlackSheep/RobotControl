@@ -15,7 +15,8 @@ import { PageContent, PageHeader } from '../components/PageLayout';
  */
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Box, Typography, Button, Paper, Stack, LinearProgress, Chip, CircularProgress } from '@mui/material';
+import { Box, Typography, Button, Paper, Stack, LinearProgress, CircularProgress } from '@mui/material';
+import StatusChip from '../components/StatusChip';
 import { PlayArrow as PlayArrowIcon, Stop as StopIcon } from '@mui/icons-material';
 import StatusDialog from '../components/StatusDialog';
 import { isAxiosError } from 'axios';
@@ -611,8 +612,7 @@ const CameraPage: React.FC = () => {
           sourceRevision={sourceRevision}
           error={cameraSummary.error || liveError}
           controls={<>
-            <Chip size="small" label={mySession ? `My view: ${mySession.websocket_state}` : 'My view: stopped'}
-              color={mySession?.websocket_state === 'connected' ? 'success' : 'default'} />
+            <StatusChip tone={mySession?.websocket_state === 'connected' ? 'completed' : 'neutral'} label={mySession ? `My view: ${mySession.websocket_state}` : 'My view: stopped'} />
             {mySession ? <>
               <Button variant="outlined" startIcon={<StopIcon />} onClick={stopStreamingSession} disabled={streamingLoading}>
                 {streamingLoading ? <CircularProgress size={20} /> : 'Stop my live view'}

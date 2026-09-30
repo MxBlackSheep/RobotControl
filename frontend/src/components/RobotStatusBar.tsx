@@ -27,8 +27,10 @@ export default function RobotStatusBar({ compact = false, leading }: { compact?:
     ? <Typography component="span" sx={{ display: 'flex', alignItems: 'center', gap: 1, fontWeight: 600, fontSize: 14 }}>
         <Dot color={error ? 'warning.main' : 'text.disabled'} />{error ? 'Status unavailable' : 'Checking status…'}
       </Typography>
-    : <Typography component="span" sx={{ display: 'flex', alignItems: 'center', gap: 1, fontWeight: 600, fontSize: 14, whiteSpace: 'nowrap' }}>
-        <Dot color={status.schedulerRunning ? 'primary.main' : 'text.disabled'} />{status.schedulerRunning ? 'Scheduler running' : 'Scheduler stopped'}
+    : <Typography component="span" sx={{ display: 'flex', alignItems: 'center', gap: 1, fontWeight: 600, fontSize: 14, whiteSpace: 'nowrap', minWidth: 0 }}>
+        <Dot color={status.schedulerRunning ? 'primary.main' : 'text.disabled'} />
+        {/* Shrinks rather than push the bar wider than a narrow screen (e.g. while the rail becomes a drawer). */}
+        <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{status.schedulerRunning ? 'Scheduler running' : 'Scheduler stopped'}</Box>
       </Typography>;
 
   const freshness = !status

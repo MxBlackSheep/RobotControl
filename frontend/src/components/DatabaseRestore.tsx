@@ -14,7 +14,6 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  Chip,
   Checkbox,
   FormControlLabel,
   Divider,
@@ -32,6 +31,7 @@ import {
   IconButton,
   Collapse
 } from '@mui/material';
+import StatusChip from './StatusChip';
 import useTheme from '@mui/material/styles/useTheme';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import {
@@ -238,7 +238,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({ open, onClose, onSelect }) 
                           }
                         />
                         {item.name.toLowerCase().endsWith('.bck') && (
-                          <Chip label="BCK" size="small" color="secondary" />
+                          <StatusChip tone="neutral" label="BCK" />
                         )}
                       </ListItemButton>
                     </ListItem>
@@ -633,9 +633,9 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
                           )}
                         </Box>
                         <Stack direction="row" spacing={0.5}>
-                          <Chip label="BAK" size="small" variant="outlined" color="primary" />
+                          <StatusChip tone="neutral" label="BAK" />
                           {!backup.is_valid && (
-                            <Chip label="Invalid" size="small" color="error" />
+                            <StatusChip tone="fault" label="Invalid" />
                           )}
                         </Stack>
                       </Box>
@@ -668,11 +668,7 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
                         alignItems={{ xs: 'flex-start', sm: 'center' }}
                       >
                         <Typography variant="body2" color="textSecondary">Status:</Typography>
-                        <Chip 
-                          label={selectedBackup.is_valid ? 'Valid' : 'Invalid'}
-                          size="small" 
-                          color={selectedBackup.is_valid ? 'success' : 'error'}
-                        />
+                        <StatusChip tone={selectedBackup.is_valid ? 'completed' : 'fault'} label={selectedBackup.is_valid ? 'Valid' : 'Invalid'} />
                       </Stack>
                       
                       {selectedBackup.description && (
@@ -802,11 +798,7 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
                   <Typography variant="body2" color="textSecondary">
                     Type:
                   </Typography>
-                  <Chip
-                    label={`${currentSelection.type.toUpperCase()} ${currentSelection.hasMetadata ? '(with metadata)' : '(no metadata)'}`}
-                    size="small"
-                    color={currentSelection.type === 'bak' ? 'primary' : 'secondary'}
-                  />
+                  <StatusChip tone="neutral" label={`${currentSelection.type.toUpperCase()} ${currentSelection.hasMetadata ? '(with metadata)' : '(no metadata)'}`} />
                 </Stack>
 
                 <Stack
@@ -914,11 +906,7 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
                     </Box>
                     <Box display="flex" justifyContent="space-between">
                       <Typography variant="body2" color="textSecondary">Type:</Typography>
-                      <Chip 
-                        label={`${currentSelection.type.toUpperCase()} ${currentSelection.hasMetadata ? '(with metadata)' : '(machine generated)'}`}
-                        size="small" 
-                        color={currentSelection.type === 'bak' ? 'primary' : 'secondary'}
-                      />
+                      <StatusChip tone="neutral" label={`${currentSelection.type.toUpperCase()} ${currentSelection.hasMetadata ? '(with metadata)' : '(machine generated)'}`} />
                     </Box>
                     <Box display="flex" justifyContent="space-between">
                       <Typography variant="body2" color="textSecondary">Size:</Typography>

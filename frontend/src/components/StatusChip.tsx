@@ -6,7 +6,9 @@ export default function StatusChip({ tone, label }: { tone: StatusTone; label: s
   return <Box component="span" sx={theme => {
     // Outside the app theme (component tests, embedded previews) fall back to the light tones.
     const colors = theme.palette.tone?.[tone] ?? lightTones[tone];
-    return { display: 'inline-flex', alignItems: 'center', height: 24, px: 1.25, borderRadius: 12, fontSize: 13, fontWeight: 500,
+    // Like MUI Chip, shrink with an ellipsis rather than widen a narrow page.
+    return { display: 'inline-block', maxWidth: '100%', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', verticalAlign: 'middle',
+      height: 24, lineHeight: '24px', px: 1.25, borderRadius: 12, fontSize: 13, fontWeight: 500,
       whiteSpace: 'nowrap', bgcolor: colors.bg, color: colors.fg };
-  }}>{label}</Box>;
+  }} title={label}>{label}</Box>;
 }

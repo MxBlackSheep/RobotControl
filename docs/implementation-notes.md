@@ -1,3 +1,10 @@
+## 2026-09-30 Redesign step 5: shared status labels on the remaining screens
+
+- Camera ("My view"), Maintenance ("HxRun launches"), System Status (freshness, database, live view) and Database Restore (file type, Valid/Invalid) use `StatusChip` with unchanged text. Blocked for maintenance is amber; Invalid and Database disconnected are red. Logs had no status chips and needed no change.
+- `StatusChip` now shrinks with an ellipsis like the MUI Chip it replaces, and shows the full label as a tooltip.
+- Found while verifying: "monitoring has one refresh owner…" failed 4 of 8 runs. A diagnostic showed the step-1 status bar's "Live" marker 5px past a 320px screen in the frame after resizing, while the rail was still 64px wide: "Scheduler running" could not shrink. It now ellipsizes; the same check then passed 12 of 12, and the diagnostic found no overflow in 18 runs.
+- Checks: `camera`, `database-restore`, `database`, `appearance`, `system-pages` specs (32 passed).
+
 ## 2026-09-30 Redesign step 4: Labware
 
 - The existing layout already matches the approved structure (packed physical deck beside a full-width editor with 44px tips) and picks up the shell and theme from step 1. Only the "Read only" chips (tips and Cytomat) move to `StatusChip`, and the Col A/Col B labels take the mock's small-caps style (DOM text unchanged).

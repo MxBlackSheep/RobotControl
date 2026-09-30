@@ -1,4 +1,5 @@
-import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Card, CardContent, Chip, LinearProgress, Stack, Typography } from '@mui/material';
+import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Card, CardContent, LinearProgress, Stack, Typography } from '@mui/material';
+import StatusChip from '../components/StatusChip';
 import ExpandMore from '@mui/icons-material/ExpandMore';
 import Refresh from '@mui/icons-material/Refresh';
 import { PageContent, PageHeader } from '../components/PageLayout';
@@ -24,14 +25,14 @@ export default function MonitoringPage() {
   ];
   return <PageContent variant="overview">
     <PageHeader title="System Status" actions={<>
-      <Chip size="small" label={error ? monitoringData ? 'Stale data' : 'Unavailable' : isLoading ? 'Updating' : monitoringData ? 'Updated' : 'Unknown'} color={error ? 'warning' : 'default'} />
+      <StatusChip tone={error ? 'attention' : 'neutral'} label={error ? monitoringData ? 'Stale data' : 'Unavailable' : isLoading ? 'Updating' : monitoringData ? 'Updated' : 'Unknown'} />
       <Button startIcon={<Refresh />} disabled={isLoading} onClick={() => void refreshData()}>Refresh</Button>
     </>} />
     {error && <Alert severity="warning" sx={{ mb: 1 }}>{error}{monitoringData ? ' · Last reading retained.' : ''}</Alert>}
     {isLoading && <LinearProgress aria-label="Updating monitoring" sx={{ mb: 1 }} />}
     <Stack direction="row" gap={1} flexWrap="wrap" sx={{ mb: 2 }}>
-      <Chip label={databaseStatus?.is_connected === true ? 'Database connected' : databaseStatus?.is_connected === false ? 'Database disconnected' : 'Database unavailable'} color={error ? 'default' : databaseStatus?.is_connected === true ? 'success' : databaseStatus?.is_connected === false ? 'error' : 'default'} />
-      <Chip label={streamingStatus?.enabled === true ? 'Live view enabled' : streamingStatus?.enabled === false ? 'Live view disabled' : 'Live view unavailable'} />
+      <StatusChip tone={error ? 'neutral' : databaseStatus?.is_connected === true ? 'completed' : databaseStatus?.is_connected === false ? 'fault' : 'neutral'} label={databaseStatus?.is_connected === true ? 'Database connected' : databaseStatus?.is_connected === false ? 'Database disconnected' : 'Database unavailable'} />
+      <StatusChip tone="neutral" label={streamingStatus?.enabled === true ? 'Live view enabled' : streamingStatus?.enabled === false ? 'Live view disabled' : 'Live view unavailable'} />
       {timestamp && <Typography variant="caption" sx={{ alignSelf: 'center', ml: 'auto' }} color="text.secondary">Last reading {new Date(timestamp).toLocaleString()}</Typography>}
     </Stack>
     {databaseStatus?.error_message && <Alert severity="error" sx={{ mb: 2, overflowWrap: 'anywhere' }}>{databaseStatus.error_message}</Alert>}
