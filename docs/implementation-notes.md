@@ -1,3 +1,9 @@
+## 2026-09-30 Design pass: page edge, card alignment and use of space (`c7797a0`)
+
+- All screens share one left edge (`PageContent` no longer centres); Overview has a three-column layout from 1500px of content width. System status service cards use the resource cards' columns. Camera's Recent recordings fills the right column on wide screens. History is one card with the shared `columnHeading` style. Dates use `dayTime` everywhere, with the year for other years.
+- Presentation only: no handler, request, permission or accessible name changed. A review subagent checked the diff and before/after screenshots; its findings (year in dates, Labware keyboard order, 320px camera buttons, 600-900px System status, Overview row length at 1920px) were fixed.
+- Checks: all 109 browser checks and 51 component tests pass. Not done: a visual pass against real schedules and the local SQL Server (the preview start was not permitted in this session).
+
 ## 2026-09-30 Align Overview card rows and heading baselines
 
 - Corrects the independent column stacks introduced below: Up next / Instrument health and Recent runs / Latest experiment now share row tracks and stretch to their taller card. Recovery uses the same column boundary; the phone layout retains recovery priority.
