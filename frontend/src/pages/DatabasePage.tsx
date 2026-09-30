@@ -27,7 +27,8 @@ import DatabaseTools, { DatabasePackages } from "../components/DatabaseTools";
 
 import { Source } from "../components/ReportConnections";
 
-type TableInfo = { name: string; has_data?: boolean; is_important?: boolean };
+// has_data is null when the server could not check the table (not the same as empty).
+type TableInfo = { name: string; has_data?: boolean | null; is_important?: boolean };
 
 export default function DatabasePage() {
   const { user } = useAuth();
@@ -130,7 +131,9 @@ export default function DatabasePage() {
                   ? "Has data"
                   : table.has_data === false
                     ? "Empty"
-                    : undefined
+                    : table.has_data === null
+                      ? "Could not check"
+                      : undefined
               }
             />
           </ListItemButton>

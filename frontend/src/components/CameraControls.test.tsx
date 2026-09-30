@@ -4,15 +4,21 @@ import { afterEach, expect, it, vi } from 'vitest';
 import CameraControls from './CameraControls';
 import { createFrameStore, FrameFreshness } from './LiveFrame';
 
+// CameraControls uses the shared client (token renewal) and the signed-in user.
+const api = vi.hoisted(() => ({ get: vi.fn(), request: vi.fn() }));
+vi.mock('@/services/api', () => ({ api }));
+vi.mock('@/context/AuthContext', () => ({ useAuth: () => ({ user: { user_id: 'fixture' } }) }));
+
 const status = {
   cameras: [{ id: 0, name: 'Robot camera', device_identity: 'a' }, { id: 1, name: 'Bench camera', device_identity: 'b' }],
   health: { device_identity: 'a', generation: 'one', capture_state: 'connected', recording_state: 'recording',
     recording_requested: true, last_frame_age_seconds: 0, operation: null, error: null },
 };
-afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); vi.restoreAllMocks(); });
+const statusResponse = () => Promise.resolve({ data: { data: status } });
+afterEach(() => { api.get.mockReset(); api.request.mockReset(); vi.useRealTimers(); vi.restoreAllMocks(); });
 
 it('keeps device controls admin-only and separates capture from recording', async () => {
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: status }) }));
+  api.get.mockImplementation(statusResponse);
   render(<CameraControls admin={false} onSourceChange={() => {}} />);
   await screen.findByText('Camera: Connected · Recording: Recording');
   expect(screen.queryByRole('button', { name: 'Reconnect camera' })).toBeNull();
@@ -20,9 +26,8 @@ it('keeps device controls admin-only and separates capture from recording', asyn
 });
 
 it('preserves selection after an operation error and explains recording locks', async () => {
-  vi.stubGlobal('fetch', vi.fn().mockImplementation((_url, options) => options.method
-    ? Promise.resolve({ ok: false, json: async () => ({ detail: 'A camera operation is already in progress' }) })
-    : Promise.resolve({ ok: true, json: async () => ({ data: status }) })));
+  api.get.mockImplementation(statusResponse);
+  api.request.mockRejectedValue({ isAxiosError: true, response: { status: 409, data: { detail: 'A camera operation is already in progress' } } });
   render(<CameraControls admin onSourceChange={() => {}} />);
   await screen.findByText('Camera: Connected · Recording: Recording');
   expect(screen.getByText('Stop recording before changing cameras.')).toBeTruthy();
@@ -33,8 +38,7 @@ it('preserves selection after an operation error and explains recording locks', 
 
 it('refreshes twice without moving keyboard focus', async () => {
   vi.useFakeTimers();
-  const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: status }) });
-  vi.stubGlobal('fetch', fetcher);
+  const fetcher = api.get.mockImplementation(statusResponse);
   render(<CameraControls admin onSourceChange={() => {}} />);
   await act(async () => { await vi.advanceTimersByTimeAsync(0); });
   const reconnect = screen.getByRole('button', { name: 'Reconnect camera' });
@@ -46,10 +50,8 @@ it('refreshes twice without moving keyboard focus', async () => {
 
 it('cancels an in-flight control request when leaving the page', async () => {
   let signal: AbortSignal | undefined;
-  vi.stubGlobal('fetch', vi.fn().mockImplementation((_url, options) => {
-    if (options.method) { signal = options.signal; return new Promise(() => {}); }
-    return Promise.resolve({ ok: true, json: async () => ({ data: status }) });
-  }));
+  api.get.mockImplementation(statusResponse);
+  api.request.mockImplementation(config => { signal = config.signal; return new Promise(() => {}); });
   const view = render(<CameraControls admin onSourceChange={() => {}} />);
   await screen.findByText('Camera: Connected · Recording: Recording');
   fireEvent.click(screen.getByRole('button', { name: 'Reconnect camera' }));

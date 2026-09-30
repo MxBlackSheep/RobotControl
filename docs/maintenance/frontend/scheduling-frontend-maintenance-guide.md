@@ -11,7 +11,14 @@ method library, notifications and history. Backend behavior is in
   one pane with Back.
 - `hooks/useScheduling.ts` owns every schedule, archive, calendar, queue, contact and
   notification request. Components use its `state` and `actions`, never the REST API. It
-  refreshes scheduler and queue status every 30 seconds. Mutations reload what they change;
+  refreshes scheduler and queue status every 30 seconds. Each status read owns its error
+  (`queueError`, `schedulerError`), shown inline and cleared by that read's next success;
+  the shared `error` dialog is for schedule loads and edits only. Both reads carry
+  `manualRecovery` and can answer out of order; freshness is the server's
+  `safety_revision`, not request order. Older revisions are rejected regardless of request
+  order; request order only breaks ties. Unhealthy storage reports are always shown,
+  while their cached revision cannot lower the remembered revision. After deliberately
+  restoring the scheduler store, leave and reopen Scheduling to reset this history. Mutations reload what they change;
   `updateSchedule` adds `expected_updated_at` so a stale edit returns 409.
 - `ExecutionHistory` polls history itself through `useSerialPolling` and must not create
   another `useScheduling` (that would start a second scheduler poller); see the polling guide.

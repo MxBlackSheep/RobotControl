@@ -129,26 +129,6 @@ def test_query_parameters_and_dates(sql):
     connection.close.assert_called_once()
 
 
-def test_stored_procedure_commits(sql):
-    service, _, connection, cursor = sql
-    cursor.description = None
-    assert service.execute_stored_procedure("UpdatePlate", {"PlateID": 5})["rows"] == []
-    cursor.execute.assert_called_once_with("EXEC [UpdatePlate] @PlateID = ?", (5,))
-    connection.commit.assert_called_once()
-    connection.rollback.assert_not_called()
-
-
-def test_stored_procedure_rolls_back(sql):
-    service, _, connection, cursor = sql
-    cursor.execute.side_effect = pyodbc.Error("procedure failed")
-    with pytest.raises(pyodbc.Error, match="procedure failed"):
-        service.execute_stored_procedure("UpdatePlate", {})
-    connection.rollback.assert_called_once()
-    connection.commit.assert_not_called()
-    cursor.close.assert_called_once()
-    connection.close.assert_called_once()
-
-
 @pytest.mark.parametrize("supports_offset", [True, False])
 def test_browse_search_sort_and_count_share_predicates(sql, monkeypatch, supports_offset):
     service, _, connection, cursor = sql

@@ -39,7 +39,8 @@ const dispatchTokenUpdate = (accessToken: string, refreshToken?: string | null) 
   );
 };
 
-const attemptTokenRefresh = async (): Promise<string | null> => {
+// Exported for streamed downloads that must use fetch; everything else uses `api`.
+export const attemptTokenRefresh = async (): Promise<string | null> => {
   if (typeof window === 'undefined') {
     return null;
   }
@@ -144,13 +145,11 @@ api.interceptors.response.use(
     // A 503 is not a database restart: scheduler and storage use it for their own outages.
     // Maintenance starts only from a successful restore (DatabaseRestore.tsx).
 
-    // Handle timeout errors specifically
-    if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+    // Keep the Axios error (config, code) so callers can tell which request timed out;
+    // a timeout says nothing about the database, so the message does not guess a cause.
+    if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
       console.warn('API request timed out:', error.config?.url);
-      // Create a proper error response structure that components can handle
-      const timeoutError = new Error('Request timed out - database may be unavailable');
-      timeoutError.name = 'TimeoutError';
-      return Promise.reject(timeoutError);
+      error.message = 'Request timed out';
     }
 
     return Promise.reject(error);
