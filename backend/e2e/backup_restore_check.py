@@ -19,6 +19,14 @@ or returns an empty message. A missing file, a folder or a wrong extension runs 
 failing first. An unrestorable `.bck` changes rows, hides SQL Server's error or leaves the
 database single-user. The disposable database and its backup files are removed afterwards,
 also when a step fails.
+A backup must not freeze the server either, and two backups created in the same second (their
+names are per second; BACKUP ... WITH INIT overwrites) must each keep their own listed file.
+A delete that arrives during a create or restore must wait for it (not remove the .bak under
+sqlcmd) without freezing the server, then delete both files; a create must keep the lock until
+its metadata is saved, so no delete lands between the .bak and its .json.
+A restore must not freeze the server: while one waits for or holds the backup lock, other
+requests still answer, a second operation still waits its turn, and the restore still
+reports success and reverts the data.
 Unavailable SQL authentication or cleanup errors must still produce the evidence report;
 the held connection must close even when the restore request or an assertion query fails.
 """
@@ -27,6 +35,8 @@ import os
 import shutil
 import subprocess
 import tempfile
+import threading
+import time
 import traceback
 import uuid
 from pathlib import Path
@@ -123,6 +133,73 @@ def run():
             entry = next((b for b in (listed.get('data') or []) if b.get('filename') == filename), None)
             check('backup is listed with its description', entry and entry.get('description') == 'backup check', entry)
 
+            # Two creates in the same second while the lock is held: the server keeps answering and
+            # neither backup overwrites the other (names are per second; BACKUP ... WITH INIT overwrites).
+            same_second = f'{database}_20260101_000000.bak'
+            answers = {}
+            def post_create(key):
+                answers[key] = client.post('/api/admin/backup/create', json={'description': key})
+            creates = [threading.Thread(target=post_create, args=(key,)) for key in ('pair one', 'pair two')]
+            listing = threading.Thread(target=lambda: answers.update(listing=client.get('/api/admin/backup/list')))
+            with patch.object(backup_module, 'generate_backup_filename', return_value=same_second):
+                with service._operation_lock:
+                    for thread in creates:
+                        thread.start()
+                    time.sleep(1)
+                    listing.start()
+                    listing.join(timeout=5)
+                    check('server answers other requests while a backup waits or runs',
+                          'listing' in answers and answers['listing'].status_code == 200, sorted(answers))
+                for thread in creates + [listing]:
+                    thread.join(timeout=120)
+            pair = {key: (answers[key].json() if key in answers else {}) for key in ('pair one', 'pair two')}
+            names = [(body.get('data') or {}).get('filename') for body in pair.values()]
+            created.extend(name for name in names if name)
+            listed = {b.get('filename'): b.get('description') for b in client.get('/api/admin/backup/list').json().get('data') or []}
+            check('same-second backups both succeed with separate files',
+                  all(body.get('success') for body in pair.values()) and None not in names and len(set(names)) == 2
+                  and all((Path(service.backup_dir) / name).is_file() for name in names if name), pair)
+            check('same-second backups are both listed with their own descriptions',
+                  sorted(listed.get(name) for name in names) == ['pair one', 'pair two'], {n: listed.get(n) for n in names})
+            suffixed = next((name for name in names if name and name != same_second), None)
+            sql(server, f"UPDATE [{database}].dbo.Sample SET Value = N'after backup'")
+            response = client.post('/api/admin/backup/restore', json={'filename': suffixed})
+            check('the suffixed backup restores', response.json().get('success') and value() == 'before backup',
+                  {'filename': suffixed, 'body': response.json(), 'value': value()})
+            commands.clear()
+
+            # A delete waits for a running create or restore, without holding up the server.
+            doomed = Path(service.backup_dir) / same_second
+            answers = {}
+            deleting = threading.Thread(target=lambda: answers.update(delete=client.delete(f'/api/admin/backup/{same_second}')))
+            listing = threading.Thread(target=lambda: answers.update(listing=client.get('/api/admin/backup/list')))
+            with service._operation_lock:
+                deleting.start()
+                time.sleep(1)
+                listing.start()
+                listing.join(timeout=5)
+                check('server answers other requests while a delete waits',
+                      'listing' in answers and answers['listing'].status_code == 200, sorted(answers))
+                check('a delete waits for a running backup or restore',
+                      'delete' not in answers and doomed.is_file(), {'answered': sorted(answers), 'bak exists': doomed.is_file()})
+            deleting.join(timeout=30)
+            listing.join(timeout=5)
+            body = answers['delete'].json() if 'delete' in answers else None
+            check('the waiting delete then removes the backup and its metadata',
+                  body and body.get('success') and not doomed.exists() and not doomed.with_suffix('.json').exists(), body)
+
+            save = service._metadata_store.save
+            saved_locked = []
+            def recording_save(*args, **kwargs):
+                saved_locked.append(service._operation_lock.locked())
+                return save(*args, **kwargs)
+            with patch.object(service._metadata_store, 'save', side_effect=recording_save):
+                body = client.post('/api/admin/backup/create', json={'description': 'locked metadata'}).json()
+            if (body.get('data') or {}).get('filename'):
+                created.append(body['data']['filename'])
+            check('a backup saves its metadata while still holding the lock',
+                  body.get('success') and saved_locked == [True], {'body': body, 'locked during save': saved_locked})
+
             sql(server, f"UPDATE [{database}].dbo.Sample SET Value = N'after backup'")
             response = client.post('/api/admin/backup/restore', json={'filename': filename})
             check('restore succeeds', response.status_code == 200 and response.json().get('success'), response.json())
@@ -157,6 +234,28 @@ def run():
             held.close()
             held = None
             check('database is MULTI_USER after the .bck path restore', access() == 'MULTI_USER', access())
+
+            # Hold the service lock so the restore waits inside the service; the server must keep answering.
+            sql(server, f"UPDATE [{database}].dbo.Sample SET Value = N'after backup'")
+            answers = {}
+            restoring = threading.Thread(target=lambda: answers.update(
+                restore=client.post('/api/admin/backup/restore', json={'filename': filename})))
+            listing = threading.Thread(target=lambda: answers.update(listing=client.get('/api/admin/backup/list')))
+            with service._operation_lock:
+                restoring.start()
+                time.sleep(1)
+                started = time.monotonic()
+                listing.start()
+                listing.join(timeout=5)
+                check('server answers other requests while a restore waits or runs',
+                      'listing' in answers and answers['listing'].status_code == 200,
+                      {'seconds': round(time.monotonic() - started, 2), 'answered': 'listing' in answers})
+                check('a restore waits for the running backup operation', 'restore' not in answers)
+            restoring.join(timeout=120)
+            listing.join(timeout=5)
+            body = answers['restore'].json() if 'restore' in answers else None
+            check('restore run off the event loop still succeeds and reverts the change',
+                  body and body.get('success') and value() == 'before backup', {'body': body, 'value': value()})
 
             sql(server, f"UPDATE [{database}].dbo.Sample SET Value = N'kept'")
             with tempfile.TemporaryDirectory(prefix='rc-restore-') as scratch:

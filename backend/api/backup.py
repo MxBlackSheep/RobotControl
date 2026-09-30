@@ -13,6 +13,7 @@ Features:
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from typing import Dict, Any, Optional
 from datetime import datetime
@@ -105,7 +106,8 @@ async def create_backup(
         logger.info(f"Creating backup requested by user: {current_user['username']}")
         
         backup_service = get_backup_service()
-        result = backup_service.create_backup(request.description)
+        # sqlcmd can run for BACKUP_TIMEOUT (300 s); a worker thread keeps the server answering.
+        result = await run_in_threadpool(backup_service.create_backup, request.description)
         
         # Create metadata
         metadata = ResponseMetadata()
@@ -265,12 +267,13 @@ async def restore_backup(
         
         backup_service = get_backup_service()
         
+        # sqlcmd can run for RESTORE_TIMEOUT (600 s); a worker thread keeps the server answering.
         if request.filename:
             # Use existing restore_backup method for managed .bak files
-            result = backup_service.restore_backup(request.filename)
+            result = await run_in_threadpool(backup_service.restore_backup, request.filename)
         else:
             # Use new restore_from_path method for .bck files
-            result = backup_service.restore_backup_from_path(request.file_path)
+            result = await run_in_threadpool(backup_service.restore_backup_from_path, request.file_path)
         
         if result.success:
             logger.info(f"Database restored successfully from: {restore_source}")
@@ -350,7 +353,8 @@ async def delete_backup(
         logger.info(f"Deleting backup {filename} requested by user: {actor}")
         
         backup_service = get_backup_service()
-        result = backup_service.delete_backup(filename)
+        # Deletion waits for a running backup or restore; wait in a worker thread, not on the event loop.
+        result = await run_in_threadpool(backup_service.delete_backup, filename)
         
         if result["success"]:
             logger.info(f"Backup deleted successfully: {filename}")
