@@ -100,7 +100,7 @@ with tempfile.TemporaryDirectory(prefix='relocated-viewer-',dir=ROOT/'test-outpu
         result['checks'].append('embedded focused tip has no repeating animation')
         result['checks'].append('embedded Cytomat preserves positions 1 through 7 and marks 8 and 9 unused')
         result['checks'].append('embedded Cytomat fills desktop width and remaining height')
-        result['checks'].append('embedded compact connection details omit ambiguous metrics')
+        result['checks'].append('embedded connection facts shown in cards without ambiguous metrics')
         time.sleep(.2)
         assert not list((relocated/'data/temp/log-readers').rglob('*.txt'))
         result['checks'].append('reader temporary file released')
