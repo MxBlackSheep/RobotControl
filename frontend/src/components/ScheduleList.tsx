@@ -38,6 +38,7 @@ import {
   Stack,
   LinearProgress
 } from '@mui/material';
+import StatusChip from './StatusChip';
 import useTheme from '@mui/material/styles/useTheme';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import {
@@ -455,11 +456,7 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
           variant="outlined"
         />
         {schedule.recovery_required && (
-          <Chip
-            label="Recovery Needed"
-            color="error"
-            size="small"
-          />
+          <StatusChip tone="attention" label="Recovery required" />
         )}
         {schedule.archived && (
           <Chip

@@ -38,6 +38,8 @@ import {
 import { schedulingAPI } from '../services/schedulingApi';
 import { useSerialPolling } from '../hooks/useSerialPolling';
 import StatusDialog from './StatusDialog';
+import StatusChip from './StatusChip';
+import { executionTone } from './scheduling/executionStatus';
 
 interface ExecutionHistoryProps {
   scheduleId?: string;
@@ -84,26 +86,6 @@ const getStatusIcon = (status?: string) => {
       return <ScheduleIcon color="info" fontSize="small" />;
     default:
       return <ScheduleIcon color="disabled" fontSize="small" />;
-  }
-};
-
-const getStatusColor = (status?: string): 'success' | 'error' | 'warning' | 'info' | 'default' => {
-  const normalizedStatus = typeof status === 'string' ? status.toLowerCase() : '';
-  switch (normalizedStatus) {
-    case 'success':
-    case 'completed':
-      return 'success';
-    case 'failed':
-    case 'error':
-      return 'error';
-    case 'running':
-    case 'executing':
-      return 'warning';
-    case 'scheduled':
-    case 'queued':
-      return 'info';
-    default:
-      return 'default';
   }
 };
 
@@ -513,16 +495,7 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
                       )}
                     </TableCell>
                     <TableCell>
-                      <Chip
-                        label={statusLabel(execution)}
-                        color={getStatusColor(execution.status)}
-                        variant="outlined"
-                        size="small"
-                        icon={getStatusIcon(execution.status)}
-                        sx={{
-                          '& .MuiChip-icon': { fontSize: '1rem' },
-                        }}
-                      />
+                      <StatusChip label={statusLabel(execution)} tone={executionTone(execution.status ?? '')[1]} />
                     </TableCell>
                     <TableCell>
                       <Typography variant="body2">
