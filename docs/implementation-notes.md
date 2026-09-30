@@ -1,3 +1,12 @@
+## 2026-09-30 Redesign step 7: remaining screens brought to the approved mock
+
+- Camera (`524e0d6`): at 1200px and wider the camera and recording controls and live-view details sit beside the image; narrower screens keep them collapsible below it. The archive's folders and recordings are card panels with monospace filenames.
+- Database (`7a3a843`, `437f800`): monospace table names and cell values; each table shows its data state, with "Could not check" in amber. MUI `h6`, the panel heading used app-wide, is now 16px so the page title is the only large heading.
+- Logs (`599bb5f`): file list and reader as card panels with monospace filenames.
+- Maintenance (`ca5ed64`) and Admin (`497aef3`) leave the narrow centred column for the normal page width; the maintenance card is capped at 880px. System Status (`874af8f`): large monospace figures on the resource cards.
+- Not changed, deliberately: Labware's tip-family selector stays a dropdown (the mock's segmented toggle would change a control its checks and layout rules depend on), and the schedule editor form (not drawn in the mock) only takes the theme.
+- Checks: full browser suite 106 passed and 51 component tests passed, with no check changed in this step. Evidence: `test-output/redesign-step7/`.
+
 ## 2026-09-30 Redesign step 6: module titles and final verification
 
 - Camera and Admin headings are now the module name ("Camera", "Admin"); the section is shown by the selected tab, as on every other module. The storage-health check in `system-pages.spec.ts` now asserts the selected "Storage health" tab instead of a heading of that name, because the title no longer names the section.
