@@ -175,23 +175,17 @@ const ExperimentStatus: React.FC<ExperimentStatusProps> = memo(({
         return;
       }
       
-      console.log('Making API call to experiments/latest...');
       const response = await experimentsAPI.getLatest();
-      console.log('Raw response:', response);
-      console.log('Response data:', response.data);
       
       if (response.data && response.data.success && response.data.data) {
         setExperiment(response.data.data);
         setLastUpdate(new Date());
-        console.log('✅ Experiment loaded successfully:', response.data.data);
       } else if (response.data && response.data.success && !response.data.data) {
         // No experiments found - valid state
         setExperiment(null);
         setLastUpdate(new Date());
-        console.log('ℹ️ No experiments found');
       } else {
         // API returned error
-        console.log('❌ API returned error:', response.data);
         setError(response.data?.error || 'Failed to load experiment data');
       }
     } catch (err: any) {

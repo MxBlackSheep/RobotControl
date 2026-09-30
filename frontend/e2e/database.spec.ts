@@ -156,7 +156,7 @@ test('restore messages stay inline instead of stacking dialogs', async ({ page }
   await expect(page.getByRole('alert').filter({ hasText: 'No managed backup files found' })).toBeVisible();
   await expect(page.getByRole('dialog')).toHaveCount(0);
 
-  await page.getByRole('button', { name: 'Create JSON Backup', exact: true }).click();
+  await page.getByRole('button', { name: 'Create Managed Backup', exact: true }).click();
   const create = page.getByRole('dialog', { name: 'Create Managed Backup' });
   await create.getByRole('textbox', { name: 'Backup Description' }).fill('Before restore check');
   await create.getByRole('button', { name: 'Create Backup', exact: true }).click();

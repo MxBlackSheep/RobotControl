@@ -21,18 +21,11 @@ from contextlib import contextmanager
 from backend.utils.data_paths import get_data_path
 from backend.models import HxRunMaintenanceState, ScheduledExperiment, JobExecution, TimeoutConfig, NotificationContact, NotificationLogEntry, NotificationSettings
 
-try:
-    from backend.utils.datetime import (
-        ensure_local_naive,
-        parse_iso_datetime_to_local,
-        utc_now_as_local_naive,
-    )
-except ImportError:  # pragma: no cover - fallback
-    from utils.datetime import (  # type: ignore
-        ensure_local_naive,
-        parse_iso_datetime_to_local,
-        utc_now_as_local_naive,
-    )
+from backend.utils.datetime import (
+    ensure_local_naive,
+    parse_iso_datetime_to_local,
+    utc_now_as_local_naive,
+)
 
 logger = logging.getLogger(__name__)
 

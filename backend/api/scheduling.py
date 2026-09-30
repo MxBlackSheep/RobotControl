@@ -25,16 +25,10 @@ from backend.api.dependencies import ConnectionContext, require_local_access
 from backend.utils.audit import log_action
 from backend.utils.secret_cipher import encrypt_secret, SecretCipherError
 
-try:
-    from backend.utils.datetime import (
-        parse_iso_datetime_to_local,
-        utc_now_as_local_naive,
-    )
-except ImportError:  # pragma: no cover - fallback
-    from utils.datetime import (  # type: ignore
-        parse_iso_datetime_to_local,
-        utc_now_as_local_naive,
-    )
+from backend.utils.datetime import (
+    parse_iso_datetime_to_local,
+    utc_now_as_local_naive,
+)
 
 logger = logging.getLogger(__name__)
 

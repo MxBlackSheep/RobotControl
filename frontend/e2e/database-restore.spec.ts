@@ -3,18 +3,27 @@ import { mkdirSync } from 'node:fs';
 
 /** Failure cases for the Database Restore dialog. The restore API answers a failed
  * restore with HTTP 200 and { success: false, message, data.error_details }.
- * - A success:false answer for a managed .bak or a browsed .bck shows "Restore Started"
+ * - A success:false answer for a managed .bak or a browsed .bck shows "Restore Completed"
  *   instead of "Restore Failed", or turns on maintenance mode.
  * - The failure dialog hides the reason: message or error_details is missing, or an
  *   empty text is shown instead of a fallback.
  * - A failed restore closes the confirmation dialog or clears its choices, so retrying
  *   means starting over.
- * - A real success stops showing "Restore Started" or stops turning on maintenance.
+ * - A real success stops showing "Restore Completed" or stops turning on maintenance.
  * - A non-2xx answer no longer shows its `detail`.
  * - One click sends the restore request more than once.
  * - Selecting a .bck opens an obsolete modal instead of showing the path inline.
  * - A response after the shared 10 s timeout falsely fails, enables Cancel/Restore
  *   while pending, or loses the actual success/failure response.
+ * - Browser responses must use the real success/data/items envelope. Typing must not
+ *   request partial paths; stale responses and old selections must not survive navigation.
+ * - Parent navigation must retain drive roots; errors must allow retry.
+ * - A typed "/" path must show the server's resolved path, and Parent must not cut
+ *   characters from a path without "\".
+ * - A pending browse response must not replace a newer unsubmitted path draft;
+ *   submitting that preserved draft must navigate to it.
+ * - A browse error must show the server's reason from the ResponseFormatter body.
+ * - Completed restores must retain backend warnings and use warning styling.
  * The full 660 s timeout and real SQL timing are not exercised by these fixtures.
  * Real SQL Server restores and the failure body shape are checked by
  * backend/e2e/backup_restore_check.py.
@@ -30,7 +39,7 @@ async function openRestore(page: any, answer: { status?: number; json: any }) {
   await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));
   await page.route('**/api/auth/me', (r: any) => r.fulfill({ json: { success: true, data: { user_id: 'viewer-admin', username: 'Fixture', role: 'admin', session_is_local: true } } }));
   await page.route('**/api/admin/backup/list', (r: any) => r.fulfill({ json: { success: true, data: [bak] } }));
-  await page.route('**/api/system/browse?*', (r: any) => r.fulfill({ json: { items: [{ name: 'nightly.bck', path: bckPath, is_directory: false }] } }));
+  await page.route('**/api/system/browse?*', (r: any) => r.fulfill({ json: { success: true, data: { items: [{ name: 'nightly.bck', path: bckPath, is_directory: false }] } } }));
   await page.route('**/api/admin/backup/restore', (r: any) => { sent.push(r.request().postDataJSON()); return r.fulfill({ status: answer.status ?? 200, json: answer.json }); });
   await page.goto('/database?section=restore');
   return sent;
@@ -66,7 +75,7 @@ async function expectFailure(page: any, confirm: any, text: string[], shot: stri
   await expect(status).toBeVisible();
   for (const t of text) await expect(status).toContainText(t);
   await page.screenshot({ path: `${evidence}/${shot}.png`, animations: 'disabled' });
-  await expect(page.getByText('Restore Started')).toHaveCount(0);
+  await expect(page.getByText('Restore Completed')).toHaveCount(0);
   await expect(page.getByText('Database Maintenance In Progress')).toHaveCount(0);
   // The confirmation stays open with its choices so the user can retry or cancel.
   // It is hidden from the accessibility tree while the status dialog is on top.
@@ -104,7 +113,7 @@ for (const succeeds of [true, false]) {
     await expect(page.getByText('Restore Failed')).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath('restore-pending-after-10s.png'), animations: 'disabled' });
     if (succeeds) {
-      await expect(page.getByRole('dialog', { name: 'Restore Started' })).toBeVisible();
+      await expect(page.getByRole('dialog', { name: 'Restore Completed' })).toBeVisible();
       await expect(confirm).toHaveCount(0);
     } else {
       await expectFailure(page, confirm, [failed.message, failed.data.error_details], 'slow-failed');
@@ -146,14 +155,156 @@ test('HTTP error restore shows the server detail', async ({ page }) => {
   expect(sent).toHaveLength(1);
 });
 
-test('successful restore shows Restore Started and turns on maintenance', async ({ page }) => {
+test('successful restore shows Restore Completed and turns on maintenance', async ({ page }) => {
   const sent = await openRestore(page, { json: { success: true, message: 'Database restored successfully', data: { success: true } } });
   await chooseBak(page);
   const confirm = await confirmRestore(page);
-  await expect(page.getByText('Restore Started')).toBeVisible();
+  await expect(page.getByText('Restore Completed')).toBeVisible();
   await expect(page.getByText('Database Maintenance In Progress')).toBeVisible();
   await expect(confirm).toHaveCount(0);
   await expect(page.getByText('Restore Failed')).toHaveCount(0);
   await page.screenshot({ path: `${evidence}/success.png`, animations: 'disabled' });
   expect(sent).toHaveLength(1);
+});
+
+
+test('restore completion displays server warnings', async ({ page }) => {
+  const warning = 'Database connectivity check after restore timed out';
+  await openRestore(page, { json: { success: true, message: 'Database restored successfully', data: { warnings: [warning] } } });
+  await chooseBak(page);
+  await confirmRestore(page);
+  const dialog = page.getByRole('dialog', { name: 'Restore Completed with Warnings' });
+  await expect(dialog).toContainText(warning);
+  await expect(dialog.locator('.MuiAlert-standardWarning')).toBeVisible();
+  await page.screenshot({ path: `${evidence}/completed-with-warnings.png`, animations: 'disabled' });
+});
+
+test('browser submits paths explicitly, ignores old responses and preserves drive roots', async ({ page }) => {
+  await openRestore(page, { json: failed });
+  await page.unroute('**/api/system/browse?*');
+  const paths: string[] = [];
+  let releaseOld!: () => void;
+  const old = new Promise<void>(resolve => { releaseOld = resolve; });
+  await page.route('**/api/system/browse?*', async route => {
+    const path = new URL(route.request().url()).searchParams.get('path')!;
+    paths.push(path);
+    if (path === 'C:\\slow') await old;
+    await route.fulfill({ json: { success: true, data: { items: [{
+      name: path === 'C:\\slow' ? 'obsolete.bck' : 'current.bck',
+      path: `${path}\\current.bck`, is_directory: false,
+    }] } } });
+  });
+  await page.getByRole('tab', { name: 'Browse Files (.bck)' }).click();
+  await page.getByRole('button', { name: 'Browse', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Browse for .bck Backup Files' });
+  const input = dialog.getByLabel('Current Directory');
+  await expect(dialog.getByRole('button', { name: 'current.bck', exact: false })).toBeVisible();
+  await dialog.getByRole('button', { name: 'current.bck', exact: false }).click();
+  await expect(dialog.getByRole('button', { name: 'Select File' })).toBeEnabled();
+  const count = paths.length;
+  await input.fill('C:\\slow');
+  await page.waitForTimeout(300);
+  expect(paths).toHaveLength(count);
+  await input.press('Enter');
+  await expect.poll(() => paths.at(-1)).toBe('C:\\slow');
+  await expect(dialog.getByRole('button', { name: 'Select File' })).toBeDisabled();
+  await input.fill('D:\\Users');
+  await dialog.getByRole('button', { name: 'Go', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: 'current.bck', exact: false })).toBeVisible();
+  releaseOld();
+  await page.waitForTimeout(300);
+  await expect(dialog.getByText('obsolete.bck')).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Parent Directory' }).click();
+  await expect(input).toHaveValue('D:\\');
+  await expect.poll(() => paths.at(-1)).toBe('D:\\');
+  await expect(dialog.getByRole('button', { name: 'Parent Directory' })).toBeDisabled();
+  await page.screenshot({ path: `${evidence}/browser-drive-root.png`, animations: 'disabled' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(input).toHaveValue('D:\\');
+  await page.screenshot({ path: `${evidence}/browser-drive-root-phone.png`, animations: 'disabled' });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await dialog.getByRole('button', { name: 'current.bck', exact: false }).click();
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: 'Browse', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: 'Select File' })).toBeDisabled();
+});
+
+test('browser uses the server path so Parent works after a typed forward-slash path', async ({ page }) => {
+  await openRestore(page, { json: failed });
+  await page.unroute('**/api/system/browse?*');
+  const paths: string[] = [];
+  await page.route('**/api/system/browse?*', route => {
+    const path = new URL(route.request().url()).searchParams.get('path')!;
+    paths.push(path);
+    // Mirrors Path(path).resolve() in backend/api/system.py on Windows.
+    return route.fulfill({ json: { success: true, data: { current_path: path.replace(/\//g, '\\'), items: [] } } });
+  });
+  await page.getByRole('tab', { name: 'Browse Files (.bck)' }).click();
+  await page.getByRole('button', { name: 'Browse', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Browse for .bck Backup Files' });
+  const input = dialog.getByLabel('Current Directory');
+  await input.fill('C:/Backups/Robot');
+  await input.press('Enter');
+  await expect(input).toHaveValue('C:\\Backups\\Robot');
+  await dialog.getByRole('button', { name: 'Parent Directory' }).click();
+  await expect.poll(() => paths.at(-1)).toBe('C:\\Backups');
+  await expect(input).toHaveValue('C:\\Backups');
+});
+
+test('browser reports a directory error and allows retry', async ({ page }) => {
+  await openRestore(page, { json: failed });
+  // ResponseFormatter.not_found body from backend/api/system.py.
+  await page.route('**/api/system/browse?*', route => route.fulfill({ status: 404, json: {
+    success: false, message: 'Directory not found', data: null,
+    error: { message: 'Directory not found', code: 'NOT_FOUND', details: "The directory 'C:\\' does not exist" },
+  } }));
+  await page.getByRole('tab', { name: 'Browse Files (.bck)' }).click();
+  await page.getByRole('button', { name: 'Browse', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Browse for .bck Backup Files' });
+  await expect(dialog.getByRole('alert')).toContainText("The directory 'C:\\' does not exist");
+  await page.unroute('**/api/system/browse?*');
+  await page.route('**/api/system/browse?*', route => route.fulfill({ json: { success: true, data: { items: [] } } }));
+  await dialog.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toHaveCount(0);
+  await expect(dialog.getByText('No items found')).toBeVisible();
+});
+
+
+test('failed restore retains recovery warnings', async ({ page }) => {
+  const warning = 'Database may still be in single-user mode';
+  await openRestore(page, { json: { ...failed, data: { ...failed.data, warnings: [warning] } } });
+  await chooseBak(page);
+  const confirm = await confirmRestore(page);
+  await expectFailure(page, confirm, [failed.message, warning], 'failed-recovery-warning');
+});
+
+
+test('browser preserves a path typed while a directory response is pending', async ({ page }) => {
+  await openRestore(page, { json: failed });
+  await page.unroute('**/api/system/browse?*');
+  const paths: string[] = [];
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/api/system/browse?*', async route => {
+    const path = new URL(route.request().url()).searchParams.get('path')!;
+    paths.push(path);
+    if (paths.length === 1) await pending;
+    await route.fulfill({ json: { success: true, data: { current_path: path, items: [] } } });
+  });
+  await page.getByRole('tab', { name: 'Browse Files (.bck)' }).click();
+  await page.getByRole('button', { name: 'Browse', exact: true }).click();
+  await expect.poll(() => paths.length).toBe(1);
+  const dialog = page.getByRole('dialog', { name: 'Browse for .bck Backup Files' });
+  const input = dialog.getByLabel('Current Directory');
+  const nextPath = 'D:\\Backups\\next';
+  await input.fill(nextPath);
+  release();
+  await expect(dialog.getByText('No items found')).toBeVisible();
+  await expect(input).toHaveValue(nextPath);
+  expect(paths).toEqual(['C:\\']);
+  await page.screenshot({ path: `${evidence}/pending-response-preserves-draft.png`, animations: 'disabled' });
+  await input.press('Enter');
+  await expect.poll(() => paths).toEqual(['C:\\', nextPath]);
+  await expect(dialog.getByText('No items found')).toBeVisible();
+  await expect(input).toHaveValue(nextPath);
 });

@@ -13,10 +13,7 @@ from pathlib import Path
 import json
 from backend.services.scheduling.sqlite_database import get_sqlite_scheduling_database
 
-try:
-    from backend.utils.datetime import parse_iso_datetime_to_local
-except ImportError:  # pragma: no cover - fallback
-    from utils.datetime import parse_iso_datetime_to_local  # type: ignore
+from backend.utils.datetime import parse_iso_datetime_to_local
 
 logger = logging.getLogger(__name__)
 

@@ -37,10 +37,7 @@ from backend.services.notifications import get_notification_service
 from backend.services.scheduling.run_log_monitor import RunLogMonitor
 from backend.services.hxrun_maintenance import get_hxrun_maintenance_service
 
-try:
-    from backend.utils.datetime import ensure_local_naive
-except ImportError:  # pragma: no cover - fallback
-    from utils.datetime import ensure_local_naive  # type: ignore
+from backend.utils.datetime import ensure_local_naive
 
 logger = logging.getLogger(__name__)
 

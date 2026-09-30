@@ -219,19 +219,6 @@ class StorageCleanupResult:
         return len(self.rolling_clips_errors) > 0 or len(self.experiment_folders_errors) > 0
 
 
-# Compatibility types for existing code (re-export from auth service)
-try:
-    from backend.services.auth import User as UserModel
-except ImportError:
-    # Fallback if auth service not available
-    @dataclass
-    class UserModel:
-        user_id: str
-        username: str
-        role: str
-        is_active: bool = True
-
-
 @dataclass
 class ApiResponse:
     """Standard API response format"""
@@ -254,15 +241,3 @@ class ApiResponse:
             response["metadata"] = self.metadata
             
         return response
-
-
-# Additional constants for shared compatibility
-try:
-    from backend.services.camera import CameraRecordingModel
-except ImportError:
-    # Fallback camera recording model
-    @dataclass
-    class CameraRecordingModel:
-        camera_id: int
-        is_recording: bool
-        recording_start_time: Optional[datetime] = None

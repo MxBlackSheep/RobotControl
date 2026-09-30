@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, ReactNode } from 'react';
 import { authAPI, ACCESS_TOKEN_UPDATED_EVENT } from '../services/api';
 
 interface User {
@@ -47,6 +47,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const authRevision = useRef(0);
 
   const normalizeUser = useCallback((rawUser: any, sessionOverride?: any): User => {
     const session = sessionOverride ?? rawUser?.session ?? {};
@@ -66,28 +67,44 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    const revision = authRevision.current;
+    const isCurrent = () => !cancelled && revision === authRevision.current;
     const checkAuth = async () => {
-      try {
-        const accessToken = localStorage.getItem('access_token');
-        if (accessToken) {
-          setToken(accessToken);
-          const response = await authAPI.me();
-          // Handle standardized response format: { success, data: {...}, metadata }
-          const userData = response.data.data || response.data;
-          setUser(normalizeUser(userData, userData?.session));
-        }
-      } catch (error) {
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('refresh_token');
-        setToken(null);
-        setUser(null);
-      } finally {
+      if (!isCurrent()) return;
+      const accessToken = localStorage.getItem('access_token');
+      if (!accessToken) {
         setLoading(false);
+        return;
+      }
+      setToken(accessToken);
+      try {
+        const response = await authAPI.me();
+        if (!isCurrent()) return;
+        const userData = response.data.data || response.data;
+        setUser(normalizeUser(userData, userData?.session));
+        setLoading(false);
+      } catch (error: any) {
+        if (!isCurrent()) return;
+        if (error.response?.status === 401 || error.response?.status === 403) {
+          localStorage.removeItem('access_token');
+          localStorage.removeItem('refresh_token');
+          setToken(null);
+          setUser(null);
+          setLoading(false);
+        } else {
+          // Keep credentials, but do not grant access until /me verifies them.
+          retry = setTimeout(checkAuth, 5000);
+        }
       }
     };
-
-    checkAuth();
-  }, [normalizeUser]); // Empty dependency - run once
+    void checkAuth();
+    return () => {
+      cancelled = true;
+      clearTimeout(retry);
+    };
+  }, [normalizeUser]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -106,6 +123,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   }, []);
 
   const login = useCallback(async (username: string, password: string) => {
+    authRevision.current += 1;
     try {
       const response = await authAPI.login(username, password);
       // Handle standardized response format: { success, data: {...}, metadata }
@@ -116,12 +134,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       localStorage.setItem('refresh_token', refresh_token);
       setToken(access_token);
       setUser(normalizeUser(userData, session));
+      setLoading(false);
     } catch (error) {
       throw new Error('Login failed');
     }
   }, [normalizeUser]);
 
   const register = useCallback(async (username: string, email: string, password: string) => {
+    authRevision.current += 1;
     try {
       const response = await authAPI.register(username, email, password);
       const responseData = response.data.data || response.data;
@@ -131,6 +151,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       localStorage.setItem('refresh_token', refresh_token);
       setToken(access_token);
       setUser(normalizeUser(userData, session));
+      setLoading(false);
     } catch (error) {
       throw new Error('Registration failed');
     }
@@ -153,6 +174,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   }, [normalizeUser]);
 
   const logout = useCallback(() => {
+    authRevision.current += 1;
+    setLoading(false);
     localStorage.removeItem('access_token');
     localStorage.removeItem('refresh_token');
     setToken(null);

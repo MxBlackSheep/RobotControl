@@ -51,6 +51,9 @@ const attemptTokenRefresh = async (): Promise<string | null> => {
     refreshPromise = refreshClient
       .post('/api/auth/refresh', { refresh_token: storedRefreshToken })
       .then((response) => {
+        if (localStorage.getItem('refresh_token') !== storedRefreshToken) {
+          throw new axios.CanceledError('Sign-in changed while refreshing');
+        }
         const newToken =
           response.data?.data?.access_token ??
           response.data?.access_token ??
@@ -62,10 +65,14 @@ const attemptTokenRefresh = async (): Promise<string | null> => {
         return newToken;
       })
       .catch((err) => {
-        console.warn('Refresh token attempt failed', err);
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('refresh_token');
-        return null;
+        if (localStorage.getItem('refresh_token') !== storedRefreshToken) throw err;
+        if (err.response?.status === 401 || err.response?.status === 403) {
+          localStorage.removeItem('access_token');
+          localStorage.removeItem('refresh_token');
+          return null;
+        }
+        // Propagate the outage, not the original 401: a retry may still refresh.
+        throw err;
       })
       .finally(() => {
         refreshPromise = null;
@@ -134,7 +141,8 @@ api.interceptors.response.use(
       }
     }
 
-    if (status === 503) {
+    // AuthContext retries /me itself; a restarting server is not a database restore.
+    if (status === 503 && !/\/api\/auth\/me/i.test(requestUrl)) {
       activateMaintenance(60000, 'Database is restarting. Please wait.');
     }
 
@@ -161,7 +169,7 @@ export const authAPI = {
   requestPasswordReset: (payload: { username?: string; email?: string; note?: string }) =>
     api.post('/api/auth/password-reset/request', payload),
 
-  me: () => api.get('/api/auth/me'),
+  me: () => api.get('/api/auth/me', { headers: { 'X-Allow-Maintenance': 'true' } }),
 
   changePassword: (currentPassword: string, newPassword: string) =>
     api.post('/api/auth/change-password', {

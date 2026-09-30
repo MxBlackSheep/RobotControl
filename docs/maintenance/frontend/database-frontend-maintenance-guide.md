@@ -55,9 +55,17 @@ The confirmation stays busy with Restore and Cancel disabled until a response or
 responses. Failure shows a `StatusDialog` with the server message and `data.error_details`
 (or a fallback), keeps the selected file and confirmation checks for retry, and does not
 activate maintenance. HTTP errors show the server's `detail`. Success closes and resets
-the confirmation and activates the existing maintenance recovery flow.
+the confirmation and activates the existing maintenance recovery flow. Since the request
+waits for SQL, success says **Restore Completed**. `data.warnings` remain visible;
+a completed restore with warnings uses warning styling. Failure also includes recovery warnings.
 
-The `.bck` browser displays the selected path inline. `frontend/e2e/database-restore.spec.ts`
+The `.bck` browser reads `data.items` inside the standard API response body. Editing
+Current Directory changes a draft; Enter or Go loads it. Navigation clears selection,
+ignores older requests and preserves the trailing slash at a drive root. Close/reopen
+also clears selection. After a load the box shows the server's resolved `current_path`
+only if the submitted text is unchanged; a newer draft stays available for Enter/Go;
+Parent Directory splits on `\` or `/`. Directory errors show `error.details` from the
+standard error body (then `message`, then FastAPI `detail`) and allow retry. The selected path is inline. `frontend/e2e/database-restore.spec.ts`
 covers both file types, failure details, retry, HTTP errors and success using synthetic API
 responses; the real SQL restore boundary is covered by `backend/e2e/backup_restore_check.py`.
 
