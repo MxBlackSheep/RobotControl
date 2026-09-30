@@ -111,34 +111,38 @@ const MaintenancePage: React.FC = () => {
   }, [loadState]);
 
   return (
-    <PageContent variant="task">
+    <PageContent variant="overview">
       <PageHeader title="Maintenance" actions={<Button onClick={loadState} disabled={saving || loading} startIcon={<RefreshIcon />}>Refresh</Button>} />
 
       {error && (
-        <Alert severity="error" sx={{ mb: 2 }}>
+        <Alert severity="error" sx={{ mb: 2, maxWidth: 880 }}>
           {error}
         </Alert>
       )}
 
       {state && !canEdit && (
-        <Alert severity="info" sx={{ mb: 2 }}>
+        <Alert severity="info" sx={{ mb: 2, maxWidth: 880 }}>
           Changes require a local session.
         </Alert>
       )}
 
-      <Card variant="outlined">
-        <CardContent>
+      <Card variant="outlined" sx={{ maxWidth: 880 }}>
+        <CardContent sx={{ p: { xs: 2, sm: 3 }, '&:last-child': { pb: { xs: 2, sm: 3 } } }}>
           {loading && !state ? (
             <Box sx={{ py: 4, display: 'flex', justifyContent: 'center' }}>
               <CircularProgress size={28} />
             </Box>
           ) : (
             <Stack spacing={2}>
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
-                <Typography variant="h6">HxRun launches</Typography>
+              <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap>
+                <Typography component="h2" sx={{ fontSize: 18, fontWeight: 600, flexGrow: 1 }}>HxRun launches</Typography>
                 <StatusChip tone={!state || error ? 'neutral' : state.enabled ? 'attention' : 'completed'}
                   label={!state || error ? 'State unavailable' : state.enabled ? 'Blocked for maintenance' : 'Allowed'} />
               </Stack>
+
+              <Typography sx={{ fontSize: 15, lineHeight: 1.6, color: 'text.secondary' }}>
+                Maintenance mode stops HxRun from being launched on this PC, so you can work on the instrument safely.
+              </Typography>
 
               <Typography variant="body2" color="text.secondary">
                 {state ? `Last change: ${state.updated_by || 'Unknown'} · ${formatTimestamp(state.updated_at)}` : 'Refresh to check the current state.'}
