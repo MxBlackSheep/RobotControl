@@ -15,6 +15,11 @@ declare module '@mui/material/styles' {
   }
 }
 
+export const lightTones: Record<StatusTone, ToneColors> = {
+  running: { bg: '#E6EEFA', fg: '#1D4F99' }, completed: { bg: '#E5F3EA', fg: '#17663A' },
+  neutral: { bg: '#EEF0F3', fg: '#3F4550' }, attention: { bg: '#FDF0D5', fg: '#7A4200' }, fault: { bg: '#FCE8E6', fg: '#A3261B' },
+};
+
 export const fontSans = '"IBM Plex Sans", "Segoe UI", system-ui, sans-serif';
 export const fontMono = '"IBM Plex Mono", Consolas, "Courier New", monospace';
 
@@ -42,10 +47,7 @@ export function createAppTheme(mode: PaletteMode) {
       tone: dark ? {
         running: { bg: '#1B2A40', fg: '#9CC3F5' }, completed: { bg: '#16301F', fg: '#86D19E' },
         neutral: { bg: '#252A33', fg: '#C9CED6' }, attention: { bg: '#3A2A10', fg: '#F2C470' }, fault: { bg: '#3B1A17', fg: '#F4A097' },
-      } : {
-        running: { bg: '#E6EEFA', fg: '#1D4F99' }, completed: { bg: '#E5F3EA', fg: '#17663A' },
-        neutral: { bg: '#EEF0F3', fg: '#3F4550' }, attention: { bg: '#FDF0D5', fg: '#7A4200' }, fault: { bg: '#FCE8E6', fg: '#A3261B' },
-      },
+      } : lightTones,
     },
     shape: { borderRadius: 6 },
     typography: {

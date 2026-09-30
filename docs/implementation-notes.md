@@ -1,3 +1,9 @@
+## 2026-09-30 Redesign step 3: Scheduling
+
+- Restyle only; every label, permission, recovery gate, confirmation and the `safety_revision` ordering are unchanged. The schedule list shows the method path and a status chip per row; the detail panel has a header with name, chip and path; the calendar lists each day's runs as rows; notification delivery statuses use the shared tones. "Recovery required" is amber everywhere (it was red in the list and outlined red in the summary).
+- `StatusChip` falls back to the light tones outside the app theme; without it, three `RecoverySafetyPanel` component tests (rendered without the app theme) crashed.
+- Checks: `operations.spec.ts`, `scheduling-lab.spec.ts` and the scheduling component tests pass without changes. Evidence: `test-output/redesign-step3/`.
+
 ## 2026-09-30 Redesign step 2: Overview
 
 - Scope for the rest of the redesign is refactor only: new look and shared patterns, no new features, nothing removed (recorded in the plan).

@@ -26,7 +26,10 @@ method library, notifications and history. Backend behavior is in
   example a 3-minute log inactivity threshold).
 
 `ScheduleCollection` searches and sorts the loaded list; `ScheduleList` remains the
-archived table. Calendar groups derive from the current schedule array. Use the
+archived table. `scheduleState` (exported from `ScheduleCollection`) is the one mapping
+from a schedule to its label and tone: Recovery required is amber (needs action), Active
+green, Inactive and Archived grey. The list, detail panel and calendar all use it or the
+same tones through `StatusChip`. Calendar groups derive from the current schedule array. Use the
 backend's `next_run`/`start_time`; never recalculate run times in the browser.
 
 ## Layout and sections
