@@ -1,5 +1,6 @@
 import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Card, CardContent, LinearProgress, Stack, Typography } from '@mui/material';
 import StatusChip from '../components/StatusChip';
+import { fontMono } from '../theme';
 import ExpandMore from '@mui/icons-material/ExpandMore';
 import Refresh from '@mui/icons-material/Refresh';
 import { PageContent, PageHeader } from '../components/PageLayout';
@@ -36,15 +37,18 @@ export default function MonitoringPage() {
       {timestamp && <Typography variant="caption" sx={{ alignSelf: 'center', ml: 'auto' }} color="text.secondary">Last reading {new Date(timestamp).toLocaleString()}</Typography>}
     </Stack>
     {databaseStatus?.error_message && <Alert severity="error" sx={{ mb: 2, overflowWrap: 'anywhere' }}>{databaseStatus.error_message}</Alert>}
-    <Typography variant="subtitle1" component="h2" sx={{ mb: 1 }}>Resource use</Typography>
-    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, minmax(0, 1fr))' }, gap: 1.5, mb: 2 }}>
-      {metrics.map(metric => <Card key={metric.name} variant="outlined"><CardContent>
-        <Stack direction="row" justifyContent="space-between" alignItems="baseline"><Typography component="h3" variant="subtitle1">{metric.name}</Typography><Typography variant="h5">{Number.isFinite(metric.value) ? `${Math.round(metric.value!)}%` : '—'}</Typography></Stack>
-        {Number.isFinite(metric.value) && <LinearProgress aria-label={`${metric.name} usage`} variant="determinate" value={Math.max(0, Math.min(100, metric.value!))} color={metric.value! > 90 ? 'error' : metric.value! > 80 ? 'warning' : 'primary'} sx={{ mt: 1.5 }} />}
-        {metric.detail && <Typography variant="caption" color="text.secondary">{metric.detail}</Typography>}
+    <Typography component="h2" sx={{ mb: 1, fontSize: 12, fontWeight: 600, letterSpacing: 0.8, textTransform: 'uppercase', color: 'text.secondary' }}>Resource use</Typography>
+    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, minmax(0, 1fr))' }, gap: 2, mb: 2 }}>
+      {metrics.map(metric => <Card key={metric.name} variant="outlined"><CardContent sx={{ p: 2.5, '&:last-child': { pb: 2.5 } }}>
+        <Stack direction="row" justifyContent="space-between" alignItems="baseline">
+          <Typography component="h3" sx={{ fontSize: 15, fontWeight: 600 }}>{metric.name}</Typography>
+          <Typography sx={{ fontFamily: fontMono, fontSize: 30, fontWeight: 600, lineHeight: 1.2 }}>{Number.isFinite(metric.value) ? `${Math.round(metric.value!)}%` : '—'}</Typography>
+        </Stack>
+        {Number.isFinite(metric.value) && <LinearProgress aria-label={`${metric.name} usage`} variant="determinate" value={Math.max(0, Math.min(100, metric.value!))} color={metric.value! > 90 ? 'error' : metric.value! > 80 ? 'warning' : 'primary'} sx={{ mt: 1.5, height: 8, borderRadius: 4 }} />}
+        {metric.detail && <Typography sx={{ mt: 1, fontSize: 13, color: 'text.secondary' }}>{metric.detail}</Typography>}
       </CardContent></Card>)}
     </Box>
-    <Accordion disableGutters variant="outlined">
+    <Accordion disableGutters variant="outlined" sx={{ borderRadius: 2, '&::before': { display: 'none' } }}>
       <AccordionSummary id="connection-details-heading" aria-controls="connection-details-content" expandIcon={<ExpandMore />}>
         <Typography>Connection details</Typography>
       </AccordionSummary>
