@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Box, Button, Chip, Dialog, DialogContent, DialogTitle, LinearProgress, Menu, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material';
+import { Alert, Box, Button, Dialog, DialogContent, DialogTitle, LinearProgress, Menu, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material';
+import StatusChip from '../StatusChip';
 import { labwareApi, TipTrackingSnapshot, TipTrackingUpdate } from '../../services/labwareApi';
 import { useLabwareSnapshot } from './useLabwareSnapshot';
 import { useLabwareWorkspace } from './useLabwareWorkspace';
@@ -139,7 +140,7 @@ export default function TipTrackingPanel({ active = true }: { active?: boolean }
         <Button onClick={undo} disabled={busy || gesture || !(history[family.family_id]?.length)}>Undo</Button>
         {count > 0 && <Button disabled={busy || gesture} onClick={() => { setPending(previous => ({ ...previous, [family.family_id]: {} })); setHistory(previous => ({ ...previous, [family.family_id]: [] })); setWriteError(''); }}>Discard</Button>}
         <Button aria-haspopup="menu" aria-label="More tip options" onClick={event => setMenu(event.currentTarget)} disabled={busy || gesture}>More</Button>
-      </> : <Chip label="Read only" size="small" />}
+      </> : <StatusChip tone="neutral" label="Read only" />}
     </Stack>
     {(readError || writeError) && <Alert severity="error" action={!totalPending && !busy && !gesture ? <Button onClick={() => void refresh()}>Retry</Button> : undefined}>{writeError || readError}{readError && ' Previous data is shown.'}</Alert>}
     <Typography variant="caption" color="text.secondary" role="status" sx={{ minHeight: 20 }}>{busy ? 'Saving…' : gesture ? 'Selection in progress' : totalPending ? `${totalPending} unsaved${totalPending > count ? ` (${totalPending - count} in other families)` : ''}` : reading ? 'Updating…' : notice || `Updated ${new Date(snapshot.refreshed_at).toLocaleTimeString()}`}</Typography>

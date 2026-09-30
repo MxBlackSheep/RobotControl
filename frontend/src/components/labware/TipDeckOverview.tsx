@@ -24,7 +24,7 @@ export default function TipDeckOverview({ family, joined, rows, columns, selecte
   // layout containment would make its header/body/footer resolve separately.
   return <Box component="section" aria-label="Tip deck" sx={{ minWidth: 0, display: 'grid', gridColumn: 1, gridRow: '1 / 4', gridTemplateRows: 'subgrid', bgcolor: 'action.hover', borderRight: joined ? 1 : 0, borderColor: 'divider' }}>
     <Box sx={{ gridRow: 1, display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 1, alignItems: 'end', px: 1.5, py: 1 }}>
-      {['Col A', 'Col B'].map(label => <Typography key={label} variant="caption" color="text.secondary">{label}</Typography>)}
+      {['Col A', 'Col B'].map(label => <Typography key={label} variant="caption" color="text.secondary" sx={{ fontWeight: 600, letterSpacing: 0.6, textTransform: 'uppercase' }}>{label}</Typography>)}
     </Box>
     <Box data-tip-overview-body sx={{ gridRow: 2, minWidth: 0, minHeight: rackRows * rackMinimum + (rackRows - 1) * 4, display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 1, px: 1.25 }}>
       {[['Col A', family.left_racks], ['Col B', family.right_racks]].map(([label, racks]) => <Box key={String(label)} role="group" aria-label={String(label)} sx={{ minWidth: 0, display: 'grid', gridTemplateRows: `repeat(${rackRows}, minmax(min-content, 1fr))`, gap: 0.5 }}>

@@ -1,3 +1,9 @@
+## 2026-09-30 Redesign step 4: Labware
+
+- The existing layout already matches the approved structure (packed physical deck beside a full-width editor with 44px tips) and picks up the shell and theme from step 1. Only the "Read only" chips (tips and Cytomat) move to `StatusChip`, and the Col A/Col B labels take the mock's small-caps style (DOM text unchanged).
+- Not adopted from the mock: the pinned unsaved-changes bar. `labware-layout-stability.spec.ts` requires that adding or clearing unsaved tips never moves either diagram, and a bar that appears on edit would. Save, Undo and Discard stay in the toolbar.
+- Checks: `labware.spec.ts`, `labware-layout-stability.spec.ts`, `cytomat-spatial.spec.ts` (39 passed, unchanged). Native zoom (`labware-native-zoom.cjs`) was not rerun; no sizes changed.
+
 ## 2026-09-30 Redesign step 3: Scheduling
 
 - Restyle only; every label, permission, recovery gate, confirmation and the `safety_revision` ordering are unchanged. The schedule list shows the method path and a status chip per row; the detail panel has a header with name, chip and path; the calendar lists each day's runs as rows; notification delivery statuses use the shared tones. "Recovery required" is amber everywhere (it was red in the list and outlined red in the summary).
