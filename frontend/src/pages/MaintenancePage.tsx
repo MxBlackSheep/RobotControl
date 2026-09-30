@@ -23,6 +23,9 @@ import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 
 import { useAuth } from '../context/AuthContext';
 import { hxrunMaintenanceApi, HxRunMaintenanceState } from '../services/hxrunMaintenanceApi';
+import { robotAttention, useRobotStatusContext } from '../hooks/useRobotStatus';
+import { runTiming } from '../components/overview/NowRunning';
+import type { StatusTone } from '../theme';
 
 const formatTimestamp = (value?: string | null): string => {
   if (!value) {
@@ -57,6 +60,19 @@ const MaintenancePage: React.FC = () => {
   }, [user?.session_is_local]);
 
   const canEdit = Boolean(state?.permissions?.can_edit ?? isLocalSession);
+  // Shared robot state (no extra request): what would block or be affected by maintenance.
+  const robot = useRobotStatusContext().status;
+  const job = robot?.running[0];
+  const timing = job ? runTiming(job.monitoring?.launched_at, job.estimated_duration, Date.now()) : null;
+  const remaining = timing?.fraction != null && timing.estimate !== null && timing.elapsed !== null ? `About ${Math.max(1, timing.estimate - timing.elapsed)} min left by its estimate.`
+    : timing?.overBy != null ? `It is ${timing.overBy} min past its estimate.` : '';
+  const attention = robotAttention(robot);
+  const rightNow: [string, string, string, StatusTone][] = !robot ? [] : [
+    ['HxRun', 'Hamilton run software on this PC', robot.hamiltonRunning === true ? 'Running' : robot.hamiltonRunning === false ? 'Not running' : 'Unknown', robot.hamiltonRunning ? 'running' : 'neutral'],
+    ['Scheduler', robot.queued ? `${robot.queued} waiting` : 'Nothing waiting', robot.schedulerRunning ? 'Running' : 'Stopped', robot.schedulerRunning ? 'running' : 'neutral'],
+    ['Current run', job?.experiment_name ?? 'None', job ? 'Running' : 'Idle', job ? 'running' : 'neutral'],
+    ['Scheduled runs', attention ? attention.label : 'Not held', attention ? 'Held' : 'Allowed', attention ? 'attention' : 'completed'],
+  ];
 
   const loadState = useCallback(async () => {
     setLoading(true);
@@ -126,7 +142,8 @@ const MaintenancePage: React.FC = () => {
         </Alert>
       )}
 
-      <Card variant="outlined" sx={{ maxWidth: 880 }}>
+      <Box sx={{ display: 'grid', gap: 2, alignItems: 'start', gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 880px) minmax(280px, 360px)' } }}>
+      <Card variant="outlined">
         <CardContent sx={{ p: { xs: 2, sm: 3 }, '&:last-child': { pb: { xs: 2, sm: 3 } } }}>
           {loading && !state ? (
             <Box sx={{ py: 4, display: 'flex', justifyContent: 'center' }}>
@@ -143,6 +160,10 @@ const MaintenancePage: React.FC = () => {
               <Typography sx={{ fontSize: 15, lineHeight: 1.6, color: 'text.secondary' }}>
                 Maintenance mode stops HxRun from being launched on this PC, so you can work on the instrument safely.
               </Typography>
+
+              {robot?.hamiltonRunning && !state?.enabled && <Alert severity="info">
+                <strong>HxRun is running{job ? ` ${job.experiment_name}` : ''}.</strong> You can enter maintenance once HxRun has closed.{remaining ? ` ${remaining}` : ''}
+              </Alert>}
 
               <Typography variant="body2" color="text.secondary">
                 {state ? `Last change: ${state.updated_by || 'Unknown'} · ${formatTimestamp(state.updated_at)}` : 'Refresh to check the current state.'}
@@ -173,6 +194,18 @@ const MaintenancePage: React.FC = () => {
           )}
         </CardContent>
       </Card>
+      {robot && <Card component="aside" aria-label="Right now" variant="outlined" sx={{ p: { xs: 2, sm: 2.5 } }}>
+        <Typography component="h2" variant="h6" sx={{ mb: 1 }}>Right now</Typography>
+        {rightNow.map(([name, detail, label, tone]) => <Stack key={name} direction="row" alignItems="center" justifyContent="space-between" gap={1.5}
+          sx={{ py: 1.25, borderTop: 1, borderColor: 'divider', '&:first-of-type': { borderTop: 0 } }}>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography sx={{ fontSize: 14, fontWeight: 500 }}>{name}</Typography>
+            <Typography sx={{ fontSize: 13, color: 'text.secondary', overflowWrap: 'anywhere' }}>{detail}</Typography>
+          </Box>
+          <StatusChip tone={tone} label={label} />
+        </Stack>)}
+      </Card>}
+      </Box>
 
       <Dialog
         open={hxRunRunningDialogOpen}
