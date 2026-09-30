@@ -387,13 +387,19 @@ const useScheduling = () => {
     loadContacts(false);
   }, [loadContacts]);
 
-  // Both status reads carry recovery state and run together; apply only the most
-  // recently requested answer so an older one arriving last cannot undo a newer one.
+  // Both status reads carry recovery state and run together, so answers can arrive out of
+  // order. Freshness is the server's safety_revision: an answer from an earlier request is
+  // dropped only if its revision is not newer than the one shown. A later request always
+  // applies (a restored store may restart the counter). Unhealthy storage reports a cached
+  // revision that proves nothing, so it is shown whenever it arrives (fail closed).
   const statusRequest = useRef(0);
-  const appliedRecoveryRequest = useRef(0);
+  const appliedRecovery = useRef({ request: 0, revision: -1 });
   const applyManualRecovery = useCallback((request: number, value: ManualRecoveryState | null) => {
-    if (request < appliedRecoveryRequest.current) return;
-    appliedRecoveryRequest.current = request;
+    const last = appliedRecovery.current;
+    const revision = value?.safety_revision ?? -1;
+    const unhealthy = value !== null && value.storage_healthy !== true;
+    if (request < last.request && revision <= last.revision && !unhealthy) return;
+    appliedRecovery.current = { request: Math.max(request, last.request), revision: Math.max(revision, last.revision) };
     setManualRecovery(value);
   }, []);
 

@@ -14,7 +14,10 @@ method library, notifications and history. Backend behavior is in
   refreshes scheduler and queue status every 30 seconds. Each status read owns its error
   (`queueError`, `schedulerError`), shown inline and cleared by that read's next success;
   the shared `error` dialog is for schedule loads and edits only. Both reads carry
-  `manualRecovery`, so only the most recently requested answer is applied. Mutations reload what they change;
+  `manualRecovery` and can answer out of order; freshness is the server's
+  `safety_revision`, not request order. An answer from an earlier request is dropped only
+  if its revision is not newer; a later request always applies; unhealthy storage (a
+  cached, untrustworthy revision) is shown whenever it arrives. Mutations reload what they change;
   `updateSchedule` adds `expected_updated_at` so a stale edit returns 409.
 - `ExecutionHistory` polls history itself through `useSerialPolling` and must not create
   another `useScheduling` (that would start a second scheduler poller); see the polling guide.

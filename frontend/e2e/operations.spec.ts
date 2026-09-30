@@ -14,7 +14,8 @@ import { expect, test, type Page } from '@playwright/test';
  *   success; Close dismisses it without another read; Tab stays inside the dialog.
  * - A failed status read shows its own inline error, not the Server Error dialog; the next
  *   successful read of that status clears it and a schedule reload does not.
- * - An older status answer arriving last cannot overwrite newer recovery state.
+ * - A status answer arriving last with an older safety_revision cannot overwrite newer
+ *   recovery state; one with a newer revision or unhealthy storage is not discarded.
  * Camera cases are in camera.spec.ts.
  */
 const schedules = Array.from({ length: 24 }, (_, index) => ({
@@ -179,22 +180,31 @@ test('a failed status read shows its own error until that status reads again', a
   await expect(page.getByRole('button', { name: 'Recovery required', exact: true })).toBeVisible();
 });
 
-test('an older status answer arriving last cannot overwrite newer recovery state', async ({ page }) => {
-  await operations(page);
-  let queueAnswered = false;
-  // Queue is requested before scheduler status on load; hold its (older) answer until the newer one lands.
-  await page.route('**/api/scheduling/status/queue', async route => {
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    await route.fulfill({ json: { success: true, data: { queue: { running_jobs: 0, queued_jobs: 0 },
-      manual_recovery: { active: true, storage_healthy: true, safety_revision: 7, resume_required: true, pending_recoveries: [] } } } });
-    queueAnswered = true;
+// The scheduler answer (revision 8, no recovery) lands first; the queue answer was requested
+// earlier but arrives last. Freshness is the server's safety_revision, not request order;
+// unhealthy storage carries a cached revision and is shown whenever it arrives.
+for (const late of [
+  { name: 'an older revision', revision: 7, healthy: true, shown: false },
+  { name: 'a newer revision', revision: 9, healthy: true, shown: true },
+  { name: 'unhealthy storage', revision: 7, healthy: false, shown: true },
+]) {
+  test(`a late status answer with ${late.name} ${late.shown ? 'updates' : 'cannot overwrite'} recovery state`, async ({ page }) => {
+    await operations(page);
+    let queueAnswered = false;
+    // Queue is requested before scheduler status on load; hold its answer until the other one lands.
+    await page.route('**/api/scheduling/status/queue', async route => {
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      await route.fulfill({ json: { success: true, data: { queue: { running_jobs: 0, queued_jobs: 0 },
+        manual_recovery: { active: late.healthy, storage_healthy: late.healthy, safety_revision: late.revision, resume_required: true, pending_recoveries: [] } } } });
+      queueAnswered = true;
+    });
+    await page.route('**/api/scheduling/status/scheduler', route => route.fulfill({ json: { success: true, data: {
+      is_running: true, manual_recovery: { active: false, storage_healthy: true, safety_revision: 8, resume_required: false, pending_recoveries: [] },
+    } } }));
+    await page.goto('/scheduling?section=schedules');
+    await expect(page.getByText('Scheduler service: Running', { exact: true })).toBeVisible();
+    await expect.poll(() => queueAnswered).toBe(true);
+    await expect(page.getByText('0 running · 0 queued', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Recovery required', exact: true })).toHaveCount(late.shown ? 1 : 0);
   });
-  await page.route('**/api/scheduling/status/scheduler', route => route.fulfill({ json: { success: true, data: {
-    is_running: true, manual_recovery: { active: false, storage_healthy: true, safety_revision: 8, resume_required: false, pending_recoveries: [] },
-  } } }));
-  await page.goto('/scheduling?section=schedules');
-  await expect(page.getByText('Scheduler service: Running', { exact: true })).toBeVisible();
-  await expect.poll(() => queueAnswered).toBe(true);
-  await expect(page.getByText('0 running · 0 queued', { exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Recovery required', exact: true })).toHaveCount(0);
-});
+}
