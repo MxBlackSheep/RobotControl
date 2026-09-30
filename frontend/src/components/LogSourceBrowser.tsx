@@ -4,6 +4,9 @@ import {
   Box,
   Breadcrumbs,
   Button,
+  ButtonGroup,
+  IconButton,
+  InputAdornment,
   LinearProgress,
   List,
   ListItemButton,
@@ -13,8 +16,12 @@ import {
   Stack,
   TablePagination,
   TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
+import ArrowUpward from "@mui/icons-material/ArrowUpward";
+import RefreshIcon from "@mui/icons-material/Refresh";
+import SearchIcon from "@mui/icons-material/Search";
 import {
   logFileApi,
   LogFileSource,
@@ -190,16 +197,19 @@ export default function LogSourceBrowser({
         gap={0.5}
         flexWrap="wrap"
         alignItems="center"
-        sx={{ px: 1, pt: 0.75, "& .MuiButton-root": { fontSize: 13 } }}
+        sx={{ px: 1, pt: 1 }}
       >
-        {(source.shortcuts || []).map((shortcut) => (
-          <Button
-            key={shortcut.label}
-            onClick={() => browse({ ...root, folder: shortcut.relative_path })}
-          >
-            {shortcut.label}
-          </Button>
-        ))}
+        {!!source.shortcuts?.length && <ButtonGroup size="small" variant="outlined" aria-label="Log folders">
+          {source.shortcuts.map((shortcut) => (
+            <Button
+              key={shortcut.label}
+              onClick={() => browse({ ...root, folder: shortcut.relative_path })}
+            >
+              {shortcut.label}
+            </Button>
+          ))}
+        </ButtonGroup>}
+        <Box sx={{ flex: 1 }} />
         <Breadcrumbs
           aria-label="Log folder"
           maxItems={3}
@@ -239,24 +249,34 @@ export default function LogSourceBrowser({
             </Button>
           ))}
         </Breadcrumbs>
-        <Button
-          disabled={(!current.folder && !current.archive) || listLoading}
-          onClick={up}
-        >
-          Up
-        </Button>
-        <Button
-          disabled={listLoading}
-          onClick={() =>
-            setIntent((v) => ({
-              ...v,
-              location: current,
-              revision: v.revision + 1,
-            }))
-          }
-        >
-          Refresh files
-        </Button>
+        <Tooltip title="Up one folder">
+          <span>
+            <IconButton
+              aria-label="Up"
+              disabled={(!current.folder && !current.archive) || listLoading}
+              onClick={up}
+            >
+              <ArrowUpward fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
+        <Tooltip title="Refresh files">
+          <span>
+            <IconButton
+              aria-label="Refresh files"
+              disabled={listLoading}
+              onClick={() =>
+                setIntent((v) => ({
+                  ...v,
+                  location: current,
+                  revision: v.revision + 1,
+                }))
+              }
+            >
+              <RefreshIcon fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
       </Stack>
       {listError && (
         <Alert severity="error">
@@ -279,8 +299,8 @@ export default function LogSourceBrowser({
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           sx={{ flex: 1, minWidth: 0 }}
+          InputProps={{ endAdornment: <InputAdornment position="end"><IconButton type="submit" edge="end" aria-label="Search"><SearchIcon fontSize="small" /></IconButton></InputAdornment> }}
         />
-        <Button type="submit">Search</Button>
       </Box>
       <Stack direction="row" gap={0.5} sx={{ px: 1, pb: 1 }}>
         <TextField
