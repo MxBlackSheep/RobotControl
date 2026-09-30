@@ -8,6 +8,27 @@ for its area. Check the tests themselves before assuming a case is covered. For
 work in progress, list new failure cases in [scenarios.md](scenarios.md), then move
 them into the matching header once the checks exist.
 
+## When to add a check
+
+Keep a permanent check only for an essential behavior: a failure could cause unsafe
+or unintended operations, lost/corrupt/incomplete data, a broken critical workflow,
+or a regression at a demonstrated timing or layout boundary. Identify the concrete
+failure and why another retained check cannot catch it. Do not keep checks solely for
+wording, routine presentation, implementation details or recoverable read-only browsing.
+Verify those changes in the running app and keep the evidence in the PR.
+
+Consolidate overlapping cases and redundant sizes. Keep a known breakpoint/short-height
+boundary when it changes whether critical controls are usable. Do not set a quota per
+screen: two cases can miss a destructive-action race, while several may prove the same
+thing. A bug need not occur twice before an essential regression is worth keeping.
+
+`page.route` fixtures cover browser behavior, including request ordering, selection
+and timeouts. They do not validate real SQL or hardware; use `backend/e2e` for that.
+Keep fixtures aligned with the actual API envelope. Existing focused tests may remain
+for uncovered data-integrity or method-confirmation behavior until a workflow check
+replaces them; prefer E2E for new coverage. Runtime and pass counts alone do not prove
+that the suite protects these essential behaviors.
+
 ## Routine work (PowerShell, repository root)
 
 Install dependencies once using the root README. Rebuild when frontend inputs

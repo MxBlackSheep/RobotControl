@@ -1,3 +1,11 @@
+## 2026-09-30 Keep essential coverage while trimming test duplication
+
+- The suite now requires a concrete essential failure and no equivalent retained coverage, rather than a fixed success/failure quota per screen. Routine presentation, internal-state copies and recoverable read-only browsing are removed.
+- Browser cases decrease from 132 to 97. Restore is consolidated from 13 cases to 3: failure feedback/retry, a slow restore with completion warnings, and backup selection under stale replies/new drafts. The real SQL check cannot cover browser timeouts or selection races. Layout matrices retain phone/desktop/4K plus the short 1024px labware boundary; focus animation is checked once using the normal motion setting.
+- Five component-test files remain deleted. Of the two others, only four checks remain: bounded complete exports/cancellation and explicit robot/cleanup-method confirmation/cancellation. Recording checks decrease from 37 to 9, retaining disabled startup, cancellation, failed camera start and complete start/stop behavior. The camera fixture now reaches the intended failed-start path, and startup cleanup runs while dependencies are still mocked.
+- The shortcut check now waits for the authenticated page and uses an available camera-status fixture so a maintenance modal does not intercept its keys. Review caught an Edge `ERR_NO_BUFFER_SPACE` failure loading React; the isolated retry passes without changing application code. Original failure traces are preserved.
+- Verification is focused on the changed checks; no application code, dependency or build inputs changed. The prior full run and fresh focused commands/results are distinguished in `test-output/pr14-review/verification.json`.
+
 ## 2026-09-29 Preserve the next directory path while browsing
 
 - A completed directory request no longer replaces a different path typed while it was pending. The loaded directory still uses the server's resolved path; Enter/Go submits the retained draft.
