@@ -3,8 +3,8 @@ import { Alert, Box, Button, LinearProgress, List, ListItemButton, Stack, TextFi
 import { Refresh } from '@mui/icons-material';
 import { ScheduledExperiment } from '../../types/scheduling';
 import StatusChip from '../StatusChip';
-import { PanelHeader } from '../PageLayout';
-import { columnHeading, fontMono, StatusTone } from '../../theme';
+import { Panel } from '../PageLayout';
+import { columnHeading, fontMono, layout, StatusTone } from '../../theme';
 import { dayTime } from '../../utils/displayTime';
 
 export function scheduleState(schedule: ScheduledExperiment): { label: string; tone: StatusTone } {
@@ -41,50 +41,51 @@ export default function ScheduleCollection({ schedules, selected, onSelect, onRe
     .sort((a, b) => sort === 'name' ? a.experiment_name.localeCompare(b.experiment_name)
       : (a.next_run || '9999').localeCompare(b.next_run || '9999')), [searched, filter, sort]);
   const muted = { color: 'text.secondary', fontSize: 13 };
-  return <Stack data-testid="schedule-collection" sx={{ minHeight: 0, height: '100%', bgcolor: 'background.paper', border: 1, borderColor: 'divider', borderRadius: 2, overflow: 'hidden', containerType: 'inline-size', containerName: 'schedules' }}>
-    <Stack gap={2} sx={{ p: 2 }}>
-      <PanelHeader title="Schedules" actions={<Button size="small" startIcon={<Refresh />} onClick={onRefresh} disabled={loading}>Refresh schedules</Button>} />
-      <Stack direction="row" alignItems="center" flexWrap="wrap" gap={1}>
-      <TextField size="small" label="Search schedules" value={query} onChange={event => setQuery(event.target.value)} sx={{ flex: '1 1 180px', minWidth: 0, maxWidth: 320 }} />
-      <ToggleButtonGroup size="small" exclusive value={filter} onChange={(_, value) => value && setFilter(value)} aria-label="Filter by status" sx={{ flexWrap: 'wrap' }}>
-        {filters.map(item => <ToggleButton key={item.value} value={item.value} sx={{ px: 1.25, gap: 0.75 }}>
-          {item.label}<Box component="span" sx={{ color: 'text.secondary', fontVariantNumeric: 'tabular-nums' }}>{searched.filter(item.match).length}</Box>
-        </ToggleButton>)}
-      </ToggleButtonGroup>
-      <TextField select SelectProps={{ native: true }} label="Sort schedules" size="small" value={sort} onChange={event => setSort(event.target.value)} sx={{ width: 128 }}>
-        <option value="next">Next run</option><option value="name">Name</option>
-      </TextField>
+  // Fills the workspace column: header band, toolbar, column headings, then a scrolling table.
+  return <Box data-testid="schedule-collection" sx={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', containerType: 'inline-size', containerName: 'schedules' }}>
+    <Panel title="Schedules" fill inset={false} sx={{ flex: 1 }} bodySx={{ display: 'flex', flexDirection: 'column' }}
+      actions={<Button size="small" startIcon={<Refresh />} onClick={onRefresh} disabled={loading}>Refresh schedules</Button>}>
+      <Stack direction="row" alignItems="center" flexWrap="wrap" gap={1} sx={{ px: 2, py: 1.5, borderBottom: 1, borderColor: 'surface.rowLine' }}>
+        <TextField size="small" label="Search schedules" value={query} onChange={event => setQuery(event.target.value)} sx={{ flex: '1 1 180px', minWidth: 0, maxWidth: 320 }} />
+        <ToggleButtonGroup size="small" exclusive value={filter} onChange={(_, value) => value && setFilter(value)} aria-label="Filter by status" sx={{ flexWrap: 'wrap' }}>
+          {filters.map(item => <ToggleButton key={item.value} value={item.value} sx={{ gap: 0.75 }}>
+            {item.label}<Box component="span" sx={{ color: 'text.secondary', fontVariantNumeric: 'tabular-nums' }}>{searched.filter(item.match).length}</Box>
+          </ToggleButton>)}
+        </ToggleButtonGroup>
+        <TextField select SelectProps={{ native: true }} label="Sort schedules" size="small" value={sort} onChange={event => setSort(event.target.value)} sx={{ width: 128 }}>
+          <option value="next">Next run</option><option value="name">Name</option>
+        </TextField>
       </Stack>
-    </Stack>
-    {loading && <LinearProgress aria-label="Loading schedules" />}
-    {error && <Alert severity="error" sx={{ mx: 2, mb: 2 }}>{error}</Alert>}
-    <Box aria-hidden sx={{ display: 'none', [table]: { display: 'grid' }, gridTemplateColumns: columns, columnGap: 2, px: 2, py: 1, borderTop: 1, borderColor: 'divider',
-      ...columnHeading }}>
-      <span>Experiment</span><span>Repeats</span><span>Next run</span><span>Last run</span><span>Status</span>
-    </Box>
-    <List aria-label={`Schedules (${visible.length})`} disablePadding sx={{ overflow: 'auto', flex: 1, minHeight: 0, borderTop: 1, borderColor: 'divider' }}>
-      {visible.map(schedule => {
-        const state = scheduleState(schedule);
-        const current = selected?.schedule_id === schedule.schedule_id;
-        return <ListItemButton key={schedule.schedule_id}
-          aria-label={`Open ${schedule.experiment_name}`} aria-current={current ? 'true' : undefined}
-          selected={current} onClick={() => onSelect(schedule)}
-          sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', [table]: { gridTemplateColumns: columns, alignItems: 'center' },
-            columnGap: 2, rowGap: 0.25, alignItems: 'start', borderBottom: 1, borderColor: 'divider', py: 1.25, px: 2 }}>
-          <Box sx={{ minWidth: 0 }}>
-            <Typography sx={{ fontSize: 14, fontWeight: 500, overflowWrap: 'anywhere' }}>{schedule.experiment_name}</Typography>
-            <Typography sx={{ fontFamily: fontMono, fontSize: 12, color: 'text.secondary', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{schedule.experiment_path}</Typography>
-            <Typography sx={{ ...muted, mt: 0.5, [table]: { display: 'none' } }}>
-              {schedule.next_run ? `Next ${dayTime(schedule.next_run)}` : 'No next run'} · {repeatLabel(schedule)}
-            </Typography>
-          </Box>
-          <Typography sx={{ ...muted, display: 'none', [table]: { display: 'block' } }}>{repeatLabel(schedule)}</Typography>
-          <Typography sx={{ ...muted, display: 'none', [table]: { display: 'block' }, color: 'text.primary' }}>{schedule.next_run ? dayTime(schedule.next_run) : '—'}</Typography>
-          <Typography sx={{ ...muted, display: 'none', [table]: { display: 'block' } }}>{schedule.last_run ? dayTime(schedule.last_run) : '—'}</Typography>
-          <Box sx={{ gridRow: { xs: 1 }, gridColumn: { xs: 2 }, [table]: { gridRow: 'auto', gridColumn: 'auto' } }}><StatusChip tone={state.tone} label={state.label} /></Box>
-        </ListItemButton>;
-      })}
-      {!visible.length && !loading && <Typography sx={{ p: 2, color: 'text.secondary' }}>No schedules found.</Typography>}
-    </List>
-  </Stack>;
+      {loading && <LinearProgress aria-label="Loading schedules" />}
+      {error && <Alert severity="error" sx={{ m: 2 }}>{error}</Alert>}
+      <Box aria-hidden sx={{ display: 'none', [table]: { display: 'grid' }, gridTemplateColumns: columns, columnGap: 2, alignItems: 'center', height: layout.row, flexShrink: 0, px: 2,
+        borderBottom: 1, borderColor: 'surface.rowLine', ...columnHeading }}>
+        <span>Experiment</span><span>Repeats</span><span>Next run</span><span>Last run</span><span>Status</span>
+      </Box>
+      <List aria-label={`Schedules (${visible.length})`} disablePadding sx={{ overflow: 'auto', flex: 1, minHeight: 0 }}>
+        {visible.map(schedule => {
+          const state = scheduleState(schedule);
+          const current = selected?.schedule_id === schedule.schedule_id;
+          return <ListItemButton key={schedule.schedule_id}
+            aria-label={`Open ${schedule.experiment_name}`} aria-current={current ? 'true' : undefined}
+            selected={current} onClick={() => onSelect(schedule)}
+            sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', [table]: { gridTemplateColumns: columns, height: 56 },
+              columnGap: 2, rowGap: 0.25, alignItems: 'center', minHeight: 56, borderBottom: 1, borderColor: 'surface.rowLine', py: 1, px: 2 }}>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography sx={{ fontSize: 13, lineHeight: '20px', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{schedule.experiment_name}</Typography>
+              <Typography sx={{ fontFamily: fontMono, fontSize: 12, lineHeight: '16px', color: 'text.secondary', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{schedule.experiment_path}</Typography>
+              <Typography sx={{ ...muted, mt: 0.5, [table]: { display: 'none' } }}>
+                {schedule.next_run ? `Next ${dayTime(schedule.next_run)}` : 'No next run'} · {repeatLabel(schedule)}
+              </Typography>
+            </Box>
+            <Typography sx={{ ...muted, display: 'none', [table]: { display: 'block' } }}>{repeatLabel(schedule)}</Typography>
+            <Typography sx={{ ...muted, display: 'none', [table]: { display: 'block' }, fontFamily: fontMono, fontSize: 12, color: 'text.primary' }}>{schedule.next_run ? dayTime(schedule.next_run) : '—'}</Typography>
+            <Typography sx={{ ...muted, display: 'none', [table]: { display: 'block' }, fontFamily: fontMono, fontSize: 12 }}>{schedule.last_run ? dayTime(schedule.last_run) : '—'}</Typography>
+            <Box sx={{ gridRow: { xs: 1 }, gridColumn: { xs: 2 }, [table]: { gridRow: 'auto', gridColumn: 'auto' } }}><StatusChip tone={state.tone} label={state.label} /></Box>
+          </ListItemButton>;
+        })}
+        {!visible.length && !loading && <Typography variant="body2" sx={{ p: 2, color: 'text.secondary' }}>No schedules found.</Typography>}
+      </List>
+    </Panel>
+  </Box>;
 }

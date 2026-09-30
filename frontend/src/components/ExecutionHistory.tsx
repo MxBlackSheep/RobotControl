@@ -2,7 +2,6 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   Box,
   Button,
-  Card,
   Typography,
   Table,
   TableBody,
@@ -19,7 +18,6 @@ import {
   FormControl,
   InputLabel,
   Stack,
-  Divider,
   TextField,
   Switch,
   FormControlLabel
@@ -38,6 +36,7 @@ import { useSerialPolling } from '../hooks/useSerialPolling';
 import StatusDialog from './StatusDialog';
 import StatusChip from './StatusChip';
 import { dayTime } from '../utils/displayTime';
+import { Panel } from './PageLayout';
 import { columnHeading } from '../theme';
 import { executionTone } from './scheduling/executionStatus';
 
@@ -330,12 +329,16 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
   };
 
   return (
-    <Card variant="outlined">
-      <Box sx={{ p: 1.5 }}>
+    <Panel title="Execution history" inset={false}
+      headerExtra={<Typography variant="caption" color="text.secondary" sx={{ display: { xs: 'none', sm: 'block' }, whiteSpace: 'nowrap' }}>Showing {filteredExecutions.length} of {executions.length} executions</Typography>}
+      actions={<>
+        <FormControlLabel sx={{ mr: 0, '& .MuiFormControlLabel-label': { fontSize: 13 } }} control={<Switch size="small" checked={autoRefresh} onChange={(event) => setAutoRefresh(event.target.checked)} />} label="Auto refresh" />
+        <Button size="small" startIcon={<RefreshIcon />} onClick={loadExecutionHistory} disabled={loading}>Refresh</Button>
+      </>}>
+      <Box sx={{ px: 2, py: 1.5, borderBottom: 1, borderColor: 'surface.rowLine' }}>
         <Stack direction="row" gap={1} flexWrap="wrap" alignItems="center">
-          <TextField size="small" label="Search history" value={search} onChange={event => setSearch(event.target.value)} sx={{ flex: '1 1 140px' }} />
-          <Button aria-expanded={filtersOpen} onClick={() => setFiltersOpen(value => !value)}>Filters</Button>
-          <Button startIcon={<RefreshIcon />} onClick={loadExecutionHistory} disabled={loading}>Refresh</Button>
+          <TextField size="small" label="Search history" value={search} onChange={event => setSearch(event.target.value)} sx={{ flex: '1 1 140px', maxWidth: 480 }} />
+          <Button variant="outlined" aria-expanded={filtersOpen} onClick={() => setFiltersOpen(value => !value)}>Filters</Button>
         </Stack>
         <Collapse in={filtersOpen}>
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} flexWrap="wrap" alignItems={{ xs: 'stretch', md: 'center' }} sx={{ mt: 1 }}>
@@ -404,24 +407,6 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
         </Stack>
 
         </Collapse>
-        <Divider sx={{ my: 1 }} />
-
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ xs: 'flex-start', sm: 'center' }}>
-          <Typography variant="body2" color="text.secondary">
-            Showing {filteredExecutions.length} of {executions.length} executions
-          </Typography>
-
-          <FormControlLabel
-            control={
-              <Switch
-                size="small"
-                checked={autoRefresh}
-                onChange={(event) => setAutoRefresh(event.target.checked)}
-              />
-            }
-            label="Auto refresh"
-          />
-        </Stack>
       </Box>
 
       {/* Error Display */}
@@ -439,7 +424,7 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
         sx={{
           maxHeight,
           overflowY: 'auto',
-          borderTop: 1, borderColor: 'divider', borderRadius: '0 0 8px 8px',
+
           '& .MuiTableCell-root': { py: 1 },
           '& .MuiTableCell-head': { bgcolor: 'background.paper', ...columnHeading },
         }}
@@ -562,7 +547,7 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
           </TableBody>
         </Table>
       </TableContainer>
-    </Card>
+    </Panel>
   );
 };
 

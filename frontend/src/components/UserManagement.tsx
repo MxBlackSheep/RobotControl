@@ -2,8 +2,6 @@ import React, { useEffect, useState } from 'react';
 import {
   Alert,
   Box,
-  Card,
-  CardContent,
   Dialog,
   DialogActions,
   DialogContent,
@@ -26,7 +24,8 @@ import {
 } from '@mui/icons-material';
 import { adminAPI } from '../services/api';
 import StatusChip from './StatusChip';
-import { columnHeading, fontMono } from '../theme';
+import { columnHeading, fontMono, layout } from '../theme';
+import { Panel } from './PageLayout';
 import { dayTime } from '../utils/displayTime';
 
 // Wide enough for the table columns; narrower cards stack each account.
@@ -254,19 +253,16 @@ const UserManagement: React.FC<UserManagementProps> = ({ onError, section }) => 
   };
 
   return (
-    <Stack spacing={3}>
-      <Card variant="outlined" sx={{display: section === 1 ? 'none' : undefined, containerType: 'inline-size', containerName: 'users'}}>
-        <CardContent>
-          <Stack direction="row" alignItems="center" gap={1.5} flexWrap="wrap" sx={{ mb: 1.5 }}>
-            <Typography component="h2" variant="h6">User accounts</Typography>
-            <TextField size="small" label="Find a user" value={userQuery} onChange={event => setUserQuery(event.target.value)} sx={{ flex: '1 1 200px', maxWidth: 320 }} />
-            <Box sx={{ flex: 1 }} />
-            <Typography variant="body2" color="text.secondary">{users.length} {users.length === 1 ? 'account' : 'accounts'}</Typography>
-            <Button startIcon={<RefreshIcon />} onClick={loadUsers} disabled={userLoading}>Refresh</Button>
-          </Stack>
+    <Stack spacing={`${layout.gutter}px`}>
+      <Panel title="User accounts" inset={false} sx={{ display: section === 1 ? 'none' : undefined, containerType: 'inline-size', containerName: 'users' }}
+        headerExtra={<Typography variant="caption" color="text.secondary">{users.length} {users.length === 1 ? 'account' : 'accounts'}</Typography>}
+        actions={<Button size="small" startIcon={<RefreshIcon />} onClick={loadUsers} disabled={userLoading}>Refresh</Button>}>
+          <Box sx={{ px: 2, py: 1.5, borderBottom: 1, borderColor: 'surface.rowLine' }}>
+            <TextField size="small" label="Find a user" value={userQuery} onChange={event => setUserQuery(event.target.value)} sx={{ width: '100%', maxWidth: 320 }} />
+          </Box>
 
           {feedback && (
-            <Alert severity="warning" sx={{ mb: 2 }}>
+            <Alert severity="warning" sx={{ m: 2 }}>
               {feedback}
             </Alert>
           )}
@@ -275,30 +271,30 @@ const UserManagement: React.FC<UserManagementProps> = ({ onError, section }) => 
             <LinearProgress />
           ) : (
             <Box role="list" aria-label="User accounts">
-              <Box aria-hidden sx={{ display: 'none', [userTable]: { display: 'grid' }, gridTemplateColumns: userColumns, columnGap: 2, py: 1, borderBottom: 1, borderColor: 'divider',
+              <Box aria-hidden sx={{ display: 'none', [userTable]: { display: 'grid' }, gridTemplateColumns: userColumns, columnGap: 2, alignItems: 'center', height: layout.row, px: 2, borderBottom: 1, borderColor: 'surface.rowLine',
                 ...columnHeading }}>
                 <span>Username</span><span>Email</span><span>Role</span><span>Last login</span><span />
               </Box>
               {visibleUsers.map((user) => (
                 <Box role="listitem" key={user.username} sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', [userTable]: { gridTemplateColumns: userColumns }, columnGap: 2, rowGap: 0.25,
-                  alignItems: 'center', py: 1, borderBottom: 1, borderColor: 'divider', fontSize: 14, minWidth: 0 }}>
+                  alignItems: 'center', minHeight: layout.row, px: 2, py: 0.5, borderBottom: 1, borderColor: 'surface.rowLine', fontSize: 13, minWidth: 0 }}>
                   <Box sx={{ minWidth: 0 }}>
-                    <Typography sx={{ fontFamily: fontMono, fontSize: 14, fontWeight: 500, overflowWrap: 'anywhere' }}>{user.username}</Typography>
+                    <Typography sx={{ fontFamily: fontMono, fontSize: 13, fontWeight: 500, overflowWrap: 'anywhere' }}>{user.username}</Typography>
                     <Typography sx={{ fontSize: 13, color: 'text.secondary', overflowWrap: 'anywhere', [userTable]: { display: 'none' } }}>
                       {user.email || 'No email'} · {user.role} · {user.last_login ? `Last login ${dayTime(user.last_login)}` : 'Never signed in'}
                     </Typography>
                   </Box>
-                  <Typography sx={{ display: 'none', [userTable]: { display: 'block' }, fontSize: 14, color: user.email ? 'text.primary' : 'text.secondary', overflowWrap: 'anywhere' }}>{user.email || '—'}</Typography>
+                  <Typography sx={{ display: 'none', [userTable]: { display: 'block' }, fontSize: 13, color: user.email ? 'text.primary' : 'text.secondary', overflowWrap: 'anywhere' }}>{user.email || '—'}</Typography>
                   <Box sx={{ display: 'none', [userTable]: { display: 'block' } }}><StatusChip tone={user.role === 'admin' ? 'running' : 'neutral'} label={user.role} /></Box>
                   <Typography sx={{ display: 'none', [userTable]: { display: 'block' }, fontSize: 13, color: 'text.secondary' }} title={`Created ${formatTimestamp(user.created_at)}`}>{user.last_login ? dayTime(user.last_login) : 'Never'}</Typography>
                   <Stack direction="row" alignItems="center" justifyContent="flex-end">
                     <Tooltip title="Edit email">
-                      <IconButton onClick={() => openEmailEditor(user)} aria-label={`Edit email for ${user.username}`}>
+                      <IconButton size="small" onClick={() => openEmailEditor(user)} aria-label={`Edit email for ${user.username}`}>
                         <EditIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
                     <Tooltip title="Delete user">
-                      <IconButton onClick={() => openDeleteConfirmation(user.username)} aria-label={`Delete ${user.username}`}>
+                      <IconButton size="small" onClick={() => openDeleteConfirmation(user.username)} aria-label={`Delete ${user.username}`}>
                         <DeleteIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
@@ -307,33 +303,27 @@ const UserManagement: React.FC<UserManagementProps> = ({ onError, section }) => 
               ))}
 
               {visibleUsers.length === 0 && (
-                <Typography sx={{ py: 2, color: 'text.secondary' }}>{users.length ? 'No users match this search.' : 'No users found.'}</Typography>
+                <Typography variant="body2" sx={{ p: 2, color: 'text.secondary' }}>{users.length ? 'No users match this search.' : 'No users found.'}</Typography>
               )}
             </Box>
           )}
-        </CardContent>
-      </Card>
+      </Panel>
 
-      <Card variant="outlined" sx={{display: section === 0 ? 'none' : undefined}}>
-        <CardContent>
-          <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.5 }}>
-            <Typography component="h2" variant="h6">Password reset requests</Typography>
-            <Button startIcon={<RefreshIcon />} onClick={loadPasswordResetRequests} disabled={requestsLoading}>Refresh</Button>
-          </Stack>
-
+      <Panel title="Password reset requests" inset={false} sx={{ display: section === 0 ? 'none' : undefined }}
+        actions={<Button size="small" startIcon={<RefreshIcon />} onClick={loadPasswordResetRequests} disabled={requestsLoading}>Refresh</Button>}>
 
           {requestsLoading ? (
             <LinearProgress />
           ) : (
             <List disablePadding>
               {resetRequests.map((request) => (
-                <ListItem key={request.id} divider alignItems="flex-start" sx={{ gap: 1, flexWrap: "wrap", px: 0 }}>
+                <ListItem key={request.id} divider alignItems="flex-start" sx={{ gap: 1, flexWrap: "wrap", px: 2, py: 1.5, borderColor: 'surface.rowLine' }}>
                   <ListItemText
                     sx={{ flex: "1 1 240px", minWidth: 0, overflowWrap: "anywhere" }}
                     primaryTypographyProps={{ component: "div" }} secondaryTypographyProps={{ component: "div" }}
                     primary={
                       <Stack spacing={0.5}>
-                        <Typography variant="subtitle1" fontWeight={600}>
+                        <Typography sx={{ fontSize: 14, fontWeight: 600 }}>
                           <Box component="span" sx={{ fontFamily: fontMono }}>{request.username}</Box>
                         </Typography>
                         <Typography variant="body2" color="text.secondary">
@@ -367,14 +357,13 @@ const UserManagement: React.FC<UserManagementProps> = ({ onError, section }) => 
               ))}
 
               {resetRequests.length === 0 && (
-                <ListItem>
-                  <ListItemText primary="No password reset requests at this time." />
+                <ListItem sx={{ px: 2 }}>
+                  <ListItemText primary="No password reset requests at this time." primaryTypographyProps={{ variant: 'body2', color: 'text.secondary' }} />
                 </ListItem>
               )}
             </List>
           )}
-        </CardContent>
-      </Card>
+      </Panel>
 
       <Dialog
         open={emailDialog.open}

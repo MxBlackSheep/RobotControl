@@ -28,6 +28,8 @@ import {
   ArrowUpward,
   ArrowDownward,
 } from "@mui/icons-material";
+import { PanelLabel } from "./PageLayout";
+import { layout } from "../theme";
 import LiveFrame, { FrameFreshness, type FrameStore } from "./LiveFrame";
 
 interface CameraViewportProps {
@@ -241,25 +243,27 @@ export default function CameraViewport({
         overflow: expanded ? "auto" : "visible",
       }}
     >
-      <Box ref={toolbarRef} sx={{ p: { xs: 1, sm: 1.5 }, flexShrink: 0 }}>
+      <Box ref={toolbarRef} sx={{ flexShrink: 0 }}>
+        {/* Header band as on every panel: label, then the expand/close action. */}
         <Stack
           direction="row"
           alignItems="center"
           justifyContent="space-between"
           gap={1}
+          sx={{ minHeight: layout.header, px: 2, bgcolor: "surface.head", borderBottom: 1, borderColor: "surface.headLine" }}
         >
-          <Typography
+          <PanelLabel
             component={expanded ? "h2" : "h3"}
-            variant="h6"
             id={expanded ? "camera-inspection-title" : undefined}
           >
             Live camera inspection
-          </Typography>
+          </PanelLabel>
           {expanded ? (
             <Tooltip title="Close expanded view">
               <IconButton
                 aria-label="Close expanded view"
                 onClick={closeExpanded}
+                size="small"
                 sx={touchTarget}
               >
                 <Close />
@@ -271,6 +275,7 @@ export default function CameraViewport({
                 ref={expandRef}
                 aria-label="Expand live view"
                 onClick={() => setExpanded(true)}
+                size="small"
                 sx={touchTarget}
               >
                 <Fullscreen />
@@ -278,6 +283,7 @@ export default function CameraViewport({
             </Tooltip>
           )}
         </Stack>
+        <Box sx={{ px: 2, pt: 1.5, pb: 1.5 }}>
         <Typography variant="body2" aria-live="polite" sx={{ mb: 1 }}>
           {summary}
         </Typography>
@@ -426,6 +432,7 @@ export default function CameraViewport({
             Cropped view
           </Typography>
         )}
+        </Box>
       </Box>
       <Box
         ref={areaRef}
@@ -543,7 +550,7 @@ export default function CameraViewport({
           )}
         </Box>
       </Box>
-      <Box sx={{ px: 1.5, py: 0.5, flexShrink: 0 }}>
+      <Box sx={{ display: "flex", alignItems: "center", minHeight: layout.header, px: 2, flexShrink: 0, borderTop: 1, borderColor: "surface.headLine" }}>
         <FrameFreshness store={store} inline />
       </Box>
     </Box>

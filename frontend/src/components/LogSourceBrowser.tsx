@@ -12,7 +12,6 @@ import {
   ListItemButton,
   ListItemText,
   MenuItem,
-  Paper,
   Stack,
   TablePagination,
   TextField,
@@ -29,7 +28,7 @@ import {
   BrowseOptions,
 } from "../services/logFileApi";
 import InspectionWorkspace from "./InspectionWorkspace";
-import { EmptyPanel } from "./PageLayout";
+import { EmptyPanel, Panel } from "./PageLayout";
 import LogReader, { LogSelection } from "./LogReader";
 import { fontMono } from "../theme";
 type Location = { folder: string; archive: string; entry: string };
@@ -183,23 +182,19 @@ export default function LogSourceBrowser({
     .filter(Boolean);
   const hasShortcuts = !!source.shortcuts?.length;
   const selector = (
-    <Paper
-      variant="outlined"
-      sx={{
-        display: "flex",
-        flexDirection: "column",
-        flex: 1,
-        minHeight: 0,
-        overflow: "hidden",
-        borderRadius: 2,
-      }}
+    <Panel
+      title="Files"
+      fill
+      inset={false}
+      sx={{ flex: 1 }}
+      bodySx={{ display: "flex", flexDirection: "column" }}
     >
       <Stack
         direction="row"
         gap={0.5}
         flexWrap="wrap"
         alignItems="center"
-        sx={{ px: 1, pt: 1 }}
+        sx={{ px: 1.5, py: 0.5, minHeight: 40, borderBottom: 1, borderColor: "surface.rowLine" }}
       >
         {hasShortcuts && <ButtonGroup size="small" variant="outlined" aria-label="Log folders">
           {source.shortcuts.map((shortcut) => (
@@ -293,7 +288,7 @@ export default function LogSourceBrowser({
           e.preventDefault();
           query({ search: search.trim() });
         }}
-        sx={{ display: "flex", gap: 0.5, p: 1 }}
+        sx={{ display: "flex", gap: 0.5, px: 1.5, pt: 1.5, pb: 1 }}
       >
         <TextField
           size="small"
@@ -305,7 +300,7 @@ export default function LogSourceBrowser({
           InputProps={{ endAdornment: <InputAdornment position="end"><IconButton type="submit" edge="end" aria-label="Search"><SearchIcon fontSize="small" /></IconButton></InputAdornment> }}
         />
       </Box>
-      <Stack direction="row" gap={0.5} sx={{ px: 1, pb: 1 }}>
+      <Stack direction="row" gap={0.5} sx={{ px: 1.5, pb: 1.5, borderBottom: 1, borderColor: "surface.rowLine" }}>
         <TextField
           select
           size="small"
@@ -438,7 +433,7 @@ export default function LogSourceBrowser({
           "& .MuiTablePagination-spacer": { display: "none" },
         }}
       />
-    </Paper>
+    </Panel>
   );
   return (
     <>

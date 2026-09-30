@@ -36,7 +36,8 @@ export function PageHeader({ title, description, actions }: { title: string; des
                 <Box component="span" aria-label="requires attention" sx={{ minWidth: 18, height: 18, px: 0.5, borderRadius: 9, bgcolor: 'attentionSurface.action', color: 'attentionSurface.actionText', fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{attention.kind === 'recovery' ? attention.count : '!'}</Box></Box>
             : section.label} />)}
       </Tabs>}
-      {actions && <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap" sx={{ ml: 'auto' }}>{actions}</Stack>}
+      {/* On phones the actions wrap below the title and start at the page edge like everything else. */}
+      {actions && <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap" sx={{ ml: { xs: 0, sm: 'auto' } }}>{actions}</Stack>}
     </Box>
     {description && <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>{description}</Typography>}
   </Box>;
@@ -56,8 +57,8 @@ export function PageGrid({ children, rows, sx }: { children: React.ReactNode; ro
 }
 
 /** The 11px uppercase label that names a panel or a column. */
-export function PanelLabel({ children, component = 'h2', tone }: { children: React.ReactNode; component?: React.ElementType; tone?: 'attention' }) {
-  return <Typography component={component} variant="overline" sx={{ display: 'block', textTransform: 'uppercase', whiteSpace: 'nowrap', color: tone === 'attention' ? 'attentionSurface.text' : 'surface.label' }}>{children}</Typography>;
+export function PanelLabel({ children, component = 'h2', tone, id }: { children: React.ReactNode; component?: React.ElementType; tone?: 'attention'; id?: string }) {
+  return <Typography component={component} id={id} variant="overline" sx={{ display: 'block', textTransform: 'uppercase', whiteSpace: 'nowrap', color: tone === 'attention' ? 'attentionSurface.text' : 'surface.label' }}>{children}</Typography>;
 }
 
 /** A panel's 40px header band: label, then anything else, with actions at the end. */
@@ -111,9 +112,12 @@ export function DetailTitle({ children, component = 'h2' }: { children: React.Re
   return <Typography component={component} sx={{ fontSize: 20, fontWeight: 600, lineHeight: '28px', overflowWrap: 'anywhere', minWidth: 0 }}>{children}</Typography>;
 }
 
-/** A detail panel with nothing chosen yet: a plain prompt inside the panel shape, not an alert. */
-export function EmptyPanel({ children }: { children: React.ReactNode }) {
-  return <Box sx={{ flex: 1, p: `${layout.inset}px`, bgcolor: 'background.paper', border: 1, borderColor: 'divider', borderRadius: `${layout.radius}px` }}>
+/**
+ * A detail panel with nothing chosen yet: a plain prompt, not an alert. It has the same 40px header
+ * band as the list panel beside it, so both tops line up.
+ */
+export function EmptyPanel({ children, title = 'Details' }: { children: React.ReactNode; title?: string }) {
+  return <Panel title={title} fill sx={{ flex: 1 }}>
     <Typography variant="body2" color="text.secondary">{children}</Typography>
-  </Box>;
+  </Panel>;
 }

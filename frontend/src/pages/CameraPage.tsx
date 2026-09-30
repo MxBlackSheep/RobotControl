@@ -26,6 +26,7 @@ import VideoArchiveTab, {
   type ExperimentFolder
 } from '../components/camera/VideoArchiveTab';
 import RecentRecordings from '../components/camera/RecentRecordings';
+import { layout } from '../theme';
 
 interface StreamingSession {
   session_id: string;
@@ -607,7 +608,7 @@ const CameraPage: React.FC = () => {
 
       {/* The viewer owns display transforms only; camera controls keep polling beside or below it. */}
       <SectionPanel active={currentTab === 0}>
-        <Box sx={{ display: 'grid', gap: 2, alignItems: 'start', gridTemplateColumns: sideBySide ? 'minmax(0, 1fr) 360px' : 'minmax(0, 1fr)' }}>
+        <Box sx={{ display: 'grid', gap: `${layout.gutter}px`, alignItems: 'start', gridTemplateColumns: sideBySide ? 'minmax(0, 1fr) 360px' : 'minmax(0, 1fr)' }}>
         <Box sx={{ minWidth: 0 }}>
         <CameraViewport
           store={frameStore}
@@ -635,12 +636,12 @@ const CameraPage: React.FC = () => {
           </>}
         />
         {/* Beside the image the column has room below the controls; narrower screens list them under the image. */}
-        {!sideBySide && <Box sx={{ mt: 2 }}>{recentRecordings}</Box>}
+        {!sideBySide && <Box sx={{ mt: `${layout.gutter}px` }}>{recentRecordings}</Box>}
         </Box>
-        <Stack spacing={2} sx={{ minWidth: 0 }}>
+        <Stack spacing={`${layout.gutter}px`} sx={{ minWidth: 0 }}>
         <CameraControls active={currentTab === 0} admin={user?.role === 'admin'} collapsible={!sideBySide} onSourceChange={handleSourceChange} onSummaryChange={setCameraSummary} />
         {mySession && <Box component="details" sx={{ color: 'text.secondary', fontSize: '0.875rem', '& summary': { cursor: 'pointer', minHeight: 44, display: 'flex', alignItems: 'center' },
-          ...(sideBySide && { px: 2, py: 0.5, bgcolor: 'background.paper', border: 1, borderColor: 'divider', borderRadius: 2 }) }}>
+          ...(sideBySide && { px: 2, py: 0.5, bgcolor: 'background.paper', border: 1, borderColor: 'divider', borderRadius: `${layout.radius}px` }) }}>
           <summary>Live view details</summary>
           <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>Session ID: {mySession.session_id}</Typography>
           <Button onClick={() => void loadStreamingStatus()} sx={{ minHeight: 44 }}>Refresh view status</Button>

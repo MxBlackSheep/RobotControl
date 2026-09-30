@@ -1,5 +1,6 @@
 import StatusChip from './StatusChip';
-import type { StatusTone } from '../theme';
+import { layout, type StatusTone } from '../theme';
+import { Panel } from './PageLayout';
 import { useEffect, useRef, useState } from 'react';
 import { isAxiosError } from 'axios';
 import { Alert, Box, Button, Collapse, MenuItem, Stack, TextField, Typography } from '@mui/material';
@@ -114,27 +115,22 @@ export default function CameraControls({ admin, onSourceChange, collapsible = fa
     tone: (health?.recording_state === 'recording' ? 'running' : health?.recording_state === 'error' ? 'fault' : 'neutral') as StatusTone };
   const cameraChip = { label: cameraStateLabels[health?.capture_state ?? ''] ?? 'Checking',
     tone: (health?.capture_state === 'connected' ? 'completed' : health?.capture_state === 'error' ? 'fault' : health?.capture_state === 'disconnected' ? 'attention' : 'neutral') as StatusTone };
-  // Beside the image the two groups are cards; below it on phones they share one collapsible panel.
-  const group = !collapsible ? { p: 2, bgcolor: 'background.paper', border: 1, borderColor: 'divider', borderRadius: 2 } : {};
-  const heading = (title: string, chip: { label: string; tone: StatusTone }) => <Stack direction="row" alignItems="center" justifyContent="space-between" gap={1}>
-    <Typography component="h2" variant="h6">{title}</Typography><StatusChip tone={chip.tone} label={chip.label} />
-  </Stack>;
-  return <Stack spacing={collapsible ? 1 : 2} sx={{ my: collapsible ? 2 : 0, '& button': { minHeight: 44 } }}>
+  // Both groups are panels; beside the image they stand alone, below it on phones they collapse together.
+  const bodySx = { display: 'flex', flexDirection: 'column', gap: 1.5 } as const;
+  return <Stack spacing={1} sx={{ my: collapsible ? `${layout.gutter}px` : 0 }}>
     {collapsible && <Button aria-expanded={detailsOpen} aria-controls="camera-settings-panel" onClick={() => setDetailsOpen(value => !value)} sx={{ alignSelf: 'flex-start' }}>Camera and recording settings</Button>}
     {!onSummaryChange && <Typography aria-live="polite">{summary}</Typography>}
     {!onSummaryChange && error && <Alert severity="warning">{error}</Alert>}
     <Collapse in={!collapsible || detailsOpen} unmountOnExit={false}>
-    <Stack id="camera-settings-panel" spacing={2} sx={{ p: collapsible ? 2 : 0, border: collapsible ? 1 : 0, borderColor: 'divider', borderRadius: 1 }}>
-      <Stack component="section" aria-label="Recording" spacing={1.5} sx={group}>
-        {heading('Recording', recordingChip)}
+    <Stack id="camera-settings-panel" spacing={`${layout.gutter}px`}>
+      <Panel title="Recording" actions={<StatusChip tone={recordingChip.tone} label={recordingChip.label} />} bodySx={bodySx}>
         {admin ? <Box sx={buttonGrid}>
           <Button variant="outlined" disabled={pending || !saved || changed || health?.recording_state === 'recording'}
             onClick={() => void act('recording/start')}>Start recording</Button>
           <Button variant="outlined" disabled={pending || !recordingRequested} onClick={() => void act('recording/stop')}>Stop recording</Button>
         </Box> : <Typography variant="body2" color="text.secondary">An administrator can start or stop recording.</Typography>}
-      </Stack>
-      <Stack component="section" aria-label="Camera" spacing={1.5} sx={{ ...group, ...(collapsible && { borderTop: 1, borderColor: 'divider', pt: 2 }) }}>
-        {heading('Camera', cameraChip)}
+      </Panel>
+      <Panel title="Camera" actions={<StatusChip tone={cameraChip.tone} label={cameraChip.label} />} bodySx={bodySx}>
         <Typography variant="body2" color="text.secondary">Camera changes affect recording and every live viewer.</Typography>
         <TextField select fullWidth label="Selected camera" value={selection}
           disabled={!admin || pending || selectionLocked}
@@ -158,7 +154,7 @@ export default function CameraControls({ admin, onSourceChange, collapsible = fa
         <Typography variant="caption" color="text.secondary">
           Reconnect briefly interrupts all viewers and may leave the current clip incomplete.
         </Typography>
-      </Stack>
+      </Panel>
       {pending && <Typography role="status">Camera operation in progress…</Typography>}
     </Stack>
     </Collapse>
