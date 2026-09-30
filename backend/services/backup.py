@@ -843,30 +843,23 @@ class BackupService:
                 message=f"Description too long (max {MAX_DESCRIPTION_LENGTH} characters)"
             )
         
-        # Generate backup filename
-        start_time = datetime.now()
-        backup_filename = generate_backup_filename(self.database_name, start_time)
-        
-        # Use single path approach like PyQt5 (simpler and more reliable)
-        backup_file_path = os.path.join(self.backup_dir, backup_filename)
-        metadata_file_path = backup_file_path.replace('.bak', '.json')
+        backup_file_path = None
 
         # Use comprehensive operation tracking
         with operation_tracker('backup_create', {
-            'filename': backup_filename,
             'database': self.database_name,
             'server': self.sql_server,
             'description_length': len(description)
         }) as metrics:
-            
+
             try:
-                # Validate paths
-                backup_file_path = validate_file_path(backup_file_path)
-                validate_file_path(metadata_file_path)
-                
-                logger.debug(f"Backup paths validated - File: {backup_file_path}")
-                
                 with self._operation_lock:
+                    # Chosen under the lock, when the backup starts: overlapping creates must not share a name.
+                    backup_filename = self._unused_backup_filename()
+                    backup_file_path = validate_file_path(os.path.join(self.backup_dir, backup_filename))
+                    validate_file_path(backup_file_path.replace('.bak', '.json'))
+                    logger.debug(f"Backup paths validated - File: {backup_file_path}")
+
                     # Check available disk space
                     try:
                         available_space = get_available_disk_space(self.backup_dir)
@@ -898,22 +891,23 @@ class BackupService:
                     # Verify backup file was created and get size
                     if not os.path.exists(backup_file_path):
                         raise BackupOperationError("Backup file was not created by SQL Server", "FILE_NOT_CREATED")
-                
-                # Get file size and update metrics
-                file_size = os.path.getsize(backup_file_path)
-                metrics.file_size_bytes = file_size
-                
-                logger.info("Backup file created: %s", format_file_size(file_size))
-                
-                # Save metadata alongside the backup
-                self._metadata_store.save(
-                    backup_filename,
-                    description.strip(),
-                    self.database_name,
-                    self.sql_server,
-                    file_size
-                )
-                
+
+                    # Get file size and update metrics
+                    file_size = os.path.getsize(backup_file_path)
+                    metrics.file_size_bytes = file_size
+
+                    logger.info("Backup file created: %s (%s)", backup_filename, format_file_size(file_size))
+
+                    # Save metadata alongside the backup, still under the lock so a delete cannot
+                    # run between the .bak and its .json.
+                    self._metadata_store.save(
+                        backup_filename,
+                        description.strip(),
+                        self.database_name,
+                        self.sql_server,
+                        file_size
+                    )
+
                 # operation_tracker will log success automatically
                 return BackupResult(
                     success=True,
@@ -931,6 +925,17 @@ class BackupService:
                 logger.debug(f"Backup operation context - File: {backup_file_path}, Description length: {len(description)}")
                 raise BackupOperationError(f"Unexpected error during backup: {str(e)}", "UNEXPECTED_ERROR")
     
+    def _unused_backup_filename(self) -> str:
+        """Call under _operation_lock. Names are per second and BACKUP ... WITH INIT overwrites,
+        so a name already on disk gets a _2, _3, ... suffix instead."""
+        base = generate_backup_filename(self.database_name)
+        name, attempt = base, 1
+        while any(os.path.exists(os.path.join(self.backup_dir, candidate))
+                  for candidate in (name, name.replace('.bak', '.json'))):
+            attempt += 1
+            name = base.replace('.bak', f'_{attempt}.bak')
+        return name
+
     def list_backups(self) -> List[BackupInfo]:
         """
         List all available backups with metadata
@@ -1148,33 +1153,35 @@ class BackupService:
             
             files_deleted = []
             errors = []
-            
-            # Delete backup file
-            if os.path.exists(backup_path):
-                try:
-                    os.remove(backup_path)
-                    files_deleted.append(filename)
-                    logger.info(f"Deleted backup file: {filename}")
-                except Exception as e:
-                    error_msg = f"Failed to delete backup file: {e}"
-                    logger.error(error_msg)
-                    errors.append(error_msg)
-            else:
-                logger.warning(f"Backup file not found: {filename}")
-            
-            # Delete metadata file
-            deleted_metadata, metadata_filename, metadata_error = self._metadata_store.delete_metadata_file(filename)
-            if deleted_metadata:
-                files_deleted.append(metadata_filename)
-                logger.info(f"Deleted metadata file: {metadata_filename}")
-            else:
-                if metadata_error:
-                    error_msg = f"Failed to delete metadata file: {metadata_error}"
-                    logger.error(error_msg)
-                    errors.append(error_msg)
+
+            # Wait for any running create or restore, which may be writing or reading this file.
+            with self._operation_lock:
+                # Delete backup file
+                if os.path.exists(backup_path):
+                    try:
+                        os.remove(backup_path)
+                        files_deleted.append(filename)
+                        logger.info(f"Deleted backup file: {filename}")
+                    except Exception as e:
+                        error_msg = f"Failed to delete backup file: {e}"
+                        logger.error(error_msg)
+                        errors.append(error_msg)
                 else:
-                    logger.warning(f"Metadata file not found: {metadata_filename}")
-            
+                    logger.warning(f"Backup file not found: {filename}")
+
+                # Delete metadata file
+                deleted_metadata, metadata_filename, metadata_error = self._metadata_store.delete_metadata_file(filename)
+                if deleted_metadata:
+                    files_deleted.append(metadata_filename)
+                    logger.info(f"Deleted metadata file: {metadata_filename}")
+                else:
+                    if metadata_error:
+                        error_msg = f"Failed to delete metadata file: {metadata_error}"
+                        logger.error(error_msg)
+                        errors.append(error_msg)
+                    else:
+                        logger.warning(f"Metadata file not found: {metadata_filename}")
+
             # Determine overall success
             if files_deleted and not errors:
                 return {

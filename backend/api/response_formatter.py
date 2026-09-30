@@ -146,7 +146,8 @@ class ResponseFormatter:
         error_code: str = "UNKNOWN_ERROR",
         details: Any = None,
         status_code: int = 500,
-        metadata: Optional[ResponseMetadata] = None
+        metadata: Optional[ResponseMetadata] = None,
+        data: Any = None
     ) -> JSONResponse:
         """
         Format an error API response.
@@ -157,6 +158,7 @@ class ResponseFormatter:
             details: Additional error details
             status_code: HTTP status code (default: 500)
             metadata: Optional response metadata or dictionary
+            data: Optional payload explaining the failure (e.g. a health report)
 
         Returns:
             JSONResponse with standard error format
@@ -164,7 +166,7 @@ class ResponseFormatter:
         response = {
             "success": False,
             "message": message,
-            "data": None,
+            "data": data,
             "error": {
                 "message": message,
                 "code": error_code
@@ -271,6 +273,23 @@ class ResponseFormatter:
             details=details,
             status_code=500,
             metadata=metadata
+        )
+
+    @staticmethod
+    def service_unavailable(
+        message: str = "Service temporarily unavailable",
+        details: Any = None,
+        data: Any = None,
+        metadata: Optional[ResponseMetadata] = None
+    ) -> JSONResponse:
+        """Format a service unavailable response (503)"""
+        return ResponseFormatter.error(
+            message=message,
+            error_code="SERVICE_UNAVAILABLE",
+            details=details,
+            status_code=503,
+            metadata=metadata,
+            data=data
         )
     
     @staticmethod

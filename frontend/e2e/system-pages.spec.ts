@@ -11,6 +11,10 @@ import { test, expect } from '@playwright/test';
 // Keyboard shortcuts:
 // - Alt+number stops navigating, or navigates while a dialog is open.
 // - ? no longer opens the help list, or the list disagrees with the shortcuts that work.
+// Unrelated 503s (the backend has no "database restarting" 503; restore success is checked
+// in database-restore.spec.ts):
+// - A camera or scheduler 503 opens "Database Maintenance In Progress", blocks later
+//   requests or Alt+number, or hides the caller's own message.
 
 test.beforeEach(async ({ page }) => { await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin')); });
 
@@ -101,6 +105,37 @@ test('administration gives storage health its own local section', async ({ page 
   await page.goto('/admin?section=storage');
   await expect(page.getByRole('heading', { name: 'Storage health', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'User Accounts', exact: true })).toHaveCount(0);
+});
+
+test('camera and scheduler 503s show their own errors without database maintenance', async ({ page }, info) => {
+  const schedulerDetail = 'Scheduler safety state unavailable. Review SQLite storage health and retry.';
+  let schedulerRequests = 0;
+  await page.route('**/api/monitoring/**', route => route.fulfill({ json: { data: [] } }));
+  await page.route('**/api/camera/streaming/status', route => route.fulfill({ status: 503, json: { detail: 'Streaming service unavailable' } }));
+  await page.route('**/api/scheduling/**', route => { schedulerRequests++; return route.fulfill({ status: 503, json: { detail: schedulerDetail } }); });
+  // Text, not role: a modal under the page's own error dialog is aria-hidden.
+  const maintenance = page.getByText('Database Maintenance In Progress');
+
+  // Scheduling uses the shared Axios client, whose interceptor once turned any 503 into maintenance.
+  await page.goto('/scheduling');
+  const serverError = page.getByRole('dialog', { name: 'Server Error' });
+  await expect(serverError).toContainText(schedulerDetail);
+  await expect(maintenance).toHaveCount(0);
+  await page.screenshot({ path: info.outputPath('scheduler-503.png'), animations: 'disabled' });
+  await serverError.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(serverError).toBeHidden();
+  // With the page's own error closed, no modal remains and shortcuts navigate.
+  await page.keyboard.press('Alt+6');
+  await expect(page).toHaveURL(/\/system-status$/);
+  await expect(page.getByText('Live view unavailable', { exact: true })).toBeVisible();
+  await expect(maintenance).toHaveCount(0);
+  await page.screenshot({ path: info.outputPath('camera-503.png'), animations: 'disabled' });
+  // Without a reload, later requests still reach the server instead of being held for maintenance.
+  const before = schedulerRequests;
+  await page.keyboard.press('Alt+7');
+  await expect(page).toHaveURL(/\/scheduling$/);
+  await expect.poll(() => schedulerRequests).toBeGreaterThan(before);
+  await expect(maintenance).toHaveCount(0);
 });
 
 test('keyboard shortcuts navigate, show their help and yield to dialogs', async ({ page }) => {

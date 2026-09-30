@@ -117,7 +117,7 @@ test('failed refresh retains table data and SQL copy failure is explained', asyn
   await page.goto('/database?section=tables');
   await page.getByRole('button', { name: /ViewerSamples Has data/ }).click();
   await expect(page.getByText('57 matching rows')).toBeVisible();
-  // 503 is the application's explicit database-maintenance signal; use a read error here.
+  // A plain read error, so the check is about retained rows rather than service outages.
   await page.route('**/api/database/tables/ViewerSamples?*', route => route.fulfill({ status: 500, json: { detail: 'Fixture read unavailable' } }));
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
   await expect(page.getByRole('alert').filter({ hasText: 'Previous rows' })).toBeVisible();
