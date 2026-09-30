@@ -19,6 +19,9 @@ or returns an empty message. A missing file, a folder or a wrong extension runs 
 failing first. An unrestorable `.bck` changes rows, hides SQL Server's error or leaves the
 database single-user. The disposable database and its backup files are removed afterwards,
 also when a step fails.
+A restore must not freeze the server: while one waits for or holds the backup lock, other
+requests still answer, a second operation still waits its turn, and the restore still
+reports success and reverts the data.
 Unavailable SQL authentication or cleanup errors must still produce the evidence report;
 the held connection must close even when the restore request or an assertion query fails.
 """
@@ -27,6 +30,8 @@ import os
 import shutil
 import subprocess
 import tempfile
+import threading
+import time
 import traceback
 import uuid
 from pathlib import Path
@@ -157,6 +162,28 @@ def run():
             held.close()
             held = None
             check('database is MULTI_USER after the .bck path restore', access() == 'MULTI_USER', access())
+
+            # Hold the service lock so the restore waits inside the service; the server must keep answering.
+            sql(server, f"UPDATE [{database}].dbo.Sample SET Value = N'after backup'")
+            answers = {}
+            restoring = threading.Thread(target=lambda: answers.update(
+                restore=client.post('/api/admin/backup/restore', json={'filename': filename})))
+            listing = threading.Thread(target=lambda: answers.update(listing=client.get('/api/admin/backup/list')))
+            with service._operation_lock:
+                restoring.start()
+                time.sleep(1)
+                started = time.monotonic()
+                listing.start()
+                listing.join(timeout=5)
+                check('server answers other requests while a restore waits or runs',
+                      'listing' in answers and answers['listing'].status_code == 200,
+                      {'seconds': round(time.monotonic() - started, 2), 'answered': 'listing' in answers})
+                check('a restore waits for the running backup operation', 'restore' not in answers)
+            restoring.join(timeout=120)
+            listing.join(timeout=5)
+            body = answers['restore'].json() if 'restore' in answers else None
+            check('restore run off the event loop still succeeds and reverts the change',
+                  body and body.get('success') and value() == 'before backup', {'body': body, 'value': value()})
 
             sql(server, f"UPDATE [{database}].dbo.Sample SET Value = N'kept'")
             with tempfile.TemporaryDirectory(prefix='rc-restore-') as scratch:
