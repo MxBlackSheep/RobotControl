@@ -61,17 +61,21 @@ const MaintenancePage: React.FC = () => {
 
   const canEdit = Boolean(state?.permissions?.can_edit ?? isLocalSession);
   // Shared robot state (no extra request): what would block or be affected by maintenance.
-  const robot = useRobotStatusContext().status;
+  const { status: robot, error: robotError } = useRobotStatusContext();
   const job = robot?.running[0];
   const timing = job ? runTiming(job.monitoring?.launched_at, job.estimated_duration, Date.now()) : null;
   const remaining = timing?.fraction != null && timing.estimate !== null && timing.elapsed !== null ? `About ${Math.max(1, timing.estimate - timing.elapsed)} min left by its estimate.`
     : timing?.overBy != null ? `It is ${timing.overBy} min past its estimate.` : '';
   const attention = robotAttention(robot);
+  const scheduledHold = [state?.enabled ? 'Maintenance mode' : null, attention?.label].filter(Boolean).join(' · ');
+  const scheduledUnknown = !state || loading || !!error || !!robotError || !robot?.recovery;
   const rightNow: [string, string, string, StatusTone][] = !robot ? [] : [
     ['HxRun', 'Hamilton run software on this PC', robot.hamiltonRunning === true ? 'Running' : robot.hamiltonRunning === false ? 'Not running' : 'Unknown', robot.hamiltonRunning ? 'running' : 'neutral'],
     ['Scheduler', robot.queued ? `${robot.queued} waiting` : 'Nothing waiting', robot.schedulerRunning ? 'Running' : 'Stopped', robot.schedulerRunning ? 'running' : 'neutral'],
     ['Current run', job?.experiment_name ?? 'None', job ? 'Running' : 'Idle', job ? 'running' : 'neutral'],
-    ['Scheduled runs', attention ? attention.label : 'Not held', attention ? 'Held' : 'Allowed', attention ? 'attention' : 'completed'],
+    ['Scheduled runs', scheduledHold || (scheduledUnknown ? 'Refresh to check the current state' : robot.schedulerRunning ? 'Not held' : 'Scheduler is stopped'),
+      scheduledHold ? 'Held' : scheduledUnknown ? 'Unknown' : robot.schedulerRunning ? 'Allowed' : 'Stopped',
+      scheduledHold ? 'attention' : scheduledUnknown || !robot.schedulerRunning ? 'neutral' : 'completed'],
   ];
 
   const loadState = useCallback(async () => {

@@ -71,7 +71,9 @@ Now running shows elapsed time from the run log monitor's `launched_at` against 
 schedule's `estimated_duration`, which the user typed and may be wrong. `runTiming` never
 extrapolates: within the estimate the bar shows elapsed/estimate; past it the bar becomes
 indeterminate and the text says "N min past the M min estimate". Unknown start or estimate
-shows no bar. When PyHSL supplies better estimates, change only the estimate source.
+shows no bar. The queue's `launched_at` is offset-qualified ISO time, so Overview and
+Maintenance derive the same elapsed duration in every browser timezone; the Started clock
+uses the viewer's local timezone. When PyHSL supplies better estimates, change only the estimate source.
 
 ## Shared presentation
 

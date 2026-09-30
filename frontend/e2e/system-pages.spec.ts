@@ -134,12 +134,12 @@ test('robot status takes the newer recovery from either reply and keeps a Resume
 
 test('Overview shows elapsed time against the estimate and keeps other panels when one read fails', async ({ page }, info) => {
   const now = new Date('2026-09-30T14:30:00');
-  // The backend sends naive local ISO times (datetime.now().isoformat()).
+  // Schedule dates are local; the monitor's launched_at includes a UTC offset.
   const local = (date: Date) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 19);
   await page.clock.install({ time: now });
   await page.route('**/api/scheduling/status/queue', route => route.fulfill({ json: { success: true, data: {
     queue: { queued_jobs: 1, running_job_details: [{ schedule_id: 'wash', experiment_name: 'Daily tip wash', experiment_path: 'Methods\\Wash\\DailyTipWash.hsl',
-      estimated_duration: 60, monitoring: { state: 'monitoring', launched_at: local(new Date(now.getTime() - 42 * 60000)), inactivity_seconds: 18, threshold_minutes: 3 } }] },
+      estimated_duration: 60, monitoring: { state: 'monitoring', launched_at: new Date(now.getTime() - 42 * 60000).toISOString(), inactivity_seconds: 18, threshold_minutes: 3 } }] },
     hamilton: { is_running: true }, manual_recovery: { active: false, storage_healthy: true, safety_revision: 3, pending_recoveries: [] } } } }));
   await page.route('**/api/scheduling/list?*', route => route.fulfill({ json: { success: true, data: [
     { schedule_id: 'qc', experiment_name: 'Plate reader QC', experiment_path: 'qc.hsl', schedule_type: 'once', estimated_duration: 20, is_active: true, archived: false, next_run: local(new Date(now.getTime() + 90 * 60000)) },

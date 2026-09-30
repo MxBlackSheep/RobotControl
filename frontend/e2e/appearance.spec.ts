@@ -8,6 +8,9 @@ import { test, expect } from '@playwright/test';
  * - At 1280x720 log text gets at least 60% of the app height by default.
  * - A failed or malformed maintenance state never looks as if HxRun is allowed, and
  *   Refresh or Retry never overwrites the operator's reason draft.
+ * - Scheduled runs never reports Allowed during maintenance, recovery, unavailable
+ *   safety state or a failed robot read; combined holds retain the recovery warning,
+ *   and a stopped scheduler is distinguished from permission to dispatch.
  * - A wrong current password shows "Unable to Change Password" with the server's reason,
  *   keeps the form and session open, and never refreshes tokens or redirects to /login.
  * - A successful password change closes the form and shows "Password Updated", which
@@ -24,6 +27,57 @@ test('maintenance does not enable actions for malformed state', async ({ page })
   await page.goto('/maintenance');
   await expect(page.getByText('State unavailable', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Enter maintenance', exact: true })).toBeDisabled();
+  await expect(page.getByRole('complementary', { name: 'Right now' })).toContainText('Unknown');
+});
+
+test('maintenance scheduled runs reflects maintenance and recovery holds', async ({ page }, info) => {
+  await page.clock.install();
+  let enabled = true;
+  let recovering = false;
+  let robotBroken = false;
+  let schedulerRunning = true;
+  let recoveryKnown = true;
+  await page.route('**/api/maintenance/hxrun*', route => route.fulfill({ json: { success: true,
+    data: { enabled, reason: 'Deck service', permissions: { can_edit: true } } } }));
+  await page.route('**/api/scheduling/status/scheduler', route => route.fulfill({ json: { success: true,
+    data: { is_running: schedulerRunning, manual_recovery: null } } }));
+  await page.route('**/api/scheduling/status/queue', route => route.fulfill(robotBroken
+    ? { status: 500, json: { detail: 'Robot status unavailable' } }
+    : { json: { success: true, data: {
+    queue: { queued_jobs: 1, running_job_details: [] }, hamilton: { is_running: false },
+    manual_recovery: recoveryKnown ? { active: recovering, storage_healthy: true, safety_revision: 3, resume_required: false, pending_recoveries: [] } : null,
+  } } }));
+  await page.goto('/maintenance');
+  const scheduled = page.getByRole('complementary', { name: 'Right now' }).locator('div.MuiStack-root').filter({ has: page.getByText('Scheduled runs', { exact: true }) });
+  await expect(scheduled).toContainText('Held');
+  await expect(scheduled).toContainText('Maintenance');
+  await expect(scheduled).not.toContainText('Allowed');
+  await page.screenshot({ path: info.outputPath('maintenance-held.png'), fullPage: true });
+  recovering = true;
+  await page.reload();
+  await expect(scheduled).toContainText('1 run needs recovery');
+  await expect(scheduled).toContainText('Maintenance');
+  enabled = false;
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(scheduled).toContainText('Held');
+  await expect(scheduled).toContainText('1 run needs recovery');
+  recovering = false;
+  await page.reload();
+  await expect(scheduled).toContainText('Allowed');
+  await expect(scheduled).toContainText('Not held');
+  robotBroken = true;
+  await page.clock.fastForward(20000);
+  await expect(scheduled).toContainText('Unknown');
+  await expect(scheduled).not.toContainText('Allowed');
+  robotBroken = false;
+  recoveryKnown = false;
+  await page.reload();
+  await expect(scheduled).toContainText('Unknown');
+  recoveryKnown = true;
+  schedulerRunning = false;
+  await page.reload();
+  await expect(scheduled).toContainText('Stopped');
+  await expect(scheduled).not.toContainText('Allowed');
 });
 
 test('appearance persists and log content receives the default reading space', async ({ page }, info) => {
@@ -45,18 +99,45 @@ test('appearance persists and log content receives the default reading space', a
   await expect(page.locator('html')).toHaveAttribute('data-appearance', 'light');
 });
 
-test('maintenance initial failure is unknown and a retry preserves reason edits', async ({ page }) => {
+test('maintenance initial failure is unknown and a retry preserves reason edits', async ({ page }, info) => {
   let broken = true;
-  await page.route('**/api/maintenance/hxrun*', route => route.fulfill(broken
+  let pending: Promise<void> | null = null;
+  await page.route('**/api/maintenance/hxrun*', async route => {
+    if (pending) await pending;
+    await route.fulfill(broken
     ? { status: 500, json: { detail: 'Unavailable' } }
-    : { json: { success: true, data: { enabled: false, reason: '', permissions: { can_edit: true } } } }));
+    : { json: { success: true, data: { enabled: false, reason: '', permissions: { can_edit: true } } } });
+  });
   await page.goto('/maintenance');
   await expect(page.getByText('State unavailable', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Enter maintenance', exact: true })).toBeDisabled();
+  const scheduled = page.getByRole('complementary', { name: 'Right now' }).locator('div.MuiStack-root').filter({ has: page.getByText('Scheduled runs', { exact: true }) });
+  await expect(scheduled).toContainText('Unknown');
+  await expect(scheduled).not.toContainText('Allowed');
   broken = false;
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
   await page.getByLabel('Reason').fill('Operator draft');
+  await expect(scheduled).toContainText('Allowed');
+  broken = true;
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(page.getByText('State unavailable', { exact: true })).toBeVisible();
+  await expect(scheduled).toContainText('Unknown');
+  await expect(page.getByLabel('Reason')).toHaveValue('Operator draft');
+  await expect(page.getByLabel('Reason')).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Enter maintenance', exact: true })).toBeDisabled();
+  await page.screenshot({ path: info.outputPath('maintenance-refresh-failed.png'), fullPage: true });
+  broken = false;
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(page.getByLabel('Reason')).toHaveValue('Operator draft');
+  await expect(scheduled).toContainText('Allowed');
+  let finishRead!: () => void;
+  pending = new Promise(resolve => { finishRead = resolve; });
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(scheduled).toContainText('Unknown');
+  await expect(page.getByLabel('Reason')).toHaveValue('Operator draft');
+  await expect(page.getByRole('button', { name: 'Enter maintenance', exact: true })).toBeDisabled();
+  finishRead();
+  await expect(scheduled).toContainText('Allowed');
   await expect(page.getByLabel('Reason')).toHaveValue('Operator draft');
 });
 

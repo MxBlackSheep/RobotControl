@@ -245,7 +245,7 @@ export interface RunningJobDetail {
     run_state?: string | null;
     raw_run_state?: string | null;
     run_guid?: string | null;
-    launched_at?: string | null; // when HxRun was launched
+    launched_at?: string | null; // offset-qualified ISO time when HxRun was launched
     trace_filename?: string | null;
     last_activity_at?: string | null;
     observed_at?: string | null;

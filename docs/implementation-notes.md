@@ -1,3 +1,9 @@
+## 2026-09-30 Correct maintenance holds and elapsed time after redesign review
+
+- Maintenance's Right now panel reports Scheduled runs as Held while maintenance or recovery is active. Unavailable or pending maintenance reads and failed robot reads show Unknown; a stopped scheduler shows Stopped. Refresh preserves the operator's reason draft.
+- New run observations save the launch time with a UTC offset. The queue API qualifies older server-local launch times before returning them, so Overview and Maintenance agree across browser time zones. Missing or invalid starts remain unknown. Old timestamps in the repeated autumn hour cannot identify their original offset, and assume the original server timezone.
+- Verification and review evidence: `test-output/maintenance-review-fix/verification.json`, `test-output/timezone-review-fix/verification.json`, and `test-output/review-fixes-final/verification.json`. Hardware, SQL Server and packaged execution were not exercised.
+
 ## 2026-09-30 Redesign step 8: review findings, Overview from the mock, remaining gaps
 
 - Review P1/P2 (`f689ccd`): the shared robot status read recovery only from the queue reply, so a newer recovery in the scheduler reply was hidden from the rail and tab; it also ignored `resume_required`, so the warning cleared while queued jobs still waited for Resume. `newerRecovery` now keeps the higher `safety_revision` (unhealthy storage always wins) and `robotAttention` includes the Resume hold. A new check reproduces both and failed against the old behaviour.
