@@ -13,6 +13,11 @@ import { test, expect } from '@playwright/test';
 // Keyboard shortcuts:
 // - Alt+number stops navigating, or navigates while a dialog is open.
 // - ? no longer opens the help list, or the list disagrees with the shortcuts that work.
+// Robot status bar (shown on every page):
+// - An active recovery is missing from pages other than Scheduling (bar link and rail badge).
+// - A failed read hides the last known recovery or keeps saying "Live"; the bar must say
+//   how old its data is.
+// - A failed or malformed first read shows "Scheduler running" instead of "Status unavailable".
 // Unrelated 503s (the backend has no "database restarting" 503; restore success is checked
 // in database-restore.spec.ts):
 // - A camera or scheduler 503 opens "Database Maintenance In Progress", blocks later
@@ -42,6 +47,44 @@ test('monitoring has one refresh owner and shows stale and unknown services accu
   await page.setViewportSize({ width: 320, height: 740 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
   await page.screenshot({ path: info.outputPath('monitoring-phone.png') });
+});
+
+test('robot status keeps a recovery visible on every page and never reads a failed status as all clear', async ({ page }, info) => {
+  await page.clock.install();
+  let reply: 'recovery' | 'fail' | 'malformed' = 'recovery';
+  // Same envelope as GET /api/scheduling/status/queue.
+  await page.route('**/api/scheduling/status/queue', route => reply === 'recovery'
+    ? route.fulfill({ json: { success: true, data: {
+        queue: { queued_jobs: 0, running_job_details: [{ schedule_id: 'wash', experiment_name: 'Daily tip wash' }] },
+        manual_recovery: { active: true, storage_healthy: true, safety_revision: 4, pending_recoveries: [{ schedule_id: 'feed-2', experiment_name: 'Cell feeding stack 2' }] } } } })
+    : reply === 'fail'
+      ? route.fulfill({ status: 503, json: { detail: 'Scheduler safety state unavailable' } })
+      : route.fulfill({ json: { success: true, data: { queue: { queued_jobs: 0 } } } }));
+  const bar = page.getByRole('region', { name: 'Robot status' });
+
+  await page.goto('/database');
+  await expect(bar).toContainText('Scheduler running');
+  await expect(bar).toContainText('Now Daily tip wash');
+  const recovery = bar.getByRole('link', { name: '1 run needs recovery' });
+  await expect(recovery).toHaveAttribute('href', '/scheduling?section=recovery');
+  await expect(page.getByRole('link', { name: 'Scheduling, recovery requires attention' })).toBeVisible();
+  await page.screenshot({ path: info.outputPath('status-recovery.png'), animations: 'disabled' });
+
+  reply = 'fail';
+  await page.clock.fastForward(40000);
+  await expect(bar).toContainText(/Updated \d+ s ago/);
+  await expect(recovery).toBeVisible();
+  await expect(bar.getByText('Live', { exact: true })).toHaveCount(0);
+  await page.screenshot({ path: info.outputPath('status-stale.png'), animations: 'disabled' });
+
+  for (const failure of ['fail', 'malformed'] as const) {
+    reply = failure;
+    await page.goto('/labware');
+    await expect(bar).toContainText('Status unavailable');
+    await expect(bar).not.toContainText('Scheduler running');
+    await expect(page.getByRole('link', { name: 'Scheduling', exact: true })).toBeVisible();
+  }
+  await page.screenshot({ path: info.outputPath('status-unavailable.png'), animations: 'disabled' });
 });
 
 test('System Status renews an expired sign-in', async ({ page }) => {

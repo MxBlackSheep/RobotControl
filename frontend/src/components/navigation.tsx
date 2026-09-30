@@ -1,7 +1,7 @@
-import { createContext, useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { useSearchParams } from 'react-router-dom';
-import { Dashboard, Storage, Schedule, Videocam, Science, Build, Description, MonitorHeart, AdminPanelSettings, Info } from '@mui/icons-material';
+import { Dashboard, Storage, Schedule, Videocam, Science, Build, Description, MonitorHeart, AdminPanelSettings } from '@mui/icons-material';
 export type NavigationUser = { role?: string; session_is_local?: boolean } | null;
 export const isLocalUser = (user: NavigationUser) => typeof user?.session_is_local === 'boolean' ? user.session_is_local : ['localhost', '127.0.0.1', '::1', '[::1]', '0.0.0.0'].includes(window.location.hostname);
 export const schedulingSections = [
@@ -31,10 +31,8 @@ export const navigationItems = [
   { label: 'Camera', path: '/camera', icon: Videocam }, { label: 'Labware', path: '/labware', icon: Science, roles: ['admin', 'user'] },
   { label: 'Maintenance', path: '/maintenance', icon: Build }, { label: 'Logs', path: '/logfile', icon: Description },
   { label: 'System Status', path: '/system-status', icon: MonitorHeart }, { label: 'Admin', path: '/admin', icon: AdminPanelSettings, roles: ['admin'] },
-  { label: 'About', path: '/about', icon: Info },
 ];
 export const visibleNavigation = (user: NavigationUser) => navigationItems.filter(item => !item.roles || item.roles.includes(user?.role || ''));
-export const SchedulingNavigationContext = createContext({ recoveryActive: false, setRecoveryActive: (_active: boolean) => {} });
 export function useModuleSection(path: string, user: NavigationUser) {
   const [params, setParams] = useSearchParams();
   const value = params.get('section');

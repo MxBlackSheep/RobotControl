@@ -1,6 +1,5 @@
 import { PageContent, PageHeader } from '../components/PageLayout';
-import { useContext } from 'react';
-import { SchedulingNavigationContext, useSchedulingSection, isLocalUser } from '../components/navigation';
+import { useSchedulingSection, isLocalUser } from '../components/navigation';
 /**
  * RobotControl Experiment Scheduling Page
  *
@@ -116,7 +115,6 @@ const SchedulingPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [currentTab, setCurrentTab] = useSchedulingSection(user);
-  const { setRecoveryActive } = useContext(SchedulingNavigationContext);
   const [improvedFormOpen, setImprovedFormOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   const [queueDetailsOpen, setQueueDetailsOpen] = useState(false);
@@ -142,7 +140,6 @@ const SchedulingPage: React.FC = () => {
   const cardPadding = { xs: 2, md: 2 };
   const isLocalSession = isLocalUser(user);
   const isLocalClient = isLocalSession;
-  useEffect(() => { setRecoveryActive(!!state.manualRecovery?.active); }, [state.manualRecovery?.active, setRecoveryActive]);
 
   const formatTimestamp = (value?: string | null): string => {
     if (!value) {

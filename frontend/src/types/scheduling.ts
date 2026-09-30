@@ -348,7 +348,8 @@ export interface QueueStatusResponse extends ApiResponse<{
 }> {}
 
 export interface SchedulerServiceResponse extends ApiResponse<{
-  status: 'running' | 'stopped';
+  // Matches SchedulerEngine.get_status(); there is no 'status' string field.
+  is_running: boolean;
   manual_recovery?: ManualRecoveryState | null;
 }> {}
 

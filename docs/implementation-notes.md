@@ -1,3 +1,12 @@
+## 2026-09-30 Redesign step 1: app shell
+
+- Brief and approved mock: `docs/plans/2026-09-30-frontend-redesign.md`. Branch `redesign/instrument-panel`.
+- Every page now shows the robot's state in a status bar: scheduler running/stopped, the current run, and a link when a run needs recovery (before, recovery was only flagged while Scheduling was open). A failed read keeps the last known recovery and says how old it is; with no good read the bar says "Status unavailable", never "Scheduler running".
+- The sidebar is a dark module rail with the account menu and Appearance at its foot; About moved into the account menu. Sections moved from the sidebar into tabs in `PageHeader`, built from the same permission rules. Breadcrumbs and `SchedulingNavigationContext` are removed.
+- Theme tokens (`palette.rail`, `palette.tone`) and `StatusChip`; IBM Plex is bundled with `@fontsource` so offline PCs render the same.
+- Found while building: `SchedulerServiceResponse` declared a `status` string, but the backend returns an `is_running` boolean. The type now matches the backend.
+- Checks: new status-bar case in `system-pages.spec.ts`; the dark all-module shell check now also asserts the status bar. Three sidebar section-menu unit cases were removed with the menus; the remaining navigation cases moved to `navigation.test.tsx`. Evidence: `test-output/redesign-step1/verification.json`.
+
 ## 2026-09-30 Error-handling audit fixes (#16–#20)
 
 - #16: a sign-in storage error (for example SQLite `database is locked`) now answers 503 from `/me`, protected routes and `/api/auth/refresh`, so the browser keeps its tokens; bad, expired, wrong-type and revoked tokens still answer 401. Request timeouts keep the Axios error and say "Request timed out" instead of blaming the database. The 503 maintenance-overlay part landed in #15. Check: `backend/e2e/auth_storage_check.py` (3 of 13 cases failed before the fix).

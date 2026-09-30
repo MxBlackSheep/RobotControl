@@ -7,7 +7,7 @@ from the temporary API pause used while restoring a database.
 
 - `pages/MaintenancePage.tsx`: status, reason, action and conflict dialog.
 - `services/hxrunMaintenanceApi.ts`: GET/PUT `/api/maintenance/hxrun`.
-- `components/navigation.tsx`: sidebar and breadcrumb metadata.
+- `components/navigation.tsx`: sidebar and section-tab metadata.
 - `App.tsx`: `/maintenance` route.
 
 ## Operator flow

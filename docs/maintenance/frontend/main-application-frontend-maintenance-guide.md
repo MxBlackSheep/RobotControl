@@ -6,30 +6,46 @@ every page shares.
 
 ## Structure
 
-- `main.tsx`: `BrowserRouter` → `AppearanceProvider` → `App`.
+- `main.tsx`: imports the bundled IBM Plex fonts (`@fontsource`, so offline lab PCs render
+  the same), then `BrowserRouter` → `AppearanceProvider` → `App`.
 - `App.tsx`: wraps the shell in `AuthProvider`. Signed out, it renders only `LoginPage`.
-  Signed in, it renders the account header, `AppSidebar`, breadcrumbs, the lazily loaded
-  routes (`loadComponent` in `utils/BundleOptimizer.ts` retries a failed chunk load), and
-  the global dialogs: `MaintenanceDialog` (temporary API pause during a database restore),
+  Signed in, `AppShell` renders `AppSidebar`, `RobotStatusBar`, the lazily loaded routes
+  (`loadComponent` in `utils/BundleOptimizer.ts` retries a failed chunk load), and the
+  global dialogs: `MaintenanceDialog` (temporary API pause during a database restore),
   `ChangePasswordDialog` (opens when `user.must_reset`) and `KeyboardShortcutsHelp`.
 - `components/navigation.tsx`: the single registry of pages, sections, URLs and UI
-  permissions. The sidebar, breadcrumbs and section panels all read it. App keeps its own
-  route guards as well; backend permissions still apply.
+  permissions. The sidebar and the section tabs in `PageHeader` both read it. App keeps its
+  own route guards as well; backend permissions still apply.
 
 ## Navigation and sections
 
-`AppSidebar` is 240px expanded and 64px collapsed, and becomes an overlay below 900px.
+`AppSidebar` is the dark module rail: 224px expanded, 64px collapsed, an overlay drawer
+below 900px (opened from the menu button at the start of the status bar). It lists modules
+only; the account menu (Change password, About, Log out) and Appearance sit at its foot.
 `useSidebarLayout` starts expanded from 1440px and remembers an explicit desktop choice in
 `robotcontrol.sidebar.expanded`; without localStorage the choice lasts for the session.
 
-Sections are URLs such as `/scheduling?section=methods`. Use `useModuleSection`,
-`moduleSectionUrl` and, for Scheduling, `useSchedulingSection`; do not add another tab
-bar. Invalid or forbidden sections are replaced in history; explicit navigation supports
-Back/Forward. `SectionPanel` mounts a section on first visit and keeps its drafts and
-scroll for the page session, so a retained panel that polls must take an `active` flag
-and stop its timer when hidden (CSS hiding alone does not stop effects). The Scheduling
-recovery badge reads the page's existing polling state through
-`SchedulingNavigationContext` instead of polling again.
+Sections are URLs such as `/scheduling?section=methods`. `PageHeader` shows a module's
+permitted sections as tabs (links, so Back/Forward and shared links work); pages read the
+choice with `useModuleSection` or, for Scheduling, `useSchedulingSection`. Do not add another
+tab bar for sections. Invalid or forbidden sections are replaced in history. `SectionPanel`
+mounts a section on first visit and keeps its drafts and scroll for the page session, so a
+retained panel that polls must take an `active` flag and stop its timer when hidden (CSS
+hiding alone does not stop effects).
+
+## Robot status bar
+
+`useRobotStatus` (in `hooks/useRobotStatus.ts`) is the shell's one owner of robot state: it
+polls `GET /api/scheduling/status/queue` and `/status/scheduler` every 15 s through
+`useSerialPolling` and publishes the result in `RobotStatusContext`. `RobotStatusBar`, the
+rail's Scheduling badge and the Recovery tab badge all read that context; nothing else
+polls for them. Scheduling keeps its own `safety_revision`-ordered view for its screens.
+
+- A failed read keeps the last known state (so an active recovery never disappears) and
+  the bar shows "Updated N s ago · Retry" instead of "Live".
+- With no successful read yet, a failure or a reply missing `queue`, `manual_recovery` or
+  the boolean `is_running` shows "Status unavailable", never "Scheduler running".
+- Unhealthy scheduler storage (`storage_healthy: false`) counts as needing attention.
 
 Permission rules shown in the UI: Database Restore is admin **or** local; Database
 Operations and Scheduling Methods are local-only; Notifications are admin-only;
@@ -40,8 +56,9 @@ starts or stops a live-view session.
 
 `PageLayout.tsx` provides `PageContent` variants: `overview` (dashboards), `inspection`
 (viewers), `spatial` (labware) and `task` (forms, capped at 1120px; `reading` is a legacy
-alias). App owns the outer gutter (8/12/16px) and the 56px header. Use one `PageHeader`
-and no extra Container or breadcrumb row.
+alias). App owns the outer gutter (16/24/28px) and the sticky status bar (52px, 44px on
+phones). Use one `PageHeader` (title, section tabs, actions) and no extra Container or
+header row.
 
 `InspectionWorkspace` fills the remaining viewport height (320px minimum, then the page
 scrolls) and switches between list and detail at 900px of content width; see the
@@ -51,7 +68,10 @@ context; never derive coordinates from display names unless the backend defines 
 `AppearanceProvider` stores System/Light/Dark in `robotcontrol-appearance`, follows the
 OS in System mode, syncs between tabs and falls back to memory if storage fails.
 `index.html` sets the first background colour. Use the semantic palette from
-`createAppTheme`; do not hardcode light surfaces or black text. Touch and narrow-screen
+`createAppTheme`; do not hardcode light surfaces or black text. `palette.rail` colours the
+sidebar, and `palette.tone` (running, completed, neutral, attention, fault) colours
+`StatusChip`, the one status label for every screen; attention (amber) always means
+someone must act. The approved design is linked from `docs/plans/2026-09-30-frontend-redesign.md`. Touch and narrow-screen
 controls have 44px targets; full-screen dialogs bypass the normal dialog margins.
 
 ## Messages and dialogs
@@ -75,8 +95,8 @@ recording and recovery state visible, and never show unknown state as success.
 sidebar order, Ctrl+H, Ctrl+B, Ctrl+Shift+R, `/` to focus search, Escape to clear focus,
 and `?` for the help dialog, which renders the same list. Shortcuts do nothing while a
 MUI modal is open or (except Escape) while typing. To change a shortcut, edit that list.
-`AppSidebar.test.tsx` and `system-pages.spec.ts` cover navigation, help and dialog
-isolation.
+`navigation.test.tsx` and `system-pages.spec.ts` cover navigation, help and dialog
+isolation; `system-pages.spec.ts` also covers the status bar's failure cases.
 
 ## Adding a page or section
 
@@ -92,9 +112,12 @@ isolation.
 
 - **Blank page after login:** a route is missing or its component throws; check the
   console. Only Dashboard is imported eagerly.
-- **Wrong sidebar item or section:** check the section name and permission filters in
+- **Wrong sidebar item or section tab:** check the section name and permission filters in
   `navigation.tsx` and the `section` query parameter.
-- **Mobile menu does not open:** the header's Open navigation button must update
+- **Mobile menu does not open:** the status bar's Open navigation button must update
   `mobileDrawerOpen`, and `AppSidebar` needs `open`/`onClose`.
-- **Shortcuts do nothing:** App must call `useKeyboardNavigation({ enabled: isAuthenticated })`;
-  an open dialog (including a stuck invisible one) disables them.
+- **Status bar stuck on "Status unavailable":** open the two status URLs above; the reply
+  must carry `data.queue`, `data.manual_recovery` (may be null) and a boolean
+  `data.is_running`.
+- **Shortcuts do nothing:** `AppShell` calls `useKeyboardNavigation`; an open dialog
+  (including a stuck invisible one) disables them.
