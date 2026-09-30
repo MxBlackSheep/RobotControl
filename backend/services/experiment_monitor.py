@@ -19,10 +19,7 @@ from backend.services.automatic_recording_types import (
 )
 from backend.constants import HAMILTON_STATE_MAPPING
 
-try:
-    from backend.utils.datetime import parse_iso_datetime_to_local
-except ImportError:  # pragma: no cover - fallback
-    from utils.datetime import parse_iso_datetime_to_local  # type: ignore
+from backend.utils.datetime import parse_iso_datetime_to_local
 
 # Configure logging
 logger = logging.getLogger(__name__)

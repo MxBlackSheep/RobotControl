@@ -485,7 +485,6 @@ const CameraPage: React.FC = () => {
 
   const connectToStreamingWebSocket = (sessionId: string) => {
     const wsUrl = buildWsUrl(`/api/camera/streaming/video/${sessionId}`);
-    console.log('Connecting to streaming WebSocket:', wsUrl);
     
     setCurrentFrame(null);
     closeSocket();
@@ -493,7 +492,6 @@ const CameraPage: React.FC = () => {
     wsRef.current = ws;
     
     ws.onopen = () => {
-      console.log('Streaming WebSocket connected');
       // Update session state to connected
       setMySession(prev => prev ? { ...prev, websocket_state: 'connected' } : null);
     };
@@ -505,8 +503,6 @@ const CameraPage: React.FC = () => {
         if (message.type === 'frame' && message.data) {
           const frameDataUrl = `data:image/jpeg;base64,${message.data}`;
           setCurrentFrame(frameDataUrl);
-        } else if (message.type === 'status') {
-          console.log('Stream status:', message.status);
         } else if (message.type === 'error') {
           console.error('Stream error:', message.error);
           setError(message.error || 'Streaming error');
@@ -523,7 +519,6 @@ const CameraPage: React.FC = () => {
       };
     
     ws.onclose = () => {
-      console.log('Streaming WebSocket closed');
       setMySession(prev => prev ? { ...prev, websocket_state: 'disconnected' } : null);
       setCurrentFrame(null);
       };

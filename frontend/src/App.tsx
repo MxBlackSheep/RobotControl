@@ -37,7 +37,7 @@ const AboutPage = loadComponent(() => import('./pages/AboutPage'));
 const AdminPage = loadComponent(() => import('./pages/AdminPage'));
 
 const AppContent: React.FC = () => {
-  const { isAuthenticated, user, logout } = useAuth();
+  const { isAuthenticated, user, logout, loading } = useAuth();
   
   // Mobile drawer state
   const [mobileDrawerOpen, setMobileDrawerOpen] = React.useState(false);
@@ -61,6 +61,10 @@ const AppContent: React.FC = () => {
       setPasswordDialogOpen(true);
     }
   }, [user?.must_reset]);
+
+  if (loading) {
+    return <LoadingSpinner message="Connecting to the server. Your sign-in is saved; retrying automatically..." minHeight={400} />;
+  }
 
   if (!isAuthenticated) {
     return <LoginPage />;

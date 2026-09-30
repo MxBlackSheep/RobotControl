@@ -13,8 +13,7 @@ versions, bundled tool details and authoring steps are owned by
 ## Files and ownership
 
 - `services/backup.py`: `BackupService` is the entry point for backup, restore and
-  delete. Only creation and managed-file restore take `_operation_lock`; path restore and
-  deletion do not. `SqlCommandExecutor` runs `sqlcmd -E`;
+  delete. Creation and both restore paths take `_operation_lock`; deletion does not. `SqlCommandExecutor` runs `sqlcmd -E`;
   `BackupMetadataStore` owns the `.json` file beside each `.bak`. API routes and new code
   must not call the executor or write metadata directly. Routes: `api/backup.py`.
 - `services/database.py`: `DatabaseService` (singleton `get_database_service()`) opens its
@@ -58,10 +57,12 @@ and path restore use `RESTORE_TIMEOUT` (600 seconds). Recovery commands keep the
   metadata is listed as "[Orphaned backup - no metadata]".
 - **Restore** (`POST /api/backup/restore`): local session with role `admin` or `user`;
   `require_local_access` rejects remote administrators too. The request names either a managed
-  `filename` or a `file_path` to a `.bak`/`.bck`, never both. Managed-file restore sets
-  `SINGLE_USER WITH ROLLBACK IMMEDIATE`, restores `WITH REPLACE`, then sets `MULTI_USER`;
-  a failure retries `MULTI_USER` but does not check the executor's returned success flag,
-  so verify the database state after a failed restore. Path restore
+  `filename` or a `file_path` to a `.bak`/`.bck`, never both. Both formats use `_restore_database` and
+  `SQL_RESTORE_TEMPLATE`, which first switches to `master`, sets `SINGLE_USER WITH
+  ROLLBACK IMMEDIATE`, restores `WITH REPLACE`, then sets `MULTI_USER`. A failure or
+  timeout retries `MULTI_USER` from `master`; failure of that recovery adds a warning.
+  The restore failure and a failed recovery are both logged at ERROR.
+  Path restore
   (`restore_backup_from_path`) first rejects a missing file, a folder or an extension other
   than `.bak`/`.bck` without running SQL, then runs the same script through sqlcmd under the
   same operation lock. If SQL Server rejects it, `MULTI_USER` is set again. It does not
@@ -245,7 +246,7 @@ Real-SQL checks create UUID-named disposable databases and logins with local Win
 administrator authentication and remove them; never point them at a deployment server. Fixture
 checks translate SQL and are not SQL Server validation: verify the actual ODBC driver, schema,
 `dbo.DeleteExperiment` and report output on the VM. The backup check removes its own files;
-it does not exercise the delete API, path restore or a restore lasting ten minutes. Verify
+it does not exercise the delete API or a restore lasting ten minutes. Verify
 those separately with disposable data when changing their behavior.
 
 ## Troubleshooting
