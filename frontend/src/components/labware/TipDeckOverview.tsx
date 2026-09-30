@@ -1,5 +1,7 @@
 import { Box, ButtonBase, Stack, Typography } from '@mui/material';
 import { TipTrackingFamilyState } from '../../services/labwareApi';
+import { PanelHeader, PanelLabel } from '../PageLayout';
+import { layout } from '../../theme';
 
 interface Props {
   family: TipTrackingFamilyState;
@@ -22,11 +24,15 @@ export default function TipDeckOverview({ family, joined, rows, columns, selecte
   const dotSize = `max(5px, min(calc((100cqw - ${columns - 1}px) / ${columns} * 0.7), calc((100cqh - ${rows - 1}px) / ${rows} * 0.7)))`;
   // Query containment belongs on each miniature, never on this subgrid pane:
   // layout containment would make its header/body/footer resolve separately.
-  return <Box component="section" aria-label="Tip deck" sx={{ minWidth: 0, display: 'grid', gridColumn: 1, gridRow: '1 / 4', gridTemplateRows: 'subgrid', bgcolor: 'action.hover', borderRight: joined ? 1 : 0, borderColor: 'divider' }}>
-    <Box sx={{ gridRow: 1, display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 1, alignItems: 'end', px: 1.5, py: 1 }}>
-      {['Col A', 'Col B'].map(label => <Typography key={label} variant="caption" color="text.secondary" sx={{ fontWeight: 600, letterSpacing: 0.6, textTransform: 'uppercase' }}>{label}</Typography>)}
+  const rackCount = family.left_racks.length + family.right_racks.length;
+  // Four rows shared with the rack editor through subgrid: header band, column labels, racks, legend.
+  return <Box component="section" aria-label="Tip deck" sx={{ minWidth: 0, display: 'grid', gridColumn: 1, gridRow: '1 / 5', gridTemplateRows: 'subgrid',
+    bgcolor: 'background.paper', border: 1, borderColor: 'divider', borderRadius: `${layout.radius}px`, overflow: 'hidden' }}>
+    <PanelHeader title="Deck" actions={<Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>Physical order · {rackCount} racks</Typography>} />
+    <Box sx={{ gridRow: 2, display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 1.5, alignItems: 'center', px: 2, borderBottom: 1, borderColor: 'surface.rowLine' }}>
+      {['Col A', 'Col B'].map(label => <PanelLabel key={label} component="span">{label}</PanelLabel>)}
     </Box>
-    <Box data-tip-overview-body sx={{ gridRow: 2, minWidth: 0, minHeight: rackRows * rackMinimum + (rackRows - 1) * 4, display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 1, px: 1.25 }}>
+    <Box data-tip-overview-body sx={{ gridRow: 3, minWidth: 0, minHeight: rackRows * rackMinimum + (rackRows - 1) * 4 + 24, display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 1.5, px: 2, py: 1.5 }}>
       {[['Col A', family.left_racks], ['Col B', family.right_racks]].map(([label, racks]) => <Box key={String(label)} role="group" aria-label={String(label)} sx={{ minWidth: 0, display: 'grid', gridTemplateRows: `repeat(${rackRows}, minmax(min-content, 1fr))`, gap: 0.5 }}>
         {(racks as string[]).map(rack => {
           const pending = pendingAt(rack);
@@ -44,7 +50,7 @@ export default function TipDeckOverview({ family, joined, rows, columns, selecte
         {!(racks as string[]).length && <Typography variant="caption" color="text.secondary">No racks</Typography>}
       </Box>)}
     </Box>
-    <Stack direction="row" gap={1} flexWrap="wrap" alignItems="center" aria-label="Tip status legend" sx={{ gridRow: 3, px: 1.5, py: 1 }}>
+    <Stack direction="row" gap={1.5} flexWrap="wrap" alignItems="center" aria-label="Tip status legend" sx={{ gridRow: 4, px: 2, py: 0.5, borderTop: 1, borderColor: 'surface.headLine' }}>
       {statuses.map(status => <Stack key={status} direction="row" gap={0.5} alignItems="center"><Box aria-hidden="true" sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: colors[status] || 'text.disabled' }} /><Typography variant="caption" color="text.secondary">{status.charAt(0).toUpperCase() + status.slice(1)}</Typography></Stack>)}
     </Stack>
   </Box>;

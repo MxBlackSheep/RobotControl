@@ -1,11 +1,9 @@
-import { PageContent, PageHeader, PanelHeader } from '../components/PageLayout';
+import { ListRow, PageContent, PageGrid, PageHeader, Panel, StatusDot } from '../components/PageLayout';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Box,
   Button,
-  Card,
-  CardContent,
   CircularProgress,
   Dialog,
   DialogActions,
@@ -17,7 +15,7 @@ import {
   Typography,
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
-import StatusChip from '../components/StatusChip';
+import InfoOutlined from '@mui/icons-material/InfoOutlined';
 import BlockIcon from '@mui/icons-material/Block';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 
@@ -25,7 +23,7 @@ import { useAuth } from '../context/AuthContext';
 import { hxrunMaintenanceApi, HxRunMaintenanceState } from '../services/hxrunMaintenanceApi';
 import { robotAttention, useRobotStatusContext } from '../hooks/useRobotStatus';
 import { runTiming } from '../components/overview/NowRunning';
-import { panelPadding, type StatusTone } from '../theme';
+import { layout, type StatusTone } from '../theme';
 import { dayTime } from '../utils/displayTime';
 
 const formatTimestamp = (value?: string | null): string => {
@@ -131,83 +129,71 @@ const MaintenancePage: React.FC = () => {
     loadState();
   }, [loadState]);
 
+  const stateTone: StatusTone = !state || error ? 'neutral' : state.enabled ? 'attention' : 'completed';
+  const stateLabel = !state || error ? 'State unavailable' : state.enabled ? 'Blocked for maintenance' : 'Allowed';
+  const runningNote = robot?.hamiltonRunning && !state?.enabled;
+
   return (
     <PageContent variant="task">
-      <PageHeader title="Maintenance" actions={<Button onClick={loadState} disabled={saving || loading} startIcon={<RefreshIcon />}>Refresh</Button>} />
+      <PageHeader title="Maintenance" actions={<Button variant="outlined" onClick={loadState} disabled={saving || loading} startIcon={<RefreshIcon />}>Refresh</Button>} />
 
-      {error && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
-        </Alert>
-      )}
+      {error && <Alert severity="error" sx={{ mb: `${layout.gutter}px` }}>{error}</Alert>}
+      {state && !canEdit && <Alert severity="info" sx={{ mb: `${layout.gutter}px` }}>Changes require a local session.</Alert>}
 
-      {state && !canEdit && (
-        <Alert severity="info" sx={{ mb: 2 }}>
-          Changes require a local session.
-        </Alert>
-      )}
-
-      <Box sx={{ display: 'grid', gap: 2, alignItems: 'start', gridTemplateColumns: 'minmax(0, 1fr)', '@container workspace (min-width: 900px)': { gridTemplateColumns: 'minmax(0, 2fr) minmax(280px, 1fr)' } }}>
-      <Card variant="outlined">
-        <CardContent>
-          {loading && !state ? (
-            <Box sx={{ py: 4, display: 'flex', justifyContent: 'center' }}>
-              <CircularProgress size={28} />
-            </Box>
-          ) : (
-            <Stack spacing={2}>
-              <PanelHeader title="HxRun launches" actions={<StatusChip tone={!state || error ? 'neutral' : state.enabled ? 'attention' : 'completed'}
-                label={!state || error ? 'State unavailable' : state.enabled ? 'Blocked for maintenance' : 'Allowed'} />} />
-
-              <Typography sx={{ fontSize: 15, lineHeight: 1.6, color: 'text.secondary' }}>
-                Maintenance mode stops HxRun from being launched on this PC, so you can work on the instrument safely.
-              </Typography>
-
-              {robot?.hamiltonRunning && !state?.enabled && <Alert severity="info">
-                <strong>HxRun is running{job ? ` ${job.experiment_name}` : ''}.</strong> You can enter maintenance once HxRun has closed.{remaining ? ` ${remaining}` : ''}
-              </Alert>}
-
-              <Typography variant="body2" color="text.secondary">
-                {state ? `Last change: ${state.updated_by || 'Unknown'} · ${formatTimestamp(state.updated_at)}` : 'Refresh to check the current state.'}
-              </Typography>
-
-              <TextField
-                label="Reason"
-                value={reasonInput}
-                onChange={(event) => { reasonEdited.current = true; setReasonInput(event.target.value); }}
-                multiline
-                minRows={2}
-                disabled={!canEdit || saving || !state || loading || !!error}
-                placeholder="Optional maintenance note"
-                fullWidth
-              />
-
+      <PageGrid>
+        <Panel title="HxRun launches" inset={false} span={12}
+          actions={state && <Typography variant="caption" color="text.secondary">Last change: {state.updated_by || 'Unknown'} · {formatTimestamp(state.updated_at)}</Typography>}>
+          {loading && !state
+            ? <Box sx={{ py: 4, display: 'flex', justifyContent: 'center' }}><CircularProgress size={28} /></Box>
+            : <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'minmax(0, 1fr) auto' }, gap: 3, alignItems: 'center', p: `${layout.inset}px` }}>
+              <Stack spacing={1} sx={{ minWidth: 0 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                  <Box aria-hidden sx={{ width: 12, height: 12, borderRadius: 6, flexShrink: 0, bgcolor: theme => theme.palette.tone[stateTone].dot }} />
+                  <Typography component="p" sx={{ fontSize: 28, lineHeight: '36px', fontWeight: 600 }}>{stateLabel}</Typography>
+                </Box>
+                <Typography variant="body2" color="text.secondary">Maintenance mode stops HxRun from being launched on this PC, so you can work on the instrument safely.</Typography>
+                {!state && <Typography variant="body2" color="text.secondary">Refresh to check the current state.</Typography>}
+              </Stack>
               <Button
                 variant="contained"
-                color={state?.enabled ? 'primary' : 'warning'}
                 onClick={() => updateState(!state?.enabled)}
                 disabled={!canEdit || saving || loading || !state || !!error}
                 startIcon={state?.enabled ? <CheckCircleOutlineIcon /> : <BlockIcon />}
-                sx={{ alignSelf: { xs: 'stretch', sm: 'flex-start' } }}
+                sx={{ minHeight: layout.touchRow, px: 3, justifySelf: { xs: 'stretch', sm: 'end' }, ...(!state?.enabled && {
+                  bgcolor: 'attentionSurface.action', color: 'attentionSurface.actionText', '&:hover': { bgcolor: 'attentionSurface.action', filter: 'brightness(0.94)' } }) }}
               >
                 {saving ? 'Saving…' : state?.enabled ? 'Allow HxRun launches' : 'Enter maintenance'}
               </Button>
-            </Stack>
-          )}
-        </CardContent>
-      </Card>
-      {robot && <Card component="aside" aria-label="Right now" variant="outlined" sx={{ p: panelPadding }}>
-        <PanelHeader title="Right now" />
-        <Box sx={{ mt: 2 }}>{rightNow.map(([name, detail, label, tone]) => <Stack key={name} direction="row" alignItems="center" justifyContent="space-between" gap={1.5}
-          sx={{ py: 1.25, borderTop: 1, borderColor: 'divider', '&:first-of-type': { borderTop: 0 } }}>
-          <Box sx={{ minWidth: 0 }}>
-            <Typography sx={{ fontSize: 14, fontWeight: 500 }}>{name}</Typography>
-            <Typography sx={{ fontSize: 13, color: 'text.secondary', overflowWrap: 'anywhere' }}>{detail}</Typography>
-          </Box>
-          <Box sx={{ flexShrink: 0 }}><StatusChip tone={tone} label={label} /></Box>
-        </Stack>)}</Box>
-      </Card>}
-      </Box>
+            </Box>}
+          {runningNote && <Box role="status" sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minHeight: layout.row, px: `${layout.inset}px`, fontSize: 13,
+            borderTop: 1, borderColor: 'surface.headLine', bgcolor: theme => theme.palette.tone.running.bg, color: theme => theme.palette.tone.running.fg }}>
+            <InfoOutlined fontSize="small" />
+            <span><strong>HxRun is running{job ? ` ${job.experiment_name}` : ''}.</strong> You can enter maintenance once HxRun has closed.{remaining ? ` ${remaining}` : ''}</span>
+          </Box>}
+        </Panel>
+
+        <Panel title="Reason" span={robot ? 8 : 12} fill actions={<Typography variant="caption" color="text.secondary">Optional · recorded with the change</Typography>}
+          bodySx={{ display: 'flex', flexDirection: 'column' }}>
+          <TextField
+            value={reasonInput}
+            onChange={(event) => { reasonEdited.current = true; setReasonInput(event.target.value); }}
+            multiline
+            minRows={4}
+            disabled={!canEdit || saving || !state || loading || !!error}
+            placeholder="Optional maintenance note"
+            inputProps={{ 'aria-label': 'Reason' }}
+            fullWidth
+          />
+        </Panel>
+
+        {robot && <Panel title="Right now" component="aside" span={4} inset={false}>
+          {rightNow.map(([name, detail, label, tone]) => <ListRow key={name} columns="112px minmax(0, 1fr) auto">
+            <Box component="span" sx={{ fontWeight: 500 }}>{name}</Box>
+            <Box component="span" sx={{ color: 'text.secondary' }} title={detail}>{detail}</Box>
+            <StatusDot tone={tone} label={label} />
+          </ListRow>)}
+        </Panel>}
+      </PageGrid>
 
       <Dialog
         open={hxRunRunningDialogOpen}

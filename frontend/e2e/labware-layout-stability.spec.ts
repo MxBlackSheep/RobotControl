@@ -149,12 +149,13 @@ for (const viewport of [{ width: 3840, height: 2160 }, { width: 1280, height: 72
   if (!(await page.getByRole('dialog').isVisible())) {
     const deck = page.getByRole('region', { name: 'Tip deck' }); const deckBox = await deck.boundingBox();
     const editor = page.locator('[data-rack-editor]'); const editorBox = await editor.boundingBox();
-    expect(Math.abs(editorBox!.x - (deckBox!.x + deckBox!.width))).toBeLessThanOrEqual(1);
+    // Design system A: deck and editor are separate panels, one 12px page gutter apart.
+    expect(Math.abs(editorBox!.x - (deckBox!.x + deckBox!.width) - 12)).toBeLessThanOrEqual(1);
     const workbench = await page.locator('[data-tip-workspace]').boundingBox();
     const available = await page.locator('[data-tip-workspace]').evaluate(element => element.clientWidth);
     const content = await page.locator('[data-page-pattern="spatial"]').boundingBox();
     expect(Math.abs(workbench!.width - content!.width)).toBeLessThanOrEqual(1);
-    const expectedOverview = Math.max(320, Math.min(available * 0.4, available - 596));
+    const expectedOverview = Math.max(320, Math.min(available * 0.4, available - 596 - 12));
     expect(Math.abs(deckBox!.width - expectedOverview)).toBeLessThanOrEqual(2);
     const overviewBody = await page.locator('[data-tip-overview-body]').boundingBox();
     const editorBody = await page.locator('[data-tip-editor-body]').boundingBox();
