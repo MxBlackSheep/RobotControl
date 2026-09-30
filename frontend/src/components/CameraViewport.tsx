@@ -437,7 +437,7 @@ export default function CameraViewport({
           display: "flex",
           justifyContent: "center",
           alignItems: "center",
-          bgcolor: expanded ? "grey.900" : "background.default",
+          bgcolor: "grey.900",
         }}
       >
         <Box

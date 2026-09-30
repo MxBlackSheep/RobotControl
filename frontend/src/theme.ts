@@ -71,6 +71,7 @@ export function createAppTheme(mode: PaletteMode) {
       MuiInputBase: { styleOverrides: { root: { '@media (pointer: coarse), (max-width: 600px)': { minHeight: 44 } } } },
       MuiMenuItem: { styleOverrides: { root: touch } },
       MuiTab: { styleOverrides: { root: { textTransform: 'none', minHeight: 44, fontSize: 14 } } },
+      MuiToggleButton: { styleOverrides: { root: { textTransform: 'none' } } },
       MuiPaper: { styleOverrides: { root: { backgroundImage: 'none' } } },
       MuiCard: { defaultProps: { variant: 'outlined' }, styleOverrides: { root: { borderRadius: 8 } } },
       MuiTableCell: { styleOverrides: { head: { backgroundColor: dark ? '#1F242D' : '#F6F7F8', fontWeight: 600 } } },

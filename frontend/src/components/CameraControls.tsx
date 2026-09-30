@@ -105,9 +105,11 @@ export default function CameraControls({ admin, onSourceChange, collapsible = fa
   const error = actionError || health?.operation?.error || health?.error || polling.error;
   const summary = `Camera: ${labels[health?.capture_state ?? ''] ?? 'Checking'} · Recording: ${labels[health?.recording_state ?? ''] ?? 'Checking'}`;
   useEffect(() => { onSummaryChange?.({ text: summary, error: error || null }); }, [summary, error, onSummaryChange]);
-  return <Stack spacing={1} sx={{ my: 2, '& button': { minHeight: 44 } }}>
+  // Beside the image (not collapsible) the controls are a card; below it on phones they collapse.
+  return <Stack spacing={1} sx={{ my: collapsible ? 2 : 0, '& button': { minHeight: 44 },
+    ...(!collapsible && { p: 2, bgcolor: 'background.paper', border: 1, borderColor: 'divider', borderRadius: 2 }) }}>
     {collapsible ? <Button aria-expanded={detailsOpen} aria-controls="camera-settings-panel" onClick={() => setDetailsOpen(value => !value)} sx={{ alignSelf: 'flex-start' }}>Camera and recording settings</Button>
-      : <Typography variant="h6">Camera and recording</Typography>}
+      : <Typography component="h2" sx={{ fontSize: 15, fontWeight: 600 }}>Camera and recording</Typography>}
     {!onSummaryChange && <Typography aria-live="polite">{summary}</Typography>}
     {!onSummaryChange && error && <Alert severity="warning">{error}</Alert>}
     <Collapse in={!collapsible || detailsOpen} unmountOnExit={false}>

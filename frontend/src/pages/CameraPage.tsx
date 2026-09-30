@@ -15,7 +15,7 @@ import { PageContent, PageHeader } from '../components/PageLayout';
  */
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Box, Typography, Button, Paper, Stack, LinearProgress, CircularProgress } from '@mui/material';
+import { Box, Typography, Button, Paper, Stack, LinearProgress, CircularProgress, useMediaQuery } from '@mui/material';
 import StatusChip from '../components/StatusChip';
 import { PlayArrow as PlayArrowIcon, Stop as StopIcon } from '@mui/icons-material';
 import StatusDialog from '../components/StatusDialog';
@@ -97,6 +97,8 @@ const CameraPage: React.FC = () => {
   const [liveError, setLiveError] = useState('');
   const { user } = useAuth();
   const [currentTab] = useModuleSection('/camera', user);
+  // Wide screens put the controls beside the image; narrower ones keep them collapsible below it.
+  const sideBySide = useMediaQuery('(min-width:1200px)');
   
   // Streaming state
   const [streamingStatus, setStreamingStatus] = useState<StreamingStatus | null>(null);
@@ -602,8 +604,10 @@ const CameraPage: React.FC = () => {
         />
       </SectionPanel>
 
-      {/* The viewer owns display transforms only; camera controls keep polling below it. */}
+      {/* The viewer owns display transforms only; camera controls keep polling beside or below it. */}
       <SectionPanel active={currentTab === 1}>
+        <Box sx={{ display: 'grid', gap: 2, alignItems: 'start', gridTemplateColumns: sideBySide ? 'minmax(0, 1fr) 340px' : 'minmax(0, 1fr)' }}>
+        <Box sx={{ minWidth: 0 }}>
         <CameraViewport
           store={frameStore}
           hasFrame={hasFrame}
@@ -629,12 +633,17 @@ const CameraPage: React.FC = () => {
             </>}
           </>}
         />
-        <CameraControls active={currentTab === 1} admin={user?.role === 'admin'} collapsible onSourceChange={handleSourceChange} onSummaryChange={setCameraSummary} />
-        {mySession && <Box component="details" sx={{ mt: 1, color: 'text.secondary', fontSize: '0.875rem', '& summary': { cursor: 'pointer', minHeight: 44, display: 'flex', alignItems: 'center' } }}>
+        </Box>
+        <Stack spacing={2} sx={{ minWidth: 0 }}>
+        <CameraControls active={currentTab === 1} admin={user?.role === 'admin'} collapsible={!sideBySide} onSourceChange={handleSourceChange} onSummaryChange={setCameraSummary} />
+        {mySession && <Box component="details" sx={{ color: 'text.secondary', fontSize: '0.875rem', '& summary': { cursor: 'pointer', minHeight: 44, display: 'flex', alignItems: 'center' },
+          ...(sideBySide && { px: 2, py: 0.5, bgcolor: 'background.paper', border: 1, borderColor: 'divider', borderRadius: 2 }) }}>
           <summary>Live view details</summary>
           <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>Session ID: {mySession.session_id}</Typography>
           <Button onClick={() => void loadStreamingStatus()} sx={{ minHeight: 44 }}>Refresh view status</Button>
         </Box>}
+        </Stack>
+        </Box>
       </SectionPanel>
       </PageContent>
     </>
