@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
+import { isAxiosError } from 'axios';
 import { Alert, Box, Button, Collapse, MenuItem, Stack, TextField, Typography } from '@mui/material';
-import { buildApiUrl } from '@/utils/apiBase';
+import { api } from '@/services/api';
+import { useAuth } from '@/context/AuthContext';
 import { useSerialPolling } from '@/hooks/useSerialPolling';
 
 interface Health {
@@ -35,23 +37,26 @@ export default function CameraControls({ admin, onSourceChange, collapsible = fa
   const [submitting, setSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [awaitingOperation, setAwaitingOperation] = useState<{id: string; revision?: number} | null>(null);
-  const token = localStorage.getItem('access_token');
+  // Reset on a change of signed-in user, not of access token: the shared client renews
+  // the token mid-request, and that must not abort the request it is retrying.
+  const signIn = useAuth().user?.user_id ?? null;
   const actionRequest = useRef<AbortController>();
   useEffect(() => {
     setSubmitting(false);
     setAwaitingOperation(null);
     return () => { actionRequest.current?.abort(); actionRequest.current = undefined; };
-  }, [token]);
+  }, [signIn]);
   const health = status?.health;
   const pending = submitting || Boolean(awaitingOperation) || health?.operation?.state === 'pending';
   const polling = useSerialPolling({
-    enabled: active, identity: token, interval: pending ? 1000 : 5000,
+    enabled: active, identity: signIn, interval: pending ? 1000 : 5000,
     request: async signal => {
-      const response = await fetch(buildApiUrl('/api/camera/control-status'), {
-        headers: { Authorization: `Bearer ${token}` }, signal,
-      });
-      if (!response.ok) throw new Error(`Camera status unavailable (${response.status})`);
-      return (await response.json()).data as CameraStatus;
+      try {
+        return (await api.get('/api/camera/control-status', { signal })).data.data as CameraStatus;
+      } catch (cause) {
+        if (isAxiosError(cause) && cause.response) throw new Error(`Camera status unavailable (${cause.response.status})`);
+        throw cause;
+      }
     },
     onSuccess: value => {
       setStatus(value);
@@ -75,19 +80,17 @@ export default function CameraControls({ admin, onSourceChange, collapsible = fa
     setSubmitting(true);
     setActionError(null);
     try {
-      const response = await fetch(buildApiUrl(`/api/camera/${path}`), {
-        method, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: body ? JSON.stringify(body) : undefined,
-        signal: controller.signal,
-      });
-      const result = await response.json();
+      const response = await api.request({ url: `/api/camera/${path}`, method, data: body, signal: controller.signal });
       if (controller.signal.aborted) return;
-      if (!response.ok) throw new Error(typeof result.detail === 'string' ? result.detail : 'Camera operation failed');
-      setAwaitingOperation(result.data.operation);
+      setAwaitingOperation(response.data.data.operation);
       await polling.refresh();
     } catch (cause) {
       if (controller.signal.aborted) return;
-      setActionError(cause instanceof Error ? cause.message : 'Camera operation failed');
+      // Check the status first: a proxy's HTML error page has no JSON detail.
+      const detail = isAxiosError(cause) ? cause.response?.data?.detail : undefined;
+      const status = isAxiosError(cause) ? cause.response?.status : undefined;
+      setActionError(typeof detail === 'string' ? detail
+        : status ? `Camera operation failed (${status})` : cause instanceof Error ? cause.message : 'Camera operation failed');
     } finally {
       if (actionRequest.current === controller) actionRequest.current = undefined;
       if (!controller.signal.aborted) setSubmitting(false);

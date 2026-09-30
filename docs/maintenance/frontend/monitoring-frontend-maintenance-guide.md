@@ -11,7 +11,9 @@ starts another polling owner.
 and `/api/camera/streaming/status` through one serial cycle. The normal interval is
 60 seconds; failed reads retry after 30 seconds. Unmount invalidates and aborts the
 owner. Manual Refresh joins an existing request. This hook currently uses REST,
-not WebSockets, despite some older type names/comments.
+not WebSockets, despite some older type names/comments. Reads go through the shared
+`api` client, so an expired access token is renewed; polling restarts only when the
+signed-in user changes. An experiment without a start time keeps `start_time: null`.
 
 Database connection and streaming availability are independent of CPU/memory/disk
 usage. Never infer service health from a low CPU reading. Missing values display

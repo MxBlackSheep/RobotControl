@@ -8,6 +8,8 @@ import { expect, test, type Page } from '@playwright/test';
  * - Disconnect closes the inspection surface; stale images look live.
  * - Collapsing controls stops health polling or hides recording/errors.
  * - Small screens overflow, touch controls shrink, or keyboard focus is lost.
+ * - An expired access token makes status polls and live-view start fail with 401 forever
+ *   instead of renewing the sign-in once (a lab screen left open overnight).
  * Fixture contract: POST /__e2e/camera configures dimensions, send_frames,
  * disconnect and generation; only the isolated fixture handles these requests.
  */
@@ -110,4 +112,31 @@ test('collapsed controls keep polling and phone controls remain touchable', asyn
   for (const target of targets) expect(target.height, target.label ?? 'camera control').toBeGreaterThanOrEqual(44);
   await testInfo.attach('touch-targets', { body: JSON.stringify(targets, null, 2), contentType: 'application/json' });
   await page.screenshot({ path: testInfo.outputPath('phone-controls.png'), fullPage: true });
+});
+
+test('an expired sign-in is renewed and live view still starts', async ({ page }, testInfo) => {
+  await page.addInitScript(() => localStorage.setItem('refresh_token', 'saved-refresh'));
+  let expired = false, refreshes = 0;
+  const rejected: string[] = [];
+  await page.route('**/api/auth/refresh', route => {
+    refreshes++;
+    return route.fulfill({ json: { success: true, data: { access_token: 'e2e-admin' } } });
+  });
+  await page.route('**/api/camera/**', route => {
+    if (expired && route.request().headers().authorization === 'Bearer viewer-admin') {
+      rejected.push(new URL(route.request().url()).pathname);
+      return route.fulfill({ status: 401, json: { detail: 'Expired' } });
+    }
+    return route.fallback();
+  });
+  await page.goto('/camera?section=live');
+  await expect(page.getByText(/^Camera: Connected/).first()).toBeVisible();
+  expired = true;
+  await expect.poll(() => rejected.length, { timeout: 15_000 }).toBeGreaterThan(0);
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('access_token'))).toBe('e2e-admin');
+  await page.getByRole('button', { name: 'Start my live view', exact: true }).click();
+  await expect(page.getByAltText('Live camera stream')).toBeVisible();
+  await expect(page.getByText(/\(401\)|Failed to create streaming session/)).toHaveCount(0);
+  expect(refreshes).toBe(1);
+  await page.screenshot({ path: testInfo.outputPath('renewed-sign-in.png') });
 });

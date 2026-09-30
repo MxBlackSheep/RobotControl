@@ -39,7 +39,8 @@ const dispatchTokenUpdate = (accessToken: string, refreshToken?: string | null) 
   );
 };
 
-const attemptTokenRefresh = async (): Promise<string | null> => {
+// Exported for streamed downloads that must use fetch; everything else uses `api`.
+export const attemptTokenRefresh = async (): Promise<string | null> => {
   if (typeof window === 'undefined') {
     return null;
   }

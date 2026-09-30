@@ -22,6 +22,8 @@ Show camera capture and recording separately from Streaming Session's browser co
 
 `CameraControls.active` pauses status polling while the live section is not shown; collapsing the settings does not.
 
+All camera JSON requests use the shared `api` client, so an expired access token is renewed once instead of failing with 401 on a screen left open. Polling and in-flight actions reset when the signed-in user changes, not when the token is renewed. Recording downloads stay on `fetch` (ranged, resumable, with progress) and call `attemptTokenRefresh` once on a 401. Each error has one owner: `archiveError` for the recordings list, `error` for downloads (archive dialog), `liveError` for the viewing session (shown in the viewer), and a failed live-view status read clears the old status and shows **Live view status unavailable** with Retry.
+
 Reconnect camera affects the shared source and can interrupt all viewers. Reconnect live view closes/replaces only that user's streaming session. It never changes recording intent or starts another camera. Stop My Stream remains independent of recording.
 
 ## Frames and performance
