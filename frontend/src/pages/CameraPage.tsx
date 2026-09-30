@@ -25,6 +25,7 @@ import { buildApiUrl, buildWsUrl } from '@/utils/apiBase';
 import VideoArchiveTab, {
   type ExperimentFolder
 } from '../components/camera/VideoArchiveTab';
+import RecentRecordings from '../components/camera/RecentRecordings';
 
 interface StreamingSession {
   session_id: string;
@@ -96,7 +97,7 @@ const CameraPage: React.FC = () => {
   // Live-view failures show in the viewer only; rror is for downloads on the archive.
   const [liveError, setLiveError] = useState('');
   const { user } = useAuth();
-  const [currentTab] = useModuleSection('/camera', user);
+  const [currentTab, setCurrentTab] = useModuleSection('/camera', user);
   // Wide screens put the controls beside the image; narrower ones keep them collapsible below it.
   const sideBySide = useMediaQuery('(min-width:1200px)');
   
@@ -158,11 +159,9 @@ const CameraPage: React.FC = () => {
 
   // Load content when switching tabs
   useEffect(() => {
-    if (currentTab === 0) {
-      void loadRecordings();
-    } else if (currentTab === 1) {
-      void loadStreamingStatus();
-    }
+    // Live view also lists the newest recordings, so both sections read the archive.
+    void loadRecordings();
+    if (currentTab === 0) void loadStreamingStatus();
   }, [currentTab]);
 
   // The archive owns archiveError; `error` belongs to downloads and live view.
@@ -181,7 +180,7 @@ const CameraPage: React.FC = () => {
   };
 
   const handleRefresh = () => {
-    if (currentTab === 0) {
+    if (currentTab === 1) {
       void loadRecordings();
     } else {
       void loadStreamingStatus();
@@ -557,7 +556,7 @@ const CameraPage: React.FC = () => {
 
       {/* Error Display */}
       <StatusDialog
-        status={error && currentTab !== 1 ? { title: 'Server Error', message: error, severity: 'error', action: { label: 'Retry', onClick: handleRefresh } } : null}
+        status={error && currentTab !== 0 ? { title: 'Server Error', message: error, severity: 'error', action: { label: 'Retry', onClick: handleRefresh } } : null}
         onClose={() => setError('')}
       />
 
@@ -592,7 +591,7 @@ const CameraPage: React.FC = () => {
       )}
 
       {/* Video Archive Tab */}
-      <SectionPanel active={currentTab === 0}>
+      <SectionPanel active={currentTab === 1}>
         <VideoArchiveTab
           experimentFolders={experimentFolders}
           loading={archiveLoading}
@@ -605,7 +604,7 @@ const CameraPage: React.FC = () => {
       </SectionPanel>
 
       {/* The viewer owns display transforms only; camera controls keep polling beside or below it. */}
-      <SectionPanel active={currentTab === 1}>
+      <SectionPanel active={currentTab === 0}>
         <Box sx={{ display: 'grid', gap: 2, alignItems: 'start', gridTemplateColumns: sideBySide ? 'minmax(0, 1fr) 340px' : 'minmax(0, 1fr)' }}>
         <Box sx={{ minWidth: 0 }}>
         <CameraViewport
@@ -633,9 +632,10 @@ const CameraPage: React.FC = () => {
             </>}
           </>}
         />
+        <RecentRecordings folders={experimentFolders} loading={archiveLoading} error={archiveError} onOpenArchive={() => setCurrentTab(1)} />
         </Box>
         <Stack spacing={2} sx={{ minWidth: 0 }}>
-        <CameraControls active={currentTab === 1} admin={user?.role === 'admin'} collapsible={!sideBySide} onSourceChange={handleSourceChange} onSummaryChange={setCameraSummary} />
+        <CameraControls active={currentTab === 0} admin={user?.role === 'admin'} collapsible={!sideBySide} onSourceChange={handleSourceChange} onSummaryChange={setCameraSummary} />
         {mySession && <Box component="details" sx={{ color: 'text.secondary', fontSize: '0.875rem', '& summary': { cursor: 'pointer', minHeight: 44, display: 'flex', alignItems: 'center' },
           ...(sideBySide && { px: 2, py: 0.5, bgcolor: 'background.paper', border: 1, borderColor: 'divider', borderRadius: 2 }) }}>
           <summary>Live view details</summary>
