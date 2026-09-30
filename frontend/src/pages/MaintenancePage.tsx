@@ -1,4 +1,4 @@
-import { PageContent, PageHeader } from '../components/PageLayout';
+import { DetailTitle, PageContent, PageHeader } from '../components/PageLayout';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -152,7 +152,7 @@ const MaintenancePage: React.FC = () => {
           ) : (
             <Stack spacing={2}>
               <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap>
-                <Typography component="h2" sx={{ fontSize: 18, fontWeight: 600, flexGrow: 1 }}>HxRun launches</Typography>
+                <Box sx={{ flexGrow: 1 }}><DetailTitle>HxRun launches</DetailTitle></Box>
                 <StatusChip tone={!state || error ? 'neutral' : state.enabled ? 'attention' : 'completed'}
                   label={!state || error ? 'State unavailable' : state.enabled ? 'Blocked for maintenance' : 'Allowed'} />
               </Stack>

@@ -1,4 +1,4 @@
-import { PageContent, PageHeader } from '../components/PageLayout';
+import { DetailTitle, EmptyPanel, PageContent, PageHeader } from '../components/PageLayout';
 import { useSchedulingSection, isLocalUser } from '../components/navigation';
 /**
  * RobotControl Experiment Scheduling Page
@@ -450,7 +450,7 @@ const SchedulingPage: React.FC = () => {
           {calendarData.map(([date, schedules]) => (
             <Grid item xs={12} md={6} key={date}>
               <Card component="section" aria-label={date} sx={{ height: '100%' }}>
-                <Typography component="h3" sx={{ px: 2, py: 1.5, fontSize: 15, fontWeight: 600, borderBottom: 1, borderColor: 'divider' }}>
+                <Typography component="h3" variant="h6" sx={{ px: 2, py: 1.5, borderBottom: 1, borderColor: 'divider' }}>
                   {new Date(date).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
                 </Typography>
                 {schedules.map((schedule) => (
@@ -525,7 +525,7 @@ const SchedulingPage: React.FC = () => {
             {state.selectedSchedule ? <Stack data-testid="schedule-detail" spacing={2} sx={{ p: { xs: 2, sm: 2.5 }, overflow: 'auto', minHeight: 0, flex: 1, bgcolor: 'background.paper', border: 1, borderColor: 'divider', borderRadius: 2 }}>
               <Box>
                 <Stack direction="row" justifyContent="space-between" alignItems="flex-start" gap={1}>
-                  <Typography component="h2" sx={{ fontSize: 18, fontWeight: 600, overflowWrap: 'anywhere' }}>{state.selectedSchedule.experiment_name}</Typography>
+                  <DetailTitle>{state.selectedSchedule.experiment_name}</DetailTitle>
                   <StatusChip {...scheduleState(state.selectedSchedule)} />
                 </Stack>
                 <Typography sx={{ fontFamily: fontMono, fontSize: 12, color: 'text.secondary', overflowWrap: 'anywhere', mt: 0.5 }}>{state.selectedSchedule.experiment_path}</Typography>
@@ -556,7 +556,7 @@ const SchedulingPage: React.FC = () => {
                 {latestNotificationForSelectedSchedule?.error_message && <Alert severity="error">{latestNotificationForSelectedSchedule.error_message}</Alert>}
                 <Button onClick={openNotificationsTab}>Notification history</Button>
               </Box>}
-            </Stack> : <Box sx={{ p: 3, flex: 1, bgcolor: 'background.paper', border: 1, borderColor: 'divider', borderRadius: 2 }}><Typography color="text.secondary">Select a schedule.</Typography></Box>}
+            </Stack> : <EmptyPanel>Select a schedule.</EmptyPanel>}
           </InspectionWorkspace>
         </TabPanel>
 

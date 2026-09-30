@@ -29,6 +29,7 @@ import {
   BrowseOptions,
 } from "../services/logFileApi";
 import InspectionWorkspace from "./InspectionWorkspace";
+import { EmptyPanel } from "./PageLayout";
 import LogReader, { LogSelection } from "./LogReader";
 import { fontMono } from "../theme";
 type Location = { folder: string; archive: string; entry: string };
@@ -456,7 +457,7 @@ export default function LogSourceBrowser({
             visibleInWorkspace={detailVisible}
           />
         ) : (
-          <Alert severity="info">Choose a file to read it.</Alert>
+          <EmptyPanel>Choose a file to read it.</EmptyPanel>
         )}
       </InspectionWorkspace>
     </>

@@ -39,3 +39,15 @@ export function PageHeader({ title, description, actions }: { title: string; des
 export function PanelLabel({ children, component = 'h2' }: { children: React.ReactNode; component?: React.ElementType }) {
   return <Typography component={component} sx={{ fontSize: 12, fontWeight: 600, letterSpacing: 0.8, textTransform: 'uppercase', color: 'text.secondary', lineHeight: 1.5 }}>{children}</Typography>;
 }
+
+/** The name of the selected item in a detail panel (a schedule, a folder, a recovery). */
+export function DetailTitle({ children, component = 'h2' }: { children: React.ReactNode; component?: React.ElementType }) {
+  return <Typography component={component} sx={{ fontSize: 18, fontWeight: 600, lineHeight: 1.4, overflowWrap: 'anywhere', minWidth: 0 }}>{children}</Typography>;
+}
+
+/** A detail panel with nothing chosen yet: a plain prompt, not an alert. */
+export function EmptyPanel({ children }: { children: React.ReactNode }) {
+  return <Box sx={{ flex: 1, p: { xs: 2, sm: 3 }, bgcolor: 'background.paper', border: 1, borderColor: 'divider', borderRadius: 2 }}>
+    <Typography color="text.secondary">{children}</Typography>
+  </Box>;
+}

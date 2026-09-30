@@ -7,6 +7,7 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import { experimentsAPI } from '../services/api';
 import { useSerialPolling } from '../hooks/useSerialPolling';
 import StatusChip from './StatusChip';
+import { PanelLabel } from './PageLayout';
 import { fontMono, StatusTone } from '../theme';
 
 interface ExperimentData {
@@ -78,9 +79,9 @@ const ExperimentStatus: React.FC<{ refreshInterval?: number }> = memo(({ refresh
   const experiment = latest?.experiment;
   const state = experiment ? getRunStateDisplay(experiment.run_state) : null;
 
-  return <Card component="section" aria-label="Latest experiment" sx={{ p: { xs: 2, sm: 2.5 }, display: 'flex', flexDirection: 'column', gap: 1.75 }}>
+  return <Card component="section" aria-label="Latest experiment" variant="outlined" sx={{ p: { xs: 2, sm: 2.5 }, display: 'flex', flexDirection: 'column', gap: 1.75 }}>
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, flexWrap: 'wrap' }}>
-      <Typography component="h2" sx={{ fontSize: 12, fontWeight: 600, letterSpacing: 0.8, color: 'text.secondary' }}>LATEST EXPERIMENT</Typography>
+      <PanelLabel>Latest experiment</PanelLabel>
       {state && <StatusChip tone={state.tone} label={state.label} />}
       <Box sx={{ flex: 1 }} />
       <Button size="small" startIcon={<RefreshIcon />} onClick={() => { void polling.refresh(); }} disabled={polling.pending}>Refresh</Button>

@@ -13,7 +13,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { PageContent, PageHeader } from "../components/PageLayout";
+import { EmptyPanel, PageContent, PageHeader } from "../components/PageLayout";
 import { useModuleSection, isLocalUser } from "../components/navigation";
 import SectionPanel from "../components/SectionPanel";
 import InspectionWorkspace from "../components/InspectionWorkspace";
@@ -96,7 +96,7 @@ export default function DatabasePage() {
     >
       <Stack spacing={1.25} sx={{ p: 1.5 }}>
         <Stack direction="row" alignItems="center" justifyContent="space-between">
-          <Typography component="h2" sx={{ fontSize: 15, fontWeight: 600 }}>
+          <Typography component="h2" variant="h6">
             Tables
           </Typography>
           <Button size="small" onClick={load} disabled={loading}>
@@ -171,10 +171,10 @@ export default function DatabasePage() {
           {selected ? (
             <DatabaseTable sourceId={sourceId} tableName={selected} active={section === 0} />
           ) : (
-            <Alert severity="info">
+            <EmptyPanel>
               Choose a table to inspect its rows. Browsing does not change
               database records.
-            </Alert>
+            </EmptyPanel>
           )}
         </InspectionWorkspace>
       </SectionPanel>

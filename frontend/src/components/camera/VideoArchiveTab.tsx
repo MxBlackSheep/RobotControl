@@ -1,3 +1,4 @@
+import { DetailTitle, EmptyPanel } from '../PageLayout';
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Box, Button, CircularProgress, LinearProgress, List, ListItemButton, Stack, TablePagination, TextField, Typography } from '@mui/material';
 import { Download, FolderOutlined, Refresh } from '@mui/icons-material';
@@ -66,7 +67,7 @@ export default function VideoArchiveTab({ experimentFolders, loading, error, onR
       selector={<Stack sx={{ ...panel, minHeight: 0, height: '100%' }}>
         <Stack spacing={1.25} sx={{ p: 1.5 }}>
           <Stack direction="row" alignItems="center" justifyContent="space-between">
-            <Typography component="h2" sx={{ fontSize: 15, fontWeight: 600 }}>Folders ({experimentFolders.length})</Typography>
+            <Typography component="h2" variant="h6">Folders ({experimentFolders.length})</Typography>
             <Button size="small" onClick={refreshArchive} disabled={loading} startIcon={<Refresh />}>Refresh</Button>
           </Stack>
           <TextField label="Search folders" size="small" value={query} onChange={event => setQuery(event.target.value)} />
@@ -85,7 +86,7 @@ export default function VideoArchiveTab({ experimentFolders, loading, error, onR
       </Stack>}>
       {folder ? <Stack sx={{ ...panel, minHeight: 0, height: '100%' }}>
         <Stack spacing={1.25} sx={{ p: { xs: 1.5, sm: 2 } }}>
-          <Typography component="h2" sx={{ fontSize: 18, fontWeight: 600, overflowWrap: 'anywhere' }}>{folder.folder_name}</Typography>
+          <DetailTitle>{folder.folder_name}</DetailTitle>
           <TextField label="Find recording" size="small" value={fileQuery} onChange={event => { setFileQuery(event.target.value); setPage(0); }} sx={{ maxWidth: { sm: 360 } }} />
         </Stack>
         {state?.loading && <LinearProgress aria-label="Loading folder" />}
@@ -108,7 +109,7 @@ export default function VideoArchiveTab({ experimentFolders, loading, error, onR
         <TablePagination component="div" count={videos.length} page={safePage} rowsPerPage={pageSize} rowsPerPageOptions={[25, 50, 100]}
           onPageChange={(_, next) => setPage(next)} onRowsPerPageChange={event => { setPageSize(Number(event.target.value)); setPage(0); }}
           sx={{ flexShrink: 0, borderTop: 1, borderColor: 'divider', px: 1, '& .MuiTablePagination-toolbar': { flexWrap: 'wrap', px: 0 }, '& .MuiTablePagination-spacer': { display: 'none' } }} />
-      </Stack> : <Box sx={{ ...panel, flex: 1 }}><Typography color="text.secondary" sx={{ p: 2 }}>Select a recording folder.</Typography></Box>}
+      </Stack> : <EmptyPanel>Select a recording folder.</EmptyPanel>}
     </InspectionWorkspace>
   </Stack>;
 }

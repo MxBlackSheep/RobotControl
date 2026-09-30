@@ -15,7 +15,6 @@ import {
   Collapse,
   IconButton,
   LinearProgress,
-  Tooltip,
   Select,
   MenuItem,
   FormControl,
@@ -401,11 +400,7 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
 
 
 
-            <Tooltip title="Refresh execution history">
-              <IconButton onClick={loadExecutionHistory} disabled={loading}>
-                <RefreshIcon />
-              </IconButton>
-            </Tooltip>
+            <Button startIcon={<RefreshIcon />} onClick={loadExecutionHistory} disabled={loading}>Refresh</Button>
           </Stack>
         </Stack>
 

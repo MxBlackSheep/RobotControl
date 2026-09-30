@@ -1,3 +1,4 @@
+import { DetailTitle } from '../PageLayout';
 import { useState } from 'react';
 import { Alert, Button, Card, CardContent, Checkbox, FormControlLabel, Stack, TextField, Typography } from '@mui/material';
 import { ManualRecoveryState } from '../../types/scheduling';
@@ -58,7 +59,7 @@ export default function RecoverySafetyPanel({ state, isLocal, onChanged }: Props
     {pending.map((item, index) => <Card key={item.schedule_id ?? `missing-${index}`}><CardContent>
       <Stack spacing={1}>
         <Stack direction="row" justifyContent="space-between" alignItems="flex-start" gap={1}>
-          <Typography component="h3" sx={{ fontSize: 18, fontWeight: 600 }}>{item.experiment_name || 'Unknown schedule'}</Typography>
+          <DetailTitle component="h3">{item.experiment_name || 'Unknown schedule'}</DetailTitle>
           <StatusChip tone="attention" label="Recovery required" />
         </Stack>
         <Typography sx={{ fontFamily: fontMono, fontSize: 13, color: 'text.secondary' }}>Schedule ID: {item.schedule_id || 'Unavailable'}</Typography>
