@@ -1,9 +1,10 @@
-## 2026-09-30 Trim tests to the checks that can catch real failures
+## 2026-09-30 Keep essential coverage while trimming test duplication
 
-- New rule in `frontend/e2e/README.md`: a bug fix gets a new check only for robot safety, data integrity, scheduling or a returning bug. Browser specs with faked APIs keep one success and one failure case per screen.
-- `database-restore.spec.ts` went from 12 cases to 2; its path-browsing and 12-second timeout cases were removed. Real restores remain covered by `backend/e2e/backup_restore_check.py`. Screen-size lists now cover phone, desktop and 4K only where 4K was the concern (full browser run: 132 to 95 cases).
-- Removed 7 display-only component tests and 31 tests in `test_automatic_recording.py` that checked internals; the start/stop race checks remain. Permission, safety and data-write component tests were kept.
-- The keyboard-shortcut browser check fails on main 3024ee1 as well; it is a separate fix. Commands and outcomes: `test-output/viewer-verification/RUN.md`.
+- The suite now requires a concrete essential failure and no equivalent retained coverage, rather than a fixed success/failure quota per screen. Routine presentation, internal-state copies and recoverable read-only browsing are removed.
+- Browser cases decrease from 132 to 97. Restore is consolidated from 13 cases to 3: failure feedback/retry, a slow restore with completion warnings, and backup selection under stale replies/new drafts. The real SQL check cannot cover browser timeouts or selection races. Layout matrices retain phone/desktop/4K plus the short 1024px labware boundary; focus animation is checked once using the normal motion setting.
+- Five component-test files remain deleted. Of the two others, only four checks remain: bounded complete exports/cancellation and explicit robot/cleanup-method confirmation/cancellation. Recording checks decrease from 37 to 9, retaining disabled startup, cancellation, failed camera start and complete start/stop behavior. The camera fixture now reaches the intended failed-start path, and startup cleanup runs while dependencies are still mocked.
+- The shortcut check now waits for the authenticated page and uses an available camera-status fixture so a maintenance modal does not intercept its keys. Review caught an Edge `ERR_NO_BUFFER_SPACE` failure loading React; the isolated retry passes without changing application code. Original failure traces are preserved.
+- Verification is focused on the changed checks; no application code, dependency or build inputs changed. The prior full run and fresh focused commands/results are distinguished in `test-output/pr14-review/verification.json`.
 
 ## 2026-09-29 Preserve the next directory path while browsing
 

@@ -105,10 +105,13 @@ test('administration gives storage health its own local section', async ({ page 
 
 test('keyboard shortcuts navigate, show their help and yield to dialogs', async ({ page }) => {
   await page.route('**/api/monitoring/**', route => route.fulfill({ json: { data: [] } }));
-  await page.route('**/api/camera/streaming/status', route => route.fulfill({ status: 503, json: {} }));
+  await page.route('**/api/camera/streaming/status', route => route.fulfill({ json: { data: { status: { enabled: false } } } }));
   await page.goto('/about');
+  // Navigation keys are registered only after saved sign-in is verified.
+  await expect(page.getByRole('heading', { name: 'About', exact: true })).toBeVisible();
   await page.keyboard.press('Alt+6');
   await expect(page).toHaveURL(/\/system-status$/);
+  await expect(page.getByRole('heading', { name: 'System Status', exact: true })).toBeVisible();
   await page.keyboard.press('?');
   const help = page.getByRole('dialog', { name: 'Keyboard Shortcuts' });
   await expect(help).toBeVisible();

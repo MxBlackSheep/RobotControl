@@ -9,7 +9,11 @@ import { mkdirSync } from 'node:fs';
  *   starting over.
  * - A success stops turning on maintenance or drops the server's warnings.
  * - One click sends the restore request more than once, or sends the wrong body.
- * Real SQL Server restores, timeouts and the failure body shape are checked by
+ * - A response beyond the shared 10 s timeout must keep the confirmation busy and
+ *   eventually display completion; the SQL check cannot detect a browser timeout.
+ * - Stale listings must not change the backup being selected; navigating clears old
+ *   selection, and slow responses must retain the next path draft.
+ * Real SQL Server restores, runner timeouts and the failure body shape are checked by
  * backend/e2e/backup_restore_check.py.
  */
 const evidence = process.env.ROBOTCONTROL_E2E_EVIDENCE || '../test-output/database-restore-verification';
@@ -60,13 +64,22 @@ test('failed .bck restore shows the reason and keeps the confirmation for retry'
   expect(sent).toEqual([{ file_path: bckPath }]);
 });
 
-test('successful restore shows warnings and turns on maintenance', async ({ page }) => {
+test('slow successful restore stays pending, then shows warnings and maintenance', async ({ page }) => {
   const warning = 'Database connectivity check after restore timed out';
   const sent = await openRestore(page, { success: true, message: 'Database restored successfully', data: { warnings: [warning] } });
   // The MUI Select is not linked to its "Select Backup File" label, so it has no accessible name.
   await page.getByRole('main').getByRole('combobox').click();
   await page.getByRole('option', { name: bak.filename, exact: false }).click();
+  await page.route('**/api/admin/backup/restore', async route => {
+    sent.push(route.request().postDataJSON());
+    await new Promise(resolve => setTimeout(resolve, 12_000));
+    await route.fulfill({ json: { success: true, message: 'Database restored successfully', data: { warnings: [warning] } } });
+  });
   const confirm = await confirmRestore(page);
+  await page.waitForTimeout(10_500);
+  await expect(confirm.getByRole('button', { name: 'Restoring...' })).toBeDisabled();
+  await expect(confirm.getByRole('button', { name: 'Cancel', exact: true })).toBeDisabled();
+  await expect(page.getByText('Restore Failed')).toHaveCount(0);
 
   const dialog = page.getByRole('dialog', { name: 'Restore Completed with Warnings' });
   await expect(dialog).toContainText(warning);
@@ -74,4 +87,55 @@ test('successful restore shows warnings and turns on maintenance', async ({ page
   await expect(confirm).toHaveCount(0);
   await page.screenshot({ path: `${evidence}/completed-with-warnings.png`, animations: 'disabled' });
   expect(sent).toEqual([{ filename: bak.filename }]);
+});
+
+
+test('backup selection survives stale listings and preserves the next path draft', async ({ page }) => {
+  await openRestore(page, { success: false });
+  await page.unroute('**/api/system/browse?*');
+  const paths: string[] = [];
+  let releaseOld!: () => void;
+  let releaseCurrent!: () => void;
+  const old = new Promise<void>(resolve => { releaseOld = resolve; });
+  const current = new Promise<void>(resolve => { releaseCurrent = resolve; });
+  await page.route('**/api/system/browse?*', async route => {
+    const path = new URL(route.request().url()).searchParams.get('path')!;
+    paths.push(path);
+    if (path === 'C:\\slow') await old;
+    if (path === 'D:\\Backups') await current;
+    await route.fulfill({ json: { success: true, data: { current_path: path, items: [{
+      name: path === 'C:\\slow' ? 'obsolete.bck' : 'current.bck',
+      path: `${path}\\current.bck`, is_directory: false,
+    }] } } });
+  });
+  await page.getByRole('tab', { name: 'Browse Files (.bck)' }).click();
+  await page.getByRole('button', { name: 'Browse', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Browse for .bck Backup Files' });
+  const input = dialog.getByLabel('Current Directory');
+  const select = dialog.getByRole('button', { name: 'Select File' });
+  await dialog.getByRole('button', { name: 'current.bck', exact: false }).click();
+  await expect(select).toBeEnabled();
+  await input.fill('C:\\slow');
+  expect(paths).toEqual(['C:\\']);
+  await input.press('Enter');
+  await expect.poll(() => paths.at(-1)).toBe('C:\\slow');
+  await expect(select).toBeDisabled();
+  await input.fill('D:\\Backups');
+  await input.press('Enter');
+  await expect.poll(() => paths.at(-1)).toBe('D:\\Backups');
+  await input.fill('D:\\next');
+  releaseCurrent();
+  await expect(dialog.getByRole('button', { name: 'current.bck', exact: false })).toBeVisible();
+  await expect(input).toHaveValue('D:\\next');
+  const staleResponse = page.waitForResponse(response => new URL(response.url()).searchParams.get('path') === 'C:\\slow');
+  releaseOld();
+  await staleResponse;
+  await expect(dialog.getByText('obsolete.bck')).toHaveCount(0);
+  await expect(input).toHaveValue('D:\\next');
+  await input.press('Enter');
+  await expect.poll(() => paths.at(-1)).toBe('D:\\next');
+  await dialog.getByRole('button', { name: 'current.bck', exact: false }).click();
+  await select.click();
+  await expect(page.getByLabel('Selected .bck File')).toHaveValue('D:\\next\\current.bck');
+  await page.screenshot({ path: `${evidence}/selected-backup-after-pending-listings.png`, animations: 'disabled' });
 });
