@@ -52,7 +52,8 @@ export function createAppTheme(mode: PaletteMode) {
     shape: { borderRadius: 6 },
     typography: {
       fontFamily: fontSans,
-      h4: { fontWeight: 600 }, h5: { fontWeight: 600 }, h6: { fontWeight: 600 },
+      // h6 is the panel heading throughout the app; the page title lives in PageHeader.
+      h4: { fontWeight: 600 }, h5: { fontWeight: 600, fontSize: '1.25rem' }, h6: { fontWeight: 600, fontSize: '1rem', lineHeight: 1.4 },
       button: { fontWeight: 500 },
     },
     components: {
