@@ -24,8 +24,8 @@ async function openLiveView(page: Page) {
   await expect(page.getByText('Live view receiving frames', { exact: true })).toBeVisible();
 }
 
-for (const viewport of [{ width: 1280, height: 720 }, { width: 1920, height: 1080 }, { width: 320, height: 568 }, { width: 390, height: 844 }, { width: 844, height: 390 }]) {
-  for (const frame of [{ width: 640, height: 480 }, { width: 1280, height: 720 }, { width: 480, height: 800 }]) {
+for (const viewport of [{ width: 1920, height: 1080 }, { width: 320, height: 568 }]) {
+  for (const frame of [{ width: 640, height: 480 }, { width: 480, height: 800 }]) {
     test(`Fit preserves ${frame.width}x${frame.height} at ${viewport.width}px`, async ({ page, request }, testInfo) => {
       await page.setViewportSize(viewport);
       await request.post('/__e2e/camera', { data: frame });

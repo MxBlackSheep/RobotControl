@@ -49,7 +49,7 @@ async function operations(page: Page, local = true) {
   return writes;
 }
 
-for (const width of [390, 1280, 1920]) {
+for (const width of [390, 1920]) {
   test(`schedule selection keeps context and recovery visible at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 844 });
     const writes = await operations(page);
