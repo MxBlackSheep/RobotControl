@@ -1,6 +1,6 @@
 import axios, { AxiosHeaders } from 'axios';
 import { getApiBase } from '@/utils/apiBase';
-import { isMaintenanceActive, getMaintenanceRemainingMs, activateMaintenance } from '@/utils/MaintenanceManager';
+import { isMaintenanceActive, getMaintenanceRemainingMs } from '@/utils/MaintenanceManager';
 
 // Derive API base dynamically so phone/tablet clients proxy to the correct backend
 const API_BASE_URL = getApiBase();
@@ -141,10 +141,8 @@ api.interceptors.response.use(
       }
     }
 
-    // AuthContext retries /me itself; a restarting server is not a database restore.
-    if (status === 503 && !/\/api\/auth\/me/i.test(requestUrl)) {
-      activateMaintenance(60000, 'Database is restarting. Please wait.');
-    }
+    // A 503 is not a database restart: scheduler and storage use it for their own outages.
+    // Maintenance starts only from a successful restore (DatabaseRestore.tsx).
 
     // Handle timeout errors specifically
     if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
