@@ -33,22 +33,21 @@ const Dashboard: React.FC = memo(() => {
   const canOpenScheduling = ['admin', 'user'].includes(user?.role || '');
   return <PageContent>
     <PageHeader title="Overview" />
-    <Box sx={{ display: 'grid', gap: 2 }}>
+    <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: 'minmax(0,1fr)',
+      gridTemplateAreas: attention ? '"attention" "running" "next" "recent" "health" "latest"' : '"running" "next" "recent" "health" "latest"',
+      '@container workspace (min-width: 1000px)': {
+        gridTemplateColumns: 'minmax(0,1fr) 360px',
+        gridTemplateAreas: attention ? '"running attention" "next health" "recent latest"' : '"running running" "next health" "recent latest"',
+      },
+      '& > *': { minWidth: 0, display: 'grid' },
+    }}>
       {/* On phones the hold comes first: it blocks every other run. */}
-      <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: attention ? 'minmax(0,1.6fr) minmax(0,1fr)' : '1fr' } }}>
-        <Box sx={{ order: { xs: 2, md: 1 }, minWidth: 0, display: 'grid' }}><PanelErrorBoundary name="Now running"><NowRunning status={status} error={error} /></PanelErrorBoundary></Box>
-        {attention && <Box sx={{ order: { xs: 1, md: 2 }, minWidth: 0, display: 'grid' }}><PanelErrorBoundary name="Needs attention"><NeedsAttention status={status} /></PanelErrorBoundary></Box>}
-      </Box>
-      <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: 'minmax(0,1fr)', '@container workspace (min-width: 1000px)': { gridTemplateColumns: 'minmax(0,1fr) 360px' }, alignItems: 'start' }}>
-        <Box sx={{ display: 'grid', gap: 2, minWidth: 0 }}>
-          <PanelErrorBoundary name="Up next"><UpNext canOpenScheduling={canOpenScheduling} /></PanelErrorBoundary>
-          <PanelErrorBoundary name="Recent runs"><RecentRuns /></PanelErrorBoundary>
-        </Box>
-        <Box sx={{ display: 'grid', gap: 2, minWidth: 0 }}>
-          <PanelErrorBoundary name="Instrument health"><InstrumentHealth status={status} /></PanelErrorBoundary>
-          <PanelErrorBoundary name="Latest experiment"><ExperimentStatus /></PanelErrorBoundary>
-        </Box>
-      </Box>
+      <Box sx={{ gridArea: 'running' }}><PanelErrorBoundary name="Now running"><NowRunning status={status} error={error} /></PanelErrorBoundary></Box>
+      {attention && <Box sx={{ gridArea: 'attention' }}><PanelErrorBoundary name="Needs attention"><NeedsAttention status={status} /></PanelErrorBoundary></Box>}
+      <Box sx={{ gridArea: 'next' }}><PanelErrorBoundary name="Up next"><UpNext canOpenScheduling={canOpenScheduling} /></PanelErrorBoundary></Box>
+      <Box sx={{ gridArea: 'recent' }}><PanelErrorBoundary name="Recent runs"><RecentRuns /></PanelErrorBoundary></Box>
+      <Box sx={{ gridArea: 'health' }}><PanelErrorBoundary name="Instrument health"><InstrumentHealth status={status} /></PanelErrorBoundary></Box>
+      <Box sx={{ gridArea: 'latest' }}><PanelErrorBoundary name="Latest experiment"><ExperimentStatus /></PanelErrorBoundary></Box>
     </Box>
   </PageContent>;
 });

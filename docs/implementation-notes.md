@@ -1,3 +1,9 @@
+## 2026-09-30 Align Overview card rows and heading baselines
+
+- Corrects the independent column stacks introduced below: Up next / Instrument health and Recent runs / Latest experiment now share row tracks and stretch to their taller card. Recovery uses the same column boundary; the phone layout retains recovery priority.
+- Panel headers reserve a 36px minimum height so headings align whether or not they contain an action button. Content can still grow and wrap.
+- Build and 19 existing browser checks passed. Light/dark visual probes measure card edges and heading baselines with populated, empty and held states, including the 1000px workspace breakpoint. Evidence and source/build hashes: `test-output/overview-alignment/verification.json`. No hardware or Windows package verification.
+
 ## 2026-09-30 Align frontend composition and panel presentation
 
 - Page titles and actions now share a consistent row above section tabs. Dashboard pages stop at 1440px; task forms at 1120px. Tables, logs, camera and labware retain their available working width. Normal panels use 8px corners and 16/24px insets; panel headings share `PanelHeader`, with spacing owned by the parent.

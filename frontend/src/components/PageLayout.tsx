@@ -38,7 +38,7 @@ export function PageHeader({ title, description, actions }: { title: string; des
 
 /** Heading/action alignment; the parent owns spacing between header and content. */
 export function PanelHeader({ title, actions }: { title: string; actions?: React.ReactNode }) {
-  return <Stack direction="row" alignItems="center" justifyContent="space-between" gap={1} flexWrap="wrap">
+  return <Stack direction="row" alignItems="center" justifyContent="space-between" gap={1} flexWrap="wrap" sx={{ minHeight: 36 }}>
     <Typography component="h2" variant="h6">{title}</Typography>
     {actions}
   </Stack>;

@@ -64,10 +64,11 @@ starts or stops a live-view session.
 attention (from the robot status context), Up next (active schedules by `next_run`),
 Instrument health (scheduler, storage, HxRun from the context; SQL Server and camera from
 one 60 s read that tolerates either source failing), Recent runs (last five executions) and
-the Latest experiment card. Below the current run, Up next and Recent runs stack in the
-main column; Instrument health and Latest experiment stack in a 360px supporting column.
-Below 1000px of workspace width they become one column, without remounting panels.
-This avoids an empty row under a short Up next panel. Each panel has its own error
+the Latest experiment card. A shared grid pairs Up next with Instrument health and
+Recent runs with Latest experiment. Each row stretches to its taller card, keeping
+card edges aligned; the recovery card shares the same 360px supporting column.
+Below 1000px of workspace width panels become one column, with recovery first,
+without remounting. Each panel has its own error
 boundary and Retry, so one failed read never blanks the page.
 
 Now running shows elapsed time from the run log monitor's `launched_at` against the
@@ -81,7 +82,8 @@ uses the viewer's local timezone. When PyHSL supplies better estimates, change o
 ## Shared presentation
 
 `PageLayout.tsx` also exports `PanelHeader` (panel title and optional actions, with the
-parent owning surrounding spacing), `PanelLabel` (small uppercase status label), `DetailTitle`
+parent owning surrounding spacing and a 36px minimum row height to align titles with
+buttons), `PanelLabel` (small uppercase status label), `DetailTitle`
 (the selected item's name, 18px) and `EmptyPanel` (a plain "choose something" prompt, not
 an alert). Panel titles use the theme `h6`. Refresh is always a labelled button. Times use
 `utils/displayTime.ts` (`Today 14:30`, 24-hour). Execution statuses map to tones in
