@@ -28,6 +28,7 @@ import {
   LogReaderSection,
   LogReaderStatus,
 } from "../services/logFileApi";
+import { fontMono } from "../theme";
 
 export type LogSelection = {
   name: string;
@@ -380,7 +381,7 @@ export default function LogReader({
     <>
       <Stack gap={0.5} sx={{ px: 1, py: 0.5, flexShrink: 0 }}>
         <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap">
-        <Typography variant="subtitle1" title={selected.name} sx={{ flex: "1 1 140px", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 600 }}>
+        <Typography variant="subtitle1" title={selected.name} sx={{ flex: "1 1 140px", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 500, fontFamily: fontMono, fontSize: 14 }}>
           {selected.name}
         </Typography>
         <Stack direction="row" gap={0.5} flexWrap="wrap" alignItems="center">
@@ -602,7 +603,7 @@ export default function LogReader({
             flex: 1,
             minHeight: 0,
             overflow: "auto",
-
+            borderRadius: 2,
           }}
         >
           {body}

@@ -23,6 +23,7 @@ import {
 } from "../services/logFileApi";
 import InspectionWorkspace from "./InspectionWorkspace";
 import LogReader, { LogSelection } from "./LogReader";
+import { fontMono } from "../theme";
 type Location = { folder: string; archive: string; entry: string };
 const root: Location = { folder: "", archive: "", entry: "" };
 const defaults: BrowseOptions = {
@@ -181,6 +182,7 @@ export default function LogSourceBrowser({
         flex: 1,
         minHeight: 0,
         overflow: "hidden",
+        borderRadius: 2,
       }}
     >
       <Stack
@@ -188,7 +190,7 @@ export default function LogSourceBrowser({
         gap={0.5}
         flexWrap="wrap"
         alignItems="center"
-        sx={{ px: 1, pt: 0.5 }}
+        sx={{ px: 1, pt: 0.75, "& .MuiButton-root": { fontSize: 13 } }}
       >
         {(source.shortcuts || []).map((shortcut) => (
           <Button
@@ -356,7 +358,8 @@ export default function LogSourceBrowser({
       {listLoading && <LinearProgress aria-label="Loading files" />}
       <List
         aria-label="Log files"
-        sx={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden" }}
+        disablePadding
+        sx={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", borderTop: 1, borderColor: "divider" }}
       >
         {listing?.items.map((item) => (
           <ListItemButton
@@ -369,11 +372,15 @@ export default function LogSourceBrowser({
               selected.relative === join(current.folder, item.name)
             }
             onClick={() => openItem(item)}
+            sx={{ px: 1.5, borderBottom: 1, borderColor: "divider" }}
           >
             <ListItemText
               primary={(item.is_directory ? "▸ " : "") + item.name}
+              secondaryTypographyProps={{ sx: { fontSize: 12 } }}
               primaryTypographyProps={{
                 sx: {
+                  fontFamily: item.is_directory ? undefined : fontMono,
+                  fontSize: 13,
                   overflowWrap: "anywhere",
                   display: "-webkit-box",
                   WebkitLineClamp: 2,
