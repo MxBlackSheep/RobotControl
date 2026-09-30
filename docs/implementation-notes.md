@@ -1,3 +1,10 @@
+## 2026-09-30 Align frontend composition and panel presentation
+
+- Page titles and actions now share a consistent row above section tabs. Dashboard pages stop at 1440px; task forms at 1120px. Tables, logs, camera and labware retain their available working width. Normal panels use 8px corners and 16/24px insets; panel headings share `PanelHeader`, with spacing owned by the parent.
+- Overview stacks upcoming and recent activity together beside instrument health and the latest experiment, removing the empty row under a short upcoming list. Maintenance's heading, Refresh and form share the same bounded width.
+- Scheduling groups runtime status separately from the collection, with explicit Refresh queue / Refresh schedules labels. Restore uses flat source tabs, Refresh beside the selector, compact filename display, a single selection summary and separated actions. Validity indicators, expandable metadata, permissions, drafts and confirmations remain intact.
+- Production build and all 109 existing browser checks passed without weakening assertions; three focused Maintenance cases passed again after a final label-width correction. Visual evidence and build identity are retained in `test-output/appearance-consistency/verification.json`; the repeatable probe uses the isolated viewer fixture and existing schedule/backup fixtures. No new permanent presentation-only tests. Real hardware, production SQL, native browser zoom and a new Windows package were not exercised.
+
 ## 2026-09-30 Correct maintenance holds and elapsed time after redesign review
 
 - Maintenance's Right now panel reports Scheduled runs as Held while maintenance or recovery is active. Unavailable or pending maintenance reads and failed robot reads show Unknown; a stopped scheduler shows Stopped. Refresh preserves the operator's reason draft.

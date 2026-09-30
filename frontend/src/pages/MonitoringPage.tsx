@@ -3,7 +3,7 @@ import { Alert, Box, Button, Card, CardContent, LinearProgress, Stack, Typograph
 import StatusChip from '../components/StatusChip';
 import { fontMono } from '../theme';
 import Refresh from '@mui/icons-material/Refresh';
-import { PageContent, PageHeader, PanelLabel } from '../components/PageLayout';
+import { PageContent, PageHeader, PanelHeader, PanelLabel } from '../components/PageLayout';
 import type { StatusTone } from '../theme';
 import useMonitoring from '../hooks/useMonitoring';
 
@@ -41,7 +41,7 @@ export default function MonitoringPage() {
       {timestamp && <Typography variant="caption" color="text.secondary">Last reading {new Date(timestamp).toLocaleString()}</Typography>}
     </Stack>
     <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, minmax(0, 1fr))' }, gap: 2, mb: 2 }}>
-      {metrics.map(metric => <Card key={metric.name} variant="outlined"><CardContent sx={{ p: 2.5, '&:last-child': { pb: 2.5 } }}>
+      {metrics.map(metric => <Card key={metric.name} variant="outlined"><CardContent>
         <Stack direction="row" justifyContent="space-between" alignItems="baseline">
           <Typography component="h3" sx={{ fontSize: 15, fontWeight: 600 }}>{metric.name}</Typography>
           <Typography sx={{ fontFamily: fontMono, fontSize: 30, fontWeight: 600, lineHeight: 1.2 }}>{Number.isFinite(metric.value) ? `${Math.round(metric.value!)}%` : '—'}</Typography>
@@ -64,10 +64,8 @@ export default function MonitoringPage() {
 }
 
 function ServiceCard({ title, state: [label, tone], rows, children }: { title: string; state: [string, StatusTone]; rows: [string, string][]; children?: React.ReactNode }) {
-  return <Card component="section" aria-label={title} variant="outlined"><CardContent sx={{ p: 2.5, '&:last-child': { pb: 2.5 } }}>
-    <Stack direction="row" alignItems="center" justifyContent="space-between" gap={1} sx={{ mb: 1.5 }}>
-      <Typography component="h2" variant="h6">{title}</Typography><StatusChip tone={tone} label={label} />
-    </Stack>
+  return <Card component="section" aria-label={title} variant="outlined"><CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+    <PanelHeader title={title} actions={<StatusChip tone={tone} label={label} />} />
     <Box component="dl" sx={{ m: 0, display: 'grid', gridTemplateColumns: 'minmax(110px, auto) minmax(0, 1fr)', columnGap: 2, rowGap: 1, fontSize: 14, '& dt': { color: 'text.secondary' }, '& dd': { m: 0, minWidth: 0, overflowWrap: 'anywhere' } }}>
       {rows.map(([name, value]) => <React.Fragment key={name}><Typography component="dt" variant="body2">{name}</Typography><Typography component="dd" variant="body2">{value}</Typography></React.Fragment>)}
     </Box>

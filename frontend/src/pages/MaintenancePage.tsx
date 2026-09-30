@@ -1,4 +1,4 @@
-import { DetailTitle, PageContent, PageHeader } from '../components/PageLayout';
+import { PageContent, PageHeader, PanelHeader } from '../components/PageLayout';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -25,7 +25,7 @@ import { useAuth } from '../context/AuthContext';
 import { hxrunMaintenanceApi, HxRunMaintenanceState } from '../services/hxrunMaintenanceApi';
 import { robotAttention, useRobotStatusContext } from '../hooks/useRobotStatus';
 import { runTiming } from '../components/overview/NowRunning';
-import type { StatusTone } from '../theme';
+import { panelPadding, type StatusTone } from '../theme';
 
 const formatTimestamp = (value?: string | null): string => {
   if (!value) {
@@ -131,35 +131,32 @@ const MaintenancePage: React.FC = () => {
   }, [loadState]);
 
   return (
-    <PageContent variant="overview">
+    <PageContent variant="task">
       <PageHeader title="Maintenance" actions={<Button onClick={loadState} disabled={saving || loading} startIcon={<RefreshIcon />}>Refresh</Button>} />
 
       {error && (
-        <Alert severity="error" sx={{ mb: 2, maxWidth: 880 }}>
+        <Alert severity="error" sx={{ mb: 2 }}>
           {error}
         </Alert>
       )}
 
       {state && !canEdit && (
-        <Alert severity="info" sx={{ mb: 2, maxWidth: 880 }}>
+        <Alert severity="info" sx={{ mb: 2 }}>
           Changes require a local session.
         </Alert>
       )}
 
-      <Box sx={{ display: 'grid', gap: 2, alignItems: 'start', gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 880px) minmax(280px, 360px)' } }}>
+      <Box sx={{ display: 'grid', gap: 2, alignItems: 'start', gridTemplateColumns: 'minmax(0, 1fr)', '@container workspace (min-width: 900px)': { gridTemplateColumns: 'minmax(0, 2fr) minmax(280px, 1fr)' } }}>
       <Card variant="outlined">
-        <CardContent sx={{ p: { xs: 2, sm: 3 }, '&:last-child': { pb: { xs: 2, sm: 3 } } }}>
+        <CardContent>
           {loading && !state ? (
             <Box sx={{ py: 4, display: 'flex', justifyContent: 'center' }}>
               <CircularProgress size={28} />
             </Box>
           ) : (
             <Stack spacing={2}>
-              <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap>
-                <Box sx={{ flexGrow: 1 }}><DetailTitle>HxRun launches</DetailTitle></Box>
-                <StatusChip tone={!state || error ? 'neutral' : state.enabled ? 'attention' : 'completed'}
-                  label={!state || error ? 'State unavailable' : state.enabled ? 'Blocked for maintenance' : 'Allowed'} />
-              </Stack>
+              <PanelHeader title="HxRun launches" actions={<StatusChip tone={!state || error ? 'neutral' : state.enabled ? 'attention' : 'completed'}
+                label={!state || error ? 'State unavailable' : state.enabled ? 'Blocked for maintenance' : 'Allowed'} />} />
 
               <Typography sx={{ fontSize: 15, lineHeight: 1.6, color: 'text.secondary' }}>
                 Maintenance mode stops HxRun from being launched on this PC, so you can work on the instrument safely.
@@ -198,16 +195,16 @@ const MaintenancePage: React.FC = () => {
           )}
         </CardContent>
       </Card>
-      {robot && <Card component="aside" aria-label="Right now" variant="outlined" sx={{ p: { xs: 2, sm: 2.5 } }}>
-        <Typography component="h2" variant="h6" sx={{ mb: 1 }}>Right now</Typography>
-        {rightNow.map(([name, detail, label, tone]) => <Stack key={name} direction="row" alignItems="center" justifyContent="space-between" gap={1.5}
+      {robot && <Card component="aside" aria-label="Right now" variant="outlined" sx={{ p: panelPadding }}>
+        <PanelHeader title="Right now" />
+        <Box sx={{ mt: 2 }}>{rightNow.map(([name, detail, label, tone]) => <Stack key={name} direction="row" alignItems="center" justifyContent="space-between" gap={1.5}
           sx={{ py: 1.25, borderTop: 1, borderColor: 'divider', '&:first-of-type': { borderTop: 0 } }}>
           <Box sx={{ minWidth: 0 }}>
             <Typography sx={{ fontSize: 14, fontWeight: 500 }}>{name}</Typography>
             <Typography sx={{ fontSize: 13, color: 'text.secondary', overflowWrap: 'anywhere' }}>{detail}</Typography>
           </Box>
-          <StatusChip tone={tone} label={label} />
-        </Stack>)}
+          <Box sx={{ flexShrink: 0 }}><StatusChip tone={tone} label={label} /></Box>
+        </Stack>)}</Box>
       </Card>}
       </Box>
 

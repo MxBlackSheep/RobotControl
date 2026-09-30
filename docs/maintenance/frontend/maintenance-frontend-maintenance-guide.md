@@ -28,8 +28,10 @@ does not grant permission to change the flag.
 
 ## Layout and checks
 
-The page has the HxRun launches card (up to 880px) and, from 1200px, a Right now panel
-beside it (below it on smaller screens). Right now reads the shell's robot status context
+The page uses the 1120px task width for its heading, Refresh and content. The HxRun
+launches card and Right now panel share a two-column grid from 900px of workspace
+width; below that they stack. Both use normal panel padding and headings. Right now
+reads the shell's robot status context
 (HxRun, scheduler, current run, whether scheduled runs are held) and starts no request.
 While HxRun runs, the card names the run and the time left by the user's estimate (or how
 far past it); this is information only, and the backend still decides with its 409.

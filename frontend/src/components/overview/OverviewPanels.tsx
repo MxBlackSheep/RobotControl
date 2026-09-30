@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Box, Button, Card, Link as MuiLink, Stack, Typography } from '@mui/material';
 import { Link } from 'react-router-dom';
 import StatusChip from '../StatusChip';
-import { PanelLabel } from '../PageLayout';
+import { PanelHeader, PanelLabel } from '../PageLayout';
 import { cameraStateLabels } from '../CameraControls';
 import { api } from '../../services/api';
 import { schedulingService, schedulingAPI } from '../../services/schedulingApi';
@@ -10,6 +10,7 @@ import { useSerialPolling } from '../../hooks/useSerialPolling';
 import { robotAttention, type RobotStatus } from '../../hooks/useRobotStatus';
 import type { ScheduledExperiment } from '../../types/scheduling';
 import type { StatusTone } from '../../theme';
+import { panelPadding } from '../../theme';
 import { clockTime, dayTime } from '../../utils/displayTime';
 import { repeatLabel } from '../scheduling/ScheduleCollection';
 import { executionTone } from '../scheduling/executionStatus';
@@ -17,11 +18,8 @@ import { executionTone } from '../scheduling/executionStatus';
 const PANEL_REFRESH_MS = 60000;
 
 function Panel({ title, link, children }: { title: string; link?: { to: string; text: string } | null; children: React.ReactNode }) {
-  return <Card component="section" aria-label={title} variant="outlined" sx={{ p: { xs: 2, sm: 2.5 }, minWidth: 0 }}>
-    <Stack direction="row" alignItems="center" justifyContent="space-between" gap={1} sx={{ mb: 1 }}>
-      <Typography component="h2" variant="h6">{title}</Typography>
-      {link && <MuiLink component={Link} to={link.to} sx={{ fontSize: 14 }}>{link.text}</MuiLink>}
-    </Stack>
+  return <Card component="section" aria-label={title} variant="outlined" sx={{ p: panelPadding, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+    <PanelHeader title={title} actions={link && <MuiLink component={Link} to={link.to} sx={{ fontSize: 14 }}>{link.text}</MuiLink>} />
     {children}
   </Card>;
 }
@@ -52,7 +50,7 @@ export function NeedsAttention({ status }: { status: RobotStatus | null }) {
           `${first?.triggered_at ? `Stopped at ${clockTime(new Date(first.triggered_at))}. ` : ''}New runs are held until someone checks the deck and resolves this.${attention.count > 1 ? ` ${attention.count - 1} more waiting.` : ''}`]
       : ['Waiting for Resume', 'Queued jobs are paused', 'Recovery is acknowledged. Queued jobs stay paused until someone chooses Resume queued jobs.'];
   return <Card component="section" aria-label="Needs attention" variant="outlined"
-    sx={{ p: { xs: 2, sm: 2.5 }, minWidth: 0, borderColor: theme => theme.palette.tone.attention.fg, display: 'flex', flexDirection: 'column', gap: 1.25 }}>
+    sx={{ p: panelPadding, minWidth: 0, borderColor: theme => theme.palette.tone.attention.fg, display: 'flex', flexDirection: 'column', gap: 2 }}>
     <Stack direction="row" alignItems="center" gap={1.25} flexWrap="wrap"><PanelLabel>Needs attention</PanelLabel><StatusChip tone="attention" label={chip} /></Stack>
     <Typography sx={{ fontSize: 18, fontWeight: 600, overflowWrap: 'anywhere' }}>{heading}</Typography>
     {note && <Typography sx={{ fontSize: 14, overflowWrap: 'anywhere' }}>{note}</Typography>}

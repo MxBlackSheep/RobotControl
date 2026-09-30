@@ -67,7 +67,6 @@ test('failed .bck restore shows the reason and keeps the confirmation for retry'
 test('slow successful restore stays pending, then shows warnings and maintenance', async ({ page }) => {
   const warning = 'Database connectivity check after restore timed out';
   const sent = await openRestore(page, { success: true, message: 'Database restored successfully', data: { warnings: [warning] } });
-  // The MUI Select is not linked to its "Select Backup File" label, so it has no accessible name.
   await page.getByRole('main').getByRole('combobox').click();
   await page.getByRole('option', { name: bak.filename, exact: false }).click();
   await page.route('**/api/admin/backup/restore', async route => {

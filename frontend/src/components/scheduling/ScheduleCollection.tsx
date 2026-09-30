@@ -3,6 +3,7 @@ import { Alert, Box, Button, LinearProgress, List, ListItemButton, Stack, TextFi
 import { Refresh } from '@mui/icons-material';
 import { ScheduledExperiment } from '../../types/scheduling';
 import StatusChip from '../StatusChip';
+import { PanelHeader } from '../PageLayout';
 import { fontMono, StatusTone } from '../../theme';
 import { dayTime } from '../../utils/displayTime';
 
@@ -41,7 +42,9 @@ export default function ScheduleCollection({ schedules, selected, onSelect, onRe
       : (a.next_run || '9999').localeCompare(b.next_run || '9999')), [searched, filter, sort]);
   const muted = { color: 'text.secondary', fontSize: 13 };
   return <Stack data-testid="schedule-collection" sx={{ minHeight: 0, height: '100%', bgcolor: 'background.paper', border: 1, borderColor: 'divider', borderRadius: 2, overflow: 'hidden', containerType: 'inline-size', containerName: 'schedules' }}>
-    <Stack direction="row" alignItems="center" flexWrap="wrap" gap={1} sx={{ p: 1.5 }}>
+    <Stack gap={2} sx={{ p: 2 }}>
+      <PanelHeader title="Schedules" actions={<Button size="small" startIcon={<Refresh />} onClick={onRefresh} disabled={loading}>Refresh schedules</Button>} />
+      <Stack direction="row" alignItems="center" flexWrap="wrap" gap={1}>
       <TextField size="small" label="Search schedules" value={query} onChange={event => setQuery(event.target.value)} sx={{ flex: '1 1 180px', minWidth: 0, maxWidth: 320 }} />
       <ToggleButtonGroup size="small" exclusive value={filter} onChange={(_, value) => value && setFilter(value)} aria-label="Filter by status" sx={{ flexWrap: 'wrap' }}>
         {filters.map(item => <ToggleButton key={item.value} value={item.value} sx={{ px: 1.25, gap: 0.75 }}>
@@ -51,11 +54,10 @@ export default function ScheduleCollection({ schedules, selected, onSelect, onRe
       <TextField select SelectProps={{ native: true }} label="Sort schedules" size="small" value={sort} onChange={event => setSort(event.target.value)} sx={{ width: 128 }}>
         <option value="next">Next run</option><option value="name">Name</option>
       </TextField>
-      <Box sx={{ flex: 1 }} />
-      <Button size="small" aria-label="Refresh schedules" startIcon={<Refresh />} onClick={onRefresh} disabled={loading}>Refresh</Button>
+      </Stack>
     </Stack>
     {loading && <LinearProgress aria-label="Loading schedules" />}
-    {error && <Alert severity="error" sx={{ mx: 1.5, mb: 1 }}>{error}</Alert>}
+    {error && <Alert severity="error" sx={{ mx: 2, mb: 2 }}>{error}</Alert>}
     <Box aria-hidden sx={{ display: 'none', [table]: { display: 'grid' }, gridTemplateColumns: columns, columnGap: 2, px: 2, py: 1, borderTop: 1, borderColor: 'divider',
       fontSize: 12, fontWeight: 600, letterSpacing: 0.6, textTransform: 'uppercase', color: 'text.secondary' }}>
       <span>Experiment</span><span>Repeats</span><span>Next run</span><span>Last run</span><span>Status</span>

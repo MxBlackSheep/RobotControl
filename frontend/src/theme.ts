@@ -22,6 +22,8 @@ export const lightTones: Record<StatusTone, ToneColors> = {
 
 export const fontSans = '"IBM Plex Sans", "Segoe UI", system-ui, sans-serif';
 export const fontMono = '"IBM Plex Mono", Consolas, "Courier New", monospace';
+// Normal panels breathe; collection toolbars keep the compact 16px inset.
+export const panelPadding = { xs: 2, sm: 3 } as const;
 
 export function createAppTheme(mode: PaletteMode) {
   const dark = mode === 'dark';
@@ -49,7 +51,8 @@ export function createAppTheme(mode: PaletteMode) {
         neutral: { bg: '#252A33', fg: '#C9CED6' }, attention: { bg: '#3A2A10', fg: '#F2C470' }, fault: { bg: '#3B1A17', fg: '#F4A097' },
       } : lightTones,
     },
-    shape: { borderRadius: 6 },
+    // Controls use 4px; sx borderRadius: 2 and Cards both produce 8px panels.
+    shape: { borderRadius: 4 },
     typography: {
       fontFamily: fontSans,
       // h6 is the panel heading throughout the app; the page title lives in PageHeader.
@@ -75,6 +78,10 @@ export function createAppTheme(mode: PaletteMode) {
       MuiToggleButton: { styleOverrides: { root: { textTransform: 'none' } } },
       MuiPaper: { styleOverrides: { root: { backgroundImage: 'none' } } },
       MuiCard: { defaultProps: { variant: 'outlined' }, styleOverrides: { root: { borderRadius: 8 } } },
+      MuiCardContent: { styleOverrides: { root: ({ theme }) => ({
+        padding: theme.spacing(2), '&:last-child': { paddingBottom: theme.spacing(2) },
+        [theme.breakpoints.up('sm')]: { padding: theme.spacing(3), '&:last-child': { paddingBottom: theme.spacing(3) } },
+      }) } },
       MuiTableCell: { styleOverrides: { head: { backgroundColor: dark ? '#1F242D' : '#F6F7F8', fontWeight: 600 } } },
       MuiDialog: { styleOverrides: { paper: { '&:not(.MuiDialog-paperFullScreen)': { '@media (max-width: 600px)': { margin: 8, maxWidth: 'calc(100% - 16px)' } } } } },
     },

@@ -54,7 +54,7 @@ import { useAuth } from '../context/AuthContext';
 import ScheduleList from '../components/ScheduleList';
 import ScheduleCollection, { repeatLabel, scheduleState } from '../components/scheduling/ScheduleCollection';
 import StatusChip from '../components/StatusChip';
-import { fontMono, StatusTone } from '../theme';
+import { fontMono, panelPadding, StatusTone } from '../theme';
 import WarningAmber from '@mui/icons-material/WarningAmber';
 import InspectionWorkspace from '../components/InspectionWorkspace';
 import SectionPanel from '../components/SectionPanel';
@@ -495,13 +495,13 @@ const SchedulingPage: React.FC = () => {
         <Button variant="contained" startIcon={<AddIcon />} onClick={handleOpenCreateForm} disabled={state.loading}>Create schedule</Button>
         <Button variant="outlined" startIcon={<FolderIcon />} onClick={() => setFolderImportOpen(true)} disabled={state.loading}>Import methods</Button>
       </>} />
-      <Stack direction="row" gap={1} flexWrap="wrap" alignItems="center" sx={{ mb: 1.5 }} aria-label="Scheduler service summary">
+      <Stack direction="row" gap={1} flexWrap="wrap" alignItems="center" sx={{ mb: 2, px: 2, py: 1, bgcolor: 'background.paper', border: 1, borderColor: 'divider', borderRadius: 2 }} aria-label="Scheduler service summary">
         <StatusChip tone={state.schedulerRunning ? 'running' : 'neutral'} label={`Scheduler service: ${state.schedulerRunning ? 'Running' : 'Stopped'}`} />
         <StatusChip tone="neutral" label={state.queueStatus ? `${state.queueStatus.running_jobs ?? 0} running · ${state.queueStatus.queued_jobs ?? 0} queued` : 'Queue unavailable'} />
-        <Button size="small" onClick={() => void actions.getQueueStatus()} aria-label="Refresh queue">Refresh</Button>
+        <Button size="small" startIcon={<RefreshIcon />} onClick={() => void actions.getQueueStatus()} sx={{ ml: { sm: 'auto' } }}>Refresh queue</Button>
         {currentTab === 0 && state.queueStatus && <Button size="small" aria-expanded={queueDetailsOpen} onClick={() => setQueueDetailsOpen(value => !value)}>Queue details</Button>}
         {(state.manualRecovery?.active || state.manualRecovery?.resume_required) && <Button size="small" variant="contained" startIcon={<WarningAmber />} onClick={() => setCurrentTab(1)}
-          sx={{ ml: { sm: 'auto' }, bgcolor: theme => theme.palette.tone.attention.bg, color: theme => theme.palette.tone.attention.fg, '&:hover': { bgcolor: theme => theme.palette.tone.attention.bg, filter: 'brightness(0.96)' } }}>Recovery required</Button>}
+          sx={{ bgcolor: theme => theme.palette.tone.attention.bg, color: theme => theme.palette.tone.attention.fg, '&:hover': { bgcolor: theme => theme.palette.tone.attention.bg, filter: 'brightness(0.96)' } }}>Recovery required</Button>}
       </Stack>
       {state.queueError && <Alert severity="warning" sx={{ mb: 1 }}>Queue status not updated: {state.queueError}</Alert>}
       {state.schedulerError && <Alert severity="warning" sx={{ mb: 1 }}>Scheduler status not updated: {state.schedulerError}</Alert>}
@@ -522,7 +522,7 @@ const SchedulingPage: React.FC = () => {
             onBack={() => setDetailOpen(false)} selector={<ScheduleCollection schedules={state.schedules}
               selected={state.selectedSchedule} onSelect={schedule => { actions.selectSchedule(schedule); setDetailOpen(true); }}
               onRefresh={() => void actions.loadSchedules(false)} loading={state.loading} error={state.error} />}>
-            {state.selectedSchedule ? <Stack data-testid="schedule-detail" spacing={2} sx={{ p: { xs: 2, sm: 2.5 }, overflow: 'auto', minHeight: 0, flex: 1, bgcolor: 'background.paper', border: 1, borderColor: 'divider', borderRadius: 2 }}>
+            {state.selectedSchedule ? <Stack data-testid="schedule-detail" spacing={2} sx={{ p: panelPadding, overflow: 'auto', minHeight: 0, flex: 1, bgcolor: 'background.paper', border: 1, borderColor: 'divider', borderRadius: 2 }}>
               <Box>
                 <Stack direction="row" justifyContent="space-between" alignItems="flex-start" gap={1}>
                   <DetailTitle>{state.selectedSchedule.experiment_name}</DetailTitle>

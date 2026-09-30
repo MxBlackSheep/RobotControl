@@ -48,9 +48,11 @@ its own Contacts/History/Email settings tabs. Visited sections stay mounted thro
 
 The list and runtime queue use a named CSS container query: two columns only when at
 least 1100px remains after navigation and gutters (not a viewport breakpoint). The
-service strip shows scheduler state, Refresh, Recovery required and a Queue details
-disclosure. History, notification and method tables scroll inside their container; the
-Methods table uses page scrolling while its folder tree scrolls on its own. Opening or
+service strip shows scheduler state, Refresh queue, Recovery required and a Queue
+details disclosure. The collection has a Schedules heading with Refresh schedules,
+then search, status filters and sort controls at a compact 16px inset. The two
+refresh labels describe their existing, separate request scopes. History, notification
+and method tables scroll inside their container; the Methods table uses page scrolling while its folder tree scrolls on its own. Opening or
 resizing any view never starts, resumes, archives or deletes a schedule.
 
 ## Local and remote sessions

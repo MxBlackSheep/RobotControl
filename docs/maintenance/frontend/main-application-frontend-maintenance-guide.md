@@ -64,8 +64,11 @@ starts or stops a live-view session.
 attention (from the robot status context), Up next (active schedules by `next_run`),
 Instrument health (scheduler, storage, HxRun from the context; SQL Server and camera from
 one 60 s read that tolerates either source failing), Recent runs (last five executions) and
-the Latest experiment card. Each panel has its own error boundary and Retry, so one failed
-read never blanks the page.
+the Latest experiment card. Below the current run, Up next and Recent runs stack in the
+main column; Instrument health and Latest experiment stack in a 360px supporting column.
+Below 1000px of workspace width they become one column, without remounting panels.
+This avoids an empty row under a short Up next panel. Each panel has its own error
+boundary and Retry, so one failed read never blanks the page.
 
 Now running shows elapsed time from the run log monitor's `launched_at` against the
 schedule's `estimated_duration`, which the user typed and may be wrong. `runTiming` never
@@ -77,7 +80,8 @@ uses the viewer's local timezone. When PyHSL supplies better estimates, change o
 
 ## Shared presentation
 
-`PageLayout.tsx` also exports `PanelLabel` (small uppercase status label), `DetailTitle`
+`PageLayout.tsx` also exports `PanelHeader` (panel title and optional actions, with the
+parent owning surrounding spacing), `PanelLabel` (small uppercase status label), `DetailTitle`
 (the selected item's name, 18px) and `EmptyPanel` (a plain "choose something" prompt, not
 an alert). Panel titles use the theme `h6`. Refresh is always a labelled button. Times use
 `utils/displayTime.ts` (`Today 14:30`, 24-hour). Execution statuses map to tones in
@@ -85,11 +89,22 @@ an alert). Panel titles use the theme `h6`. Refresh is always a labelled button.
 
 ## Page layout and appearance
 
-`PageLayout.tsx` provides `PageContent` variants: `overview` (dashboards), `inspection`
-(viewers), `spatial` (labware) and `task` (forms, capped at 1120px; `reading` is a legacy
-alias). App owns the outer gutter (16/24/28px), the phone header (52px, below 900px) and
-the sticky attention banner. Use one `PageHeader` (title, section tabs, actions) and no extra Container or
-header row.
+`PageLayout.tsx` provides `PageContent` variants: `overview` (dashboards, capped at
+1440px), `inspection` (viewers, including Logs, using available width), `spatial`
+(labware, using available width) and `task` (forms, capped at 1120px; `reading` is a
+legacy alias). App owns the outer gutter (16/24/28px), the phone header (52px, below 900px) and
+the sticky attention banner. Use one `PageHeader`: title and page actions share its
+first row; section tabs have their own row below. Actions wrap on narrow screens. Do not add another page header.
+
+The theme uses 4px control corners and 8px panel corners (`Card`, or `sx`
+`borderRadius: 2`). Normal `CardContent` and the exported `panelPadding` use 16px
+insets on phones and 24px from 600px; collection toolbars use a compact 16px inset.
+Panel headings use `PanelHeader`/`h6`; uppercase `PanelLabel` identifies status
+context and `DetailTitle` names the selected item. Parents own gaps, so a panel
+header does not add a competing margin. Keep special spatial and reader layouts.
+The spacing/grouping direction draws on [Carbon](https://carbondesignsystem.com/elements/spacing/overview/)
+and [PatternFly card anatomy](https://www.patternfly.org/components/card/design-guidelines/),
+implemented with the existing MUI components.
 
 `InspectionWorkspace` fills the remaining viewport height (320px minimum, then the page
 scrolls) and switches between list and detail at 900px of content width; see the

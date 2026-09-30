@@ -39,12 +39,16 @@ const Dashboard: React.FC = memo(() => {
         <Box sx={{ order: { xs: 2, md: 1 }, minWidth: 0, display: 'grid' }}><PanelErrorBoundary name="Now running"><NowRunning status={status} error={error} /></PanelErrorBoundary></Box>
         {attention && <Box sx={{ order: { xs: 1, md: 2 }, minWidth: 0, display: 'grid' }}><PanelErrorBoundary name="Needs attention"><NeedsAttention status={status} /></PanelErrorBoundary></Box>}
       </Box>
-      <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: 'minmax(0,1.6fr) minmax(0,1fr)' }, alignItems: 'start' }}>
-        <PanelErrorBoundary name="Up next"><UpNext canOpenScheduling={canOpenScheduling} /></PanelErrorBoundary>
-        <PanelErrorBoundary name="Instrument health"><InstrumentHealth status={status} /></PanelErrorBoundary>
+      <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: 'minmax(0,1fr)', '@container workspace (min-width: 1000px)': { gridTemplateColumns: 'minmax(0,1fr) 360px' }, alignItems: 'start' }}>
+        <Box sx={{ display: 'grid', gap: 2, minWidth: 0 }}>
+          <PanelErrorBoundary name="Up next"><UpNext canOpenScheduling={canOpenScheduling} /></PanelErrorBoundary>
+          <PanelErrorBoundary name="Recent runs"><RecentRuns /></PanelErrorBoundary>
+        </Box>
+        <Box sx={{ display: 'grid', gap: 2, minWidth: 0 }}>
+          <PanelErrorBoundary name="Instrument health"><InstrumentHealth status={status} /></PanelErrorBoundary>
+          <PanelErrorBoundary name="Latest experiment"><ExperimentStatus /></PanelErrorBoundary>
+        </Box>
       </Box>
-      <PanelErrorBoundary name="Recent runs"><RecentRuns /></PanelErrorBoundary>
-      <PanelErrorBoundary name="Latest experiment"><ExperimentStatus /></PanelErrorBoundary>
     </Box>
   </PageContent>;
 });

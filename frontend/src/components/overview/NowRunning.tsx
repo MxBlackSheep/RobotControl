@@ -3,7 +3,7 @@ import { Box, Button, Card, LinearProgress, Skeleton, Stack, Typography } from '
 import { Link } from 'react-router-dom';
 import StatusChip from '../StatusChip';
 import { PanelLabel } from '../PageLayout';
-import { fontMono } from '../../theme';
+import { panelPadding, fontMono } from '../../theme';
 import { clockTime } from '../../utils/displayTime';
 import type { RobotStatus } from '../../hooks/useRobotStatus';
 import type { RunningJobDetail } from '../../types/scheduling';
@@ -63,7 +63,7 @@ export default function NowRunning({ status, error }: { status: RobotStatus | nu
   const job = status?.running[0];
   const timing = job ? runTiming(job.monitoring?.launched_at, job.estimated_duration, now) : null;
 
-  return <Card component="section" aria-label="Now running" variant="outlined" sx={{ p: { xs: 2, sm: 2.5 }, display: 'flex', flexDirection: 'column', gap: 1.75, minWidth: 0 }}>
+  return <Card component="section" aria-label="Now running" variant="outlined" sx={{ p: panelPadding, display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
     <Stack direction="row" alignItems="center" gap={1.25} flexWrap="wrap">
       <PanelLabel>Now running</PanelLabel>
       {status && (job ? <StatusChip tone="running" label="Running" />

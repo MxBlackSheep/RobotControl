@@ -7,8 +7,8 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import { experimentsAPI } from '../services/api';
 import { useSerialPolling } from '../hooks/useSerialPolling';
 import StatusChip from './StatusChip';
-import { PanelLabel } from './PageLayout';
-import { fontMono, StatusTone } from '../theme';
+import { PanelHeader } from './PageLayout';
+import { fontMono, panelPadding, StatusTone } from '../theme';
 
 interface ExperimentData {
   run_guid: string;
@@ -79,13 +79,10 @@ const ExperimentStatus: React.FC<{ refreshInterval?: number }> = memo(({ refresh
   const experiment = latest?.experiment;
   const state = experiment ? getRunStateDisplay(experiment.run_state) : null;
 
-  return <Card component="section" aria-label="Latest experiment" variant="outlined" sx={{ p: { xs: 2, sm: 2.5 }, display: 'flex', flexDirection: 'column', gap: 1.75 }}>
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, flexWrap: 'wrap' }}>
-      <PanelLabel>Latest experiment</PanelLabel>
-      {state && <StatusChip tone={state.tone} label={state.label} />}
-      <Box sx={{ flex: 1 }} />
+  return <Card component="section" aria-label="Latest experiment" variant="outlined" sx={{ p: panelPadding, display: 'flex', flexDirection: 'column', gap: 2 }}>
+    <PanelHeader title="Latest experiment" actions={
       <Button size="small" startIcon={<RefreshIcon />} onClick={() => { void polling.refresh(); }} disabled={polling.pending}>Refresh</Button>
-    </Box>
+    } />
 
     {!latest && !error && <Stack spacing={1} aria-label="Loading experiment">
       <Skeleton variant="text" width="50%" height={32} /><Skeleton variant="text" width="30%" /><Skeleton variant="text" width="70%" />
@@ -102,12 +99,13 @@ const ExperimentStatus: React.FC<{ refreshInterval?: number }> = memo(({ refresh
 
     {experiment && <>
       <Box>
-        <Typography sx={{ fontSize: { xs: 18, sm: 22 }, fontWeight: 600 }}>
+        {state && <Box sx={{ mb: 1 }}><StatusChip tone={state.tone} label={state.label} /></Box>}
+        <Typography sx={{ fontSize: 18, overflowWrap: 'anywhere', fontWeight: 600 }}>
           {experiment.method_name?.split('\\').pop()?.replace('.hsl', '') || 'Unknown Method'}
         </Typography>
         <Typography sx={{ fontFamily: fontMono, fontSize: 13, color: 'text.secondary' }}>ID: {experiment.run_guid?.substring(0, 8) || 'Unknown'}</Typography>
       </Box>
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, minmax(0, max-content))' }, columnGap: 5, rowGap: 1 }}>
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', columnGap: 3, rowGap: 1 }}>
         <Fact label="Started" value={formatTimestamp(experiment.start_time)} />
         {experiment.end_time && <Fact label="Ended" value={formatTimestamp(experiment.end_time)} />}
         <Fact label="Duration" value={calculateDuration(experiment.start_time, experiment.end_time)} />
