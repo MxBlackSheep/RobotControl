@@ -6,6 +6,7 @@ import { useLabwareSnapshot } from './useLabwareSnapshot';
 import { useLabwareWorkspace } from './useLabwareWorkspace';
 import TipDeckOverview from './TipDeckOverview';
 import TipRackEditor from './TipRackEditor';
+import { clockTime } from '../../utils/displayTime';
 
 type Pending = Record<string, Record<string, string>>;
 type Stroke = Record<string, string | undefined>;
@@ -148,7 +149,7 @@ export default function TipTrackingPanel({ active = true }: { active?: boolean }
       </> : <StatusChip tone="neutral" label="Read only" />}
     </Stack>
     {(readError || writeError) && <Alert severity="error" action={!totalPending && !busy && !gesture ? <Button onClick={() => void refresh()}>Retry</Button> : undefined}>{writeError || readError}{readError && ' Previous data is shown.'}</Alert>}
-    <Typography variant="caption" color="text.secondary" role="status" sx={{ minHeight: 20 }}>{busy ? 'Saving…' : gesture ? 'Selection in progress' : totalPending ? `${totalPending} unsaved${totalPending > count ? ` (${totalPending - count} in other families)` : ''}` : reading ? 'Updating…' : notice || `Updated ${new Date(snapshot.refreshed_at).toLocaleTimeString()}`}</Typography>
+    <Typography variant="caption" color="text.secondary" role="status" sx={{ minHeight: 20 }}>{busy ? 'Saving…' : gesture ? 'Selection in progress' : totalPending ? `${totalPending} unsaved${totalPending > count ? ` (${totalPending - count} in other families)` : ''}` : reading ? 'Updating…' : notice || `Updated ${clockTime(new Date(snapshot.refreshed_at))}`}</Typography>
   </Stack>;
   const editor = rack ? <TipRackEditor rack={rack} headingId="selected-tip-rack-heading" joined={!narrow} side={family.left_racks.includes(rack) ? 'Col A' : 'Col B'} rows={rows} columns={columns} position={position} statuses={statuses} colors={snapshot.status_colors}
     statusAt={tip => shownStatus(rack, tip)} pendingAt={tip => Object.prototype.hasOwnProperty.call(currentPending, keyFor(rack, tip))}

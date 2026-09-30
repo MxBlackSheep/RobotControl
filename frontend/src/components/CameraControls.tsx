@@ -28,6 +28,9 @@ export const cameraStateLabels: Record<string, string> = {
 
 export interface CameraSummary { text: string; error: string | null }
 
+// Two equal columns when there is room; one column on a narrow phone rather than overflowing labels.
+const buttonGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 1, '& .MuiButton-root': { px: 1, whiteSpace: 'nowrap' } } as const;
+
 export default function CameraControls({ admin, onSourceChange, collapsible = false, active = true, onSummaryChange }: {
   admin: boolean; onSourceChange: () => void; collapsible?: boolean; active?: boolean; onSummaryChange?: (summary: CameraSummary) => void;
 }) {
@@ -124,10 +127,10 @@ export default function CameraControls({ admin, onSourceChange, collapsible = fa
     <Stack id="camera-settings-panel" spacing={2} sx={{ p: collapsible ? 2 : 0, border: collapsible ? 1 : 0, borderColor: 'divider', borderRadius: 1 }}>
       <Stack component="section" aria-label="Recording" spacing={1.5} sx={group}>
         {heading('Recording', recordingChip)}
-        {admin ? <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-          <Button disabled={pending || !saved || changed || health?.recording_state === 'recording'}
+        {admin ? <Box sx={buttonGrid}>
+          <Button variant="outlined" disabled={pending || !saved || changed || health?.recording_state === 'recording'}
             onClick={() => void act('recording/start')}>Start recording</Button>
-          <Button disabled={pending || !recordingRequested} onClick={() => void act('recording/stop')}>Stop recording</Button>
+          <Button variant="outlined" disabled={pending || !recordingRequested} onClick={() => void act('recording/stop')}>Stop recording</Button>
         </Box> : <Typography variant="body2" color="text.secondary">An administrator can start or stop recording.</Typography>}
       </Stack>
       <Stack component="section" aria-label="Camera" spacing={1.5} sx={{ ...group, ...(collapsible && { borderTop: 1, borderColor: 'divider', pt: 2 }) }}>
@@ -144,13 +147,13 @@ export default function CameraControls({ admin, onSourceChange, collapsible = fa
               {device.name} · Device {device.id + 1}
             </MenuItem>)}
         </TextField>
-        {admin ? <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-          <Button disabled={pending} onClick={() => void act('devices/refresh')}>Refresh cameras</Button>
-          <Button disabled={pending || selectionLocked || !selection || !changed || !selectedExists}
+        {admin ? <Box sx={buttonGrid}>
+          <Button variant="outlined" disabled={pending} onClick={() => void act('devices/refresh')}>Refresh cameras</Button>
+          <Button variant="outlined" disabled={pending || selectionLocked || !selection || !changed || !selectedExists}
             onClick={() => void act('selection', 'PATCH', { device_identity: selection })}>Save selection</Button>
           <Button variant="contained" disabled={pending || !saved || changed || health?.capture_state === 'connected'}
             onClick={() => void act('connect')}>Connect</Button>
-          <Button disabled={pending || !saved || changed} onClick={() => void act('reconnect')}>Reconnect camera</Button>
+          <Button variant="outlined" disabled={pending || !saved || changed} onClick={() => void act('reconnect')}>Reconnect camera</Button>
         </Box> : <Typography variant="body2">An administrator can select, connect or reconnect the camera.</Typography>}
         <Typography variant="caption" color="text.secondary">
           Reconnect briefly interrupts all viewers and may leave the current clip incomplete.

@@ -10,7 +10,6 @@ import {
   TableContainer,
   TableHead,
   TableRow,
-  Paper,
   Chip,
   Collapse,
   IconButton,
@@ -38,6 +37,8 @@ import { schedulingAPI } from '../services/schedulingApi';
 import { useSerialPolling } from '../hooks/useSerialPolling';
 import StatusDialog from './StatusDialog';
 import StatusChip from './StatusChip';
+import { dayTime } from '../utils/displayTime';
+import { columnHeading } from '../theme';
 import { executionTone } from './scheduling/executionStatus';
 
 interface ExecutionHistoryProps {
@@ -164,7 +165,7 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
     if (Number.isNaN(date.getTime())) {
       return 'N/A';
     }
-    return date.toLocaleString();
+    return dayTime(dateString);
   };
 
   useEffect(() => {
@@ -273,7 +274,7 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
   const formatDurationDisplay = (execution: ExecutionRecord) => {
     const { duration_minutes, calculated_duration_minutes, duration_seconds } = execution;
     if (duration_seconds && duration_seconds > 0) {
-      return `${Math.round(duration_seconds)}s`;
+      return `${Math.round(duration_seconds)} s`;
     }
 
     const minutes = calculated_duration_minutes ?? duration_minutes ?? null;
@@ -285,18 +286,18 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
       const hours = Math.floor(minutes / 60);
       const mins = Math.round(minutes % 60);
       if (mins === 0) {
-        return `${hours}h`;
+        return `${hours} h`;
       }
-      return `${hours}h ${mins}m`;
+      return `${hours} h ${mins} min`;
     }
 
     if (minutes >= 1) {
-      return `${Math.round(minutes)}m`;
+      return `${Math.round(minutes)} min`;
     }
 
     const secondsFromMinutes = Math.round(minutes * 60);
     if (secondsFromMinutes > 0) {
-      return `${secondsFromMinutes}s`;
+      return `${secondsFromMinutes} s`;
     }
 
     if (execution.start_time && execution.end_time) {
@@ -310,12 +311,12 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
           if (mins >= 60) {
             const hours = Math.floor(mins / 60);
             const remainingMinutes = mins % 60;
-            return remainingMinutes === 0 ? `${hours}h` : `${hours}h ${remainingMinutes}m`;
+            return remainingMinutes === 0 ? `${hours} h` : `${hours} h ${remainingMinutes} min`;
           }
-          return secs === 0 ? `${mins}m` : `${mins}m ${secs}s`;
+          return secs === 0 ? `${mins} min` : `${mins} min ${secs} s`;
         }
         if (durationSeconds > 0) {
-          return `${durationSeconds}s`;
+          return `${durationSeconds} s`;
         }
       }
     }
@@ -323,16 +324,18 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
     return 'N/A';
   };
 
-  const statusLabel = (execution: ExecutionRecord) =>
-    execution.status_display || execution.status?.replace(/_/g, ' ') || 'Unknown';
+  const statusLabel = (execution: ExecutionRecord) => {
+    const label = execution.status_display || execution.status?.replace(/_/g, ' ') || 'Unknown';
+    return label.charAt(0).toUpperCase() + label.slice(1);
+  };
 
   return (
-    <Box>
-      <Card variant="outlined" sx={{ mb: 1, p: 1.5 }}>
+    <Card variant="outlined">
+      <Box sx={{ p: 1.5 }}>
         <Stack direction="row" gap={1} flexWrap="wrap" alignItems="center">
-          <TextField size="small" label="Search history" value={search} onChange={event => setSearch(event.target.value)} sx={{ flex: '1 1 180px' }} />
+          <TextField size="small" label="Search history" value={search} onChange={event => setSearch(event.target.value)} sx={{ flex: '1 1 140px' }} />
           <Button aria-expanded={filtersOpen} onClick={() => setFiltersOpen(value => !value)}>Filters</Button>
-          <Button onClick={loadExecutionHistory} disabled={loading}>Refresh</Button>
+          <Button startIcon={<RefreshIcon />} onClick={loadExecutionHistory} disabled={loading}>Refresh</Button>
         </Stack>
         <Collapse in={filtersOpen}>
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} flexWrap="wrap" alignItems={{ xs: 'stretch', md: 'center' }} sx={{ mt: 1 }}>
@@ -397,10 +400,6 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
                 <MenuItem value={200}>200 runs</MenuItem>
               </Select>
             </FormControl>
-
-
-
-            <Button startIcon={<RefreshIcon />} onClick={loadExecutionHistory} disabled={loading}>Refresh</Button>
           </Stack>
         </Stack>
 
@@ -423,7 +422,7 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
             label="Auto refresh"
           />
         </Stack>
-      </Card>
+      </Box>
 
       {/* Error Display */}
       <StatusDialog
@@ -432,16 +431,17 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
       />
 
       {/* Loading */}
-      {loading && <LinearProgress sx={{ mb: 2 }} />}
+      {loading && <LinearProgress />}
 
       {/* Execution History Table */}
       <TableContainer
         tabIndex={0} aria-label="Execution history records"
-        component={Paper}
         sx={{
           maxHeight,
           overflowY: 'auto',
-          '& .MuiTableCell-root': { py: 1 }
+          borderTop: 1, borderColor: 'divider', borderRadius: '0 0 8px 8px',
+          '& .MuiTableCell-root': { py: 1 },
+          '& .MuiTableCell-head': { bgcolor: 'background.paper', ...columnHeading },
         }}
       >
         <Table stickyHeader size="small" aria-label="Execution history">
@@ -450,7 +450,7 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
               <TableCell width="40px"></TableCell>
               <TableCell>Experiment</TableCell>
               <TableCell>Status</TableCell>
-              <TableCell>Start Time</TableCell>
+              <TableCell>Started</TableCell>
               <TableCell>Duration</TableCell>
               <TableCell>Retries</TableCell>
               <TableCell width="40px"></TableCell>
@@ -562,7 +562,7 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
           </TableBody>
         </Table>
       </TableContainer>
-    </Box>
+    </Card>
   );
 };
 

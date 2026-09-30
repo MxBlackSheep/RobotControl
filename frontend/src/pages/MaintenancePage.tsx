@@ -26,13 +26,14 @@ import { hxrunMaintenanceApi, HxRunMaintenanceState } from '../services/hxrunMai
 import { robotAttention, useRobotStatusContext } from '../hooks/useRobotStatus';
 import { runTiming } from '../components/overview/NowRunning';
 import { panelPadding, type StatusTone } from '../theme';
+import { dayTime } from '../utils/displayTime';
 
 const formatTimestamp = (value?: string | null): string => {
   if (!value) {
     return 'N/A';
   }
   const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
+  return Number.isNaN(parsed.getTime()) ? value : dayTime(value);
 };
 
 const MaintenancePage: React.FC = () => {

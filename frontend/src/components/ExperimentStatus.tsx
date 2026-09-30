@@ -8,6 +8,7 @@ import { experimentsAPI } from '../services/api';
 import { useSerialPolling } from '../hooks/useSerialPolling';
 import StatusChip from './StatusChip';
 import { PanelHeader } from './PageLayout';
+import { clockTime, dayTime } from '../utils/displayTime';
 import { fontMono, panelPadding, StatusTone } from '../theme';
 
 interface ExperimentData {
@@ -35,9 +36,7 @@ export const getRunStateDisplay = (runState: string | number): { label: string; 
 
 const formatTimestamp = (timestamp: string | null): string => {
   if (!timestamp) return 'Unknown';
-  const date = new Date(timestamp);
-  return Number.isNaN(date.getTime()) ? 'Invalid date'
-    : date.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return Number.isNaN(new Date(timestamp).getTime()) ? 'Invalid date' : dayTime(timestamp);
 };
 
 const calculateDuration = (startTime: string | null, endTime: string | null): string => {
@@ -92,17 +91,19 @@ const ExperimentStatus: React.FC<{ refreshInterval?: number }> = memo(({ refresh
       <Typography sx={{ fontSize: 14, fontWeight: 600, color: theme => theme.palette.tone.attention.fg }}>
         {latest ? 'Could not refresh experiment data' : 'Experiment data is temporarily unavailable'}
       </Typography>
-      <Typography sx={{ fontSize: 14 }}>{error}{latest && ` · Showing data from ${latest.checkedAt.toLocaleTimeString()}`}</Typography>
+      <Typography sx={{ fontSize: 14 }}>{error}{latest && ` · Showing data from ${clockTime(latest.checkedAt)}`}</Typography>
     </Box>}
 
     {latest && !experiment && <Typography sx={{ color: 'text.secondary' }}>No experiments found</Typography>}
 
     {experiment && <>
       <Box>
-        {state && <Box sx={{ mb: 1 }}><StatusChip tone={state.tone} label={state.label} /></Box>}
-        <Typography sx={{ fontSize: 18, overflowWrap: 'anywhere', fontWeight: 600 }}>
-          {experiment.method_name?.split('\\').pop()?.replace('.hsl', '') || 'Unknown Method'}
-        </Typography>
+        <Stack direction="row" alignItems="center" justifyContent="space-between" gap={1}>
+          <Typography sx={{ fontSize: 18, overflowWrap: 'anywhere', fontWeight: 600, minWidth: 0 }}>
+            {experiment.method_name?.split('\\').pop()?.replace('.hsl', '') || 'Unknown Method'}
+          </Typography>
+          {state && <Box sx={{ flexShrink: 0 }}><StatusChip tone={state.tone} label={state.label} /></Box>}
+        </Stack>
         <Typography sx={{ fontFamily: fontMono, fontSize: 13, color: 'text.secondary' }}>ID: {experiment.run_guid?.substring(0, 8) || 'Unknown'}</Typography>
       </Box>
       <Box sx={{ display: 'flex', flexWrap: 'wrap', columnGap: 3, rowGap: 1 }}>
@@ -112,7 +113,7 @@ const ExperimentStatus: React.FC<{ refreshInterval?: number }> = memo(({ refresh
       </Box>
     </>}
 
-    {latest && !error && <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>Updated: {latest.checkedAt.toLocaleTimeString()}</Typography>}
+    {latest && !error && <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>Updated {clockTime(latest.checkedAt)}</Typography>}
   </Card>;
 });
 

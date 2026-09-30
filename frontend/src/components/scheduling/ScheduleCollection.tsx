@@ -4,7 +4,7 @@ import { Refresh } from '@mui/icons-material';
 import { ScheduledExperiment } from '../../types/scheduling';
 import StatusChip from '../StatusChip';
 import { PanelHeader } from '../PageLayout';
-import { fontMono, StatusTone } from '../../theme';
+import { columnHeading, fontMono, StatusTone } from '../../theme';
 import { dayTime } from '../../utils/displayTime';
 
 export function scheduleState(schedule: ScheduledExperiment): { label: string; tone: StatusTone } {
@@ -59,7 +59,7 @@ export default function ScheduleCollection({ schedules, selected, onSelect, onRe
     {loading && <LinearProgress aria-label="Loading schedules" />}
     {error && <Alert severity="error" sx={{ mx: 2, mb: 2 }}>{error}</Alert>}
     <Box aria-hidden sx={{ display: 'none', [table]: { display: 'grid' }, gridTemplateColumns: columns, columnGap: 2, px: 2, py: 1, borderTop: 1, borderColor: 'divider',
-      fontSize: 12, fontWeight: 600, letterSpacing: 0.6, textTransform: 'uppercase', color: 'text.secondary' }}>
+      ...columnHeading }}>
       <span>Experiment</span><span>Repeats</span><span>Next run</span><span>Last run</span><span>Status</span>
     </Box>
     <List aria-label={`Schedules (${visible.length})`} disablePadding sx={{ overflow: 'auto', flex: 1, minHeight: 0, borderTop: 1, borderColor: 'divider' }}>

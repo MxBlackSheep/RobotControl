@@ -68,6 +68,7 @@ export default function NowRunning({ status, error }: { status: RobotStatus | nu
       <PanelLabel>Now running</PanelLabel>
       {status && (job ? <StatusChip tone="running" label="Running" />
         : <StatusChip tone="neutral" label={status.schedulerRunning ? 'Idle' : 'Scheduler stopped'} />)}
+      {status && job && status.queued > 0 && <Typography sx={{ ml: 'auto', fontSize: 13, color: 'text.secondary' }}>{status.queued} waiting</Typography>}
     </Stack>
 
     {!status && (error
@@ -101,7 +102,6 @@ export default function NowRunning({ status, error }: { status: RobotStatus | nu
     {status && <Stack direction="row" gap={1} flexWrap="wrap">
       {job && <Button variant="outlined" size="small" component={Link} to="/logfile?section=hamilton">View run log</Button>}
       <Button variant="outlined" size="small" component={Link} to="/camera">Open camera</Button>
-      {status.queued > 0 && job && <Typography sx={{ alignSelf: 'center', fontSize: 13, color: 'text.secondary' }}>{status.queued} waiting</Typography>}
     </Stack>}
   </Card>;
 }

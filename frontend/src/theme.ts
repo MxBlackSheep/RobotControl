@@ -24,6 +24,8 @@ export const fontSans = '"IBM Plex Sans", "Segoe UI", system-ui, sans-serif';
 export const fontMono = '"IBM Plex Mono", Consolas, "Courier New", monospace';
 // Normal panels breathe; collection toolbars keep the compact 16px inset.
 export const panelPadding = { xs: 2, sm: 3 } as const;
+/** Uppercase column headings in list tables (schedules, history, user accounts). */
+export const columnHeading = { fontSize: 12, fontWeight: 600, letterSpacing: 0.6, textTransform: 'uppercase', color: 'text.secondary' } as const;
 
 export function createAppTheme(mode: PaletteMode) {
   const dark = mode === 'dark';

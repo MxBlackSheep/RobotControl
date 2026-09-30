@@ -8,7 +8,7 @@ export default function RecentRecordings({ folders, loading, error, onOpenArchiv
   folders: ExperimentFolder[]; loading: boolean; error: string; onOpenArchive: () => void;
 }) {
   const recent = [...folders].sort((a, b) => (b.creation_time || '').localeCompare(a.creation_time || '')).slice(0, 4);
-  return <Card component="section" aria-label="Recent recordings" variant="outlined" sx={{ mt: 2, p: 2 }}>
+  return <Card component="section" aria-label="Recent recordings" variant="outlined" sx={{ p: 2 }}>
     <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
       <Typography component="h2" variant="h6">Recent recordings</Typography>
       <Link component="button" type="button" onClick={onOpenArchive} sx={{ fontSize: 14 }}>Video archive</Link>

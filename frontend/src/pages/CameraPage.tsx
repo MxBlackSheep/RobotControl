@@ -549,6 +549,8 @@ const CameraPage: React.FC = () => {
     }
   };
 
+  const recentRecordings = <RecentRecordings folders={experimentFolders} loading={archiveLoading} error={archiveError} onOpenArchive={() => setCurrentTab(1)} />;
+
   return (
     <>
       <PageContent variant="inspection">
@@ -605,7 +607,7 @@ const CameraPage: React.FC = () => {
 
       {/* The viewer owns display transforms only; camera controls keep polling beside or below it. */}
       <SectionPanel active={currentTab === 0}>
-        <Box sx={{ display: 'grid', gap: 2, alignItems: 'start', gridTemplateColumns: sideBySide ? 'minmax(0, 1fr) 340px' : 'minmax(0, 1fr)' }}>
+        <Box sx={{ display: 'grid', gap: 2, alignItems: 'start', gridTemplateColumns: sideBySide ? 'minmax(0, 1fr) 360px' : 'minmax(0, 1fr)' }}>
         <Box sx={{ minWidth: 0 }}>
         <CameraViewport
           store={frameStore}
@@ -632,7 +634,8 @@ const CameraPage: React.FC = () => {
             </>}
           </>}
         />
-        <RecentRecordings folders={experimentFolders} loading={archiveLoading} error={archiveError} onOpenArchive={() => setCurrentTab(1)} />
+        {/* Beside the image the column has room below the controls; narrower screens list them under the image. */}
+        {!sideBySide && <Box sx={{ mt: 2 }}>{recentRecordings}</Box>}
         </Box>
         <Stack spacing={2} sx={{ minWidth: 0 }}>
         <CameraControls active={currentTab === 0} admin={user?.role === 'admin'} collapsible={!sideBySide} onSourceChange={handleSourceChange} onSummaryChange={setCameraSummary} />
@@ -642,6 +645,7 @@ const CameraPage: React.FC = () => {
           <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>Session ID: {mySession.session_id}</Typography>
           <Button onClick={() => void loadStreamingStatus()} sx={{ minHeight: 44 }}>Refresh view status</Button>
         </Box>}
+        {sideBySide && recentRecordings}
         </Stack>
         </Box>
       </SectionPanel>

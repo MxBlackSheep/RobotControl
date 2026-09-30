@@ -26,7 +26,7 @@ import {
 } from '@mui/icons-material';
 import { adminAPI } from '../services/api';
 import StatusChip from './StatusChip';
-import { fontMono } from '../theme';
+import { columnHeading, fontMono } from '../theme';
 import { dayTime } from '../utils/displayTime';
 
 // Wide enough for the table columns; narrower cards stack each account.
@@ -276,7 +276,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ onError, section }) => 
           ) : (
             <Box role="list" aria-label="User accounts">
               <Box aria-hidden sx={{ display: 'none', [userTable]: { display: 'grid' }, gridTemplateColumns: userColumns, columnGap: 2, py: 1, borderBottom: 1, borderColor: 'divider',
-                fontSize: 12, fontWeight: 600, letterSpacing: 0.6, textTransform: 'uppercase', color: 'text.secondary' }}>
+                ...columnHeading }}>
                 <span>Username</span><span>Email</span><span>Role</span><span>Last login</span><span />
               </Box>
               {visibleUsers.map((user) => (

@@ -18,7 +18,7 @@ import { executionTone } from '../scheduling/executionStatus';
 const PANEL_REFRESH_MS = 60000;
 
 function Panel({ title, link, children }: { title: string; link?: { to: string; text: string } | null; children: React.ReactNode }) {
-  return <Card component="section" aria-label={title} variant="outlined" sx={{ p: panelPadding, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+  return <Card component="section" aria-label={title} variant="outlined" sx={{ p: panelPadding, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 1 }}>
     <PanelHeader title={title} actions={link && <MuiLink component={Link} to={link.to} sx={{ fontSize: 14 }}>{link.text}</MuiLink>} />
     {children}
   </Card>;
@@ -159,7 +159,7 @@ export function RecentRuns() {
       const [label, tone] = executionTone(run.status);
       return <Box key={run.id} sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0,1fr) auto', sm: 'minmax(0,1fr) 140px 80px 170px' }, columnGap: 2, rowGap: 0.5, alignItems: 'center', fontSize: 14 }}>
         <Box component="span" sx={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{run.name}</Box>
-        <Box component="span" sx={{ color: 'text.secondary', display: { xs: 'none', sm: 'inline' } }}>{run.started ? new Date(run.started).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }) : '—'}</Box>
+        <Box component="span" sx={{ color: 'text.secondary', display: { xs: 'none', sm: 'inline' } }}>{run.started ? dayTime(run.started) : '—'}</Box>
         <Box component="span" sx={{ color: 'text.secondary', display: { xs: 'none', sm: 'inline' } }}>{run.minutes !== null ? `${run.minutes} min` : '—'}</Box>
         <Box component="span" sx={{ justifySelf: { xs: 'end', sm: 'start' } }}><StatusChip tone={tone} label={label} /></Box>
       </Box>;

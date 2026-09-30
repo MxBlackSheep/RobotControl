@@ -4,10 +4,9 @@ import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { allowedSections, moduleSectionUrl, useModuleSection } from './navigation';
 import { robotAttention, useRobotStatusContext } from '../hooks/useRobotStatus';
-import { panelPadding } from '../theme';
 
 export function PageContent({ children, reading = false, variant = 'overview' }: { children: React.ReactNode; reading?: boolean; variant?: 'overview' | 'inspection' | 'spatial' | 'task' }) {
-  return <Box data-page-pattern={variant} sx={{ width: '100%', minWidth: 0, maxWidth: reading || variant === 'task' ? 1120 : variant === 'overview' ? 1440 : 'none', mx: 'auto', containerType: 'inline-size', containerName: 'workspace' }}>{children}</Box>;
+  return <Box data-page-pattern={variant} sx={{ width: '100%', minWidth: 0, maxWidth: reading || variant === 'task' ? 1120 : 'none', containerType: 'inline-size', containerName: 'workspace' }}>{children}</Box>;
 }
 
 /** Title, the module's permitted sections as tabs (kept in `?section=`), and page actions. */
@@ -54,9 +53,10 @@ export function DetailTitle({ children, component = 'h2' }: { children: React.Re
   return <Typography component={component} sx={{ fontSize: 18, fontWeight: 600, lineHeight: 1.4, overflowWrap: 'anywhere', minWidth: 0 }}>{children}</Typography>;
 }
 
-/** A detail panel with nothing chosen yet: a plain prompt, not an alert. */
+/** A detail panel with nothing chosen yet: a plain prompt, not an alert. Its inset matches the
+ * list panel beside it (not panelPadding), so the prompt lines up with that panel's heading. */
 export function EmptyPanel({ children }: { children: React.ReactNode }) {
-  return <Box sx={{ flex: 1, p: panelPadding, bgcolor: 'background.paper', border: 1, borderColor: 'divider', borderRadius: 2 }}>
+  return <Box sx={{ flex: 1, px: 2, py: 1.75, bgcolor: 'background.paper', border: 1, borderColor: 'divider', borderRadius: 2 }}>
     <Typography color="text.secondary">{children}</Typography>
   </Box>;
 }

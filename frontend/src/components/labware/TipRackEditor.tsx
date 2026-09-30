@@ -110,19 +110,24 @@ export default function TipRackEditor({ rack, headingId, joined, side, rows, col
   const fontSize = `clamp(12px, min(calc(100cqw / ${columns} * 0.21), calc(100cqh / ${rows} * 0.21)), 22px)`;
 
   return <Box data-rack-editor sx={{ minWidth: 0, display: 'grid', gridColumn: joined ? 2 : undefined, gridRow: joined ? '1 / 4' : undefined, gridTemplateRows: joined ? 'subgrid' : 'auto auto auto' }}>
-    <Stack gap={0.75} sx={{ gridRow: 1, px: 1.5, py: 1 }}>
-      <Stack direction="row" gap={1} alignItems="baseline" flexWrap="wrap"><Typography id={headingId} variant="h6" component="h2" sx={{ overflowWrap: 'anywhere' }}>{rack}</Typography><Typography variant="caption" color="text.secondary">{side}</Typography></Stack>
-      {canUpdate && <Stack direction="row" flexWrap="wrap" alignItems="center" gap={1}>
+    {/* Grid areas put the whole-rack action on the heading row, while the DOM keeps keyboard
+        order: heading, status buttons, then Set entire rack (choose a status, then apply it). */}
+    <Box sx={{ gridRow: 1, px: 1.5, py: 1, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', columnGap: 1, rowGap: 0.75, alignItems: 'center',
+      gridTemplateAreas: '"heading action" "statuses statuses"' }}>
+      <Stack direction="row" gap={1} alignItems="baseline" flexWrap="wrap" sx={{ gridArea: 'heading', minHeight: 36, alignContent: 'center' }}>
+        <Typography id={headingId} variant="h6" component="h2" sx={{ overflowWrap: 'anywhere' }}>{rack}</Typography><Typography variant="caption" color="text.secondary">{side}</Typography>
+      </Stack>
+      {canUpdate && <>
         {/* Pick a status, then click or drag tips; pressing the chosen status again clears it. */}
         <ToggleButtonGroup size="small" exclusive value={paint} disabled={disabled} aria-label="Set tips to" onChange={(_, value: string | null) => onPaintChange(value)}
-          sx={{ flexWrap: 'wrap', gap: 0.5, '& .MuiToggleButtonGroup-grouped': { m: 0, border: 1, borderColor: 'divider', borderRadius: 1 } }}>
+          sx={{ gridArea: 'statuses', flexWrap: 'wrap', gap: 0.5, '& .MuiToggleButtonGroup-grouped': { m: 0, border: 1, borderColor: 'divider', borderRadius: 1 } }}>
           {statuses.map(status => <ToggleButton key={status} value={status} sx={{ gap: 0.75, px: 1.25 }}>
             <Box component="span" aria-hidden="true" sx={{ bgcolor: colors[status] || 'text.disabled', width: 12, height: 12, borderRadius: '50%', border: 1, borderColor: 'divider' }} />{stateName(status)}
           </ToggleButton>)}
         </ToggleButtonGroup>
-        <Button disabled={!enabled || Boolean(corners)} onClick={() => apply(Array.from({ length: positions }, (_, index) => index + 1))} sx={{ whiteSpace: 'nowrap' }}>Set entire rack</Button>
-      </Stack>}
-    </Stack>
+        <Button disabled={!enabled || Boolean(corners)} onClick={() => apply(Array.from({ length: positions }, (_, index) => index + 1))} sx={{ gridArea: 'action', whiteSpace: 'nowrap' }}>Set entire rack</Button>
+      </>}
+    </Box>
       <Box ref={viewport} data-tip-editor-body sx={{ gridRow: 2, minWidth: 0, minHeight: rows * 44 + (rows - 1) * 4, height: '100%', px: 1.5, overflowX: 'auto', overflowY: 'hidden' }}>
         <Box ref={grid} role="group" aria-label={`${rack} tips`} onPointerDown={event => {
           ignoreClick.current = false;

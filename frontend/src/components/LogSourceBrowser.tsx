@@ -181,6 +181,7 @@ export default function LogSourceBrowser({
   const parts = (current.archive ? current.entry : current.folder)
     .split("/")
     .filter(Boolean);
+  const hasShortcuts = !!source.shortcuts?.length;
   const selector = (
     <Paper
       variant="outlined"
@@ -200,7 +201,7 @@ export default function LogSourceBrowser({
         alignItems="center"
         sx={{ px: 1, pt: 1 }}
       >
-        {!!source.shortcuts?.length && <ButtonGroup size="small" variant="outlined" aria-label="Log folders">
+        {hasShortcuts && <ButtonGroup size="small" variant="outlined" aria-label="Log folders">
           {source.shortcuts.map((shortcut) => (
             <Button
               key={shortcut.label}
@@ -210,13 +211,14 @@ export default function LogSourceBrowser({
             </Button>
           ))}
         </ButtonGroup>}
-        <Box sx={{ flex: 1 }} />
+        {/* With shortcuts the path gets its own line; without them it shares the row with Up and Refresh. */}
+        {hasShortcuts && <Box sx={{ flex: 1 }} />}
         <Breadcrumbs
           aria-label="Log folder"
           maxItems={3}
           sx={{
-            order: 1,
-            flexBasis: "100%",
+            order: hasShortcuts ? 1 : 0,
+            flex: hasShortcuts ? "0 0 100%" : "1 1 0",
             minWidth: 0,
             "& .MuiBreadcrumbs-ol": { flexWrap: "nowrap" },
             "& .MuiBreadcrumbs-li": { minWidth: 0 },

@@ -39,6 +39,11 @@ const Dashboard: React.FC = memo(() => {
         gridTemplateColumns: 'minmax(0,1fr) 360px',
         gridTemplateAreas: attention ? '"running attention" "next health" "recent latest"' : '"running running" "next health" "recent latest"',
       },
+      // Wide screens: three columns, so list rows stay short enough to scan.
+      '@container workspace (min-width: 1500px)': {
+        gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr) 360px',
+        gridTemplateAreas: attention ? '"running attention health" "next recent latest"' : '"running running health" "next recent latest"',
+      },
       '& > *': { minWidth: 0, display: 'grid' },
     }}>
       {/* On phones the hold comes first: it blocks every other run. */}
