@@ -3,7 +3,7 @@ import { Box, Stack, Tab, Tabs, Typography } from '@mui/material';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { allowedSections, moduleSectionUrl, useModuleSection } from './navigation';
-import { recoveryCount, useRobotStatusContext } from '../hooks/useRobotStatus';
+import { robotAttention, useRobotStatusContext } from '../hooks/useRobotStatus';
 
 export function PageContent({ children, reading = false, variant = 'overview' }: { children: React.ReactNode; reading?: boolean; variant?: 'overview' | 'inspection' | 'spatial' | 'task' }) {
   return <Box data-page-pattern={variant} sx={{ width: '100%', minWidth: 0, maxWidth: reading || variant === 'task' ? 1120 : 'none', mx: 'auto', containerType: 'inline-size', containerName: 'workspace' }}>{children}</Box>;
@@ -15,7 +15,7 @@ export function PageHeader({ title, description, actions }: { title: string; des
   const { pathname } = useLocation();
   const sections = allowedSections(pathname, user);
   const [selected] = useModuleSection(pathname, user);
-  const recoveries = recoveryCount(useRobotStatusContext().status);
+  const attention = robotAttention(useRobotStatusContext().status);
   const tabbed = sections.length > 1;
   return <Box component="header" sx={{ mb: 2 }}>
     <Box sx={{ display: 'flex', alignItems: 'flex-end', columnGap: 3, rowGap: 1, flexWrap: 'wrap', borderBottom: tabbed ? 1 : 0, borderColor: 'divider' }}>
@@ -23,9 +23,9 @@ export function PageHeader({ title, description, actions }: { title: string; des
       {tabbed && <Tabs value={sections.some(section => section.index === selected) ? selected : false} variant="scrollable" scrollButtons={false}
         aria-label={`${title} sections`} sx={{ flex: '1 1 320px', minWidth: 0, minHeight: 44, mb: '-1px' }}>
         {sections.map(section => <Tab key={section.id} value={section.index} component={Link} to={moduleSectionUrl(pathname, section.index)}
-          label={section.id === 'recovery' && recoveries > 0
+          label={section.id === 'recovery' && attention
             ? <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>{section.label}
-                <Box component="span" aria-label="requires attention" sx={{ minWidth: 18, height: 18, px: 0.5, borderRadius: 9, bgcolor: '#F2B544', color: '#15171C', fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{recoveries}</Box></Box>
+                <Box component="span" aria-label="requires attention" sx={{ minWidth: 18, height: 18, px: 0.5, borderRadius: 9, bgcolor: '#F2B544', color: '#15171C', fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{attention.kind === 'recovery' ? attention.count : '!'}</Box></Box>
             : section.label}
           sx={{ px: 1.5, minWidth: 0 }} />)}
       </Tabs>}

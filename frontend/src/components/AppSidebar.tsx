@@ -3,7 +3,7 @@ import { Box, Drawer, IconButton, List, ListItemButton, ListItemIcon, ListItemTe
 import { ChevronLeft, ChevronRight } from '@mui/icons-material';
 import { Link, useLocation } from 'react-router-dom';
 import { NavigationUser, visibleNavigation } from './navigation';
-import { recoveryCount, useRobotStatusContext } from '../hooks/useRobotStatus';
+import { robotAttention, useRobotStatusContext } from '../hooks/useRobotStatus';
 import { fontMono } from '../theme';
 import { APP_VERSION } from '../version';
 
@@ -12,7 +12,7 @@ export default function AppSidebar({ user, mobile, expanded, open, onClose, onTo
   user: NavigationUser; mobile: boolean; expanded: boolean; open: boolean; onClose: () => void; onToggle: () => void; footer: React.ReactNode;
 }) {
   const location = useLocation();
-  const recoveries = recoveryCount(useRobotStatusContext().status);
+  const attention = robotAttention(useRobotStatusContext().status);
   const wide = mobile || expanded;
   const width = mobile ? 280 : wide ? 224 : 64;
   return <Drawer variant={mobile ? 'temporary' : 'permanent'} open={mobile ? open : true} onClose={onClose}
@@ -28,7 +28,7 @@ export default function AppSidebar({ user, mobile, expanded, open, onClose, onTo
       <List disablePadding sx={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 0.5 }}>
         {visibleNavigation(user).map(item => {
           const selected = location.pathname === item.path;
-          const badge = item.path === '/scheduling' && recoveries > 0;
+          const badge = item.path === '/scheduling' && !!attention;
           return <Tooltip key={item.path} title={wide ? '' : item.label} placement="right">
             <ListItemButton component={Link} to={item.path} selected={selected} aria-label={badge ? `${item.label}, recovery requires attention` : item.label}
               aria-current={selected ? 'page' : undefined} onClick={() => { if (mobile) onClose(); }}
@@ -39,7 +39,7 @@ export default function AppSidebar({ user, mobile, expanded, open, onClose, onTo
                 {badge && !wide && <Box component="span" aria-hidden sx={{ position: 'absolute', top: -3, right: -5, width: 9, height: 9, borderRadius: 5, bgcolor: '#F2B544' }} />}
               </ListItemIcon>
               {wide && <ListItemText primary={item.label} primaryTypographyProps={{ fontSize: 14, fontWeight: selected ? 500 : 400 }} />}
-              {badge && wide && <Box component="span" sx={{ minWidth: 20, height: 20, px: 0.5, borderRadius: 10, bgcolor: '#F2B544', color: '#15171C', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{recoveries}</Box>}            </ListItemButton>
+              {badge && wide && <Box component="span" sx={{ minWidth: 20, height: 20, px: 0.5, borderRadius: 10, bgcolor: '#F2B544', color: '#15171C', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{attention?.kind === 'recovery' ? attention.count : '!'}</Box>}            </ListItemButton>
           </Tooltip>;
         })}
       </List>

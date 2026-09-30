@@ -18,6 +18,9 @@ import { test, expect } from '@playwright/test';
 // - A failed read hides the last known recovery or keeps saying "Live"; the bar must say
 //   how old its data is.
 // - A failed or malformed first read shows "Scheduler running" instead of "Status unavailable".
+// - The queue reply is older than the scheduler reply and hides its recovery (the higher
+//   safety revision must win); a reply without recovery state clears the other's.
+// - An acknowledged recovery whose queued jobs still wait for Resume shows as all clear.
 // Unrelated 503s (the backend has no "database restarting" 503; restore success is checked
 // in database-restore.spec.ts):
 // - A camera or scheduler 503 opens "Database Maintenance In Progress", blocks later
@@ -85,6 +88,40 @@ test('robot status keeps a recovery visible on every page and never reads a fail
     await expect(page.getByRole('link', { name: 'Scheduling', exact: true })).toBeVisible();
   }
   await page.screenshot({ path: info.outputPath('status-unavailable.png'), animations: 'disabled' });
+});
+
+test('robot status takes the newer recovery from either reply and keeps a Resume hold visible', async ({ page }, info) => {
+  await page.clock.install();
+  const clear = (revision: number) => ({ active: false, storage_healthy: true, safety_revision: revision, resume_required: false, pending_recoveries: [] });
+  let queue: object = clear(8);
+  let scheduler: object | undefined = { active: true, storage_healthy: true, safety_revision: 9, pending_recoveries: [{ schedule_id: 'feed-2', experiment_name: 'Cell feeding stack 2' }] };
+  await page.route('**/api/scheduling/status/queue', route => route.fulfill({ json: { success: true, data: { queue: { queued_jobs: 1, running_job_details: [] }, manual_recovery: queue } } }));
+  await page.route('**/api/scheduling/status/scheduler', route => route.fulfill({ json: { success: true,
+    data: scheduler === undefined ? { is_running: true } : { is_running: true, manual_recovery: scheduler } } }));
+  const bar = page.getByRole('region', { name: 'Robot status' });
+  const rail = page.getByRole('link', { name: 'Scheduling, recovery requires attention' });
+
+  await page.goto('/database');
+  await expect(bar.getByRole('link', { name: '1 run needs recovery' })).toBeVisible();
+  await expect(rail).toBeVisible();
+
+  // Acknowledged: no pending run, but queued jobs wait for Resume.
+  queue = { ...clear(10), resume_required: true };
+  scheduler = { ...clear(10), resume_required: true };
+  await page.clock.fastForward(16000);
+  await expect(bar.getByRole('link', { name: 'Queued jobs paused until Resume' })).toBeVisible();
+  await expect(rail).toBeVisible();
+  await page.screenshot({ path: info.outputPath('status-resume-hold.png'), animations: 'disabled' });
+
+  // A scheduler reply without recovery state does not clear the queue's.
+  scheduler = undefined;
+  await page.clock.fastForward(16000);
+  await expect(bar.getByRole('link', { name: 'Queued jobs paused until Resume' })).toBeVisible();
+
+  queue = clear(11);
+  await page.clock.fastForward(16000);
+  await expect(rail).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Scheduling', exact: true })).toBeVisible();
 });
 
 test('System Status renews an expired sign-in', async ({ page }) => {
