@@ -20,7 +20,7 @@ const PAGES: Array<[path: string, name: string]> = [
   ['/camera', 'Camera'],
   ['/labware', 'Labware'],
   ['/maintenance', 'Maintenance'],
-  ['/system-status', 'System Status'],
+  ['/system-status', 'System status'],
   ['/scheduling', 'Scheduling'],
   ['/about', 'About'],
   ['/logfile', 'LogFile'],

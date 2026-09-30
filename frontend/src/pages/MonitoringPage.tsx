@@ -1,9 +1,10 @@
-import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Card, CardContent, LinearProgress, Stack, Typography } from '@mui/material';
+import React from 'react';
+import { Alert, Box, Button, Card, CardContent, LinearProgress, Stack, Typography } from '@mui/material';
 import StatusChip from '../components/StatusChip';
 import { fontMono } from '../theme';
-import ExpandMore from '@mui/icons-material/ExpandMore';
 import Refresh from '@mui/icons-material/Refresh';
-import { PageContent, PageHeader } from '../components/PageLayout';
+import { PageContent, PageHeader, PanelLabel } from '../components/PageLayout';
+import type { StatusTone } from '../theme';
 import useMonitoring from '../hooks/useMonitoring';
 
 export default function MonitoringPage() {
@@ -24,20 +25,21 @@ export default function MonitoringPage() {
     { name: 'Memory', value: systemHealth?.memory_percent, detail: capacity(systemHealth?.memory_used_gb, systemHealth?.memory_total_gb) },
     { name: 'Disk', value: systemHealth?.disk_percent, detail: capacity(systemHealth?.disk_used_gb, systemHealth?.disk_total_gb) },
   ];
+  // After a failed read the last state stays, in neutral colour beside "Stale data".
+  const database: [string, StatusTone] = databaseStatus?.is_connected === true ? ['Connected', error ? 'neutral' : 'completed']
+    : databaseStatus?.is_connected === false ? ['Disconnected', error ? 'neutral' : 'fault'] : ['Unavailable', 'neutral'];
+  const liveView: [string, StatusTone] = streamingStatus?.enabled === true ? ['Enabled', 'completed'] : streamingStatus?.enabled === false ? ['Disabled', 'neutral'] : ['Unavailable', 'neutral'];
   return <PageContent variant="overview">
-    <PageHeader title="System Status" actions={<>
+    <PageHeader title="System status" actions={<>
       <StatusChip tone={error ? 'attention' : 'neutral'} label={error ? monitoringData ? 'Stale data' : 'Unavailable' : isLoading ? 'Updating' : monitoringData ? 'Updated' : 'Unknown'} />
       <Button startIcon={<Refresh />} disabled={isLoading} onClick={() => void refreshData()}>Refresh</Button>
     </>} />
     {error && <Alert severity="warning" sx={{ mb: 1 }}>{error}{monitoringData ? ' · Last reading retained.' : ''}</Alert>}
     {isLoading && <LinearProgress aria-label="Updating monitoring" sx={{ mb: 1 }} />}
-    <Stack direction="row" gap={1} flexWrap="wrap" sx={{ mb: 2 }}>
-      <StatusChip tone={error ? 'neutral' : databaseStatus?.is_connected === true ? 'completed' : databaseStatus?.is_connected === false ? 'fault' : 'neutral'} label={databaseStatus?.is_connected === true ? 'Database connected' : databaseStatus?.is_connected === false ? 'Database disconnected' : 'Database unavailable'} />
-      <StatusChip tone="neutral" label={streamingStatus?.enabled === true ? 'Live view enabled' : streamingStatus?.enabled === false ? 'Live view disabled' : 'Live view unavailable'} />
-      {timestamp && <Typography variant="caption" sx={{ alignSelf: 'center', ml: 'auto' }} color="text.secondary">Last reading {new Date(timestamp).toLocaleString()}</Typography>}
+    <Stack direction="row" alignItems="baseline" justifyContent="space-between" gap={1} flexWrap="wrap" sx={{ mb: 1 }}>
+      <PanelLabel>Resource use</PanelLabel>
+      {timestamp && <Typography variant="caption" color="text.secondary">Last reading {new Date(timestamp).toLocaleString()}</Typography>}
     </Stack>
-    {databaseStatus?.error_message && <Alert severity="error" sx={{ mb: 2, overflowWrap: 'anywhere' }}>{databaseStatus.error_message}</Alert>}
-    <Typography component="h2" sx={{ mb: 1, fontSize: 12, fontWeight: 600, letterSpacing: 0.8, textTransform: 'uppercase', color: 'text.secondary' }}>Resource use</Typography>
     <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, minmax(0, 1fr))' }, gap: 2, mb: 2 }}>
       {metrics.map(metric => <Card key={metric.name} variant="outlined"><CardContent sx={{ p: 2.5, '&:last-child': { pb: 2.5 } }}>
         <Stack direction="row" justifyContent="space-between" alignItems="baseline">
@@ -48,22 +50,27 @@ export default function MonitoringPage() {
         {metric.detail && <Typography sx={{ mt: 1, fontSize: 13, color: 'text.secondary' }}>{metric.detail}</Typography>}
       </CardContent></Card>)}
     </Box>
-    <Accordion disableGutters variant="outlined" sx={{ borderRadius: 2, '&::before': { display: 'none' } }}>
-      <AccordionSummary id="connection-details-heading" aria-controls="connection-details-content" expandIcon={<ExpandMore />}>
-        <Typography>Connection details</Typography>
-      </AccordionSummary>
-      <AccordionDetails id="connection-details-content" sx={{ overflowWrap: 'anywhere' }}>
-        <Box component="dl" sx={{ m: 0, display: 'grid', gridTemplateColumns: 'minmax(100px, 1fr) minmax(0, 3fr)', gap: 1, '& dt': { color: 'text.secondary' }, '& dd': { m: 0, minWidth: 0 } }}>
-          <Typography component="dt" variant="body2">Database</Typography>
-          <Typography component="dd" variant="body2">{databaseStatus?.database_name || 'Unavailable'}</Typography>
-          <Typography component="dt" variant="body2">Server</Typography>
-          <Typography component="dd" variant="body2">{databaseStatus?.server_name || 'Unavailable'}</Typography>
-          <Typography component="dt" variant="body2">Connection mode</Typography>
-          <Typography component="dd" variant="body2">{databaseStatus?.mode || 'Unavailable'}</Typography>
-          <Typography component="dt" variant="body2">Live view sessions</Typography>
-          <Typography component="dd" variant="body2">{sessionSummary}</Typography>
-        </Box>
-      </AccordionDetails>
-    </Accordion>
+    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' }, gap: 2, alignItems: 'start' }}>
+      <ServiceCard title="Database" state={database} rows={[
+        ['Database', databaseStatus?.database_name || 'Unavailable'],
+        ['Server', databaseStatus?.server_name || 'Unavailable'],
+        ['Connection mode', databaseStatus?.mode || 'Unavailable'],
+      ]}>
+        {databaseStatus?.error_message && <Alert severity="error" sx={{ mt: 1.5, overflowWrap: 'anywhere' }}>{databaseStatus.error_message}</Alert>}
+      </ServiceCard>
+      <ServiceCard title="Live view" state={liveView} rows={[['Sessions', sessionSummary]]} />
+    </Box>
   </PageContent>;
+}
+
+function ServiceCard({ title, state: [label, tone], rows, children }: { title: string; state: [string, StatusTone]; rows: [string, string][]; children?: React.ReactNode }) {
+  return <Card component="section" aria-label={title} variant="outlined"><CardContent sx={{ p: 2.5, '&:last-child': { pb: 2.5 } }}>
+    <Stack direction="row" alignItems="center" justifyContent="space-between" gap={1} sx={{ mb: 1.5 }}>
+      <Typography component="h2" variant="h6">{title}</Typography><StatusChip tone={tone} label={label} />
+    </Stack>
+    <Box component="dl" sx={{ m: 0, display: 'grid', gridTemplateColumns: 'minmax(110px, auto) minmax(0, 1fr)', columnGap: 2, rowGap: 1, fontSize: 14, '& dt': { color: 'text.secondary' }, '& dd': { m: 0, minWidth: 0, overflowWrap: 'anywhere' } }}>
+      {rows.map(([name, value]) => <React.Fragment key={name}><Typography component="dt" variant="body2">{name}</Typography><Typography component="dd" variant="body2">{value}</Typography></React.Fragment>)}
+    </Box>
+    {children}
+  </CardContent></Card>;
 }

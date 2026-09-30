@@ -1,12 +1,12 @@
 import { test, expect } from '@playwright/test';
 
-// Failure scenarios recorded before the compact connection-details change:
+// System status (connection facts are shown in cards, not a collapsed disclosure):
 // - Process CPU or cached JPEG throughput is presented as live-view utilization/health.
 // - Enabled configuration is mistaken for a connected camera or recording state.
 // - A missing/non-boolean enabled field is mislabeled as disabled or enabled.
 // - Incomplete database/size fields imply disconnection or print undefined capacity.
-// - Database failures disappear inside a disclosure that was collapsed before data arrived.
-// - Opening details creates another polling owner or loses the retained stale reading.
+// - A database failure message is hidden or detached from the Database card.
+// - Showing details creates another polling owner or loses the retained stale reading.
 // - Connection identifiers or session counts overflow a 320px screen or trap keyboard focus.
 // - An expired access token makes System Status reads fail with 401 forever instead of
 //   renewing the sign-in once.
@@ -46,8 +46,8 @@ test('monitoring has one refresh owner and shows stale and unknown services accu
     } } });
   });
   await page.goto('/system-status');
-  await expect(page.getByText('Database disconnected', { exact: true })).toBeVisible();
-  await expect(page.getByText('Live view unavailable', { exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Database', exact: true }).getByTitle('Disconnected', { exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Live view', exact: true }).getByTitle('Unavailable', { exact: true })).toBeVisible();
   expect(healthRequests).toBe(1);
   failed = true;
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
@@ -230,24 +230,17 @@ for (const width of [320, 1280]) {
       } } });
     });
     await page.goto('/system-status');
-    await expect(page.getByText('Live view enabled', { exact: true })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Live view', exact: true }).getByTitle('Enabled', { exact: true })).toBeVisible();
     await expect(page.getByText('Database connection refused.', { exact: true })).toBeVisible();
     await expect(page.getByRole('progressbar', { name: 'CPU usage', exact: true })).toHaveAttribute('aria-valuenow', '4');
-    const disclosure = page.getByRole('button', { name: 'Connection details', exact: true });
-    await expect(disclosure).toHaveAttribute('aria-expanded', 'false');
-    await expect(page.getByText('Fixture database with a long identifier', { exact: true })).not.toBeVisible();
-    await disclosure.focus();
-    await page.keyboard.press('Enter');
-    await expect(disclosure).toHaveAttribute('aria-expanded', 'true');
+    // Connection facts are shown in their cards, as in the approved mock (no disclosure).
     await expect(page.getByText('Fixture database with a long identifier', { exact: true })).toBeVisible();
+    await expect(page.getByText('fixture-server-with-a-very-long-hostname.internal', { exact: true })).toBeVisible();
     await expect(page.getByText('2 of 4 slots in use', { exact: true })).toBeVisible();
     await expect(page.getByText(/Utilization|Bandwidth|Recording active|Robot healthy/i)).toHaveCount(0);
     expect(healthRequests).toBe(1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
     await page.screenshot({ path: info.outputPath(`connections-${width}.png`), fullPage: true, animations: 'disabled' });
-    await page.keyboard.press('Enter');
-    await expect(disclosure).toHaveAttribute('aria-expanded', 'false');
-    await expect(disclosure).toBeFocused();
   });
 }
 
@@ -260,21 +253,21 @@ test('live view configuration stays unknown when the status contract is incomple
   } } }));
   await page.route('**/api/camera/streaming/status', route => route.fulfill({ json: { data: { status } } }));
   await page.goto('/system-status');
-  await expect(page.getByText('Live view unavailable', { exact: true })).toBeVisible();
-  await expect(page.getByText('Database unavailable', { exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Live view', exact: true }).getByTitle('Unavailable', { exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Database', exact: true }).getByTitle('Unavailable', { exact: true })).toBeVisible();
   await expect(page.getByText(/undefined|NaN/)).toHaveCount(0);
   status = { enabled: 'true' };
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
   await expect(page.getByText('Updated', { exact: true })).toBeVisible();
-  await expect(page.getByText('Live view unavailable', { exact: true })).toBeVisible();
-  await expect(page.getByText(/^Live view (enabled|disabled)$/)).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Live view', exact: true }).getByTitle('Unavailable', { exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Live view', exact: true }).getByTitle(/^(Enabled|Disabled)$/)).toHaveCount(0);
 });
 
 test('administration gives storage health its own local section', async ({ page }) => {
   await page.route('**/api/auth/me', route => route.fulfill({ json: { success: true, data: { user_id: 'viewer-admin', username: 'operator', role: 'admin', session_is_local: true, session: { is_local: true } } } }));
   await page.goto('/admin?section=storage');
   await expect(page.getByRole('tab', { name: 'Storage health', exact: true })).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByRole('heading', { name: 'User Accounts', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'User accounts', exact: true })).toHaveCount(0);
 });
 
 test('camera and scheduler 503s show their own errors without database maintenance', async ({ page }, info) => {
@@ -297,7 +290,7 @@ test('camera and scheduler 503s show their own errors without database maintenan
   // With the page's own error closed, no modal remains and shortcuts navigate.
   await page.keyboard.press('Alt+6');
   await expect(page).toHaveURL(/\/system-status$/);
-  await expect(page.getByText('Live view unavailable', { exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Live view', exact: true }).getByTitle('Unavailable', { exact: true })).toBeVisible();
   await expect(maintenance).toHaveCount(0);
   await page.screenshot({ path: info.outputPath('camera-503.png'), animations: 'disabled' });
   // Without a reload, later requests still reach the server instead of being held for maintenance.
@@ -316,7 +309,7 @@ test('keyboard shortcuts navigate, show their help and yield to dialogs', async 
   await expect(page.getByRole('heading', { name: 'About', exact: true })).toBeVisible();
   await page.keyboard.press('Alt+6');
   await expect(page).toHaveURL(/\/system-status$/);
-  await expect(page.getByRole('heading', { name: 'System Status', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'System status', exact: true })).toBeVisible();
   await page.keyboard.press('?');
   const help = page.getByRole('dialog', { name: 'Keyboard Shortcuts' });
   await expect(help).toBeVisible();
