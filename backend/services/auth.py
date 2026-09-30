@@ -14,6 +14,7 @@ import ipaddress
 import logging
 import os
 import secrets
+import sqlite3
 from typing import Any, Dict, List, Optional
 
 import jwt
@@ -22,6 +23,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from passlib.context import CryptContext
 
 from backend.services.auth_database import get_auth_database, AuthDatabase
+from backend.services.sqlite_safety import StorageUnavailable
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +46,10 @@ REFRESH_TOKEN_SECRET = os.getenv(
     "ROBOTCONTROL_REFRESH_TOKEN_SECRET", "RobotControl_Refresh_Secret_2025"
 )
 ALGORITHM = "HS256"
+
+# A storage failure says nothing about the token: answering 401 would make the browser
+# delete a valid sign-in, so these answer 503 and the client keeps its tokens.
+AUTH_STORAGE_ERRORS = (sqlite3.Error, StorageUnavailable)
 
 
 @dataclass
@@ -395,9 +401,6 @@ class AuthService:
         except jwt.InvalidTokenError as exc:
             logger.warning("Invalid access token: %s", exc)
             return None
-        except Exception as exc:
-            logger.error("Token verification error: %s", exc)
-            return None
 
     def refresh_access_token(self, refresh_token: str) -> Optional[str]:
         try:
@@ -432,9 +435,6 @@ class AuthService:
             return None
         except jwt.InvalidTokenError as exc:
             logger.warning("Invalid refresh token: %s", exc)
-            return None
-        except Exception as exc:
-            logger.error("Refresh token processing error: %s", exc)
             return None
 
     def login(
@@ -529,7 +529,14 @@ def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> Dict[str, Any]:
     service = get_auth_service()
-    user = service.verify_token(credentials.credentials)
+    try:
+        user = service.verify_token(credentials.credentials)
+    except AUTH_STORAGE_ERRORS as exc:
+        logger.error("Sign-in storage unavailable during token verification: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Sign-in storage is temporarily unavailable",
+        )
 
     if not user:
         raise HTTPException(

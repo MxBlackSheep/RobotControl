@@ -550,6 +550,8 @@ const SchedulingPage: React.FC = () => {
         {(state.manualRecovery?.active || state.manualRecovery?.resume_required) && <Button size="small" color="error" variant="outlined" onClick={() => setCurrentTab(1)}>Recovery required</Button>}
         {currentTab === 0 && state.queueStatus && <Button aria-expanded={queueDetailsOpen} onClick={() => setQueueDetailsOpen(value => !value)}>Queue details</Button>}
       </Stack>
+      {state.queueError && <Alert severity="warning" sx={{ mb: 1 }}>Queue status not updated: {state.queueError}</Alert>}
+      {state.schedulerError && <Alert severity="warning" sx={{ mb: 1 }}>Scheduler status not updated: {state.schedulerError}</Alert>}
       {currentTab === 0 && state.queueStatus && queueDetailsOpen && <Box sx={{ mb: 1 }}>
         <Stack spacing={1} sx={{ p: 1 }}>
           {(state.queueStatus.running_job_details ?? []).map(item => <Typography key={`running-${item.schedule_id}`} variant="body2">Running · {item.experiment_name}</Typography>)}

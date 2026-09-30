@@ -212,16 +212,19 @@ class DatabaseService:
 
         return tables
 
-    def _check_table_has_data(self, table_name: str) -> bool:
+    def _check_table_has_data(self, table_name: str) -> Optional[bool]:
+        """True or False when checked; None when the check failed, so it is not shown as empty."""
+        quoted = table_name.replace("]", "]]")
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute(f"SELECT TOP 1 1 FROM [{table_name}]")
+                cursor.execute(f"SELECT TOP 1 1 FROM [{quoted}]")
                 result = cursor.fetchone() is not None
                 cursor.close()
                 return result
-        except Exception:
-            return False
+        except Exception as exc:
+            logger.warning("Could not check whether table %s has data: %s", table_name, exc)
+            return None
 
     def _get_table_columns(self, conn, table_name: str) -> List[str]:
         """Return ordered column names for a table using a simple cache."""
@@ -566,37 +569,6 @@ class DatabaseService:
                 raise
             logger.warning("Failed to load stored procedures: %s", exc)
         return {"procedures": procedures, "functions": functions}
-
-    def execute_stored_procedure(self, procedure_name: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
-        start = time.perf_counter()
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            try:
-                if parameters:
-                    placeholder = ', '.join(f"@{key} = ?" for key in parameters.keys())
-                    sql = f"EXEC [{procedure_name}] {placeholder}"
-                    cursor.execute(sql, tuple(parameters.values()))
-                else:
-                    cursor.execute(f"EXEC [{procedure_name}]")
-
-                if cursor.description:
-                    columns = [column[0] for column in cursor.description]
-                    rows = [self._format_row(columns, row) for row in cursor.fetchall()]
-                else:
-                    columns, rows = [], []
-
-                conn.commit()
-            except Exception:
-                conn.rollback()
-                raise
-            finally:
-                cursor.close()
-
-        duration_ms = (time.perf_counter() - start) * 1000
-        self._record_query_metrics(duration_ms)
-
-        return {"columns": columns, "rows": rows, "execution_time_ms": round(duration_ms, 2)}
-
 
 _service_instance: Optional[DatabaseService] = None
 

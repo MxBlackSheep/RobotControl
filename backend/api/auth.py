@@ -14,7 +14,7 @@ import time
 from datetime import datetime
 
 # Import our simplified authentication service
-from backend.services.auth import AuthService, User, get_auth_service
+from backend.services.auth import AUTH_STORAGE_ERRORS, AuthService, User, get_auth_service
 
 # Import standardized response formatter
 from backend.api.response_formatter import (
@@ -83,7 +83,14 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    user = auth_service.verify_token(credentials.credentials)
+    try:
+        user = auth_service.verify_token(credentials.credentials)
+    except AUTH_STORAGE_ERRORS as exc:
+        logger.error("Sign-in storage unavailable during token verification: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Sign-in storage is temporarily unavailable",
+        )
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -347,7 +354,13 @@ async def refresh_token(
             },
             metadata=metadata
         )
-        
+
+    except AUTH_STORAGE_ERRORS as e:
+        logger.error(f"Sign-in storage unavailable during token refresh: {e}")
+        return ResponseFormatter.service_unavailable(
+            message="Sign-in storage is temporarily unavailable",
+            details=str(e)
+        )
     except Exception as e:
         logger.error(f"Token refresh error: {e}")
         return ResponseFormatter.server_error(

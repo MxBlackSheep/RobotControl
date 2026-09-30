@@ -18,6 +18,8 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { Box, Typography, Button, Paper, Stack, LinearProgress, Chip, CircularProgress } from '@mui/material';
 import { PlayArrow as PlayArrowIcon, Stop as StopIcon } from '@mui/icons-material';
 import StatusDialog from '../components/StatusDialog';
+import { isAxiosError } from 'axios';
+import { api, attemptTokenRefresh } from '@/services/api';
 import { buildApiUrl, buildWsUrl } from '@/utils/apiBase';
 import VideoArchiveTab, {
   type ExperimentFolder
@@ -90,11 +92,14 @@ const CameraPage: React.FC = () => {
   const [archiveLoading, setArchiveLoading] = useState(true);
   const [archiveError, setArchiveError] = useState('');
   const [error, setError] = useState('');
+  // Live-view failures show in the viewer only; rror is for downloads on the archive.
+  const [liveError, setLiveError] = useState('');
   const { user } = useAuth();
   const [currentTab] = useModuleSection('/camera', user);
   
   // Streaming state
   const [streamingStatus, setStreamingStatus] = useState<StreamingStatus | null>(null);
+  const [streamingStatusError, setStreamingStatusError] = useState(false);
   const [mySession, setMySession] = useState<StreamingSession | null>(null);
   const [streamingLoading, setStreamingLoading] = useState(false);
   const frameStore = useMemo(createFrameStore, []);
@@ -157,28 +162,16 @@ const CameraPage: React.FC = () => {
     }
   }, [currentTab]);
 
+  // The archive owns archiveError; `error` belongs to downloads and live view.
   const loadRecordings = async () => {
     setArchiveLoading(true);
     setArchiveError('');
     try {
-      const token = localStorage.getItem('access_token');
-      
-      const response = await fetch(buildApiUrl('/api/camera/recordings?recording_type=experiment&limit=100'), {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setExperimentFolders(data.data?.experiment_folders || []);
-        setError('');
-      } else {
-        setArchiveError('Failed to load experiment folders');
-        setError('Failed to load experiment folders');
-      }
+      const { data } = await api.get('/api/camera/recordings', { params: { recording_type: 'experiment', limit: 100 } });
+      setExperimentFolders(data.data?.experiment_folders || []);
     } catch (err) {
       console.error('Error loading experiment folders:', err);
       setArchiveError('Failed to load experiment folders');
-      setError('Failed to load experiment folders');
     } finally {
       setArchiveLoading(false);
     }
@@ -198,7 +191,7 @@ const CameraPage: React.FC = () => {
       return;
     }
 
-    const token = localStorage.getItem('access_token');
+    let token = localStorage.getItem('access_token');
     if (!token) {
       setError('Missing authentication token. Please sign in again.');
       return;
@@ -240,17 +233,24 @@ const CameraPage: React.FC = () => {
         } : prev);
 
         try {
-          const headers: Record<string, string> = {
-            Authorization: `Bearer ${token}`
-          };
+          const headers: Record<string, string> = {};
           if (downloadedBytes > 0) {
             headers.Range = `bytes=${downloadedBytes}-`;
           }
 
-          const response = await fetch(buildApiUrl(`/api/camera/recording/${filename}`), {
-            headers,
+          // Streamed with fetch for resume and progress, so renew an expired sign-in here.
+          const request = () => fetch(buildApiUrl(`/api/camera/recording/${filename}`), {
+            headers: { ...headers, Authorization: `Bearer ${token}` },
             signal: abortController.signal
           });
+          let response = await request();
+          if (response.status === 401) {
+            const renewed = await attemptTokenRefresh().catch(() => null);
+            if (renewed) {
+              token = renewed;
+              response = await request();
+            }
+          }
 
           if (!response.ok) {
             if (response.status === 416 && totalBytes !== null && downloadedBytes >= totalBytes) {
@@ -425,18 +425,14 @@ const CameraPage: React.FC = () => {
   // Streaming functions
   const loadStreamingStatus = async () => {
     try {
-      const token = localStorage.getItem('access_token');
-      
-      const response = await fetch(buildApiUrl('/api/camera/streaming/status'), {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        setStreamingStatus(data.data.status);
-      }
+      const { data } = await api.get('/api/camera/streaming/status');
+      setStreamingStatus(data.data.status);
+      setStreamingStatusError(false);
     } catch (error) {
       console.error('Error loading streaming status:', error);
+      // Do not keep showing the previous status as if it were current.
+      setStreamingStatus(null);
+      setStreamingStatusError(true);
     }
   };
 
@@ -446,37 +442,21 @@ const CameraPage: React.FC = () => {
     streamRequestRef.current = controller;
     setStreamingLoading(true);
     try {
-      const token = localStorage.getItem('access_token');
-      
-      const response = await fetch(buildApiUrl('/api/camera/streaming/session'), {
-        method: 'POST',
-        signal: controller.signal,
-        headers: { 
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ quality })
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        const session = data.data;
-        if (!mountedRef.current || controller.signal.aborted) return;
-        setMySession(session);
-        setError('');
-        
-        // Connect to WebSocket for live streaming
-        connectToStreamingWebSocket(session.session_id);
-        
-        await loadStreamingStatus();
-      } else {
-        const errorData = await response.json();
-        setError(errorData.detail || 'Failed to create streaming session');
-      }
+      const { data } = await api.post('/api/camera/streaming/session', { quality }, { signal: controller.signal });
+      const session = data.data;
+      if (!mountedRef.current || controller.signal.aborted) return;
+      setMySession(session);
+      setLiveError('');
+
+      // Connect to WebSocket for live streaming
+      connectToStreamingWebSocket(session.session_id);
+
+      await loadStreamingStatus();
     } catch (error) {
       if (!mountedRef.current || controller.signal.aborted) return;
       console.error('Error creating streaming session:', error);
-      setError('Failed to create streaming session');
+      const detail = isAxiosError(error) ? error.response?.data?.detail : undefined;
+      setLiveError(typeof detail === 'string' ? detail : 'Failed to create streaming session');
     } finally {
       if (streamRequestRef.current === controller) streamRequestRef.current = null;
       if (mountedRef.current) setStreamingLoading(false);
@@ -505,7 +485,7 @@ const CameraPage: React.FC = () => {
           setCurrentFrame(frameDataUrl);
         } else if (message.type === 'error') {
           console.error('Stream error:', message.error);
-          setError(message.error || 'Streaming error');
+          setLiveError(message.error || 'Streaming error');
         }
       } catch (error) {
         console.error('Error parsing WebSocket message:', error);
@@ -514,7 +494,7 @@ const CameraPage: React.FC = () => {
     
     ws.onerror = (error) => {
       console.error('Streaming WebSocket error:', error);
-      setError('WebSocket connection failed');
+      setLiveError('WebSocket connection failed');
       setCurrentFrame(null);
       };
     
@@ -533,14 +513,15 @@ const CameraPage: React.FC = () => {
     closeSocket();
     setCurrentFrame(null);
     try {
-      const response = await fetch(buildApiUrl(`/api/camera/streaming/session/${mySession.session_id}`), {
-        method: 'DELETE', headers: { Authorization: `Bearer ${localStorage.getItem('access_token')}` },
-      });
-      if (!response.ok && response.status !== 404) throw new Error('Could not release the previous live-view session');
+      try {
+        await api.delete(`/api/camera/streaming/session/${mySession.session_id}`);
+      } catch (cause) {
+        if (!isAxiosError(cause) || cause.response?.status !== 404) throw new Error('Could not release the previous live-view session');
+      }
       setMySession(null);
       await createStreamingSession();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not reconnect live view');
+      setLiveError(cause instanceof Error ? cause.message : 'Could not reconnect live view');
     } finally { setStreamingLoading(false); }
   };
 
@@ -553,24 +534,14 @@ const CameraPage: React.FC = () => {
 
     setStreamingLoading(true);
     try {
-      const token = localStorage.getItem('access_token');
-
-      const response = await fetch(buildApiUrl(`/api/camera/streaming/session/${mySession.session_id}`), {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (response.ok) {
-        setMySession(null);
-        await loadStreamingStatus();
-        setCurrentFrame(null);
-        setError('');
-      } else {
-        setError('Failed to stop streaming session');
-      }
+      await api.delete(`/api/camera/streaming/session/${mySession.session_id}`);
+      setMySession(null);
+      await loadStreamingStatus();
+      setCurrentFrame(null);
+      setLiveError('');
     } catch (error) {
       console.error('Error stopping streaming session:', error);
-      setError('Failed to stop streaming session');
+      setLiveError('Failed to stop streaming session');
     } finally {
       setStreamingLoading(false);
     }
@@ -638,7 +609,7 @@ const CameraPage: React.FC = () => {
           connection={mySession?.websocket_state ?? 'idle'}
           summary={cameraSummary.text}
           sourceRevision={sourceRevision}
-          error={cameraSummary.error || error}
+          error={cameraSummary.error || liveError}
           controls={<>
             <Chip size="small" label={mySession ? `My view: ${mySession.websocket_state}` : 'My view: stopped'}
               color={mySession?.websocket_state === 'connected' ? 'success' : 'default'} />
@@ -652,6 +623,10 @@ const CameraPage: React.FC = () => {
               {streamingLoading ? <CircularProgress size={20} /> : 'Start my live view'}
             </Button>}
             {streamingStatus && !streamingStatus.enabled && <Typography variant="body2" color="error">Live viewing is currently disabled</Typography>}
+            {streamingStatusError && <>
+              <Typography variant="body2" color="error">Live view status unavailable</Typography>
+              <Button onClick={() => void loadStreamingStatus()}>Retry</Button>
+            </>}
           </>}
         />
         <CameraControls active={currentTab === 1} admin={user?.role === 'admin'} collapsible onSourceChange={handleSourceChange} onSummaryChange={setCameraSummary} />

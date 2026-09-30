@@ -10,8 +10,10 @@ every API call. Backend rules are in `docs/maintenance/backend/authentication-ma
   metadata (`session_is_local`, `session_ip_classification`, `session_client_ip`); use
   those for local-only UI such as Database Restore instead of guessing from login history.
 - `services/api.ts`: the Axios client. It adds the `Authorization` header, blocks calls
-  during a maintenance window (`MaintenanceManager`), refreshes the token once on a 401,
-  and turns a 503 into maintenance mode.
+  during a maintenance window (`MaintenanceManager`) and refreshes the token once on a 401.
+  A 503 is left to the page that made the request; only a successful restore starts
+  maintenance. A timeout keeps the Axios error (`config`, `code`) with the message
+  "Request timed out".
 - `pages/LoginPage.tsx`: `login` / `register` / `forgot` modes; switching mode clears
   form errors.
 - `components/ChangePasswordDialog.tsx`: opened by App when `user.must_reset`; with

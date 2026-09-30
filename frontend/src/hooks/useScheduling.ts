@@ -54,6 +54,9 @@ const useScheduling = () => {
   const [hamiltonStatus, setHamiltonStatus] = useState<HamiltonStatus | null>(null);
   const [schedulerRunning, setSchedulerRunning] = useState<boolean>(false);
   const [manualRecovery, setManualRecovery] = useState<ManualRecoveryState | null>(null);
+  // Status polls own their errors: the shared `error` belongs to schedule loads and edits.
+  const [queueError, setQueueError] = useState<string | null>(null);
+  const [schedulerError, setSchedulerError] = useState<string | null>(null);
   const [initialized, setInitialized] = useState<boolean>(false);
   const [contacts, setContacts] = useState<NotificationContact[]>([]);
   const [notificationLogs, setNotificationLogs] = useState<NotificationLogEntry[]>([]);
@@ -384,31 +387,50 @@ const useScheduling = () => {
     loadContacts(false);
   }, [loadContacts]);
 
+  // Both status reads carry recovery state and run together, so answers can arrive out of
+  // order. Older safety revisions cannot replace newer ones; request order only breaks
+  // ties. Reopening Scheduling resets this history after a deliberate store restore.
+  // Unhealthy storage reports a cached revision, so always show it (fail closed).
+  const statusRequest = useRef(0);
+  const appliedRecovery = useRef({ request: 0, revision: -1 });
+  const applyManualRecovery = useCallback((request: number, value: ManualRecoveryState | null) => {
+    const last = appliedRecovery.current;
+    const revision = value?.safety_revision ?? -1;
+    const unhealthy = value !== null && value.storage_healthy !== true;
+    if (!unhealthy && (revision < last.revision || (revision === last.revision && request < last.request))) return;
+    appliedRecovery.current = { request: Math.max(request, last.request), revision: Math.max(revision, last.revision) };
+    setManualRecovery(value);
+  }, []);
+
   const getQueueStatus = useCallback(async (): Promise<void> => {
+    const request = ++statusRequest.current;
     try {
       const result = await schedulingService.getQueueStatus();
       if (result.error) {
-        setError(result.error);
+        setQueueError(result.error);
         return;
       }
+      setQueueError(null);
       setQueueStatus(result.queueStatus ?? null);
       setHamiltonStatus(result.hamiltonStatus ?? null);
       if (result.manualRecovery !== undefined) {
-        setManualRecovery(result.manualRecovery ?? null);
+        applyManualRecovery(request, result.manualRecovery ?? null);
       }
     } catch (err) {
-      setError(extractErrorMessage(err));
+      setQueueError(extractErrorMessage(err));
     }
-  }, []);
+  }, [applyManualRecovery]);
 
   const getSchedulerStatus = useCallback(async (): Promise<void> => {
+    const request = ++statusRequest.current;
     try {
       const { data } = await schedulingAPI.getSchedulerStatus();
       const payload = data as SchedulerServiceResponse;
       if (!payload.success) {
-        setError(payload.message || 'Failed to load scheduler status');
+        setSchedulerError(payload.message || 'Failed to load scheduler status');
         return;
       }
+      setSchedulerError(null);
       const statusPayload = (payload.data ?? {}) as { is_running?: boolean; status?: string };
       const derivedStatus =
         typeof statusPayload.is_running === 'boolean'
@@ -416,12 +438,12 @@ const useScheduling = () => {
           : (statusPayload.status ?? '').toLowerCase() === 'running';
       setSchedulerRunning(derivedStatus);
       if (Object.prototype.hasOwnProperty.call(payload.data ?? {}, 'manual_recovery')) {
-        setManualRecovery(normalizeManualRecovery(payload.data?.manual_recovery));
+        applyManualRecovery(request, normalizeManualRecovery(payload.data?.manual_recovery));
       }
     } catch (err) {
-      setError(extractErrorMessage(err));
+      setSchedulerError(extractErrorMessage(err));
     }
-  }, []);
+  }, [applyManualRecovery]);
 
   const getCalendarData = useCallback(
     async (startDate?: Date, endDate?: Date): Promise<{ events: CalendarEvent[]; error?: string }> => {
@@ -494,6 +516,8 @@ const useScheduling = () => {
       hamiltonStatus,
       schedulerRunning,
       manualRecovery,
+      queueError,
+      schedulerError,
       initialized,
       contacts,
       notificationLogs,
@@ -516,6 +540,8 @@ const useScheduling = () => {
       hamiltonStatus,
       schedulerRunning,
       manualRecovery,
+      queueError,
+      schedulerError,
       initialized,
       contacts,
       notificationLogs,

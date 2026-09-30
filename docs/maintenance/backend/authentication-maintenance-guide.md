@@ -150,6 +150,7 @@ This guide walks through the authentication stack so you always know **which fil
    - Inspect logs for “Refresh attempt with revoked token.” This usually means duplicate browser tabs fought over tokens. Clearing `refresh_tokens` table fixes the loop.
 
 3. **`sqlalchemy.InterfaceError` or DB file locked**  
+   - A storage error while checking a token (`sqlite3.Error`, `StorageUnavailable`; listed in `AUTH_STORAGE_ERRORS`) answers 503, never 401, so browsers keep their sign-in and retry. Only a bad, expired, wrong-type or revoked token answers 401. Check: `.venv/Scripts/python.exe -m backend.e2e.auth_storage_check`.  
    - Windows: make sure no other process has the SQLite file open. The service uses `check_same_thread=False`, so if you see locks it’s almost always external (Explorer preview, antivirus).  
    - As a last resort, stop the backend, remove the DB file, and let it recreate.
 

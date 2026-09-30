@@ -12,6 +12,10 @@ import { expect, test, type Page } from '@playwright/test';
  *   and Back returns to the selected folder.
  * - A failed history read shows one result dialog: Retry reads again and closes it on
  *   success; Close dismisses it without another read; Tab stays inside the dialog.
+ * - A failed status read shows its own inline error, not the Server Error dialog; the next
+ *   successful read of that status clears it and a schedule reload does not.
+ * - A status answer arriving last with an older safety_revision cannot overwrite newer
+ *   recovery state; one with a newer revision or unhealthy storage is not discarded.
  * Camera cases are in camera.spec.ts.
  */
 const schedules = Array.from({ length: 24 }, (_, index) => ({
@@ -153,3 +157,61 @@ test('a failed history read shows one result dialog with Retry and Close', async
   expect(reads).toBe(3);
   await expect(page.getByRole('dialog')).toHaveCount(0);
 });
+
+test('a failed status read shows its own error until that status reads again', async ({ page }, testInfo) => {
+  await operations(page);
+  let failQueue = true;
+  await page.route('**/api/scheduling/status/queue', route => failQueue
+    ? route.fulfill({ status: 500, json: { detail: 'Queue store unavailable' } })
+    : route.fallback());
+  await page.goto('/scheduling?section=schedules');
+  const statusError = page.getByRole('alert').filter({ hasText: 'Queue store unavailable' });
+  await expect(statusError).toHaveCount(1);
+  await expect(page.getByRole('dialog', { name: 'Server Error' })).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Refresh schedules', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Open Experiment 01', exact: true })).toBeVisible();
+  await expect(statusError).toHaveCount(1);
+  await page.screenshot({ path: testInfo.outputPath('status-error.png') });
+
+  failQueue = false;
+  await page.getByRole('button', { name: 'Refresh queue', exact: true }).click();
+  await expect(statusError).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Recovery required', exact: true })).toBeVisible();
+});
+
+// Exercise both response orders; unhealthy storage must remain visible even with a cached revision.
+for (const late of [
+  { name: 'an older revision', revision: 7, healthy: true, shown: false, schedulerLast: false },
+  { name: 'a newer revision', revision: 9, healthy: true, shown: true, schedulerLast: false },
+  { name: 'unhealthy storage', revision: 7, healthy: false, shown: true, schedulerLast: false },
+  { name: 'a later request with an older revision', revision: 9, healthy: true, shown: true, schedulerLast: true },
+]) {
+  test(`a late status answer with ${late.name} preserves recovery freshness`, async ({ page }, info) => {
+    await operations(page);
+    let release!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    await page.route('**/api/scheduling/status/queue', async route => {
+      if (!late.schedulerLast) await held;
+      await route.fulfill({ json: { success: true, data: { queue: { running_jobs: 0, queued_jobs: 0 },
+        manual_recovery: { active: late.healthy, storage_healthy: late.healthy, safety_revision: late.revision, resume_required: true, pending_recoveries: [] } } } });
+    });
+    await page.route('**/api/scheduling/status/scheduler', async route => {
+      if (late.schedulerLast) await held;
+      await route.fulfill({ json: { success: true, data: {
+        is_running: true, manual_recovery: { active: false, storage_healthy: true, safety_revision: 8, resume_required: false, pending_recoveries: [] },
+      } } });
+    });
+    await page.goto('/scheduling?section=schedules');
+    if (late.schedulerLast) {
+      await expect(page.getByRole('button', { name: 'Recovery required', exact: true })).toBeVisible();
+    } else {
+      await expect(page.getByText('Scheduler service: Running', { exact: true })).toBeVisible();
+    }
+    release();
+    await expect(page.getByText('Scheduler service: Running', { exact: true })).toBeVisible();
+    await expect(page.getByText('0 running · 0 queued', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Recovery required', exact: true })).toHaveCount(late.shown ? 1 : 0);
+    await page.screenshot({ path: info.outputPath('recovery-state.png') });
+  });
+}

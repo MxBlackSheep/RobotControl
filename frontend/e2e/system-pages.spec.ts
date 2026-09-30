@@ -8,6 +8,8 @@ import { test, expect } from '@playwright/test';
 // - Database failures disappear inside a disclosure that was collapsed before data arrived.
 // - Opening details creates another polling owner or loses the retained stale reading.
 // - Connection identifiers or session counts overflow a 320px screen or trap keyboard focus.
+// - An expired access token makes System Status reads fail with 401 forever instead of
+//   renewing the sign-in once.
 // Keyboard shortcuts:
 // - Alt+number stops navigating, or navigates while a dialog is open.
 // - ? no longer opens the help list, or the list disagrees with the shortcuts that work.
@@ -40,6 +42,35 @@ test('monitoring has one refresh owner and shows stale and unknown services accu
   await page.setViewportSize({ width: 320, height: 740 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
   await page.screenshot({ path: info.outputPath('monitoring-phone.png') });
+});
+
+test('System Status renews an expired sign-in', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('refresh_token', 'saved-refresh'));
+  let expired = false, refreshes = 0, rejected = 0;
+  await page.route('**/api/auth/refresh', route => {
+    refreshes++;
+    return route.fulfill({ json: { success: true, data: { access_token: 'e2e-admin' } } });
+  });
+  await page.route('**/api/monitoring/experiments', route => route.fulfill({ json: { data: [] } }));
+  await page.route('**/api/camera/streaming/status', route => route.fulfill({ json: { data: { status: { enabled: true } } } }));
+  await page.route('**/api/monitoring/system-health', route => {
+    if (expired && route.request().headers().authorization === 'Bearer viewer-admin') {
+      rejected++;
+      return route.fulfill({ status: 401, json: { detail: 'Expired' } });
+    }
+    return route.fulfill({ json: { data: { sampled_at: new Date().toISOString(),
+      system: { cpu_percent: 4, memory_percent: 12, disk_percent: 25 },
+      database: { is_connected: true, mode: 'primary', database_name: 'Fixture DB', server_name: 'Fixture server' } } } });
+  });
+  await page.goto('/system-status');
+  await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
+  expired = true;
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect.poll(() => rejected).toBe(1);
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('access_token'))).toBe('e2e-admin');
+  await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
+  await expect(page.getByText('Stale data', { exact: true })).toHaveCount(0);
+  expect(refreshes).toBe(1);
 });
 
 for (const width of [320, 1280]) {
