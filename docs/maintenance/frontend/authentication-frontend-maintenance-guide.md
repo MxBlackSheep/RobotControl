@@ -27,9 +27,11 @@ REST endpoints directly, or token storage and refresh fall out of step.
 1. `LoginPage` calls `useAuth().login`, which stores `access_token` and `refresh_token`
    in localStorage and sets `user`; App then renders the signed-in shell.
 2. On a 401 the response interceptor calls `/api/auth/refresh` once, stores the new
-   token and retries. A rejected refresh (401/403) removes both tokens and returns to login.
-   Network errors, timeouts and server errors retain credentials. A late refresh cannot
-   overwrite credentials after logout or a different login.
+   token and retries. A refresh rejected by RobotControl (401/403 with its JSON body,
+   `isSignInRejected` in `services/requestError.ts`) removes both tokens and returns to login.
+   Network errors, timeouts, server errors and proxy pages (a Cloudflare HTML 403 challenge
+   or 52x) retain credentials. A late refresh cannot overwrite credentials after logout or a
+   different login.
 3. A refreshed token dispatches `ACCESS_TOKEN_UPDATED_EVENT` to update the current
    page's authentication context. This is not cross-tab synchronization.
 4. `logout` clears both tokens and `user`.
@@ -38,8 +40,12 @@ On page load, `/api/auth/me` verifies the saved sign-in before App renders prote
 content. While the server is unavailable, App shows a connection message and retries
 after five seconds; each request still has a ten-second timeout. This request bypasses
 maintenance suppression so recovery can complete, and its 503 does not start the
-maintenance window, which would block the recovered page. A 401/403 rejects the sign-in;
-temporary failures do not remove tokens. Effect cleanup ignores late responses and
+maintenance window, which would block the recovered page. A RobotControl 401/403 rejects
+the sign-in; temporary failures and proxy pages do not remove tokens. `LoginPage` shows the
+server's message, else a connection message ("Can't reach RobotControl…", "The connection to
+RobotControl was interrupted (502)…") titled "Connection problem"; "Invalid username or
+password" only comes from RobotControl's 401. Remote sign-ins are throttled (429 with the
+wait, see `docs/maintenance/backend/remote-access-guide.md`). Effect cleanup ignores late responses and
 cancels the retry timer. Browser checks: `frontend/e2e/auth-recovery.spec.ts`.
 
 Show failures with the shared `StatusDialog` (see the main application guide), using

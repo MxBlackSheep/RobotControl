@@ -4,9 +4,11 @@ import { test, expect } from '@playwright/test';
  * grant access without verification; reconnect never retries; rejected credentials
  * remain saved; expired access cannot refresh after an outage; a reload loses the
  * destination; a late refresh reinstates credentials after logout; a 503 from /me
- * starts the maintenance window and blocks the recovered page. Synthetic HTTP fixtures exercise the real app and Axios interceptors.
+ * starts the maintenance window and blocks the recovered page; a tunnel's HTML 403
+ * challenge page signs the user out; sign-in reports an unreachable server or tunnel
+ * error page as a wrong password. Synthetic HTTP fixtures exercise the real app and Axios interceptors.
  */
-for (const failure of ['network', 'server', 'timeout', 'refresh'] as const) {
+for (const failure of ['network', 'server', 'timeout', 'refresh', 'proxy'] as const) {
   test(`saved sign-in recovers after ${failure} failure`, async ({ page }, testInfo) => {
     await page.addInitScript(() => {
       localStorage.setItem('access_token', 'saved-access');
@@ -20,6 +22,10 @@ for (const failure of ['network', 'server', 'timeout', 'refresh'] as const) {
       }
       if (!available) {
         if (failure === 'network') { failed = true; return route.abort('connectionrefused'); }
+        if (failure === 'proxy') {
+          failed = true;
+          return route.fulfill({ status: 403, contentType: 'text/html', body: '<html><title>Just a moment...</title></html>' });
+        }
         if (failure === 'timeout') {
           await new Promise(resolve => setTimeout(resolve, 10_500));
           failed = true;
@@ -72,6 +78,34 @@ for (const rejection of [401, 403]) {
   });
 }
 
+
+test('sign-in tells an unreachable server from a wrong password', async ({ page }, testInfo) => {
+  let answer: 'tunnel' | 'refused' | 'wrong' = 'tunnel';
+  await page.route('**/api/auth/login', route => {
+    if (answer === 'refused') return route.abort('connectionrefused');
+    if (answer === 'tunnel') return route.fulfill({ status: 502, contentType: 'text/html', body: '<html>Bad gateway</html>' });
+    return route.fulfill({ status: 401, json: { success: false, error: { message: 'Invalid username or password', code: 'UNAUTHORIZED' } } });
+  });
+  await page.goto('/login');
+  await page.getByLabel('Username', { exact: true }).fill('operator');
+  await page.getByLabel('Password', { exact: true }).fill('secret');
+  const submit = page.getByRole('button', { name: 'Sign in' });
+  const dialog = page.getByRole('dialog');
+  await submit.click();
+  await expect(dialog.getByRole('heading', { name: 'Connection problem' })).toBeVisible();
+  await expect(dialog).toContainText('The connection to RobotControl was interrupted (502)');
+  await page.screenshot({ path: testInfo.outputPath('sign-in-tunnel-error.png') });
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  answer = 'refused';
+  await submit.click();
+  await expect(dialog).toContainText("Can't reach RobotControl");
+  await expect(dialog).not.toContainText('Invalid username or password');
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  answer = 'wrong';
+  await submit.click();
+  await expect(dialog.getByRole('heading', { name: 'Authentication Required' })).toBeVisible();
+  await expect(dialog).toContainText('Invalid username or password');
+});
 
 test('a late refresh cannot restore credentials after logout', async ({ page }, testInfo) => {
   await page.addInitScript(() => {

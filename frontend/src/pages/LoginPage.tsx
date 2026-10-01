@@ -10,7 +10,7 @@ import {
   Stack,
   Alert,
 } from '@mui/material';
-import { isAxiosError } from 'axios';
+import { classifyRequestError, isConnectionProblem, requestErrorMessage } from '../services/requestError';
 import { useAuth } from '../context/AuthContext';
 import StatusDialog from '../components/StatusDialog';
 import { authAPI } from '../services/api';
@@ -25,6 +25,7 @@ const LoginPage: React.FC = () => {
   const [password, setPassword] = useState('');
   const [note, setNote] = useState('');
   const [error, setError] = useState('');
+  const [connectionFailed, setConnectionFailed] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const { login, register } = useAuth();
@@ -64,6 +65,7 @@ const LoginPage: React.FC = () => {
     event.preventDefault();
     setLoading(true);
     setError('');
+    setConnectionFailed(false);
      setSuccessMessage('');
 
     try {
@@ -88,25 +90,14 @@ const LoginPage: React.FC = () => {
         setNote('');
       }
     } catch (err) {
-      if (isAxiosError(err)) {
-        const message =
-          err.response?.data?.error?.message ||
-          err.response?.data?.message ||
-          (mode === 'login'
-            ? 'Invalid username or password'
-            : mode === 'register'
-              ? 'Registration failed'
-              : 'Unable to submit reset request');
-        setError(message);
-      } else {
-        setError(
-          mode === 'login'
-            ? 'Invalid username or password'
-            : mode === 'register'
-              ? 'Registration failed'
-              : 'Unable to submit reset request'
-        );
-      }
+      // RobotControl's own answer first; an unreachable server or tunnel page is never "wrong password".
+      setConnectionFailed(isConnectionProblem(classifyRequestError(err)));
+      setError(requestErrorMessage(err,
+        mode === 'login'
+          ? 'Invalid username or password'
+          : mode === 'register'
+            ? 'Registration failed'
+            : 'Unable to submit reset request'));
     } finally {
       setLoading(false);
     }
@@ -157,7 +148,7 @@ const LoginPage: React.FC = () => {
               </Box>
 
               <StatusDialog
-                status={error ? { title: 'Authentication Required', message: error, severity: 'error' } : null}
+                status={error ? { title: connectionFailed ? 'Connection problem' : 'Authentication Required', message: error, severity: 'error' } : null}
                 onClose={() => setError('')}
               />
 

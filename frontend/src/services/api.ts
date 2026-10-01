@@ -1,6 +1,7 @@
 import axios, { AxiosHeaders } from 'axios';
 import { getApiBase } from '@/utils/apiBase';
 import { isMaintenanceActive, getMaintenanceRemainingMs } from '@/utils/MaintenanceManager';
+import { isAppResponse, isSignInRejected, recordRequestFailure, recordRequestSuccess } from './requestError';
 
 // Derive API base dynamically so phone/tablet clients proxy to the correct backend
 const API_BASE_URL = getApiBase();
@@ -67,7 +68,8 @@ export const attemptTokenRefresh = async (): Promise<string | null> => {
       })
       .catch((err) => {
         if (localStorage.getItem('refresh_token') !== storedRefreshToken) throw err;
-        if (err.response?.status === 401 || err.response?.status === 403) {
+        // Only RobotControl can reject a sign-in; a tunnel's 403 challenge page cannot.
+        if (isSignInRejected(err)) {
           localStorage.removeItem('access_token');
           localStorage.removeItem('refresh_token');
           return null;
@@ -109,9 +111,15 @@ api.interceptors.request.use((config) => {
 
 // Handle auth errors and timeouts
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    recordRequestSuccess();
+    return response;
+  },
   async (error) => {
-    const status = error.response?.status;
+    if (isAppResponse(error)) recordRequestSuccess();
+    else recordRequestFailure(error);
+    // A 401 page from a proxy says nothing about the RobotControl sign-in.
+    const status = error.response?.status === 401 && !isAppResponse(error) ? undefined : error.response?.status;
     const originalRequest = error.config as Record<string, any> | undefined;
     const requestUrl = originalRequest?.url ?? '';
 
