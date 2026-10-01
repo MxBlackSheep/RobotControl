@@ -7,6 +7,7 @@ import io
 import json
 import sys
 import tempfile
+import time
 import zipfile
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -18,6 +19,7 @@ from fastapi.responses import FileResponse
 from PIL import Image, ImageDraw
 from backend.api import logfiles
 from backend.services.auth import get_current_user
+from backend.services.streaming_session import FRAME_HEADER, FRAME_VERSION
 
 temporary = tempfile.TemporaryDirectory(prefix='viewer-e2e-')
 fixture = Path(temporary.name)
@@ -139,6 +141,7 @@ def streaming_status(): return dict(data=dict(status=dict(enabled=True, active_s
 @app.post('/api/camera/streaming/session')
 def create_session():
     camera['disconnect']=False
+    camera['sessions']=camera.get('sessions',0)+1
     return dict(data=dict(session_id='fixture-session',websocket_state='connecting',is_active=True))
 
 
@@ -148,13 +151,26 @@ def delete_session(ident: str): return dict(success=True)
 
 @app.websocket('/api/camera/streaming/video/{ident}')
 async def video(ws: WebSocket, ident: str):
+    # Same wire format as backend/services/streaming_session.py: binary header + JPEG,
+    # JSON control messages from the browser ({type: ack|pause|resume}).
     await ws.accept()
-    try:
+    controls = camera.setdefault('controls', [])
+    paused = False
+    async def read_controls():
+        nonlocal paused
         while True:
+            message = await ws.receive_json()
+            controls.append(message.get('type'))
+            if message.get('type') in ('pause', 'resume'):
+                paused = message['type'] == 'pause'
+    reader = asyncio.create_task(read_controls())
+    sequence = 0
+    try:
+        while not reader.done():
             if camera['disconnect']:
                 await ws.close()
                 return
-            if camera['send_frames']:
+            if camera['send_frames'] and not paused:
                 width, height = camera['width'], camera['height']
                 frame = Image.new('RGB',(width,height),'#244d6b')
                 draw = ImageDraw.Draw(frame)
@@ -162,10 +178,13 @@ async def video(ws: WebSocket, ident: str):
                     draw.rectangle((x,y,x+39,y+39),fill=color)
                 draw.text((width//2,height//2),f'{width} x {height}',fill='white')
                 output=io.BytesIO();frame.save(output,format='JPEG')
-                await ws.send_json(dict(type='frame',data=base64.b64encode(output.getvalue()).decode()))
+                sequence += 1
+                await ws.send_bytes(FRAME_HEADER.pack(FRAME_VERSION, sequence, time.time(), width, height) + output.getvalue())
             await asyncio.sleep(.2)
     except Exception:
         pass
+    finally:
+        reader.cancel()
 
 
 from backend.api.database_tools import router as database_tools_router, get_lab_settings
