@@ -381,9 +381,12 @@ class DatabaseTools:
                         attached_at=utc_now_as_local_naive().isoformat())
 
     def preparation_state(self, preparation):
-        """ready | needs_review (package or connection changed since saving) | missing."""
-        if not preparation or preparation.get('invalid'):
-            return 'missing' if preparation else None
+        """ready | needs_review (package or connection changed since saving) | missing |
+        invalid (the schedule's stored step could not be read)."""
+        if not preparation:
+            return None
+        if preparation.get('invalid'):
+            return 'invalid'
         with self.catalogue.lock:
             try:
                 _, entry, _ = self.catalogue.resolve(preparation.get('tool_id'), 'preparation')

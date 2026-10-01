@@ -8,8 +8,9 @@ executor's Hamilton command is replaced, and no application data is used.
 Failure cases:
 - A user without the admin role attaches, changes or removes a step (uploaded Python writing
   unattended); editing timing loses the step.
-- A step that raises leaves its writes (no rollback), the run launches anyway, or the schedule
-  is not marked for recovery.
+- A step that raises leaves its writes (no rollback), or commits part of them itself and then
+  fails while the recovery note says nothing was committed; the run launches anyway, or the
+  schedule is not marked for recovery. An unreadable stored step is reported as uninstalled.
 - A hung or crashed step blocks the launch path, or is reported as failed instead of unknown;
   a retry or restart repeats a step that may have written.
 - A package update, or rebinding its connection, silently changes what an armed schedule
@@ -50,6 +51,8 @@ def prepare(context, inputs):
         time.sleep(600)
     if inputs["mode"] == "crash":
         os._exit(3)
+    if inputs["mode"] == "commit":
+        cursor.commit()  # Refused: the host commits; the step then fails with nothing committed.
     return {"message": "Logged " + inputs["mode"] + " for " + context.run.experiment_name}
 '''
 
@@ -57,7 +60,7 @@ def prepare(context, inputs):
 def package(version):
     manifest = dict(contract_version=2, id=PACKAGE, name='Preparation fixture', version=version, libraries=[],
                     tools=[dict(id=PACKAGE, name='Log the run', kind='preparation', entrypoint='prepare:prepare', sources=[],
-                                inputs=[dict(name='mode', label='Mode', type='choice', choices=['ok', 'raise', 'sleep', 'crash'])])])
+                                inputs=[dict(name='mode', label='Mode', type='choice', choices=['ok', 'raise', 'sleep', 'crash', 'commit'])])])
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, 'w') as archive:
         archive.writestr('manifest.json', json.dumps(manifest))
@@ -185,19 +188,20 @@ def run():
                 result['checks'].append('Step commits in its own process before launch with run context; receipt records package and message; the same execution never repeats it')
 
                 failures = {}
-                for mode in ('raise', 'sleep', 'crash'):
+                for mode in ('raise', 'commit', 'sleep', 'crash'):
                     failing = create(mode, name=f'Prepared {mode}').json()['data']['schedule_id']
                     with patch('backend.services.database_tools.PREPARATION_TIMEOUT_SECONDS', 8):
                         ok, execution_id = execute(failing)
                     failures[mode] = execution_id
                     assert not ok and execution_id not in launched, mode
                     assert execution_id not in logged(), f'{mode}: uncommitted write remained'
-                    assert receipt(execution_id)['status'] == ('failed' if mode == 'raise' else 'unknown'), (mode, receipt(execution_id))
+                    assert receipt(execution_id)['status'] == ('failed' if mode in ('raise', 'commit') else 'unknown'), (mode, receipt(execution_id))
                     assert storage.get_schedule_by_id(failing).recovery_required, mode
                     assert not execute(failing, execution_id=execution_id)[0] and execution_id not in launched
                 assert 'Fixture preparation failure' in receipt(failures['raise'])['message']
+                assert 'The host commits a preparation step' in receipt(failures['commit'])['message']
                 assert 'two-minute limit' in receipt(failures['sleep'])['message']
-                result['checks'].append('Raise rolls back (failed); hang is stopped at the deadline and crash ends the process (unknown); none launches, all request recovery, retries never repeat')
+                result['checks'].append('Raise, or an attempted commit by the step, rolls back (failed); hang is stopped at the deadline and crash ends the process (unknown); none launches, all request recovery, retries never repeat')
 
                 # An armed schedule keeps the package and connection it was saved with.
                 tools.sources.save(ReportSource(id='other-writer', name='Other writer', server=fixture['server'], database=database,

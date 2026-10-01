@@ -22,7 +22,7 @@ export interface PinnedPreparation extends PreparationStep {
 }
 
 /** Derived on read: ready, or the package/connection changed (needs_review), or it is gone. */
-export type PreparationState = 'ready' | 'needs_review' | 'missing' | 'unknown';
+export type PreparationState = 'ready' | 'needs_review' | 'missing' | 'invalid' | 'unknown';
 
 export interface ScheduledExperiment {
   schedule_id: string;

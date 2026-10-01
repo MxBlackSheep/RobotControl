@@ -50,6 +50,49 @@ def run_report(channel, package_root, entry, definition, inputs, snapshot, folde
         channel.close()
 
 
+HOST_COMMITS = 'The host commits a preparation step: do not commit, roll back or change autocommit.'
+
+
+class _HostOwned:
+    """The connection or cursor a preparation step writes through. The host alone commits,
+    so a step that raises has committed nothing through this API (the recovery note relies
+    on it). Not a sandbox: trusted code could still open its own connection."""
+
+    def __init__(self, target):
+        object.__setattr__(self, '_target', target)
+
+    def commit(self):
+        raise ValueError(HOST_COMMITS)
+
+    def rollback(self):
+        raise ValueError(HOST_COMMITS)
+
+    def cursor(self):
+        return _HostOwned(self._target.cursor())
+
+    def execute(self, *args, **kwargs):
+        result = self._target.execute(*args, **kwargs)
+        # pyodbc returns the cursor; keep it wrapped so cursor.commit() is refused too.
+        return _HostOwned(result) if result is not None and hasattr(result, 'commit') else result
+
+    def __getattr__(self, name):
+        if name == 'connection':
+            raise ValueError(HOST_COMMITS)
+        return getattr(self._target, name)
+
+    def __setattr__(self, name, value):
+        raise ValueError(HOST_COMMITS)
+
+    def __iter__(self):
+        return iter(self._target)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self._target.close()
+
+
 def run_preparation(channel, package_root, entry, definition, inputs, snapshot, target, run):
     """Run prepare(context, inputs) in one transaction on the operation connection.
 
@@ -67,7 +110,7 @@ def run_preparation(channel, package_root, entry, definition, inputs, snapshot, 
             cursor.close()
             try:
                 _check_choices(tool, inputs, connections)
-                context = SimpleNamespace(connection=conn, connections=connections, run=SimpleNamespace(**run))
+                context = SimpleNamespace(connection=_HostOwned(conn), connections=connections, run=SimpleNamespace(**run))
                 result = catalogue.function(entry, tool.entrypoint)(context, inputs)
                 if result is not None and not isinstance(result, dict):
                     raise ValueError('Return a dictionary such as {"message": "..."} from prepare.')

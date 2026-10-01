@@ -11,6 +11,7 @@ const stateChip: Record<PreparationState, { tone: 'completed' | 'attention' | 'f
   ready: { tone: 'completed', label: 'Ready' },
   needs_review: { tone: 'attention', label: 'Needs review' },
   missing: { tone: 'fault', label: 'Not installed' },
+  invalid: { tone: 'fault', label: 'Unreadable' },
   unknown: { tone: 'neutral', label: 'State unknown' },
 };
 

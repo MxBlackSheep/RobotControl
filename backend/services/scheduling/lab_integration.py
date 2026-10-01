@@ -217,9 +217,9 @@ class LabIntegration:
             tools = get_database_tools()
             state = tools.preparation_state(preparation)
             if state != 'ready':
-                raise SafetyConflict('The database preparation step '
-                    + ('is no longer installed' if state == 'missing' else 'changed after this schedule was saved')
-                    + '. A local administrator must review and save the schedule.')
+                reason = {'missing': 'is no longer installed',
+                          'invalid': 'saved with this schedule is unreadable'}.get(state, 'changed after this schedule was saved')
+                raise SafetyConflict(f'The database preparation step {reason}. A local administrator must review and save the schedule.')
         with self.storage._get_connection() as conn:
             conn.execute('BEGIN IMMEDIATE')
             bound = conn.execute('SELECT signature FROM LabInstallation WHERE id=1').fetchone()
