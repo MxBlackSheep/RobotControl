@@ -1,9 +1,13 @@
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Box, BoxProps } from '@mui/material';
 
-/** A single current image shared by normal/fullscreen views, with no history. */
+/**
+ * The single current decoded frame shared by normal/fullscreen views, with no history. The store
+ * owns it: replacing or clearing a frame closes the previous one (a decoder stalls when its
+ * frames are not released).
+ */
 export function createFrameStore() {
-  let frame: string | null = null;
+  let frame: VideoFrame | null = null;
   let received: number | null = null;
   const listeners = new Set<() => void>();
   return {
@@ -13,12 +17,15 @@ export function createFrameStore() {
       listeners.add(listener);
       return () => { listeners.delete(listener); };
     },
-    set: (value: string | null) => {
+    set: (value: VideoFrame | null) => {
       // Identical images still count as received frames; no scene-change detector.
       received = value ? performance.now() : null;
       if (value === frame) return;
+      const previous = frame;
       frame = value;
+      // Listeners draw synchronously, so the previous frame is no longer needed afterwards.
       listeners.forEach(listener => listener());
+      previous?.close();
     },
   };
 }
@@ -43,7 +50,33 @@ export function FrameFreshness({ store, inline = false }: { store: FrameStore; i
 
 export type FrameStore = ReturnType<typeof createFrameStore>;
 
-export default function LiveFrame({ store, ...props }: BoxProps<'img'> & { store: FrameStore }) {
-  const source = useSyncExternalStore(store.subscribe, store.getSnapshot);
-  return <Box component="img" {...props} src={source ?? undefined} />;
+/**
+ * Draws the store's current frame on a canvas as each one arrives (no React render per frame).
+ * `onDimensions` reports the frame size when it changes.
+ */
+export default function LiveFrame({ store, label, onDimensions, ...props }: BoxProps<'canvas'> & {
+  store: FrameStore;
+  label: string;
+  onDimensions?: (width: number, height: number) => void;
+}) {
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const reportDimensions = useRef(onDimensions);
+  reportDimensions.current = onDimensions;
+  useEffect(() => {
+    const draw = () => {
+      const frame = store.getSnapshot();
+      const element = canvas.current;
+      if (!frame || !element) return;
+      const { displayWidth: width, displayHeight: height } = frame;
+      if (element.width !== width || element.height !== height) {
+        element.width = width;
+        element.height = height;
+        reportDimensions.current?.(width, height);
+      }
+      element.getContext('2d')?.drawImage(frame, 0, 0, width, height);
+    };
+    draw();
+    return store.subscribe(draw);
+  }, [store]);
+  return <Box component="canvas" ref={canvas} role="img" aria-label={label} {...props} />;
 }
