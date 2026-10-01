@@ -126,6 +126,8 @@ const SchedulingPage: React.FC = () => {
   const [scheduleFormInitialData, setScheduleFormInitialData] = useState<ScheduleFormValues>({});
   const [editingVersion, setEditingVersion] = useState<string | undefined>();
   const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
+  // Captured when the edit form opens, like its initial data.
+  const [editingPreparation, setEditingPreparation] = useState<Pick<ScheduledExperiment, 'preparation' | 'preparation_state'>>({});
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [logsLoading, setLogsLoading] = useState(false);
   const [logsError, setLogsError] = useState<string | null>(null);
@@ -189,6 +191,7 @@ const SchedulingPage: React.FC = () => {
               : null,
         },
         prerequisites: Array.isArray(data.prerequisites) ? data.prerequisites : [],
+        ...(data.preparation !== undefined ? { preparation: data.preparation } : {}),
         notification_contacts: Array.isArray(data.notification_contacts) ? data.notification_contacts : [],
         expected_updated_at: editingVersion,
       };
@@ -217,6 +220,7 @@ const SchedulingPage: React.FC = () => {
             ? data.timeout_cleanup_experiment_path ?? null
             : null,
         prerequisites: Array.isArray(data.prerequisites) ? data.prerequisites : [],
+        preparation: data.preparation,
         notification_contacts: Array.isArray(data.notification_contacts) ? data.notification_contacts : [],
       };
       await actions.createSchedule(createPayload);
@@ -228,12 +232,14 @@ const SchedulingPage: React.FC = () => {
     setScheduleFormMode('create');
     setScheduleFormInitialData({ notification_contacts: [] });
     setEditingScheduleId(null);
+    setEditingPreparation({});
   };
 
   const handleOpenCreateForm = () => {
     setScheduleFormMode('create');
     setScheduleFormInitialData({ notification_contacts: [] });
     setEditingScheduleId(null);
+    setEditingPreparation({});
     setImprovedFormOpen(true);
   };
 
@@ -245,6 +251,7 @@ const SchedulingPage: React.FC = () => {
 
     setScheduleFormMode('edit');
     setEditingScheduleId(selected.schedule_id);
+    setEditingPreparation({ preparation: selected.preparation ?? null, preparation_state: selected.preparation_state });
     setEditingVersion(selected.updated_at || undefined);
     const allowedTypes: Array<'once' | 'interval' | 'daily' | 'weekly'> = ['once', 'interval', 'daily', 'weekly'];
     const scheduleType = allowedTypes.includes(selected.schedule_type as any)
@@ -799,6 +806,8 @@ const SchedulingPage: React.FC = () => {
         mode={scheduleFormMode}
         contacts={state.contacts}
         catalogueVersion={catalogueVersion}
+        savedPreparation={editingPreparation.preparation}
+        preparationState={editingPreparation.preparation_state}
       />
 
   {/* Folder Import Dialog */}

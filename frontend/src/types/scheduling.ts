@@ -6,6 +6,24 @@
  */
 
 // Core scheduling interfaces
+/** A database package's preparation step as requested by the form: tool and inputs only. */
+export interface PreparationStep {
+  tool_id: string;
+  inputs: Record<string, unknown>;
+}
+
+/** The step as saved: the server pins the package version, file hash and connection. */
+export interface PinnedPreparation extends PreparationStep {
+  package_id: string;
+  tool_name?: string;
+  package_version: string;
+  attached_by?: string;
+  attached_at?: string;
+}
+
+/** Derived on read: ready, or the package/connection changed (needs_review), or it is gone. */
+export type PreparationState = 'ready' | 'needs_review' | 'missing' | 'unknown';
+
 export interface ScheduledExperiment {
   schedule_id: string;
   experiment_name: string;
@@ -22,6 +40,8 @@ export interface ScheduledExperiment {
   archived: boolean;
   timeout_config: TimeoutConfig;
   prerequisites: string[];
+  preparation?: PinnedPreparation | null;
+  preparation_state?: PreparationState;
   notification_contacts: string[];
   recovery_required: boolean;
   recovery_note?: string | null;
@@ -288,6 +308,7 @@ export interface CreateScheduleRequest {
     cleanup_experiment_path?: string | null;
   };
   prerequisites?: string[];
+  preparation?: PreparationStep | null;
   notification_contacts?: string[];
 }
 
@@ -307,6 +328,8 @@ export interface UpdateScheduleRequest {
     cleanup_experiment_path?: string | null;
   };
   prerequisites?: string[];
+  /** Omitted: the saved step stays. null removes it. Only a local administrator may change it. */
+  preparation?: PreparationStep | null;
   notification_contacts?: string[];
   expected_updated_at?: string;
 }
@@ -383,6 +406,7 @@ export interface CreateScheduleFormData {
   timeout_cleanup_experiment_name?: string | null;
   timeout_cleanup_experiment_path?: string | null;
   prerequisites: string[];
+  preparation?: PreparationStep | null;
   notification_contacts: string[];
 }
 
