@@ -10,7 +10,7 @@ The preview transport has one fixed 640x480 colour frame slot. Recording remains
 
 ## Selecting and connecting a device
 
-DirectShow enumeration reads friendly names and device paths without opening cameras. Numeric indexes are temporary. The selection is saved in `data/config/camera_selection.json`, then resolved and checked around every camera open. Missing/ambiguous identities require explicit selection. Identical model names are distinguished in the UI by the current device number. Changing USB ports can change identity and require reselection.
+DirectShow enumeration reads friendly names and device paths without opening cameras. Numeric indexes are temporary. The selection is saved in `data/config/camera_selection.json` (swapped in with `utils/filesystem.replace_file`, so a scanner reading it cannot fail a reselection), then resolved and checked around every camera open. Missing/ambiguous identities require explicit selection. Identical model names are distinguished in the UI by the current device number. Changing USB ports can change identity and require reselection.
 
 On a new installation, automatic startup uses the configured primary index only when it can resolve a unique identity. A missing camera leaves automatic recording waiting. Refresh/select/connect after attaching it; there is no retry loop. First selection can retain waiting recording intent. Changing an existing selection requires stopping recording. Reconnect preserves recording intent; reconnect after an intentional stop supplies preview only.
 
