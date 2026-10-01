@@ -145,7 +145,7 @@ below remain. Run them from the repository root; each check's header lists its f
 | `backend.e2e.database_workspace_check` | The report-wizard SQL fixture plus a reader created through the API | Provisioning rollback, existing-login rejection, write denial, schema-qualified browsing, operation target revision, rollback/deduplication, nested import inspection, the zero-database example |
 | `backend.e2e.notification_delivery_check` | Local mail sink, disposable storage | Notification email delivery |
 | `database-tools.spec.ts`, `database-workspace.spec.ts` | Disposable package APIs, synthetic viewer data | Browser flows (the account flow stops at review) |
-| `backend.e2e.packaged_database_smoke` | A relocated copy of the candidate, Python/UV removed from PATH | Package upload and Excel output from the executable; `--wizard` adds DPAPI storage, a reader and browsing of the real SQL fixture |
+| `backend.e2e.packaged_database_smoke` | A relocated copy of the candidate, Python/UV removed from PATH; the report-wizard SQL fixture holding the `DatabaseFixture` rows | Package upload, connection assignment and Excel output from the executable; `--wizard` adds DPAPI storage, a reader and browsing of the real SQL fixture |
 
 ```powershell
 .venv/Scripts/python.exe -X utf8 -W ignore::UserWarning -m backend.e2e.database_tools_check --evidence test-output/database-verification
