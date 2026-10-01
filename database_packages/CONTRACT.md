@@ -45,7 +45,7 @@ cursors. Never keep a connection or per-request state in module globals.
 - **Preparation** (contract version 2 only): `entrypoint` names `prepare(context, inputs)`;
   no `preview` or `confirmation_field`. A local administrator attaches it to a schedule
   under **Before this run**; saving pins the package file hash and the package's operation
-  connection. Before each run, after any lab adapter step, RobotControl runs it unattended
+  connection (its id, server and database). Before each run, RobotControl runs it unattended
   in a separate process with a two-minute limit (60 s per statement), SERIALIZABLE with
   XACT_ABORT, and commits after it returns. `context.connection` is the operation
   connection, `context.connections` the declared read sources, `context.run` has

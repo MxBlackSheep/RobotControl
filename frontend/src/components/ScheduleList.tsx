@@ -39,6 +39,7 @@ import {
   LinearProgress
 } from '@mui/material';
 import StatusChip from './StatusChip';
+import { preparationSummary } from './scheduling/PreparationStepField';
 import useTheme from '@mui/material/styles/useTheme';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import {
@@ -77,22 +78,6 @@ interface ScheduleDetailsDialogProps {
   open: boolean;
   onClose: () => void;
 }
-
-const formatPrerequisiteLabel = (value: string): string => {
-  if (!value) {
-    return value;
-  }
-
-  if (value.startsWith('EvoYeastExperiment:')) {
-    const payload = value.replace('EvoYeastExperiment:', '');
-    const [idPart, actionPart = 'set'] = payload.split('|', 2);
-    const action = actionPart.trim().toLowerCase();
-    const actionLabel = action === 'set' ? 'Reset others then activate' : 'No action';
-    return `EvoYeast Experiment ${idPart.trim()} (${actionLabel})`;
-  }
-
-  return value;
-};
 
 const ScheduleDetailsDialog: React.FC<ScheduleDetailsDialogProps> = ({
   schedule,
@@ -153,29 +138,16 @@ const ScheduleDetailsDialog: React.FC<ScheduleDetailsDialogProps> = ({
             </Card>
           </Grid>
 
-          {/* Prerequisites */}
+          {/* Before this run */}
           <Grid item xs={12}>
             <Card variant="outlined">
               <CardContent>
                 <Typography variant="h6" gutterBottom>
-                  Prerequisites
+                  Before this run
                 </Typography>
-                {schedule.prerequisites && schedule.prerequisites.length > 0 ? (
-                  <Stack spacing={1}>
-                    {schedule.prerequisites.map((prerequisite, index) => (
-                      <Chip
-                        key={index}
-                        label={formatPrerequisiteLabel(prerequisite)}
-                        size="small"
-                        variant="outlined"
-                      />
-                    ))}
-                  </Stack>
-                ) : (
-                  <Typography variant="body2" color="text.secondary">
-                    No prerequisites configured
-                  </Typography>
-                )}
+                <Typography variant="body2" color={schedule.preparation || schedule.legacy_preparation ? 'text.primary' : 'text.secondary'}>
+                  {preparationSummary(schedule)}
+                </Typography>
               </CardContent>
             </Card>
           </Grid>
@@ -470,33 +442,13 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
     );
   };
 
-  const renderPrerequisitesPreview = (schedule: ScheduledExperiment) => {
-    if (!schedule.prerequisites || schedule.prerequisites.length === 0) {
+  const renderPreparationPreview = (schedule: ScheduledExperiment) => {
+    if (!schedule.preparation && !schedule.legacy_preparation) {
       return null;
     }
-
-    const previewItems = schedule.prerequisites.slice(0, 2);
-
-    return (
-      <Stack direction="row" spacing={0.5} flexWrap="wrap">
-        {previewItems.map((item, index) => (
-          <Chip
-            key={`${schedule.schedule_id}-pr-${index}`}
-            label={formatPrerequisiteLabel(item)}
-            size="small"
-            variant="outlined"
-          />
-        ))}
-        {schedule.prerequisites.length > previewItems.length && (
-          <Chip
-            label={`+${schedule.prerequisites.length - previewItems.length}`}
-            size="small"
-            variant="outlined"
-          />
-        )}
-      </Stack>
-    );
+    return <Chip label={preparationSummary(schedule)} size="small" variant="outlined" sx={{ alignSelf: 'flex-start', maxWidth: '100%' }} />;
   };
+
 
   const renderMobileScheduleCards = () => {
     if (sortedSchedules.length === 0) {
@@ -574,7 +526,7 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
                       </Typography>
                     </Stack>
 
-                    {renderPrerequisitesPreview(schedule)}
+                    {renderPreparationPreview(schedule)}
                   </Stack>
                 </CardActionArea>
                 <Divider />

@@ -42,8 +42,12 @@ function DatabaseChoice({ field, values, onChange, disabled, endpoint, allFields
     }, 250);
     return () => { clearTimeout(timer); controller.abort(); };
   }, [parentKey, endpoint, query, page, disabled, missing]);
+  // A value set before this control mounted (a saved or prefilled step) stays visible: its
+  // label once the choices include it, otherwise the value itself.
+  const current = values[field.name];
+  const shown = selected ?? (current == null ? null : options.find(x => x.value === current) ?? { value: current, label: String(current) });
   return <Stack spacing={1}>
-    <Autocomplete options={options} value={selected} disabled={disabled || missing} loading={loading}
+    <Autocomplete options={options} value={shown} disabled={disabled || missing} loading={loading}
       filterOptions={x => x} isOptionEqualToValue={(a, b) => a.value === b.value}
       getOptionLabel={x => x.label} renderOption={(props, x) => <li {...props} key={String(x.value)}>{x.label} · {String(x.value)}</li>}
       onInputChange={(_, text, reason) => { if (reason === 'input' || reason === 'clear') { setQuery(text); setPage(1); } }}

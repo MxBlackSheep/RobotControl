@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
-import { Alert, MenuItem, Stack, TextField, Typography } from '@mui/material';
+import { Alert, Box, MenuItem, Stack, TextField, Typography } from '@mui/material';
 import { api } from '../../services/api';
 import ReportInputs, { changedInputs, requestMessage, type ReportField } from '../ReportInputs';
 import StatusChip from '../StatusChip';
-import type { PinnedPreparation, PreparationState, PreparationStep } from '../../types/scheduling';
+import type { LegacyPreparation, PinnedPreparation, PreparationState, PreparationStep, ScheduledExperiment } from '../../types/scheduling';
 
 type PreparationTool = { id: string; name: string; package_version: string; inputs: ReportField[]; setup_needed?: boolean; target?: string };
 
-const stateChip: Record<PreparationState, { tone: 'completed' | 'attention' | 'fault' | 'neutral'; label: string }> = {
+export const stateChip: Record<PreparationState, { tone: 'completed' | 'attention' | 'fault' | 'neutral'; label: string }> = {
   ready: { tone: 'completed', label: 'Ready' },
   needs_review: { tone: 'attention', label: 'Needs review' },
   missing: { tone: 'fault', label: 'Not installed' },
@@ -15,17 +15,27 @@ const stateChip: Record<PreparationState, { tone: 'completed' | 'attention' | 'f
   unknown: { tone: 'neutral', label: 'State unknown' },
 };
 
+/** One line for lists and details: the step's name, or why the run is held. */
+export function preparationSummary(schedule: Pick<ScheduledExperiment, 'preparation' | 'legacy_preparation'>) {
+  if (schedule.legacy_preparation) return 'Old EvoYeast selection · needs review';
+  const step = schedule.preparation;
+  return step ? `${step.tool_name ?? step.tool_id} · v${step.package_version}` : 'None';
+}
+
 /**
  * The schedule's database package step (kind "preparation"): uploaded Python that runs before
  * the method starts. `value` is undefined until the administrator changes it, so other edits
  * never send it and the server keeps the pinned step. Only a local administrator can edit.
+ * `legacy` holds a schedule's retired adapter tokens: the form prefills `value` from its
+ * suggestion so an administrator's save replaces them; until then the run is refused.
  */
-export default function PreparationStepField({ saved, state, value, onChange, editable }: {
+export default function PreparationStepField({ saved, state, value, onChange, editable, legacy }: {
   saved?: PinnedPreparation | null;
   state?: PreparationState;
   value: PreparationStep | null | undefined;
   onChange: (value: PreparationStep | null) => void;
   editable: boolean;
+  legacy?: LegacyPreparation | null;
 }) {
   const current = value !== undefined ? value : saved ? { tool_id: saved.tool_id, inputs: saved.inputs } : null;
   const [tools, setTools] = useState<PreparationTool[] | null>(null);
@@ -39,26 +49,36 @@ export default function PreparationStepField({ saved, state, value, onChange, ed
     return () => { live = false; };
   }, [editable]);
   const tool = tools?.find(candidate => candidate.id === current?.tool_id);
-  const chip = saved && value === undefined && state ? <StatusChip {...stateChip[state]} /> : null;
+  const chip = state && (legacy || (saved && value === undefined)) ? <StatusChip {...stateChip[state]} /> : null;
+  const legacyNotice = legacy && <Alert severity="warning">
+    {legacy.message}
+    <Typography variant="caption" component="div" sx={{ mt: 0.5, overflowWrap: 'anywhere' }}>Saved before: {legacy.steps.join(', ')}</Typography>
+    {editable && <Typography variant="caption" component="div">Saving replaces the old preparation with the step below.</Typography>}
+  </Alert>;
 
   if (!editable) {
-    return <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-      <Typography variant="body2">
-        Database step: {saved ? `${saved.tool_name ?? saved.tool_id} · v${saved.package_version}` : 'none'}
-      </Typography>
-      {chip}
-      <Typography variant="caption" color="text.secondary">Only a local administrator can change this step.</Typography>
+    return <Stack spacing={1.5}>
+      {legacyNotice}
+      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+        <Typography variant="body2">
+          Database step: {saved ? `${saved.tool_name ?? saved.tool_id} · v${saved.package_version}` : 'none'}
+        </Typography>
+        {chip}
+        <Typography variant="caption" color="text.secondary">Only a local administrator can change this step.</Typography>
+      </Stack>
     </Stack>;
   }
 
   return <Stack spacing={1.5}>
+    {legacyNotice}
     {error && <Alert severity="error">Database steps unavailable: {error}</Alert>}
     <Stack direction="row" spacing={1} alignItems="center">
       <TextField select size="small" fullWidth label="Database step" value={current?.tool_id ?? ''} disabled={!tools && !error}
+        SelectProps={{ displayEmpty: true }} InputLabelProps={{ shrink: true }}
         onChange={event => onChange(event.target.value ? { tool_id: event.target.value, inputs: {} } : null)}>
         <MenuItem value="">None</MenuItem>
-        {saved && !tools?.some(candidate => candidate.id === saved.tool_id) && (
-          <MenuItem value={saved.tool_id}>{saved.tool_name ?? saved.tool_id} · not installed</MenuItem>
+        {current && !tools?.some(candidate => candidate.id === current.tool_id) && (
+          <MenuItem value={current.tool_id}>{saved?.tool_id === current.tool_id ? saved.tool_name ?? saved.tool_id : current.tool_id} · not installed</MenuItem>
         )}
         {(tools ?? []).map(candidate => (
           <MenuItem key={candidate.id} value={candidate.id} disabled={candidate.setup_needed}>
@@ -66,9 +86,12 @@ export default function PreparationStepField({ saved, state, value, onChange, ed
           </MenuItem>
         ))}
       </TextField>
-      {chip}
+      {chip && <Box sx={{ flexShrink: 0 }}>{chip}</Box>}
     </Stack>
-    {state === 'needs_review' && value === undefined && (
+    {legacy && current && tools && !tool && (
+      <Alert severity="info">Package {current.tool_id} is not installed. In Database → Manage packages, import starter-packages\{current.tool_id}.zip from the RobotControl folder, assign its connections, then save this schedule.</Alert>
+    )}
+    {!legacy && state === 'needs_review' && value === undefined && (
       <Alert severity="warning">The package or its connection changed after this step was saved. Save the schedule to use the current version; until then the run does not start.</Alert>
     )}
     {tool && current && (

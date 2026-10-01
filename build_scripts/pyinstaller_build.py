@@ -12,6 +12,9 @@ from typing import Optional
 import argparse
 import logging
 
+from types import SimpleNamespace
+
+from database_package import build as build_package_zip
 from fetch_ffmpeg import ARCHIVE as FFMPEG_ARCHIVE, RELEASE as FFMPEG_RELEASE, SOURCE_URL as FFMPEG_SOURCE, URL as FFMPEG_URL, ensure_ffmpeg
 
 # Configure logging
@@ -48,6 +51,15 @@ def _install_ffmpeg(ffmpeg_dir: Path, exe_dir: Path, notices: Path) -> None:
         archive=FFMPEG_ARCHIVE, release=FFMPEG_RELEASE, url=FFMPEG_URL, source=FFMPEG_SOURCE)
     (target / "FFmpeg.txt").write_text(notice, encoding="utf-8")
     logger.info("Installed %s and its notices in %s", FFMPEG_ARCHIVE, exe_dir)
+
+
+def _write_starter_packages(packages: Path, target: Path) -> None:
+    """Importable ZIPs of the starter packages beside RobotControl.exe. New installations seed
+    them; an existing installation imports one (e.g. evoyeast-experiment) without Python."""
+    for folder in sorted(packages.iterdir()):
+        if (folder / "manifest.json").exists():
+            build_package_zip(SimpleNamespace(folder=folder, version=None, force=True,
+                                              output=target / f"{folder.name}.zip"))
 
 
 def build_with_pyinstaller(layout: str = "onedir", console: bool = False, output_dir: Optional[str] = None) -> bool:
@@ -221,6 +233,7 @@ def build_with_pyinstaller(layout: str = "onedir", console: bool = False, output
                     return False
 
             _install_ffmpeg(ffmpeg_dir, exe_path.parent, project_root / "build_scripts" / "notices")
+            _write_starter_packages(project_root / "database_packages", exe_path.parent / "starter-packages")
 
             # Restore preserved backups into the newly built dist directory
             if preserved_backups and preserved_backups.exists():

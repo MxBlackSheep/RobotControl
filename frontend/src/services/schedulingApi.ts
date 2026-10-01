@@ -17,7 +17,6 @@ import {
   HamiltonStatus,
   ManualRecoveryState,
   CreateScheduleFormData,
-  EvoYeastExperimentOption,
   NotificationContact,
   NotificationContactPayload,
   NotificationLogEntry,
@@ -88,8 +87,9 @@ export const normalizeSchedule = (raw: any): ScheduledExperiment => {
     },
     prerequisites: Array.isArray(raw?.prerequisites) ? raw.prerequisites : [],
     preparation: raw?.preparation && typeof raw.preparation === 'object' ? raw.preparation : null,
+    legacy_preparation: raw?.legacy_preparation && typeof raw.legacy_preparation === 'object' ? raw.legacy_preparation : null,
     // An unrecognised state is shown as unknown, never as ready.
-    preparation_state: raw?.preparation
+    preparation_state: raw?.preparation || raw?.legacy_preparation
       ? (['ready', 'needs_review', 'missing', 'invalid'].includes(raw?.preparation_state) ? raw.preparation_state : 'unknown')
       : undefined,
     notification_contacts: Array.isArray(raw?.notification_contacts) ? raw.notification_contacts : [],
@@ -348,7 +348,6 @@ const buildScheduleRequest = (data: CreateScheduleFormData): CreateScheduleReque
         ? data.timeout_cleanup_experiment_path ?? null
         : null,
   },
-  prerequisites: data.prerequisites,
   ...(data.preparation !== undefined ? { preparation: data.preparation } : {}),
   notification_contacts: data.notification_contacts,
 });
@@ -580,18 +579,6 @@ export const schedulingService = {
       return { error: parseAPIError(error) };
     }
   },
-
-  async getLabPreparation(limit = 100): Promise<{ definition?: { id: string; name: string; selection_step: string; selection_label: string; preparation_label: string }; experiments: EvoYeastExperimentOption[]; error?: string }> {
-    try {
-      const { data } = await api.get('/api/scheduling/lab/preparation', { params: { limit } });
-      return { definition: data, experiments: data.choices.map((r: { value: string; label: string; note?: string; selected: boolean }) => ({
-        experiment_id: r.value, user_defined_id: r.label, note: r.note, scheduled_to_run: r.selected,
-      })) };
-    } catch (error) {
-      return { experiments: [], error: parseAPIError(error) };
-    }
-  },
-
 };
 
 
