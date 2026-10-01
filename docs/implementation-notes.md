@@ -1,3 +1,9 @@
+## 2026-10-01 Database tools check matches no-import installation
+
+- `backend/e2e/database_tools_check.py` still expected a package that fails on import to be rejected at install (400). Since `10bf346` installation deliberately does not import package Python in the server, so that package installs. The check now proves the current contract: the import failure ends that report run, the server keeps answering and a following good update reports again. Sections after that point had never run on `main`.
+- Since reports moved to a child process (`10bf346`), every exception from package code was shown as the headline report error with no Details. The worker now tells the server whether it was a `ValueError`: those stay the message (for example a stale choice); others show "Report generation failed" with the text under Details, as before `10bf346`.
+- The check now also expects a fault to refuse a new operation preview (preview takes the change guard since `10bf346`), and its two-report hold holds the server-side job instead of a patch the spawned worker never saw.
+
 ## 2026-10-01 Overview at narrow widths (Codex review)
 
 - At 900px (collapsed rail, ~388px half panels) Recent runs showed no experiment names and Up next truncated them; strip states overlapped the next label and were clipped on 320px phones; Latest experiment hid its times below 900px and squeezed the method name at 900px. Rows now follow the panel's width (`@container`, as Users and Database do), strip cells wrap by content, and Latest experiment puts its details below the name when narrow.

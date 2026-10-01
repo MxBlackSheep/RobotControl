@@ -171,7 +171,10 @@ At most two run at once (429) in spawned processes with a five-minute limit; shu
 timeout ends the process, and a crash releases the slot. The child receives only the selected
 read connections and starts no catalogue or scheduler. This is process separation, not a
 sandbox: the child has the application user's file and network access and no memory limit.
-It must write one `.xlsx` in its folder. Choice queries are one `SELECT` with `ROW_NUMBER`
+It must write one `.xlsx` in its folder. Package Python is imported only in this child, so an
+import failure fails that run, not installation. A `ValueError` from the child (such as a stale
+choice) becomes the job's `error`; any other exception gives a short `error` and the exception
+text in `error_details`. Choice queries are one `SELECT` with `ROW_NUMBER`
 paging, and chosen values are checked again before running.
 
 ### Operations
