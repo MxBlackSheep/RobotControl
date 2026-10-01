@@ -1,7 +1,28 @@
 """Relocated executable check with no Python/UV on its PATH and disposable SQL rows.
 
-The uploaded fixture package substitutes the database connection in this temporary
-process. There is no production test endpoint. Real SQL Server remains a VM check.
+Usage: packaged_database_smoke.py dist/<candidate>/RobotControl [--report-package ZIP]
+[--evidence DIR] [--wizard]. Needs local .\\HAMILTON with Windows administrator access
+to create and drop a UUID-named database and login (report_wizard_check.sql_fixture).
+
+Reports run in a spawned process that opens only configured read-only connections,
+and installing a package never imports it. So the check configures the report
+connection through the same HTTP routes an administrator uses (save a read-only
+connection, assign it to each package) against a disposable SQL Server copy of the
+DatabaseFixture rows. There is no production test endpoint. VM data, dbo.DeleteExperiment
+and hardware remain a VM check.
+
+Failure cases:
+- Test suites are shipped in the frozen archive or support files.
+- The relocated executable, with Python/UV absent from PATH, does not load both packages.
+- An uploaded package is not usable without restart/recompile: its report does not
+  run through the assigned connection.
+- A report ZIP (--report-package) does not replace the bundled version.
+- The installed culture-history report cannot read through the read-only connection,
+  or its Excel output (bundled pandas/openpyxl) is wrong.
+- Removing a package leaves it listed, or data is not kept beside the relocated copy.
+- --wizard: DPAPI connection storage, read-only login creation, duplicate-login
+  conflicts, private drafts, dependent inputs, trial/installed generation and prepared
+  Python with relative helpers fail in the packaged process.
 """
 import argparse
 import hashlib
@@ -10,10 +31,13 @@ import json
 import os
 import secrets
 import shutil
+import sqlite3
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.request
+from contextlib import closing
 from urllib.error import HTTPError
 import zipfile
 from pathlib import Path
@@ -21,6 +45,7 @@ from pathlib import Path
 import openpyxl
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
 
 
 def wizard_check(request, token, result, evidence):
@@ -140,6 +165,32 @@ def run(context, inputs):
     result['passed']=True
 
 
+def copy_fixture_rows(admin, database, extra_culture):
+    """Copy the DatabaseFixture rows into a disposable SQL Server database.
+
+    The report calls the dbo.Descendants(?) table-valued function, which the SQLite
+    fixture models as a Descendants table.
+    """
+    from backend.e2e.database_fixture import DatabaseFixture
+    types = {'INTEGER': 'int', 'INT': 'int', 'TEXT': 'nvarchar(200)', 'REAL': 'float'}
+    with tempfile.TemporaryDirectory(dir=ROOT/'test-output') as temp, closing(sqlite3.connect(DatabaseFixture(temp).path)) as source:
+        cursor = admin.cursor()
+        cursor.execute('USE ['+database+']')
+        for (table,) in source.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall():
+            columns = source.execute('SELECT name, type FROM pragma_table_info(?) ORDER BY cid', (table,)).fetchall()
+            target = 'DescendantRows' if table == 'Descendants' else table
+            cursor.execute(f'CREATE TABLE dbo.[{target}] ('+', '.join(
+                f"[{name}] {'datetime' if name == 'TimeStamp' else types[kind]}" for name, kind in columns)+')')
+            cursor.executemany(f'INSERT dbo.[{target}] VALUES ('+','.join('?'*len(columns))+')',
+                               source.execute(f'SELECT * FROM [{table}]').fetchall())
+        cursor.execute('CREATE FUNCTION dbo.Descendants(@plate int) RETURNS TABLE AS RETURN '
+                       'SELECT DescPlateID FROM dbo.DescendantRows WHERE AncPlateID=@plate')
+        if extra_culture:
+            cursor.execute('INSERT dbo.Cultures VALUES (2000000,20,NULL)')
+        cursor.execute('USE master')
+        cursor.close()
+
+
 def run(candidate, report_package=None, evidence=ROOT/'test-output/database-verification', wizard=False):
     evidence.mkdir(parents=True, exist_ok=True)
     result = dict(candidate=str(candidate), checks=[], passed=False)
@@ -190,56 +241,61 @@ def run(candidate, report_package=None, evidence=ROOT/'test-output/database-veri
             if wizard:
                 wizard_check(request, token, result, evidence)
                 return
-            fixture=(ROOT/'backend/e2e/database_fixture.py').read_text()
-            fixture+='''
-from backend.services.database_tools import get_database_tools
-service = get_database_tools()
-service.database = DatabaseFixture(service.root)
-configure_fixture_report_sources(service)
-def run(context, inputs):
+            from backend.e2e.report_wizard_check import sql_fixture
+            def report(package_id, inputs):
+                job=request('/api/database/tools/reports/'+package_id,{'inputs':inputs},token)
+                deadline=time.monotonic()+60
+                while job['status'] in {'pending','running'}:
+                    assert time.monotonic()<deadline, job
+                    time.sleep(.2); job=request('/api/database/tools/reports/'+job['id'],token=token)
+                assert job['status']=='ready',job
+                return request('/api/database/tools/reports/'+job['id']+'/download',token=token)
+            with sql_fixture() as sql:
+                result['fixture']={'database':sql['names'][0],'login':sql['login'],'rows':'backend/e2e/database_fixture.py DatabaseFixture'}
+                copy_fixture_rows(sql['admin'], sql['names'][0], extra_culture=bool(report_package))
+                request('/api/database/tools/sources',dict(id='primary',name='Primary',server=sql['server'],database=sql['names'][0],
+                    username=sql['login'],password=sql['password'],trust_certificate=True),token)
+                handler='''def run(context, inputs):
     import openpyxl
     book=openpyxl.Workbook()
     book.active.append(['Fixture'])
     book.save(context.output_dir/'fixture.xlsx')
     return 'fixture.xlsx'
 '''
-            if report_package:
-                fixture += '\nwith closing(sqlite3.connect(service.database.path)) as connection, connection:\n    connection.execute("INSERT INTO Cultures VALUES (2000000,20,NULL)")\n'
-            manifest={'contract_version':1,'id':'verification-fixture','name':'Disposable verification fixture','version':'1.0.0','libraries':['openpyxl'],
-                'tools':[{'id':'verification-fixture','name':'Fixture','kind':'report','entrypoint':'handler:run','inputs':[]}]}
-            output=io.BytesIO()
-            with zipfile.ZipFile(output,'w') as archive:
-                archive.writestr('manifest.json',json.dumps(manifest)); archive.writestr('handler.py',fixture)
-            request('/api/database/tools/packages',token=token,upload=output.getvalue())
-            result['checks'].append('Trusted fixture package uploaded and activated without restart/recompile')
-            if report_package:
-                inspected=request('/api/database/tools/packages/inspect',token=token,upload=report_package.read_bytes())
-                request('/api/database/tools/packages',token=token,upload=report_package.read_bytes())
-                result['checks'].append('Report ZIP replaces bundled version without rebuilding the executable: '+inspected['package']['version'])
-                result['package_sha256']=hashlib.sha256(report_package.read_bytes()).hexdigest()
-            job=request('/api/database/tools/reports/culture-history',{'inputs':{'experiment_id':42}},token)
-            deadline=time.monotonic()+60
-            while job['status'] in {'pending','running'}:
-                assert time.monotonic()<deadline, job
-                time.sleep(.2); job=request('/api/database/tools/reports/'+job['id'],token=token)
-            assert job['status']=='ready',job
-            content=request('/api/database/tools/reports/'+job['id']+'/download',token=token)
-            (evidence/'packaged-culture-history.xlsx').write_bytes(content)
-            sheet=openpyxl.load_workbook(io.BytesIO(content)).active
-            assert sheet.title=='CultureHistory' and sheet.max_row==6 and sheet.max_column==15 and sheet.freeze_panes=='D2'
-            result['checks'].append('Real installed culture-history handler generates and downloads Excel with bundled pandas/openpyxl')
-            result['workbook_sha256']=hashlib.sha256(content).hexdigest()
-            request('/api/database/tools/packages/verification-fixture',token=token,method='DELETE')
-            assert all(p['id']!='verification-fixture' for p in request('/api/database/tools/packages',token=token))
-            assert (relocated/'data/database-tools/packages/installed.json').is_file()
-            result['checks'].append('Removal and relocated data root verified')
+                manifest={'contract_version':1,'id':'verification-fixture','name':'Disposable verification fixture','version':'1.0.0','libraries':['openpyxl'],
+                    'tools':[{'id':'verification-fixture','name':'Fixture','kind':'report','entrypoint':'handler:run','inputs':[]}]}
+                output=io.BytesIO()
+                with zipfile.ZipFile(output,'w') as archive:
+                    archive.writestr('manifest.json',json.dumps(manifest)); archive.writestr('handler.py',handler)
+                request('/api/database/tools/packages',token=token,upload=output.getvalue())
+                # Installation never imports package code, so activation is shown by a run.
+                request('/api/database/tools/packages/verification-fixture/sources',{'mappings':{'primary':'primary'}},token,method='PUT')
+                assert list(openpyxl.load_workbook(io.BytesIO(report('verification-fixture',{}))).active.values)==[('Fixture',)]
+                result['checks'].append('Trusted fixture package uploaded and activated without restart/recompile')
+                if report_package:
+                    inspected=request('/api/database/tools/packages/inspect',token=token,upload=report_package.read_bytes())
+                    request('/api/database/tools/packages',token=token,upload=report_package.read_bytes())
+                    result['checks'].append('Report ZIP replaces bundled version without rebuilding the executable: '+inspected['package']['version'])
+                    result['package_sha256']=hashlib.sha256(report_package.read_bytes()).hexdigest()
+                request('/api/database/tools/packages/culture-history/sources',{'mappings':{'primary':'primary'}},token,method='PUT')
+                content=report('culture-history',{'experiment_id':42})
+                (evidence/'packaged-culture-history.xlsx').write_bytes(content)
+                sheet=openpyxl.load_workbook(io.BytesIO(content)).active
+                assert sheet.title=='CultureHistory' and sheet.max_row==6 and sheet.max_column==15 and sheet.freeze_panes=='D2'
+                result['checks'].append('Real installed culture-history handler reads the read-only SQL Server connection, generates and downloads Excel with bundled pandas/openpyxl')
+                result['workbook_sha256']=hashlib.sha256(content).hexdigest()
+                request('/api/database/tools/packages/verification-fixture',token=token,method='DELETE')
+                assert all(p['id']!='verification-fixture' for p in request('/api/database/tools/packages',token=token))
+                assert (relocated/'data/database-tools/packages/installed.json').is_file()
+                result['checks'].append('Removal and relocated data root verified')
+            result['sql_fixture_removed']=True
             result['passed']=True
         finally:
             process.terminate()
             try: process.wait(timeout=15)
             except subprocess.TimeoutExpired: process.kill(); process.wait(timeout=10)
             result['process_stopped']=True
-            result['limit']='Real SQL Server uses disposable databases; actual VM data and hardware are not exercised.' if wizard else 'SQL Server/ODBC and dbo.DeleteExperiment execution require VM verification; disposable adapter used here.'
+            result['limit']='Real SQL Server uses disposable databases; actual VM data and hardware are not exercised.' if wizard else 'Culture history reads a disposable local SQL Server copy of the fixture rows; VM data, dbo.DeleteExperiment execution and hardware are not exercised.'
             (evidence/'packaged-results.json').write_text(json.dumps(result,indent=2))
     print(json.dumps(result,indent=2))
 
