@@ -189,3 +189,26 @@ def test_cpu_guard_degrades_under_load_recovers_when_calm_and_keeps_the_hard_sto
             await samples([95])  # third consecutive sample at the hard limit
             assert session.session_id not in service.sessions
     asyncio.run(scenario())
+
+
+def test_silent_paused_viewer_is_released_and_a_keepalive_keeps_it():
+    """A hidden tab sends no acks; only keepalives show it is still there."""
+    async def scenario():
+        LiveStreamingService._instance = None
+        with patch.object(LiveStreamingService, '_ensure_camera_integration'):
+            service = LiveStreamingService()
+        with patch.object(service, 'ensure_service_started', new=AsyncMock()), \
+             patch('backend.services.live_streaming.BROWSER_SILENCE_SECONDS', .3):
+            handlers = {}
+            for name in ('silent', 'alive'):
+                session = await service.create_session(name, name, 'local')
+                handlers[name] = await service.connect_websocket(session.session_id, AsyncMock())
+                await handlers[name].handle_control(StreamControl('pause'))
+            for _ in range(4):
+                await asyncio.sleep(.12)
+                await handlers['alive'].handle_control(StreamControl('keepalive'))
+                await service._expire_pending_sessions()
+            assert handlers['silent'].session.session_id not in service.sessions
+            assert handlers['alive'].session.session_id in service.sessions
+            await service.terminate_session(handlers['alive'].session.session_id)
+    asyncio.run(scenario())

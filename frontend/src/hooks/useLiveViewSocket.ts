@@ -5,6 +5,8 @@ import { buildWsUrl } from '@/utils/apiBase';
 const HEADER_BYTES = 17;
 const FRAME_VERSION = 1;
 const RECONNECT_MAX_MS = 30_000;
+// streaming_session.py ends a session silent for 75 s; Cloudflare closes idle sockets at ~100 s.
+const KEEPALIVE_MS = 30_000;
 
 export type LiveViewState = 'connecting' | 'connected' | 'disconnected' | 'reconnecting';
 
@@ -28,6 +30,7 @@ export function useLiveViewSocket(options: {
   // The viewer wants live view: false after Stop or unmount, so nothing reconnects then.
   const wanted = useRef(false);
   const retryTimer = useRef<ReturnType<typeof setTimeout>>();
+  const keepaliveTimer = useRef<ReturnType<typeof setInterval>>();
   const attempts = useRef(0);
 
   const send = (ws: WebSocket, type: string, parameters: Record<string, unknown> = {}) => {
@@ -43,6 +46,7 @@ export function useLiveViewSocket(options: {
   }, []);
 
   const detach = useCallback(() => {
+    clearInterval(keepaliveTimer.current);
     const ws = socket.current;
     socket.current = null;
     if (ws) {
@@ -105,6 +109,9 @@ export function useLiveViewSocket(options: {
       attempts.current = 0;
       latest.current.onState('connected');
       if (document.visibilityState === 'hidden') send(ws, 'pause');
+      // Also while paused: proves this browser is still there and keeps the tunnel open.
+      clearInterval(keepaliveTimer.current);
+      keepaliveTimer.current = setInterval(() => send(ws, 'keepalive'), KEEPALIVE_MS);
     };
     ws.onmessage = (event) => {
       if (socket.current !== ws) return;
@@ -122,6 +129,7 @@ export function useLiveViewSocket(options: {
     ws.onclose = () => {
       if (socket.current !== ws) return;
       socket.current = null;
+      clearInterval(keepaliveTimer.current);
       // Keep the last image: its freshness label turns stale while reconnecting.
       latest.current.onState('disconnected');
       scheduleReconnect();

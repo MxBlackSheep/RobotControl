@@ -19,7 +19,7 @@ from backend.services.streaming_types import (
     StreamingSession, StreamingStatus, QualitySettings,
     FrameData
 )
-from backend.services.streaming_session import ACK_TIMEOUT_SECONDS, StreamingSessionHandler
+from backend.services.streaming_session import ACK_TIMEOUT_SECONDS, BROWSER_SILENCE_SECONDS, StreamingSessionHandler
 from backend.services.shared_frame_buffer import get_shared_frame_buffer
 from backend.config import LIVE_STREAMING_CONFIG
 
@@ -356,10 +356,15 @@ class LiveStreamingService:
         return True
 
     async def _expire_pending_sessions(self):
-        """A requested session whose browser never attaches must release capacity."""
+        """Release capacity held by a browser that never attached, or that has gone silent
+        (no ack or keepalive), e.g. a paused tab whose connection died without a close."""
         timeout = self.config.get("session_timeout_seconds", 60)
+        now = time.monotonic()
         for session_id, handler in list(self.sessions.items()):
             if handler.websocket is None and handler.session.is_timed_out(timeout):
+                await self.terminate_session(session_id, expected=handler)
+            elif handler.websocket is not None and now - handler.last_heard > BROWSER_SILENCE_SECONDS:
+                logger.info("Streaming | event=browser_silent | session=%s", session_id)
                 await self.terminate_session(session_id, expected=handler)
 
     async def _frame_distribution_loop(self) -> None:

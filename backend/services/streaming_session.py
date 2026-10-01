@@ -29,6 +29,10 @@ FRAME_VERSION = 1
 MAX_UNACKNOWLEDGED = 2
 # A viewer that acknowledges nothing for this long has gone; its session ends.
 ACK_TIMEOUT_SECONDS = 15
+# The browser sends a keepalive every 30 s (also while its tab is hidden and paused, and through
+# Cloudflare, which closes WebSockets silent for about 100 s). Silence for this long ends the
+# session, so a half-open connection cannot hold one of the limited session slots.
+BROWSER_SILENCE_SECONDS = 75
 # QualitySettings.degrade() reaches its floor (5 fps, 30 % JPEG, skip 5) within five steps.
 MAX_DEGRADE_LEVEL = 5
 
@@ -90,6 +94,8 @@ class StreamingSessionHandler:
         self.acknowledged_sequence = 0
         self._window_open = asyncio.Event()
         self._window_open.set()
+        # Last message from the browser (any control: ack, pause, resume, keepalive).
+        self.last_heard = time.monotonic()
         
         logger.info(f"StreamingSessionHandler initialized for session {session.session_id}")
     
@@ -203,6 +209,7 @@ class StreamingSessionHandler:
         Args:
             control: Control message
         """
+        self.last_heard = time.monotonic()
         try:
             if control.type == "ack":
                 self.acknowledge(control.parameters.get("sequence"))
