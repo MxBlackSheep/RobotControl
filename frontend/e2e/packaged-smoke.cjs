@@ -111,7 +111,8 @@ const path = require('node:path');
     await page.setViewportSize({ width: 1920, height: 1080 });
     const register = page.locator('[data-cytomat-register]');
     await expect.poll(async () => Math.abs((await register.boundingBox()).width - (await page.locator('[data-page-pattern="spatial"]').boundingBox()).width)).toBeLessThanOrEqual(2);
-    await expect.poll(async () => { const box = await register.boundingBox(); return 1080 - box.y - box.height; }).toBeLessThanOrEqual(20);
+    // Fills the remaining height: only the page's bottom padding (24px in design system A) stays below it.
+    await expect.poll(async () => { const box = await register.boundingBox(); return 1080 - box.y - box.height; }).toBeLessThanOrEqual(25);
     await page.screenshot({ path: path.join(output, 'packaged-cytomat-desktop.png'), fullPage: true, animations: 'disabled' });
     await page.setViewportSize({ width: 320, height: 740 });
     await page.route('**/api/monitoring/experiments', route => route.fulfill({ json: { data: [] } }));
