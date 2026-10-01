@@ -88,6 +88,13 @@ operator to cancel, refresh and reopen. Create and update each reload the list o
 - Local administrators can open Database settings from the preparation controls. That
   page changes only the EvoYeast/Batch integration, shows Active now separately from
   Saved (restart required), reviews affected schedules and offers Cancel change.
+- **Before this run** also holds the database step (`PreparationStepField`): a local
+  administrator picks an installed preparation tool and its inputs (rendered by
+  `ReportInputs`); others see it read-only. The form's `preparation` stays undefined until
+  changed, so timing edits never send it and the server keeps the pinned step; `null`
+  removes it. `preparation_state` from the schedule shows Ready / Needs review / Not
+  installed; `schedulingApi.normalizeSchedule` passes it through (unknown values show as
+  unknown, never ready). Checks: `scheduling-lab.spec.ts`.
 
 ## Runtime queue and recovery
 

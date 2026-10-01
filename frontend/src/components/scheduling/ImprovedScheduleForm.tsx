@@ -19,6 +19,8 @@ import useMediaQuery from '@mui/material/useMediaQuery';
 import MethodPicker from './MethodPicker';
 import { useAuth } from '../../context/AuthContext';
 import { isLocalUser } from '../navigation';
+import PreparationStepField from './PreparationStepField';
+import type { PinnedPreparation, PreparationState, PreparationStep } from '../../types/scheduling';
 import { StatusMessage } from '../StatusDialog';
 import {
   Dialog,
@@ -79,6 +81,8 @@ interface ScheduleFormData {
   estimated_duration: number;
   log_inactivity_threshold_minutes: number;
   prerequisites: string[];
+  /** Undefined until the administrator changes the database step; then sent (null removes it). */
+  preparation?: PreparationStep | null;
   notification_contacts: string[];
   is_active: boolean;
   timeout_minutes: number | null;
@@ -95,6 +99,9 @@ interface ImprovedScheduleFormProps {
   mode?: 'create' | 'edit';
   contacts: NotificationContact[];
   catalogueVersion?: number;
+  /** The schedule's saved, pinned database step and its derived state (edit mode). */
+  savedPreparation?: PinnedPreparation | null;
+  preparationState?: PreparationState;
 }
 
 const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
@@ -105,6 +112,8 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
   mode = 'create',
   contacts,
   catalogueVersion = 0,
+  savedPreparation = null,
+  preparationState,
 }) => {
   const { user } = useAuth();
   // Form state
@@ -317,6 +326,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
       ...initialData,
       start_time: initialData?.start_time ?? null,
       prerequisites: initialPrereqs,
+      preparation: undefined,
       notification_contacts: initialData?.notification_contacts ?? defaultFormData.notification_contacts,
       timeout_minutes: initialData?.timeout_minutes ?? defaultFormData.timeout_minutes,
       timeout_action: initialData?.timeout_action ?? defaultFormData.timeout_action,
@@ -779,7 +789,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
               <Stack direction="row" alignItems="center" spacing={1}>
                 <SettingsIcon color="primary" />
                 <Typography variant="subtitle1">
-                  Preparation
+                  Before this run
                 </Typography>
               </Stack>
             </Box>
@@ -809,6 +819,13 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                   </RadioGroup>
                 </FormControl>
 
+                <PreparationStepField
+                  saved={savedPreparation}
+                  state={preparationState}
+                  value={formData.preparation}
+                  editable={user?.role === 'admin' && isLocalUser(user)}
+                  onChange={(preparation) => setFormData(prev => ({ ...prev, preparation }))}
+                />
                 {formData.prerequisites.some(token => !['ScheduledToRun', 'EvoYeastExperiment', 'Batch'].includes(token.split(':')[0])) && (
                   <Typography variant="caption" color="text.secondary">
                     Other steps: {formData.prerequisites.filter(token => !['ScheduledToRun', 'EvoYeastExperiment', 'Batch'].includes(token.split(':')[0])).map(token => token.split(':')[0]).join(', ')}

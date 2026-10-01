@@ -12,16 +12,16 @@ new import against a packaged candidate; adding dependencies requires an app upd
 
 For advanced authors, either starter package can also be copied directly. A ZIP
 contains `manifest.json`, Python modules and optional `.md`/`.txt` documentation at
-its root (no enclosing folder, binaries, symlinks or nested directories). Use one
-self-contained Python module per entry point; sibling-module imports are not part
-of this first contract. Upload through **Database → Manage packages**.
+its root (no enclosing folder, binaries, symlinks or nested directories). Helper
+modules in the same folder are imported relatively (`from .calculations import x`),
+as in the [README](README.md). Upload through **Database → Manage packages**.
 
 Build a starter package with the `build` command in the [README](README.md#existing-projects-and-drafts);
 no manual ZIP assembly is needed.
 
 The manifest declares `contract_version: 1`, a unique lowercase hyphenated package
 `id`, display `name`, three-part `version`, `libraries`, and a `tools` array. Each
-tool has a globally unique `id`, `name`, `kind` (`operation` or `report`),
+tool has a globally unique `id`, `name`, `kind` (`operation`, `report` or `preparation`),
 `entrypoint` (`module:function`) and `inputs`. Input definitions use `name`, `label`,
 `type`, `required` and optionally `choices`. Types: `text`, `integer`, `number`,
 `boolean`, `choice`, `experiment`. Unknown inputs and invalid types are rejected.
@@ -42,6 +42,21 @@ cursors. Never keep a connection or per-request state in module globals.
   directly inside `output_dir`. Never write fixed paths. Reports may run concurrently;
   do not change globals. A Python package can technically bypass these conventions:
   code review is the trust boundary.
+- **Preparation** (contract version 2 only): `entrypoint` names `prepare(context, inputs)`;
+  no `preview` or `confirmation_field`. A local administrator attaches it to a schedule
+  under **Before this run**; saving pins the package file hash and the package's operation
+  connection. Before each run, after any lab adapter step, RobotControl runs it unattended
+  in a separate process with a two-minute limit (60 s per statement), SERIALIZABLE with
+  XACT_ABORT, and commits after it returns. `context.connection` is the operation
+  connection, `context.connections` the declared read sources, `context.run` has
+  `schedule_id`, `execution_id`, `experiment_name`, `experiment_path`, `scheduled_for`
+  and `started_at`. Return `{"message": "..."}` (at most 500 characters shown in the
+  receipt). Its `commit()`, `rollback()`, `autocommit` and `with context.connection:` refuse (also commit/rollback on cursors); do not issue `COMMIT`/`ROLLBACK` statements or touch anything outside the database: raising
+  rolls back and stops the run (failed); a timeout or crash is an unknown outcome. Both
+  mark the schedule for recovery and are never retried. Updating or removing the package,
+  or rebinding its connection, is refused while an active schedule uses it; a changed
+  package blocks the run until an administrator saves the schedule again. Example:
+  [examples/preparation](examples/preparation).
 
 ## Contract version 2: database choices
 

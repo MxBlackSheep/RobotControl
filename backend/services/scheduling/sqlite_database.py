@@ -67,6 +67,11 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                 cursor.execute('''CREATE TABLE IF NOT EXISTS LabPreparation (
                     execution_id TEXT PRIMARY KEY, identity TEXT NOT NULL, steps TEXT NOT NULL,
                     status TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+                preparation_columns = {row[1] for row in cursor.execute('PRAGMA table_info(LabPreparation)')}
+                # package: the pinned database package step; message: its outcome text.
+                for column in ('package', 'message'):
+                    if column not in preparation_columns:
+                        cursor.execute(f'ALTER TABLE LabPreparation ADD COLUMN {column} TEXT')
                 
                 # Create ExperimentMethods table to track all discovered .med files
                 cursor.execute("""
@@ -304,6 +309,7 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                     ('timeout_action', "ALTER TABLE ScheduledExperiments ADD COLUMN timeout_action TEXT NOT NULL DEFAULT 'continue'"),
                     ('timeout_cleanup_experiment_name', "ALTER TABLE ScheduledExperiments ADD COLUMN timeout_cleanup_experiment_name TEXT"),
                     ('timeout_cleanup_experiment_path', "ALTER TABLE ScheduledExperiments ADD COLUMN timeout_cleanup_experiment_path TEXT"),
+                    ('preparation', "ALTER TABLE ScheduledExperiments ADD COLUMN preparation TEXT"),
                 ]
                 for column_name, alter_sql in column_alterations:
                     if column_name not in existing_columns:
@@ -410,8 +416,8 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                         timeout_cleanup_experiment_name, timeout_cleanup_experiment_path, prerequisites,
                         recovery_required, recovery_note, recovery_marked_at, recovery_marked_by,
                         recovery_resolved_at, recovery_resolved_by, created_at, updated_at,
-                        log_inactivity_threshold_minutes
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        log_inactivity_threshold_minutes, preparation
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     schedule.schedule_id,
                     schedule.experiment_name,
@@ -437,6 +443,7 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                     self._serialize_timestamp(schedule.created_at),
                     self._serialize_timestamp(schedule.updated_at),
                     schedule.log_inactivity_threshold_minutes,
+                    json.dumps(schedule.preparation) if schedule.preparation else None,
                 ))
                 self._replace_schedule_contacts(conn, schedule.schedule_id, schedule.notification_contacts or [])
                 conn.execute('INSERT INTO LabScheduleBinding(schedule_id,target) SELECT ?,target FROM LabInstallation WHERE id=1', (schedule.schedule_id,))
@@ -586,6 +593,7 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                     "timeout_cleanup_experiment_name = ?",
                     "timeout_cleanup_experiment_path = ?",
                     "prerequisites = ?",
+                    "preparation = ?",
                 ]
                 params: List[Any] = [
                     schedule.experiment_name,
@@ -602,6 +610,7 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                     schedule.timeout_config.cleanup_experiment_name if schedule.timeout_config else None,
                     schedule.timeout_config.cleanup_experiment_path if schedule.timeout_config else None,
                     json.dumps(schedule.prerequisites) if schedule.prerequisites else None,
+                    json.dumps(schedule.preparation) if schedule.preparation else None,
                 ]
 
                 if touch_updated_at:
@@ -1524,6 +1533,15 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                 except Exception as exc:  # pragma: no cover
                     logger.debug("Failed to parse prerequisites: %s", exc)
 
+            preparation = None
+            raw_preparation = row["preparation"] if "preparation" in row_keys else None
+            if raw_preparation:
+                try:
+                    preparation = json.loads(raw_preparation)
+                except Exception:
+                    # Never drop a step silently: an unreadable one blocks dispatch instead.
+                    preparation = {"invalid": True}
+
             recovery_marked_at = self._parse_timestamp(row["recovery_marked_at"]) if "recovery_marked_at" in row_keys else None
             recovery_resolved_at = self._parse_timestamp(row["recovery_resolved_at"]) if "recovery_resolved_at" in row_keys else None
 
@@ -1541,6 +1559,7 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                 archived=bool(row["archived"]) if "archived" in row_keys else False,
                 timeout_config=timeout_config,
                 prerequisites=prerequisites,
+                preparation=preparation,
                 notification_contacts=[],
                 recovery_required=bool(row["recovery_required"]) if "recovery_required" in row_keys else False,
                 recovery_note=row["recovery_note"] if "recovery_note" in row_keys else None,
