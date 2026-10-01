@@ -145,19 +145,17 @@ with tempfile.TemporaryDirectory(prefix='relocated-viewer-',dir=ROOT/'test-outpu
         encoder_running = lambda: request('/api/camera/streaming/status', token=token)['data']['status']['encoder']['running']
         assert (relocated/'ffmpeg.exe').is_file() and (relocated/'THIRD_PARTY_NOTICES'/'FFmpeg.txt').is_file()
         assert not encoders() and not encoder_running()
-        socket = viewer()
-        wait_for(lambda: encoders() and encoder_running())
-        assert [process.info['ppid'] for process in encoders()] == [proc.pid]
-        result['checks'].append('live view starts the relocated package\'s own ffmpeg.exe, as a RobotControl child, only once someone watches')
-        socket.close()
+        with viewer():
+            wait_for(lambda: encoders() and encoder_running())
+            assert [process.info['ppid'] for process in encoders()] == [proc.pid]
+            result['checks'].append("live view starts the relocated package's own ffmpeg.exe, as a RobotControl child, only once someone watches")
         wait_for(lambda: not encoders() and not encoder_running())
         result['checks'].append('the encoder stops when the last viewer leaves')
-        socket = viewer()
-        wait_for(encoders)
-        proc.kill()  # TerminateProcess: no shutdown code runs; only the Job Object can end ffmpeg
-        proc.wait(15)
-        wait_for(lambda: not encoders())
-        socket.close()
+        with viewer():
+            wait_for(encoders)
+            proc.kill()  # TerminateProcess: no shutdown code runs; only the Job Object can end ffmpeg
+            proc.wait(15)
+            wait_for(lambda: not encoders())
         result['checks'].append('no ffmpeg.exe remains after RobotControl is killed while a viewer watches')
         result['passed']=True
     finally:
