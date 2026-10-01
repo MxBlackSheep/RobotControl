@@ -11,6 +11,7 @@ from contextlib import closing
 from pydantic import BaseModel, ConfigDict
 from typing import Literal
 from backend.services.database_packages import PackageError
+from backend.utils.filesystem import replace_file
 
 
 class LabConfiguration(BaseModel):
@@ -130,7 +131,7 @@ class LabSettings:
             backup.write_text(json.dumps({'previous': old.decode('utf-8') if old is not None else None}), encoding='utf-8')
             temporary = self.path.with_suffix('.tmp')
             temporary.write_text(review['config'].model_dump_json(exclude_none=True, indent=2), encoding='utf-8')
-            temporary.replace(self.path)
+            replace_file(temporary, self.path)
             del self.reviews[token]
             conn.commit()
         return self.status()
@@ -145,6 +146,6 @@ class LabSettings:
             else:
                 temporary = self.path.with_suffix('.tmp')
                 temporary.write_bytes(original)
-                temporary.replace(self.path)
+                replace_file(temporary, self.path)
             self.reviews.clear()
         return self.status()

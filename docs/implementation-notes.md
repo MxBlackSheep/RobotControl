@@ -1,3 +1,9 @@
+## 2026-10-01 Laboratory settings and camera selection survive a scanner reading the file
+
+- The WinError 5 replace failure from the entry below also applied to `scheduling-lab.json` (Apply and Cancel change overwrite it) and `data/config/camera_selection.json` (every reselection overwrites it). Both now use `utils/filesystem.replace_file`. Holding either file open with all sharing modes made the previous code fail at once with `PermissionError: [WinError 5]`; the new code replaces it. No retry was added.
+- Unchanged on purpose: the camera worker's sidecar and `.partial.avi` → `.avi` moves, and log relocation into `history`. Clip names carry a microsecond timestamp and the connection generation, and log relocation picks a free name first, so they never replace an existing file and a scanner on the source does not block either call.
+- Checked with `backend.e2e.draft_replace_check`, `backend.e2e.database_workspace_check` (Apply and Cancel over an existing file) and the camera tests from the camera guide.
+
 ## 2026-10-01 Draft Try no longer fails when another program has the draft open
 
 - `tool_authoring_check` failed about 1 run in 4 with `PermissionError: [WinError 5]` while Try replaced `report-drafts/<key>.json`. No RobotControl thread or the report worker held the file: every draft read already takes `authoring.lock` and the worker inherits no handles. A single-thread write-and-replace loop failed 24 of 5,000 times, with no holder left by the time it was queried. A short-lived outside opener (antivirus or indexer) was opening the new file. `os.replace` (MoveFileEx) refuses to replace a target while any other handle is open, even one that allows deletion.

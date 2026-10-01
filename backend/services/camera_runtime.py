@@ -2,7 +2,6 @@
 import json
 import logging
 import multiprocessing as mp
-import os
 import threading
 import time
 import uuid
@@ -12,6 +11,7 @@ import numpy as np
 
 from backend.services.camera_devices import enumerate_devices, resolve_device
 from backend.services.camera_worker import FRAME_BYTES, capture_worker
+from backend.utils.filesystem import replace_file
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +69,7 @@ class CameraRuntime:
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
         temp = self.config_path.with_suffix(".tmp")
         temp.write_text(json.dumps({"device_identity": identity}), encoding="utf-8")
-        os.replace(temp, self.config_path)
+        replace_file(temp, self.config_path)
         self.identity = identity
         self.selection_error = None
 

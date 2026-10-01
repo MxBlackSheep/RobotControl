@@ -162,10 +162,11 @@ the previous configuration.
 - Apply takes `database_change_guard`, the settings lock, the connections lock and then a
   scheduler `BEGIN IMMEDIATE`, and repeats every check. Active schedules, pending, queued or
   running work, unfinished monitoring and recovery block saving. It writes the startup bytes to
-  `scheduling-lab.previous.json` and atomically replaces `scheduling-lab.json`; the change
+  `scheduling-lab.previous.json` and atomically replaces `scheduling-lab.json` with
+  `utils/filesystem.replace_file`, so a scanner reading the file cannot fail the save; the change
   applies after restart.
-- **Cancel change** restores the exact startup bytes, or removes the file when the native
-  default was active.
+- **Cancel change** restores the exact startup bytes the same way, or removes the file when the
+  native default was active.
 - A connection scheduling uses cannot be edited or removed. Create a separate connection,
   review, save, restart, then review the disabled schedules. Offline edits of the JSON still
   pass the startup checks.
