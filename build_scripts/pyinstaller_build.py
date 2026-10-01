@@ -12,6 +12,8 @@ from typing import Optional
 import argparse
 import logging
 
+from fetch_ffmpeg import ARCHIVE as FFMPEG_ARCHIVE, RELEASE as FFMPEG_RELEASE, SOURCE_URL as FFMPEG_SOURCE, URL as FFMPEG_URL, ensure_ffmpeg
+
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -35,6 +37,19 @@ def _copy_directory_contents(src: Path, dst: Path) -> int:
             copied += 1
     return copied
 
+def _install_ffmpeg(ffmpeg_dir: Path, exe_dir: Path, notices: Path) -> None:
+    """Put ffmpeg.exe beside RobotControl.exe, with the licence notices LGPL requires."""
+    shutil.copy2(ffmpeg_dir / "ffmpeg.exe", exe_dir / "ffmpeg.exe")
+    target = exe_dir / "THIRD_PARTY_NOTICES"
+    target.mkdir(exist_ok=True)
+    shutil.copy2(ffmpeg_dir / "LICENSE.txt", target / "FFmpeg-LICENSE.txt")
+    shutil.copy2(notices / "OpenH264-LICENSE.txt", target / "OpenH264-LICENSE.txt")
+    notice = (notices / "FFmpeg.txt").read_text(encoding="utf-8").format(
+        archive=FFMPEG_ARCHIVE, release=FFMPEG_RELEASE, url=FFMPEG_URL, source=FFMPEG_SOURCE)
+    (target / "FFmpeg.txt").write_text(notice, encoding="utf-8")
+    logger.info("Installed %s and its notices in %s", FFMPEG_ARCHIVE, exe_dir)
+
+
 def build_with_pyinstaller(layout: str = "onedir", console: bool = False, output_dir: Optional[str] = None) -> bool:
     """Build RobotControl with PyInstaller."""
     project_root = Path(__file__).resolve().parent.parent
@@ -50,6 +65,13 @@ def build_with_pyinstaller(layout: str = "onedir", console: bool = False, output
 
     if not (project_root / "backend" / "embedded_static.py").is_file():
         logger.error("Frontend is not embedded. Run uv run --locked python build_scripts/embed_resources.py first.")
+        return False
+
+    # Live view encodes H.264 with ffmpeg.exe beside RobotControl.exe; fail before a long build.
+    try:
+        ffmpeg_dir = ensure_ffmpeg()
+    except Exception as exc:
+        logger.error("ffmpeg for live view is unavailable: %s (see build_scripts/fetch_ffmpeg.py)", exc)
         return False
     
     # Preserve existing backups inside dist before cleaning build artifacts
@@ -197,6 +219,8 @@ def build_with_pyinstaller(layout: str = "onedir", console: bool = False, output
                 if not exe_path.exists():
                     logger.error("Onedir build executable not found: %s", exe_path)
                     return False
+
+            _install_ffmpeg(ffmpeg_dir, exe_path.parent, project_root / "build_scripts" / "notices")
 
             # Restore preserved backups into the newly built dist directory
             if preserved_backups and preserved_backups.exists():

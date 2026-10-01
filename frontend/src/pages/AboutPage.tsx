@@ -55,6 +55,20 @@ const AboutPage: React.FC = () => {
             </Button>
           </CardContent>
         </Card>
+
+        {/* LGPL notice for the bundled encoder; keep the build name in step with build_scripts/fetch_ffmpeg.py. */}
+        <Card sx={{ width: '100%' }}>
+          <CardContent sx={{ py: { xs: 3, md: 4 } }}>
+            <Typography variant="h5" gutterBottom>
+              Open-source components
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              RobotControl includes FFmpeg (build n9.0.2-17, LGPL 3.0) with OpenH264 (BSD) as
+              ffmpeg.exe beside RobotControl.exe, for camera live view. Licences, source locations
+              and build details are in the THIRD_PARTY_NOTICES folder of the installation.
+            </Typography>
+          </CardContent>
+        </Card>
       </Box>
     </PageContent>
   );

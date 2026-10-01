@@ -1,3 +1,8 @@
+## 2026-10-01 Packages include ffmpeg for H.264 live view
+
+- The owner chose H.264 as the only live-view encoding, encoded by a bundled LGPL ffmpeg.exe (brief, licence position and decisions: `docs/plans/h264-live-view-spike.md`). `build_scripts/fetch_ffmpeg.py` downloads one pinned BtbN build (n9.0.2-17, release branch 9.0), checks its SHA-256 and caches it in `build/vendor`; the package build runs it first and puts `ffmpeg.exe` beside `RobotControl.exe` with `THIRD_PARTY_NOTICES` (LGPL 3.0, OpenH264 BSD, build and source). About names the component. The package grows by 134 MB, which the owner accepted.
+- Nothing runs ffmpeg until the H.264 live-view change. The README now describes remote access through the Cloudflare tunnel only; ZeroTier over plain HTTP is no longer used.
+
 ## 2026-10-01 SQL Server checks no longer leave logins behind
 
 - Every `database_workspace_check` run left its `rc_report_check_<id>_reader` login on `.\HAMILTON` while still passing. Its cleanup ran `DROP USER …; USE master; DROP LOGIN …` as one batch while pooled connections still held the login. `DROP LOGIN` failed, and pyodbc reports an error from a later statement in a batch only on `nextset()`, so nothing raised. `tool_authoring_check` created its `_writer` login before the `try` that removed it.

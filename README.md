@@ -52,9 +52,9 @@ For local usage, double-click the binary to run the application. Then access the
 
 ## Remote Usage
 
-To access RobotControl remotely (e.g. From mobile/other PCs), a static IP address or VPN is required. For simplicity, we recommended using [ZeroTier](https://www.zerotier.com/download/)
-- The host needs to join the virtual network and obtain a managed IP address [e.g. 192.168.xxx.xxx]
-- The remote device needs to join the same virtual network as the host, connect to ZeroTier, then access RobotControl via 192.168.xxx.xxx:8005. 
+Remote access (other PCs, phones) goes through a Cloudflare Tunnel, which serves RobotControl over
+HTTPS. Setup and the limits of remote sessions are in
+[docs/maintenance/backend/remote-access-guide.md](docs/maintenance/backend/remote-access-guide.md).
 
 ## Source Code (Windows)
 

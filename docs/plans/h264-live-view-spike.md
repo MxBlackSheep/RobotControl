@@ -68,3 +68,61 @@ fallback for live view. A browser without WebCodecs H.264 decoding shows a clear
 supported" message instead of a degraded stream. Snapshots and MJPEG recording stay as they are.
 Still open before release: the N100 measurement above (real camera, QuickSync availability, CPU
 headroom beside the robot) and the licence review for whichever encoder is bundled.
+
+## Feature brief (2026-10-01)
+
+**User flow.** A viewer opens Camera › Live view and presses **Start my live view**. The page first
+checks that this browser can decode H.264 through WebCodecs. If it can, the session starts and the
+picture appears within about a second (at the next keyframe). If it cannot, no session is created
+and the viewer sees "This browser can't show live view; use Chrome/Edge 94+, Safari 16.4+ or
+Firefox 130+". WebCodecs exists only on secure pages (HTTPS, or `localhost` on the robot computer),
+so plain-HTTP access (the README's ZeroTier address `http://192.168.x.x:8005`) gets its own message
+naming the secure address instead of blaming the browser. Fit / Fit width / zoom / pan, Expand, Stop,
+Reconnect, hidden-tab pause, automatic reconnect and the 10-second stale label behave as today.
+Snapshots and MJPEG recording are unchanged.
+
+**Data and state.**
+- One encoder per stream configuration (one configuration: 640×480, 15 fps, 1 s GOP, no B-frames),
+  started when the first viewer is watching and stopped when none is (Stop, disconnect, hidden tab,
+  shutdown, CPU hard limit). Encoded access units fan out to every viewer.
+- Binary frame message: `FRAME_VERSION` 2 adds one flags byte (bit 0 = keyframe) to the existing
+  header; the payload is one H.264 Annex-B access unit. Acknowledgements, `MAX_UNACKNOWLEDGED`,
+  `ACK_TIMEOUT_SECONDS`, keepalive and `BROWSER_SILENCE_SECONDS` keep their meaning.
+- Per viewer: "in step" or "waiting for keyframe". A viewer whose window is full when an access unit
+  arrives, or that joins, resumes or reconnects, waits for the next keyframe. Nothing queues.
+- Browser: one `VideoDecoder`; the frame store holds the newest decoded `VideoFrame` (the previous
+  one is closed), drawn by one canvas.
+- The JPEG live-view path (`frame_encoder.py`'s live-view use, per-session JPEG quality levels and
+  the `<img>` viewer) is removed.
+
+**Safety constraints.** The encoder runs as a child process in a Windows Job Object that kills it
+when RobotControl exits, so it cannot outlive the server. Pipes carry at most one raw frame in
+flight. An encoder crash ends or restarts live view with a visible message; it never touches the
+camera helper, recording or Hamilton. The CPU guard keeps its thresholds and steps the shared
+encoder down (frame rate, then bitrate) and back up; the hard limit still ends all sessions.
+
+**Acceptance (observable).**
+1. With no viewer, no encoder process exists; Start creates one; Stop of the last viewer, a closed
+   tab, server shutdown and a killed RobotControl all leave no encoder process.
+2. A second viewer starts on a keyframe without restarting the encoder; a viewer on a stalled link
+   does not lower the first viewer's frame rate.
+3. Killing the encoder shows a message, recording continues, and live view recovers or ends cleanly.
+4. Unsupported browser and insecure page each show their message and create no session.
+5. Packaged candidate in a relocated folder finds and runs the encoder.
+6. N100 (owner, on the robot computer): CPU and bytes per second next to a running method; see the
+   commands in the PR.
+
+**Owner decisions (2026-10-01).**
+- Encoder: the BtbN **LGPL** static `ffmpeg.exe` (release branch 9.0, pinned by URL and SHA-256 in
+  the build script, not committed to Git), encoding with `libopenh264` in software. QuickSync is
+  not used: software encoding at this size costs about 1 % of a core. The build is configured with
+  `--enable-version3`, so ffmpeg is LGPL 3.0. LGPL duties: ship the licence
+  texts in `THIRD_PARTY_NOTICES`, name the build on the About page, and keep the matching source
+  with the release evidence. H.264 *patents* are separate from ffmpeg's copyright licence; Cisco's
+  patent cover applies only to Cisco's own DLL downloaded to the device, not to this build. The
+  owner accepted that position (check with a licensing contact before distributing outside the
+  organisation).
+- Quality: one profile. The API's `quality` field and the four JPEG levels are removed; the CPU
+  guard steps the shared encoder 15 → 10 → 5 fps and 400 → 300 → 200 kbit/s, then back up.
+- Plain-HTTP (ZeroTier) access is no longer used. Remote access is through the Cloudflare tunnel
+  (HTTPS); an HTTP page still shows the secure-connection message. The README is updated.
