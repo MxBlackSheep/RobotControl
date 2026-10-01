@@ -41,7 +41,9 @@ async function sampleData(page: Page, mode: string) {
   await page.route('**/api/scheduling/list?*', route => route.fulfill({ json: { success: true, data: new URL(route.request().url()).searchParams.get('archived_only') === 'true' ? [] : [
     schedule('deck', 'Weekly deck cleanup', 'weekly', 60), schedule('qc', 'Plate reader QC', 'once', 90, { is_active: false }),
     schedule('feed1', 'Cell feeding · stack 1', 'interval', 330), schedule('feed2', 'Cell feeding · stack 2', 'interval', 330, { recovery_required: true }),
-    schedule('wash', 'Daily tip wash', 'daily', 23 * 60 + 15)] } }));
+    schedule('wash', 'Daily tip wash', 'daily', 23 * 60 + 15),
+    // Next year: the longest dayTime label ("13 Jan 2027 …"), which Up next must not clip.
+    schedule('calibration', 'Pipette calibration', 'once', 105 * 24 * 60 - 330)] } }));
   const run = (id: string, name: string, status: string, started: number, minutes: number) => ({ execution_id: id, schedule_id: id, experiment_name: name, status, start_time: ago(started), duration_minutes: minutes });
   await page.route('**/api/scheduling/executions/history?*', route => route.fulfill({ json: { success: true, data: [
     run('e1', 'Cell feeding · stack 2', 'recovery_required', 255, 47), run('e2', 'Cell feeding · stack 1', 'completed', 390, 44),

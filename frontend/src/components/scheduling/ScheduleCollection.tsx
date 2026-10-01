@@ -26,7 +26,8 @@ const filters: { value: Filter; label: string; match: (schedule: ScheduledExperi
 
 // Wide enough for the table columns; narrower panels stack each row.
 const table = '@container schedules (min-width: 640px)';
-const columns = 'minmax(0, 2.2fr) minmax(90px, 0.8fr) minmax(120px, 1fr) minmax(120px, 1fr) 160px';
+// Date columns hold the longest dayTime ("13 Jan 2027 09:00", ~122px in the mono font) on one line.
+const columns = 'minmax(0, 2.2fr) minmax(90px, 0.8fr) minmax(128px, 1fr) minmax(128px, 1fr) 160px';
 
 export default function ScheduleCollection({ schedules, selected, onSelect, onRefresh, loading, error }: {
   schedules: ScheduledExperiment[]; selected: ScheduledExperiment | null;

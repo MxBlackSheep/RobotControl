@@ -21,9 +21,11 @@ const mono = { fontFamily: fontMono, fontSize: 12, color: 'text.secondary' } as 
 
 /**
  * The list panels sit side by side, so their rows follow the panel's width, not the window's:
- * at 900px each is ~388px. Thresholds keep the name column at least ~150px wide.
+ * at 900px each is ~388px. Thresholds keep the name column at least ~140px wide. Up next's time
+ * column stays 128px everywhere: the longest dayTime ("13 Jan 2027 09:00") needs ~122px.
  */
 const listPanel = { containerType: 'inline-size', containerName: 'list' } as const;
+const upNextDuration = '@container list (min-width: 380px)';
 const upNextFull = '@container list (min-width: 500px)';
 const recentStarted = '@container list (min-width: 464px)';
 const recentFull = '@container list (min-width: 544px)';
@@ -88,11 +90,12 @@ export function UpNext({ canOpenScheduling, span }: { canOpenScheduling: boolean
     {schedules && !upcoming.length && <EmptyRow>No scheduled runs.</EmptyRow>}
     {upcoming.map(schedule => {
       const duration = schedule.estimated_duration > 0 ? `${schedule.estimated_duration} min` : '';
-      return <ListRow key={schedule.schedule_id} columns="104px minmax(0, 1fr) 48px" sx={{ [upNextFull]: { gridTemplateColumns: '128px minmax(0, 1fr) 96px 56px' } }}>
+      return <ListRow key={schedule.schedule_id} columns="128px minmax(0, 1fr)"
+        sx={{ [upNextDuration]: { gridTemplateColumns: '128px minmax(0, 1fr) 56px' }, [upNextFull]: { gridTemplateColumns: '128px minmax(0, 1fr) 96px 56px' } }}>
         <Box component="span" sx={mono}>{dayTime(schedule.next_run!)}</Box>
         <Box component="span" sx={{ fontWeight: 500 }}>{schedule.experiment_name}</Box>
         <Box component="span" sx={{ ...shownFrom(upNextFull), color: 'text.secondary' }}>{repeatLabel(schedule)}</Box>
-        <Box component="span" sx={{ ...mono, textAlign: 'right' }}>{duration}</Box>
+        <Box component="span" sx={{ ...mono, ...shownFrom(upNextDuration), textAlign: 'right' }}>{duration}</Box>
       </ListRow>;
     })}
   </Panel>;
