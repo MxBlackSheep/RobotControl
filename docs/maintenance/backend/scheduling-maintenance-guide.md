@@ -143,7 +143,8 @@ add an unconditional existence check.
 - `LabInstallation`: adapter, version, connection identity and signature; no secrets.
 - `LabScheduleBinding`: each schedule's data target. Rotating credentials keeps the target;
   another database does not reuse old IDs, so re-create the schedule after review.
-- `LabPreparation`: execution ID, identity, steps and `preparing`/`prepared`/`failed`. A repeated
+- `LabPreparation`: execution ID, identity, steps, the pinned database package step (`package`),
+  status `preparing`/`prepared`/`failed`/`unknown` and the step's `message`. A repeated
   execution ID is rejected even after restart. Receipts are kept as evidence.
 
 Preparation checks the installation signature and the schedule's target under
@@ -152,6 +153,22 @@ marks the receipt failed and requires manual recovery. The restart reconciler ne
 preparation. At startup a changed signature is accepted only with no pending, queued or running
 executions, no unfinished monitoring, no recovery and no active schedules; otherwise restore
 the previous configuration.
+
+**Database package step.** A schedule may also carry one `preparation` (a database package
+tool of kind `preparation`), stored as JSON on `ScheduledExperiments.preparation` with the
+package file hash, version and operation connection id pinned by the server when a local
+administrator saved it (`_requested_preparation` in `backend/api/scheduling.py`; requests
+without the key keep it, other roles get 403 when changing it). `LabIntegration.prepare`
+checks `DatabaseTools.preparation_state` before the receipt (a changed or missing package
+refuses the run with no write), runs the adapter step, then `DatabaseTools.prepare_for_run`:
+a spawned child (`report_worker.run_preparation`) with a 120 s limit that commits only after
+`prepare` returns. It holds no scheduler lock; the registered execution keeps
+`database_change_guard` closed for manual operations. Error before commit: receipt `failed`,
+nothing committed. Timeout, crash or a commit without confirmation: `unknown`. Both mark the
+schedule for recovery with a note saying what is known. `PackageCatalogue.refuse_if_scheduled`
+refuses updating, removing or rebinding a package an active schedule uses; an unreadable stored
+step loads as `{"invalid": true}` and blocks dispatch. Schedule reads add `preparation_state`
+(`ready`/`needs_review`/`missing`). Check: `backend/e2e/preparation_step_check.py`.
 
 **Changing the laboratory database** (Database settings → Schedule preparation):
 

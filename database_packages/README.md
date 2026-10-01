@@ -1,4 +1,4 @@
-# Add a report or operation from Python
+# Add a report, operation or pre-run step from Python
 
 **Write the tool once in Python. RobotControl builds its form and package.**
 The author defines inputs, database relationships and behavior. The local
@@ -69,7 +69,8 @@ tables; no particular experiment or plate schema is required.
 
 Ordinary fields can be concise: `'start_date': 'date'` or
 `'format': {'type': 'choice', 'choices': ['Detailed', 'Summary']}`. Supported types
-are text, integer, number, boolean, date and choice. Database choices use text,
+are text, integer, number, boolean, date, choice and experiment (a positive experiment ID,
+offered from the primary connection's `dbo.Experiments`). Database choices use text,
 integer or number plus `query`. Labels default from the input name; inputs are
 required unless `required: False` is supplied.
 
@@ -148,6 +149,31 @@ Unavailable libraries need an application upgrade.
 
 Python/UV are not needed on deployment computers. Source uploads allow up to
 3 MiB and 99 files; generated packages also follow [CONTRACT.md](CONTRACT.md).
+
+## Run a step before a scheduled run
+
+A **preparation** step is Python that RobotControl runs by itself before a scheduled
+method starts, for example to record the run or set flags the method reads. Nobody is
+present to review it at run time, so the rules are stricter than for operations:
+
+- Write it as a package with `manifest.json` (contract version 2, `kind: "preparation"`,
+  entry point `prepare(context, inputs)`). Start from
+  [examples/preparation](examples/preparation), build it with the command below and
+  install it under **Manage packages**; then assign its operation connection there.
+  (The **Add tool** page does not offer a safe trial run for preparation steps yet.)
+- Use `context.connection` and `context.run` (schedule, execution and experiment
+  details). Do not commit or roll back; raise an exception to stop the run.
+- A local administrator chooses the step and its inputs under **Before this run** in
+  the schedule form. The schedule keeps that exact package version and connection.
+- It must finish within two minutes. If it fails, times out or crashes, the run does
+  not start, the schedule waits for recovery, and the step is never repeated
+  automatically. Check the database before resuming.
+- To update the package, first disable the schedules that use it, then save each
+  schedule again so it uses the new version.
+
+Packaging checks confirm structure and syntax only. They do not check the Python's
+calculations or sandbox it: review it, and test it on a disabled schedule against a
+disposable database before attaching it to real runs.
 
 ## Existing projects and drafts
 
