@@ -3,6 +3,8 @@
 - At 900px (collapsed rail, ~388px half panels) Recent runs showed no experiment names and Up next truncated them; strip states overlapped the next label and were clipped on 320px phones; Latest experiment hid its times below 900px and squeezed the method name at 900px. Rows now follow the panel's width (`@container`, as Users and Database do), strip cells wrap by content, and Latest experiment puts its details below the name when narrow.
 - The screenshot runner now uses the suite's `global-teardown.ts`; before, each run left a `viewer-e2e-*` folder (large fixture logs) in `%TEMP%`. The runner's sample data now includes a Latest experiment with an end time.
 - Verified by screenshot review (light/dark, 320/390/900/1280/1440px, plus worst-case strip states) and the Overview behaviour check. Presentation only: requests, Retry and accessible names unchanged.
+- Second review (`e2a4271`): Up next's 104px time column clipped "Tue 20 Oct 11:00" at 900px (and on phones before). It is 128px at every width, enough for the longest `dayTime` ("13 Jan 2027 09:00"); compact rows drop the duration instead. The Scheduling list's date columns had a 120px minimum and wrapped that label; now 128px. The screenshot fixture adds a next-year schedule.
+- Hand-over on `dist/redesign-candidate-6` (built from `e2a4271`): 51 component tests, 109 browser checks, packaged smoke and 28-page walkthrough passed (`test-output/redesign-candidate-6-verification.json`). Not exercised: hardware, SQL Server, camera.
 
 ## 2026-10-01 Design system A: one system for every screen
 
