@@ -2,15 +2,20 @@
 
 Failure cases:
 - Upload, update and removal reject path traversal, binaries, duplicate identifiers,
-  missing libraries and incompatible contracts. A failed update keeps the active
-  version. Inspecting an update never activates it or imports Python, and a changed
-  installation between review and activation is rejected.
+  missing libraries and incompatible contracts. A rejected update keeps the active
+  version. Inspecting an update never activates it, and a changed installation
+  between review and activation is rejected.
+- Neither inspection nor installation imports package Python in the server. A package
+  whose module fails on import installs; running its report ends as an error with a
+  short message and the import failure under Details, the server keeps answering and
+  the report slot is freed, and the next good update produces reports again.
 - Export uses the installed version, excludes generated/cache/config files and keeps
   authored assets. Anonymous, remote and non-admin callers cannot manage packages.
 - Preview is bound to the user, package version and inputs. Wrong confirmation,
   repeated execution, missing experiments and SQL failures cannot cause writes. Busy
-  or unknown robot state, unresolved recovery and unavailable safety storage block
-  changes; a scheduler launch and a database change cannot overlap.
+  or unknown robot state, unresolved recovery and unavailable safety storage refuse a
+  new preview and block executing an earlier one; a scheduler launch and a database
+  change cannot overlap.
 - Scheduling settings are local-admin-only and reviewed without writes. Save rechecks
   revision, robot idle, safety store, recovery and active/queued work under launch
   protection; cancelling restores the original file.
@@ -111,44 +116,76 @@ def run(evidence=ROOT/'test-output/database-verification'):
                 assert client.post(BASE+'/packages', files={'file': ('report.zip', authored)}, data={**fields,'expected_package':'wrong-package'}).status_code == 409
                 assert client.post(BASE+'/packages', files={'file': ('report.zip', authored)}, data=fields).status_code == 200
                 assert client.post(BASE+'/packages', files={'file': ('report.zip', authored)}, data=fields).status_code == 409
-                # Inspection must not run imports. Activation failure must preserve the working version.
+                def report_result():
+                    result=client.post(BASE+'/reports/culture-history',json={'inputs':{'experiment_id':42}}).json()
+                    deadline=time.monotonic()+20
+                    while result['status'] in {'pending','running'}:
+                        assert time.monotonic()<deadline
+                        time.sleep(.05); result=client.get(BASE+'/reports/'+result['id']).json()
+                    return result
+                # Neither inspection nor installation imports package Python in the server
+                # (10bf346): imports happen only in the report process, so an import failure
+                # is reported by that run and a following good update works again.
                 poisoned = package_zip(ROOT/'database_packages/culture-history', {'version':'9.0.1'},
                     extras={'probe.py': 'raise RuntimeError("inspection executed code")'})
                 assert client.post(BASE+'/packages/inspect', files={'file': ('probe.zip', poisoned)}).status_code == 200
                 broken = package_zip(ROOT/'database_packages/culture-history', {'version':'9.0.1','tools':[
                     {**reviewed['package']['tools'][0], 'entrypoint':'broken:run'}]},
                     extras={'broken.py':'raise RuntimeError("import failure")\ndef run(context, inputs):\n    pass\n'})
-                assert client.post(BASE+'/packages/inspect', files={'file': ('broken.zip', broken)}).status_code == 200
-                assert client.post(BASE+'/packages', files={'file': ('broken.zip', broken)}).status_code == 400
-                assert client.get(BASE+'/catalogue',params={'kind':'report'}).json()[0]['package_version']=='9.0.0'
-                checks.append('Author CLI → non-executing inspection → reviewed update; stale/wrong/failed updates preserve installed code: passed')
+                broken_review = client.post(BASE+'/packages/inspect', files={'file': ('broken.zip', broken)})
+                assert broken_review.status_code == 200
+                broken_fields = dict(expected_current=broken_review.json()['current_sha256'], expected_package='culture-history')
+                installed = client.post(BASE+'/packages', files={'file': ('broken.zip', broken)}, data=broken_fields)
+                assert installed.status_code == 200, installed.text
+                assert not [name for name in sys.modules if name.endswith('.broken')]
+                assert client.get(BASE+'/catalogue',params={'kind':'report'}).json()[0]['package_version']=='9.0.1'
+                failed = report_result()
+                assert failed['status']=='error' and failed['error'].startswith('Report generation failed') \
+                    and failed['error_details']=='import failure', failed
+                assert client.get(BASE+'/packages').status_code == 200
+                assert helper('build', project, '--version', '9.0.2').returncode == 0
+                good = (Path(temp)/'culture-history-9.0.2.zip').read_bytes()
+                good_review = client.post(BASE+'/packages/inspect', files={'file': ('report.zip', good)}).json()
+                assert good_review['current_version'] == '9.0.1'
+                assert client.post(BASE+'/packages', files={'file': ('report.zip', good)},
+                    data=dict(expected_current=good_review['current_sha256'], expected_package='culture-history')).status_code == 200
+                restored = report_result()
+                assert restored['status']=='ready' and restored['package_version']=='9.0.2', restored
+                checks.append('Author CLI → non-executing inspection → reviewed update; stale/wrong updates rejected; '
+                              'import failure stays in the report process and a good update restores reports: passed')
                 folder = ROOT/'database_packages/delete-experiment'
                 def upload(content): return client.post(BASE+'/packages', files={'file': ('package.zip', content, 'application/zip')})
                 for content in [package_zip(folder, extras={'../escape.py':'bad'}), package_zip(folder, extras={'binary.exe':'bad'}),
                                 package_zip(folder, {'libraries':['not-bundled']}), package_zip(folder, {'contract_version':99}),
                                 package_zip(folder, {'id':'collision'})]:
                     assert upload(content).status_code in (400,409)
+                assert client.get(BASE+'/catalogue', params={'kind':'operation'}).json()[0]['package_version'] == json.loads((folder/'manifest.json').read_text())['version']
                 assert upload(package_zip(folder, {'version':'1.1.0'})).status_code == 200
                 assert client.get(BASE+'/catalogue', params={'kind':'operation'}).json()[0]['package_version'] == '1.1.0'
                 with service.catalogue.reserve('delete-experiment','operation'):
                     assert client.delete(BASE+'/packages/delete-experiment').status_code == 409
                     assert upload(package_zip(folder)).status_code == 409
                 checks.append('Atomic update, incompatible/unsafe packages, collisions and running-package protection: passed')
-                def preview():
+                def preview(status=200):
                     response = client.post(BASE+'/operations/delete-experiment/preview', json={'inputs': {'experiment_id':43}})
-                    assert response.status_code == 200, response.text
-                    return response.json()['token']
+                    assert response.status_code == status, response.text
+                    return response.json().get('token')
                 def execute(token, confirmation='43'):
                     return client.post(BASE+'/operations/execute', json={'token':token, 'confirmation':confirmation})
+                # Preview and execute both take the database change guard: a fault refuses a
+                # new preview, and a token reviewed before the fault still cannot execute.
                 token = preview()
                 assert execute(token,'42').status_code == 400
                 database.busy=True
+                preview(409)
                 assert execute(token).json()['status']=='error'
                 database.busy=False
-                safety.active=True
-                assert execute(preview()).json()['status']=='error'
-                safety.active=False; safety.storage_healthy=False
-                assert execute(preview()).json()['status']=='error'
+                token=preview(); safety.active=True
+                preview(409)
+                assert execute(token).json()['status']=='error'
+                safety.active=False; token=preview(); safety.storage_healthy=False
+                preview(503)
+                assert execute(token).json()['status']=='error'
                 safety.storage_healthy=True; database.fail_delete=True
                 assert execute(preview()).json()['status']=='error'
                 with closing(sqlite3.connect(database.path)) as conn, conn: assert conn.execute('SELECT COUNT(*) FROM Experiments WHERE ExperimentID=43').fetchone()[0]==1
@@ -213,13 +250,6 @@ def run(evidence=ROOT/'test-output/database-verification'):
                 with closing(sqlite3.connect(database.path)) as connection, connection:
                     connection.execute('ALTER TABLE CulturesHistory DROP COLUMN Converted_OD')
                 checks.append('Converted_OD casing aliases select one column and retain its value: passed')
-                def report_result():
-                    result=client.post(BASE+'/reports/culture-history',json={'inputs':{'experiment_id':42}}).json()
-                    deadline=time.monotonic()+20
-                    while result['status'] in {'pending','running'}:
-                        assert time.monotonic()<deadline
-                        time.sleep(.05); result=client.get(BASE+'/reports/'+result['id']).json()
-                    return result
                 with closing(sqlite3.connect(database.path)) as connection, connection:
                     connection.execute('UPDATE Cultures SET WellID=NULL WHERE CultureID IN (1,3)')
                 missing=report_result()
@@ -257,16 +287,15 @@ def run(evidence=ROOT/'test-output/database-verification'):
                         connection.execute('UPDATE Propagation SET ChldCultureID=? WHERE ChldCultureID=?',(old,new))
                 (evidence/'culture-history.xlsx').write_bytes(content)
                 checks.append('Legacy Data.py workbook parity with selected/ancestral NULL wells and extra culture 98500000 on plate 985: passed')
-                # Hold both actual report workers, checking HTTP admission and package removal.
+                # Hold both report jobs while they own their slot and package reservation, checking
+                # HTTP admission and package removal. The report itself runs in a spawned process,
+                # which a patch here cannot reach, so the hold is on the server side of the job.
                 release_reports=threading.Event()
-                original_function=service.catalogue.function
-                def held_function(entry,name):
-                    function=original_function(entry,name)
-                    def held(context,inputs):
-                        assert release_reports.wait(5)
-                        return function(context,inputs)
-                    return held
-                with patch.object(service.catalogue,'function',side_effect=held_function):
+                original_report=service._report
+                def held_report(*args):
+                    assert release_reports.wait(5)
+                    return original_report(*args)
+                with patch.object(service,'_report',side_effect=held_report):
                     first=client.post(BASE+'/reports/culture-history',json={'inputs':{'experiment_id':42}}).json()
                     second=client.post(BASE+'/reports/culture-history',json={'inputs':{'experiment_id':42}}).json()
                     try:

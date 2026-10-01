@@ -317,7 +317,7 @@ class DatabaseTools:
                 except EOFError:
                     raise PackageError('Report process stopped unexpectedly. Check the Python script.') from None
                 if response.get('error'):
-                    raise PackageError(response['error'])
+                    raise (PackageError if response.get('expected') else RuntimeError)(response['error'])
                 output = response['output']
             finally:
                 sender.close(); receiver.close()
