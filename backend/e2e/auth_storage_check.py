@@ -8,7 +8,8 @@ written to test-output/auth-storage-verification/results.json.
 Failure cases: a locked auth database makes /api/auth/me, a protected route or
 /api/auth/refresh answer 401 (the browser then deletes the saved sign-in) instead of 503; the
 refresh token is revoked during the outage, so /me and refresh fail after the lock is released;
-a genuinely bad, expired, wrong-type or revoked token stops answering 401.
+a genuinely bad, expired, wrong-type or revoked token stops answering 401; a sign-in relayed by
+a tunnel on this computer (loopback peer with forwarding headers) is reported as local.
 """
 import json
 import os
@@ -84,6 +85,16 @@ def run():
             service.revoke_refresh_token(refresh)
             response = client.post('/api/auth/refresh', json={'refresh_token': refresh})
             check('revoked refresh token answers 401', response.status_code == 401, [response.status_code, response.text])
+
+            credentials = {'username': DEFAULT_ADMIN_USERNAME, 'password': DEFAULT_ADMIN_PASSWORD}
+            for name, headers, local in [
+                ('plain loopback sign-in is local', {}, True),
+                ('tunnelled sign-in with spoofed first X-Forwarded-For is remote',
+                 {'x-forwarded-for': '127.0.0.1, 203.0.113.9', 'cf-connecting-ip': '203.0.113.9'}, False),
+            ]:
+                response = client.post('/api/auth/login', json=credentials, headers=headers)
+                session = response.json().get('data', {}).get('session', {}) if response.status_code == 200 else {}
+                check(name, session.get('is_local') is local, [response.status_code, session])
     except Exception:
         check('check ran to completion', False, traceback.format_exc())
     finally:

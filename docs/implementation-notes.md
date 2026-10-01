@@ -1,3 +1,9 @@
+## 2026-10-01 Tunnelled requests are never local
+
+- Before: a loopback peer was local whenever the *first* `X-Forwarded-For` entry was loopback. A tunnel on the RobotControl computer (cloudflared) connects from loopback and Cloudflare appends the real client after whatever the client sent, so a remote request with `X-Forwarded-For: 127.0.0.1` gained local access (package upload, restore, schedule writes). Reproduced: the new case fails on the previous code with 200 on a local-administrator route.
+- Now a loopback peer is local only without proxy headers (`cf-connecting-ip`, `cf-ray`, `true-client-ip`, `x-real-ip`, `forwarded`) and with only loopback `X-Forwarded-For` entries. The recorded `client_ip` is the proxy-reported address (Cloudflare header, else the last `X-Forwarded-For` entry), not the client-supplied first one. Access only narrows; remote use through the tunnel keeps the same local-only limits as before.
+- Checks: `backend/e2e/database_tools_check.py` (seven tunnelled header variants refused, loopback-only chains allowed) and `backend/e2e/auth_storage_check.py` (sign-in reports `is_local=false` when tunnelled). 109 related unit tests pass. Not verified on the N100: whether cloudflared there connects from loopback (it does when the tunnel's service URL is `localhost`).
+
 ## 2026-10-01 Laboratory settings and camera selection survive a scanner reading the file
 
 - The WinError 5 replace failure from the entry below also applied to `scheduling-lab.json` (Apply and Cancel change overwrite it) and `data/config/camera_selection.json` (every reselection overwrites it). Both now use `utils/filesystem.replace_file`. Holding either file open with all sharing modes made the previous code fail at once with `PermissionError: [WinError 5]`; the new code replaces it. No retry was added.

@@ -128,4 +128,6 @@ Keep this pattern for any new write endpoint.
    - Use empty option when clearing a slot.
 
 3. Writes blocked with local-access error:
-   - Confirm request IP resolves to loopback/local in `X-Forwarded-For`.
+   - Writes need a browser on the RobotControl computer itself. Requests through a
+     tunnel or proxy (Cloudflare, `X-Forwarded-For` with another address) are remote
+     by design; see the connection classifier in the logfile maintenance guide.

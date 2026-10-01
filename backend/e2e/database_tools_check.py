@@ -12,6 +12,9 @@ Failure cases:
   the report slot is freed, and the next good update produces reports again.
 - Export uses the installed version, excludes generated/cache/config files and keeps
   authored assets. Anonymous, remote and non-admin callers cannot manage packages.
+  A loopback peer relaying another client (X-Forwarded-For with any non-loopback
+  entry, Cloudflare, Forwarded or X-Real-IP headers) is remote, even when the
+  client-supplied first X-Forwarded-For entry claims 127.0.0.1.
 - Preview is bound to the user, package version and inputs. Wrong confirmation,
   repeated execution, missing experiments and SQL failures cannot cause writes. Busy
   or unknown robot state, unresolved recovery and unavailable safety storage refuse a
@@ -95,7 +98,16 @@ def run(evidence=ROOT/'test-output/database-verification'):
                 client.headers['authorization'] = 'admin'
                 with TestClient(app, client=('10.1.2.3', 1234), headers={'authorization':'admin','x-forwarded-for':'127.0.0.1'}) as remote:
                     assert remote.get(BASE+'/packages').status_code == 403
-                checks.append('Local administrator checks, forwarded-header denial and retired SQL route: passed')
+                # A tunnel on this computer (cloudflared) connects from loopback and appends the real
+                # client after whatever X-Forwarded-For the client sent.
+                for relayed in ({'x-forwarded-for': '127.0.0.1, 203.0.113.9'}, {'x-forwarded-for': '203.0.113.9'},
+                                {'cf-connecting-ip': '203.0.113.9'}, {'cf-ray': '8c1f-LHR'},
+                                {'x-forwarded-for': '127.0.0.1', 'cf-connecting-ip': '127.0.0.1'},
+                                {'forwarded': 'for=203.0.113.9;proto=https'}, {'x-real-ip': '203.0.113.9'}):
+                    assert client.get(BASE+'/packages', headers=relayed).status_code == 403, relayed
+                assert client.get(BASE+'/packages', headers={'x-forwarded-for': '127.0.0.1, ::1'}).status_code == 200
+                assert client.get(BASE+'/packages').status_code == 200
+                checks.append('Local administrator checks, forwarded-header denial (remote and tunnelled loopback) and retired SQL route: passed')
                 # Exercise the author's actual CLI, then upload its output through HTTP.
                 project = Path(temp)/'author-report'
                 original = ROOT/'database_packages/culture-history/culture_history.py'
