@@ -27,8 +27,10 @@ logger = logging.getLogger(__name__)
 REPORT_TIMEOUT_SECONDS = 300
 # Preparation is short data setup before a launch; a longer step is treated as hung.
 PREPARATION_TIMEOUT_SECONDS = 120
-# System status re-checks saved connections at most this often.
+# System status re-checks saved connections in the background at most this often, and never
+# serves a result older than HEALTH_STALE_SECONDS.
 HEALTH_CACHE_SECONDS = 30
+HEALTH_STALE_SECONDS = 3 * HEALTH_CACHE_SECONDS
 
 
 class PreparationFailed(Exception):
@@ -368,15 +370,18 @@ class DatabaseTools:
     def connection_health(self):
         """Every saved connection, what uses it and whether it opened (System status).
 
-        Only the first call waits for the checks. Later calls return the last result at once
-        and, when it is older than HEALTH_CACHE_SECONDS, start one background re-check, so an
-        unreachable server's connect timeout never delays the page's other readings and open
-        pages do not open SQL sessions every minute. checked_at says how old the result is.
+        A result younger than HEALTH_STALE_SECONDS is returned at once and, when older than
+        HEALTH_CACHE_SECONDS, re-checked in one background thread, so an unreachable server's
+        connect timeout does not delay the page's other readings and open pages do not open
+        SQL sessions every minute. An older result (the first call, a long idle period, or
+        background checks that keep failing) is never served: the check runs in the call and
+        its failure reaches the caller, so stale data cannot keep a connection looking healthy.
         """
         with self.lock:
             cached = getattr(self, '_health', None)
-            if cached:
-                if time.monotonic() - cached[0] >= HEALTH_CACHE_SECONDS and not getattr(self, '_health_checking', False):
+            age = time.monotonic() - cached[0] if cached else None
+            if age is not None and age < HEALTH_STALE_SECONDS:
+                if age >= HEALTH_CACHE_SECONDS and not getattr(self, '_health_checking', False):
                     self._health_checking = True
                     threading.Thread(target=self._check_health_in_background, name='connection-health', daemon=True).start()
                 return cached[1]
