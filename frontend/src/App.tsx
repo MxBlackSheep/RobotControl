@@ -1,5 +1,5 @@
 import React, { Suspense } from 'react';
-import { Routes, Route, Navigate, Link } from 'react-router-dom';
+import { Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
 
 // Optimized Material-UI imports for better tree-shaking
 import Box from '@mui/material/Box';
@@ -13,6 +13,7 @@ import MenuIcon from '@mui/icons-material/Menu';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { loadComponent } from './utils/BundleOptimizer';
 import LoadingSpinner from './components/LoadingSpinner';
+import PageLoadBoundary from './components/PageLoadBoundary';
 import AppSidebar from './components/AppSidebar';
 import RobotAttentionBanner from './components/RobotAttentionBanner';
 import { useSidebarLayout } from './components/navigation';
@@ -73,6 +74,7 @@ function AppShell() {
   const { mobile: isMobile, expanded: sidebarExpanded, toggle: toggleSidebar } = useSidebarLayout();
   const robotStatus = useRobotStatus(user?.username ?? null);
   const { helpOpen: shortcutsHelpOpen, closeHelp: hideShortcutsHelp } = useKeyboardNavigation({ enabled: true });
+  const { pathname } = useLocation();
   const railFooter = <Box sx={{ display: 'flex', flexDirection: isMobile || sidebarExpanded ? 'row' : 'column', alignItems: 'center', gap: 0.5, width: '100%', color: 'rail.text', '& .MuiIconButton-root': { color: 'rail.text' } }}>
     <AccountMenu compact={!isMobile && !sidebarExpanded} onChangePassword={() => { setMobileDrawerOpen(false); setPasswordDialogOpen(true); }} />
     <AppearanceControl />
@@ -99,6 +101,7 @@ function AppShell() {
         sx={{ p: { xs: `${layout.pagePhone}px`, sm: `${layout.page}px` }, minWidth: 0 }}
         tabIndex={-1} // Make focusable for skip link
       >
+        <PageLoadBoundary key={pathname}>
         <Suspense fallback={<LoadingSpinner message="Loading page..." minHeight={400} />}>
           <Routes>
             <Route path="/" element={<Dashboard />} />
@@ -123,6 +126,7 @@ function AppShell() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>
+        </PageLoadBoundary>
       </Box>
 
       <KeyboardShortcutsHelp

@@ -2,6 +2,10 @@
 
 Run: .venv/Scripts/python.exe backend/e2e/packaged_viewer_smoke.py <candidate folder>
 The candidate itself is preserved; its temporary relocated copy is removed.
+
+Failure cases include: the packaged app publishes /docs, /openapi.json, source maps or the
+bundle report through the remote tunnel; a missing hashed chunk answers index.html (200)
+instead of 404, so pages fail to load after an upgrade.
 """
 import argparse
 import gzip
@@ -13,6 +17,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -69,6 +74,15 @@ with tempfile.TemporaryDirectory(prefix='relocated-viewer-',dir=ROOT/'test-outpu
         html=request('/').decode()
         assert 'assets/' in html
         result['checks'].append('embedded frontend')
+        # Reachable through the remote tunnel: no API description, maps or bundle report; a
+        # missing chunk is 404 (not index.html) so the browser reloads instead of failing to parse.
+        for hidden in ('/docs','/redoc','/openapi.json','/bundle-analysis.html','/assets/index-missing0.js','/assets/index-missing0.js.map'):
+            try:
+                request(hidden); raise AssertionError(f'{hidden} is served')
+            except urllib.error.HTTPError as error:
+                assert error.code==404,(hidden,error.code)
+        assert 'assets/' in request('/scheduling').decode()
+        result['checks'].append('no API docs, source maps or bundle report; missing assets 404, page routes serve the app')
         token=request('/api/auth/login',dict(username='viewer-smoke',password=password))['data']['access_token']
         request('/api/auth/change-password',dict(current_password=password,new_password=secrets.token_urlsafe(24)),token)
         sources=request('/api/logfiles/sources',token=token)['data']
