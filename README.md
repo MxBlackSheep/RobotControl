@@ -55,6 +55,8 @@ For local usage, double-click the binary to run the application. Then access the
 Remote access (other PCs, phones) goes through a Cloudflare Tunnel, which serves RobotControl over
 HTTPS. Setup and the limits of remote sessions are in
 [docs/maintenance/backend/remote-access-guide.md](docs/maintenance/backend/remote-access-guide.md).
+Camera live view needs a secure page, so it works through the tunnel's `https://` address or on
+the RobotControl computer itself (`localhost`), in Chrome/Edge 94+, Safari 16.4+ or Firefox 130+.
 
 ## Source Code (Windows)
 
@@ -69,7 +71,11 @@ from the **RobotControl repository root**.
 uv sync --locked
 npm --prefix frontend ci
 npm --prefix frontend run build
+uv run --locked python build_scripts/fetch_ffmpeg.py
 ```
+
+The last command downloads the pinned LGPL `ffmpeg.exe` that encodes camera live view (H.264)
+into `build/vendor` (171 MB archive, checked against its SHA-256; not committed).
 
 uv automatically installs the Python version in `.python-version` (64-bit Python
 3.14.7) and creates `.venv`. No separate Python installation or environment

@@ -22,7 +22,7 @@ import StatusDialog from '../components/StatusDialog';
 import { isAxiosError } from 'axios';
 import { api, attemptTokenRefresh } from '@/services/api';
 import { buildApiUrl } from '@/utils/apiBase';
-import { useLiveViewSocket } from '../hooks/useLiveViewSocket';
+import { liveViewUnsupportedReason, useLiveViewSocket } from '../hooks/useLiveViewSocket';
 import VideoArchiveTab, {
   type ExperimentFolder
 } from '../components/camera/VideoArchiveTab';
@@ -35,7 +35,6 @@ interface StreamingSession {
   user_name: string;
   created_at: string;
   is_active: boolean;
-  quality_level: string;
   bandwidth_usage_mbps: number;
   actual_fps: number;
   websocket_state: string;
@@ -98,6 +97,8 @@ const CameraPage: React.FC = () => {
   const [error, setError] = useState('');
   // Live-view failures show in the viewer only; rror is for downloads on the archive.
   const [liveError, setLiveError] = useState('');
+  // Live view is H.264 only: a browser or page that cannot decode it gets this reason instead.
+  const [unsupported, setUnsupported] = useState<string | null>(null);
   const { user } = useAuth();
   const [currentTab, setCurrentTab] = useModuleSection('/camera', user);
   // Wide screens put the controls beside the image; narrower ones keep them collapsible below it.
@@ -110,7 +111,7 @@ const CameraPage: React.FC = () => {
   const [streamingLoading, setStreamingLoading] = useState(false);
   const frameStore = useMemo(createFrameStore, []);
   const [hasFrame, setHasFrame] = useState(false);
-  const setCurrentFrame = useCallback((value: string | null) => {
+  const setCurrentFrame = useCallback((value: VideoFrame | null) => {
     const changedAvailability = Boolean(frameStore.getSnapshot()) !== Boolean(value);
     frameStore.set(value);
     if (changedAvailability) setHasFrame(Boolean(value));
@@ -138,6 +139,11 @@ const CameraPage: React.FC = () => {
     onError: setLiveError,
     reconnect: () => reconnectLiveView(),
   });
+  useEffect(() => {
+    let current = true;
+    void liveViewUnsupportedReason().then(reason => { if (current) setUnsupported(reason); });
+    return () => { current = false; };
+  }, []);
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -438,13 +444,13 @@ const CameraPage: React.FC = () => {
   };
 
   /** Creates a session and connects to it; returns whether it worked. */
-  const createStreamingSession = async (quality: string = 'adaptive'): Promise<boolean> => {
-    if (streamRequestRef.current) return false;
+  const createStreamingSession = async (): Promise<boolean> => {
+    if (streamRequestRef.current || unsupported) return false;
     const controller = new AbortController();
     streamRequestRef.current = controller;
     setStreamingLoading(true);
     try {
-      const { data } = await api.post('/api/camera/streaming/session', { quality }, { signal: controller.signal });
+      const { data } = await api.post('/api/camera/streaming/session', undefined, { signal: controller.signal });
       const session = data.data;
       if (!mountedRef.current || controller.signal.aborted) return false;
       setMySession(session);
@@ -563,10 +569,10 @@ const CameraPage: React.FC = () => {
         <CameraViewport
           store={frameStore}
           hasFrame={hasFrame}
-          connection={mySession?.websocket_state ?? 'idle'}
+          connection={unsupported ? 'unavailable' : mySession?.websocket_state ?? 'idle'}
           summary={cameraSummary.text}
           sourceRevision={sourceRevision}
-          error={cameraSummary.error || liveError}
+          error={unsupported || cameraSummary.error || liveError}
           controls={<>
             <StatusChip tone={mySession?.websocket_state === 'connected' ? 'completed' : 'neutral'} label={mySession ? `My view: ${mySession.websocket_state}` : 'My view: stopped'} />
             {mySession ? <>
@@ -575,7 +581,7 @@ const CameraPage: React.FC = () => {
               </Button>
               <Button onClick={() => void reconnectLiveView()} disabled={streamingLoading}>Reconnect live view</Button>
             </> : <Button variant="contained" startIcon={<PlayArrowIcon />} onClick={() => void createStreamingSession()}
-              disabled={streamingLoading || !streamingStatus?.enabled}>
+              disabled={streamingLoading || !streamingStatus?.enabled || Boolean(unsupported)}>
               {streamingLoading ? <CircularProgress size={20} /> : 'Start my live view'}
             </Button>}
             {streamingStatus && !streamingStatus.enabled && <Typography variant="body2" color="error">Live viewing is currently disabled</Typography>}

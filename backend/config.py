@@ -88,38 +88,18 @@ LIVE_STREAMING_CONFIG = {
     "enabled": True,                           # Enable live streaming functionality
     "max_concurrent_sessions": 10,             # Maximum concurrent streaming sessions
     "session_timeout_seconds": 60,             # Session timeout after inactivity
-    "default_quality": "adaptive",             # Default streaming quality mode
     "max_bandwidth_per_session_mbps": 2.0,     # Max bandwidth per streaming session
     "total_bandwidth_limit_mbps": 15.0,        # Total bandwidth limit for all streams
     "frame_buffer_size": 30,                   # Frame buffer size (~1 second at 30fps)
     "cpu_soft_limit_percent": int(os.getenv("STREAMING_CPU_SOFT_LIMIT", "75")),  # CPU% to start degrading streams
     "cpu_hard_limit_percent": int(os.getenv("STREAMING_CPU_HARD_LIMIT", "90")),  # CPU% to stop streaming sessions
-    "quality_levels": {
-        "high": {
-            "fps": 30,
-            "resolution_scale": 1.0,
-            "jpeg_quality": 85,
-            "max_bitrate_kbps": 2000
-        },
-        "medium": {
-            "fps": 15,
-            "resolution_scale": 0.75,
-            "jpeg_quality": 75,
-            "max_bitrate_kbps": 1000
-        },
-        "low": {
-            "fps": 10,
-            "resolution_scale": 0.5,
-            "jpeg_quality": 60,
-            "max_bitrate_kbps": 500
-        },
-        "adaptive": {
-            "fps": 15,                         # Starting fps for adaptive mode
-            "resolution_scale": 0.75,          # Starting resolution for adaptive
-            "jpeg_quality": 75,                # Starting quality for adaptive
-            "max_bitrate_kbps": 1000          # Starting bitrate for adaptive
-        }
-    },
+    # One H.264 stream (640×480, one-second GOP) shared by every viewer. Level 0 is normal; the CPU
+    # guard steps down one level at a time under load and back up when calm.
+    "encoder_levels": [
+        {"fps": 15, "bitrate_kbps": 400},
+        {"fps": 10, "bitrate_kbps": 300},
+        {"fps": 5, "bitrate_kbps": 200},
+    ],
     "websocket": {
         "ping_interval": 20,                   # WebSocket ping interval in seconds
         "ping_timeout": 10,                    # WebSocket ping timeout in seconds

@@ -2,7 +2,18 @@ import asyncio
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
+import pytest
+
 from backend.services.live_streaming import LiveStreamingService
+
+# Session bookkeeping only: nothing here encodes, so ffmpeg.exe need not be present.
+pytestmark = pytest.mark.usefixtures("encoder_present")
+
+
+@pytest.fixture
+def encoder_present():
+    with patch("backend.services.live_streaming.find_ffmpeg"):
+        yield
 
 
 def test_stream_sessions_release_capacity_on_failure_and_abandonment():

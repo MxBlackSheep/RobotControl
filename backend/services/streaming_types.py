@@ -45,8 +45,6 @@ class StreamingSession:
     frames_sent: int = 0                   # Total frames sent in session
     bytes_sent: int = 0                    # Total bytes sent
     bandwidth_usage_mbps: float = 0.0      # Current bandwidth usage
-    quality_level: str = "adaptive"        # Current quality (high/medium/low/adaptive)
-    target_fps: int = 15                   # Target frames per second
     actual_fps: float = 0.0                # Actual achieved fps
     client_ip: str = ""                    # Client IP address
     websocket_state: str = "connecting"    # WebSocket state (connecting/connected/disconnected)
@@ -64,8 +62,6 @@ class StreamingSession:
             "frames_sent": self.frames_sent,
             "bytes_sent": self.bytes_sent,
             "bandwidth_usage_mbps": round(self.bandwidth_usage_mbps, 2),
-            "quality_level": self.quality_level,
-            "target_fps": self.target_fps,
             "actual_fps": round(self.actual_fps, 1),
             "client_ip": self.client_ip,
             "websocket_state": self.websocket_state,
@@ -100,7 +96,8 @@ class StreamingStatus:
     bytes_distributed: int = 0             # Total bytes distributed
     service_uptime_seconds: float = 0.0    # Service uptime in seconds
     last_error: Optional[str] = None       # Last service-level error
-    
+    encoder: Dict[str, Any] = field(default_factory=dict)  # Shared H.264 encoder: running, fps, kbps, level
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for API responses."""
         return {
@@ -116,7 +113,8 @@ class StreamingStatus:
             "frames_distributed": self.frames_distributed,
             "bytes_distributed": self.bytes_distributed,
             "service_uptime_seconds": round(self.service_uptime_seconds, 1),
-            "last_error": self.last_error
+            "last_error": self.last_error,
+            "encoder": self.encoder
         }
     
     def can_accept_new_session(self) -> bool:
@@ -178,39 +176,3 @@ class StreamFrame:
         if self.frame_number is not None:
             payload['frame_number'] = self.frame_number
         return payload
-
-
-@dataclass
-class QualitySettings:
-    """
-    Quality settings for streaming.
-    Used to control encoding parameters per session.
-    """
-    fps: int                               # Target frames per second
-    resolution_scale: float                # Resolution scaling factor (0.0-1.0)
-    jpeg_quality: int                      # JPEG compression quality (0-100)
-    max_bitrate_kbps: int                  # Maximum bitrate in kilobits per second
-    skip_frames: int = 0                   # Number of frames to skip (for degradation)
-    
-    @classmethod
-    def from_config(cls, quality_level: str, config: Dict[str, Any]) -> "QualitySettings":
-        """Create from configuration dictionary."""
-        quality_config = config["quality_levels"].get(quality_level, config["quality_levels"]["medium"])
-        return cls(
-            fps=quality_config["fps"],
-            resolution_scale=quality_config["resolution_scale"],
-            jpeg_quality=quality_config["jpeg_quality"],
-            max_bitrate_kbps=quality_config["max_bitrate_kbps"]
-        )
-    
-    def degrade(self) -> "QualitySettings":
-        """Return degraded quality settings for resource protection."""
-        return QualitySettings(
-            fps=max(5, self.fps // 2),
-            resolution_scale=max(0.25, self.resolution_scale * 0.75),
-            jpeg_quality=max(30, self.jpeg_quality - 20),
-            max_bitrate_kbps=max(250, self.max_bitrate_kbps // 2),
-            skip_frames=min(5, self.skip_frames + 1)
-        )
-
-

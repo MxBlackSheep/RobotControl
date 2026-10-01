@@ -1,6 +1,8 @@
 """Isolated synthetic streaming comparison: no camera, SQL, SMTP or runtime data.
 
 Run: python -m backend.scripts.performance_probe --seconds 3 --trials 3
+Frames are 640x480 (the camera's size) with motion, encoded by the real H.264 encoder
+(build/vendor/ffmpeg, see build_scripts/fetch_ffmpeg.py). CPU seconds include the ffmpeg child.
 This is a microbenchmark, not real camera/endurance acceptance.
 """
 import argparse
@@ -38,7 +40,7 @@ async def trial(seconds, viewers):
         service = LiveStreamingService()
     service.frame_buffer.clear()
     service.cpu_soft_limit = service.cpu_hard_limit = 10000
-    frame = np.random.default_rng(42).integers(0, 256, (720, 1280, 3), dtype=np.uint8)
+    base = np.random.default_rng(42).integers(0, 256, (480, 640, 3), dtype=np.uint8)
     for number in range(viewers):
         session = StreamingSession(str(number), str(number), "probe", datetime.now(), datetime.now(), True)
         sink = Sink()
@@ -50,10 +52,16 @@ async def trial(seconds, viewers):
     cpu_start = time.process_time()
     started = time.monotonic()
     await service.start_service()
-    ticks, delays = 0, []
+    ticks, delays, encoder_cpu = 0, [], 0.0
     while time.monotonic() - started < seconds:
         before = time.monotonic()
-        service.frame_buffer.put_frame(frame)
+        service.frame_buffer.put_frame(np.roll(base, ticks * 4, axis=1))
+        if service._encoder is not None and service._encoder.pid:
+            try:
+                times = psutil.Process(service._encoder.pid).cpu_times()
+                encoder_cpu = times.user + times.system
+            except psutil.Error:
+                pass
         await asyncio.sleep(1 / 30)
         delays.append(max(0, time.monotonic() - before - 1 / 30))
         ticks += 1
@@ -64,6 +72,7 @@ async def trial(seconds, viewers):
     memory = psutil.Process().memory_info()
     return {"viewers": viewers, "seconds": round(elapsed, 3), "source_frames": ticks,
             "sent_frames": sends, "bytes_per_frame": round(sent_bytes / sends) if sends else None, "cpu_seconds": round(time.process_time() - cpu_start, 3),
+            "encoder_cpu_seconds": round(encoder_cpu, 3),
             "buffer_reads": service.frame_buffer.frames_read_streaming - reads_before,
             "event_loop_delay_p95_ms": round(sorted(delays)[int(len(delays) * .95)] * 1000, 2),
             "working_set_bytes": memory.rss, "private_bytes": getattr(memory, "private", None)}
