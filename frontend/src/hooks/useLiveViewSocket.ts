@@ -1,23 +1,46 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { buildWsUrl } from '@/utils/apiBase';
 
-/** backend/services/streaming_session.py FRAME_HEADER: <BIdHH (version, sequence, time, width, height). */
-const HEADER_BYTES = 17;
-const FRAME_VERSION = 1;
+/** backend/services/streaming_session.py FRAME_HEADER: <BIdHHB (version, sequence, time, width, height, flags). */
+const HEADER_BYTES = 18;
+const FRAME_VERSION = 2;
+const FLAG_KEYFRAME = 1;
+/** backend/services/h264_encoder.py encodes H.264 Constrained Baseline; level 3.1 covers 640×480. */
+const H264_CODEC = 'avc1.42E01F';
 const RECONNECT_MAX_MS = 30_000;
 // streaming_session.py ends a session silent for 75 s; Cloudflare closes idle sockets at ~100 s.
 const KEEPALIVE_MS = 30_000;
 
 export type LiveViewState = 'connecting' | 'connected' | 'disconnected' | 'reconnecting';
 
+/** A decoder for one socket and frame size; `received` is the newest sequence given to it. */
+type Decoding = { decoder: VideoDecoder; size: string; received: number };
+
+export const UNSUPPORTED_BROWSER = "This browser can't show live view; use Chrome/Edge 94+, Safari 16.4+ or Firefox 130+.";
+export const INSECURE_PAGE = "Live view needs a secure connection. Open RobotControl through its https:// address, or on the RobotControl computer.";
+
+/** Live view is H.264 only (no image fallback). Returns why this page cannot show it, or null. */
+export async function liveViewUnsupportedReason(): Promise<string | null> {
+  // WebCodecs exists only on secure pages (HTTPS, or localhost on the RobotControl computer).
+  if (!window.isSecureContext) return INSECURE_PAGE;
+  if (typeof VideoDecoder === 'undefined') return UNSUPPORTED_BROWSER;
+  try {
+    const { supported } = await VideoDecoder.isConfigSupported({ codec: H264_CODEC, optimizeForLatency: true });
+    return supported ? null : UNSUPPORTED_BROWSER;
+  } catch {
+    return UNSUPPORTED_BROWSER;
+  }
+}
+
 /**
- * Owns the live-view WebSocket: binary frames, acknowledgements (the server sends at most two
- * unacknowledged frames, so a slow tunnel lowers the frame rate instead of queueing video),
- * pause while the tab is hidden, and automatic reconnection. The page owns the session API:
- * `reconnect` creates a new session and calls `connect`; it returns whether that worked.
+ * Owns the live-view WebSocket: H.264 frames decoded by WebCodecs, acknowledgements (the server
+ * keeps about one round trip of unacknowledged frames in flight, so a slow link lowers the frame
+ * rate instead of queueing video), pause while the tab is hidden, and automatic reconnection. The page owns the
+ * session API: `reconnect` creates a new session and calls `connect`; it returns whether that
+ * worked. Decoded frames go to `showFrame`, which takes ownership (the frame store closes them).
  */
 export function useLiveViewSocket(options: {
-  showFrame: (url: string | null) => void;
+  showFrame: (frame: VideoFrame | null) => void;
   onState: (state: LiveViewState) => void;
   onError: (message: string) => void;
   reconnect: () => Promise<boolean>;
@@ -25,7 +48,7 @@ export function useLiveViewSocket(options: {
   const latest = useRef(options);
   latest.current = options;
   const socket = useRef<WebSocket | null>(null);
-  const shownUrl = useRef<string | null>(null);
+  const decoding = useRef<Decoding | null>(null);
   const shownSequence = useRef(0);
   // The viewer wants live view: false after Stop or unmount, so nothing reconnects then.
   const wanted = useRef(false);
@@ -37,48 +60,76 @@ export function useLiveViewSocket(options: {
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type, parameters }));
   };
 
-  const replaceFrame = useCallback((url: string | null) => {
-    const previous = shownUrl.current;
-    shownUrl.current = url;
-    latest.current.showFrame(url);
-    // The image element switches to the new URL first; release the old one afterwards.
-    if (previous) setTimeout(() => URL.revokeObjectURL(previous), 1000);
+  const closeDecoder = useCallback(() => {
+    const current = decoding.current;
+    decoding.current = null;
+    if (current && current.decoder.state !== 'closed') current.decoder.close();
   }, []);
 
   const detach = useCallback(() => {
     clearInterval(keepaliveTimer.current);
+    closeDecoder();
     const ws = socket.current;
     socket.current = null;
     if (ws) {
       ws.onopen = ws.onmessage = ws.onerror = ws.onclose = null;
       ws.close();
     }
-  }, []);
+  }, [closeDecoder]);
 
-  const receiveFrame = async (ws: WebSocket, buffer: ArrayBuffer) => {
+  /** Acknowledgements are cumulative: "this frame and every earlier one". */
+  const openDecoder = (ws: WebSocket, size: string): Decoding => {
+    const entry: Decoding = { decoder: null as unknown as VideoDecoder, size, received: 0 };
+    entry.decoder = new VideoDecoder({
+      output: (frame) => {
+        const sequence = frame.timestamp;
+        send(ws, 'ack', { sequence });
+        // Frames from a replaced socket or decoder, or older than the one shown, are dropped.
+        if (socket.current !== ws || decoding.current !== entry || sequence <= shownSequence.current) {
+          frame.close();
+          return;
+        }
+        shownSequence.current = sequence;
+        latest.current.showFrame(frame);
+      },
+      error: () => {
+        // The decoder has closed itself. Acknowledge what it held so the server keeps sending;
+        // the next keyframe starts a new decoder.
+        send(ws, 'ack', { sequence: entry.received });
+        if (decoding.current === entry) decoding.current = null;
+      },
+    });
+    entry.decoder.configure({ codec: H264_CODEC, optimizeForLatency: true });
+    return entry;
+  };
+
+  const receiveFrame = (ws: WebSocket, buffer: ArrayBuffer) => {
     if (buffer.byteLength <= HEADER_BYTES) return;
     const header = new DataView(buffer);
     if (header.getUint8(0) !== FRAME_VERSION) return;
     const sequence = header.getUint32(1, true);
-    const url = URL.createObjectURL(new Blob([buffer.slice(HEADER_BYTES)], { type: 'image/jpeg' }));
+    const size = `${header.getUint16(13, true)}x${header.getUint16(15, true)}`;
+    const keyframe = (header.getUint8(17) & FLAG_KEYFRAME) !== 0;
+    let current = decoding.current;
+    if (keyframe && current && current.size !== size) {
+      closeDecoder(); // A new frame size starts a fresh decoder at this keyframe.
+      current = null;
+    }
+    if (!current) {
+      if (!keyframe) {
+        send(ws, 'ack', { sequence }); // A delta frame needs the frames before it: skip it.
+        return;
+      }
+      current = decoding.current = openDecoder(ws, size);
+    }
+    current.received = sequence;
     try {
-      // Decode off-screen so the visible image never shows a half-loaded frame.
-      const image = new Image();
-      image.src = url;
-      await image.decode();
+      current.decoder.decode(new EncodedVideoChunk({ type: keyframe ? 'key' : 'delta', timestamp: sequence,
+        data: new Uint8Array(buffer, HEADER_BYTES) }));
     } catch {
-      URL.revokeObjectURL(url);
       send(ws, 'ack', { sequence });
-      return;
+      closeDecoder();
     }
-    send(ws, 'ack', { sequence });
-    // Frames from a replaced socket, or older than the one shown, are dropped.
-    if (socket.current !== ws || sequence <= shownSequence.current) {
-      URL.revokeObjectURL(url);
-      return;
-    }
-    shownSequence.current = sequence;
-    replaceFrame(url);
   };
 
   const scheduleReconnect = useCallback(() => {
@@ -116,7 +167,7 @@ export function useLiveViewSocket(options: {
     ws.onmessage = (event) => {
       if (socket.current !== ws) return;
       if (event.data instanceof ArrayBuffer) {
-        void receiveFrame(ws, event.data);
+        receiveFrame(ws, event.data);
         return;
       }
       try {
@@ -130,11 +181,12 @@ export function useLiveViewSocket(options: {
       if (socket.current !== ws) return;
       socket.current = null;
       clearInterval(keepaliveTimer.current);
+      closeDecoder();
       // Keep the last image: its freshness label turns stale while reconnecting.
       latest.current.onState('disconnected');
       scheduleReconnect();
     };
-  }, [detach, scheduleReconnect]);
+  }, [detach, closeDecoder, scheduleReconnect]);
 
   /** Close the socket but keep the last image (a manual reconnect replaces the session). */
   const close = useCallback(() => {
@@ -146,8 +198,8 @@ export function useLiveViewSocket(options: {
   const stop = useCallback(() => {
     wanted.current = false;
     close();
-    replaceFrame(null);
-  }, [close, replaceFrame]);
+    latest.current.showFrame(null);
+  }, [close]);
 
   useEffect(() => {
     const visibility = () => {

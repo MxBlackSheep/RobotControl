@@ -5,6 +5,7 @@ import gzip
 import hashlib
 import io
 import json
+import subprocess
 import sys
 import tempfile
 import time
@@ -16,10 +17,10 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from fastapi import FastAPI, Request, WebSocket, HTTPException
 from fastapi.responses import FileResponse
-from PIL import Image, ImageDraw
 from backend.api import logfiles
 from backend.services.auth import get_current_user
-from backend.services.streaming_session import FRAME_HEADER, FRAME_VERSION
+from backend.services.h264_encoder import find_ffmpeg, read_flv_packets
+from backend.services.streaming_session import FLAG_KEYFRAME, FRAME_HEADER, FRAME_VERSION
 
 temporary = tempfile.TemporaryDirectory(prefix='viewer-e2e-')
 fixture = Path(temporary.name)
@@ -149,10 +150,28 @@ def create_session():
 def delete_session(ident: str): return dict(success=True)
 
 
+clips = {}
+
+
+def fixture_clip(width, height):
+    """Two one-second GOPs (30 frames) of H.264 from the bundled ffmpeg, in the server's FLV→Annex-B
+    form: red, lime, yellow and magenta 40 px corner squares on blue, so a check can read pixels."""
+    if (width, height) not in clips:
+        corners = [(0, 0, 'red'), (width - 40, 0, 'lime'), (0, height - 40, 'yellow'), (width - 40, height - 40, 'magenta')]
+        boxes = ','.join(f'drawbox=x={x}:y={y}:w=40:h=40:color={color}:t=fill' for x, y, color in corners)
+        output = subprocess.run([str(find_ffmpeg()), '-hide_banner', '-loglevel', 'error', '-f', 'lavfi',
+            '-i', f'color=c=0x244d6b:s={width}x{height}:r=15:d=2', '-vf', boxes, '-c:v', 'libopenh264',
+            '-profile:v', 'constrained_baseline', '-b:v', '400k', '-g', '15', '-bf', '0', '-pix_fmt', 'yuv420p',
+            '-f', 'flv', 'pipe:1'], capture_output=True, check=True).stdout
+        clips[(width, height)] = list(read_flv_packets(io.BytesIO(output)))
+    return clips[(width, height)]
+
+
 @app.websocket('/api/camera/streaming/video/{ident}')
 async def video(ws: WebSocket, ident: str):
-    # Same wire format as backend/services/streaming_session.py: binary header + JPEG,
-    # JSON control messages from the browser ({type: ack|pause|resume}).
+    # Same wire format as backend/services/streaming_session.py: binary header + one H.264 access
+    # unit; JSON control messages from the browser ({type: ack|pause|resume|keepalive}). Like the
+    # server, a viewer starts, resumes and changes frame size at a keyframe.
     await ws.accept()
     controls = camera.setdefault('controls', [])
     paused = False
@@ -164,28 +183,28 @@ async def video(ws: WebSocket, ident: str):
             if message.get('type') in ('pause', 'resume'):
                 paused = message['type'] == 'pause'
     reader = asyncio.create_task(read_controls())
-    sequence = 0
+    sequence, position, size = 0, 0, None
     try:
         while not reader.done():
             if camera['disconnect']:
                 await ws.close()
                 return
             if camera['send_frames'] and not paused:
-                width, height = camera['width'], camera['height']
-                frame = Image.new('RGB',(width,height),'#244d6b')
-                draw = ImageDraw.Draw(frame)
-                for (x,y), color in zip([(0,0),(width-40,0),(0,height-40),(width-40,height-40)],['red','lime','yellow','magenta']):
-                    draw.rectangle((x,y,x+39,y+39),fill=color)
-                draw.text((width//2,height//2),f'{width} x {height}',fill='white')
-                output=io.BytesIO();frame.save(output,format='JPEG')
+                clip = fixture_clip(camera['width'], camera['height'])
+                if size != (camera['width'], camera['height']):
+                    size, position = (camera['width'], camera['height']), 0
+                keyframe, data = clip[position % len(clip)]
+                position += 1
                 sequence += 1
-                await ws.send_bytes(FRAME_HEADER.pack(FRAME_VERSION, sequence, time.time(), width, height) + output.getvalue())
+                await ws.send_bytes(FRAME_HEADER.pack(FRAME_VERSION, sequence, time.time(), size[0], size[1],
+                                                      FLAG_KEYFRAME if keyframe else 0) + data)
+            else:
+                position = 0  # Resume at the clip's first frame, a keyframe.
             await asyncio.sleep(.2)
     except Exception:
         pass
     finally:
         reader.cancel()
-
 
 from backend.api.database_tools import router as database_tools_router, get_lab_settings
 from backend.services.database_tools import DatabaseTools, get_database_tools

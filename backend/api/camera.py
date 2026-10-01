@@ -15,7 +15,7 @@ Features:
 import os
 import logging
 from datetime import datetime
-from typing import List, Literal, Optional, Dict
+from typing import List, Optional, Dict
 from pathlib import Path
 from pydantic import BaseModel, Field
 from email.utils import formatdate
@@ -47,10 +47,6 @@ router = APIRouter(prefix="/camera", tags=["camera"])
 
 class CameraSelectionRequest(BaseModel):
     device_identity: str = Field(min_length=1, max_length=4096)
-
-
-class StreamingSessionRequest(BaseModel):
-    quality: Literal["high", "medium", "low", "adaptive"] = "adaptive"
 
 
 def _camera_operation(action, **kwargs):
@@ -518,17 +514,15 @@ async def delete_recording(
 
 @router.post("/streaming/session")
 async def create_streaming_session(
-    request: Optional[StreamingSessionRequest] = None,
     current_user: dict = Depends(get_current_user),
     connection: ConnectionContext = Depends(get_connection_context),
 ):
     """
-    Create a new live streaming session for the authenticated user.
-
-    The JSON body's `quality` (high/medium/low/adaptive) sets the starting quality;
-    without a body the session starts adaptive.
+    Create a new live streaming session for the authenticated user (one shared H.264 stream).
+    503 with the reason when the encoder (ffmpeg.exe) is missing.
     """
     try:
+        from backend.services.h264_encoder import EncoderUnavailable
         from backend.services.live_streaming import get_live_streaming_service
 
         streaming_service = get_live_streaming_service()
@@ -538,7 +532,6 @@ async def create_streaming_session(
             user_id=current_user["user_id"],
             user_name=current_user["username"],
             client_ip=connection.client_ip or "unknown",
-            quality=(request or StreamingSessionRequest()).quality,
         )
         
         if not session:
@@ -555,6 +548,8 @@ async def create_streaming_session(
             data=session.to_dict()
         )
         
+    except EncoderUnavailable as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     except ImportError:
         logger.error("StreamingAPI | event=service_unavailable")
         raise HTTPException(

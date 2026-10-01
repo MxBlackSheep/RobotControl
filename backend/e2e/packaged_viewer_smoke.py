@@ -5,7 +5,10 @@ The candidate itself is preserved; its temporary relocated copy is removed.
 
 Failure cases include: the packaged app publishes /docs, /openapi.json, source maps or the
 bundle report through the remote tunnel; a missing hashed chunk answers index.html (200)
-instead of 404, so pages fail to load after an upgrade.
+instead of 404, so pages fail to load after an upgrade; the relocated package cannot find or
+start its own ffmpeg.exe for live view (or its kill-on-close Job Object), starts it with nobody
+watching, keeps it after the viewer leaves, or leaves it running after RobotControl is killed.
+No camera is attached, so this proves the encoder process boundary, not encoding.
 """
 import argparse
 import gzip
@@ -21,6 +24,9 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+import psutil
+from websockets.sync.client import connect
+
 ROOT = Path(__file__).resolve().parents[2]
 parser = argparse.ArgumentParser()
 parser.add_argument('candidate', type=Path)
@@ -30,6 +36,13 @@ assert (candidate/'RobotControl.exe').is_file(), candidate
 evidence = ROOT/'test-output/viewer-verification'
 evidence.mkdir(parents=True, exist_ok=True)
 result = dict(candidate=str(candidate), checks=[], automation_disabled=True)
+
+
+def wait_for(condition, seconds=10):
+    deadline = time.monotonic() + seconds
+    while not condition():
+        assert time.monotonic() < deadline, condition
+        time.sleep(.2)
 
 
 def request(path, body=None, token=None, method=None):
@@ -118,6 +131,32 @@ with tempfile.TemporaryDirectory(prefix='relocated-viewer-',dir=ROOT/'test-outpu
         time.sleep(.2)
         assert not list((relocated/'data/temp/log-readers').rglob('*.txt'))
         result['checks'].append('reader temporary file released')
+
+        def encoders():
+            found = []
+            for process in psutil.process_iter(['exe', 'ppid']):
+                exe = process.info['exe']
+                if exe and Path(exe).resolve() == (relocated/'ffmpeg.exe').resolve():
+                    found.append(process)
+            return found
+        def viewer():
+            session = request('/api/camera/streaming/session', token=token, method='POST')['data']
+            return connect(f"ws://127.0.0.1:8017/api/camera/streaming/video/{session['session_id']}")
+        encoder_running = lambda: request('/api/camera/streaming/status', token=token)['data']['status']['encoder']['running']
+        assert (relocated/'ffmpeg.exe').is_file() and (relocated/'THIRD_PARTY_NOTICES'/'FFmpeg.txt').is_file()
+        assert not encoders() and not encoder_running()
+        with viewer():
+            wait_for(lambda: encoders() and encoder_running())
+            assert [process.info['ppid'] for process in encoders()] == [proc.pid]
+            result['checks'].append("live view starts the relocated package's own ffmpeg.exe, as a RobotControl child, only once someone watches")
+        wait_for(lambda: not encoders() and not encoder_running())
+        result['checks'].append('the encoder stops when the last viewer leaves')
+        with viewer():
+            wait_for(encoders)
+            proc.kill()  # TerminateProcess: no shutdown code runs; only the Job Object can end ffmpeg
+            proc.wait(15)
+            wait_for(lambda: not encoders())
+        result['checks'].append('no ffmpeg.exe remains after RobotControl is killed while a viewer watches')
         result['passed']=True
     finally:
         proc.terminate()

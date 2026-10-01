@@ -1,6 +1,7 @@
 """
 Live streaming service for managing multiple concurrent streaming sessions.
-Coordinates with SharedFrameBuffer so streaming can reuse recording frames.
+Coordinates with SharedFrameBuffer so streaming can reuse recording frames, and owns the one
+H.264 encoder whose output every viewer shares.
 """
 
 import asyncio
@@ -8,17 +9,14 @@ import logging
 import threading
 import uuid
 import time
-from backend.services.frame_encoder import FrameEncoder
 from collections import deque
 from datetime import datetime, timedelta
 import psutil
 from typing import Dict, Optional, Any, Deque
 from fastapi import WebSocket
 
-from backend.services.streaming_types import (
-    StreamingSession, StreamingStatus, QualitySettings,
-    FrameData
-)
+from backend.services.h264_encoder import AccessUnit, EncoderSettings, EncoderUnavailable, H264Encoder, find_ffmpeg
+from backend.services.streaming_types import StreamingSession, StreamingStatus
 from backend.services.streaming_session import ACK_TIMEOUT_SECONDS, BROWSER_SILENCE_SECONDS, StreamingSessionHandler
 from backend.services.shared_frame_buffer import get_shared_frame_buffer
 from backend.config import LIVE_STREAMING_CONFIG
@@ -28,6 +26,13 @@ logger = logging.getLogger(__name__)
 # One quality step back up after this many consecutive one-second samples below this CPU %.
 CPU_RECOVER_PERCENT = 50
 CPU_RECOVER_SAMPLES = 10
+# The shared stream's settings; the CPU guard moves between them (0 is normal).
+ENCODER_LEVELS = tuple(EncoderSettings(level["fps"], level["bitrate_kbps"])
+                       for level in LIVE_STREAMING_CONFIG["encoder_levels"])
+# After an encoder crash, wait 1, 2, 4 … up to 30 s before the next start; a minute without a
+# crash resets the delay.
+ENCODER_RETRY_MAX_SECONDS = 30
+ENCODER_CRASH_MEMORY_SECONDS = 60
 
 
 class LiveStreamingService:
@@ -35,35 +40,35 @@ class LiveStreamingService:
     Main service for managing live streaming sessions.
     Singleton pattern to ensure single instance.
     """
-    
+
     _instance = None
     _lock = threading.Lock()
-    
+
     def __new__(cls):
         if cls._instance is None:
             with cls._lock:
                 if cls._instance is None:
                     cls._instance = super().__new__(cls)
         return cls._instance
-    
+
     def __init__(self):
         """Initialize the live streaming service."""
         # Skip initialization if already done
         if hasattr(self, '_initialized'):
             return
-        
+
         self.config = LIVE_STREAMING_CONFIG
         self.enabled = self.config["enabled"]
-        
+
         # Session management
         self.sessions: Dict[str, StreamingSessionHandler] = {}
         self.sessions_by_user: Dict[str, str] = {}
         self.session_lock = asyncio.Lock()
         self._service_lock = asyncio.Lock()
-        
+
         # Service components
         self.frame_buffer = get_shared_frame_buffer(self.config["frame_buffer_size"])
-        
+
         # Hook camera recording into shared buffer for streaming
         self._ensure_camera_integration()
 
@@ -72,15 +77,25 @@ class LiveStreamingService:
         self.total_sessions_created = 0
         self.total_frames_distributed = 0
         self.total_bytes_distributed = 0
-        
+
         # Frame distribution
         self.distribution_task: Optional[asyncio.Task] = None
         self.distribution_active = False
         self._frame_event = asyncio.Event()
-        self._encoder = None
         self._delivery_tasks = {}
         self._delivery_events = {}
-        self._pending_frames = {}
+
+        # The shared encoder. Only _update_encoder starts or stops it (under _encoder_lock).
+        self._encoder_factory = H264Encoder
+        self._encoder = None
+        self._encoder_lock = asyncio.Lock()
+        self._encoder_level = 0
+        self._encoder_crashes: Deque[float] = deque(maxlen=8)
+        self._encoder_retry_at = 0.0
+        self._encoder_error: Optional[str] = None
+        self._next_submit = 0.0
+        self._stream_fps = ENCODER_LEVELS[0].fps
+        self._encoder_process: Optional[psutil.Process] = None
 
         self.cpu_soft_limit = self.config.get("cpu_soft_limit_percent", 75)
         self.cpu_hard_limit = self.config.get("cpu_hard_limit_percent", 90)
@@ -100,10 +115,9 @@ class LiveStreamingService:
         self._resource_state = "normal"
         self._recording_impact = "none"
 
-        
-        
         self._initialized = True
         logger.info("Streaming | event=service_init | enabled=%s", self.enabled)
+
     def _ensure_camera_integration(self) -> None:
         """Ensure camera recording publishes frames into the shared buffer."""
         try:
@@ -138,10 +152,8 @@ class LiveStreamingService:
                 logger.debug("Streaming | event=start_ignored | reason=already_active")
                 return
 
-
             # Start frame distribution
             self.distribution_active = True
-            self._encoder = FrameEncoder()
             self.frame_buffer.subscribe_frames(asyncio.get_running_loop(), self._frame_event)
             self.service_started_at = datetime.now()
             self.distribution_task = asyncio.create_task(self._frame_distribution_loop())
@@ -166,13 +178,10 @@ class LiveStreamingService:
                 except asyncio.CancelledError:
                     pass
 
-            # Stop all sessions
+            # Stop all sessions, then the encoder (nobody is watching any more)
             await self._terminate_all_sessions("Service shutdown")
-            if self._encoder:
-                await self._encoder.close()
-                self._encoder = None
+            await self._update_encoder()
             self.distribution_task = None
-
 
             logger.info("Streaming | event=service_stopped")
 
@@ -181,20 +190,14 @@ class LiveStreamingService:
         user_id: str,
         user_name: str,
         client_ip: str,
-        quality: str = "adaptive"
     ) -> Optional[StreamingSession]:
         """
         Create a new streaming session.
 
-        Args:
-            user_id: User identifier
-            user_name: User display name
-            client_ip: Client IP address
-            quality: Initial quality setting
-
-        Returns:
-            StreamingSession object or None if cannot create
+        Returns the StreamingSession, or None at capacity or for a duplicate user. Raises
+        EncoderUnavailable (with the reason to show) when ffmpeg.exe is missing.
         """
+        find_ffmpeg()
         await self.ensure_service_started()
         await self._expire_pending_sessions()
 
@@ -229,7 +232,6 @@ class LiveStreamingService:
                 created_at=datetime.now(),
                 last_activity=datetime.now(),
                 is_active=False,  # Starts inactive until WebSocket connects
-                quality_level=quality,
                 client_ip=client_ip,
                 websocket_state="connecting"
             )
@@ -270,14 +272,14 @@ class LiveStreamingService:
             # must never replace a live handler and orphan its delivery task.
             if previous is None or previous.websocket is not None:
                 return None
-            handler = StreamingSessionHandler(previous.session, websocket,
-                QualitySettings.from_config(previous.session.quality_level, self.config))
+            handler = StreamingSessionHandler(previous.session, websocket)
             self.sessions[session_id] = handler
         try:
             await asyncio.wait_for(handler.start(), timeout=self.config.get("session_timeout_seconds", 60))
             if self.sessions.get(session_id) is not handler:
                 await handler.stop()
                 return None
+            self._frame_event.set()  # Start the encoder now if this is the first viewer.
             return handler
         except BaseException:
             await self.terminate_session(session_id, expected=handler)
@@ -290,7 +292,7 @@ class LiveStreamingService:
     ) -> None:
         """
         Handle a complete WebSocket streaming session.
-        
+
         Args:
             session_id: Session identifier
             websocket: WebSocket connection
@@ -302,31 +304,33 @@ class LiveStreamingService:
             if not handler:
                 await websocket.close(code=4004, reason="Session not found")
                 return
-            
+
             # Handle control messages
             while handler.is_running:
                 control = await handler.receive_control()
                 if control is None:
                     break  # Connection closed
-                
+
                 await handler.handle_control(control)
-        
+                if control.type in ("pause", "resume"):
+                    self._frame_event.set()  # The encoder may now be needed, or not.
+
         except Exception as e:
             logger.error("Streaming | event=websocket_error | session=%s | error=%s", session_id, e)
-        
+
         finally:
             # Clean up session
             if handler:
                 await self.terminate_session(session_id, expected=handler)
-    
+
     async def stop_session(self, session_id: str, user_id: str) -> bool:
         """
         Stop a streaming session for a specific user.
-        
+
         Args:
             session_id: Session identifier
             user_id: User identifier (for security check)
-            
+
         Returns:
             True if session was stopped successfully
         """
@@ -347,12 +351,12 @@ class LiveStreamingService:
             if self.sessions_by_user.get(user_id) == session_id:
                 del self.sessions_by_user[user_id]
         task = self._delivery_tasks.pop(session_id, None)
-        self._pending_frames.pop(session_id, None)
         self._delivery_events.pop(session_id, None)
         if task and task is not asyncio.current_task():
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
         await handler.stop()
+        self._frame_event.set()  # Stop the encoder promptly if that was the last viewer.
         return True
 
     async def _expire_pending_sessions(self):
@@ -378,49 +382,129 @@ class LiveStreamingService:
                     pass
                 self._frame_event.clear()
                 await self._apply_resource_guard()
+                await self._update_encoder()
                 frame = self.frame_buffer.get_frame_for_streaming(timeout=0)
                 if frame is not None and frame is not last_frame:
                     last_frame = frame
-                    await self._distribute_frame(frame)
+                    self._submit_frame(frame)
             except asyncio.CancelledError:
                 raise
             except Exception:
                 logger.exception("Streaming frame distribution failed")
                 await asyncio.sleep(.1)
 
-    async def _distribute_frame(self, frame_data: FrameData) -> None:
-        # Each viewer has one latest-frame slot, never an accumulating queue.
+    def _submit_frame(self, frame) -> None:
+        """Pace camera frames (about 30 fps) to the encoder's rate. Encoding happens only here,
+        once for every viewer, and only while the encoder runs (someone watches)."""
+        encoder = self._encoder
+        if encoder is None:
+            return
+        interval = 1 / encoder.settings.fps
+        now = time.monotonic()
+        # A quarter interval of tolerance keeps 15 of 30 camera frames despite arrival jitter.
+        if now + interval / 4 < self._next_submit:
+            return
+        self._next_submit = max(self._next_submit + interval, now)
+        encoder.submit(frame.frame, frame.timestamp.timestamp())
+
+    async def _update_encoder(self) -> None:
+        """Make the encoder match the viewers: running at the guard's level while anyone is
+        watching (connected and visible), stopped otherwise."""
+        async with self._encoder_lock:
+            watching = any(handler.watching for handler in self.sessions.values())
+            wanted = ENCODER_LEVELS[self._encoder_level] if watching else None
+            current = self._encoder
+            if current is not None and current.settings != wanted:
+                self._encoder = None
+                await asyncio.to_thread(current.stop)
+            if wanted is None or self._encoder is not None or time.monotonic() < self._encoder_retry_at:
+                return
+            loop = asyncio.get_running_loop()
+            encoder = None
+
+            def on_access_unit(unit):
+                self._call_on_loop(loop, self._on_access_unit, encoder, unit)
+
+            def on_exit(message):
+                self._call_on_loop(loop, self._on_encoder_exit, encoder, message)
+
+            encoder = self._encoder_factory(wanted, on_access_unit, on_exit)
+            try:
+                await asyncio.to_thread(encoder.start)
+            except EncoderUnavailable as exc:
+                await asyncio.to_thread(encoder.stop)
+                self._encoder_failed(str(exc))
+                await self._tell_viewers(str(exc))
+                return
+            self._encoder = encoder
+            self._encoder_error = None
+            self._next_submit = 0.0
+            self._stream_fps = wanted.fps
+            for handler in self.sessions.values():
+                handler.resync()  # A new encoder's first frame is a keyframe; older frames no longer apply.
+
+    @staticmethod
+    def _call_on_loop(loop, callback, *args) -> None:
+        try:
+            loop.call_soon_threadsafe(callback, *args)
+        except RuntimeError:
+            pass  # The loop has closed (shutdown); nothing to deliver to.
+
+    def _on_access_unit(self, encoder, unit: AccessUnit) -> None:
+        """Fan one encoded frame out to every watching viewer (each with a short, bounded wait)."""
+        if encoder is not self._encoder:
+            return  # Late output from a stopped or crashed encoder.
         for session_id, handler in list(self.sessions.items()):
-            if not handler.session.is_active or handler.is_paused or not handler.is_running:
+            if not handler.watching or not handler.offer(unit):
                 continue
             event = self._delivery_events.setdefault(session_id, asyncio.Event())
-            self._pending_frames[session_id] = frame_data
             if session_id not in self._delivery_tasks:
                 self._delivery_tasks[session_id] = asyncio.create_task(self._deliver(session_id, handler, event))
             event.set()
+
+    def _on_encoder_exit(self, encoder, message: str) -> None:
+        if encoder is not self._encoder:
+            return
+        self._encoder = None
+        # Stop its threads and close the job handle off the loop; the process has already ended.
+        asyncio.get_running_loop().run_in_executor(None, encoder.stop)
+        self._encoder_failed(f"Live view encoder stopped ({message})")
+        asyncio.create_task(self._tell_viewers("Live view stopped unexpectedly and is restarting. Recording is not affected."))
+        self._frame_event.set()
+
+    def _encoder_failed(self, error: str) -> None:
+        now = time.monotonic()
+        while self._encoder_crashes and now - self._encoder_crashes[0] > ENCODER_CRASH_MEMORY_SECONDS:
+            self._encoder_crashes.popleft()
+        self._encoder_crashes.append(now)
+        delay = min(ENCODER_RETRY_MAX_SECONDS, 2 ** (len(self._encoder_crashes) - 1))
+        self._encoder_retry_at = now + delay
+        self._encoder_error = error
+        logger.error("Streaming | event=encoder_failed | retry_in=%ss | error=%s", delay, error)
+
+    async def _tell_viewers(self, message: str) -> None:
+        for handler in list(self.sessions.values()):
+            if handler.is_running:
+                await handler.send_error(message)
 
     async def _deliver(self, session_id, handler, event):
         try:
             while self.sessions.get(session_id) is handler and handler.is_running:
                 await event.wait()
                 event.clear()
-                delay = handler.frame_interval - (time.monotonic() - handler.last_frame_time)
-                if delay > 0:
-                    await asyncio.sleep(delay)
-                # Wait for the browser to acknowledge before taking (and encoding) the newest
-                # frame: a slow link lowers this viewer's frame rate instead of queueing
-                # seconds of video, and costs no encoding. Silence for 15 s ends the session.
-                await handler.wait_for_window(ACK_TIMEOUT_SECONDS)
-                frame = self._pending_frames.pop(session_id, None)
-                event.clear()
-                if frame is None:
-                    continue
-                async with asyncio.timeout(ACK_TIMEOUT_SECONDS):
-                    sent = await handler.send_frame(frame, self._encoder.encode)
-                if sent:
-                    self.total_frames_distributed += 1
-                    self.total_bytes_distributed += frame.size_bytes
-                frame = None  # Do not retain a superseded raw frame while idle.
+                while handler.pending:
+                    # Send only while the link has room (about one round trip of video): a far
+                    # link gets every frame; a slow one skips to the next keyframe instead of
+                    # queueing. Silence for 15 s ends the session.
+                    await handler.wait_for_window(self._stream_fps, ACK_TIMEOUT_SECONDS)
+                    unit = handler.take_pending()
+                    if unit is None:
+                        break
+                    async with asyncio.timeout(ACK_TIMEOUT_SECONDS):
+                        sent = await handler.send_access_unit(unit)
+                    if sent:
+                        self.total_frames_distributed += 1
+                        self.total_bytes_distributed += len(unit.data)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -432,7 +516,7 @@ class LiveStreamingService:
             await self.terminate_session(session_id, expected=handler)
 
     def _sample_cpu(self) -> float:
-        """Return a non-blocking CPU percentage sample."""
+        """Return a non-blocking CPU percentage sample: RobotControl plus its encoder child."""
         now = time.monotonic()
         if now - self._last_cpu_sample_monotonic < 1:
             return self._last_cpu_percent
@@ -441,21 +525,37 @@ class LiveStreamingService:
             cpu_percent = self._process.cpu_percent(interval=None)
         except Exception:
             cpu_percent = psutil.cpu_percent(interval=0.0)
+        cpu_percent += self._encoder_cpu()
         self._last_cpu_percent = cpu_percent
         self._cpu_samples.append(cpu_percent)
         return cpu_percent
 
+    def _encoder_cpu(self) -> float:
+        """ffmpeg converts and encodes in its own process, which psutil.Process() does not count."""
+        pid = self._encoder.pid if self._encoder is not None else None
+        if pid is None:
+            self._encoder_process = None
+            return 0.0
+        try:
+            if self._encoder_process is None or self._encoder_process.pid != pid:
+                self._encoder_process = psutil.Process(pid)
+                self._encoder_process.cpu_percent(interval=None)  # first call primes the counter
+            return self._encoder_process.cpu_percent(interval=None)
+        except psutil.Error:
+            self._encoder_process = None
+            return 0.0
+
     async def _degrade_active_sessions(self) -> None:
-        """Reduce quality on all active sessions to ease resource usage."""
-        async with self.session_lock:
-            for handler in self.sessions.values():
-                handler.degrade_quality()
+        """One step down for the shared encoder (lower frame rate and bitrate)."""
+        if self._encoder_level < len(ENCODER_LEVELS) - 1:
+            self._encoder_level += 1
+            logger.warning("Streaming | event=encoder_degraded | level=%s", self._encoder_level)
 
     async def _recover_active_sessions(self) -> None:
-        """Step quality back up after CPU has stayed low (before, it never recovered)."""
-        async with self.session_lock:
-            for handler in self.sessions.values():
-                handler.recover_quality()
+        """Step the encoder back up after CPU has stayed low (before, it never recovered)."""
+        if self._encoder_level > 0:
+            self._encoder_level -= 1
+            logger.info("Streaming | event=encoder_recovered | level=%s", self._encoder_level)
 
     async def _apply_resource_guard(self) -> None:
         """Lightweight guard that keeps CPU usage within configured thresholds."""
@@ -510,8 +610,8 @@ class LiveStreamingService:
             self._consecutive_soft_limit_hits = 0
             self._consecutive_hard_limit_hits = 0
 
-        # Thresholds are the process's summed CPU (psutil), as before: 75 % means three
-        # quarters of one core. Recovery needs a sustained calm, well below the soft limit.
+        # Thresholds are the summed CPU (psutil) of RobotControl and its encoder, as before: 75 %
+        # means three quarters of one core. Recovery needs a sustained calm, well below the soft limit.
         if cpu_percent < CPU_RECOVER_PERCENT:
             self._consecutive_calm_samples += 1
             if self._consecutive_calm_samples >= CPU_RECOVER_SAMPLES:
@@ -520,24 +620,24 @@ class LiveStreamingService:
         else:
             self._consecutive_calm_samples = 0
 
-
     def get_status(self) -> StreamingStatus:
         """
         Get current streaming service status.
-        
+
         Returns:
             StreamingStatus object
         """
         # Get active sessions
         active_sessions = []
         total_bandwidth = 0.0
-        
+
         for handler in self.sessions.values():
             active_sessions.append(handler.session)
             total_bandwidth += handler.session.bandwidth_usage_mbps
-        
+
         cpu_percent = self._sample_cpu()
         uptime = (datetime.now() - self.service_started_at).total_seconds()
+        settings = ENCODER_LEVELS[self._encoder_level]
 
         return StreamingStatus(
             enabled=self.enabled,
@@ -550,18 +650,21 @@ class LiveStreamingService:
             priority_mode=self._resource_state,
             frames_distributed=self.total_frames_distributed,
             bytes_distributed=self.total_bytes_distributed,
-            service_uptime_seconds=uptime
+            service_uptime_seconds=uptime,
+            last_error=self._encoder_error,
+            encoder={"running": self._encoder is not None, "level": self._encoder_level,
+                     "fps": settings.fps, "bitrate_kbps": settings.bitrate_kbps},
         )
-    
+
     def get_resource_usage(self) -> Dict[str, Any]:
         """
         Get current resource usage by streaming.
-        
+
         Returns:
             Dictionary with resource usage information
         """
         status = self.get_status()
-        
+
         return {
             "active_sessions": len(status.active_sessions),
             "total_bandwidth_mbps": status.total_bandwidth_mbps,
@@ -578,7 +681,7 @@ _service_instance: Optional[LiveStreamingService] = None
 def get_live_streaming_service() -> LiveStreamingService:
     """
     Get the global live streaming service instance.
-    
+
     Returns:
         The global LiveStreamingService instance
     """

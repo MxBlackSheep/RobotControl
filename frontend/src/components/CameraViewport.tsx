@@ -507,17 +507,10 @@ export default function CameraViewport({
           {hasFrame ? (
             <LiveFrame
               store={store}
-              alt="Live camera stream"
-              draggable={false}
-              onLoad={(event: React.SyntheticEvent<HTMLImageElement>) => {
-                const { naturalWidth, naturalHeight } = event.currentTarget;
-                if (
-                  naturalWidth &&
-                  naturalHeight &&
-                  (naturalWidth !== dimensions.width ||
-                    naturalHeight !== dimensions.height)
-                ) {
-                  setDimensions({ width: naturalWidth, height: naturalHeight });
+              label="Live camera stream"
+              onDimensions={(width, height) => {
+                if (width !== dimensions.width || height !== dimensions.height) {
+                  setDimensions({ width, height });
                   reset();
                 }
               }}
@@ -551,7 +544,9 @@ export default function CameraViewport({
                     ? "Live view disconnected"
                     : connection === "connecting"
                       ? "Connecting to live view…"
-                      : "Start your live view to inspect the camera"}
+                      : connection === "unavailable"
+                        ? "Live view is not available here"
+                        : "Start your live view to inspect the camera"}
               </Typography>
             </Stack>
           )}
