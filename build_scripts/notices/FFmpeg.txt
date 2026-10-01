@@ -1,0 +1,18 @@
+FFmpeg (ffmpeg.exe beside RobotControl.exe)
+
+RobotControl runs ffmpeg.exe as a separate, unmodified program to encode the camera live view as
+H.264. You may replace it with another compatible ffmpeg.exe build.
+
+Build:    {archive} (BtbN FFmpeg-Builds, release {release}), {url}
+Licence:  GNU Lesser General Public License version 3 (FFmpeg-LICENSE.txt). The build is
+          configured with --enable-version3 and without GPL components (no x264 or x265).
+Source:   FFmpeg {source}; build scripts https://github.com/BtbN/FFmpeg-Builds
+          The source matching this build is also available from the RobotControl maintainers
+          on request for three years after this release.
+
+ffmpeg.exe is statically linked with further libraries, listed in its configuration
+(`ffmpeg -version`), each under its own licence as recorded in the BtbN build scripts. Live
+view uses OpenH264 (BSD 2-clause, OpenH264-LICENSE.txt), built from Cisco's source by BtbN.
+
+H.264 patents: this build is not Cisco's binary module, so Cisco's patent licence does not
+apply to it.
