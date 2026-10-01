@@ -17,7 +17,8 @@ Failure cases:
 - Cycles, unknown dependencies or sources and invalid queries fail without activation.
   Active jobs keep their source snapshot; failed or stale updates keep the package.
   Publishing retires the draft; repeating the same publish after a lost response
-  returns the installed result without another history event.
+  returns the installed result without another history event; once a newer version
+  is installed, that repeat is refused and the newer version stays active.
 - Reader account setup distinguishes an existing login and missing CREATE LOGIN
   authority from sign-in, driver and access failures, without raw driver text or
   credentials. Failed verification removes only the new login; existing principals
@@ -210,8 +211,13 @@ def run(context, inputs):
                     stale=call('POST','/drafts',dict(draft=dict(draft,version='1.0.1')))
                     call('POST',f"/drafts/{stale['id']}/install",dict(expected_current='',revision=stale['revision']),409)
                     assert package()==active
-                    call('DELETE',f"/drafts/{stale['id']}")
-                    result['checks'].append('Draft ownership/revision, original never imported, starter/edit/reupload, dependent membership, private trial, Excel values, export/install, idempotent repeat and stale activation passed')
+                    # Once a newer version is installed, replaying the first publish must not report success over it.
+                    call('POST',f"/drafts/{stale['id']}/install",dict(expected_current=active[0],revision=stale['revision']))
+                    newer=package()
+                    assert newer[0]!=active[0] and newer[1]==active[1]+1
+                    call('POST',f'/drafts/{key}/install',publish,409)
+                    assert package()==newer
+                    result['checks'].append('Draft ownership/revision, original never imported, starter/edit/reupload, dependent membership, private trial, Excel values, export/install, idempotent repeat, stale activation and replay over a newer version passed')
                     with TestClient(app,client=('10.0.0.1',1234),headers={'authorization':'admin','x-forwarded-for':'127.0.0.1'}) as remote:
                         assert remote.get(BASE+'/drafts').status_code==403
                     result['passed']=True
