@@ -19,7 +19,7 @@ import threading
 import time
 import logging
 import shutil
-from datetime import datetime
+from datetime import datetime, timedelta
 from collections import deque
 from pathlib import Path
 from typing import List, Dict, Any
@@ -27,6 +27,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from backend.config import CAMERA_CONFIG, VIDEO_PATH
 from backend.services.camera_runtime import CameraRuntime
+from backend.services.clip_transcoder import ClipTranscoder, clip_files, finalized_clips
 from backend.services.shared_frame_buffer import get_shared_frame_buffer
 from backend.services.storage_manager import get_storage_manager
 from backend.utils.data_paths import get_videos_path, is_compiled_mode
@@ -102,6 +103,9 @@ class CameraService:
         # Thread safety
         self.camera_lock = threading.Lock()
         self.clips_lock = threading.Lock()
+        # Finalized MJPEG clips are re-stored as H.264 MP4 by a low-priority ffmpeg child.
+        self.clip_transcoder = ClipTranscoder(self.rolling_clips_path, self.clips_lock, self._clip_transcoded,
+                                              CAMERA_CONFIG["clip_h264_kbps"])
         
         # Integration with new live streaming system
         self.streaming_integration_enabled = False
@@ -159,9 +163,7 @@ class CameraService:
     
     def _read_finalized_clips(self):
         clips = []
-        for path in sorted(self.rolling_clips_path.glob("clip_*.avi")):
-            if ".partial." in path.name:
-                continue
+        for path in finalized_clips(self.rolling_clips_path):
             try:
                 sidecar = path.with_suffix(".json")
                 if sidecar.exists():
@@ -205,6 +207,26 @@ class CameraService:
         with self.cleanup_lock:
             if self._cleanup_future is None or self._cleanup_future.done():
                 self._cleanup_future = self.executor.submit(self._cleanup_orphaned_files)
+        self.clip_transcoder.wake()
+
+    def _clip_transcoded(self, avi, mp4):
+        # ClipTranscoder calls this with clips_lock held, so archives see the old or the new path.
+        for clip in self.rolling_clips:
+            if Path(clip["path"]) == avi:
+                clip["path"] = str(mp4)
+
+    def wait_for_stored_clips(self, minutes, timeout=60.0):
+        """Before archiving the last `minutes`, give their pending H.264 conversion time to finish.
+
+        On timeout or failure the archive copies the MJPEG files instead; nothing is skipped.
+        """
+        cutoff = datetime.now() - timedelta(minutes=minutes)
+        with self.clips_lock:
+            recent = [Path(clip["path"]) for clip in self.rolling_clips
+                      if clip.get("timestamp") and clip["timestamp"] >= cutoff]
+        if not self.clip_transcoder.wait_for(recent, timeout):
+            logger.warning("Archiving before every recent clip was stored as H.264: %s",
+                           self.clip_transcoder.status())
 
     def detect_cameras(self):
         devices = self.runtime.run("refresh")
@@ -246,7 +268,8 @@ class CameraService:
             for clip in clips[:-self.rolling_clips_count]:
                 path = Path(clip["path"])
                 try:
-                    path.unlink(missing_ok=True)
+                    for clip_file in clip_files(path):
+                        clip_file.unlink(missing_ok=True)
                     path.with_suffix(".json").unlink(missing_ok=True)
                 except OSError as exc:
                     logger.warning("Cannot remove old clip %s: %s", path.name, exc)
@@ -270,6 +293,7 @@ class CameraService:
                 logger.error("Storage manager unavailable; cannot archive experiment videos")
                 return ""
 
+            self.wait_for_stored_clips(storage_manager.archive_duration_minutes)
             result = storage_manager.archive_experiment_videos(
                 experiment_id=str(experiment_id),
                 method_name=method_name,
@@ -309,7 +333,7 @@ class CameraService:
         recording = health["recording_state"] == "recording"
         return {"cameras_detected": len(cameras), "cameras_recording": int(recording),
                 "rolling_clips_count": len(self.rolling_clips), "video_storage_path": str(self.video_path),
-                "health": health,
+                "health": health, "clip_storage": self.clip_transcoder.status(),
                 "cameras": [{**camera, "recording": recording and camera["id"] == health["camera_id"],
                     "has_live_stream": health["capture_state"] == "connected" and camera["id"] == health["camera_id"]}
                     for camera in cameras]}
@@ -352,6 +376,7 @@ class CameraService:
 
     def shutdown(self):
         self.runtime.shutdown()
+        self.clip_transcoder.stop()
         self.executor.shutdown(wait=True)
 
 
