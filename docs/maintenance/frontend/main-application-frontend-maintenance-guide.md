@@ -58,55 +58,57 @@ Operations and Scheduling Methods are local-only; Notifications are admin-only;
 RobotControl logs are for local users or remote administrators. Camera navigation never
 starts or stops a live-view session.
 
+## Design system A (instrument console)
+
+Approved mock: https://claude.ai/artifact/ApKjN7njdXXfQpZ1RDqRhx (column A). Light and dark
+share one structure; only the palette changes.
+
+**Tokens** (`theme.ts`): everything is a multiple of 4px. `layout` holds the sizes: page
+padding 24px (16px on phones), gutter 12px, panel inset 16px, panel header and list row
+40px, touch row 44px, control 36px, rail 216px (64px collapsed), radius 4px. The palette
+adds `surface` (header band, lines, track, label, control border), `attentionSurface` (hold
+banner, attention panel, attention action) and a `dot` colour per status tone. Type scale:
+page title 24/32, detail title 20/28, body 14/20 and 13/20, caption 12/16, panel label
+11px uppercase. Pages never use their own spacing or colour numbers.
+
+**Primitives** (`PageLayout.tsx`), which pages compose:
+- `PageHeader`: title, section tabs and actions on one 40px row (tabs move to their own row
+  and actions start at the page edge on phones).
+- `PageGrid`: 12 columns with the 12px gutter; one column below md. Panels take `span`.
+- `Panel`: 40px header band (`PanelLabel`, optional `headerExtra`, actions), body (16px inset
+  unless `inset={false}` for lists), optional fixed 40px `footer`, `tone="attention"`.
+  Panels in one grid row share its height. `label` gives a region name different from the
+  visible title when a field inside would otherwise share it (Maintenance Reason).
+- `ListRow`: a single-line 40px row with grid columns; rows that carry a second line
+  (schedules, folders, recordings) are a fixed 56px.
+- `StatusDot` (dot and label, for strips and compact rows), `StatusChip` (24px, for
+  emphasis), `DetailTitle`, and `EmptyPanel` (a Details panel with a plain prompt, so both
+  sides of a list/detail workspace start with the same band).
+
+Times use `utils/displayTime.ts` (`Today 14:30`, `Mon 28 Sep 16:00`, 24-hour, fixed
+three-letter names). Execution statuses map to tones in
+`components/scheduling/executionStatus.ts`. Refresh is always a labelled button.
+
 ## Overview
 
-`pages/Dashboard.tsx` arranges the panels in `components/overview/`: Now running and Needs
-attention (from the robot status context), Up next (active schedules by `next_run`),
-Instrument health (scheduler, storage, HxRun from the context; SQL Server and camera from
-one 60 s read that tolerates either source failing), Recent runs (last five executions) and
-the Latest experiment card. A shared grid pairs Up next with Instrument health and
-Recent runs with Latest experiment. Each row stretches to its taller card, keeping
-card edges aligned; the recovery card shares the same 360px supporting column.
-Below 1000px of workspace width panels become one column, with recovery first,
-without remounting. Each panel has its own error
-boundary and Retry, so one failed read never blanks the page.
+`pages/Dashboard.tsx` follows the mock on `PageGrid`: the instrument strip (scheduler,
+storage, SQL Server, HxRun, camera; 12 columns), Now running (8) beside Needs attention (4;
+Now running takes 12 when nothing is held), Up next (6) beside Recent runs (6, both seven
+single-line rows) and Latest experiment as one full-width row. On phones the strip and the
+hold come first. Each panel has its own error boundary and Retry, so one failed read never
+blanks the page. Now running shows elapsed time against the schedule's estimate; past the
+estimate the bar stops claiming progress (see `runTiming`).
 
-Now running shows elapsed time from the run log monitor's `launched_at` against the
-schedule's `estimated_duration`, which the user typed and may be wrong. `runTiming` never
-extrapolates: within the estimate the bar shows elapsed/estimate; past it the bar becomes
-indeterminate and the text says "N min past the M min estimate". Unknown start or estimate
-shows no bar. The queue's `launched_at` is offset-qualified ISO time, so Overview and
-Maintenance derive the same elapsed duration in every browser timezone; the Started clock
-uses the viewer's local timezone. When PyHSL supplies better estimates, change only the estimate source.
+## Page layout and screenshot review
 
-## Shared presentation
+`PageContent` uses the full width on every screen (only `reading` keeps a 1120px measure),
+so page edges never move between modules. App owns the page padding, the phone header
+(52px, below 900px) and the sticky attention banner.
 
-`PageLayout.tsx` also exports `PanelHeader` (panel title and optional actions, with the
-parent owning surrounding spacing and a 36px minimum row height to align titles with
-buttons), `PanelLabel` (small uppercase status label), `DetailTitle`
-(the selected item's name, 18px) and `EmptyPanel` (a plain "choose something" prompt, not
-an alert). Panel titles use the theme `h6`. Refresh is always a labelled button. Times use
-`utils/displayTime.ts` (`Today 14:30`, 24-hour). Execution statuses map to tones in
-`components/scheduling/executionStatus.ts`, shared by Overview and History.
-
-## Page layout and appearance
-
-`PageLayout.tsx` provides `PageContent` variants: `overview` (dashboards, capped at
-1440px), `inspection` (viewers, including Logs, using available width), `spatial`
-(labware, using available width) and `task` (forms, capped at 1120px; `reading` is a
-legacy alias). App owns the outer gutter (16/24/28px), the phone header (52px, below 900px) and
-the sticky attention banner. Use one `PageHeader`: title and page actions share its
-first row; section tabs have their own row below. Actions wrap on narrow screens. Do not add another page header.
-
-The theme uses 4px control corners and 8px panel corners (`Card`, or `sx`
-`borderRadius: 2`). Normal `CardContent` and the exported `panelPadding` use 16px
-insets on phones and 24px from 600px; collection toolbars use a compact 16px inset.
-Panel headings use `PanelHeader`/`h6`; uppercase `PanelLabel` identifies status
-context and `DetailTitle` names the selected item. Parents own gaps, so a panel
-header does not add a competing margin. Keep special spatial and reader layouts.
-The spacing/grouping direction draws on [Carbon](https://carbondesignsystem.com/elements/spacing/overview/)
-and [PatternFly card anatomy](https://www.patternfly.org/components/card/design-guidelines/),
-implemented with the existing MUI components.
+Styling changes are verified by screenshot review, not the behaviour suite:
+`npx playwright test -c playwright.visual.config.ts` (from `frontend`) fills every screen
+with fixed sample data and saves light and dark screenshots at 1440, 1280 and 390px to
+`test-output/visual/latest`. `VISUAL_ROUTES`, `VISUAL_WIDTHS` and `VISUAL_MODES` narrow it.
 
 `InspectionWorkspace` fills the remaining viewport height (320px minimum, then the page
 scrolls) and switches between list and detail at 900px of content width; see the

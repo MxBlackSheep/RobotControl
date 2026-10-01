@@ -1,3 +1,11 @@
+## 2026-10-01 Design system A: one system for every screen
+
+- Approved direction A ("instrument console", mock: https://claude.ai/artifact/ApKjN7njdXXfQpZ1RDqRhx), light and dark. Tokens on a 4px unit and the primitives `PageGrid`, `Panel`, `ListRow`, `StatusDot` in `PageLayout.tsx`; every screen moved onto them (`a3db127`, `4faf47e`, `0d45d4b`). Overview, Maintenance and Labware follow the mock exactly.
+- Labware: the After saving summary sat on an extra footer line, so the first edit made the shared row taller and moved both diagrams (reported by the owner). The footer is now one fixed line.
+- Checks changed because they described the old layout: Labware geometry expects the 12px gutter between the two panels; the Overview strip label is "SQL Server"; Maintenance rows are found by name instead of MUI's Stack class (`35c6067`); the packaged Cytomat gap allows the 24px page padding (`de8f49a`). The Maintenance Reason panel's region is "Maintenance details", so it no longer shares the field's name.
+- Verification is tiered (AGENTS.md): styling by screenshot review (`playwright.visual.config.ts`), the full suite and packaged checks once at hand-over: 51 component tests, 109 browser checks, packaged smoke and walkthrough passed on `dist/redesign-candidate-5` (`test-output/redesign-candidate-5-verification.json`). Not exercised: hardware, SQL Server, camera.
+- Deviation from the mock: the Labware deck keeps the 40/60 split and 320px minimum (protects 44px tip targets), so its edge is at 40% rather than exactly on a grid column.
+
 ## 2026-09-30 Design pass: page edge, card alignment and use of space (`c7797a0`)
 
 - All screens share one left edge (`PageContent` no longer centres); Overview has a three-column layout from 1500px of content width. System status service cards use the resource cards' columns. Camera's Recent recordings fills the right column on wide screens. History is one card with the shared `columnHeading` style. Dates use `dayTime` everywhere, with the year for other years.
