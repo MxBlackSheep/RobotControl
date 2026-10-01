@@ -15,7 +15,7 @@ Features:
 import os
 import logging
 from datetime import datetime
-from typing import List, Optional, Dict
+from typing import List, Literal, Optional, Dict
 from pathlib import Path
 from pydantic import BaseModel, Field
 from email.utils import formatdate
@@ -26,6 +26,7 @@ from fastapi.responses import StreamingResponse, Response
 
 # Import services with relative imports (within backend directory)
 from backend.services.auth import get_current_user, get_current_admin_user
+from backend.api.dependencies import ConnectionContext, get_connection_context
 from backend.services.camera import get_camera_service
 
 # Import types and config with proper package resolution
@@ -46,6 +47,10 @@ router = APIRouter(prefix="/camera", tags=["camera"])
 
 class CameraSelectionRequest(BaseModel):
     device_identity: str = Field(min_length=1, max_length=4096)
+
+
+class StreamingSessionRequest(BaseModel):
+    quality: Literal["high", "medium", "low", "adaptive"] = "adaptive"
 
 
 def _camera_operation(action, **kwargs):
@@ -513,29 +518,27 @@ async def delete_recording(
 
 @router.post("/streaming/session")
 async def create_streaming_session(
-    quality: Optional[str] = "adaptive",
-    current_user: dict = Depends(get_current_user)
+    request: Optional[StreamingSessionRequest] = None,
+    current_user: dict = Depends(get_current_user),
+    connection: ConnectionContext = Depends(get_connection_context),
 ):
     """
     Create a new live streaming session for the authenticated user.
-    
-    Args:
-        quality: Initial quality setting (high/medium/low/adaptive)
-        
-    Returns:
-        Streaming session information
+
+    The JSON body's `quality` (high/medium/low/adaptive) sets the starting quality;
+    without a body the session starts adaptive.
     """
     try:
         from backend.services.live_streaming import get_live_streaming_service
-        
+
         streaming_service = get_live_streaming_service()
-        
+
         # Create session
         session = await streaming_service.create_session(
             user_id=current_user["user_id"],
             user_name=current_user["username"],
-            client_ip="127.0.0.1",  # Would be extracted from request in production
-            quality=quality or "adaptive"
+            client_ip=connection.client_ip or "unknown",
+            quality=(request or StreamingSessionRequest()).quality,
         )
         
         if not session:
