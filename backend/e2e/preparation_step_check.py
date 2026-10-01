@@ -13,8 +13,9 @@ Failure cases:
   schedule is not marked for recovery. An unreadable stored step is reported as uninstalled.
 - A hung or crashed step blocks the launch path, or is reported as failed instead of unknown;
   a retry or restart repeats a step that may have written.
-- A package update, or rebinding its connection, silently changes what an armed schedule
-  runs; a changed package runs before an administrator saves the schedule again.
+- A package update, rebinding its connection, or editing that connection to another
+  database silently changes what an armed schedule runs; a changed package runs before an
+  administrator saves the schedule again.
 - Preparation takes the manual-operation guard (scheduler locks) while it runs.
 """
 from contextlib import closing
@@ -76,11 +77,9 @@ def run():
     from backend.api import scheduling as api
     from backend.models import JobExecution, ScheduledExperiment
     from backend.services.auth import get_current_user
-    from backend.services.database import DatabaseService
     from backend.services.database_tools import DatabaseTools
     from backend.services.report_sources import ReportSource
     from backend.services.scheduling.experiment_executor import ExecutionConfig, ExecutionResult, ExperimentExecutor
-    from backend.services.scheduling.lab_integration import load_lab_integration
     from backend.services.scheduling.sqlite_database import SQLiteSchedulingDatabase
     from backend.services.sqlite_safety import SafetyConflict
 
@@ -113,11 +112,7 @@ def run():
             tools.catalogue.install(package('1.0.0'))
             tools.sources.bind_operation(PACKAGE, 'writer')
 
-            native = DatabaseService()
-            native._primary_config = dict(driver='{ODBC Driver 17 for SQL Server}', server=fixture['server'],
-                                          database=database, trusted_connection='yes')
-            manager = SimpleNamespace(lab=load_lab_integration(storage, native, root), sqlite_db=storage,
-                                      should_block_due_to_abort=lambda _: None)
+            manager = SimpleNamespace(sqlite_db=storage, should_block_due_to_abort=lambda _: None)
             scheduler = SimpleNamespace(add_schedule=storage.create_schedule, get_schedule=storage.get_schedule_by_id, _schedules_lock=threading.RLock(),
                                         update_schedule=lambda s, expected_updated_at=None: storage.update_schedule(s, expected_updated_at=expected_updated_at),
                                         invalidate_schedule=lambda _: None)
@@ -234,7 +229,15 @@ def run():
                 assert client.get(f'/api/scheduling/{schedule_id}').json()['data']['preparation_state'] == 'needs_review'
                 ok, rebound = execute(schedule_id)
                 assert not ok and rebound not in launched and receipt(rebound) is None
-                result['checks'].append('Update, removal and rebinding refused while a schedule is active; a changed package or connection blocks dispatch before any write until an administrator saves again')
+                assert update(schedule_id, {'preparation': dict(tool_id=PACKAGE, inputs=dict(mode='ok'))}).status_code == 200
+                assert client.get(f'/api/scheduling/{schedule_id}').json()['data']['preparation_state'] == 'ready'
+                # Same connection id, edited to another database: the pin no longer matches.
+                tools.sources.save(ReportSource(id='other-writer', name='Other writer', server=fixture['server'], database=fixture['names'][1],
+                                                username=fixture['login'], password=fixture['password'], trust_certificate=True, access='operation'))
+                assert client.get(f'/api/scheduling/{schedule_id}').json()['data']['preparation_state'] == 'needs_review'
+                ok, edited = execute(schedule_id)
+                assert not ok and edited not in launched and receipt(edited) is None
+                result['checks'].append('Update, removal and rebinding refused while a schedule is active; a changed package, rebound connection or connection edited to another database blocks dispatch before any write until an administrator saves again')
         result['fixtures_removed'] = True
         result['passed'] = True
     except Exception:

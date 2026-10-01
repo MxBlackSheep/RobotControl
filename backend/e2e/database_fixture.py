@@ -128,24 +128,6 @@ class DatabaseFixture:
         return SimpleNamespace(rows=rows[offset:offset+limit], total_count=len(rows))
 
 
-def configure_fixture_lab_settings(service, root):
-    """Real configuration storage, with a separate disposable laboratory file."""
-    from contextlib import closing
-    from types import SimpleNamespace
-    from backend.services.scheduling.sqlite_database import SQLiteSchedulingDatabase
-    from backend.services.scheduling.lab_integration import load_lab_integration
-    from backend.services.scheduling.lab_settings import LabSettings
-    root.mkdir(exist_ok=True)
-    path = root / 'batches.db'
-    with closing(sqlite3.connect(path)) as conn, conn:
-        conn.executescript((Path(__file__).parents[1] / 'services/scheduling/examples/batch-schema.sql').read_text('utf-8'))
-    (root/'batches-next.db').write_bytes(path.read_bytes())
-    (root/'scheduling-lab.json').write_text(json.dumps(dict(adapter='batch-sqlite',sqlite_path='batches.db')), 'utf-8')
-    storage = SQLiteSchedulingDatabase(str(root/'scheduler.db'))
-    manager = SimpleNamespace(lab=load_lab_integration(storage, None, root), sqlite_db=storage, main_db_service=None)
-    return LabSettings(manager, service.sources, root, service.guard)
-
-
 def run_fixture_report(channel, package_root, entry, definition, inputs, snapshot, folder):
     """Keep the existing disposable SQLite adapter inside the spawned child."""
     from backend.services.report_sources import ReportSources

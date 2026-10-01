@@ -155,7 +155,8 @@ ignores results after the section becomes inactive.
 
 ## Database settings
 
-- Shows each saved connection with its uses (viewer, packages, scheduling now or after restart).
+- Shows each saved connection with its uses (viewer and packages, including a schedule's
+  preparation package).
   **Viewer database** is saved on the server for everyone.
 - Connection setup offers an existing account or **Create read-only account**, which reviews
   capabilities before grants. Administrator credentials are transient and cleared on success,
@@ -163,11 +164,8 @@ ignores results after the section becomes inactive.
   The Windows option uses RobotControl's process identity. Certificate trust is remembered per
   exact server string in this browser's `database-certificate-trust` storage, only after a
   successful save; new servers default to verification.
-- **Schedule preparation** shows the active setup first; **Change setup** reveals the laboratory
-  database, with the preparation rules under Advanced. The existing laboratory connection is an
-  explicit option, never a blank. Review lists affected schedules; saving applies after restart
-  and shows Saved separately from Active, with **Cancel change**. Experiment selection stays in
-  each schedule.
+- There is no scheduling setup here any more: a schedule's preparation is a database package
+  step, whose connections are assigned under **Package connections**.
 
 ## Checks
 

@@ -4,7 +4,7 @@ Scheduling Database Management Service
 Provides database layer for experiment scheduling system including:
 - SQLite-based storage for scheduling data (auto-created in data directory)
 - CRUD operations for scheduled experiments and job executions
-- ScheduledToRun flag management for Hamilton integration
+- Hamilton run records (native connection) for matching finished runs
 - Works in both development and compiled modes
 """
 
@@ -37,7 +37,7 @@ class SchedulingDatabaseManager:
         # Use SQLite for scheduling data (auto-created)
         self.sqlite_db = get_sqlite_scheduling_database()
 
-        # Keep reference to main Hamilton database for ScheduledToRun operations
+        # Keep reference to the Hamilton database for run-record matching
         # Make this optional to prevent SQL Server timeout issues
         try:
             self.main_db_service = get_database_service()
@@ -48,15 +48,6 @@ class SchedulingDatabaseManager:
             self.main_db_service = None
             self._hamilton_db_available = False
 
-        from backend.services.scheduling.lab_integration import load_lab_integration
-        from backend.utils.data_paths import get_data_path
-        self._lab = None
-        self._lab_error = None
-        try:
-            self._lab = load_lab_integration(self.sqlite_db, self.main_db_service, get_data_path())
-        except Exception:
-            logger.exception("Scheduling lab configuration could not be loaded")
-            self._lab_error = 'Scheduling lab setup is unavailable. Restore the previous configuration or review scheduling-lab.json and recovery.'
         self._schema_initialized = True  # SQLite auto-initializes
 
     def initialize_schema(self) -> bool:
@@ -368,12 +359,6 @@ class SchedulingDatabaseManager:
         except Exception as exc:  # pragma: no cover - log only
             logger.error("Error storing job execution: %s", exc)
             return False
-
-    @property
-    def lab(self):
-        if self._lab_error:
-            raise SafetyConflict(self._lab_error)
-        return self._lab
 
     def get_latest_hamilton_run_state_by_name(
         self,

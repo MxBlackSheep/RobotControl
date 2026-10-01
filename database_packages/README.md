@@ -6,15 +6,22 @@ administrator chooses this lab's connections, tries the tool and enables it.
 
 ## Start with an example
 
-The two existing EvoYeast tools are also ready as single Python files:
+The three existing EvoYeast tools are also ready as single Python files:
 
 - [culture_history.py](culture-history/culture_history.py): the existing Culture history calculations and Excel formatting.
 - [delete_experiment.py](delete-experiment/delete_experiment.py): preview and execution through `dbo.DeleteExperiment`.
+- [evoyeast_experiment.py](evoyeast-experiment/evoyeast_experiment.py): a pre-run step that marks one
+  experiment `ScheduledToRun` and optionally runs `dbo.ResetHamiltonTables`. It replaces the
+  former built-in EvoYeast schedule preparation. New installations include it. On an existing
+  installation, import `starter-packages\evoyeast-experiment.zip` from the RobotControl folder
+  under **Manage packages** (each release ships a ZIP of every starter package there), assign a
+  reader and an operation connection to the same EvoYeast database, then open each schedule
+  marked **Needs review** and save it.
 
 For an installed tool, choose **Edit report/operation → Replace Python**, select
 its `.py` file, check the connections, try, then **Publish update**. For a new
 installation, use **Add tool** instead. No manifest or supporting file upload is
-needed. Both use this lab's EvoYeast schema; they are not generic database tools.
+needed. All three use this lab's EvoYeast schema; they are not generic database tools.
 Delete Experiment uses a reader for its experiment choices and an operation
 connection to the **same database** for preview/execution.
 

@@ -53,6 +53,7 @@ import { useAuth } from '../context/AuthContext';
 import ScheduleList from '../components/ScheduleList';
 import ScheduleCollection, { repeatLabel, scheduleState } from '../components/scheduling/ScheduleCollection';
 import StatusChip from '../components/StatusChip';
+import { preparationSummary, stateChip } from '../components/scheduling/PreparationStepField';
 import { fontMono, layout, StatusTone } from '../theme';
 import WarningAmber from '@mui/icons-material/WarningAmber';
 import InspectionWorkspace from '../components/InspectionWorkspace';
@@ -79,7 +80,6 @@ type ScheduleFormValues = Partial<{
   start_time: string | null;
   estimated_duration: number;
   log_inactivity_threshold_minutes: number;
-  prerequisites: string[];
   is_active: boolean;
   timeout_minutes: number | null;
   timeout_action: 'continue' | 'run_cleanup_and_terminate';
@@ -127,7 +127,7 @@ const SchedulingPage: React.FC = () => {
   const [editingVersion, setEditingVersion] = useState<string | undefined>();
   const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
   // Captured when the edit form opens, like its initial data.
-  const [editingPreparation, setEditingPreparation] = useState<Pick<ScheduledExperiment, 'preparation' | 'preparation_state'>>({});
+  const [editingPreparation, setEditingPreparation] = useState<Pick<ScheduledExperiment, 'preparation' | 'preparation_state' | 'legacy_preparation'>>({});
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [logsLoading, setLogsLoading] = useState(false);
   const [logsError, setLogsError] = useState<string | null>(null);
@@ -190,7 +190,6 @@ const SchedulingPage: React.FC = () => {
               ? data.timeout_cleanup_experiment_path ?? null
               : null,
         },
-        prerequisites: Array.isArray(data.prerequisites) ? data.prerequisites : [],
         ...(data.preparation !== undefined ? { preparation: data.preparation } : {}),
         notification_contacts: Array.isArray(data.notification_contacts) ? data.notification_contacts : [],
         expected_updated_at: editingVersion,
@@ -219,7 +218,6 @@ const SchedulingPage: React.FC = () => {
           data.timeout_action === 'run_cleanup_and_terminate'
             ? data.timeout_cleanup_experiment_path ?? null
             : null,
-        prerequisites: Array.isArray(data.prerequisites) ? data.prerequisites : [],
         preparation: data.preparation,
         notification_contacts: Array.isArray(data.notification_contacts) ? data.notification_contacts : [],
       };
@@ -251,7 +249,8 @@ const SchedulingPage: React.FC = () => {
 
     setScheduleFormMode('edit');
     setEditingScheduleId(selected.schedule_id);
-    setEditingPreparation({ preparation: selected.preparation ?? null, preparation_state: selected.preparation_state });
+    setEditingPreparation({ preparation: selected.preparation ?? null, preparation_state: selected.preparation_state,
+      legacy_preparation: selected.legacy_preparation ?? null });
     setEditingVersion(selected.updated_at || undefined);
     const allowedTypes: Array<'once' | 'interval' | 'daily' | 'weekly'> = ['once', 'interval', 'daily', 'weekly'];
     const scheduleType = allowedTypes.includes(selected.schedule_type as any)
@@ -270,7 +269,6 @@ const SchedulingPage: React.FC = () => {
       timeout_action: selected.timeout_config?.action ?? 'continue',
       timeout_cleanup_experiment_name: selected.timeout_config?.cleanup_experiment_name ?? null,
       timeout_cleanup_experiment_path: selected.timeout_config?.cleanup_experiment_path ?? null,
-      prerequisites: selected.prerequisites ?? [],
       notification_contacts: selected.notification_contacts ?? [],
     });
     setImprovedFormOpen(true);
@@ -475,7 +473,7 @@ const SchedulingPage: React.FC = () => {
                     </Box>
                     <Stack spacing={0.5} alignItems="flex-end">
                       <StatusChip tone={schedule.is_active ? 'completed' : 'neutral'} label={schedule.is_active ? 'Active' : 'Inactive'} />
-                      {schedule.prerequisites.length > 0 && <StatusChip tone="neutral" label={`${schedule.prerequisites.length} prereqs`} />}
+                      {schedule.preparation_state && schedule.preparation_state !== 'ready' && <StatusChip {...stateChip[schedule.preparation_state]} />}
                     </Stack>
                   </Box>
                 ))}
@@ -541,7 +539,7 @@ const SchedulingPage: React.FC = () => {
                   ['Timing', repeatLabel(state.selectedSchedule)],
                   ['Next run', formatTimestamp(state.selectedSchedule.next_run)],
                   ['Duration', formatDuration(state.selectedSchedule.estimated_duration)],
-                  ['Preparation', state.selectedSchedule.prerequisites.join(', ') || 'None'],
+                  ['Before this run', preparationSummary(state.selectedSchedule)],
                   ['Late-start action', `${state.selectedSchedule.timeout_config?.action === 'run_cleanup_and_terminate' ? 'Run cleanup and terminate' : 'Continue'}${state.selectedSchedule.timeout_config?.timeout_minutes ? ` after ${state.selectedSchedule.timeout_config.timeout_minutes} minutes` : ''}`],
                 ] as [string, string][]).map(([name, value]) => <ListRow key={name} columns="136px minmax(0, 1fr)" sx={{ height: 'auto', minHeight: layout.row, py: 1, '& > *': { whiteSpace: 'normal', overflowWrap: 'anywhere' } }}>
                   <Typography component="dt" variant="body2" color="text.secondary">{name}</Typography><Typography component="dd" variant="body2" sx={{ m: 0 }}>{value}</Typography>
@@ -808,6 +806,7 @@ const SchedulingPage: React.FC = () => {
         catalogueVersion={catalogueVersion}
         savedPreparation={editingPreparation.preparation}
         preparationState={editingPreparation.preparation_state}
+        legacyPreparation={editingPreparation.legacy_preparation}
       />
 
   {/* Folder Import Dialog */}

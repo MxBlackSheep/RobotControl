@@ -76,25 +76,20 @@ operator to cancel, refresh and reopen. Create and update each reload the list o
   separate from estimated duration and the late-start cleanup timeout, and applies from the
   next launch. Omitted update values keep the saved setting; copies must keep it.
 - **Email alert recipients** warns when no active contact is selected.
-- Preparation choices come from `GET /api/scheduling/lab/preparation`: Experiment for
-  EvoYeast or Batch for the SQLite example. Stale reads are discarded after refresh/close;
-  a failed read keeps the saved ID and offers Retry. A downstream lab failure is a 502,
-  because a 503 opens the database-maintenance dialog.
-- Saving keeps the whole prerequisite array and its order; only an explicit selection
-  replaces the selection tokens. Other steps such as ResetHamiltonTables stay and are
-  listed separately. Saved IDs missing from the current choices are still shown.
-  EvoYeast saves the ScheduledToRun + EvoYeastExperiment pair; the batch example saves
-  `Batch:<code>`. Changing the Database viewer connection does not change these choices.
-- Local administrators can open Database settings from the preparation controls. That
-  page changes only the EvoYeast/Batch integration, shows Active now separately from
-  Saved (restart required), reviews affected schedules and offers Cancel change.
-- **Before this run** also holds the database step (`PreparationStepField`): a local
-  administrator picks an installed preparation tool and its inputs (rendered by
-  `ReportInputs`); others see it read-only. The form's `preparation` stays undefined until
+- **Before this run** holds the schedule's one database step (`PreparationStepField`): a local
+  administrator picks an installed preparation tool, such as Select EvoYeast experiment, and
+  its inputs (rendered by `ReportInputs`); others see it read-only. Local administrators can
+  open Database settings from there to assign the package's connections. The form's `preparation` stays undefined until
   changed, so timing edits never send it and the server keeps the pinned step; `null`
   removes it. `preparation_state` from the schedule shows Ready / Needs review / Not
   installed; `schedulingApi.normalizeSchedule` passes it through (unknown values show as
-  unknown, never ready). Checks: `scheduling-lab.spec.ts`.
+  unknown, never ready). The schedule detail, list and Archive show `preparationSummary`.
+- A schedule saved with the retired adapter tokens arrives with `legacy_preparation`: the
+  field shows its message and the old tokens; for a local administrator the form prefills
+  `preparation` from its `suggestion` (else the saved step, else `null`), so saving always
+  sends a step and the server clears the tokens. A package that is not installed is named and the prefill is kept. Non-admin edits
+  send neither. The form never sends `prerequisites`. A lookup input set before the control
+  mounted stays visible (its label once choices load). Checks: `scheduling-lab.spec.ts`.
 
 ## Runtime queue and recovery
 

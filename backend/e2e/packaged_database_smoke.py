@@ -222,8 +222,9 @@ def run(candidate, report_package=None, evidence=ROOT/'test-output/database-veri
             token=request('/api/auth/login',dict(username='package-smoke',password=password))['data']['access_token']
             request('/api/auth/change-password',dict(current_password=password,new_password=secrets.token_urlsafe(24)),token)
             packages=request('/api/database/tools/packages',token=token)
-            assert {p['id'] for p in packages}=={'culture-history','delete-experiment'}
-            result['checks'].append('Relocated executable loads both packages with Python/UV absent from PATH')
+            assert {p['id'] for p in packages}=={'culture-history','delete-experiment','evoyeast-experiment'}
+            assert {f.name for f in (candidate/'starter-packages').iterdir()}=={'culture-history.zip','delete-experiment.zip','evoyeast-experiment.zip'}
+            result['checks'].append('Relocated executable loads the three starter packages with Python/UV absent from PATH; their ZIPs ship beside it')
             if wizard:
                 wizard_check(request, token, result, evidence)
                 return

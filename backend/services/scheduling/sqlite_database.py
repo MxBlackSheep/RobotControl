@@ -60,10 +60,6 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                 conn.execute("BEGIN IMMEDIATE")
                 state_table_existed = conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'SchedulerState'").fetchone() is not None
                 cursor = conn.cursor()
-                cursor.execute('''CREATE TABLE IF NOT EXISTS LabInstallation (
-                    id INTEGER PRIMARY KEY CHECK(id=1), signature TEXT NOT NULL, identity TEXT NOT NULL, target TEXT NOT NULL)''')
-                cursor.execute('''CREATE TABLE IF NOT EXISTS LabScheduleBinding (
-                    schedule_id TEXT PRIMARY KEY, target TEXT NOT NULL)''')
                 cursor.execute('''CREATE TABLE IF NOT EXISTS LabPreparation (
                     execution_id TEXT PRIMARY KEY, identity TEXT NOT NULL, steps TEXT NOT NULL,
                     status TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
@@ -446,7 +442,6 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                     json.dumps(schedule.preparation) if schedule.preparation else None,
                 ))
                 self._replace_schedule_contacts(conn, schedule.schedule_id, schedule.notification_contacts or [])
-                conn.execute('INSERT INTO LabScheduleBinding(schedule_id,target) SELECT ?,target FROM LabInstallation WHERE id=1', (schedule.schedule_id,))
                 conn.commit()
                 logger.info(f"Created schedule in SQLite: {schedule.experiment_name}")
                 return True

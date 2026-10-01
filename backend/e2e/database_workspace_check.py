@@ -28,8 +28,7 @@ import openpyxl
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.testclient import TestClient
 from backend.e2e.report_wizard_check import sql_fixture, ROOT, BASE
-from backend.api.database_tools import router, get_lab_settings
-from backend.e2e.database_fixture import configure_fixture_lab_settings
+from backend.api.database_tools import router
 from backend.api.database import router as viewer_router
 from backend.services.auth import get_current_user
 from backend.services.database_tools import DatabaseTools, get_database_tools
@@ -59,8 +58,6 @@ def run():
                 return dict(username=name, role='user' if name == 'user' else 'admin')
             app.dependency_overrides[get_current_user] = user
             app.dependency_overrides[get_database_tools] = lambda: service
-            settings = configure_fixture_lab_settings(service, Path(temp)/'lab')
-            app.dependency_overrides[get_lab_settings] = lambda: settings
             try:
                 with TestClient(app, client=('127.0.0.1', 1234), headers={'authorization':'admin'}) as client:
                     def call(method, path, body=None, status=200):
@@ -146,56 +143,6 @@ def run():
                     admin.execute('GRANT DELETE TO ['+fixture['login']+']')
                     writer=dict(source,id='writer',name='Disposable writer',database=fixture['names'][1],username=fixture['login'],password=fixture['password'],access='operation')
                     call('POST',BASE+'/sources',writer)
-                    admin.execute('CREATE TABLE Experiments(ExperimentID int, UserDefinedID nvarchar(100), Note nvarchar(100), ScheduledToRun bit); INSERT Experiments VALUES(42,\'Unchanged\',NULL,0)')
-                    cfg = dict(adapter='evoyeast', source_id='writer')
-                    initial = call('GET',BASE+'/scheduling-settings')
-                    checked = call('POST',BASE+'/scheduling-settings/review',cfg)
-                    assert 'Required tables found' in checked['message']
-                    assert not admin.execute('SELECT ScheduledToRun FROM Experiments').fetchone()[0]
-                    client.headers['authorization']='other-admin'
-                    call('POST',BASE+'/scheduling-settings/apply',dict(token=checked['token']),409)
-                    client.headers['authorization']='user'
-                    call('GET',BASE+'/scheduling-settings',status=403)
-                    client.headers['authorization']='admin'
-                    with TestClient(app, client=('10.2.3.4',5),headers={'authorization':'admin','x-forwarded-for':'127.0.0.1'}) as remote:
-                        assert remote.post(BASE+'/scheduling-settings/review',json=cfg).status_code==403
-                    with settings.manager.sqlite_db._get_connection() as conn:
-                        conn.execute("INSERT INTO ScheduledExperiments(schedule_id,experiment_name,experiment_path,schedule_type,prerequisites) VALUES('config-fixture','Retained schedule','never-launch.med','once','[\"Batch:B-01\"]')")
-                        conn.commit()
-                    call('POST',BASE+'/scheduling-settings/apply',dict(token=checked['token']),409)
-                    with settings.manager.sqlite_db._get_connection() as conn:
-                        conn.execute("UPDATE ScheduledExperiments SET is_active=0,recovery_required=1");conn.commit()
-                    call('POST',BASE+'/scheduling-settings/apply',dict(token=checked['token']),409)
-                    with settings.manager.sqlite_db._get_connection() as conn:
-                        conn.execute("UPDATE ScheduledExperiments SET recovery_required=0")
-                        conn.execute("INSERT INTO JobExecutions(execution_id,schedule_id,status) VALUES('queued','config-fixture','queued')");conn.commit()
-                    call('POST',BASE+'/scheduling-settings/apply',dict(token=checked['token']),409)
-                    with settings.manager.sqlite_db._get_connection() as conn:
-                        conn.execute("DELETE FROM JobExecutions WHERE execution_id='queued'");conn.commit()
-                    call('POST',BASE+'/sources',writer)
-                    call('POST',BASE+'/scheduling-settings/apply',dict(token=checked['token']),409)
-                    checked = call('POST',BASE+'/scheduling-settings/review',cfg)
-                    # Existing launch guard exceptions must remain actionable HTTP errors.
-                    from backend.services.sqlite_safety import SafetyConflict, StorageUnavailable
-                    def blocked(): raise SafetyConflict('Robot is busy')
-                    settings.guard=blocked
-                    call('POST',BASE+'/scheduling-settings/apply',dict(token=checked['token']),409)
-                    def unavailable(): raise StorageUnavailable('fixture storage failure')
-                    settings.guard=unavailable
-                    call('POST',BASE+'/scheduling-settings/apply',dict(token=checked['token']),503)
-                    settings.guard=nullcontext
-                    pending=call('POST',BASE+'/scheduling-settings/apply',dict(token=checked['token']))
-                    assert pending['pending'] and pending['active']==initial['active'] and pending['saved']==cfg
-                    call('POST',BASE+'/sources',writer,409)
-                    call('DELETE',BASE+'/sources/writer',status=409)
-                    call('POST',BASE+'/scheduling-settings/apply',dict(token=checked['token']),409)
-                    call('POST',BASE+'/scheduling-settings/cancel',dict(revision=initial['revision']),409)
-                    cancelled=call('POST',BASE+'/scheduling-settings/cancel',dict(revision=pending['revision']))
-                    assert not cancelled['pending'] and cancelled['saved']==initial['saved']
-                    with settings.manager.sqlite_db._get_connection() as conn:
-                        assert conn.execute('SELECT prerequisites FROM ScheduledExperiments').fetchone()[0]=='["Batch:B-01"]'
-                    assert not admin.execute('SELECT ScheduledToRun FROM Experiments').fetchone()[0]
-                    result['checks'].append('Scheduling HTTP review only reads; active/recovery/queued/robot/storage/changed-source/owner/stale reviews blocked; pending settings protect sources and cancel restores exact active configuration without changing schedule bindings')
                     call('GET','/api/database/tables?source_id=writer',status=409)
                     call('PUT',BASE+'/packages/culture-history/sources',dict(mappings={'primary':'writer'}),400)
                     manifest=dict(contract_version=2,id='remove-project',name='Remove project',version='1.0.0',libraries=[],tools=[dict(id='remove-project',name='Remove project',kind='operation',preview='handler:preview',entrypoint='handler:run',confirmation_field='id',sources=['primary'],inputs=[dict(name='id',label='Project',type='lookup',required=True,lookup=dict(source='primary',query='SELECT id AS value,label FROM dbo.Projects',value_type='integer'))])])
@@ -224,6 +171,8 @@ def run():
                     options=call('POST',BASE+'/operations/remove-project/choices/id',dict(inputs={}))
                     assert {x['value'] for x in options['options']}=={1,2}
                     call('POST',BASE+'/operations/remove-project/preview',dict(inputs={'id':999}),400)
+                    from backend.services.sqlite_safety import SafetyConflict
+                    def blocked(): raise SafetyConflict('Robot is busy')
                     service.guard=blocked
                     call('POST',BASE+'/operations/remove-project/preview',dict(inputs={'id':1}),409)
                     service.guard=nullcontext

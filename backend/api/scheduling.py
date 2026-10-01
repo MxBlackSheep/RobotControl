@@ -20,6 +20,7 @@ from backend.services.notifications import EmailNotificationService
 from backend.services.notification_delivery import send_recorded
 from backend.services.scheduling.experiment_discovery import get_experiment_discovery_service
 from backend.services.scheduling.experiment_executor import resolve_experiment_path
+from backend.services.scheduling.legacy_preparation import legacy_review
 from backend.models import ScheduledExperiment, TimeoutConfig, CalendarEvent, ApiResponse, NotificationContact, NotificationSettings
 from backend.api.dependencies import ConnectionContext, require_local_access
 from backend.utils.audit import log_action
@@ -64,6 +65,8 @@ SCHEDULE_INTERVAL_ALIASES: Dict[str, float] = {
 }
 SUPPORTED_SCHEDULE_TYPES = {"once", "interval", "cron"} | set(SCHEDULE_INTERVAL_ALIASES.keys())
 SUPPORTED_TIMEOUT_ACTIONS = {"continue", "run_cleanup_and_terminate"}
+PREREQUISITES_RETIRED = ("Preparation tokens are retired. A local administrator attaches a database step "
+                         "(for example Select EvoYeast experiment) under Before this run.")
 
 
 def get_services():
@@ -77,7 +80,12 @@ def get_services():
 def _schedule_payload(schedule: ScheduledExperiment) -> Dict[str, Any]:
     """to_dict plus the derived state of a database preparation step (never stored)."""
     payload = schedule.to_dict()
-    if schedule.preparation:
+    legacy = legacy_review(schedule.prerequisites, has_step=bool(schedule.preparation))
+    if legacy:
+        # Retired adapter tokens: the run is refused until an administrator saves a step.
+        payload["legacy_preparation"] = legacy
+        payload["preparation_state"] = "needs_review"
+    elif schedule.preparation:
         try:
             from backend.services.database_tools import get_database_tools
             payload["preparation_state"] = get_database_tools().preparation_state(schedule.preparation)
@@ -845,6 +853,8 @@ def create_schedule(
             if field not in schedule_data:
                 logger.error(f"Missing required field: {field}. Received data: {schedule_data}")
                 raise HTTPException(status_code=400, detail=f"Missing required field: {field}")
+        if schedule_data.get("prerequisites"):
+            raise HTTPException(status_code=400, detail=PREREQUISITES_RETIRED)
         
         notification_contact_ids = _normalize_contact_ids(
             schedule_data.get("notification_contacts"),
@@ -884,7 +894,6 @@ def create_schedule(
             created_by=current_user.get("username", "unknown"),
             is_active=schedule_data.get("is_active", True),
             timeout_config=timeout_config,
-            prerequisites=schedule_data.get("prerequisites", []),
             preparation=_requested_preparation(schedule_data, current_user),
             notification_contacts=notification_contact_ids,
             created_at=None,  # Will be set in __post_init__
@@ -1153,10 +1162,13 @@ def update_schedule(
             updated_schedule.log_inactivity_threshold_minutes = _log_inactivity_threshold(update_data["log_inactivity_threshold_minutes"])
         if "is_active" in update_data:
             updated_schedule.is_active = update_data["is_active"]
-        if "prerequisites" in update_data:
-            updated_schedule.prerequisites = update_data["prerequisites"] or []
+        if update_data.get("prerequisites", base_schedule.prerequisites) != base_schedule.prerequisites:
+            raise HTTPException(status_code=400, detail=PREREQUISITES_RETIRED)
         # Outside the scheduler lock: pinning re-checks lookup choices against the database.
         updated_schedule.preparation = _requested_preparation(update_data, current_user, base_schedule.preparation)
+        if "preparation" in update_data and current_user.get("role") == "admin":
+            # The administrator reviewed the old adapter tokens shown with this step.
+            updated_schedule.prerequisites = []
         if "timeout_config" in update_data:
             updated_schedule.timeout_config = _normalize_timeout_config(update_data["timeout_config"])
         if "notification_contacts" in update_data:
@@ -1622,21 +1634,6 @@ def get_available_experiments(
     except Exception as e:
         logger.error(f"Error getting available experiments: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve experiments")
-
-
-@router.get("/lab/preparation")
-def get_lab_preparation(
-    limit: int = Query(100, ge=1, le=500),
-    current_user: dict = Depends(get_current_user),
-):
-    """Choices belong to this installation, never the Database viewer target."""
-    _, manager, _ = get_services()
-    lab = manager.lab
-    try:
-        return lab.catalogue(limit)
-    except Exception:
-        logger.exception('Lab preparation choices unavailable')
-        raise HTTPException(502, 'Cannot load lab choices. Check the lab database connection and schema.')
 
 
 class MethodImportRequest(BaseModel):
