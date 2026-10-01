@@ -218,10 +218,6 @@ def run():
                     result['passed']=True
             finally:
                 service.close()
-                admin.execute('USE master')
-                sessions=admin.execute('SELECT session_id FROM sys.dm_exec_sessions WHERE login_name=?',writer).fetchall()
-                for session in sessions: admin.execute(f'KILL {int(session[0])}')
-                admin.execute(f'DROP LOGIN [{writer}]')
         result['fixtures_removed']=True
     except Exception:
         result['failure']=traceback.format_exc()

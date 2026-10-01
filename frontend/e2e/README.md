@@ -172,7 +172,9 @@ checks a package-only correction against an existing executable without recompil
 The SQL Server checks use local `.\HAMILTON` with Windows administrator authentication
 only to create and drop UUID-named databases and logins. No check reads laboratory rows,
 changes production grants or adds a production test endpoint, and each removes the
-processes and databases it created. Real SQL Server procedures, the ODBC driver and
+processes, databases and logins it created (`sql_fixture` drops every login named
+after its own, so a check's extra `_reader`/`_writer` login goes even when the check
+fails). Real SQL Server procedures, the ODBC driver and
 hardware remain a check on the VM; do not describe these fixtures as SQL Server validation.
 
 ## System Status stall check

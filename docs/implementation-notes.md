@@ -1,3 +1,9 @@
+## 2026-10-01 SQL Server checks no longer leave logins behind
+
+- Every `database_workspace_check` run left its `rc_report_check_<id>_reader` login on `.\HAMILTON` while still passing. Its cleanup ran `DROP USER …; USE master; DROP LOGIN …` as one batch while pooled connections still held the login. `DROP LOGIN` failed, and pyodbc reports an error from a later statement in a batch only on `nextset()`, so nothing raised. `tool_authoring_check` created its `_writer` login before the `try` that removed it.
+- `report_wizard_check.sql_fixture` now removes every login named after its own UUID login (`<login>_<role>`). It ends each login's sessions first and runs one statement per call, so a failure raises. The per-check login cleanup in those two checks and in `packaged_database_smoke --wizard` (its `_packaged` login) is gone.
+- Checked: `database_workspace_check`, `tool_authoring_check`, `report_wizard_check` and `preparation_step_check` pass with no `rc_report_check_%` database or login added. A forced failure with a live extra-login session also leaves nothing. A killed process still leaves its fixture behind (one pair from `tool_authoring_check`, 2026-10-01 04:59).
+
 ## 2026-10-01 Packaged database check uses a real report connection
 
 - `packaged_database_smoke` stopped with 409 "Connection setup needed" before generating culture history (seen on the `camera-live-view-b7027e0` and `database-preparation-fa8d0c4` candidates). Its uploaded fixture package swapped the server's database and report sources in module-level code. That ran only while installation imported packages, which ended in 10bf346, and reports now run in a spawned process that the swap could not reach. The product was right; the check was stale.
