@@ -205,6 +205,14 @@ only plans the calendar.
   process outcomes survive restart; otherwise terminal SQL status completes the execution once,
   including executions archived after their schedule was deleted. A `sending` monitoring alert
   interrupted by restart becomes `unknown` and is not resent.
+- New observations persist `launched_at` with its UTC offset. Queue status qualifies older
+  server-local timestamps using the launch date's system offset; missing or invalid starts
+  are returned as null. This makes elapsed time consistent across browser timezones without
+  changing SQL association or safety timers. Older naive records assume the server timezone
+  has not changed; a start in the repeated autumn hour cannot recover its original offset.
+  Check HTTP serialization and SQLite restart with
+  `uv run --locked python backend/e2e/run_timing_check.py`; its exported queue payloads are
+  browser fixtures in `test-output/timezone-review-fix/queue-payloads.json`.
 - Older runs without a launch association show monitoring unavailable. Resolve an orphan with
   manual recovery (verify or stop HxRun, mark recovery, acknowledge). Acknowledgement closes an
   unowned execution only when HxRun detection confirms no process; detection failure keeps it

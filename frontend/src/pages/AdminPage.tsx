@@ -14,8 +14,8 @@ const AdminPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   return (
-    <PageContent variant="task">
-      <PageHeader title={section === 2 ? "Storage health" : "Administration"} />
+    <PageContent variant="overview">
+      <PageHeader title="Admin" />
 
       <StatusDialog status={error ? { title: 'Server Error', message: error, severity: 'error' } : null} onClose={() => setError(null)} />
 

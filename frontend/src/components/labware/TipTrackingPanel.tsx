@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Box, Button, Chip, Dialog, DialogContent, DialogTitle, LinearProgress, Menu, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material';
+import { Alert, Box, Button, Dialog, DialogContent, DialogTitle, LinearProgress, Menu, MenuItem, Stack, TextField, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
+import StatusChip from '../StatusChip';
 import { labwareApi, TipTrackingSnapshot, TipTrackingUpdate } from '../../services/labwareApi';
 import { useLabwareSnapshot } from './useLabwareSnapshot';
 import { useLabwareWorkspace } from './useLabwareWorkspace';
 import TipDeckOverview from './TipDeckOverview';
 import TipRackEditor from './TipRackEditor';
+import { clockTime } from '../../utils/displayTime';
+import { fontMono, layout } from '../../theme';
 
 type Pending = Record<string, Record<string, string>>;
 type Stroke = Record<string, string | undefined>;
@@ -49,7 +52,7 @@ export default function TipTrackingPanel({ active = true }: { active?: boolean }
   const rows = snapshot?.grid.rows || 8;
   const columns = snapshot?.grid.cols || 12;
   const editorMinimum = columns * 44 + (columns - 1) * 4 + 24;
-  const narrow = workspace.width < 320 + editorMinimum;
+  const narrow = workspace.width < 320 + layout.gutter + editorMinimum;
   const statuses = snapshot?.status_order || [];
   const unknown = snapshot?.unknown_status || 'unclear';
   const savedStatus = (rackId: string, tip: number) => family?.tips[rackId]?.[String(tip)] || unknown;
@@ -128,21 +131,31 @@ export default function TipTrackingPanel({ active = true }: { active?: boolean }
   if (!snapshot) return readError ? <Alert severity="error" action={<Button onClick={() => void refresh()}>Retry</Button>}>{readError}</Alert> : <LinearProgress aria-label="Loading tips" />;
   if (!family) return <Alert severity="info" action={<Button onClick={() => void refresh()}>Refresh</Button>}>No tip families found.</Alert>;
 
-  const actions = <Stack gap={0.5}>
-    <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap">
-      <TextField select size="small" label="Tip family" value={family.family_id} disabled={busy} onChange={event => { setFamilyId(event.target.value); setRackOpen(false); }} SelectProps={{ SelectDisplayProps: { 'aria-label': 'Tip family', 'aria-labelledby': undefined } }} sx={{ minWidth: 160, maxWidth: '100%' }}>
-        {families.map(item => <MenuItem key={item.family_id} value={item.family_id}>{item.display_name}{Object.keys(pending[item.family_id] || {}).length ? ' · Unsaved' : ''}</MenuItem>)}
-      </TextField>
-      <Button onClick={() => void refresh()} disabled={busy || totalPending > 0 || gesture}>Refresh</Button>
-      {canUpdate ? <>
-        <Button variant="contained" onClick={() => void save()} disabled={busy || !count || gesture}>Save changes ({count})</Button>
-        <Button onClick={undo} disabled={busy || gesture || !(history[family.family_id]?.length)}>Undo</Button>
-        {count > 0 && <Button disabled={busy || gesture} onClick={() => { setPending(previous => ({ ...previous, [family.family_id]: {} })); setHistory(previous => ({ ...previous, [family.family_id]: [] })); setWriteError(''); }}>Discard</Button>}
-        <Button aria-haspopup="menu" aria-label="More tip options" onClick={event => setMenu(event.currentTarget)} disabled={busy || gesture}>More</Button>
-      </> : <Chip label="Read only" size="small" />}
+  const statusCaption = <Typography variant="caption" color="text.secondary" role="status" sx={{ fontFamily: fontMono, whiteSpace: 'nowrap' }}>{busy ? 'Saving…' : gesture ? 'Selection in progress' : totalPending ? `${totalPending} unsaved${totalPending > count ? ` (${totalPending - count} in other families)` : ''}` : reading ? 'Updating…' : notice || `Updated ${clockTime(new Date(snapshot.refreshed_at))}`}</Typography>;
+  const actions = <Stack gap={1}>
+    <Stack direction="row" alignItems="center" gap={1.5} flexWrap="wrap" sx={{ minHeight: layout.control }}>
+      {/* Buttons as in the mock; a long family list falls back to a menu that cannot overflow the toolbar. */}
+      {families.length <= 4
+        ? <ToggleButtonGroup size="small" exclusive value={family.family_id} disabled={busy} aria-label="Tip family" onChange={(_, value: string | null) => { if (value) { setFamilyId(value); setRackOpen(false); } }} sx={{ flexWrap: 'wrap' }}>
+            {families.map(item => <ToggleButton key={item.family_id} value={item.family_id} sx={{ px: 1.5 }}>{item.display_name}{Object.keys(pending[item.family_id] || {}).length ? ' · Unsaved' : ''}</ToggleButton>)}
+          </ToggleButtonGroup>
+        : <TextField select size="small" label="Tip family" value={family.family_id} disabled={busy} onChange={event => { setFamilyId(event.target.value); setRackOpen(false); }} SelectProps={{ SelectDisplayProps: { 'aria-label': 'Tip family', 'aria-labelledby': undefined } }} sx={{ minWidth: 160, maxWidth: '100%' }}>
+            {families.map(item => <MenuItem key={item.family_id} value={item.family_id}>{item.display_name}{Object.keys(pending[item.family_id] || {}).length ? ' · Unsaved' : ''}</MenuItem>)}
+          </TextField>}
+      {statusCaption}
+      {/* Phones: an even two-column grid of actions rather than ragged wrapping. */}
+      <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap"
+        sx={{ ml: 'auto', width: { xs: '100%', sm: 'auto' }, display: { xs: 'grid', sm: 'flex' }, gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
+        <Button variant="outlined" onClick={() => void refresh()} disabled={busy || totalPending > 0 || gesture}>Refresh</Button>
+        {canUpdate ? <>
+          <Button variant="outlined" onClick={undo} disabled={busy || gesture || !(history[family.family_id]?.length)}>Undo</Button>
+          {count > 0 && <Button variant="outlined" disabled={busy || gesture} onClick={() => { setPending(previous => ({ ...previous, [family.family_id]: {} })); setHistory(previous => ({ ...previous, [family.family_id]: [] })); setWriteError(''); }}>Discard</Button>}
+          <Button variant="contained" onClick={() => void save()} disabled={busy || !count || gesture}>Save changes ({count})</Button>
+          <Button variant="outlined" aria-haspopup="menu" aria-label="More tip options" onClick={event => setMenu(event.currentTarget)} disabled={busy || gesture}>More</Button>
+        </> : <StatusChip tone="neutral" label="Read only" />}
+      </Stack>
     </Stack>
     {(readError || writeError) && <Alert severity="error" action={!totalPending && !busy && !gesture ? <Button onClick={() => void refresh()}>Retry</Button> : undefined}>{writeError || readError}{readError && ' Previous data is shown.'}</Alert>}
-    <Typography variant="caption" color="text.secondary" role="status" sx={{ minHeight: 20 }}>{busy ? 'Saving…' : gesture ? 'Selection in progress' : totalPending ? `${totalPending} unsaved${totalPending > count ? ` (${totalPending - count} in other families)` : ''}` : reading ? 'Updating…' : notice || `Updated ${new Date(snapshot.refreshed_at).toLocaleTimeString()}`}</Typography>
   </Stack>;
   const editor = rack ? <TipRackEditor rack={rack} headingId="selected-tip-rack-heading" joined={!narrow} side={family.left_racks.includes(rack) ? 'Col A' : 'Col B'} rows={rows} columns={columns} position={position} statuses={statuses} colors={snapshot.status_colors}
     statusAt={tip => shownStatus(rack, tip)} pendingAt={tip => Object.prototype.hasOwnProperty.call(currentPending, keyFor(rack, tip))}
@@ -152,14 +165,18 @@ export default function TipTrackingPanel({ active = true }: { active?: boolean }
   return <Box ref={container} sx={{ minWidth: 0, width: '100%' }}>
     <Stack gap={1}>
       {actions}
-      <Paper ref={workspace.ref} data-tip-workspace variant="outlined" sx={{ width: '100%', minWidth: 0, height: narrow ? 'auto' : Math.max(240, workspace.height), borderRadius: 2, overflowX: 'hidden', overflowY: narrow ? 'visible' : 'auto' }}>
-        <Box sx={{ display: 'grid', minHeight: narrow ? undefined : '100%', gridTemplateColumns: narrow ? 'minmax(0, 1fr)' : `clamp(320px, calc(100% - ${editorMinimum}px), 40%) minmax(0, 1fr)`, gridTemplateRows: 'auto minmax(min-content, 1fr) auto' }}>
+      {/* Deck and editor are two panels on four shared rows (header, controls, diagrams, footer),
+          separated by the page gutter; the deck keeps the 40/60 split and 320px minimum. */}
+      <Box ref={workspace.ref} data-tip-workspace sx={{ width: '100%', minWidth: 0, height: narrow ? 'auto' : Math.max(240, workspace.height), overflowX: 'hidden', overflowY: narrow ? 'visible' : 'auto' }}>
+        <Box sx={{ display: 'grid', columnGap: `${layout.gutter}px`, minHeight: narrow ? undefined : '100%',
+          gridTemplateColumns: narrow ? 'minmax(0, 1fr)' : `clamp(320px, calc(100% - ${editorMinimum + layout.gutter}px), 40%) minmax(0, 1fr)`,
+          gridTemplateRows: `minmax(${layout.header}px, auto) auto minmax(min-content, 1fr) minmax(${layout.header}px, auto)` }}>
         <TipDeckOverview family={family} joined={!narrow} rows={rows} columns={columns} selected={rack} statuses={statuses} colors={snapshot.status_colors} statusAt={shownStatus}
           pendingAt={rackId => Object.keys(currentPending).filter(key => (JSON.parse(key) as [string, number])[0] === rackId).length}
           onOpen={rackId => { setSelectedRacks(previous => ({ ...previous, [family.family_id]: rackId })); setRackOpen(true); }} />
         {!narrow && editor}
         </Box>
-      </Paper>
+      </Box>
     </Stack>
     <Dialog open={narrow && rackOpen && active} fullScreen aria-labelledby="selected-tip-rack-heading" onClose={() => setRackOpen(false)} PaperProps={{ sx: { height: '100dvh', maxHeight: '100dvh' } }} TransitionProps={{ onExited: () => container.current?.querySelector<HTMLButtonElement>('[aria-current="true"]')?.focus({ preventScroll: true }) }}>
       <DialogTitle id="tip-rack-dialog-actions" sx={{ p: 1 }}><Stack direction="row" gap={1} justifyContent="space-between" flexWrap="wrap"><Button onClick={() => setRackOpen(false)}>Back to deck</Button>{canUpdate && <Button variant="contained" onClick={() => void save()} disabled={busy || !count || gesture}>Save changes ({count})</Button>}</Stack></DialogTitle>

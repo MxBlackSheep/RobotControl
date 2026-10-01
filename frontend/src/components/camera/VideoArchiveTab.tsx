@@ -1,7 +1,10 @@
+import { DetailTitle, EmptyPanel, Panel } from '../PageLayout';
+import { dayTime } from '../../utils/displayTime';
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Box, Button, CircularProgress, LinearProgress, List, ListItemButton, Stack, TablePagination, TextField, Typography } from '@mui/material';
 import { Download, FolderOutlined, Refresh } from '@mui/icons-material';
 import InspectionWorkspace from '../InspectionWorkspace';
+import { fontMono } from '../../theme';
 
 export interface VideoFile { filename: string; timestamp: string; size_bytes: number; duration?: number; }
 export interface ExperimentFolder { folder_name: string; video_count: number; total_size_bytes: number; creation_time: string; videos?: VideoFile[]; }
@@ -61,48 +64,49 @@ export default function VideoArchiveTab({ experimentFolders, loading, error, onR
   return <Stack spacing={1} sx={{ minWidth: 0 }}>
     {error && <Alert severity="error" action={<Button color="inherit" onClick={refreshArchive}>Retry</Button>}>{error}</Alert>}
     <InspectionWorkspace label="Recording archive" selectorLabel="Folders" detailOpen={detailOpen} onBack={() => setDetailOpen(false)}
-      selector={<Stack spacing={1} sx={{ minHeight: 0, height: '100%' }}>
-        <Stack direction="row" alignItems="center" justifyContent="space-between">
-          <Typography variant="subtitle1">Folders ({experimentFolders.length})</Typography>
-          <Button onClick={refreshArchive} disabled={loading} startIcon={<Refresh />}>Refresh</Button>
-        </Stack>
-        <TextField label="Search folders" size="small" value={query} onChange={event => setQuery(event.target.value)} />
+      selector={<Panel title={`Folders (${experimentFolders.length})`} label="Folders" fill inset={false} sx={{ height: '100%' }} bodySx={{ display: 'flex', flexDirection: 'column' }}
+        actions={<Button size="small" onClick={refreshArchive} disabled={loading} startIcon={<Refresh />}>Refresh</Button>}>
+        <Box sx={{ px: 2, py: 1.5, borderBottom: 1, borderColor: 'surface.rowLine' }}>
+          <TextField label="Search folders" size="small" fullWidth value={query} onChange={event => setQuery(event.target.value)} />
+        </Box>
         {loading && <LinearProgress aria-label="Loading recordings" />}
         <List disablePadding sx={{ overflow: 'auto', minHeight: 0, flex: 1 }}>
           {experimentFolders.filter(item => item.folder_name.toLowerCase().includes(query.toLowerCase())).map(item => <ListItemButton
             key={item.folder_name} aria-label={`Open folder ${item.folder_name}`} aria-current={selected === item.folder_name ? 'true' : undefined}
-            selected={selected === item.folder_name} onClick={() => choose(item)} sx={{ gap: 1, alignItems: 'flex-start', py: 1.5 }}>
-            <FolderOutlined sx={{ mt: .5 }} />
-            <Box sx={{ minWidth: 0 }}><Typography sx={{ overflowWrap: 'anywhere' }}>{item.folder_name}</Typography>
-              <Typography variant="body2" color="text.secondary">{item.video_count} recordings · {fileSize(item.total_size_bytes)}</Typography></Box>
+            selected={selected === item.folder_name} onClick={() => choose(item)} sx={{ gap: 1.5, alignItems: 'center', minHeight: 56, py: 1, px: 2, borderBottom: 1, borderColor: 'surface.rowLine' }}>
+            <FolderOutlined fontSize="small" sx={{ color: 'text.secondary' }} />
+            <Box sx={{ minWidth: 0 }}><Typography sx={{ fontFamily: fontMono, fontSize: 12, lineHeight: '20px', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item.folder_name}>{item.folder_name}</Typography>
+              <Typography variant="caption" color="text.secondary">{item.video_count} recordings · {fileSize(item.total_size_bytes)}</Typography></Box>
           </ListItemButton>)}
-          {!loading && !experimentFolders.length && <Typography sx={{ p: 2 }}>No recordings yet.</Typography>}
+          {!loading && !experimentFolders.length && <Typography variant="body2" sx={{ p: 2, color: 'text.secondary' }}>No recordings yet.</Typography>}
         </List>
-      </Stack>}>
-      {folder ? <Stack spacing={1} sx={{ minHeight: 0, height: '100%' }}>
-        <Typography variant="h6" component="h2" sx={{ overflowWrap: 'anywhere' }}>{folder.folder_name}</Typography>
-        <TextField label="Find recording" size="small" value={fileQuery} onChange={event => { setFileQuery(event.target.value); setPage(0); }} />
+      </Panel>}>
+      {folder ? <Panel title="Folder" fill inset={false} sx={{ height: '100%' }} bodySx={{ display: 'flex', flexDirection: 'column' }}>
+        <Stack spacing={1.5} sx={{ p: 2, borderBottom: 1, borderColor: 'surface.rowLine' }}>
+          <DetailTitle>{folder.folder_name}</DetailTitle>
+          <TextField label="Find recording" size="small" value={fileQuery} onChange={event => { setFileQuery(event.target.value); setPage(0); }} sx={{ maxWidth: { sm: 360 } }} />
+        </Stack>
         {state?.loading && <LinearProgress aria-label="Loading folder" />}
-        {state?.error && <Alert severity="error" action={<Button onClick={() => void load(folder)}>Retry</Button>}>{state.error}</Alert>}
+        {state?.error && <Alert severity="error" sx={{ mx: 2, mb: 1 }} action={<Button onClick={() => void load(folder)}>Retry</Button>}>{state.error}</Alert>}
         <Box sx={{ overflow: 'auto', minHeight: 0, flex: 1 }}>
-          {videos.slice(safePage * pageSize, (safePage + 1) * pageSize).map(video => <Stack key={video.filename} spacing={1}
-            sx={{ p: 1.5, borderBottom: 1, borderColor: 'divider' }}>
-            <Typography sx={{ overflowWrap: 'anywhere' }}>{video.filename}</Typography>
-            <Stack direction="row" gap={1} flexWrap="wrap" alignItems="center" justifyContent="space-between">
-              <Typography variant="body2" color="text.secondary">{new Date(video.timestamp).toLocaleString()} · {fileSize(video.size_bytes)}{video.duration != null ? ` · ${video.duration}s` : ''}</Typography>
-              <Stack direction="row" gap={1}>
-                <Button aria-label={`Download ${video.filename}`} onClick={() => void onDownloadVideo(video.filename)}
-                  disabled={downloadBusy} startIcon={downloadingFilename === video.filename ? <CircularProgress size={18} /> : <Download />}>Download</Button>
-                {onDeleteVideo && <Button color="error" aria-label={`Delete ${video.filename}`} disabled={downloadBusy} onClick={() => onDeleteVideo(video.filename)}>Delete</Button>}
-              </Stack>
+          {videos.slice(safePage * pageSize, (safePage + 1) * pageSize).map(video => <Stack key={video.filename} direction="row" gap={1.5} flexWrap="wrap"
+            alignItems="center" justifyContent="space-between" sx={{ px: 2, py: 1, minHeight: 56, borderBottom: 1, borderColor: 'surface.rowLine' }}>
+            <Box sx={{ minWidth: 0, flex: '1 1 240px' }}>
+              <Typography sx={{ fontFamily: fontMono, fontSize: 12, lineHeight: '20px', overflowWrap: 'anywhere' }}>{video.filename}</Typography>
+              <Typography variant="caption" color="text.secondary">{dayTime(video.timestamp)} · {fileSize(video.size_bytes)}{video.duration != null ? ` · ${video.duration} s` : ''}</Typography>
+            </Box>
+            <Stack direction="row" gap={1}>
+              <Button aria-label={`Download ${video.filename}`} onClick={() => void onDownloadVideo(video.filename)}
+                disabled={downloadBusy} startIcon={downloadingFilename === video.filename ? <CircularProgress size={18} /> : <Download />}>Download</Button>
+              {onDeleteVideo && <Button color="error" aria-label={`Delete ${video.filename}`} disabled={downloadBusy} onClick={() => onDeleteVideo(video.filename)}>Delete</Button>}
             </Stack>
           </Stack>)}
-          {!state?.loading && !state?.error && !videos.length && <Typography sx={{ p: 2 }}>No recordings found.</Typography>}
+          {!state?.loading && !state?.error && !videos.length && <Typography variant="body2" sx={{ p: 2, color: 'text.secondary' }}>No recordings found.</Typography>}
         </Box>
         <TablePagination component="div" count={videos.length} page={safePage} rowsPerPage={pageSize} rowsPerPageOptions={[25, 50, 100]}
           onPageChange={(_, next) => setPage(next)} onRowsPerPageChange={event => { setPageSize(Number(event.target.value)); setPage(0); }}
-          sx={{ flexShrink: 0, '& .MuiTablePagination-toolbar': { flexWrap: 'wrap', px: 0 }, '& .MuiTablePagination-spacer': { display: 'none' } }} />
-      </Stack> : <Typography color="text.secondary" sx={{ p: 2 }}>Select a recording folder.</Typography>}
+          sx={{ flexShrink: 0, borderTop: 1, borderColor: 'surface.headLine', px: 1, '& .MuiTablePagination-toolbar': { flexWrap: 'wrap', px: 0 }, '& .MuiTablePagination-spacer': { display: 'none' } }} />
+      </Panel> : <EmptyPanel>Select a recording folder.</EmptyPanel>}
     </InspectionWorkspace>
   </Stack>;
 }

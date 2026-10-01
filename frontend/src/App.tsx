@@ -1,29 +1,31 @@
 import React, { Suspense } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, Link } from 'react-router-dom';
 
 // Optimized Material-UI imports for better tree-shaking
 import Box from '@mui/material/Box';
-import AppBar from '@mui/material/AppBar';
-import Toolbar from '@mui/material/Toolbar';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
+import Tooltip from '@mui/material/Tooltip';
+import Typography from '@mui/material/Typography';
 import MenuIcon from '@mui/icons-material/Menu';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { loadComponent } from './utils/BundleOptimizer';
-import NavigationBreadcrumbs from './components/NavigationBreadcrumbs';
 import LoadingSpinner from './components/LoadingSpinner';
 import AppSidebar from './components/AppSidebar';
-import { SchedulingNavigationContext, useSidebarLayout } from './components/navigation';
+import RobotAttentionBanner from './components/RobotAttentionBanner';
+import { useSidebarLayout } from './components/navigation';
 import SkipLink from './components/SkipLink';
 import KeyboardShortcutsHelp from './components/KeyboardShortcutsHelp';
 import { useKeyboardNavigation } from './hooks/useKeyboardNavigation';
+import { RobotStatusContext, useRobotStatus } from './hooks/useRobotStatus';
 import LoginPage from './pages/LoginPage';
 import Dashboard from './pages/Dashboard';
 import ChangePasswordDialog from './components/ChangePasswordDialog';
 import MaintenanceDialog from './components/MaintenanceDialog';
 import { AppearanceControl } from './context/AppearanceContext';
+import { layout } from './theme';
 
 // Lazy load non-critical pages for better initial load performance
 const DatabasePage = loadComponent(() => import('./pages/DatabasePage'));
@@ -36,66 +38,65 @@ const SchedulingPage = loadComponent(() => import('./pages/SchedulingPage'));
 const AboutPage = loadComponent(() => import('./pages/AboutPage'));
 const AdminPage = loadComponent(() => import('./pages/AdminPage'));
 
-const AppContent: React.FC = () => {
-  const { isAuthenticated, user, logout, loading } = useAuth();
-  
-  // Mobile drawer state
+function AccountMenu({ compact, onChangePassword }: { compact: boolean; onChangePassword: () => void }) {
+  const { user, logout } = useAuth();
+  const [anchor, setAnchor] = React.useState<HTMLElement | null>(null);
+  const roleLabel = user?.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : '';
+  const initial = (user?.username || '?').charAt(0).toUpperCase();
+  return <>
+    <Tooltip title={compact ? `${user?.username ?? ''} · ${roleLabel}` : ''} placement="right">
+    <Button color="inherit" aria-label="Account menu" aria-haspopup="menu" aria-expanded={!!anchor} onClick={event => setAnchor(event.currentTarget)}
+      sx={{ flex: compact ? '0 0 auto' : 1, minWidth: 44, minHeight: 44, px: compact ? 0.5 : 1, justifyContent: 'flex-start', gap: 1.25, color: 'inherit', fontWeight: 400, textAlign: 'left' }}>
+      <Box component="span" sx={{ width: 28, height: 28, borderRadius: 14, bgcolor: 'rail.activeBg', color: 'rail.activeText', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{initial}</Box>
+      {/* The collapsed rail keeps the signed-in name for assistive technology; the tooltip shows it on hover. */}
+      <Box component="span" sx={compact
+        ? { position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap' }
+        : { display: 'flex', flexDirection: 'column', minWidth: 0, lineHeight: 1.3 }}>
+        <Box component="span" sx={{ fontSize: 14, color: 'rail.activeText', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.username}</Box>
+        <Box component="span" sx={{ fontSize: 12, color: 'rail.muted' }}>{roleLabel}</Box>
+      </Box>
+    </Button>
+    </Tooltip>
+    <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)}>
+      <MenuItem onClick={() => { setAnchor(null); onChangePassword(); }}>Change password</MenuItem>
+      <MenuItem component={Link} to="/about" onClick={() => setAnchor(null)}>About</MenuItem>
+      <MenuItem onClick={() => { setAnchor(null); logout(); }}>Log out</MenuItem>
+    </Menu>
+  </>;
+}
+
+function AppShell() {
+  const { user } = useAuth();
   const [mobileDrawerOpen, setMobileDrawerOpen] = React.useState(false);
-  const [accountAnchor, setAccountAnchor] = React.useState<HTMLElement | null>(null);
   const [passwordDialogOpen, setPasswordDialogOpen] = React.useState(false);
+  React.useEffect(() => { if (user?.must_reset) setPasswordDialogOpen(true); }, [user?.must_reset]);
   const { mobile: isMobile, expanded: sidebarExpanded, toggle: toggleSidebar } = useSidebarLayout();
-  const [recoveryActive, setRecoveryActive] = React.useState(false);
-  const navigationContext = React.useMemo(() => ({ recoveryActive, setRecoveryActive }), [recoveryActive]);
-  const roleLabel = React.useMemo(() => {
-    if (!user?.role) {
-      return '';
-    }
-    return user.role.charAt(0).toUpperCase() + user.role.slice(1);
-  }, [user?.role]);
-
-  // Keyboard navigation and shortcuts
-  const { helpOpen: shortcutsHelpOpen, closeHelp: hideShortcutsHelp } = useKeyboardNavigation({ enabled: isAuthenticated });
-
-  React.useEffect(() => {
-    if (user?.must_reset) {
-      setPasswordDialogOpen(true);
-    }
-  }, [user?.must_reset]);
-
-  if (loading) {
-    return <LoadingSpinner message="Connecting to the server. Your sign-in is saved; retrying automatically..." minHeight={400} />;
-  }
-
-  if (!isAuthenticated) {
-    return <LoginPage />;
-  }
+  const robotStatus = useRobotStatus(user?.username ?? null);
+  const { helpOpen: shortcutsHelpOpen, closeHelp: hideShortcutsHelp } = useKeyboardNavigation({ enabled: true });
+  const railFooter = <Box sx={{ display: 'flex', flexDirection: isMobile || sidebarExpanded ? 'row' : 'column', alignItems: 'center', gap: 0.5, width: '100%', color: 'rail.text', '& .MuiIconButton-root': { color: 'rail.text' } }}>
+    <AccountMenu compact={!isMobile && !sidebarExpanded} onChangePassword={() => { setMobileDrawerOpen(false); setPasswordDialogOpen(true); }} />
+    <AppearanceControl />
+  </Box>;
 
   return (
-    <SchedulingNavigationContext.Provider value={navigationContext}><Box sx={{ minHeight: '100vh', bgcolor: 'background.default', display: 'flex' }}>
-      <AppSidebar user={user} mobile={isMobile} expanded={sidebarExpanded} open={mobileDrawerOpen} onClose={() => setMobileDrawerOpen(false)} onToggle={toggleSidebar} />
+    <RobotStatusContext.Provider value={robotStatus}><Box sx={{ minHeight: '100vh', bgcolor: 'background.default', display: 'flex' }}>
+      <AppSidebar user={user} mobile={isMobile} expanded={sidebarExpanded} open={mobileDrawerOpen} onClose={() => setMobileDrawerOpen(false)} onToggle={toggleSidebar} footer={railFooter} />
       <Box sx={{ flex: 1, minWidth: 0 }}>
-      {/* Skip Link for Accessibility */}
       <SkipLink />
       <MaintenanceDialog />
-      
-      <AppBar position="sticky" elevation={0} sx={{ bgcolor: 'background.paper', color: 'text.primary', borderBottom: 1, borderColor: 'divider' }}>
-        <Toolbar sx={{ minHeight: '56px !important', px: { xs: 1, md: 2 }, gap: 1 }}>
-          {isMobile && <IconButton aria-label="Open navigation" onClick={() => setMobileDrawerOpen(true)}><MenuIcon /></IconButton>}
-          <Box sx={{ flex: 1, minWidth: 0 }}><NavigationBreadcrumbs compact showIcons={false} maxItems={isMobile ? 2 : 4} /></Box>
-          <AppearanceControl />
-          <Button color="inherit" aria-label="Account menu" aria-haspopup="menu" aria-expanded={!!accountAnchor} sx={{ maxWidth: { xs: 92, sm: 240 }, minWidth: 44 }} onClick={event => setAccountAnchor(event.currentTarget)}><Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.username}<Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}> · {roleLabel}</Box></Box></Button>
-        </Toolbar>
-      </AppBar>
-      <Menu anchorEl={accountAnchor} open={!!accountAnchor} onClose={() => setAccountAnchor(null)}>
-        <MenuItem onClick={() => { setAccountAnchor(null); setPasswordDialogOpen(true); }}>Change password</MenuItem>
-        <MenuItem onClick={() => { setAccountAnchor(null); logout(); }}>Log out</MenuItem>
-      </Menu>
 
-      {/* Main Content Area */}
-      <Box 
+      <Box component="header" sx={{ position: 'sticky', top: 0, zIndex: theme => theme.zIndex.appBar }}>
+        {isMobile && <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minHeight: 52, pl: 0.5, pr: 2, bgcolor: 'rail.bg', color: 'rail.activeText' }}>
+          <IconButton aria-label="Open navigation" color="inherit" onClick={() => setMobileDrawerOpen(true)}><MenuIcon /></IconButton>
+          <Typography component="span" sx={{ fontWeight: 600, fontSize: 16 }}>RobotControl</Typography>
+        </Box>}
+        <RobotAttentionBanner />
+      </Box>
+
+      <Box
         component="main"
         id="main-content"
-        sx={{ p: { xs: 1, sm: 1.5, lg: 2 }, minWidth: 0 }}
+        sx={{ p: { xs: `${layout.pagePhone}px`, sm: `${layout.page}px` }, minWidth: 0 }}
         tabIndex={-1} // Make focusable for skip link
       >
         <Suspense fallback={<LoadingSpinner message="Loading page..." minHeight={400} />}>
@@ -123,8 +124,7 @@ const AppContent: React.FC = () => {
           </Routes>
         </Suspense>
       </Box>
-      
-      {/* Keyboard Shortcuts Help Dialog */}
+
       <KeyboardShortcutsHelp
         open={shortcutsHelpOpen}
         onClose={hideShortcutsHelp}
@@ -136,8 +136,16 @@ const AppContent: React.FC = () => {
         requireChange={Boolean(user?.must_reset)}
       />
       </Box>
-    </Box></SchedulingNavigationContext.Provider>
+    </Box></RobotStatusContext.Provider>
   );
+}
+
+const AppContent: React.FC = () => {
+  const { isAuthenticated, loading } = useAuth();
+  if (loading) {
+    return <LoadingSpinner message="Connecting to the server. Your sign-in is saved; retrying automatically..." minHeight={400} />;
+  }
+  return isAuthenticated ? <AppShell /> : <LoginPage />;
 };
 
 function App() {

@@ -1,8 +1,10 @@
 import React, { useRef, useState } from 'react';
-import { Alert, Box, Button, Chip, LinearProgress, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material';
+import { Alert, Box, Button, LinearProgress, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material';
+import StatusChip from '../StatusChip';
 import { CytomatRowState, CytomatSnapshot, labwareApi } from '../../services/labwareApi';
 import { useLabwareSnapshot } from './useLabwareSnapshot';
 import { useLabwareWorkspace } from './useLabwareWorkspace';
+import { clockTime } from '../../utils/displayTime';
 
 // These positions describe the operator-confirmed layout, not database sort order.
 const shelves = ['1', '2', '3', '4', '5', '6', '7'];
@@ -110,11 +112,11 @@ export default function CytomatPanel({ active = true }: { active?: boolean }) {
   return <Stack ref={workspace.ref} data-testid="cytomat-workspace" spacing={1} sx={{ minWidth: 0, width: '100%', height: bounded ? workspace.height : 'auto' }}>
     <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap" sx={{ flexShrink: 0 }}>
       <Button disableRipple aria-busy={reading} onClick={() => { if (!reading) void refresh(); }} disabled={saving || count > 0 || editing !== null} sx={focusStyle}>Refresh</Button>
-      {canUpdate ? <><Button variant="contained" onClick={() => void save()} disabled={saving || !count}>Save changes ({count})</Button>{count > 0 && <Button disabled={saving} onClick={() => { setPending({}); setWriteError(''); }}>Discard</Button>}</> : <Chip label="Read only" size="small" />}
+      {canUpdate ? <><Button variant="contained" onClick={() => void save()} disabled={saving || !count}>Save changes ({count})</Button>{count > 0 && <Button disabled={saving} onClick={() => { setPending({}); setWriteError(''); }}>Discard</Button>}</> : <StatusChip tone="neutral" label="Read only" />}
       {otherPositions.length > 0 && <Button disableRipple onClick={() => { otherPositionsRef.current?.scrollIntoView({ block: 'nearest' }); otherPositionsRef.current?.focus({ preventScroll: true }); }} sx={{ ml: 'auto', ...focusStyle }}>Other positions ({otherPositions.length})</Button>}
     </Stack>
     {(readError || writeError) && <Alert severity="error" sx={{ flexShrink: 0 }} action={!count && !saving && editing === null ? <Button onClick={() => void refresh()}>Retry</Button> : undefined}>{writeError || readError}{readError && ' Previous data is shown.'}</Alert>}
-    <Typography variant="caption" color="text.secondary" role="status" sx={{ minHeight: 20, flexShrink: 0 }}>{saving ? 'Saving…' : count ? count + ' unsaved' : reading ? 'Updating…' : notice || 'Updated ' + new Date(snapshot.refreshed_at).toLocaleTimeString()}</Typography>
+    <Typography variant="caption" color="text.secondary" role="status" sx={{ minHeight: 20, flexShrink: 0 }}>{saving ? 'Saving…' : count ? count + ' unsaved' : reading ? 'Updating…' : notice || 'Updated ' + clockTime(new Date(snapshot.refreshed_at))}</Typography>
     <Paper data-cytomat-register variant="outlined" sx={{ overflow: 'hidden', display: 'flex', flexDirection: 'column', flex: bounded ? '1 1 0%' : 'none', minHeight: 0 }}>
       <Box sx={{ display: 'grid', gridTemplateColumns: columns, gap: 1, px: { xs: 1.25, sm: 2 }, py: 1.25, bgcolor: 'action.hover', borderBottom: 1, borderColor: 'divider', flexShrink: 0 }}>
         <Typography variant="caption" color="text.secondary">Position</Typography><Typography variant="caption" color="text.secondary">Plate</Typography>

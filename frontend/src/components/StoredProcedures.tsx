@@ -18,6 +18,7 @@ import {
 import { databaseAPI } from "../services/api";
 import InspectionWorkspace from "./InspectionWorkspace";
 import InspectionTextViewer from "./InspectionTextViewer";
+import { fontMono } from "../theme";
 
 interface Parameter {
   name: string;
@@ -192,7 +193,7 @@ export default function StoredProcedures({
           >
             <ListItemText
               primary={item.name}
-              primaryTypographyProps={{ sx: { overflowWrap: "anywhere" } }}
+              primaryTypographyProps={{ sx: { overflowWrap: "anywhere", fontFamily: fontMono, fontSize: 13 } }}
               secondary={`${item.type === "PROCEDURE" ? "Procedure" : "Function"} · ${item.parameters.length} parameters`}
             />
           </ListItemButton>

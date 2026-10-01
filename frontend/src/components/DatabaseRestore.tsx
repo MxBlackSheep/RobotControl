@@ -14,7 +14,6 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  Chip,
   Checkbox,
   FormControlLabel,
   Divider,
@@ -32,6 +31,9 @@ import {
   IconButton,
   Collapse
 } from '@mui/material';
+import StatusChip from './StatusChip';
+import { PanelHeader } from './PageLayout';
+import { fontMono } from '../theme';
 import useTheme from '@mui/material/styles/useTheme';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import {
@@ -238,7 +240,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({ open, onClose, onSelect }) 
                           }
                         />
                         {item.name.toLowerCase().endsWith('.bck') && (
-                          <Chip label="BCK" size="small" color="secondary" />
+                          <StatusChip tone="neutral" label="BCK" />
                         )}
                       </ListItemButton>
                     </ListItem>
@@ -566,16 +568,14 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
   };
 
   return (
-    <Card>
+    <Card sx={{ maxWidth: 1120 }}>
       <CardContent>
         <Stack spacing={3}>
-          <Typography variant="h6" gutterBottom>
-            Database Restore
-          </Typography>
+          <PanelHeader title="Restore database" />
 
 
           {/* Tab Navigation */}
-          <Paper sx={{ borderBottom: 1, borderColor: 'divider' }}>
+          <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
             <Tabs
               value={activeTab}
               onChange={handleTabChange}
@@ -595,7 +595,7 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
                 iconPosition="start" 
               />
             </Tabs>
-          </Paper>
+          </Box>
 
           {/* Tab 0: Managed .bak files */}
           {activeTab === 0 && (
@@ -604,118 +604,95 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
                 Select from managed backup files with metadata and descriptions.
               </Typography>
 
-              <FormControl fullWidth size="small">
-                <InputLabel>Select Backup File</InputLabel>
-                <Select
-                  value={selectedBackup?.filename || ''}
-                  onChange={(e) => handleBackupSelect(e.target.value)}
-                  label="Select Backup File"
-                  disabled={loading}
-                >
-                  <MenuItem value="">
-                    <em>Choose a backup file...</em>
-                  </MenuItem>
-                  {backupFiles.map((backup) => (
-                    <MenuItem key={backup.filename} value={backup.filename}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
-                        <StorageIcon fontSize="small" color="primary" />
-                        <Box sx={{ flex: 1 }}>
-                          <Typography variant="body2">
-                            {backup.filename}
-                          </Typography>
-                          <Typography variant="caption" color="textSecondary">
-                            {backup.file_size_formatted} •{formatDate(backup.created_date)}
-                          </Typography>
-                          {backup.description && (
-                            <Typography variant="caption" display="block" sx={{ fontStyle: 'italic' }}>
-                              {backup.description}
-                            </Typography>
-                          )}
-                        </Box>
-                        <Stack direction="row" spacing={0.5}>
-                          <Chip label="BAK" size="small" variant="outlined" color="primary" />
-                          {!backup.is_valid && (
-                            <Chip label="Invalid" size="small" color="error" />
-                          )}
-                        </Stack>
-                      </Box>
+              <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ xs: 'stretch', sm: 'center' }} gap={1}>
+                <FormControl fullWidth size="small">
+                  <InputLabel id="restore-backup-label">Select Backup File</InputLabel>
+                  <Select
+                    labelId="restore-backup-label"
+                    renderValue={value => <Box sx={{ overflow: 'hidden', textOverflow: 'ellipsis', fontFamily: fontMono, fontSize: 13 }}>{value}</Box>}
+                    value={selectedBackup?.filename || ''}
+                    onChange={(e) => handleBackupSelect(e.target.value)}
+                    label="Select Backup File"
+                    disabled={loading}
+                  >
+                    <MenuItem value="">
+                      <em>Choose a backup file...</em>
                     </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-
-              {/* Metadata Details for Selected BAK */}
-              {selectedBackup && (
-                <Card variant="outlined" sx={{ bgcolor: 'background.default' }}>
-                  <CardContent sx={{ pb: 1 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1, mb: 1 }}>
-                      <Typography variant="subtitle2">
-                        Backup Metadata
-                      </Typography>
-                      <IconButton 
-                        size="small" 
-                        onClick={() => setExpandedMetadata(!expandedMetadata)}
-                      >
-                        {expandedMetadata ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-                      </IconButton>
-                    </Box>
-                    
-                    <Stack spacing={1}>
-                      <Stack
-                        direction={{ xs: 'column', sm: 'row' }}
-                        spacing={0.5}
-                        justifyContent="space-between"
-                        alignItems={{ xs: 'flex-start', sm: 'center' }}
-                      >
-                        <Typography variant="body2" color="textSecondary">Status:</Typography>
-                        <Chip 
-                          label={selectedBackup.is_valid ? 'Valid' : 'Invalid'}
-                          size="small" 
-                          color={selectedBackup.is_valid ? 'success' : 'error'}
-                        />
-                      </Stack>
-                      
-                      {selectedBackup.description && (
-                        <Stack spacing={0.5}>
-                          <Typography variant="body2" color="textSecondary" gutterBottom>Description:</Typography>
-                          <Typography variant="body2" sx={{ fontStyle: 'italic', pl: 1, borderLeft: 2, borderColor: 'divider' }}>
-                            {selectedBackup.description}
-                          </Typography>
-                        </Stack>
-                      )}
-                    </Stack>
-
-                    <Collapse in={expandedMetadata}>
-                      <Divider sx={{ my: 1 }} />
-                      <Stack spacing={1}>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 0.75 }}>
-                          <Typography variant="body2" color="textSecondary">Database:</Typography>
-                          <Typography variant="body2">{selectedBackup.database_name || 'Unknown'}</Typography>
+                    {backupFiles.map((backup) => (
+                      <MenuItem key={backup.filename} value={backup.filename}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
+                          <StorageIcon fontSize="small" color="primary" />
+                          <Box sx={{ flex: 1 }}>
+                            <Typography variant="body2">
+                              {backup.filename}
+                            </Typography>
+                            <Typography variant="caption" color="textSecondary">
+                              {backup.file_size_formatted} •{formatDate(backup.created_date)}
+                            </Typography>
+                            {backup.description && (
+                              <Typography variant="caption" display="block" sx={{ fontStyle: 'italic' }}>
+                                {backup.description}
+                              </Typography>
+                            )}
+                          </Box>
+                          <Stack direction="row" spacing={0.5}>
+                            <StatusChip tone="neutral" label="BAK" />
+                            {!backup.is_valid && (
+                              <StatusChip tone="fault" label="Invalid" />
+                            )}
+                          </Stack>
                         </Box>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 0.75 }}>
-                          <Typography variant="body2" color="textSecondary">Server:</Typography>
-                          <Typography variant="body2">{selectedBackup.sql_server || 'Unknown'}</Typography>
-                        </Box>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 0.75 }}>
-                          <Typography variant="body2" color="textSecondary">Timestamp:</Typography>
-                          <Typography variant="body2">{selectedBackup.timestamp || 'Unknown'}</Typography>
-                        </Box>
-                      </Stack>
-                    </Collapse>
-                  </CardContent>
-                </Card>
-              )}
-
-              <Box sx={{ display: 'flex', gap: 2 }}>
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
                 <Button
-                  variant="outlined"
                   startIcon={loading ? <CircularProgress size={20} /> : <RefreshIcon />}
                   onClick={loadBackupFiles}
                   disabled={loading || restoreProgress}
+                  sx={{ flexShrink: 0, alignSelf: { xs: 'flex-start', sm: 'auto' } }}
                 >
                   Refresh List
                 </Button>
-              </Box>
+              </Stack>
+
+              {/* Metadata Details for Selected BAK */}
+              {selectedBackup && (
+                <Box component="section" aria-label="Backup metadata" sx={{ pt: 2, borderTop: 1, borderColor: 'divider' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1, mb: 1 }}>
+                    <Typography variant="subtitle2">
+                      Backup metadata
+                    </Typography>
+                    <Box sx={{ ml: 'auto' }}><StatusChip tone={selectedBackup.is_valid ? 'completed' : 'fault'} label={selectedBackup.is_valid ? 'Valid' : 'Invalid'} /></Box>
+                    <IconButton
+                      size="small"
+                      aria-label={expandedMetadata ? 'Hide backup metadata' : 'Show backup metadata'}
+                      aria-expanded={expandedMetadata}
+                      onClick={() => setExpandedMetadata(!expandedMetadata)}
+                    >
+                      {expandedMetadata ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                    </IconButton>
+                  </Box>
+
+                  <Collapse in={expandedMetadata}>
+                    <Divider sx={{ my: 1 }} />
+                    <Stack spacing={1}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 0.75 }}>
+                        <Typography variant="body2" color="textSecondary">Database:</Typography>
+                        <Typography variant="body2">{selectedBackup.database_name || 'Unknown'}</Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 0.75 }}>
+                        <Typography variant="body2" color="textSecondary">Server:</Typography>
+                        <Typography variant="body2">{selectedBackup.sql_server || 'Unknown'}</Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 0.75 }}>
+                        <Typography variant="body2" color="textSecondary">Timestamp:</Typography>
+                        <Typography variant="body2">{selectedBackup.timestamp || 'Unknown'}</Typography>
+                      </Box>
+                    </Stack>
+                  </Collapse>
+                </Box>
+              )}
 
               {backupFiles.length === 0 && !loading && (
                 <Alert severity="info">
@@ -733,7 +710,7 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
                 These files don't have metadata but can still be restored.
               </Typography>
 
-              <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+              <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: { xs: 'wrap', sm: 'nowrap' } }}>
                 <TextField
                   label="Selected .bck File"
                   value={selectedBckPath}
@@ -757,103 +734,32 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
 
           {/* Selection Summary */}
           {currentSelection && (
-            <Card variant="outlined" sx={{ p: 2, bgcolor: 'blue.50' }}>
-              <Typography variant="subtitle2" gutterBottom>Selected Backup:</Typography>
-              <Stack spacing={1.25}>
-                <Stack
-                  direction={{ xs: 'column', sm: 'row' }}
-                  spacing={0.5}
-                  justifyContent="space-between"
-                  alignItems={{ xs: 'flex-start', sm: 'center' }}
-                >
-                  <Typography variant="body2" color="textSecondary">
-                    File:
-                  </Typography>
-                  <Typography variant="body2" sx={{ fontFamily: 'monospace', wordBreak: 'break-word' }}>
-                    {currentSelection.filename}
-                  </Typography>
-                </Stack>
-
-                {currentSelection.path && (
-                  <Stack
-                    direction={{ xs: 'column', sm: 'row' }}
-                    spacing={0.5}
-                    justifyContent="space-between"
-                    alignItems={{ xs: 'flex-start', sm: 'center' }}
-                  >
-                    <Typography variant="body2" color="textSecondary">
-                      Full Path:
-                    </Typography>
-                    <Typography
-                      variant="body2"
-                      sx={{ fontFamily: 'monospace', fontSize: '0.8rem', wordBreak: 'break-all' }}
-                    >
-                      {currentSelection.path}
-                    </Typography>
-                  </Stack>
-                )}
-
-                <Stack
-                  direction={{ xs: 'column', sm: 'row' }}
-                  spacing={0.5}
-                  justifyContent="space-between"
-                  alignItems={{ xs: 'flex-start', sm: 'center' }}
-                >
-                  <Typography variant="body2" color="textSecondary">
-                    Type:
-                  </Typography>
-                  <Chip
-                    label={`${currentSelection.type.toUpperCase()} ${currentSelection.hasMetadata ? '(with metadata)' : '(no metadata)'}`}
-                    size="small"
-                    color={currentSelection.type === 'bak' ? 'primary' : 'secondary'}
-                  />
-                </Stack>
-
-                <Stack
-                  direction={{ xs: 'column', sm: 'row' }}
-                  spacing={0.5}
-                  justifyContent="space-between"
-                  alignItems={{ xs: 'flex-start', sm: 'center' }}
-                >
-                  <Typography variant="body2" color="textSecondary">
-                    Size:
-                  </Typography>
-                  <Typography variant="body2">{currentSelection.size}</Typography>
-                </Stack>
-
-                <Stack
-                  direction={{ xs: 'column', sm: 'row' }}
-                  spacing={0.5}
-                  justifyContent="space-between"
-                  alignItems={{ xs: 'flex-start', sm: 'center' }}
-                >
-                  <Typography variant="body2" color="textSecondary">
-                    Created:
-                  </Typography>
-                  <Typography variant="body2">
-                    {currentSelection.created !== 'Unknown' ? formatDate(currentSelection.created) : 'Unknown'}
-                  </Typography>
-                </Stack>
-
-                {currentSelection.description && (
-                  <Stack spacing={0.5}>
-                    <Typography variant="body2" color="textSecondary">
-                      Description:
-                    </Typography>
-                    <Typography
-                      variant="body2"
-                      sx={{ fontStyle: 'italic', pl: { xs: 1, sm: 2 }, borderLeft: 2, borderColor: 'primary.main' }}
-                    >
-                      {currentSelection.description}
-                    </Typography>
-                  </Stack>
-                )}
-              </Stack>
-            </Card>
+            <Box component="section" aria-label="Selected backup" sx={{ pt: 3, borderTop: 1, borderColor: 'divider' }}>
+              <Typography component="h3" variant="subtitle2" sx={{ mb: 2 }}>Selected backup</Typography>
+              <Box component="dl" sx={{ m: 0, display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: '140px minmax(0, 1fr)' }, columnGap: 2, rowGap: 1,
+                '& dt': { color: 'text.secondary' }, '& dd': { m: 0, overflowWrap: 'anywhere' } }}>
+                <Typography component="dt" variant="body2">File</Typography>
+                <Typography component="dd" variant="body2" sx={{ fontFamily: fontMono }}>{currentSelection.filename}</Typography>
+                {currentSelection.path && <>
+                  <Typography component="dt" variant="body2">Full path</Typography>
+                  <Typography component="dd" variant="body2" sx={{ fontFamily: fontMono }}>{currentSelection.path}</Typography>
+                </>}
+                <Typography component="dt" variant="body2">Type</Typography>
+                <Box component="dd"><StatusChip tone="neutral" label={`${currentSelection.type.toUpperCase()} ${currentSelection.hasMetadata ? '(with metadata)' : '(no metadata)'}`} /></Box>
+                <Typography component="dt" variant="body2">Size</Typography>
+                <Typography component="dd" variant="body2">{currentSelection.size}</Typography>
+                <Typography component="dt" variant="body2">Created</Typography>
+                <Typography component="dd" variant="body2">{currentSelection.created !== 'Unknown' ? formatDate(currentSelection.created) : 'Unknown'}</Typography>
+                {currentSelection.description && <>
+                  <Typography component="dt" variant="body2">Description</Typography>
+                  <Typography component="dd" variant="body2">{currentSelection.description}</Typography>
+                </>}
+              </Box>
+            </Box>
           )}
 
           {/* Restore & pre-backup actions */}
-          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', pt: 3, borderTop: 1, borderColor: 'divider' }}>
             <Button
               variant="outlined"
               startIcon={<UploadIcon />}
@@ -908,17 +814,13 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
                   <Stack spacing={1}>
                     <Box display="flex" justifyContent="space-between">
                       <Typography variant="body2" color="textSecondary">Filename:</Typography>
-                      <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                      <Typography variant="body2" sx={{ fontFamily: fontMono }}>
                         {currentSelection.filename}
                       </Typography>
                     </Box>
                     <Box display="flex" justifyContent="space-between">
                       <Typography variant="body2" color="textSecondary">Type:</Typography>
-                      <Chip 
-                        label={`${currentSelection.type.toUpperCase()} ${currentSelection.hasMetadata ? '(with metadata)' : '(machine generated)'}`}
-                        size="small" 
-                        color={currentSelection.type === 'bak' ? 'primary' : 'secondary'}
-                      />
+                      <StatusChip tone="neutral" label={`${currentSelection.type.toUpperCase()} ${currentSelection.hasMetadata ? '(with metadata)' : '(machine generated)'}`} />
                     </Box>
                     <Box display="flex" justifyContent="space-between">
                       <Typography variant="body2" color="textSecondary">Size:</Typography>

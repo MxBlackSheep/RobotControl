@@ -1,3 +1,103 @@
+## 2026-10-01 Overview at narrow widths (Codex review)
+
+- At 900px (collapsed rail, ~388px half panels) Recent runs showed no experiment names and Up next truncated them; strip states overlapped the next label and were clipped on 320px phones; Latest experiment hid its times below 900px and squeezed the method name at 900px. Rows now follow the panel's width (`@container`, as Users and Database do), strip cells wrap by content, and Latest experiment puts its details below the name when narrow.
+- The screenshot runner now uses the suite's `global-teardown.ts`; before, each run left a `viewer-e2e-*` folder (large fixture logs) in `%TEMP%`. The runner's sample data now includes a Latest experiment with an end time.
+- Verified by screenshot review (light/dark, 320/390/900/1280/1440px, plus worst-case strip states) and the Overview behaviour check. Presentation only: requests, Retry and accessible names unchanged.
+- Second review (`e2a4271`): Up next's 104px time column clipped "Tue 20 Oct 11:00" at 900px (and on phones before). It is 128px at every width, enough for the longest `dayTime` ("13 Jan 2027 09:00"); compact rows drop the duration instead. The Scheduling list's date columns had a 120px minimum and wrapped that label; now 128px. The screenshot fixture adds a next-year schedule.
+- Hand-over on `dist/redesign-candidate-6` (built from `e2a4271`): 51 component tests, 109 browser checks, packaged smoke and 28-page walkthrough passed (`test-output/redesign-candidate-6-verification.json`). Not exercised: hardware, SQL Server, camera.
+
+## 2026-10-01 Design system A: one system for every screen
+
+- Approved direction A ("instrument console", mock: https://claude.ai/artifact/ApKjN7njdXXfQpZ1RDqRhx), light and dark. Tokens on a 4px unit and the primitives `PageGrid`, `Panel`, `ListRow`, `StatusDot` in `PageLayout.tsx`; every screen moved onto them (`a3db127`, `4faf47e`, `0d45d4b`). Overview, Maintenance and Labware follow the mock exactly.
+- Labware: the After saving summary sat on an extra footer line, so the first edit made the shared row taller and moved both diagrams (reported by the owner). The footer is now one fixed line.
+- Checks changed because they described the old layout: Labware geometry expects the 12px gutter between the two panels; the Overview strip label is "SQL Server"; Maintenance rows are found by name instead of MUI's Stack class (`35c6067`); the packaged Cytomat gap allows the 24px page padding (`de8f49a`). The Maintenance Reason panel's region is "Maintenance details", so it no longer shares the field's name.
+- Verification is tiered (AGENTS.md): styling by screenshot review (`playwright.visual.config.ts`), the full suite and packaged checks once at hand-over: 51 component tests, 109 browser checks, packaged smoke and walkthrough passed on `dist/redesign-candidate-5` (`test-output/redesign-candidate-5-verification.json`). Not exercised: hardware, SQL Server, camera.
+- Deviation from the mock: the Labware deck keeps the 40/60 split and 320px minimum (protects 44px tip targets), so its edge is at 40% rather than exactly on a grid column.
+
+## 2026-09-30 Design pass: page edge, card alignment and use of space (`c7797a0`)
+
+- All screens share one left edge (`PageContent` no longer centres); Overview has a three-column layout from 1500px of content width. System status service cards use the resource cards' columns. Camera's Recent recordings fills the right column on wide screens. History is one card with the shared `columnHeading` style. Dates use `dayTime` everywhere, with the year for other years.
+- Presentation only: no handler, request, permission or accessible name changed. A review subagent checked the diff and before/after screenshots; its findings (year in dates, Labware keyboard order, 320px camera buttons, 600-900px System status, Overview row length at 1920px) were fixed.
+- Checks: all 109 browser checks and 51 component tests pass. Not done: a visual pass against real schedules and the local SQL Server (the preview start was not permitted in this session).
+
+## 2026-09-30 Align Overview card rows and heading baselines
+
+- Corrects the independent column stacks introduced below: Up next / Instrument health and Recent runs / Latest experiment now share row tracks and stretch to their taller card. Recovery uses the same column boundary; the phone layout retains recovery priority.
+- Panel headers reserve a 36px minimum height so headings align whether or not they contain an action button. Content can still grow and wrap.
+- Build and 19 existing browser checks passed. Light/dark visual probes measure card edges and heading baselines with populated, empty and held states, including the 1000px workspace breakpoint. Evidence and source/build hashes: `test-output/overview-alignment/verification.json`. No hardware or Windows package verification.
+
+## 2026-09-30 Align frontend composition and panel presentation
+
+- Page titles and actions now share a consistent row above section tabs. Dashboard pages stop at 1440px; task forms at 1120px. Tables, logs, camera and labware retain their available working width. Normal panels use 8px corners and 16/24px insets; panel headings share `PanelHeader`, with spacing owned by the parent.
+- Overview stacks upcoming and recent activity together beside instrument health and the latest experiment, removing the empty row under a short upcoming list. Maintenance's heading, Refresh and form share the same bounded width.
+- Scheduling groups runtime status separately from the collection, with explicit Refresh queue / Refresh schedules labels. Restore uses flat source tabs, Refresh beside the selector, compact filename display, a single selection summary and separated actions. Validity indicators, expandable metadata, permissions, drafts and confirmations remain intact.
+- Production build and all 109 existing browser checks passed without weakening assertions; three focused Maintenance cases passed again after a final label-width correction. Visual evidence and build identity are retained in `test-output/appearance-consistency/verification.json`; the repeatable probe uses the isolated viewer fixture and existing schedule/backup fixtures. No new permanent presentation-only tests. Real hardware, production SQL, native browser zoom and a new Windows package were not exercised.
+
+## 2026-09-30 Correct maintenance holds and elapsed time after redesign review
+
+- Maintenance's Right now panel reports Scheduled runs as Held while maintenance or recovery is active. Unavailable or pending maintenance reads and failed robot reads show Unknown; a stopped scheduler shows Stopped. Refresh preserves the operator's reason draft.
+- New run observations save the launch time with a UTC offset. The queue API qualifies older server-local launch times before returning them, so Overview and Maintenance agree across browser time zones. Missing or invalid starts remain unknown. Old timestamps in the repeated autumn hour cannot identify their original offset, and assume the original server timezone.
+- Verification and review evidence: `test-output/maintenance-review-fix/verification.json`, `test-output/timezone-review-fix/verification.json`, and `test-output/review-fixes-final/verification.json`. Hardware, SQL Server and packaged execution were not exercised.
+
+## 2026-09-30 Redesign step 8: review findings, Overview from the mock, remaining gaps
+
+- Review P1/P2 (`f689ccd`): the shared robot status read recovery only from the queue reply, so a newer recovery in the scheduler reply was hidden from the rail and tab; it also ignored `resume_required`, so the warning cleared while queued jobs still waited for Resume. `newerRecovery` now keeps the higher `safety_revision` (unhealthy storage always wins) and `robotAttention` includes the Resume hold. A new check reproduces both and failed against the old behaviour.
+- Overview (`e508fdc`, `697f2d1`): running jobs now report `experiment_path`, `estimated_duration` and the monitor's `launched_at`. Overview has the mock's Now running, Needs attention, Up next, Instrument health and Recent runs panels. Elapsed time is shown against the user's estimate; past it the bar stops claiming progress and says how far past. The always-on status bar is replaced by a banner shown only when runs are held or status cannot be read; phones get a slim header with the menu button.
+- Status colours (`50e6350`): History's running is blue and archived recovery amber, via one execution-status mapping.
+- Mock gaps: Scheduling table with status filters and a 400px details panel (`ec75936`); Labware status and tip-family buttons and an after-saving summary (`3f37025`); Camera Live view first, Recording and Camera cards, recent recordings (`b9c01d4`); Logs compact file-list header (`db0ef0f`); Admin accounts table (`b3f9c96`); System status Database and Live view cards instead of a disclosure (`a822315`); Maintenance Right now panel and running-HxRun note (`06bdb1c`); shared headings, empty states and labelled Refresh (`e651270`).
+- Checks changed because they asserted the old layout: the appearance shell check asserts navigation instead of the removed bar; Labware checks press the status and family buttons instead of choosing from menus; System status checks assert the facts in their cards instead of a collapsed disclosure. What they verify is unchanged.
+- Found while verifying: after adding filter buttons, Back from schedule details on a phone focused the "All" filter (also `.Mui-selected`) instead of the open schedule; `InspectionWorkspace` now prefers `aria-current`.
+- Verification: backend scheduler and monitor tests 43 passed; 51 component tests; full browser suite 108 passed. Evidence: `test-output/redesign-step8/verification.json`. Not exercised: real hardware, scheduler, SQL Server and camera.
+
+## 2026-09-30 Redesign step 7: remaining screens brought to the approved mock
+
+- Camera (`524e0d6`): at 1200px and wider the camera and recording controls and live-view details sit beside the image; narrower screens keep them collapsible below it. The archive's folders and recordings are card panels with monospace filenames.
+- Database (`7a3a843`, `437f800`): monospace table names and cell values; each table shows its data state, with "Could not check" in amber. MUI `h6`, the panel heading used app-wide, is now 16px so the page title is the only large heading.
+- Logs (`599bb5f`): file list and reader as card panels with monospace filenames.
+- Maintenance (`ca5ed64`) and Admin (`497aef3`) leave the narrow centred column for the normal page width; the maintenance card is capped at 880px. System Status (`874af8f`): large monospace figures on the resource cards.
+- Not changed, deliberately: Labware's tip-family selector stays a dropdown (the mock's segmented toggle would change a control its checks and layout rules depend on), and the schedule editor form (not drawn in the mock) only takes the theme.
+- Checks: full browser suite 106 passed and 51 component tests passed, with no check changed in this step. Evidence: `test-output/redesign-step7/`.
+
+## 2026-09-30 Redesign step 6: module titles and final verification
+
+- Camera and Admin headings are now the module name ("Camera", "Admin"); the section is shown by the selected tab, as on every other module. The storage-health check in `system-pages.spec.ts` now asserts the selected "Storage health" tab instead of a heading of that name, because the title no longer names the section.
+- Found by the full suite: four `auth-recovery.spec.ts` cases failed because the collapsed rail (the default below 1440px) showed only the account initial. The old header always showed who was signed in. The collapsed rail now shows the name and role as a tooltip and keeps them as screen-reader text; expanded and phone views show them as before.
+- Full verification: type check, 51 component tests, full browser suite 106 passed. Evidence: `test-output/redesign-final/verification.json`. Not exercised: real scheduler, SQL Server, camera hardware, a packaged Windows build and native browser zoom.
+
+## 2026-09-30 Redesign step 5: shared status labels on the remaining screens
+
+- Camera ("My view"), Maintenance ("HxRun launches"), System Status (freshness, database, live view) and Database Restore (file type, Valid/Invalid) use `StatusChip` with unchanged text. Blocked for maintenance is amber; Invalid and Database disconnected are red. Logs had no status chips and needed no change.
+- `StatusChip` now shrinks with an ellipsis like the MUI Chip it replaces, and shows the full label as a tooltip.
+- Found while verifying: "monitoring has one refresh owner…" failed 4 of 8 runs. A diagnostic showed the step-1 status bar's "Live" marker 5px past a 320px screen in the frame after resizing, while the rail was still 64px wide: "Scheduler running" could not shrink. It now ellipsizes; the same check then passed 12 of 12, and the diagnostic found no overflow in 18 runs.
+- Checks: `camera`, `database-restore`, `database`, `appearance`, `system-pages` specs (32 passed).
+
+## 2026-09-30 Redesign step 4: Labware
+
+- The existing layout already matches the approved structure (packed physical deck beside a full-width editor with 44px tips) and picks up the shell and theme from step 1. Only the "Read only" chips (tips and Cytomat) move to `StatusChip`, and the Col A/Col B labels take the mock's small-caps style (DOM text unchanged).
+- Not adopted from the mock: the pinned unsaved-changes bar. `labware-layout-stability.spec.ts` requires that adding or clearing unsaved tips never moves either diagram, and a bar that appears on edit would. Save, Undo and Discard stay in the toolbar.
+- Checks: `labware.spec.ts`, `labware-layout-stability.spec.ts`, `cytomat-spatial.spec.ts` (39 passed, unchanged). Native zoom (`labware-native-zoom.cjs`) was not rerun; no sizes changed.
+
+## 2026-09-30 Redesign step 3: Scheduling
+
+- Restyle only; every label, permission, recovery gate, confirmation and the `safety_revision` ordering are unchanged. The schedule list shows the method path and a status chip per row; the detail panel has a header with name, chip and path; the calendar lists each day's runs as rows; notification delivery statuses use the shared tones. "Recovery required" is amber everywhere (it was red in the list and outlined red in the summary).
+- `StatusChip` falls back to the light tones outside the app theme; without it, three `RecoverySafetyPanel` component tests (rendered without the app theme) crashed.
+- Checks: `operations.spec.ts`, `scheduling-lab.spec.ts` and the scheduling component tests pass without changes. Evidence: `test-output/redesign-step3/`.
+
+## 2026-09-30 Redesign step 2: Overview
+
+- Scope for the rest of the redesign is refactor only: new look and shared patterns, no new features, nothing removed (recorded in the plan).
+- Dashboard is renamed Overview (sidebar, title, Alt+1). The Latest Experiment card keeps its content, 60 s refresh and Refresh button. Before, a failed refresh replaced the card with an error; now the last good experiment stays on screen with "Showing data from HH:MM:SS". Its timer moved from `setInterval` to `useSerialPolling`, so a slow earlier reply can no longer overwrite a newer one; the 1 s start delay (waiting for sign-in) is gone because the shell now renders only after sign-in.
+- Verified with a temporary fake-clock browser run (failed state, error after data, recovery on the timer, first-load error, no experiments); not kept as a permanent check (read-only card). Evidence: `test-output/redesign-step2/`.
+
+## 2026-09-30 Redesign step 1: app shell
+
+- Brief and approved mock: `docs/plans/2026-09-30-frontend-redesign.md`. Branch `redesign/instrument-panel`.
+- Every page now shows the robot's state in a status bar: scheduler running/stopped, the current run, and a link when a run needs recovery (before, recovery was only flagged while Scheduling was open). A failed read keeps the last known recovery and says how old it is; with no good read the bar says "Status unavailable", never "Scheduler running".
+- The sidebar is a dark module rail with the account menu and Appearance at its foot; About moved into the account menu. Sections moved from the sidebar into tabs in `PageHeader`, built from the same permission rules. Breadcrumbs and `SchedulingNavigationContext` are removed.
+- Theme tokens (`palette.rail`, `palette.tone`) and `StatusChip`; IBM Plex is bundled with `@fontsource` so offline PCs render the same.
+- Found while building: `SchedulerServiceResponse` declared a `status` string, but the backend returns an `is_running` boolean. The type now matches the backend.
+- Checks: new status-bar case in `system-pages.spec.ts`; the dark all-module shell check now also asserts the status bar. Three sidebar section-menu unit cases were removed with the menus; the remaining navigation cases moved to `navigation.test.tsx`. Evidence: `test-output/redesign-step1/verification.json`.
+
 ## 2026-09-30 Error-handling audit fixes (#16–#20)
 
 - #16: a sign-in storage error (for example SQLite `database is locked`) now answers 503 from `/me`, protected routes and `/api/auth/refresh`, so the browser keeps its tokens; bad, expired, wrong-type and revoked tokens still answer 401. Request timeouts keep the Axios error and say "Request timed out" instead of blaming the database. The 503 maintenance-overlay part landed in #15. Check: `backend/e2e/auth_storage_check.py` (3 of 13 cases failed before the fix).

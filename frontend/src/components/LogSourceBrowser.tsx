@@ -4,17 +4,23 @@ import {
   Box,
   Breadcrumbs,
   Button,
+  ButtonGroup,
+  IconButton,
+  InputAdornment,
   LinearProgress,
   List,
   ListItemButton,
   ListItemText,
   MenuItem,
-  Paper,
   Stack,
   TablePagination,
   TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
+import ArrowUpward from "@mui/icons-material/ArrowUpward";
+import RefreshIcon from "@mui/icons-material/Refresh";
+import SearchIcon from "@mui/icons-material/Search";
 import {
   logFileApi,
   LogFileSource,
@@ -22,7 +28,9 @@ import {
   BrowseOptions,
 } from "../services/logFileApi";
 import InspectionWorkspace from "./InspectionWorkspace";
+import { EmptyPanel, Panel } from "./PageLayout";
 import LogReader, { LogSelection } from "./LogReader";
+import { fontMono } from "../theme";
 type Location = { folder: string; archive: string; entry: string };
 const root: Location = { folder: "", archive: "", entry: "" };
 const defaults: BrowseOptions = {
@@ -172,38 +180,40 @@ export default function LogSourceBrowser({
   const parts = (current.archive ? current.entry : current.folder)
     .split("/")
     .filter(Boolean);
+  const hasShortcuts = !!source.shortcuts?.length;
   const selector = (
-    <Paper
-      variant="outlined"
-      sx={{
-        display: "flex",
-        flexDirection: "column",
-        flex: 1,
-        minHeight: 0,
-        overflow: "hidden",
-      }}
+    <Panel
+      title="Files"
+      fill
+      inset={false}
+      sx={{ flex: 1 }}
+      bodySx={{ display: "flex", flexDirection: "column" }}
     >
       <Stack
         direction="row"
         gap={0.5}
         flexWrap="wrap"
         alignItems="center"
-        sx={{ px: 1, pt: 0.5 }}
+        sx={{ px: 1.5, py: 0.5, minHeight: 40, borderBottom: 1, borderColor: "surface.rowLine" }}
       >
-        {(source.shortcuts || []).map((shortcut) => (
-          <Button
-            key={shortcut.label}
-            onClick={() => browse({ ...root, folder: shortcut.relative_path })}
-          >
-            {shortcut.label}
-          </Button>
-        ))}
+        {hasShortcuts && <ButtonGroup size="small" variant="outlined" aria-label="Log folders">
+          {source.shortcuts.map((shortcut) => (
+            <Button
+              key={shortcut.label}
+              onClick={() => browse({ ...root, folder: shortcut.relative_path })}
+            >
+              {shortcut.label}
+            </Button>
+          ))}
+        </ButtonGroup>}
+        {/* With shortcuts the path gets its own line; without them it shares the row with Up and Refresh. */}
+        {hasShortcuts && <Box sx={{ flex: 1 }} />}
         <Breadcrumbs
           aria-label="Log folder"
           maxItems={3}
           sx={{
-            order: 1,
-            flexBasis: "100%",
+            order: hasShortcuts ? 1 : 0,
+            flex: hasShortcuts ? "0 0 100%" : "1 1 0",
             minWidth: 0,
             "& .MuiBreadcrumbs-ol": { flexWrap: "nowrap" },
             "& .MuiBreadcrumbs-li": { minWidth: 0 },
@@ -237,24 +247,34 @@ export default function LogSourceBrowser({
             </Button>
           ))}
         </Breadcrumbs>
-        <Button
-          disabled={(!current.folder && !current.archive) || listLoading}
-          onClick={up}
-        >
-          Up
-        </Button>
-        <Button
-          disabled={listLoading}
-          onClick={() =>
-            setIntent((v) => ({
-              ...v,
-              location: current,
-              revision: v.revision + 1,
-            }))
-          }
-        >
-          Refresh files
-        </Button>
+        <Tooltip title="Up one folder">
+          <span>
+            <IconButton
+              aria-label="Up"
+              disabled={(!current.folder && !current.archive) || listLoading}
+              onClick={up}
+            >
+              <ArrowUpward fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
+        <Tooltip title="Refresh files">
+          <span>
+            <IconButton
+              aria-label="Refresh files"
+              disabled={listLoading}
+              onClick={() =>
+                setIntent((v) => ({
+                  ...v,
+                  location: current,
+                  revision: v.revision + 1,
+                }))
+              }
+            >
+              <RefreshIcon fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
       </Stack>
       {listError && (
         <Alert severity="error">
@@ -268,7 +288,7 @@ export default function LogSourceBrowser({
           e.preventDefault();
           query({ search: search.trim() });
         }}
-        sx={{ display: "flex", gap: 0.5, p: 1 }}
+        sx={{ display: "flex", gap: 0.5, px: 1.5, pt: 1.5, pb: 1 }}
       >
         <TextField
           size="small"
@@ -277,10 +297,10 @@ export default function LogSourceBrowser({
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           sx={{ flex: 1, minWidth: 0 }}
+          InputProps={{ endAdornment: <InputAdornment position="end"><IconButton type="submit" edge="end" aria-label="Search"><SearchIcon fontSize="small" /></IconButton></InputAdornment> }}
         />
-        <Button type="submit">Search</Button>
       </Box>
-      <Stack direction="row" gap={0.5} sx={{ px: 1, pb: 1 }}>
+      <Stack direction="row" gap={0.5} sx={{ px: 1.5, pb: 1.5, borderBottom: 1, borderColor: "surface.rowLine" }}>
         <TextField
           select
           size="small"
@@ -356,7 +376,8 @@ export default function LogSourceBrowser({
       {listLoading && <LinearProgress aria-label="Loading files" />}
       <List
         aria-label="Log files"
-        sx={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden" }}
+        disablePadding
+        sx={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", borderTop: 1, borderColor: "divider" }}
       >
         {listing?.items.map((item) => (
           <ListItemButton
@@ -369,11 +390,15 @@ export default function LogSourceBrowser({
               selected.relative === join(current.folder, item.name)
             }
             onClick={() => openItem(item)}
+            sx={{ px: 1.5, borderBottom: 1, borderColor: "divider" }}
           >
             <ListItemText
               primary={(item.is_directory ? "▸ " : "") + item.name}
+              secondaryTypographyProps={{ sx: { fontSize: 12 } }}
               primaryTypographyProps={{
                 sx: {
+                  fontFamily: item.is_directory ? undefined : fontMono,
+                  fontSize: 13,
                   overflowWrap: "anywhere",
                   display: "-webkit-box",
                   WebkitLineClamp: 2,
@@ -408,7 +433,7 @@ export default function LogSourceBrowser({
           "& .MuiTablePagination-spacer": { display: "none" },
         }}
       />
-    </Paper>
+    </Panel>
   );
   return (
     <>
@@ -429,7 +454,7 @@ export default function LogSourceBrowser({
             visibleInWorkspace={detailVisible}
           />
         ) : (
-          <Alert severity="info">Choose a file to read it.</Alert>
+          <EmptyPanel>Choose a file to read it.</EmptyPanel>
         )}
       </InspectionWorkspace>
     </>

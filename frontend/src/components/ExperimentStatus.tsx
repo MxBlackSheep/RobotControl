@@ -1,30 +1,15 @@
 /**
- * ExperimentStatus Component - Safe lazy-loaded experiment display
- * Shows latest experiment from Hamilton Vector database with graceful error handling
+ * Latest experiment from the Hamilton run database, refreshed every minute.
  */
-
-import React, { useEffect, useState, memo, useCallback } from 'react';
-
-// Optimized Material-UI imports for better tree-shaking
-import Box from '@mui/material/Box';
-import Card from '@mui/material/Card';
-import CardContent from '@mui/material/CardContent';
-import Typography from '@mui/material/Typography';
-import Chip from '@mui/material/Chip';
-import Skeleton from '@mui/material/Skeleton';
-import CircularProgress from '@mui/material/CircularProgress';
-import IconButton from '@mui/material/IconButton';
-import Tooltip from '@mui/material/Tooltip';
-import Stack from '@mui/material/Stack';
-import {
-  Science as ExperimentIcon,
-  Refresh as RefreshIcon,
-  PlayArrow as RunningIcon,
-  CheckCircle as CompletedIcon,
-  Error as ErrorIcon,
-  Pause as PausedIcon
-} from '@mui/icons-material';
+import React, { memo, useState } from 'react';
+import { Box, Button, Skeleton, Stack, Typography } from '@mui/material';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import { experimentsAPI } from '../services/api';
+import { useSerialPolling } from '../hooks/useSerialPolling';
+import StatusChip from './StatusChip';
+import { ListRow, Panel } from './PageLayout';
+import { clockTime, dayTime } from '../utils/displayTime';
+import { fontMono, layout, StatusTone } from '../theme';
 
 interface ExperimentData {
   run_guid: string;
@@ -34,430 +19,102 @@ interface ExperimentData {
   run_state: number;
 }
 
-interface ExperimentStatusProps {
-  compact?: boolean;
-  autoRefresh?: boolean;
-  refreshInterval?: number; // in seconds
-}
+type Latest = { experiment: ExperimentData | null; checkedAt: Date };
 
-// Get appropriate icon, color, and accessibility indicators for run state
-export const getRunStateDisplay = (runState: string | number) => {
+// Sized by the panel, not the window. The wide row is name (~200px), ID, three 160px facts and the chip.
+const wideRow = '@container latest (min-width: 1000px)';
+// Below this the "Updated" time would wrap the 40px header beside the label and Refresh.
+const roomyHeader = '@container latest (min-width: 400px)';
+
+// Hamilton run-state codes and their names.
+export const getRunStateDisplay = (runState: string | number): { label: string; tone: StatusTone } => {
   const state = String(runState || 'UNKNOWN').toUpperCase();
-  
   switch (state) {
-    case 'RUNNING':
-    case 'ACTIVE':
-    case '1':
-      return { 
-        icon: <RunningIcon />, 
-        label: 'Running',
-        backgroundColor: '#2e7d32',
-        borderColor: '#1b5e20',
-        textColor: '#ffffff',
-        ariaLabel: 'Experiment is currently running',
-        animate: true
-      };
-    case 'COMPLETED':
-    case 'FINISHED':
-    case '128':  // Hamilton completed state
-    case '0':
-      return { 
-        icon: <CompletedIcon />, 
-        label: 'Completed',
-        backgroundColor: '#1565c0',
-        borderColor: '#0d47a1',
-        textColor: '#ffffff',
-        ariaLabel: 'Experiment completed successfully'
-      };
-    case 'FAILED':
-    case 'ERROR':
-    case '256':  // Hamilton error state
-    case '-1':
-      return { 
-        icon: <ErrorIcon />, 
-        label: 'Failed',
-        backgroundColor: '#c62828',
-        borderColor: '#8e0000',
-        textColor: '#ffffff',
-        ariaLabel: 'Experiment failed with errors'
-      };
-    case 'PAUSED':
-    case '2':
-    case 'STOPPED':
-      return { 
-        icon: <PausedIcon />, 
-        label: 'Paused',
-        backgroundColor: '#ff9800',
-        borderColor: '#ef6c00',
-        textColor: '#212121',
-        ariaLabel: 'Experiment is paused'
-      };
-    case 'ABORTED':
-    case '64':   // Hamilton aborted state
-      return { 
-        icon: <ErrorIcon />, 
-        label: 'Aborted',
-        backgroundColor: '#fbc02d',
-        borderColor: '#f57f17',
-        textColor: '#212121',
-        ariaLabel: 'Experiment was aborted or cancelled'
-      };
-    default:
-      return { 
-        icon: <ExperimentIcon />, 
-        label: state.replace(/_/g, ' '),
-        backgroundColor: '#5f6368',
-        borderColor: '#424242',
-        textColor: '#ffffff',
-        ariaLabel: `Experiment status: ${state}`
-      };
+    case 'RUNNING': case 'ACTIVE': case '1': return { label: 'Running', tone: 'running' };
+    case 'COMPLETED': case 'FINISHED': case '128': case '0': return { label: 'Completed', tone: 'completed' };
+    case 'FAILED': case 'ERROR': case '256': case '-1': return { label: 'Failed', tone: 'fault' };
+    case 'PAUSED': case '2': case 'STOPPED': return { label: 'Paused', tone: 'neutral' };
+    case 'ABORTED': case '64': return { label: 'Aborted', tone: 'attention' };
+    default: return { label: state.replace(/_/g, ' '), tone: 'neutral' };
   }
 };
 
-// Format timestamp to readable format
 const formatTimestamp = (timestamp: string | null): string => {
   if (!timestamp) return 'Unknown';
-  
-  try {
-    const date = new Date(timestamp);
-    return date.toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  } catch {
-    return 'Invalid date';
-  }
+  return Number.isNaN(new Date(timestamp).getTime()) ? 'Invalid date' : dayTime(timestamp);
 };
 
-// Calculate duration between start and end times
 const calculateDuration = (startTime: string | null, endTime: string | null): string => {
   if (!startTime) return 'Unknown';
-  
-  try {
-    const start = new Date(startTime);
-    const end = endTime ? new Date(endTime) : new Date();
-    const diffMs = end.getTime() - start.getTime();
-    
-    const hours = Math.floor(diffMs / (1000 * 60 * 60));
-    const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-    
-    if (hours > 0) {
-      return `${hours}h ${minutes}m`;
-    } else {
-      return `${minutes}m`;
-    }
-  } catch {
-    return 'Unknown';
-  }
+  const diffMs = (endTime ? new Date(endTime) : new Date()).getTime() - new Date(startTime).getTime();
+  if (Number.isNaN(diffMs)) return 'Unknown';
+  const hours = Math.floor(diffMs / 3600000);
+  const minutes = Math.floor((diffMs % 3600000) / 60000);
+  return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
 };
 
-const ExperimentStatus: React.FC<ExperimentStatusProps> = memo(({
-  compact = false,
-  autoRefresh = true,
-  refreshInterval = 60 // 60 seconds default
-}) => {
-  const [experiment, setExperiment] = useState<ExperimentData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string>('');
-  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+const describeError = (err: any): string => {
+  const status = err?.response?.status;
+  if (status === 401 || status === 403) return 'Authentication required - please log in';
+  if (status === 404) return 'Experiment service not available';
+  if (err?.code === 'ECONNABORTED' || err?.code === 'ETIMEDOUT') return 'Database connection timeout - check database status';
+  if (err?.code === 'ECONNREFUSED' || err?.code === 'ENOTFOUND') return 'Backend service unavailable';
+  return 'Experiment data temporarily unavailable';
+};
 
-  const loadExperiment = useCallback(async () => {
-    try {
-      // Check if user is authenticated
-      const token = localStorage.getItem('access_token');
-      if (!token) {
-        setError('Please log in to view experiment data');
-        setLoading(false);
-        return;
-      }
-      
-      const response = await experimentsAPI.getLatest();
-      
-      // Clear an earlier error only on success, so a retry keeps it on screen until then.
-      if (response.data && response.data.success && response.data.data) {
-        setExperiment(response.data.data);
-        setLastUpdate(new Date());
-        setError('');
-      } else if (response.data && response.data.success && !response.data.data) {
-        // No experiments found - valid state
-        setExperiment(null);
-        setLastUpdate(new Date());
-        setError('');
-      } else {
-        // API returned error
-        setError(response.data?.error || 'Failed to load experiment data');
-      }
-    } catch (err: any) {
-      // Handle specific error types
-      console.error('🚨 ExperimentStatus error:', err);
-      console.error('Error details:', {
-        message: err.message,
-        status: err.response?.status,
-        data: err.response?.data
-      });
-      
-      if (err.response?.status === 403 || err.response?.status === 401) {
-        setError('Authentication required - please log in');
-      } else if (err.response?.status === 404) {
-        setError('Experiment service not available');
-      } else if (err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT') {
-        setError('Database connection timeout - check database status');
-      } else if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND') {
-        setError('Backend service unavailable');
-      } else {
-        // Network or other error - fail gracefully
-        setError('Experiment data temporarily unavailable');
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+const ExperimentStatus: React.FC<{ refreshInterval?: number }> = memo(({ refreshInterval = 60 }) => {
+  const [latest, setLatest] = useState<Latest | null>(null);
+  const polling = useSerialPolling<Latest>({
+    interval: refreshInterval * 1000,
+    request: async () => {
+      let response;
+      try { response = await experimentsAPI.getLatest(); } catch (err) { throw new Error(describeError(err)); }
+      if (!response.data?.success) throw new Error(response.data?.error || 'Failed to load experiment data');
+      // A successful reply without data means no experiment has run yet.
+      return { experiment: response.data.data || null, checkedAt: new Date() };
+    },
+    onSuccess: setLatest,
+  });
+  const error = polling.error;
+  const experiment = latest?.experiment;
+  const state = experiment ? getRunStateDisplay(experiment.run_state) : null;
 
-  // Initial load with short delay (non-blocking for dashboard)
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      loadExperiment();
-    }, 1000); // brief delay to let authentication complete first
+  const methodName = experiment ? experiment.method_name?.split('\\').pop()?.replace('.hsl', '') || 'Unknown Method' : '';
+  const facts: [string, string][] = experiment ? [
+    ['Started', formatTimestamp(experiment.start_time)],
+    ...(experiment.end_time ? [['Ended', formatTimestamp(experiment.end_time)] as [string, string]] : []),
+    ['Duration', calculateDuration(experiment.start_time, experiment.end_time)],
+  ] : [];
 
-    return () => clearTimeout(timer);
-  }, []);
+  return <Panel title="Latest experiment" inset={false} sx={{ containerType: 'inline-size', containerName: 'latest' }}
+    headerExtra={latest && !error && <Typography variant="caption" color="text.secondary"
+      sx={{ fontFamily: fontMono, whiteSpace: 'nowrap', display: 'none', [roomyHeader]: { display: 'inline' } }}>Updated {clockTime(latest.checkedAt)}</Typography>}
+    actions={<Button size="small" startIcon={<RefreshIcon />} onClick={() => { void polling.refresh(); }} disabled={polling.pending}>Refresh</Button>}>
+    {!latest && !error && <Stack aria-label="Loading experiment" sx={{ px: 2, justifyContent: 'center', height: layout.row }}><Skeleton variant="text" width="50%" /></Stack>}
 
-  // Auto refresh timer; it keeps running after an error so the card recovers on its own.
-  useEffect(() => {
-    if (!autoRefresh) return;
+    {error && <Box role="alert" sx={{ display: 'flex', alignItems: 'center', gap: 1, minHeight: layout.row, px: 2, bgcolor: 'attentionSurface.head', color: 'attentionSurface.text', fontSize: 13, borderBottom: 1, borderColor: 'surface.rowLine' }}>
+      <Box component="strong">{latest ? 'Could not refresh experiment data' : 'Experiment data is temporarily unavailable'}</Box>
+      <span>· {error}{latest && ` · Showing data from ${clockTime(latest.checkedAt)}`}</span>
+    </Box>}
 
-    const interval = setInterval(() => {
-      loadExperiment();
-    }, refreshInterval * 1000);
+    {latest && !experiment && <ListRow columns="minmax(0, 1fr)"><Box component="span" sx={{ color: 'text.secondary' }}>No experiments found</Box></ListRow>}
 
-    return () => clearInterval(interval);
-  }, [autoRefresh, refreshInterval, loadExperiment]);
-
-  const handleRefresh = () => {
-    setLoading(true);
-    loadExperiment();
-  };
-
-  // Loading state
-  if (loading) {
-    return (
-      <Card>
-        <CardContent>
-          <Box display="flex" alignItems="center" mb={2}>
-            <ExperimentIcon color="primary" sx={{ mr: 1 }} />
-            <Typography variant="h6">Latest Experiment</Typography>
-            <Box sx={{ ml: 'auto' }}>
-              <CircularProgress size={20} />
-            </Box>
-          </Box>
-          <Stack spacing={1}>
-            <Skeleton variant="text" width="80%" />
-            <Skeleton variant="text" width="60%" />
-            <Skeleton variant="rectangular" height={24} width="40%" />
-          </Stack>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  // Error state
-  if (error) {
-    return (
-      <Card>
-        <CardContent>
-          <Box display="flex" alignItems="center" mb={2}>
-            <ExperimentIcon color="primary" sx={{ mr: 1 }} />
-            <Typography variant="h6">Latest Experiment</Typography>
-            <Tooltip title="Retry">
-              <IconButton onClick={handleRefresh} size="small" sx={{ ml: 'auto' }}>
-                <RefreshIcon />
-              </IconButton>
-            </Tooltip>
-          </Box>
-          <Box
-            sx={{
-              p: 2,
-              borderRadius: 1,
-              border: '1px solid',
-              borderColor: 'warning.light',
-              bgcolor: 'rgba(255, 193, 7, 0.08)'
-            }}
-          >
-            <Stack spacing={1}>
-              <Typography variant="subtitle2" color="warning.main">
-                Experiment data is temporarily unavailable
-              </Typography>
-              <Typography variant="body2">
-                {error}
-              </Typography>
-            </Stack>
-          </Box>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  // No experiment state
-  if (!experiment) {
-    return (
-      <Card>
-        <CardContent>
-          <Box display="flex" alignItems="center" mb={2}>
-            <ExperimentIcon color="primary" sx={{ mr: 1 }} />
-            <Typography variant="h6">Latest Experiment</Typography>
-            <Tooltip title="Refresh">
-              <IconButton onClick={handleRefresh} size="small" sx={{ ml: 'auto' }}>
-                <RefreshIcon />
-              </IconButton>
-            </Tooltip>
-          </Box>
-          <Typography variant="body2" color="text.secondary">
-            No experiments found
-          </Typography>
-          {lastUpdate && (
-            <Typography variant="caption" color="text.secondary">
-              Last checked: {lastUpdate.toLocaleTimeString()}
-            </Typography>
-          )}
-        </CardContent>
-      </Card>
-    );
-  }
-
-  // Success state - display experiment
-  const stateDisplay = getRunStateDisplay(experiment.run_state);
-  const duration = calculateDuration(experiment.start_time, experiment.end_time);
-
-  return (
-    <Card>
-      <CardContent>
-        <Box
-          sx={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            alignItems: { xs: 'flex-start', sm: 'center' },
-            gap: { xs: 1, sm: 1.5 },
-            mb: 2,
-          }}
-        >
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <ExperimentIcon color="primary" />
-            <Typography
-              variant="h6"
-              sx={{ fontSize: { xs: '1rem', sm: '1.1rem' }, fontWeight: 600 }}
-            >
-              Latest Experiment
-            </Typography>
-          </Box>
-          <Box
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 1,
-              ml: { xs: 0, sm: 'auto' },
-              width: { xs: '100%', sm: 'auto' },
-              justifyContent: { xs: 'space-between', sm: 'flex-end' },
-            }}
-          >
-            <Chip
-              icon={stateDisplay.icon}
-              label={stateDisplay.label}
-              size="small"
-              variant="filled"
-              sx={{
-                px: 1.5,
-                fontWeight: 600,
-                textTransform: 'uppercase',
-                letterSpacing: 0.6,
-                color: stateDisplay.textColor || 'inherit',
-                backgroundColor: stateDisplay.backgroundColor || 'transparent',
-                border: stateDisplay.borderColor ? `1px solid ${stateDisplay.borderColor}` : undefined,
-                borderRadius: 16,
-                boxShadow: stateDisplay.backgroundColor ? '0 0 0 1px rgba(255,255,255,0.2)' : undefined,
-                animation: stateDisplay.animate ? 'pulse 1.6s ease-in-out infinite' : 'none',
-                minHeight: 28,
-                '@keyframes pulse': {
-                  '0%': { opacity: 1 },
-                  '50%': { opacity: 0.75 },
-                  '100%': { opacity: 1 }
-                }
-              }}
-              aria-label={stateDisplay.ariaLabel}
-            />
-            <Tooltip title="Refresh">
-              <IconButton onClick={handleRefresh} size="small" sx={{ flexShrink: 0 }}>
-                <RefreshIcon />
-              </IconButton>
-            </Tooltip>
-          </Box>
-        </Box>
-
-        <Stack spacing={compact ? 1 : 2}>
-          <Box>
-            <Typography variant="subtitle1" fontWeight="medium">
-              {experiment.method_name ? 
-                experiment.method_name.split('\\').pop()?.replace('.hsl', '') || 'Unknown Method'
-                : 'Unknown Method'
-              }
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              ID: {experiment.run_guid?.substring(0, 8) || 'Unknown'}
-            </Typography>
-          </Box>
-
-          <Box
-            sx={{
-              display: 'flex',
-              flexDirection: { xs: 'column', sm: 'row' },
-              justifyContent: 'space-between',
-              flexWrap: 'wrap',
-              gap: { xs: 1, sm: 1.5 },
-            }}
-          >
-            <Box>
-              <Typography variant="body2" color="text.secondary">
-                Started
-              </Typography>
-              <Typography variant="body2">
-                {formatTimestamp(experiment.start_time)}
-              </Typography>
-            </Box>
-
-            {experiment.end_time && (
-              <Box>
-                <Typography variant="body2" color="text.secondary">
-                  Ended
-                </Typography>
-                <Typography variant="body2">
-                  {formatTimestamp(experiment.end_time)}
-                </Typography>
-              </Box>
-            )}
-
-            <Box>
-              <Typography variant="body2" color="text.secondary">
-                Duration
-              </Typography>
-              <Typography variant="body2">
-                {duration}
-              </Typography>
-            </Box>
-          </Box>
-
-          {lastUpdate && (
-            <Typography variant="caption" color="text.secondary" textAlign="right">
-              Updated: {lastUpdate.toLocaleTimeString()}
-            </Typography>
-          )}
-        </Stack>
-      </CardContent>
-    </Card>
-  );
+    {/* One 40px row when the panel is wide; otherwise the details wrap onto lines below the name. */}
+    {experiment && <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gridTemplateRows: `${layout.row}px auto`, columnGap: `${layout.gutter}px`,
+      alignItems: 'center', px: `${layout.inset}px`, fontSize: 13, '& > *, & > * > *': { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+      [wideRow]: { gridTemplateColumns: 'minmax(0, 1fr) auto auto', gridTemplateRows: `${layout.row}px` } }}>
+      <Box component="span" sx={{ fontWeight: 600 }}>{methodName}</Box>
+      <Box sx={{ gridColumn: '1 / -1', display: 'flex', flexWrap: 'wrap', columnGap: `${layout.inset}px`, rowGap: 0.5, lineHeight: '20px', pb: 1.5,
+        [wideRow]: { gridColumn: 2, gridRow: 1, display: 'grid', gridTemplateColumns: `120px repeat(${facts.length}, 160px)`, columnGap: `${layout.gutter}px`, pb: 0 } }}>
+        <Box component="span" sx={{ fontFamily: fontMono, fontSize: 12, color: 'text.secondary' }}>ID: {experiment.run_guid?.substring(0, 8) || 'Unknown'}</Box>
+        {facts.map(([label, value]) => <Box key={label} component="span">
+          <Box component="span" sx={{ color: 'text.secondary' }}>{label} </Box>{value}</Box>)}
+      </Box>
+      {state && <Box sx={{ gridColumn: 2, gridRow: 1, [wideRow]: { gridColumn: 3 } }}><StatusChip tone={state.tone} label={state.label} /></Box>}
+    </Box>}
+  </Panel>;
 });
 
-// Add display name for debugging
 ExperimentStatus.displayName = 'ExperimentStatus';
 
 export default ExperimentStatus;

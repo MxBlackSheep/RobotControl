@@ -258,13 +258,7 @@ const NotificationContactsPanel: React.FC<NotificationContactsPanelProps> = ({
                 }
                 label="Show inactive"
               />
-              <Tooltip title="Refresh contacts">
-                <span>
-                  <IconButton onClick={() => handleRefresh(includeInactive)} disabled={refreshing}>
-                    {refreshing ? <CircularProgress size={20} /> : <RefreshIcon fontSize="small" />}
-                  </IconButton>
-                </span>
-              </Tooltip>
+              <Button startIcon={refreshing ? <CircularProgress size={16} /> : <RefreshIcon fontSize="small" />} onClick={() => handleRefresh(includeInactive)} disabled={refreshing}>Refresh</Button>
             </Stack>
           }
         />

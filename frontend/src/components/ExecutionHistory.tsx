@@ -2,7 +2,6 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   Box,
   Button,
-  Card,
   Typography,
   Table,
   TableBody,
@@ -10,18 +9,15 @@ import {
   TableContainer,
   TableHead,
   TableRow,
-  Paper,
   Chip,
   Collapse,
   IconButton,
   LinearProgress,
-  Tooltip,
   Select,
   MenuItem,
   FormControl,
   InputLabel,
   Stack,
-  Divider,
   TextField,
   Switch,
   FormControlLabel
@@ -38,6 +34,11 @@ import {
 import { schedulingAPI } from '../services/schedulingApi';
 import { useSerialPolling } from '../hooks/useSerialPolling';
 import StatusDialog from './StatusDialog';
+import StatusChip from './StatusChip';
+import { dayTime } from '../utils/displayTime';
+import { Panel } from './PageLayout';
+import { columnHeading } from '../theme';
+import { executionTone } from './scheduling/executionStatus';
 
 interface ExecutionHistoryProps {
   scheduleId?: string;
@@ -84,26 +85,6 @@ const getStatusIcon = (status?: string) => {
       return <ScheduleIcon color="info" fontSize="small" />;
     default:
       return <ScheduleIcon color="disabled" fontSize="small" />;
-  }
-};
-
-const getStatusColor = (status?: string): 'success' | 'error' | 'warning' | 'info' | 'default' => {
-  const normalizedStatus = typeof status === 'string' ? status.toLowerCase() : '';
-  switch (normalizedStatus) {
-    case 'success':
-    case 'completed':
-      return 'success';
-    case 'failed':
-    case 'error':
-      return 'error';
-    case 'running':
-    case 'executing':
-      return 'warning';
-    case 'scheduled':
-    case 'queued':
-      return 'info';
-    default:
-      return 'default';
   }
 };
 
@@ -183,7 +164,7 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
     if (Number.isNaN(date.getTime())) {
       return 'N/A';
     }
-    return date.toLocaleString();
+    return dayTime(dateString);
   };
 
   useEffect(() => {
@@ -292,7 +273,7 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
   const formatDurationDisplay = (execution: ExecutionRecord) => {
     const { duration_minutes, calculated_duration_minutes, duration_seconds } = execution;
     if (duration_seconds && duration_seconds > 0) {
-      return `${Math.round(duration_seconds)}s`;
+      return `${Math.round(duration_seconds)} s`;
     }
 
     const minutes = calculated_duration_minutes ?? duration_minutes ?? null;
@@ -304,18 +285,18 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
       const hours = Math.floor(minutes / 60);
       const mins = Math.round(minutes % 60);
       if (mins === 0) {
-        return `${hours}h`;
+        return `${hours} h`;
       }
-      return `${hours}h ${mins}m`;
+      return `${hours} h ${mins} min`;
     }
 
     if (minutes >= 1) {
-      return `${Math.round(minutes)}m`;
+      return `${Math.round(minutes)} min`;
     }
 
     const secondsFromMinutes = Math.round(minutes * 60);
     if (secondsFromMinutes > 0) {
-      return `${secondsFromMinutes}s`;
+      return `${secondsFromMinutes} s`;
     }
 
     if (execution.start_time && execution.end_time) {
@@ -329,12 +310,12 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
           if (mins >= 60) {
             const hours = Math.floor(mins / 60);
             const remainingMinutes = mins % 60;
-            return remainingMinutes === 0 ? `${hours}h` : `${hours}h ${remainingMinutes}m`;
+            return remainingMinutes === 0 ? `${hours} h` : `${hours} h ${remainingMinutes} min`;
           }
-          return secs === 0 ? `${mins}m` : `${mins}m ${secs}s`;
+          return secs === 0 ? `${mins} min` : `${mins} min ${secs} s`;
         }
         if (durationSeconds > 0) {
-          return `${durationSeconds}s`;
+          return `${durationSeconds} s`;
         }
       }
     }
@@ -342,16 +323,22 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
     return 'N/A';
   };
 
-  const statusLabel = (execution: ExecutionRecord) =>
-    execution.status_display || execution.status?.replace(/_/g, ' ') || 'Unknown';
+  const statusLabel = (execution: ExecutionRecord) => {
+    const label = execution.status_display || execution.status?.replace(/_/g, ' ') || 'Unknown';
+    return label.charAt(0).toUpperCase() + label.slice(1);
+  };
 
   return (
-    <Box>
-      <Card variant="outlined" sx={{ mb: 1, p: 1.5 }}>
+    <Panel title="Execution history" inset={false}
+      headerExtra={<Typography variant="caption" color="text.secondary" sx={{ display: { xs: 'none', sm: 'block' }, whiteSpace: 'nowrap' }}>Showing {filteredExecutions.length} of {executions.length} executions</Typography>}
+      actions={<>
+        <FormControlLabel sx={{ mr: 0, '& .MuiFormControlLabel-label': { fontSize: 13 } }} control={<Switch size="small" checked={autoRefresh} onChange={(event) => setAutoRefresh(event.target.checked)} />} label="Auto refresh" />
+        <Button size="small" startIcon={<RefreshIcon />} onClick={loadExecutionHistory} disabled={loading}>Refresh</Button>
+      </>}>
+      <Box sx={{ px: 2, py: 1.5, borderBottom: 1, borderColor: 'surface.rowLine' }}>
         <Stack direction="row" gap={1} flexWrap="wrap" alignItems="center">
-          <TextField size="small" label="Search history" value={search} onChange={event => setSearch(event.target.value)} sx={{ flex: '1 1 180px' }} />
-          <Button aria-expanded={filtersOpen} onClick={() => setFiltersOpen(value => !value)}>Filters</Button>
-          <Button onClick={loadExecutionHistory} disabled={loading}>Refresh</Button>
+          <TextField size="small" label="Search history" value={search} onChange={event => setSearch(event.target.value)} sx={{ flex: '1 1 140px', maxWidth: 480 }} />
+          <Button variant="outlined" aria-expanded={filtersOpen} onClick={() => setFiltersOpen(value => !value)}>Filters</Button>
         </Stack>
         <Collapse in={filtersOpen}>
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} flexWrap="wrap" alignItems={{ xs: 'stretch', md: 'center' }} sx={{ mt: 1 }}>
@@ -416,37 +403,11 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
                 <MenuItem value={200}>200 runs</MenuItem>
               </Select>
             </FormControl>
-
-
-
-            <Tooltip title="Refresh execution history">
-              <IconButton onClick={loadExecutionHistory} disabled={loading}>
-                <RefreshIcon />
-              </IconButton>
-            </Tooltip>
           </Stack>
         </Stack>
 
         </Collapse>
-        <Divider sx={{ my: 1 }} />
-
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ xs: 'flex-start', sm: 'center' }}>
-          <Typography variant="body2" color="text.secondary">
-            Showing {filteredExecutions.length} of {executions.length} executions
-          </Typography>
-
-          <FormControlLabel
-            control={
-              <Switch
-                size="small"
-                checked={autoRefresh}
-                onChange={(event) => setAutoRefresh(event.target.checked)}
-              />
-            }
-            label="Auto refresh"
-          />
-        </Stack>
-      </Card>
+      </Box>
 
       {/* Error Display */}
       <StatusDialog
@@ -455,16 +416,17 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
       />
 
       {/* Loading */}
-      {loading && <LinearProgress sx={{ mb: 2 }} />}
+      {loading && <LinearProgress />}
 
       {/* Execution History Table */}
       <TableContainer
         tabIndex={0} aria-label="Execution history records"
-        component={Paper}
         sx={{
           maxHeight,
           overflowY: 'auto',
-          '& .MuiTableCell-root': { py: 1 }
+
+          '& .MuiTableCell-root': { py: 1 },
+          '& .MuiTableCell-head': { bgcolor: 'background.paper', ...columnHeading },
         }}
       >
         <Table stickyHeader size="small" aria-label="Execution history">
@@ -473,7 +435,7 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
               <TableCell width="40px"></TableCell>
               <TableCell>Experiment</TableCell>
               <TableCell>Status</TableCell>
-              <TableCell>Start Time</TableCell>
+              <TableCell>Started</TableCell>
               <TableCell>Duration</TableCell>
               <TableCell>Retries</TableCell>
               <TableCell width="40px"></TableCell>
@@ -513,16 +475,7 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
                       )}
                     </TableCell>
                     <TableCell>
-                      <Chip
-                        label={statusLabel(execution)}
-                        color={getStatusColor(execution.status)}
-                        variant="outlined"
-                        size="small"
-                        icon={getStatusIcon(execution.status)}
-                        sx={{
-                          '& .MuiChip-icon': { fontSize: '1rem' },
-                        }}
-                      />
+                      <StatusChip label={statusLabel(execution)} tone={executionTone(execution.status ?? '')[1]} />
                     </TableCell>
                     <TableCell>
                       <Typography variant="body2">
@@ -594,7 +547,7 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
           </TableBody>
         </Table>
       </TableContainer>
-    </Box>
+    </Panel>
   );
 };
 

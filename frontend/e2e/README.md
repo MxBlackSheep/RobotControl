@@ -53,7 +53,7 @@ This example checks Labware sizing. Narrow or broaden it to the actual change:
 | Log readers | `logs.spec.ts` |
 | Camera | `camera.spec.ts` |
 | Scheduling and archives | `operations.spec.ts` |
-| Theme, navigation and system pages | `appearance.spec.ts`, `system-pages.spec.ts` |
+| Theme, navigation, Overview, robot status banner and system pages | `appearance.spec.ts`, `system-pages.spec.ts` |
 
 Use `--grep` for a specific case; use `npx playwright test --list --reporter=list`
 to list cases without running them.

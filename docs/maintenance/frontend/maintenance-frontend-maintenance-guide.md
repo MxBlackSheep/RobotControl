@@ -7,7 +7,7 @@ from the temporary API pause used while restoring a database.
 
 - `pages/MaintenancePage.tsx`: status, reason, action and conflict dialog.
 - `services/hxrunMaintenanceApi.ts`: GET/PUT `/api/maintenance/hxrun`.
-- `components/navigation.tsx`: sidebar and breadcrumb metadata.
+- `components/navigation.tsx`: sidebar and section-tab metadata.
 - `App.tsx`: `/maintenance` route.
 
 ## Operator flow
@@ -28,8 +28,14 @@ does not grant permission to change the flag.
 
 ## Layout and checks
 
-This is a task/form PageContent, limited to1120px, with one status/action card.
-Do not stretch the small form to fill the height or add decorative summary cards.
+The page uses the 1120px task width for its heading, Refresh and content. The HxRun
+launches card and Right now panel share a two-column grid from 900px of workspace
+width; below that they stack. Both use normal panel padding and headings. Right now
+reads the shell's robot status context
+(HxRun, scheduler, current run, whether scheduled runs are held) and starts no request.
+While HxRun runs, the card names the run and the time left by the user's estimate (or how
+far past it); this is information only, and the backend still decides with its 409.
+Do not stretch the small form to fill the height.
 Use the common theme and compact PageHeader. The page scrolls naturally on short
 screens and with an onscreen keyboard.
 

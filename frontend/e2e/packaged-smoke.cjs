@@ -111,7 +111,8 @@ const path = require('node:path');
     await page.setViewportSize({ width: 1920, height: 1080 });
     const register = page.locator('[data-cytomat-register]');
     await expect.poll(async () => Math.abs((await register.boundingBox()).width - (await page.locator('[data-page-pattern="spatial"]').boundingBox()).width)).toBeLessThanOrEqual(2);
-    await expect.poll(async () => { const box = await register.boundingBox(); return 1080 - box.y - box.height; }).toBeLessThanOrEqual(20);
+    // Fills the remaining height: only the page's bottom padding (24px in design system A) stays below it.
+    await expect.poll(async () => { const box = await register.boundingBox(); return 1080 - box.y - box.height; }).toBeLessThanOrEqual(25);
     await page.screenshot({ path: path.join(output, 'packaged-cytomat-desktop.png'), fullPage: true, animations: 'disabled' });
     await page.setViewportSize({ width: 320, height: 740 });
     await page.route('**/api/monitoring/experiments', route => route.fulfill({ json: { data: [] } }));
@@ -123,9 +124,8 @@ const path = require('node:path');
       enabled: true, active_session_count: 0, max_sessions: 10, resource_usage_percent: 45, total_bandwidth_mbps: 7,
     } } }));
     await page.goto('http://127.0.0.1:8017/system-status');
-    const details = page.getByRole('button', { name: 'Connection details', exact: true });
-    await expect(details).toHaveAttribute('aria-expanded', 'false');
-    await details.click();
+    // Connection facts are shown in the Database and Live view cards (no disclosure).
+    await expect(page.getByRole('region', { name: 'Database', exact: true }).getByText('Fixture server', { exact: true })).toBeVisible();
     await expect(page.getByText('0 of 10 slots in use', { exact: true })).toBeVisible();
     await expect(page.getByText(/Utilization|Bandwidth/)).toHaveCount(0);
     await page.screenshot({ path: path.join(output, 'packaged-connections-phone.png'), fullPage: true, animations: 'disabled' });
