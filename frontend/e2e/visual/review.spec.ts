@@ -54,6 +54,16 @@ async function sampleData(page: Page, mode: string) {
   // Ended present: the widest Latest experiment row (Started, Ended and Duration).
   await page.route('**/api/experiments/latest', route => route.fulfill({ json: { success: true, data: { run_guid: '7f3c2a91-5d4e-4b8a-9c1f-2e6d8a0b4c71',
     method_name: 'C:\\Methods\\CellCulture\\CellFeedingStack2_MediaExchange.hsl', start_time: ago(255), end_time: ago(208), run_state: 128 } } }));
+  await page.route('**/api/monitoring/databases', route => route.fulfill({ json: { data: { checked_at: now.toISOString(),
+    built_in: { id: 'built-in', name: 'Built-in Hamilton connection', access: 'built-in', server: 'LAB-PC\\HAMILTON', database: 'EvoYeast',
+      uses: ['Hamilton run records', 'Labware', 'Backup and restore'], state: 'connected' },
+    connections: [
+      { id: 'reader', name: 'EvoYeast reader', access: 'read', server: 'LAB-PC\\HAMILTON', database: 'EvoYeast',
+        uses: ['Tables and Stored procedures', 'Culture history', 'Select EvoYeast experiment'], state: 'connected' },
+      { id: 'writer', name: 'EvoYeast writer', access: 'operation', server: 'LAB-PC\\HAMILTON', database: 'EvoYeast',
+        uses: ['Delete Experiment (changes)', 'Select EvoYeast experiment (changes)', 'Before-run step of 2 active schedules'], state: 'connected' },
+      { id: 'archive', name: 'Archive reader', access: 'read', server: 'ARCHIVE-SQL', database: 'EvoYeastArchive', uses: [], state: 'failed',
+        message: "Cannot use connection 'Archive reader'. Check the connection settings, account permissions and query." }] } } }));
   await page.route('**/api/monitoring/experiments', route => route.fulfill({ json: { data: [] } }));
   await page.route('**/api/camera/streaming/status', route => route.fulfill({ json: { data: { status: { enabled: true, active_session_count: 1, max_sessions: 4 } } } }));
   await page.route('**/api/camera/recordings?**', route => route.fulfill({ json: { data: { experiment_folders: [

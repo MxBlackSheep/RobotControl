@@ -18,10 +18,14 @@ Use this document whenever you need to touch real-time monitoring, experiment tr
   Email delivery helpers: `EmailNotificationService` (SMTP client) and `SchedulingNotificationService` (formats schedule alerts, manual recovery emails, TRC attachments).
 
 - `backend/api/monitoring.py`  
-  REST endpoints. Wraps the services in `ResponseFormatter`, enforces auth, and exposes `/status`, `/system-health`, `/experiments`, `/start` and `/stop`.
+  REST endpoints. Wraps the services in `ResponseFormatter`, enforces auth, and exposes `/status`, `/system-health`, `/databases`, `/experiments`, `/start` and `/stop`.
+  `/databases` reports the built-in connection's `get_status` and `DatabaseTools.connection_health`:
+  every saved connection opened as its users open it (a reader's read-only check included),
+  in parallel, with its uses; cached for 30 seconds (`HEALTH_CACHE_SECONDS`) so open pages
+  do not open SQL sessions every minute. `connections` is null when they cannot be listed.
 
 - `frontend/src/hooks/useMonitoring.ts`  
-  React hook that polls `/experiments`, `/system-health` and the camera streaming status through `useSerialPolling` (one request per owner, 20-second deadline) and normalises the response.
+  React hook that polls `/experiments`, `/system-health`, `/databases` and the camera streaming status through `useSerialPolling` (one request per owner, 20-second deadline) and normalises the response.
 
 - `frontend/src/pages/MonitoringPage.tsx`  
   The System Status page: renders the data from `useMonitoring`, freshness chip and Refresh.

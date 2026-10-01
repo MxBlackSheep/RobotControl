@@ -7,8 +7,9 @@ starts another polling owner.
 
 ## Data and state
 
-`useMonitoring` reads `/api/monitoring/experiments`, `/api/monitoring/system-health`
-and `/api/camera/streaming/status` through one serial cycle. The normal interval is
+`useMonitoring` reads `/api/monitoring/experiments`, `/api/monitoring/system-health`,
+`/api/camera/streaming/status` and `/api/monitoring/databases` through one serial cycle; a
+failed streaming or databases read leaves only that card unavailable. The normal interval is
 60 seconds; failed reads retry after 30 seconds. Unmount invalidates and aborts the
 owner. Manual Refresh joins an existing request. This hook currently uses REST,
 not WebSockets, despite some older type names/comments. Reads go through the shared
@@ -25,9 +26,13 @@ The **Live view** card's Enabled/Disabled chip reports the service configuration
 It does not claim that a camera is connected, a frame is fresh, or recording is
 active. Its Sessions row counts all registered sessions, including a pending
 connection or a paused session; do not rename this to connected viewers. The
-**Database** card shows database, server and connection mode, and any database
-error inside the card. After a failed read both cards keep the last state in
-neutral colour beside Stale data.
+**Databases** card lists every SQL Server connection RobotControl depends on: the built-in
+Hamilton connection (`DB_CONFIG_PRIMARY`; run records, labware, backup) and each saved
+workspace connection with its uses (viewer, packages, schedules' before-run steps). Each
+row has its own state and message; the header is Connected only when every connection is
+reported connected, a failure count when any fails, otherwise Partly unknown. An
+incomplete reply (`normalizeDatabases`) is Unavailable, never an empty healthy list. After
+a failed read both cards keep the last state in neutral colour beside Stale data.
 
 Do not restore the old streaming utilization or bandwidth readouts. The backend
 `resource_usage_percent` is process CPU with a system-CPU fallback, not a streaming
