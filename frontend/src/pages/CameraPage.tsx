@@ -21,7 +21,8 @@ import { PlayArrow as PlayArrowIcon, Stop as StopIcon } from '@mui/icons-materia
 import StatusDialog from '../components/StatusDialog';
 import { isAxiosError } from 'axios';
 import { api, attemptTokenRefresh } from '@/services/api';
-import { buildApiUrl, buildWsUrl } from '@/utils/apiBase';
+import { buildApiUrl } from '@/utils/apiBase';
+import { useLiveViewSocket } from '../hooks/useLiveViewSocket';
 import VideoArchiveTab, {
   type ExperimentFolder
 } from '../components/camera/VideoArchiveTab';
@@ -122,7 +123,6 @@ const CameraPage: React.FC = () => {
   }, [setCurrentFrame]);
 
   // Video streaming state
-  const wsRef = useRef<WebSocket | null>(null);
   const streamRequestRef = useRef<AbortController | null>(null);
   const mountedRef = useRef(true);
   const [downloadProgress, setDownloadProgress] = useState<DownloadProgressState | null>(null);
@@ -130,23 +130,21 @@ const CameraPage: React.FC = () => {
   const downloadCancelledRef = useRef(false);
   const downloadInFlightRef = useRef(false);
 
-  const closeSocket = useCallback(() => {
-    const socket = wsRef.current;
-    wsRef.current = null;
-    if (socket) {
-      socket.onopen = socket.onmessage = socket.onerror = socket.onclose = null;
-      socket.close();
-    }
-    setCurrentFrame(null);
-  }, [setCurrentFrame]);
+  // The socket, its frames, pause while hidden and automatic reconnection live in the hook;
+  // this page owns the session requests (create, release) it reconnects with.
+  const liveSocket = useLiveViewSocket({
+    showFrame: setCurrentFrame,
+    onState: state => setMySession(prev => prev ? { ...prev, websocket_state: state } : prev),
+    onError: setLiveError,
+    reconnect: () => reconnectLiveView(),
+  });
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
       streamRequestRef.current?.abort();
-      closeSocket();
     };
-  }, [closeSocket]);
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -439,101 +437,53 @@ const CameraPage: React.FC = () => {
     }
   };
 
-  const createStreamingSession = async (quality: string = 'adaptive') => {
-    if (streamingLoading || streamRequestRef.current) return;
+  /** Creates a session and connects to it; returns whether it worked. */
+  const createStreamingSession = async (quality: string = 'adaptive'): Promise<boolean> => {
+    if (streamRequestRef.current) return false;
     const controller = new AbortController();
     streamRequestRef.current = controller;
     setStreamingLoading(true);
     try {
       const { data } = await api.post('/api/camera/streaming/session', { quality }, { signal: controller.signal });
       const session = data.data;
-      if (!mountedRef.current || controller.signal.aborted) return;
+      if (!mountedRef.current || controller.signal.aborted) return false;
       setMySession(session);
       setLiveError('');
-
-      // Connect to WebSocket for live streaming
-      connectToStreamingWebSocket(session.session_id);
-
-      await loadStreamingStatus();
+      liveSocket.connect(session.session_id);
+      void loadStreamingStatus();
+      return true;
     } catch (error) {
-      if (!mountedRef.current || controller.signal.aborted) return;
+      if (!mountedRef.current || controller.signal.aborted) return false;
       console.error('Error creating streaming session:', error);
       const detail = isAxiosError(error) ? error.response?.data?.detail : undefined;
       setLiveError(typeof detail === 'string' ? detail : 'Failed to create streaming session');
+      return false;
     } finally {
       if (streamRequestRef.current === controller) streamRequestRef.current = null;
       if (mountedRef.current) setStreamingLoading(false);
     }
   };
 
-  const connectToStreamingWebSocket = (sessionId: string) => {
-    const wsUrl = buildWsUrl(`/api/camera/streaming/video/${sessionId}`);
-    
-    setCurrentFrame(null);
-    closeSocket();
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
-    
-    ws.onopen = () => {
-      // Update session state to connected
-      setMySession(prev => prev ? { ...prev, websocket_state: 'connected' } : null);
-    };
-    
-    ws.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-
-        if (message.type === 'frame' && message.data) {
-          const frameDataUrl = `data:image/jpeg;base64,${message.data}`;
-          setCurrentFrame(frameDataUrl);
-        } else if (message.type === 'error') {
-          console.error('Stream error:', message.error);
-          setLiveError(message.error || 'Streaming error');
-        }
-      } catch (error) {
-        console.error('Error parsing WebSocket message:', error);
-      }
-    };
-    
-    ws.onerror = (error) => {
-      console.error('Streaming WebSocket error:', error);
-      setLiveError('WebSocket connection failed');
-      setCurrentFrame(null);
-      };
-    
-    ws.onclose = () => {
-      setMySession(prev => prev ? { ...prev, websocket_state: 'disconnected' } : null);
-      setCurrentFrame(null);
-      };
-    
-    // Store WebSocket reference for cleanup
-    return ws;
-  };
-
-  const reconnectLiveView = async () => {
-    if (!mySession || streamingLoading) return;
-    setStreamingLoading(true);
-    closeSocket();
-    setCurrentFrame(null);
+  /** Replaces the session (manual Reconnect, or automatically after the socket closed). The
+   * last image stays, marked stale, until new frames arrive. */
+  const reconnectLiveView = async (): Promise<boolean> => {
+    if (!mySession || streamRequestRef.current) return false;
+    liveSocket.close();
     try {
-      try {
-        await api.delete(`/api/camera/streaming/session/${mySession.session_id}`);
-      } catch (cause) {
-        if (!isAxiosError(cause) || cause.response?.status !== 404) throw new Error('Could not release the previous live-view session');
-      }
-      setMySession(null);
-      await createStreamingSession();
+      await api.delete(`/api/camera/streaming/session/${mySession.session_id}`);
     } catch (cause) {
-      setLiveError(cause instanceof Error ? cause.message : 'Could not reconnect live view');
-    } finally { setStreamingLoading(false); }
+      if (!isAxiosError(cause) || cause.response?.status !== 404) {
+        setLiveError('Could not release the previous live-view session. Retrying…');
+        return false;
+      }
+    }
+    return createStreamingSession();
   };
 
   const stopStreamingSession = async () => {
     if (!mySession || streamingLoading) return;
 
-    // Close WebSocket connection
-    closeSocket();
-    setCurrentFrame(null);
+    liveSocket.stop();
 
     setStreamingLoading(true);
     try {

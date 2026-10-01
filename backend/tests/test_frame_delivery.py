@@ -9,7 +9,8 @@ import numpy as np
 from backend.services.frame_encoder import FrameEncoder
 from backend.services.live_streaming import LiveStreamingService
 from backend.services.shared_frame_buffer import SharedFrameBuffer
-from backend.services.streaming_types import FrameData
+from backend.services.streaming_session import FRAME_HEADER, MAX_DEGRADE_LEVEL, MAX_UNACKNOWLEDGED
+from backend.services.streaming_types import FrameData, StreamControl
 
 
 def frame(number=1):
@@ -85,17 +86,129 @@ def test_slow_viewer_does_not_hold_other_viewers_or_leave_delivery_tasks():
                 if name == 'slow':
                     async def slow_send(*args, **kwargs):
                         await asyncio.sleep(100)
-                    socket.send_json.side_effect = slow_send
+                    socket.send_bytes.side_effect = slow_send
                 else:
                     fast = handler
+                    # The fast browser acknowledges each frame as it arrives.
+                    async def acknowledge(payload, handler=handler):
+                        handler.acknowledge(FRAME_HEADER.unpack_from(payload)[1])
+                    socket.send_bytes.side_effect = acknowledge
             for number in range(12):
                 await service._distribute_frame(frame(number))
                 await asyncio.sleep(.02)
-            assert fast.session.frames_sent >= 2
+            assert fast.session.frames_sent > MAX_UNACKNOWLEDGED  # acknowledgements reopen the window
             assert len(service._pending_frames) <= 2
         finally:
             await service.stop_service()
         assert not service._delivery_tasks
         assert not service._pending_frames and not service._delivery_events
         assert not service.frame_buffer._async_readers
+    asyncio.run(scenario())
+
+
+def test_unacknowledged_viewer_gets_two_frames_then_its_session_ends():
+    """A slow tunnel must not queue video; a viewer that stops acknowledging is released."""
+    async def scenario():
+        LiveStreamingService._instance = None
+        with patch.object(LiveStreamingService, '_ensure_camera_integration'):
+            service = LiveStreamingService()
+        await service.start_service()
+        try:
+            session = await service.create_session('silent', 'silent', 'local')
+            socket = AsyncMock()
+            handler = await service.connect_websocket(session.session_id, socket)
+            with patch('backend.services.live_streaming.ACK_TIMEOUT_SECONDS', .3):
+                for number in range(10):
+                    await service._distribute_frame(frame(number))
+                    await asyncio.sleep(.02)
+                payloads = [call.args[0] for call in socket.send_bytes.await_args_list]
+                assert len(payloads) == MAX_UNACKNOWLEDGED
+                version, sequence, captured, width, height = FRAME_HEADER.unpack_from(payloads[0])
+                assert (version, sequence, width, height) == (1, 1, 24, 18)  # adaptive: 0.75 of 32x24
+                assert payloads[0][FRAME_HEADER.size:FRAME_HEADER.size + 2] == b'\xff\xd8'  # JPEG
+                await asyncio.sleep(.5)
+            assert session.session_id not in service.sessions
+            socket.close.assert_awaited()
+        finally:
+            await service.stop_service()
+    asyncio.run(scenario())
+
+
+def test_pause_stops_frames_and_resume_restarts_them():
+    async def scenario():
+        LiveStreamingService._instance = None
+        with patch.object(LiveStreamingService, '_ensure_camera_integration'):
+            service = LiveStreamingService()
+        await service.start_service()
+        try:
+            session = await service.create_session('tab', 'tab', 'local')
+            socket = AsyncMock()
+            handler = await service.connect_websocket(session.session_id, socket)
+            async def acknowledge(payload):
+                handler.acknowledge(FRAME_HEADER.unpack_from(payload)[1])
+            socket.send_bytes.side_effect = acknowledge
+            await handler.handle_control(StreamControl('pause'))
+            for number in range(5):
+                await service._distribute_frame(frame(number))
+                await asyncio.sleep(.02)
+            assert socket.send_bytes.await_count == 0
+            await handler.handle_control(StreamControl('resume'))
+            for number in range(5, 10):
+                await service._distribute_frame(frame(number))
+                await asyncio.sleep(.08)
+            assert socket.send_bytes.await_count >= 1
+        finally:
+            await service.stop_service()
+    asyncio.run(scenario())
+
+
+def test_cpu_guard_degrades_under_load_recovers_when_calm_and_keeps_the_hard_stop():
+    async def scenario():
+        LiveStreamingService._instance = None
+        with patch.object(LiveStreamingService, '_ensure_camera_integration'):
+            service = LiveStreamingService()
+        with patch.object(service, 'ensure_service_started', new=AsyncMock()):
+            session = await service.create_session('viewer', 'viewer', 'local')
+            handler = service.sessions[session.session_id]
+            requested = handler.quality_settings
+            async def samples(values):
+                for value in values:
+                    service._last_resource_check = datetime(2000, 1, 1)
+                    with patch.object(service, '_sample_cpu', return_value=value):
+                        await service._apply_resource_guard()
+            await samples([80] * 12)
+            assert handler.degrade_level == MAX_DEGRADE_LEVEL  # capped, as degrade() floors
+            assert handler.quality_settings.fps < requested.fps
+            await samples([60] * 20)  # between the limits: hold, never recover
+            assert handler.degrade_level == MAX_DEGRADE_LEVEL
+            await samples([20] * (10 * MAX_DEGRADE_LEVEL))
+            assert handler.degrade_level == 0 and handler.quality_settings == requested
+            assert handler.session.quality_level == 'adaptive'
+            await samples([95, 95])
+            assert session.session_id in service.sessions
+            await samples([95])  # third consecutive sample at the hard limit
+            assert session.session_id not in service.sessions
+    asyncio.run(scenario())
+
+
+def test_silent_paused_viewer_is_released_and_a_keepalive_keeps_it():
+    """A hidden tab sends no acks; only keepalives show it is still there."""
+    async def scenario():
+        LiveStreamingService._instance = None
+        with patch.object(LiveStreamingService, '_ensure_camera_integration'):
+            service = LiveStreamingService()
+        with patch.object(service, 'ensure_service_started', new=AsyncMock()), \
+             patch('backend.services.live_streaming.BROWSER_SILENCE_SECONDS', .3):
+            handlers = {}
+            for name in ('silent', 'alive'):
+                session = await service.create_session(name, name, 'local')
+                handlers[name] = await service.connect_websocket(session.session_id, AsyncMock())
+                await handlers[name].handle_control(StreamControl('pause'))
+            for _ in range(4):
+                await asyncio.sleep(.12)
+                await handlers['alive'].handle_control(StreamControl('keepalive'))
+                await service._expire_pending_sessions()
+            assert handlers['silent'].session.session_id not in service.sessions
+            assert handlers['alive'].session.session_id in service.sessions
+            await service.terminate_session(handlers['alive'].session.session_id)
     asyncio.run(scenario())

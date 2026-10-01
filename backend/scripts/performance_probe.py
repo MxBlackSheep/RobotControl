@@ -14,11 +14,17 @@ import numpy as np
 import psutil
 
 from backend.services.live_streaming import LiveStreamingService
-from backend.services.streaming_session import StreamingSessionHandler
+from backend.services.streaming_session import FRAME_HEADER, StreamingSessionHandler
 from backend.services.streaming_types import StreamingSession
 
 
 class Sink:
+    """A fast browser: acknowledges each binary frame at once (see streaming_session.py)."""
+    handler = None
+
+    async def send_bytes(self, payload):
+        self.handler.acknowledge(FRAME_HEADER.unpack_from(payload)[1])
+
     async def send_json(self, message):
         pass
 
@@ -35,7 +41,9 @@ async def trial(seconds, viewers):
     frame = np.random.default_rng(42).integers(0, 256, (720, 1280, 3), dtype=np.uint8)
     for number in range(viewers):
         session = StreamingSession(str(number), str(number), "probe", datetime.now(), datetime.now(), True)
-        handler = StreamingSessionHandler(session, Sink())
+        sink = Sink()
+        handler = StreamingSessionHandler(session, sink)
+        sink.handler = handler
         handler.is_running = True
         service.sessions[str(number)] = handler
     reads_before = service.frame_buffer.frames_read_streaming
@@ -50,11 +58,12 @@ async def trial(seconds, viewers):
         delays.append(max(0, time.monotonic() - before - 1 / 30))
         ticks += 1
     sends = sum(h.session.frames_sent for h in service.sessions.values())
+    sent_bytes = sum(h.session.bytes_sent for h in service.sessions.values())
     await service.stop_service()
     elapsed = time.monotonic() - started
     memory = psutil.Process().memory_info()
     return {"viewers": viewers, "seconds": round(elapsed, 3), "source_frames": ticks,
-            "sent_frames": sends, "cpu_seconds": round(time.process_time() - cpu_start, 3),
+            "sent_frames": sends, "bytes_per_frame": round(sent_bytes / sends) if sends else None, "cpu_seconds": round(time.process_time() - cpu_start, 3),
             "buffer_reads": service.frame_buffer.frames_read_streaming - reads_before,
             "event_loop_delay_p95_ms": round(sorted(delays)[int(len(delays) * .95)] * 1000, 2),
             "working_set_bytes": memory.rss, "private_bytes": getattr(memory, "private", None)}

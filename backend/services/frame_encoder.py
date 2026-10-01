@@ -1,16 +1,20 @@
 """Bounded JPEG work shared by viewers of the same source frame/quality."""
 import asyncio
-import base64
 from concurrent.futures import ThreadPoolExecutor
 import cv2
 
 
 def encode_jpeg(frame, scale, quality):
+    """Return (jpeg bytes, width, height), or None. Bytes go out as a binary WebSocket
+    message; base64 text added a third to every frame."""
     if scale < 1.0:
         height, width = frame.shape[:2]
         frame = cv2.resize(frame, (int(width * scale), int(height * scale)), interpolation=cv2.INTER_LINEAR)
     success, encoded = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, quality])
-    return base64.b64encode(encoded).decode('utf-8') if success else None
+    if not success:
+        return None
+    height, width = frame.shape[:2]
+    return encoded.tobytes(), width, height
 
 
 class FrameEncoder:

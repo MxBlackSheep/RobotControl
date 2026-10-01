@@ -19,11 +19,15 @@ from backend.services.streaming_types import (
     StreamingSession, StreamingStatus, QualitySettings,
     FrameData
 )
-from backend.services.streaming_session import StreamingSessionHandler
+from backend.services.streaming_session import ACK_TIMEOUT_SECONDS, BROWSER_SILENCE_SECONDS, StreamingSessionHandler
 from backend.services.shared_frame_buffer import get_shared_frame_buffer
 from backend.config import LIVE_STREAMING_CONFIG
 
 logger = logging.getLogger(__name__)
+
+# One quality step back up after this many consecutive one-second samples below this CPU %.
+CPU_RECOVER_PERCENT = 50
+CPU_RECOVER_SAMPLES = 10
 
 
 class LiveStreamingService:
@@ -92,6 +96,7 @@ class LiveStreamingService:
         self._cpu_samples: Deque[float] = deque(maxlen=5)
         self._consecutive_soft_limit_hits = 0
         self._consecutive_hard_limit_hits = 0
+        self._consecutive_calm_samples = 0
         self._resource_state = "normal"
         self._recording_impact = "none"
 
@@ -351,10 +356,15 @@ class LiveStreamingService:
         return True
 
     async def _expire_pending_sessions(self):
-        """A requested session whose browser never attaches must release capacity."""
+        """Release capacity held by a browser that never attached, or that has gone silent
+        (no ack or keepalive), e.g. a paused tab whose connection died without a close."""
         timeout = self.config.get("session_timeout_seconds", 60)
+        now = time.monotonic()
         for session_id, handler in list(self.sessions.items()):
             if handler.websocket is None and handler.session.is_timed_out(timeout):
+                await self.terminate_session(session_id, expected=handler)
+            elif handler.websocket is not None and now - handler.last_heard > BROWSER_SILENCE_SECONDS:
+                logger.info("Streaming | event=browser_silent | session=%s", session_id)
                 await self.terminate_session(session_id, expected=handler)
 
     async def _frame_distribution_loop(self) -> None:
@@ -397,11 +407,15 @@ class LiveStreamingService:
                 delay = handler.frame_interval - (time.monotonic() - handler.last_frame_time)
                 if delay > 0:
                     await asyncio.sleep(delay)
+                # Wait for the browser to acknowledge before taking (and encoding) the newest
+                # frame: a slow link lowers this viewer's frame rate instead of queueing
+                # seconds of video, and costs no encoding. Silence for 15 s ends the session.
+                await handler.wait_for_window(ACK_TIMEOUT_SECONDS)
                 frame = self._pending_frames.pop(session_id, None)
                 event.clear()
                 if frame is None:
                     continue
-                async with asyncio.timeout(5):
+                async with asyncio.timeout(ACK_TIMEOUT_SECONDS):
                     sent = await handler.send_frame(frame, self._encoder.encode)
                 if sent:
                     self.total_frames_distributed += 1
@@ -437,6 +451,12 @@ class LiveStreamingService:
             for handler in self.sessions.values():
                 handler.degrade_quality()
 
+    async def _recover_active_sessions(self) -> None:
+        """Step quality back up after CPU has stayed low (before, it never recovered)."""
+        async with self.session_lock:
+            for handler in self.sessions.values():
+                handler.recover_quality()
+
     async def _apply_resource_guard(self) -> None:
         """Lightweight guard that keeps CPU usage within configured thresholds."""
         now = datetime.now()
@@ -452,6 +472,7 @@ class LiveStreamingService:
             self._recording_impact = "none"
             self._consecutive_soft_limit_hits = 0
             self._consecutive_hard_limit_hits = 0
+            self._consecutive_calm_samples = 0
             self._cpu_samples.clear()
             return
 
@@ -488,6 +509,16 @@ class LiveStreamingService:
             self._recording_impact = "none"
             self._consecutive_soft_limit_hits = 0
             self._consecutive_hard_limit_hits = 0
+
+        # Thresholds are the process's summed CPU (psutil), as before: 75 % means three
+        # quarters of one core. Recovery needs a sustained calm, well below the soft limit.
+        if cpu_percent < CPU_RECOVER_PERCENT:
+            self._consecutive_calm_samples += 1
+            if self._consecutive_calm_samples >= CPU_RECOVER_SAMPLES:
+                self._consecutive_calm_samples = 0
+                await self._recover_active_sessions()
+        else:
+            self._consecutive_calm_samples = 0
 
 
     def get_status(self) -> StreamingStatus:
