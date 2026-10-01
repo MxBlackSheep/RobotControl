@@ -3,7 +3,8 @@
 Failure cases:
 - Upload, update and removal reject path traversal, binaries, duplicate identifiers,
   missing libraries and incompatible contracts. A rejected update keeps the active
-  version. Inspecting an update never activates it, and a changed installation
+  version. A failed activation write keeps the active version producing reports and
+  leaves no staged files. Inspecting an update never activates it, and a changed installation
   between review and activation is rejected.
 - Neither inspection nor installation imports package Python in the server. A package
   whose module fails on import installs; running its report ends as an error with a
@@ -135,7 +136,14 @@ def run(evidence=ROOT/'test-output/database-verification'):
                 broken_review = client.post(BASE+'/packages/inspect', files={'file': ('broken.zip', broken)})
                 assert broken_review.status_code == 200
                 broken_fields = dict(expected_current=broken_review.json()['current_sha256'], expected_package='culture-history')
-                installed = client.post(BASE+'/packages', files={'file': ('broken.zip', broken)}, data=broken_fields)
+                # A failed activation write (installed.json) keeps the working version and leaves no staged files.
+                staged = set(service.catalogue.root.iterdir())
+                with patch.object(service.catalogue, '_save', side_effect=OSError('disk full')):
+                    assert client.post(BASE+'/packages', files={'file': ('broken.zip', broken)}, data=broken_fields).status_code == 400
+                assert set(service.catalogue.root.iterdir()) == staged
+                kept = report_result()
+                assert kept['status']=='ready' and kept['package_version']=='9.0.0', kept
+                installed =client.post(BASE+'/packages', files={'file': ('broken.zip', broken)}, data=broken_fields)
                 assert installed.status_code == 200, installed.text
                 assert not [name for name in sys.modules if name.endswith('.broken')]
                 assert client.get(BASE+'/catalogue',params={'kind':'report'}).json()[0]['package_version']=='9.0.1'
@@ -151,7 +159,7 @@ def run(evidence=ROOT/'test-output/database-verification'):
                     data=dict(expected_current=good_review['current_sha256'], expected_package='culture-history')).status_code == 200
                 restored = report_result()
                 assert restored['status']=='ready' and restored['package_version']=='9.0.2', restored
-                checks.append('Author CLI → non-executing inspection → reviewed update; stale/wrong updates rejected; '
+                checks.append('Author CLI → non-executing inspection → reviewed update; stale/wrong updates rejected; failed activation keeps 9.0.0; '
                               'import failure stays in the report process and a good update restores reports: passed')
                 folder = ROOT/'database_packages/delete-experiment'
                 def upload(content): return client.post(BASE+'/packages', files={'file': ('package.zip', content, 'application/zip')})
