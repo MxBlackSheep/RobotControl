@@ -16,8 +16,8 @@ Failure cases:
   restart), keep the tokens when a user edits timing, and change only when a local
   administrator saves the step; the saved step then runs the same SQL.
 - Tokens the package cannot express (batch example, unknown, ScheduledToRun without an ID,
-  two selections, or a schedule that already has a database step) lose the step silently
-  or are prefilled with a guess. A no-op selection (|none) blocks a run that wrote nothing.
+  two selections, or a schedule that already has a database step) lose the step silently,
+  are prefilled with a guess, or cannot be resolved by an administrator's save. A no-op selection (|none) blocks a run that wrote nothing.
 - A client adds or edits adapter tokens through the schedule API.
 Supervised acceptance with a real method and the lab's ResetHamiltonTables is separate.
 """
@@ -209,18 +209,27 @@ def run():
                 with storage._get_connection() as conn:
                     conn.execute('UPDATE ScheduledExperiments SET prerequisites=? WHERE schedule_id=?', (json.dumps(['EvoYeastExperiment:41|set']), with_step))
                     conn.commit()
-                for schedule_id in [saved(['Batch:B-01']), saved(['Unknown']), saved(['ScheduledToRun']),
+                batch = saved(['Batch:B-01'])
+                for schedule_id in [batch, saved(['Unknown']), saved(['ScheduledToRun']),
                                     saved(['EvoYeastExperiment:41|set', 'EvoYeastExperiment:42|set']), with_step]:
                     view = read(schedule_id)
                     assert view['preparation_state'] == 'needs_review' and view['legacy_preparation']['suggestion'] is None, view
                     assert 'cannot be carried over' in view['legacy_preparation']['message']
                     count, rows = len(launched), flags()
                     assert not execute(schedule_id)[0] and len(launched) == count and flags() == rows
+                # Without a prefill an administrator still resolves the review: an explicit "none",
+                # or the schedule's existing step resent unchanged, replaces the tokens.
+                kept = storage.get_schedule_by_id(with_step).preparation
+                assert update(batch, {'preparation': None}).status_code == 200
+                assert update(with_step, {'preparation': dict(tool_id=TOOL, inputs=kept['inputs'])}).status_code == 200
+                assert 'legacy_preparation' not in read(batch) and storage.get_schedule_by_id(batch).prerequisites == []
+                assert read(with_step)['preparation_state'] == 'ready' and storage.get_schedule_by_id(with_step).preparation == kept
+                assert storage.get_schedule_by_id(with_step).prerequisites == []
                 noop = saved(['EvoYeastExperiment:42|none'], name='No selection')
                 assert 'legacy_preparation' not in read(noop)
                 rows = flags()
                 assert execute(noop)[0] and flags() == rows
-                result['checks'].append('Old registry aliases still prefill the intended experiment; batch, unknown, marker-only, double selection and token+step schedules are Needs review without a guess and refused; a no-op selection still runs and writes nothing')
+                result['checks'].append('Old registry aliases still prefill the intended experiment; batch, unknown, marker-only, double selection and token+step schedules are Needs review without a guess and refused until an administrator saves none or the existing step; a no-op selection still runs and writes nothing')
         result['fixtures_removed'] = True
         result['passed'] = True
     except Exception:

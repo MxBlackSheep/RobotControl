@@ -300,8 +300,11 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
       ...defaultFormData,
       ...initialData,
       start_time: initialData?.start_time ?? null,
-      // An administrator's save of the prefilled step replaces the retired tokens.
-      preparation: canEditPreparation && legacyPreparation?.suggestion ? legacyPreparation.suggestion : undefined,
+      // With retired tokens an administrator's form always holds an explicit step (the suggestion,
+      // else the saved step, else none), so saving sends it and the server replaces the tokens.
+      preparation: canEditPreparation && legacyPreparation
+        ? legacyPreparation.suggestion ?? (savedPreparation ? { tool_id: savedPreparation.tool_id, inputs: savedPreparation.inputs } : null)
+        : undefined,
       notification_contacts: initialData?.notification_contacts ?? defaultFormData.notification_contacts,
       timeout_minutes: initialData?.timeout_minutes ?? defaultFormData.timeout_minutes,
       timeout_action: initialData?.timeout_action ?? defaultFormData.timeout_action,
@@ -330,7 +333,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
     }
 
     loadExperiments();
-  }, [open, initialData, loadExperiments, canEditPreparation, legacyPreparation]);
+  }, [open, initialData, loadExperiments, canEditPreparation, legacyPreparation, savedPreparation]);
 
   const handleExperimentSelect = (experimentPath: string) => {
     const selectedExperiment = experiments.find(exp => exp.path === experimentPath);

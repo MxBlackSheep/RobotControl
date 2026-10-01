@@ -13,10 +13,10 @@ The three existing EvoYeast tools are also ready as single Python files:
 - [evoyeast_experiment.py](evoyeast-experiment/evoyeast_experiment.py): a pre-run step that marks one
   experiment `ScheduledToRun` and optionally runs `dbo.ResetHamiltonTables`. It replaces the
   former built-in EvoYeast schedule preparation. New installations include it. On an existing
-  installation, build its ZIP on a development computer
-  (`uv run --locked python build_scripts/database_package.py build database_packages/evoyeast-experiment --output evoyeast-experiment-1.0.0.zip`),
-  import it under **Manage packages**, assign a reader and an operation connection to the same
-  EvoYeast database, then open each schedule marked **Needs review** and save it.
+  installation, import `starter-packages\evoyeast-experiment.zip` from the RobotControl folder
+  under **Manage packages** (each release ships a ZIP of every starter package there), assign a
+  reader and an operation connection to the same EvoYeast database, then open each schedule
+  marked **Needs review** and save it.
 
 For an installed tool, choose **Edit report/operation → Replace Python**, select
 its `.py` file, check the connections, try, then **Publish update**. For a new

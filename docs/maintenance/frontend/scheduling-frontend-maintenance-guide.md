@@ -86,8 +86,8 @@ operator to cancel, refresh and reopen. Create and update each reload the list o
   unknown, never ready). The schedule detail, list and Archive show `preparationSummary`.
 - A schedule saved with the retired adapter tokens arrives with `legacy_preparation`: the
   field shows its message and the old tokens; for a local administrator the form prefills
-  `preparation` from its `suggestion`, so saving sends the step and the server clears the
-  tokens. A package that is not installed is named and the prefill is kept. Non-admin edits
+  `preparation` from its `suggestion` (else the saved step, else `null`), so saving always
+  sends a step and the server clears the tokens. A package that is not installed is named and the prefill is kept. Non-admin edits
   send neither. The form never sends `prerequisites`. A lookup input set before the control
   mounted stays visible (its label once choices load). Checks: `scheduling-lab.spec.ts`.
 

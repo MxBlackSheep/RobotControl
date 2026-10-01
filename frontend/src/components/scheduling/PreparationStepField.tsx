@@ -53,6 +53,7 @@ export default function PreparationStepField({ saved, state, value, onChange, ed
   const legacyNotice = legacy && <Alert severity="warning">
     {legacy.message}
     <Typography variant="caption" component="div" sx={{ mt: 0.5, overflowWrap: 'anywhere' }}>Saved before: {legacy.steps.join(', ')}</Typography>
+    {editable && <Typography variant="caption" component="div">Saving replaces the old preparation with the step below.</Typography>}
   </Alert>;
 
   if (!editable) {
@@ -73,6 +74,7 @@ export default function PreparationStepField({ saved, state, value, onChange, ed
     {error && <Alert severity="error">Database steps unavailable: {error}</Alert>}
     <Stack direction="row" spacing={1} alignItems="center">
       <TextField select size="small" fullWidth label="Database step" value={current?.tool_id ?? ''} disabled={!tools && !error}
+        SelectProps={{ displayEmpty: true }} InputLabelProps={{ shrink: true }}
         onChange={event => onChange(event.target.value ? { tool_id: event.target.value, inputs: {} } : null)}>
         <MenuItem value="">None</MenuItem>
         {current && !tools?.some(candidate => candidate.id === current.tool_id) && (
@@ -87,7 +89,7 @@ export default function PreparationStepField({ saved, state, value, onChange, ed
       {chip && <Box sx={{ flexShrink: 0 }}>{chip}</Box>}
     </Stack>
     {legacy && current && tools && !tool && (
-      <Alert severity="info">Package {current.tool_id} is not installed. Install it in Database → Manage packages, assign its connections, then save this schedule.</Alert>
+      <Alert severity="info">Package {current.tool_id} is not installed. In Database → Manage packages, import starter-packages\{current.tool_id}.zip from the RobotControl folder, assign its connections, then save this schedule.</Alert>
     )}
     {!legacy && state === 'needs_review' && value === undefined && (
       <Alert severity="warning">The package or its connection changed after this step was saved. Save the schedule to use the current version; until then the run does not start.</Alert>

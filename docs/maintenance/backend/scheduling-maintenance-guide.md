@@ -147,8 +147,9 @@ tables are listed; **Reset tables before selecting the experiment** keeps the or
 schedules saved. A procedure's own commits or external effects are not guaranteed reversible.
 The selection stays set after the run; there is no post-run reset. It needs a read connection
 (`primary`, experiment choices) and an operation connection to the same EvoYeast database.
-New installations seed it; on an existing installation an administrator imports it
-(Database → Manage packages, from `database_packages/evoyeast-experiment`).
+New installations seed it; on an existing installation an administrator imports
+`starter-packages\evoyeast-experiment.zip` from the release folder (Database → Manage packages;
+`build_scripts/pyinstaller_build.py` writes a ZIP of every starter package there).
 
 **Schedules saved with the retired adapter.** Before this package, a built-in adapter
 (`lab_integration.py`, chosen by `data/scheduling-lab.json`) ran tokens saved in
@@ -159,7 +160,9 @@ every read, a review for such a schedule: `preparation_state` is `needs_review` 
 `legacy_preparation` carries the tokens, a message and, where the tokens fit the EvoYeast
 package (one selection, at most one reset, no unknown tokens, no existing database step), a
 prefilled `suggestion` in the saved order. The run is refused before any write until a local
-administrator saves the schedule with the `preparation` key; that save clears the tokens.
+administrator saves the schedule with the `preparation` key; that save clears the tokens. The
+form always sends that key for an administrator (the suggestion, else the saved step, else
+`null`), so schedules without a prefill can be resolved too.
 `|none`, `|noop` and `|skip` selections never wrote anything and do not block. Clients cannot
 create or edit tokens (HTTP 400). Nothing is rewritten at startup, so restarts and repeated
 upgrades keep the tokens until that save.

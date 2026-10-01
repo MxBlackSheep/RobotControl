@@ -6,7 +6,8 @@ import { mkdirSync } from 'node:fs';
  *   must show Needs review with the old steps, prefill the EvoYeast package step (experiment
  *   visible, reset tables, saved order) for an administrator and send it on save, never send
  *   tokens; a non-admin sees it read-only and a timing edit sends neither; a package that is
- *   not installed is named and the prefill kept.
+ *   not installed is named and the prefill kept. Tokens without a prefill (batch example)
+ *   still let an administrator resolve the review: saving sends an explicit step (none).
  * - The database step: a timing edit never sends it (the server keeps it); a non-admin sees it
  *   read-only; an administrator's change sends tool and inputs; a rejected save keeps them.
  * Server-side preparation cases are in backend/e2e/scheduling_lab_check.py and
@@ -100,6 +101,49 @@ for (const [role, width, installed] of [['admin', 1280, true], ['admin', 390, fa
     await expect(editor.getByRole('combobox', { name: 'Experiment', exact: true })).toHaveValue('Reference (42)');
   });
 }
+
+test('old tokens without a prefill: an administrator save sends an explicit step', async ({ page }) => {
+  mkdirSync(evidence, { recursive: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  const message = "This schedule's old preparation (Batch:B-01) cannot be carried over: unsupported step Batch:B-01. A local administrator must choose its database step and save the schedule before it runs.";
+  const schedule = { schedule_id: 'batch-reference', experiment_name: 'Batch method', experiment_path: 'C:\\Methods\\batch.med',
+    schedule_type: 'once', estimated_duration: 20, log_inactivity_threshold_minutes: 3, is_active: false,
+    created_by: 'operator', created_at: '2026-09-25T10:00:00', updated_at: '2026-09-25T10:00:00', prerequisites: ['Batch:B-01'], notification_contacts: [],
+    preparation: null, legacy_preparation: { steps: ['Batch:B-01'], suggestion: null, message }, preparation_state: 'needs_review' };
+  const writes: any[] = [];
+  await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));
+  await page.route('**/api/auth/me', route => route.fulfill({ json: { success: true, data: {
+    user_id: 'operator', username: 'operator', role: 'admin', session_is_local: true, session: { is_local: true } } } }));
+  await page.route('**/api/database/tools/catalogue?kind=preparation', route => route.fulfill({ json: [evoyeastTool] }));
+  await page.route('**/api/scheduling/**', async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (route.request().method() !== 'GET') {
+      writes.push(route.request().postDataJSON());
+      return route.fulfill({ status: 409, json: { detail: 'Fixture keeps this draft open.' } });
+    }
+    let data: unknown = [];
+    if (path.endsWith('/list')) data = [schedule];
+    else if (path.endsWith('/status/scheduler')) data = { is_running: true };
+    else if (path.endsWith('/status/queue')) data = { queue: { running_jobs: 0, queued_jobs: 0 }, manual_recovery: { active: false, storage_healthy: true, pending_recoveries: [] } };
+    else if (path.endsWith('/experiments/available')) data = { experiments: [{ name: schedule.experiment_name, path: schedule.experiment_path }] };
+    else if (path.endsWith('/experiments/library')) data = { methods: [] };
+    return route.fulfill({ json: { success: true, data } });
+  });
+  await page.goto('/scheduling?section=schedules');
+  await page.getByRole('button', { name: 'Open Batch method', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit schedule', exact: true }).click();
+  const editor = page.getByRole('dialog', { name: 'Edit schedule', exact: true });
+  await expect(editor.getByText(message)).toBeVisible();
+  await expect(editor.getByText('Saving replaces the old preparation with the step below.')).toBeVisible();
+  await expect(editor.getByRole('combobox', { name: 'Database step' })).toContainText('None');
+  await editor.getByText(message).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: `${evidence}/old-selection-batch-390.png` });
+  await editor.getByRole('button', { name: 'Save schedule', exact: true }).click();
+  await expect.poll(() => writes.length).toBe(1);
+  // Explicit null: the server clears the tokens; omitting the key would keep the schedule blocked.
+  expect(writes[0]).toHaveProperty('preparation', null);
+  expect(writes[0]).not.toHaveProperty('prerequisites');
+});
 
 for (const role of ['admin', 'user'] as const) {
   test(`database step before the run: ${role}`, async ({ page }) => {
