@@ -32,12 +32,24 @@ export interface SystemHealth {
   disk_total_gb: number;
 }
 
-export interface DatabaseStatus {
-  is_connected: boolean;
-  mode: 'primary' | 'secondary' | 'mock';
-  database_name: string;
-  server_name: string;
-  error_message?: string;
+/** One SQL Server connection RobotControl depends on (GET /api/monitoring/databases). */
+export interface DatabaseConnection {
+  id: string;
+  name: string;
+  server?: string | null;
+  database?: string | null;
+  access: 'built-in' | 'read' | 'operation' | string;
+  uses: string[];
+  /** 'connected' or 'failed'; anything else is shown as unknown. */
+  state: string;
+  message?: string | null;
+}
+
+export interface DatabaseConnections {
+  built_in: DatabaseConnection | null;
+  /** Null when the saved connections could not be listed. */
+  connections: DatabaseConnection[] | null;
+  checked_at: string | null;
 }
 
 export interface StreamingServiceStatus {
@@ -52,7 +64,7 @@ export interface StreamingServiceStatus {
 export interface MonitoringData {
   experiments: ExperimentData[];
   system_health: SystemHealth;
-  database_status: DatabaseStatus;
+  databases: DatabaseConnections | null;
   last_updated: string;
   streaming_status?: StreamingServiceStatus | null;
 }
@@ -61,7 +73,7 @@ export interface MonitoringHookReturn {
   monitoringData: MonitoringData | null;
   experiments: ExperimentData[];
   systemHealth: SystemHealth | null;
-  databaseStatus: DatabaseStatus | null;
+  databases: DatabaseConnections | null;
   streamingStatus: StreamingServiceStatus | null;
   
   // State
@@ -79,6 +91,29 @@ export interface MonitoringHookReturn {
 
 const MAX_RETRIES = 5;
 
+const isRecord = (value: unknown): value is Record<string, any> => typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const normalizeConnection = (raw: Record<string, any>): DatabaseConnection => ({
+  id: String(raw.id ?? raw.name ?? ''), name: String(raw.name ?? 'Unnamed connection'),
+  server: typeof raw.server === 'string' ? raw.server : null, database: typeof raw.database === 'string' ? raw.database : null,
+  access: String(raw.access ?? ''), uses: Array.isArray(raw.uses) ? raw.uses.map(String) : [],
+  // Only an explicit 'connected' or 'failed' is believed; anything else shows as unknown.
+  state: raw.state === 'connected' || raw.state === 'failed' ? raw.state : 'unknown',
+  message: typeof raw.message === 'string' ? raw.message : null,
+});
+
+/** An incomplete reply is unavailable as a whole, never an empty "all connected" list. */
+const normalizeDatabases = (raw: unknown): DatabaseConnections | null => {
+  if (!isRecord(raw) || !('built_in' in raw) || !('connections' in raw)) return null;
+  if (raw.built_in !== null && !isRecord(raw.built_in)) return null;
+  if (raw.connections !== null && !Array.isArray(raw.connections)) return null;
+  return {
+    built_in: raw.built_in ? normalizeConnection(raw.built_in) : null,
+    connections: raw.connections ? raw.connections.filter(isRecord).map(normalizeConnection) : null,
+    checked_at: typeof raw.checked_at === 'string' ? raw.checked_at : null,
+  };
+};
+
 export const useMonitoring = (options: { autoRetry?: boolean; retryInterval?: number } = {}): MonitoringHookReturn => {
   // State
   const [monitoringData, setMonitoringData] = useState<MonitoringData | null>(null);
@@ -93,11 +128,13 @@ export const useMonitoring = (options: { autoRetry?: boolean; retryInterval?: nu
     }
 
     try {
-      const [experimentsData, systemHealthData, streamingStatusData] = await Promise.all([
+      const [experimentsData, systemHealthData, streamingStatusData, databasesData] = await Promise.all([
         api.get('/api/monitoring/experiments', { signal }).then(response => response.data),
         api.get('/api/monitoring/system-health', { signal }).then(response => response.data),
         // Live-view status is optional here; its failure shows as "unavailable".
         api.get('/api/camera/streaming/status', { signal }).then(response => response.data, () => null),
+        // Connection checks are optional too; a failure leaves the Databases card unavailable.
+        api.get('/api/monitoring/databases', { signal }).then(response => response.data, () => null),
       ]).catch(cause => {
         // Timeouts and network errors keep their own message ("Request timed out").
         if (signal.aborted || !isAxiosError(cause) || !cause.response) throw cause;
@@ -157,7 +194,7 @@ export const useMonitoring = (options: { autoRetry?: boolean; retryInterval?: nu
       return {
         experiments: normalizedExperiments,
         system_health: systemMetrics,
-        database_status: systemPayload.database || null,
+        databases: normalizeDatabases(databasesData?.data),
         last_updated: systemHealthData?.metadata?.timestamp || new Date().toISOString(),
         streaming_status: streamingStatus,
       };
@@ -187,7 +224,7 @@ export const useMonitoring = (options: { autoRetry?: boolean; retryInterval?: nu
   // Derived state
   const experiments = monitoringData?.experiments || [];
   const systemHealth = monitoringData?.system_health || null;
-  const databaseStatus = monitoringData?.database_status || null;
+  const databases = monitoringData?.databases || null;
   const streamingStatus = monitoringData?.streaming_status || null;
 
   return {
@@ -195,7 +232,7 @@ export const useMonitoring = (options: { autoRetry?: boolean; retryInterval?: nu
     monitoringData,
     experiments,
     systemHealth,
-    databaseStatus,
+    databases,
     streamingStatus,
     
     // State
