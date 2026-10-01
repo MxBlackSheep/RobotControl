@@ -14,6 +14,7 @@ remain the LGPL build: the GPL builds contain x264.
 import hashlib
 import shutil
 import sys
+import time
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -38,11 +39,29 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _download(archive: Path) -> None:
+def _download(archive: Path, attempts: int = 20) -> None:
+    """Resume with HTTP Range after a dropped or stalled connection (171 MB; links do drop)."""
     partial = archive.with_suffix(".part")
     print(f"Downloading {URL}")
-    with urllib.request.urlopen(URL, timeout=30) as response, partial.open("wb") as output:
-        shutil.copyfileobj(response, output, 1 << 20)
+    total = None
+    for attempt in range(1, attempts + 1):
+        done = partial.stat().st_size if partial.exists() else 0
+        if total is not None and done >= total:
+            break
+        request = urllib.request.Request(URL, headers={"Range": f"bytes={done}-"} if done else {})
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                if done and response.status != 206:
+                    done = 0  # The server ignored the range: start again.
+                length = int(response.headers.get("Content-Length", 0))
+                total = done + length if length else total
+                with partial.open("ab" if done else "wb") as output:
+                    shutil.copyfileobj(response, output, 1 << 20)
+        except OSError as exc:
+            print(f"Attempt {attempt}: {exc}; resuming")
+            time.sleep(2)
+    if total is None or partial.stat().st_size != total:
+        raise RuntimeError(f"Download incomplete after {attempts} attempts; {partial} is kept for the next run")
     partial.replace(archive)
 
 
