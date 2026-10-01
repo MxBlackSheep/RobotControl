@@ -51,7 +51,7 @@ cursors. Never keep a connection or per-request state in module globals.
   connection, `context.connections` the declared read sources, `context.run` has
   `schedule_id`, `execution_id`, `experiment_name`, `experiment_path`, `scheduled_for`
   and `started_at`. Return `{"message": "..."}` (at most 500 characters shown in the
-  receipt). Its `commit()`, `rollback()` and `autocommit` refuse (also on cursors); do not issue `COMMIT`/`ROLLBACK` statements or touch anything outside the database: raising
+  receipt). Its `commit()`, `rollback()`, `autocommit` and `with context.connection:` refuse (also commit/rollback on cursors); do not issue `COMMIT`/`ROLLBACK` statements or touch anything outside the database: raising
   rolls back and stops the run (failed); a timeout or crash is an unknown outcome. Both
   mark the schedule for recovery and are never retried. Updating or removing the package,
   or rebinding its connection, is refused while an active schedule uses it; a changed

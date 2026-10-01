@@ -53,6 +53,9 @@ def prepare(context, inputs):
         os._exit(3)
     if inputs["mode"] == "commit":
         cursor.commit()  # Refused: the host commits; the step then fails with nothing committed.
+    if inputs["mode"] == "with":
+        with context.connection:  # Refused: would commit or close the host's connection.
+            pass
     return {"message": "Logged " + inputs["mode"] + " for " + context.run.experiment_name}
 '''
 
@@ -60,7 +63,7 @@ def prepare(context, inputs):
 def package(version):
     manifest = dict(contract_version=2, id=PACKAGE, name='Preparation fixture', version=version, libraries=[],
                     tools=[dict(id=PACKAGE, name='Log the run', kind='preparation', entrypoint='prepare:prepare', sources=[],
-                                inputs=[dict(name='mode', label='Mode', type='choice', choices=['ok', 'raise', 'sleep', 'crash', 'commit'])])])
+                                inputs=[dict(name='mode', label='Mode', type='choice', choices=['ok', 'raise', 'sleep', 'crash', 'commit', 'with'])])])
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, 'w') as archive:
         archive.writestr('manifest.json', json.dumps(manifest))
@@ -188,20 +191,21 @@ def run():
                 result['checks'].append('Step commits in its own process before launch with run context; receipt records package and message; the same execution never repeats it')
 
                 failures = {}
-                for mode in ('raise', 'commit', 'sleep', 'crash'):
+                for mode in ('raise', 'commit', 'with', 'sleep', 'crash'):
                     failing = create(mode, name=f'Prepared {mode}').json()['data']['schedule_id']
                     with patch('backend.services.database_tools.PREPARATION_TIMEOUT_SECONDS', 8):
                         ok, execution_id = execute(failing)
                     failures[mode] = execution_id
                     assert not ok and execution_id not in launched, mode
                     assert execution_id not in logged(), f'{mode}: uncommitted write remained'
-                    assert receipt(execution_id)['status'] == ('failed' if mode in ('raise', 'commit') else 'unknown'), (mode, receipt(execution_id))
+                    assert receipt(execution_id)['status'] == ('failed' if mode in ('raise', 'commit', 'with') else 'unknown'), (mode, receipt(execution_id))
                     assert storage.get_schedule_by_id(failing).recovery_required, mode
                     assert not execute(failing, execution_id=execution_id)[0] and execution_id not in launched
                 assert 'Fixture preparation failure' in receipt(failures['raise'])['message']
                 assert 'The host commits a preparation step' in receipt(failures['commit'])['message']
+                assert 'The host commits a preparation step' in receipt(failures['with'])['message']
                 assert 'two-minute limit' in receipt(failures['sleep'])['message']
-                result['checks'].append('Raise, or an attempted commit by the step, rolls back (failed); hang is stopped at the deadline and crash ends the process (unknown); none launches, all request recovery, retries never repeat')
+                result['checks'].append('Raise, or an attempted commit or `with connection` by the step, rolls back (failed); hang is stopped at the deadline and crash ends the process (unknown); none launches, all request recovery, retries never repeat')
 
                 # An armed schedule keeps the package and connection it was saved with.
                 tools.sources.save(ReportSource(id='other-writer', name='Other writer', server=fixture['server'], database=database,

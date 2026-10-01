@@ -58,8 +58,9 @@ class _HostOwned:
     so a step that raises has committed nothing through this API (the recovery note relies
     on it). Not a sandbox: trusted code could still open its own connection."""
 
-    def __init__(self, target):
+    def __init__(self, target, cursor=False):
         object.__setattr__(self, '_target', target)
+        object.__setattr__(self, '_cursor', cursor)
 
     def commit(self):
         raise ValueError(HOST_COMMITS)
@@ -68,12 +69,12 @@ class _HostOwned:
         raise ValueError(HOST_COMMITS)
 
     def cursor(self):
-        return _HostOwned(self._target.cursor())
+        return _HostOwned(self._target.cursor(), cursor=True)
 
     def execute(self, *args, **kwargs):
         result = self._target.execute(*args, **kwargs)
         # pyodbc returns the cursor; keep it wrapped so cursor.commit() is refused too.
-        return _HostOwned(result) if result is not None and hasattr(result, 'commit') else result
+        return _HostOwned(result, cursor=True) if result is not None and hasattr(result, 'commit') else result
 
     def __getattr__(self, name):
         if name == 'connection':
@@ -87,6 +88,9 @@ class _HostOwned:
         return iter(self._target)
 
     def __enter__(self):
+        # pyodbc's `with connection:` commits or closes it; the connection belongs to the host.
+        if not self._cursor:
+            raise ValueError(HOST_COMMITS)
         return self
 
     def __exit__(self, *exc):
