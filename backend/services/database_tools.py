@@ -366,16 +366,38 @@ class DatabaseTools:
                 if (schedule.preparation or {}).get('package_id') == package_id]
 
     def connection_health(self):
-        """Every saved connection, what uses it and whether it opens now (System status).
+        """Every saved connection, what uses it and whether it opened (System status).
 
-        Opens each one as its real users do (a reader's read-only check included), in
-        parallel. Cached for HEALTH_CACHE_SECONDS so several open pages do not open SQL
-        sessions every minute; checked_at says how old the result is.
+        Only the first call waits for the checks. Later calls return the last result at once
+        and, when it is older than HEALTH_CACHE_SECONDS, start one background re-check, so an
+        unreachable server's connect timeout never delays the page's other readings and open
+        pages do not open SQL sessions every minute. checked_at says how old the result is.
         """
         with self.lock:
             cached = getattr(self, '_health', None)
-            if cached and time.monotonic() - cached[0] < HEALTH_CACHE_SECONDS:
+            if cached:
+                if time.monotonic() - cached[0] >= HEALTH_CACHE_SECONDS and not getattr(self, '_health_checking', False):
+                    self._health_checking = True
+                    threading.Thread(target=self._check_health_in_background, name='connection-health', daemon=True).start()
                 return cached[1]
+        return self._check_health()
+
+    def _check_health(self):
+        """Open each saved connection as its real users do (a reader's read-only check
+        included), in parallel, and record the result."""
+        try:
+            return self._probe_connections()
+        finally:
+            with self.lock:
+                self._health_checking = False
+
+    def _check_health_in_background(self):
+        try:
+            self._check_health()
+        except Exception:
+            logger.exception('Background check of saved database connections failed')
+
+    def _probe_connections(self):
         with self.sources.lock:
             state = copy.deepcopy(self.sources.state)
         packages = {package['id']: package['name'] for package in self.catalogue.packages()}

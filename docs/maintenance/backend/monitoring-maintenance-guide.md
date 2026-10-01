@@ -21,8 +21,11 @@ Use this document whenever you need to touch real-time monitoring, experiment tr
   REST endpoints. Wraps the services in `ResponseFormatter`, enforces auth, and exposes `/status`, `/system-health`, `/databases`, `/experiments`, `/start` and `/stop`.
   `/databases` reports the built-in connection's `get_status` and `DatabaseTools.connection_health`:
   every saved connection opened as its users open it (a reader's read-only check included),
-  in parallel, with its uses; cached for 30 seconds (`HEALTH_CACHE_SECONDS`) so open pages
-  do not open SQL sessions every minute. `connections` is null when they cannot be listed.
+  in parallel, with its uses. Only the first call waits; later calls return the last result
+  at once and start one background re-check when it is older than 30 seconds
+  (`HEALTH_CACHE_SECONDS`), so an unreachable server's 8-second connect timeout never delays
+  the page's other readings. `checked_at` is the result's age; `connections` is null when they
+  cannot be listed.
 
 - `frontend/src/hooks/useMonitoring.ts`  
   React hook that polls `/experiments`, `/system-health`, `/databases` and the camera streaming status through `useSerialPolling` (one request per owner, 20-second deadline) and normalises the response.
