@@ -55,12 +55,16 @@ export default function CameraViewport({
   error,
 }: CameraViewportProps) {
   const [expanded, setExpanded] = useState(false);
-  const [mode, setMode] = useState<"fit" | "fill">("fit");
+  // "fit": the whole frame in the available area. "width": the whole frame at full width; the
+  // page (or expanded dialog) scrolls instead of cropping. Only zoom hides part of the image.
+  const [mode, setMode] = useState<"fit" | "width">("fit");
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState<Point>({ x: 0, y: 0 });
   const [dimensions, setDimensions] = useState({ width: 640, height: 480 });
   const [available, setAvailable] = useState({ width: 640, height: 480 });
-  const areaRef = useRef<HTMLDivElement>(null);
+  // A state ref: the expanded Dialog mounts its content through a portal one render later,
+  // so measuring must start when the element attaches, not when `expanded` changes.
+  const [area, setArea] = useState<HTMLDivElement | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const expandRef = useRef<HTMLButtonElement>(null);
@@ -72,8 +76,9 @@ export default function CameraViewport({
     distance: number;
   } | null>(null);
 
+  // Resets the transforms only. The sizing mode is the viewer's choice and survives frame-size
+  // changes (the server lowers resolution under load) and source changes.
   const reset = useCallback(() => {
-    setMode("fit");
     setZoom(1);
     setPan({ x: 0, y: 0 });
   }, []);
@@ -96,7 +101,6 @@ export default function CameraViewport({
     }
   });
   useLayoutEffect(() => {
-    const area = areaRef.current;
     if (!area) return;
     const measure = () => {
       const bounds = area.getBoundingClientRect();
@@ -113,10 +117,12 @@ export default function CameraViewport({
             180,
             viewportHeight - (bounds.top + window.scrollY) - bottomPadding - 40,
           );
+      // clientWidth excludes a scrollbar (expanded Fit width scrolls vertically).
+      const width = area.clientWidth || bounds.width;
       setAvailable((previous) =>
-        previous.width === bounds.width && previous.height === height
+        previous.width === width && previous.height === height
           ? previous
-          : { width: Math.max(1, bounds.width), height: Math.max(1, height) },
+          : { width: Math.max(1, width), height: Math.max(1, height) },
       );
     };
     measure();
@@ -130,24 +136,22 @@ export default function CameraViewport({
       window.removeEventListener("resize", measure);
       window.visualViewport?.removeEventListener("resize", measure);
     };
-  }, [expanded]);
+  }, [area, expanded]);
 
   const fitScale = Math.min(
     available.width / dimensions.width,
     available.height / dimensions.height,
   );
+  const widthScale = available.width / dimensions.width;
   const stageWidth =
-    expanded || mode === "fill" ? available.width : dimensions.width * fitScale;
-  const stageHeight = expanded
-    ? available.height
-    : dimensions.height * fitScale;
-  const scale =
-    (mode === "fit"
-      ? Math.min(stageWidth / dimensions.width, stageHeight / dimensions.height)
-      : Math.max(
-          stageWidth / dimensions.width,
-          stageHeight / dimensions.height,
-        )) * zoom;
+    expanded || mode === "width" ? available.width : dimensions.width * fitScale;
+  const stageHeight =
+    mode === "width"
+      ? dimensions.height * widthScale
+      : expanded
+        ? available.height
+        : dimensions.height * fitScale;
+  const scale = (mode === "width" ? widthScale : Math.min(stageWidth / dimensions.width, stageHeight / dimensions.height)) * zoom;
   const imageWidth = dimensions.width * scale;
   const imageHeight = dimensions.height * scale;
   const maxPanX = Math.max(0, (imageWidth - stageWidth) / 2);
@@ -166,7 +170,7 @@ export default function CameraViewport({
   const closeExpanded = () => setExpanded(false);
 
   const beginGesture = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!hasFrame || (!expanded && zoom === 1 && mode === "fit")) return;
+    if (!hasFrame || (!expanded && zoom === 1)) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     pointers.current.set(event.pointerId, {
       x: event.clientX,
@@ -335,11 +339,11 @@ export default function CameraViewport({
                 Fit
               </ToggleButton>
               <ToggleButton
-                value="fill"
-                aria-label="Fill area"
+                value="width"
+                aria-label="Fit width"
                 sx={touchTarget}
               >
-                Fill
+                Width
               </ToggleButton>
             </ToggleButtonGroup>
             <Tooltip title="Zoom out">
@@ -381,7 +385,7 @@ export default function CameraViewport({
                 <RestartAlt />
               </IconButton>
             </Tooltip>
-            {(zoom > 1 || mode === "fill") && (
+            {zoom > 1 && (
               <>
                 <Tooltip title="Pan left">
                   <IconButton
@@ -427,7 +431,7 @@ export default function CameraViewport({
             )}
           </Stack>
         </Stack>
-        {(mode === "fill" || zoom > 1) && (
+        {zoom > 1 && (
           <Typography role="status" color="warning.dark" variant="body2">
             Cropped view
           </Typography>
@@ -435,7 +439,7 @@ export default function CameraViewport({
         </Box>
       </Box>
       <Box
-        ref={areaRef}
+        ref={setArea}
         sx={{
           width: "100%",
           minHeight: expanded ? 120 : undefined,
@@ -443,7 +447,9 @@ export default function CameraViewport({
           flex: expanded ? "1 1 0" : undefined,
           display: "flex",
           justifyContent: "center",
-          alignItems: "center",
+          // Fit width can be taller than the expanded dialog: scroll from the top, never crop.
+          alignItems: mode === "width" ? "flex-start" : "center",
+          overflowY: expanded && mode === "width" ? "auto" : undefined,
           bgcolor: "grey.900",
         }}
       >
@@ -485,11 +491,12 @@ export default function CameraViewport({
             overflow: "hidden",
             bgcolor: "grey.900",
             flexShrink: 0,
+            // Fit width scrolls by touch; zoomed or expanded Fit images take the gesture.
             touchAction:
-              expanded || zoom > 1 || mode === "fill"
+              zoom > 1 || (expanded && mode === "fit")
                 ? "none"
                 : "pan-y pinch-zoom",
-            cursor: zoom > 1 || mode === "fill" ? "grab" : "default",
+            cursor: zoom > 1 ? "grab" : "default",
             outlineOffset: -3,
             "&:focus-visible": {
               outline: "3px solid",

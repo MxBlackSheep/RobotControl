@@ -3,7 +3,9 @@ import { expect, test, type Page } from '@playwright/test';
 /** Failure scenarios written before the camera implementation:
  * - Fit crops or distorts 4:3, widescreen or portrait images on desktop/phone.
  * - Expanding renders two frame subscribers or reconnects capture/recording.
- * - Fill crops without a visible warning; zoom/pan can lose the image.
+ * - Fit width (formerly Fill, which cropped up to 40% of the frame) hides any part of the
+ *   frame or ignores the expanded dialog's size; zoom crops without a visible warning;
+ *   zoom/pan can lose the image; a smaller frame resets the viewer's sizing choice.
  * - Source dimensions change but the previous zoom/pan remains applied.
  * - Disconnect closes the inspection surface; stale images look live.
  * - Collapsing controls stops health polling or hides recording/errors.
@@ -16,6 +18,13 @@ import { expect, test, type Page } from '@playwright/test';
 test.beforeEach(async ({ page, request }) => {
   await request.post('/__e2e/camera', { data: { width: 640, height: 480, send_frames: true, disconnect: false, generation: 'g1' } });
   await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));
+});
+
+/** Pixels of the image hidden by its stage, and the stage width. */
+const wholeFrame = (page: Page) => page.getByAltText('Live camera stream').evaluate((image: HTMLImageElement) => {
+  const r = image.getBoundingClientRect(), s = image.closest('[data-testid="camera-stage"]')!.getBoundingClientRect();
+  return { clipped: Math.round(Math.max(0, s.top - r.top) + Math.max(0, r.bottom - s.bottom) + Math.max(0, s.left - r.left) + Math.max(0, r.right - s.right)),
+    width: Math.round(s.width) };
 });
 
 async function openLiveView(page: Page) {
@@ -57,8 +66,20 @@ test('inspection actions preserve the session and keep crop/zoom explicit', asyn
   await page.getByRole('button', { name: 'Expand live view', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Live camera inspection' })).toBeVisible();
   await expect(page.getByAltText('Live camera stream')).toHaveCount(1);
-  await page.getByRole('button', { name: 'Fill area', exact: true }).click();
+  // Fit width shows the whole frame at the dialog's width and scrolls; only zoom crops.
+  await page.getByRole('button', { name: 'Fit width', exact: true }).click();
+  await expect(page.getByText('Cropped view', { exact: true })).toHaveCount(0);
+  expect(await wholeFrame(page)).toEqual({ clipped: 0, width: page.viewportSize()!.width });
+  await page.getByRole('button', { name: 'Zoom in', exact: true }).click();
   await expect(page.getByText('Cropped view', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Reset view', exact: true }).click();
+  // A smaller frame (the server lowers resolution under load) keeps the viewer's choice.
+  await request.post('/__e2e/camera', { data: { width: 320, height: 240 } });
+  await expect.poll(() => page.getByAltText('Live camera stream').evaluate((node: HTMLImageElement) => node.naturalWidth)).toBe(320);
+  await expect(page.getByRole('button', { name: 'Fit width', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  expect(await wholeFrame(page)).toEqual({ clipped: 0, width: page.viewportSize()!.width });
+  await request.post('/__e2e/camera', { data: { width: 640, height: 480 } });
+  await expect.poll(() => page.getByAltText('Live camera stream').evaluate((node: HTMLImageElement) => node.naturalWidth)).toBe(640);
   await page.getByRole('button', { name: 'Fit entire frame', exact: true }).click();
   await page.getByRole('button', { name: 'Zoom in', exact: true }).click();
   await page.getByRole('button', { name: 'Pan up', exact: true }).click();

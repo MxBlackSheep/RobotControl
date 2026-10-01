@@ -10,9 +10,9 @@ Live view is the first section (`?section=live` is the default; opening it never
 
 The image and a compact camera/recording status appear before the settings. **Start my live view**, **Stop my live view** and **Reconnect live view** affect this user's viewing session. Recording and source controls remain under **Camera and recording settings**. Collapsing settings only hides their contents: the polling owner stays mounted and errors remain visible above the image.
 
-**Fit** is the default and preserves the full image without distortion. Its inline surface follows the camera's actual aspect ratio and shrinks both dimensions when height is limited. **Fill** covers the available surface and explicitly displays **Cropped view**. Zoom also displays that label because some of the image can leave the viewing area. Zoom ranges from 1× to 4×. Use the plus/minus buttons, Reset, drag, or the pan arrows. The image accepts +/−, arrow keys and 0 when focused. The expanded image also supports pinch zoom; gesture handling is limited to the image, leaving browser zoom available elsewhere.
+**Fit** is the default and preserves the full image without distortion. Its inline surface follows the camera's actual aspect ratio and shrinks both dimensions when height is limited. **Width** ("Fit width") scales the full image to the available width; the surface grows to the image height and the page, or the expanded dialog, scrolls. Nothing is cropped. (Until October 2026 this was **Fill**, which kept the Fit height and cropped up to 40% of the frame.) Only zoom displays **Cropped view** and the pan arrows, because only zoom moves part of the image out of view. Zoom ranges from 1× to 4×. Use the plus/minus buttons, Reset, drag, or the pan arrows. The image accepts +/−, arrow keys and 0 when focused. The expanded image also supports pinch zoom; gesture handling is limited to the image, leaving browser zoom available elsewhere.
 
-**Expand live view** uses an application fullscreen dialog with safe-area padding. Only one image component subscribes to the frame store at a time. Opening/closing it does not start a new stream or change recording. A disconnected view stays open with its reconnect action. The expanded surface has a definite viewport height, and short windows can scroll to reach its controls. Resizing preserves the selected viewing mode; a source or image-resolution change resets to Fit at 1×. Stale/crop labels sit outside the transformed image.
+**Expand live view** uses an application fullscreen dialog with safe-area padding. Only one image component subscribes to the frame store at a time. Opening/closing it does not start a new stream or change recording. A disconnected view stays open with its reconnect action. The expanded surface has a definite viewport height, and short windows can scroll to reach its controls. Resizing, a source change or an image-resolution change (the server lowers resolution under CPU load) keeps the selected mode and resets zoom and pan to 1×. The measured area is a state ref: the dialog mounts its content through a portal one render later, so measuring starts when the element attaches (before, the expanded view kept the page's size). Stale/crop labels sit outside the transformed image.
 
 When a source change temporarily removes frames, focused zoom/pan controls may become disabled. The viewport moves that focus to the stable image region so Escape still closes the expanded view immediately; closing restores focus to Expand. Keep this behavior when changing toolbar controls.
 
@@ -47,7 +47,7 @@ or runs Hamilton methods.
 ## Checks
 
 Failure cases are in the headers of `camera.spec.ts` (viewer: 4:3, widescreen and
-portrait frames, Fit/Fill/zoom, one visible frame, stale and disconnected expanded view,
+portrait frames, Fit/Fit width/zoom, one visible frame, stale and disconnected expanded view,
 polling with settings collapsed, touch targets) and `operations.spec.ts` (archive). Both
 run against the isolated fixture and save screenshots and JSON reports to
 `test-output/viewer-verification`; `CameraControls.test.tsx` and `LiveFrame.test.tsx`
