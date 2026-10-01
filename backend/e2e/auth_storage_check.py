@@ -9,7 +9,10 @@ Failure cases: a locked auth database makes /api/auth/me, a protected route or
 /api/auth/refresh answer 401 (the browser then deletes the saved sign-in) instead of 503; the
 refresh token is revoked during the outage, so /me and refresh fail after the lock is released;
 a genuinely bad, expired, wrong-type or revoked token stops answering 401; a sign-in relayed by
-a tunnel on this computer (loopback peer with forwarding headers) is reported as local.
+a tunnel on this computer (loopback peer with forwarding headers) is reported as local; remote
+password guessing is unlimited (including through the tunnel with a spoofed first
+X-Forwarded-For entry), remote guessing locks the RobotControl computer out, or an auth storage
+outage counts as wrong passwords.
 """
 import json
 import os
@@ -95,6 +98,30 @@ def run():
                 response = client.post('/api/auth/login', json=credentials, headers=headers)
                 session = response.json().get('data', {}).get('session', {}) if response.status_code == 200 else {}
                 check(name, session.get('is_local') is local, [response.status_code, session])
+
+            # Remote password guessing is limited; the RobotControl computer is never locked out.
+            # The guesses come the way an attacker would: through the tunnel (loopback peer), with
+            # a spoofed first X-Forwarded-For entry that the classifier must not trust.
+            auth_api.login_throttle._failures.clear()
+            wrong = {'username': DEFAULT_ADMIN_USERNAME, 'password': 'not-the-password'}
+            remote = {'x-forwarded-for': '127.0.0.1, 203.0.113.7', 'cf-connecting-ip': '203.0.113.7'}
+            answers = [client.post('/api/auth/login', json=wrong, headers=remote).status_code for _ in range(5)]
+            check('five wrong tunnelled passwords (spoofed 127.0.0.1 first) answer 401', answers == [401] * 5, answers)
+            blocked = client.post('/api/auth/login', json=credentials, headers=remote)
+            check('sixth tunnelled attempt answers 429 with Retry-After, even with the right password',
+                  blocked.status_code == 429 and int(blocked.headers.get('retry-after', 0)) > 0
+                  and 'Too many failed sign-in attempts' in blocked.text, [blocked.status_code, dict(blocked.headers), blocked.text])
+            local = client.post('/api/auth/login', json=credentials)
+            check('local sign-in still works while the remote account is throttled', local.status_code == 200, [local.status_code, local.text])
+            other = client.post('/api/auth/login', json=wrong, headers={'cf-connecting-ip': '198.51.100.4'})
+            check('the account stays throttled from another remote address', other.status_code == 429, [other.status_code])
+            auth_api.login_throttle._failures.clear()
+            outage_lock = sqlite3.connect(os.environ['ROBOTCONTROL_AUTH_DB_FILENAME'])
+            outage_lock.execute('BEGIN EXCLUSIVE')
+            outage = [client.post('/api/auth/login', json=wrong, headers=remote).status_code for _ in range(6)]
+            outage_lock.rollback()
+            outage_lock.close()
+            check('auth storage outages are not counted as wrong passwords', 429 not in outage, outage)
     except Exception:
         check('check ran to completion', False, traceback.format_exc())
     finally:
