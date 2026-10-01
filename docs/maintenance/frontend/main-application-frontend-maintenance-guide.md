@@ -10,7 +10,9 @@ every page shares.
   the same), then `BrowserRouter` → `AppearanceProvider` → `App`.
 - `App.tsx`: wraps the shell in `AuthProvider`. Signed out, it renders only `LoginPage`.
   Signed in, `AppShell` renders `AppSidebar`, `RobotAttentionBanner`, the lazily loaded routes
-  (`loadComponent` in `utils/BundleOptimizer.ts` retries a failed chunk load), and the
+  (`loadComponent` in `utils/BundleOptimizer.ts` retries a failed chunk load, then reloads the
+  page once, since a missing chunk after an upgrade answers 404; `PageLoadBoundary`, keyed by
+  route, then shows "This page could not load" with Reload while the shell stays usable), and the
   global dialogs: `MaintenanceDialog` (temporary API pause during a database restore),
   `ChangePasswordDialog` (opens when `user.must_reset`) and `KeyboardShortcutsHelp`.
 - `components/navigation.tsx`: the single registry of pages, sections, URLs and UI
@@ -52,6 +54,12 @@ panel all read that context; nothing else polls for them. Scheduling keeps its o
   held, while status is older than two polls ("Robot status updated N s ago · Retry"), or
   when no read has succeeded ("Robot status unavailable"). A failed read keeps the last
   known hold visible. Scheduler, HxRun, camera and database state live on Overview.
+- The banner also says "Connection to RobotControl lost · retrying" (or "This device is
+  offline") while the latest request through `api` got no RobotControl answer (offline,
+  unreachable, timeout or a proxy page). `services/requestError.ts` owns that state; the
+  `api` interceptors record each outcome and screens only read it. It adds no poller.
+- `PageHeader` lists sections a remote session cannot open ("On the RobotControl computer
+  only: …"), derived from `sectionRegistry`, so remote users know they exist.
 
 Permission rules shown in the UI: Database Restore is admin **or** local; Database
 Operations and Scheduling Methods are local-only; Notifications are admin-only;

@@ -50,6 +50,7 @@ import {
 } from '@mui/icons-material';
 import LoadingSpinner from './LoadingSpinner';
 import { api } from '../services/api';
+import { classifyRequestError, isConnectionProblem, requestErrorMessage } from '../services/requestError';
 import { activateMaintenance, clearMaintenance } from '@/utils/MaintenanceManager';
 import StatusDialog, { StatusMessage } from './StatusDialog';
 import { useAuthContext } from '../context/AuthContext';
@@ -89,6 +90,9 @@ interface DatabaseRestoreProps {
 
 // The backend restore allows 600 s; include a minute for response/recovery overhead.
 const RESTORE_REQUEST_TIMEOUT_MS = (600 + 60) * 1000;
+// BACKUP_TIMEOUT in backend/services/backup.py is 300 s. Backups are local-only, so no
+// tunnel (Cloudflare cuts at 100 s) sits between this page and the server.
+const BACKUP_REQUEST_TIMEOUT_MS = (300 + 30) * 1000;
 
 const FileExplorer: React.FC<FileExplorerProps> = ({ open, onClose, onSelect }) => {
   const [currentPath, setCurrentPath] = useState('C:\\');
@@ -482,8 +486,13 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
 
     } catch (err: any) {
       console.error('Error restoring backup:', err);
-      const message = err.response?.data?.detail || err.message || 'Failed to restore backup';
-      setStatus({ title: 'Restore Failed', message, severity: 'error' });
+      if (isConnectionProblem(classifyRequestError(err))) {
+        // The server may still be restoring, or have finished. Never retry a restore automatically.
+        setStatus({ title: 'Restore outcome unknown', severity: 'warning', message:
+          'The connection dropped before the restore answered. The restore may still be running or may have finished. Check the database and the backup list before restoring again.' });
+        return;
+      }
+      setStatus({ title: 'Restore Failed', message: requestErrorMessage(err, 'Failed to restore backup'), severity: 'error' });
     } finally {
       setRestoreProgress(false);
     }
@@ -541,7 +550,7 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
     try {
       const response = await api.post('/api/admin/backup/create', {
         description: createDescription.trim()
-      });
+      }, { timeout: BACKUP_REQUEST_TIMEOUT_MS });
 
       const message = response?.data?.message || 'Backup created successfully.';
       const filename = response?.data?.data?.filename;
@@ -560,8 +569,8 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
         }
       }
     } catch (err: any) {
-      const message = err?.response?.data?.detail || err?.message || 'Failed to create backup.';
-      setCreateDialogError(message);
+      // A timeout or dropped connection leaves the backup running; the message says to check the list.
+      setCreateDialogError(requestErrorMessage(err, 'Failed to create backup.'));
     } finally {
       setCreatingBackup(false);
     }
