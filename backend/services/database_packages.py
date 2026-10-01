@@ -21,6 +21,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from backend.utils.filesystem import replace_file
+
 MAX_UPLOAD = 20 * 1024 * 1024
 MAX_EXPANDED = 50 * 1024 * 1024
 SUPPORTED_LIBRARIES = {"pandas", "openpyxl", "pyodbc", "numpy"}
@@ -229,7 +231,7 @@ class PackageCatalogue:
     def _save(self, index):
         temporary = self.index_path.with_suffix(".tmp")
         temporary.write_text(json.dumps(index, indent=2), encoding="utf-8")
-        temporary.replace(self.index_path)
+        replace_file(temporary, self.index_path)
 
     def packages(self):
         with self.lock:

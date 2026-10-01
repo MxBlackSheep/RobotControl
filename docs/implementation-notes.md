@@ -1,3 +1,9 @@
+## 2026-10-01 Draft Try no longer fails when another program has the draft open
+
+- `tool_authoring_check` failed about 1 run in 4 with `PermissionError: [WinError 5]` while Try replaced `report-drafts/<key>.json`. No RobotControl thread or the report worker held the file: every draft read already takes `authoring.lock` and the worker inherits no handles. A single-thread write-and-replace loop failed 24 of 5,000 times, with no holder left by the time it was queried. A short-lived outside opener (antivirus or indexer) was opening the new file. `os.replace` (MoveFileEx) refuses to replace a target while any other handle is open, even one that allows deletion.
+- `utils/filesystem.replace_file` renames with POSIX semantics (`FileRenameInfoEx`), which replaces the target while such handles stay valid: 0 failures in 20,000 replaces. It is still atomic, and falls back to `os.replace` only on volumes without that call. Report drafts, the package index and saved connections use it. No retry was added.
+- New `backend.e2e.draft_replace_check` holds the draft open as a scanner does; it failed on the old code and passes now. A holder that forbids deletion still gets a clear error and leaves the old draft intact.
+
 ## 2026-10-01 Report wizard SQL check matches the current draft and publish contract
 
 - `backend.e2e.report_wizard_check` had failed since `10bf346`; the product was right both times. A saved draft has been stored as the full `ReportDraft` (`model_dump()`) since `fc22455`, so once `10bf346` added fields the check does not send, GET returned them with defaults (`tool_id`, `entrypoint`, later `kind`, `files`, `change_note`…) for ones the client omitted; the wizard round-trips that whole object, and installed-tool edits depend on it. The check now compares against the sent draft over the model defaults, still whole-object equality.

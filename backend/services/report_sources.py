@@ -12,6 +12,7 @@ from typing import Literal
 import pyodbc
 from pydantic import BaseModel, ConfigDict, Field
 from backend.services.database_packages import PackageError, IDENTIFIER
+from backend.utils.filesystem import replace_file
 from backend.utils.secret_cipher import encrypt_secret, decrypt_secret
 
 
@@ -131,7 +132,7 @@ class ReportSources:
     def _save(self, state):
         temporary = self.path.with_suffix('.tmp')
         temporary.write_text(json.dumps(state), encoding='utf-8')
-        temporary.replace(self.path)
+        replace_file(temporary, self.path)
         self.state = state
 
     def list(self):
