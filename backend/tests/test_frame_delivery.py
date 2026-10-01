@@ -9,7 +9,7 @@ import numpy as np
 from backend.services.frame_encoder import FrameEncoder
 from backend.services.live_streaming import LiveStreamingService
 from backend.services.shared_frame_buffer import SharedFrameBuffer
-from backend.services.streaming_session import FRAME_HEADER, MAX_UNACKNOWLEDGED
+from backend.services.streaming_session import FRAME_HEADER, MAX_DEGRADE_LEVEL, MAX_UNACKNOWLEDGED
 from backend.services.streaming_types import FrameData, StreamControl
 
 
@@ -159,4 +159,33 @@ def test_pause_stops_frames_and_resume_restarts_them():
             assert socket.send_bytes.await_count >= 1
         finally:
             await service.stop_service()
+    asyncio.run(scenario())
+
+
+def test_cpu_guard_degrades_under_load_recovers_when_calm_and_keeps_the_hard_stop():
+    async def scenario():
+        LiveStreamingService._instance = None
+        with patch.object(LiveStreamingService, '_ensure_camera_integration'):
+            service = LiveStreamingService()
+        with patch.object(service, 'ensure_service_started', new=AsyncMock()):
+            session = await service.create_session('viewer', 'viewer', 'local')
+            handler = service.sessions[session.session_id]
+            requested = handler.quality_settings
+            async def samples(values):
+                for value in values:
+                    service._last_resource_check = datetime(2000, 1, 1)
+                    with patch.object(service, '_sample_cpu', return_value=value):
+                        await service._apply_resource_guard()
+            await samples([80] * 12)
+            assert handler.degrade_level == MAX_DEGRADE_LEVEL  # capped, as degrade() floors
+            assert handler.quality_settings.fps < requested.fps
+            await samples([60] * 20)  # between the limits: hold, never recover
+            assert handler.degrade_level == MAX_DEGRADE_LEVEL
+            await samples([20] * (10 * MAX_DEGRADE_LEVEL))
+            assert handler.degrade_level == 0 and handler.quality_settings == requested
+            assert handler.session.quality_level == 'adaptive'
+            await samples([95, 95])
+            assert session.session_id in service.sessions
+            await samples([95])  # third consecutive sample at the hard limit
+            assert session.session_id not in service.sessions
     asyncio.run(scenario())

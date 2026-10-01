@@ -5,7 +5,4 @@ exist, move the lasting cases into the header comment of the spec or backend che
 that covers them, then delete them from this file. Keep this file short; finished
 work stays in Git history, not here.
 
-## Live view transport (fix/camera-live-view)
-
-- CPU guard: quality drops but never recovers; the end-session protection becomes
-  less strict than ≥90 % for 3 samples.
+(No work in progress.)

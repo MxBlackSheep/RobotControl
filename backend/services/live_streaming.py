@@ -25,6 +25,10 @@ from backend.config import LIVE_STREAMING_CONFIG
 
 logger = logging.getLogger(__name__)
 
+# One quality step back up after this many consecutive one-second samples below this CPU %.
+CPU_RECOVER_PERCENT = 50
+CPU_RECOVER_SAMPLES = 10
+
 
 class LiveStreamingService:
     """
@@ -92,6 +96,7 @@ class LiveStreamingService:
         self._cpu_samples: Deque[float] = deque(maxlen=5)
         self._consecutive_soft_limit_hits = 0
         self._consecutive_hard_limit_hits = 0
+        self._consecutive_calm_samples = 0
         self._resource_state = "normal"
         self._recording_impact = "none"
 
@@ -441,6 +446,12 @@ class LiveStreamingService:
             for handler in self.sessions.values():
                 handler.degrade_quality()
 
+    async def _recover_active_sessions(self) -> None:
+        """Step quality back up after CPU has stayed low (before, it never recovered)."""
+        async with self.session_lock:
+            for handler in self.sessions.values():
+                handler.recover_quality()
+
     async def _apply_resource_guard(self) -> None:
         """Lightweight guard that keeps CPU usage within configured thresholds."""
         now = datetime.now()
@@ -456,6 +467,7 @@ class LiveStreamingService:
             self._recording_impact = "none"
             self._consecutive_soft_limit_hits = 0
             self._consecutive_hard_limit_hits = 0
+            self._consecutive_calm_samples = 0
             self._cpu_samples.clear()
             return
 
@@ -492,6 +504,16 @@ class LiveStreamingService:
             self._recording_impact = "none"
             self._consecutive_soft_limit_hits = 0
             self._consecutive_hard_limit_hits = 0
+
+        # Thresholds are the process's summed CPU (psutil), as before: 75 % means three
+        # quarters of one core. Recovery needs a sustained calm, well below the soft limit.
+        if cpu_percent < CPU_RECOVER_PERCENT:
+            self._consecutive_calm_samples += 1
+            if self._consecutive_calm_samples >= CPU_RECOVER_SAMPLES:
+                self._consecutive_calm_samples = 0
+                await self._recover_active_sessions()
+        else:
+            self._consecutive_calm_samples = 0
 
 
     def get_status(self) -> StreamingStatus:

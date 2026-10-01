@@ -29,6 +29,8 @@ FRAME_VERSION = 1
 MAX_UNACKNOWLEDGED = 2
 # A viewer that acknowledges nothing for this long has gone; its session ends.
 ACK_TIMEOUT_SECONDS = 15
+# QualitySettings.degrade() reaches its floor (5 fps, 30 % JPEG, skip 5) within five steps.
+MAX_DEGRADE_LEVEL = 5
 
 
 class StreamingSessionHandler:
@@ -62,6 +64,10 @@ class StreamingSessionHandler:
                 self.config
             )
         self.quality_settings = quality_settings
+        # Degradation is a level over the requested quality, so it can step back up.
+        self.requested_quality = quality_settings
+        self.requested_level = session.quality_level
+        self.degrade_level = 0
         
         # Frame control
         self.frame_skip_counter = 0
@@ -246,29 +252,27 @@ class StreamingSessionHandler:
             logger.debug(f"Error receiving control for session {self.session.session_id}: {e}")
             return None
     
-    def update_quality(self, quality_level: str) -> None:
-        """
-        Update quality settings for the session.
-        
-        Args:
-            quality_level: New quality level (high/medium/low/adaptive)
-        """
-        self.session.quality_level = quality_level
-        self.quality_settings = QualitySettings.from_config(quality_level, self.config)
-        self.frame_interval = 1.0 / self.quality_settings.fps
-        
-        logger.info(f"Updated quality to {quality_level} for session {self.session.session_id}")
-    
     def degrade_quality(self) -> None:
-        """
-        Degrade quality for resource protection.
-        Called by priority manager when resources are constrained.
-        """
-        self.quality_settings = self.quality_settings.degrade()
-        self.frame_interval = 1.0 / self.quality_settings.fps
-        self.session.quality_level = "degraded"
-        
-        logger.warning(f"Degraded quality for session {self.session.session_id}")
+        """One step down under CPU pressure (the resource guard in live_streaming.py)."""
+        if self.degrade_level < MAX_DEGRADE_LEVEL:
+            self.degrade_level += 1
+            self._apply_degrade_level()
+            logger.warning("Degraded quality for session %s to level %s", self.session.session_id, self.degrade_level)
+
+    def recover_quality(self) -> None:
+        """One step back up once CPU has stayed low; level 0 is the requested quality."""
+        if self.degrade_level > 0:
+            self.degrade_level -= 1
+            self._apply_degrade_level()
+            logger.info("Recovered quality for session %s to level %s", self.session.session_id, self.degrade_level)
+
+    def _apply_degrade_level(self) -> None:
+        settings = self.requested_quality
+        for _ in range(self.degrade_level):
+            settings = settings.degrade()
+        self.quality_settings = settings
+        self.frame_interval = 1.0 / settings.fps
+        self.session.quality_level = self.requested_level if self.degrade_level == 0 else "degraded"
     
     def _encode_frame(self, frame: np.ndarray):
         """Encode a BGR frame to (jpeg bytes, width, height), or None on failure."""
