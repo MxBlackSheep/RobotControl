@@ -4,8 +4,11 @@ import { test, expect } from '@playwright/test';
 // - Process CPU or cached JPEG throughput is presented as live-view utilization/health.
 // - Enabled configuration is mistaken for a connected camera or recording state.
 // - A missing/non-boolean enabled field is mislabeled as disabled or enabled.
-// - Incomplete database/size fields imply disconnection or print undefined capacity.
-// - A database failure message is hidden or detached from the Database card.
+// - Incomplete database/size fields imply disconnection or print undefined capacity; an
+//   incomplete connection reply looks like an empty, healthy list.
+// - The Databases card shows only the built-in connection (once "EvoYeast, mode primary"), or a
+//   failing or unknown connection reads as connected; a failure message is hidden or detached
+//   from its connection.
 // - Showing details creates another polling owner or loses the retained stale reading.
 // - Connection identifiers or session counts overflow a 320px screen or trap keyboard focus.
 // - An expired access token makes System Status reads fail with 401 forever instead of
@@ -45,8 +48,18 @@ test('monitoring has one refresh owner and shows stale and unknown services accu
       database: { is_connected: false, mode: 'primary', database_name: 'Fixture DB', server_name: 'Fixture server' },
     } } });
   });
+  // One connection fails and one reports a state this screen does not know: neither is healthy.
+  await page.route('**/api/monitoring/databases', route => route.fulfill({ json: { data: {
+    built_in: { id: 'built-in', name: 'Built-in Hamilton connection', access: 'built-in', server: 'Fixture server', database: 'Fixture DB', uses: ['Hamilton run records'], state: 'failed', message: 'Login timeout expired.' },
+    connections: [{ id: 'reader', name: 'Lab reader', access: 'read', server: 'Fixture server', database: 'Fixture DB', uses: [], state: 'checking' }],
+    checked_at: new Date().toISOString() } } }));
   await page.goto('/system-status');
-  await expect(page.getByRole('region', { name: 'Database', exact: true }).getByTitle('Disconnected', { exact: true })).toBeVisible();
+  const databases = page.getByRole('region', { name: 'Databases', exact: true });
+  await expect(databases.getByTitle('1 cannot connect', { exact: true })).toBeVisible();
+  await expect(databases.getByTitle('Cannot connect', { exact: true })).toBeVisible();
+  await expect(databases.getByTitle('Unknown', { exact: true })).toBeVisible();
+  await expect(databases.getByText('Login timeout expired.', { exact: true })).toBeVisible();
+  await expect(databases.getByTitle('Connected', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('region', { name: 'Live view', exact: true }).getByTitle('Unavailable', { exact: true })).toBeVisible();
   expect(healthRequests).toBe(1);
   failed = true;
@@ -225,17 +238,30 @@ for (const width of [320, 1280]) {
       healthRequests++;
       return route.fulfill({ json: { data: {
         sampled_at: new Date().toISOString(), system: { cpu_percent: 4, memory_percent: 12, disk_percent: 25 },
-        database: { is_connected: false, mode: 'primary', database_name: 'Fixture database with a long identifier',
-          server_name: 'fixture-server-with-a-very-long-hostname.internal', error_message: 'Database connection refused.' },
+        database: { is_connected: false, mode: 'primary', database_name: 'EvoYeast', server_name: 'LOCALHOST\\HAMILTON' },
       } } });
     });
+    await page.route('**/api/monitoring/databases', route => route.fulfill({ json: { data: {
+      built_in: { id: 'built-in', name: 'Built-in Hamilton connection', access: 'built-in', server: 'LOCALHOST\\HAMILTON', database: 'EvoYeast',
+        uses: ['Hamilton run records', 'Labware', 'Backup and restore'], state: 'connected', message: null },
+      connections: [
+        { id: 'writer', name: 'EvoYeast writer for the evening preparation steps', access: 'operation', server: 'fixture-server-with-a-very-long-hostname.internal',
+          database: 'Fixture database with a long identifier', uses: ['Select EvoYeast experiment (changes)', 'Before-run step of 2 active schedules'], state: 'failed',
+          message: "Cannot use connection 'EvoYeast writer for the evening preparation steps'. Check the connection settings, account permissions and query." },
+        { id: 'reader', name: 'EvoYeast reader', access: 'read', server: 'LOCALHOST\\HAMILTON', database: 'EvoYeast',
+          uses: ['Tables and Stored procedures', 'Culture history', 'Select EvoYeast experiment'], state: 'connected', message: null }],
+      checked_at: new Date().toISOString() } } }));
     await page.goto('/system-status');
     await expect(page.getByRole('region', { name: 'Live view', exact: true }).getByTitle('Enabled', { exact: true })).toBeVisible();
-    await expect(page.getByText('Database connection refused.', { exact: true })).toBeVisible();
     await expect(page.getByRole('progressbar', { name: 'CPU usage', exact: true })).toHaveAttribute('aria-valuenow', '4');
     // Connection facts are shown in their cards, as in the approved mock (no disclosure).
-    await expect(page.getByText('Fixture database with a long identifier', { exact: true })).toBeVisible();
-    await expect(page.getByText('fixture-server-with-a-very-long-hostname.internal', { exact: true })).toBeVisible();
+    const databases = page.getByRole('region', { name: 'Databases', exact: true });
+    await expect(databases.getByTitle('1 cannot connect', { exact: true })).toBeVisible();
+    await expect(databases.getByText('Built-in · Hamilton run records · Labware · Backup and restore', { exact: true })).toBeVisible();
+    await expect(databases.getByText('Database changes · Select EvoYeast experiment (changes) · Before-run step of 2 active schedules', { exact: true })).toBeVisible();
+    await expect(databases.getByText('fixture-server-with-a-very-long-hostname.internal / Fixture database with a long identifier', { exact: true })).toBeVisible();
+    await expect(databases.getByText("Cannot use connection 'EvoYeast writer for the evening preparation steps'.", { exact: false })).toBeVisible();
+    await expect(page.getByText(/Connection mode|primary/)).toHaveCount(0);
     await expect(page.getByText('2 of 4 slots in use', { exact: true })).toBeVisible();
     await expect(page.getByText(/Utilization|Bandwidth|Recording active|Robot healthy/i)).toHaveCount(0);
     expect(healthRequests).toBe(1);
@@ -251,10 +277,11 @@ test('live view configuration stays unknown when the status contract is incomple
     sampled_at: new Date().toISOString(), system: { cpu_percent: 4, memory_percent: 12, disk_percent: 25, memory_total_gb: 16, disk_total_gb: 500 },
     database: {},
   } } }));
+  await page.route('**/api/monitoring/databases', route => route.fulfill({ json: { data: {} } }));
   await page.route('**/api/camera/streaming/status', route => route.fulfill({ json: { data: { status } } }));
   await page.goto('/system-status');
   await expect(page.getByRole('region', { name: 'Live view', exact: true }).getByTitle('Unavailable', { exact: true })).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Database', exact: true }).getByTitle('Unavailable', { exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Databases', exact: true }).getByTitle('Unavailable', { exact: true })).toBeVisible();
   await expect(page.getByText(/undefined|NaN/)).toHaveCount(0);
   status = { enabled: 'true' };
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();

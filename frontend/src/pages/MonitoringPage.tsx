@@ -6,11 +6,11 @@ import { dayTime } from '../utils/displayTime';
 import Refresh from '@mui/icons-material/Refresh';
 import { ListRow, PageContent, PageGrid, PageHeader, Panel } from '../components/PageLayout';
 import type { StatusTone } from '../theme';
-import useMonitoring from '../hooks/useMonitoring';
+import useMonitoring, { type DatabaseConnection } from '../hooks/useMonitoring';
 
 export default function MonitoringPage() {
   // This page owns one monitoring request cycle. Presentation below never starts polling.
-  const { monitoringData, systemHealth, databaseStatus, streamingStatus, isLoading, error, refreshData } = useMonitoring();
+  const { monitoringData, systemHealth, databases, streamingStatus, isLoading, error, refreshData } = useMonitoring();
   const timestamp = systemHealth?.timestamp || monitoringData?.last_updated;
   const sessionCount = streamingStatus?.active_session_count;
   const sessionLimit = streamingStatus?.max_sessions;
@@ -27,8 +27,15 @@ export default function MonitoringPage() {
     { name: 'Disk', value: systemHealth?.disk_percent, detail: capacity(systemHealth?.disk_used_gb, systemHealth?.disk_total_gb) },
   ];
   // After a failed read the last state stays, in neutral colour beside "Stale data".
-  const database: [string, StatusTone] = databaseStatus?.is_connected === true ? ['Connected', error ? 'neutral' : 'completed']
-    : databaseStatus?.is_connected === false ? ['Disconnected', error ? 'neutral' : 'fault'] : ['Unavailable', 'neutral'];
+  // A connection that is not reported as connected never counts as healthy.
+  const connectionState = (connection: DatabaseConnection): [string, StatusTone] => connection.state === 'connected' ? ['Connected', error ? 'neutral' : 'completed']
+    : connection.state === 'failed' ? ['Cannot connect', error ? 'neutral' : 'fault'] : ['Unknown', 'neutral'];
+  const connections = databases ? [databases.built_in, ...(databases.connections ?? [])].filter((x): x is DatabaseConnection => Boolean(x)) : [];
+  const failing = connections.filter(connection => connection.state === 'failed').length;
+  const allKnown = Boolean(databases?.built_in && databases.connections) && connections.every(connection => ['connected', 'failed'].includes(connection.state));
+  const database: [string, StatusTone] = !databases ? ['Unavailable', 'neutral']
+    : failing ? [`${failing} cannot connect`, error ? 'neutral' : 'fault']
+    : allKnown ? ['Connected', error ? 'neutral' : 'completed'] : ['Partly unknown', 'neutral'];
   const liveView: [string, StatusTone] = streamingStatus?.enabled === true ? ['Enabled', 'completed'] : streamingStatus?.enabled === false ? ['Disabled', 'neutral'] : ['Unavailable', 'neutral'];
   return <PageContent variant="overview">
     <PageHeader title="System status" actions={<>
@@ -45,13 +52,16 @@ export default function MonitoringPage() {
         <LinearProgress aria-label={`${metric.name} usage`} variant="determinate" value={Number.isFinite(metric.value) ? Math.max(0, Math.min(100, metric.value!)) : 0}
           color={metric.value! > 90 ? 'error' : metric.value! > 80 ? 'warning' : 'primary'} sx={{ mt: 1, height: 8, borderRadius: 1, bgcolor: 'surface.track', visibility: Number.isFinite(metric.value) ? 'visible' : 'hidden' }} />
       </Panel>)}
-      <ServiceCard span={8} title="Database" state={database} rows={[
-        ['Database', databaseStatus?.database_name || 'Unavailable'],
-        ['Server', databaseStatus?.server_name || 'Unavailable'],
-        ['Connection mode', databaseStatus?.mode || 'Unavailable'],
-      ]}>
-        {databaseStatus?.error_message && <Alert severity="error" sx={{ m: 2, overflowWrap: 'anywhere' }}>{databaseStatus.error_message}</Alert>}
-      </ServiceCard>
+      <Panel title="Databases" span={8} inset={false} actions={<StatusChip tone={database[1]} label={database[0]} />}>
+        {!databases ? <Typography variant="body2" color="text.secondary" sx={{ p: `${layout.inset}px` }}>Connection checks are unavailable.</Typography>
+          : <Box component="ul" sx={{ m: 0, p: 0, listStyle: 'none' }}>
+            {connections.map(connection => <DatabaseRow key={connection.id} connection={connection} state={connectionState(connection)} />)}
+            {databases.connections === null && <DatabaseRow connection={{ id: 'saved', name: 'Saved connections', access: '', uses: [], state: 'unknown',
+              message: 'The saved connections could not be checked.' }} state={['Unknown', 'neutral']} />}
+            {databases.connections?.length === 0 && <ListRow component="li" columns="minmax(0, 1fr)">
+              <Typography variant="body2" color="text.secondary">No saved connections. Add them in Database → Database settings.</Typography></ListRow>}
+          </Box>}
+      </Panel>
       <ServiceCard span={4} title="Live view" state={liveView} rows={[['Sessions', sessionSummary]]} />
     </PageGrid>
   </PageContent>;
@@ -67,4 +77,22 @@ function ServiceCard({ title, span, state: [label, tone], rows, children }: { ti
     </Box>
     {children}
   </Panel>;
+}
+
+const accessLabel: Record<string, string> = { 'built-in': 'Built-in', read: 'Read-only', operation: 'Database changes' };
+
+function DatabaseRow({ connection, state: [label, tone] }: { connection: DatabaseConnection; state: [string, StatusTone] }) {
+  const target = [connection.server, connection.database].filter(Boolean).join(' / ');
+  const details = [accessLabel[connection.access] ?? '', connection.uses.length ? connection.uses.join(' · ') : connection.access ? 'Not used' : ''].filter(Boolean).join(' · ');
+  // Names and server identifiers can be long; the row grows rather than clipping them.
+  return <ListRow component="li" columns="minmax(0, 1fr) auto" sx={{ height: 'auto', minHeight: layout.row, py: 1, alignItems: 'start',
+    '& > *:first-of-type': { whiteSpace: 'normal', overflowWrap: 'anywhere' } }}>
+    <Box>
+      <Typography variant="body2" sx={{ fontWeight: 600 }}>{connection.name}</Typography>
+      {target && <Typography variant="caption" component="div" color="text.secondary" sx={{ fontFamily: fontMono }}>{target}</Typography>}
+      {details && <Typography variant="caption" component="div" color="text.secondary">{details}</Typography>}
+      {connection.state !== 'connected' && connection.message && <Typography variant="caption" component="div" color={connection.state === 'failed' ? 'error' : 'text.secondary'}>{connection.message}</Typography>}
+    </Box>
+    <StatusChip tone={tone} label={label} />
+  </ListRow>;
 }

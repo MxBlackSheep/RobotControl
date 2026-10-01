@@ -27,6 +27,10 @@ logger = logging.getLogger(__name__)
 REPORT_TIMEOUT_SECONDS = 300
 # Preparation is short data setup before a launch; a longer step is treated as hung.
 PREPARATION_TIMEOUT_SECONDS = 120
+# System status re-checks saved connections in the background at most this often, and never
+# serves a result older than HEALTH_STALE_SECONDS.
+HEALTH_CACHE_SECONDS = 30
+HEALTH_STALE_SECONDS = 3 * HEALTH_CACHE_SECONDS
 
 
 class PreparationFailed(Exception):
@@ -362,6 +366,85 @@ class DatabaseTools:
         return [schedule.experiment_name
                 for schedule in get_scheduling_database_manager().get_schedules(active_only=True, archived_only=False)
                 if (schedule.preparation or {}).get('package_id') == package_id]
+
+    def connection_health(self):
+        """Every saved connection, what uses it and whether it opened (System status).
+
+        A result younger than HEALTH_STALE_SECONDS is returned at once and, when older than
+        HEALTH_CACHE_SECONDS, re-checked in one background thread, so an unreachable server's
+        connect timeout does not delay the page's other readings and open pages do not open
+        SQL sessions every minute. An older result (the first call, a long idle period, or
+        background checks that keep failing) is never served: the check runs in the call and
+        its failure reaches the caller, so stale data cannot keep a connection looking healthy.
+        """
+        with self.lock:
+            cached = getattr(self, '_health', None)
+            age = time.monotonic() - cached[0] if cached else None
+            if age is not None and age < HEALTH_STALE_SECONDS:
+                if age >= HEALTH_CACHE_SECONDS and not getattr(self, '_health_checking', False):
+                    self._health_checking = True
+                    threading.Thread(target=self._check_health_in_background, name='connection-health', daemon=True).start()
+                return cached[1]
+        return self._check_health()
+
+    def _check_health(self):
+        """Open each saved connection as its real users do (a reader's read-only check
+        included), in parallel, and record the result."""
+        try:
+            return self._probe_connections()
+        finally:
+            with self.lock:
+                self._health_checking = False
+
+    def _check_health_in_background(self):
+        try:
+            self._check_health()
+        except Exception:
+            logger.exception('Background check of saved database connections failed')
+
+    def _probe_connections(self):
+        with self.sources.lock:
+            state = copy.deepcopy(self.sources.state)
+        packages = {package['id']: package['name'] for package in self.catalogue.packages()}
+        uses = {source_id: [] for source_id in state['sources']}
+        if state.get('viewer_source') in uses:
+            uses[state['viewer_source']].append('Tables and Stored procedures')
+        for package_id, mapping in state['bindings'].items():
+            for source_id in set(mapping.values()) & set(uses):
+                uses[source_id].append(packages.get(package_id, package_id))
+        for package_id, source_id in state['operation_bindings'].items():
+            if source_id in uses:
+                uses[source_id].append(f'{packages.get(package_id, package_id)} (changes)')
+        from backend.services.scheduling.database_manager import get_scheduling_database_manager
+        scheduled = {}
+        for schedule in get_scheduling_database_manager().get_schedules(active_only=True, archived_only=False):
+            source_id = (schedule.preparation or {}).get('source_id')
+            scheduled[source_id] = scheduled.get(source_id, 0) + 1
+        for source_id, count in scheduled.items():
+            if source_id in uses:
+                uses[source_id].append(f"Before-run step of {count} active schedule{'s' if count > 1 else ''}")
+
+        def probe(source):
+            try:
+                with self.sources.open(source):
+                    return 'connected', None
+            except PackageError as exc:
+                return 'failed', str(exc)
+            except Exception:
+                logger.exception('Connection check failed for %s', source.get('id'))
+                return 'failed', 'Connection check failed. See the RobotControl log.'
+
+        sources = sorted(state['sources'].values(), key=lambda source: source['name'].lower())
+        with ThreadPoolExecutor(max_workers=max(1, min(8, len(sources))), thread_name_prefix='connection-health') as pool:
+            results = list(pool.map(probe, sources))
+        from backend.utils.datetime import utc_now_as_local_naive
+        health = dict(checked_at=utc_now_as_local_naive().isoformat(), connections=[
+            dict(id=source['id'], name=source['name'], server=source['server'], database=source['database'],
+                 access=source.get('access', 'read'), uses=uses[source['id']], state=state_, message=message)
+            for source, (state_, message) in zip(sources, results)])
+        with self.lock:
+            self._health = (time.monotonic(), health)
+        return health
 
     def pin_preparation(self, tool_id, inputs, actor):
         """Validate a preparation step for a schedule and pin what it will run: the package

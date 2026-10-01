@@ -45,6 +45,32 @@ async def get_monitoring_status(current_user: dict = Depends(get_current_user)):
             details=str(e)
         )
 
+@router.get("/databases")
+def get_database_connections(current_user: dict = Depends(get_current_user)):
+    """The SQL Server connections RobotControl depends on and whether each opens now.
+
+    The built-in connection (settings.DB_CONFIG_PRIMARY) still reads Hamilton run records and
+    serves labware and backup; the saved workspace connections serve the viewer, packages
+    and schedules' before-run steps. connections is null when they could not be listed.
+    """
+    native = get_database_service()
+    status_ = native.get_status()
+    built_in = dict(id="built-in", name="Built-in Hamilton connection", access="built-in",
+                    server=native._primary_config.get("server"), database=native._primary_config.get("database"),
+                    uses=["Hamilton run records", "Labware", "Backup and restore"],
+                    state="connected" if status_.is_connected else "failed", message=status_.error_message)
+    try:
+        from backend.services.database_tools import get_database_tools
+        workspace = get_database_tools().connection_health()
+    except Exception:
+        logger.exception("Saved database connections could not be checked")
+        workspace = None
+    return ResponseFormatter.success(data=dict(
+        built_in=built_in,
+        connections=workspace["connections"] if workspace else None,
+        checked_at=workspace["checked_at"] if workspace else None,
+    ))
+
 @router.get("/experiments")
 async def get_current_experiments(current_user: dict = Depends(get_current_user)):
     """Get current experiment monitoring data using centralized experiment monitor"""

@@ -18,10 +18,18 @@ Use this document whenever you need to touch real-time monitoring, experiment tr
   Email delivery helpers: `EmailNotificationService` (SMTP client) and `SchedulingNotificationService` (formats schedule alerts, manual recovery emails, TRC attachments).
 
 - `backend/api/monitoring.py`  
-  REST endpoints. Wraps the services in `ResponseFormatter`, enforces auth, and exposes `/status`, `/system-health`, `/experiments`, `/start` and `/stop`.
+  REST endpoints. Wraps the services in `ResponseFormatter`, enforces auth, and exposes `/status`, `/system-health`, `/databases`, `/experiments`, `/start` and `/stop`.
+  `/databases` reports the built-in connection's `get_status` and `DatabaseTools.connection_health`:
+  every saved connection opened as its users open it (a reader's read-only check included),
+  in parallel, with its uses. A result under 90 seconds old (`HEALTH_STALE_SECONDS`) returns
+  at once and, past 30 seconds (`HEALTH_CACHE_SECONDS`), starts one background re-check, so an
+  unreachable server's 8-second connect timeout does not delay the page's other readings. An
+  older result is never served: the check runs in the request, and if it fails (for example
+  background checks keep failing) `connections` is null and the card shows Partly unknown
+  instead of the last Connected rows. `checked_at` is the result's time.
 
 - `frontend/src/hooks/useMonitoring.ts`  
-  React hook that polls `/experiments`, `/system-health` and the camera streaming status through `useSerialPolling` (one request per owner, 20-second deadline) and normalises the response.
+  React hook that polls `/experiments`, `/system-health`, `/databases` and the camera streaming status through `useSerialPolling` (one request per owner, 20-second deadline) and normalises the response.
 
 - `frontend/src/pages/MonitoringPage.tsx`  
   The System Status page: renders the data from `useMonitoring`, freshness chip and Refresh.
