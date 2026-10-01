@@ -2,9 +2,10 @@
 
 Failure cases:
 - Upload, update and removal reject path traversal, binaries, duplicate identifiers,
-  missing libraries and incompatible contracts. A failed update keeps the active
-  version. Inspecting an update never activates it or imports Python, and a changed
-  installation between review and activation is rejected.
+  missing libraries and incompatible contracts. A failed activation keeps the active
+  version and leaves no staged files. Inspecting or activating an update never imports
+  Python; an entry module that fails on import is reported when the report runs. A
+  changed installation between review and activation is rejected.
 - Export uses the installed version, excludes generated/cache/config files and keeps
   authored assets. Anonymous, remote and non-admin callers cannot manage packages.
 - Preview is bound to the user, package version and inputs. Wrong confirmation,
@@ -111,17 +112,34 @@ def run(evidence=ROOT/'test-output/database-verification'):
                 assert client.post(BASE+'/packages', files={'file': ('report.zip', authored)}, data={**fields,'expected_package':'wrong-package'}).status_code == 409
                 assert client.post(BASE+'/packages', files={'file': ('report.zip', authored)}, data=fields).status_code == 200
                 assert client.post(BASE+'/packages', files={'file': ('report.zip', authored)}, data=fields).status_code == 409
-                # Inspection must not run imports. Activation failure must preserve the working version.
+                def report_version(): return client.get(BASE+'/catalogue',params={'kind':'report'}).json()[0]['package_version']
+                def wait_report(job):
+                    deadline=time.monotonic()+30
+                    while job['status'] in {'pending','running'} and time.monotonic()<deadline:
+                        time.sleep(.1); job=client.get(BASE+'/reports/'+job['id']).json()
+                    return job
+                # Inspection and activation never import uploaded Python; the report process does.
                 poisoned = package_zip(ROOT/'database_packages/culture-history', {'version':'9.0.1'},
                     extras={'probe.py': 'raise RuntimeError("inspection executed code")'})
                 assert client.post(BASE+'/packages/inspect', files={'file': ('probe.zip', poisoned)}).status_code == 200
                 broken = package_zip(ROOT/'database_packages/culture-history', {'version':'9.0.1','tools':[
                     {**reviewed['package']['tools'][0], 'entrypoint':'broken:run'}]},
                     extras={'broken.py':'raise RuntimeError("import failure")\ndef run(context, inputs):\n    pass\n'})
-                assert client.post(BASE+'/packages/inspect', files={'file': ('broken.zip', broken)}).status_code == 200
-                assert client.post(BASE+'/packages', files={'file': ('broken.zip', broken)}).status_code == 400
-                assert client.get(BASE+'/catalogue',params={'kind':'report'}).json()[0]['package_version']=='9.0.0'
-                checks.append('Author CLI → non-executing inspection → reviewed update; stale/wrong/failed updates preserve installed code: passed')
+                inspected = client.post(BASE+'/packages/inspect', files={'file': ('broken.zip', broken)})
+                assert inspected.status_code == 200 and inspected.json()['current_version'] == '9.0.0'
+                fields = dict(fields, expected_current=inspected.json()['current_sha256'])
+                # A failed activation (installed.json write) keeps the working version and leaves no staged files.
+                staged = set(service.catalogue.root.iterdir())
+                with patch.object(service.catalogue, '_save', side_effect=OSError('disk full')):
+                    assert client.post(BASE+'/packages', files={'file': ('broken.zip', broken)}, data=fields).status_code == 400
+                assert report_version()=='9.0.0' and set(service.catalogue.root.iterdir())==staged
+                assert client.post(BASE+'/packages', files={'file': ('broken.zip', broken)}, data=fields).status_code == 200
+                failed=wait_report(client.post(BASE+'/reports/culture-history', json={'inputs':{'experiment_id':42}}).json())
+                assert failed['status']=='error' and failed['error']=='import failure' and failed['package_version']=='9.0.1', failed
+                restore=dict(fields, expected_current=inspected.json()['sha256'])
+                assert client.post(BASE+'/packages', files={'file': ('report.zip', authored)}, data=restore).status_code == 200
+                assert report_version()=='9.0.0'
+                checks.append('Author CLI → non-executing inspection → reviewed update; stale/wrong updates and failed activation preserve installed code; import failure reported at run: passed')
                 folder = ROOT/'database_packages/delete-experiment'
                 def upload(content): return client.post(BASE+'/packages', files={'file': ('package.zip', content, 'application/zip')})
                 for content in [package_zip(folder, extras={'../escape.py':'bad'}), package_zip(folder, extras={'binary.exe':'bad'}),
@@ -134,8 +152,10 @@ def run(evidence=ROOT/'test-output/database-verification'):
                     assert client.delete(BASE+'/packages/delete-experiment').status_code == 409
                     assert upload(package_zip(folder)).status_code == 409
                 checks.append('Atomic update, incompatible/unsafe packages, collisions and running-package protection: passed')
+                def request_preview():
+                    return client.post(BASE+'/operations/delete-experiment/preview', json={'inputs': {'experiment_id':43}})
                 def preview():
-                    response = client.post(BASE+'/operations/delete-experiment/preview', json={'inputs': {'experiment_id':43}})
+                    response = request_preview()
                     assert response.status_code == 200, response.text
                     return response.json()['token']
                 def execute(token, confirmation='43'):
@@ -145,10 +165,11 @@ def run(evidence=ROOT/'test-output/database-verification'):
                 database.busy=True
                 assert execute(token).json()['status']=='error'
                 database.busy=False
-                safety.active=True
-                assert execute(preview()).json()['status']=='error'
-                safety.active=False; safety.storage_healthy=False
-                assert execute(preview()).json()['status']=='error'
+                # Preview takes the change guard too; a confirmation reviewed before the fault is still refused.
+                token=preview(); safety.active=True
+                assert request_preview().status_code==409 and execute(token).json()['status']=='error'
+                safety.active=False; token=preview(); safety.storage_healthy=False
+                assert request_preview().status_code==503 and execute(token).json()['status']=='error'
                 safety.storage_healthy=True; database.fail_delete=True
                 assert execute(preview()).json()['status']=='error'
                 with closing(sqlite3.connect(database.path)) as conn, conn: assert conn.execute('SELECT COUNT(*) FROM Experiments WHERE ExperimentID=43').fetchone()[0]==1
@@ -182,10 +203,7 @@ def run(evidence=ROOT/'test-output/database-verification'):
                 checks.append('Typed confirmation, idle block, rollback and duplicate submission: passed')
                 response=client.post(BASE+'/reports/culture-history', json={'inputs':{'experiment_id':42}})
                 assert response.status_code==200, response.text
-                job=response.json()
-                deadline=time.monotonic()+30
-                while job['status'] in {'pending','running'} and time.monotonic()<deadline:
-                    time.sleep(.1); job=client.get(BASE+'/reports/'+job['id']).json()
+                job=wait_report(response.json())
                 assert job['status']=='ready', job
                 content=client.get(BASE+'/reports/'+job['id']+'/download').content
                 (evidence/'culture-history.xlsx').write_bytes(content)
