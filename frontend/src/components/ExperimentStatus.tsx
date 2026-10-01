@@ -21,6 +21,11 @@ interface ExperimentData {
 
 type Latest = { experiment: ExperimentData | null; checkedAt: Date };
 
+// Sized by the panel, not the window. The wide row is name (~200px), ID, three 160px facts and the chip.
+const wideRow = '@container latest (min-width: 1000px)';
+// Below this the "Updated" time would wrap the 40px header beside the label and Refresh.
+const roomyHeader = '@container latest (min-width: 400px)';
+
 // Hamilton run-state codes and their names.
 export const getRunStateDisplay = (runState: string | number): { label: string; tone: StatusTone } => {
   const state = String(runState || 'UNKNOWN').toUpperCase();
@@ -81,8 +86,9 @@ const ExperimentStatus: React.FC<{ refreshInterval?: number }> = memo(({ refresh
     ['Duration', calculateDuration(experiment.start_time, experiment.end_time)],
   ] : [];
 
-  return <Panel title="Latest experiment" inset={false}
-    headerExtra={latest && !error && <Typography variant="caption" color="text.secondary" sx={{ fontFamily: fontMono }}>Updated {clockTime(latest.checkedAt)}</Typography>}
+  return <Panel title="Latest experiment" inset={false} sx={{ containerType: 'inline-size', containerName: 'latest' }}
+    headerExtra={latest && !error && <Typography variant="caption" color="text.secondary"
+      sx={{ fontFamily: fontMono, whiteSpace: 'nowrap', display: 'none', [roomyHeader]: { display: 'inline' } }}>Updated {clockTime(latest.checkedAt)}</Typography>}
     actions={<Button size="small" startIcon={<RefreshIcon />} onClick={() => { void polling.refresh(); }} disabled={polling.pending}>Refresh</Button>}>
     {!latest && !error && <Stack aria-label="Loading experiment" sx={{ px: 2, justifyContent: 'center', height: layout.row }}><Skeleton variant="text" width="50%" /></Stack>}
 
@@ -93,13 +99,19 @@ const ExperimentStatus: React.FC<{ refreshInterval?: number }> = memo(({ refresh
 
     {latest && !experiment && <ListRow columns="minmax(0, 1fr)"><Box component="span" sx={{ color: 'text.secondary' }}>No experiments found</Box></ListRow>}
 
-    {experiment && <ListRow columns={{ xs: 'minmax(0, 1fr) auto', md: `minmax(0, 1fr) 120px repeat(${facts.length}, 160px) auto` }} sx={{ borderBottom: 0 }}>
+    {/* One 40px row when the panel is wide; otherwise the details wrap onto lines below the name. */}
+    {experiment && <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gridTemplateRows: `${layout.row}px auto`, columnGap: `${layout.gutter}px`,
+      alignItems: 'center', px: `${layout.inset}px`, fontSize: 13, '& > *, & > * > *': { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+      [wideRow]: { gridTemplateColumns: 'minmax(0, 1fr) auto auto', gridTemplateRows: `${layout.row}px` } }}>
       <Box component="span" sx={{ fontWeight: 600 }}>{methodName}</Box>
-      <Box component="span" sx={{ display: { xs: 'none', md: 'block' }, fontFamily: fontMono, fontSize: 12, color: 'text.secondary' }}>ID: {experiment.run_guid?.substring(0, 8) || 'Unknown'}</Box>
-      {facts.map(([label, value]) => <Box key={label} component="span" sx={{ display: { xs: 'none', md: 'block' } }}>
-        <Box component="span" sx={{ color: 'text.secondary' }}>{label} </Box>{value}</Box>)}
-      {state && <StatusChip tone={state.tone} label={state.label} />}
-    </ListRow>}
+      <Box sx={{ gridColumn: '1 / -1', display: 'flex', flexWrap: 'wrap', columnGap: `${layout.inset}px`, rowGap: 0.5, lineHeight: '20px', pb: 1.5,
+        [wideRow]: { gridColumn: 2, gridRow: 1, display: 'grid', gridTemplateColumns: `120px repeat(${facts.length}, 160px)`, columnGap: `${layout.gutter}px`, pb: 0 } }}>
+        <Box component="span" sx={{ fontFamily: fontMono, fontSize: 12, color: 'text.secondary' }}>ID: {experiment.run_guid?.substring(0, 8) || 'Unknown'}</Box>
+        {facts.map(([label, value]) => <Box key={label} component="span">
+          <Box component="span" sx={{ color: 'text.secondary' }}>{label} </Box>{value}</Box>)}
+      </Box>
+      {state && <Box sx={{ gridColumn: 2, gridRow: 1, [wideRow]: { gridColumn: 3 } }}><StatusChip tone={state.tone} label={state.label} /></Box>}
+    </Box>}
   </Panel>;
 });
 

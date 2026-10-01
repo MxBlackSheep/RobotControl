@@ -99,6 +99,12 @@ hold come first. Each panel has its own error boundary and Retry, so one failed 
 blanks the page. Now running shows elapsed time against the schedule's estimate; past the
 estimate the bar stops claiming progress (see `runTiming`).
 
+Row columns follow each panel's own width (`@container`), not the window: with the collapsed
+rail at 900px the half-width lists are ~388px. Up next and Recent runs drop secondary columns
+(repeat, then duration and start) before the name falls below ~150px. Latest experiment is one
+row from 1000px of panel width; narrower, its ID and times wrap below the method name. Strip
+cells wrap by their own text, so a long state moves to the next line instead of being clipped.
+
 ## Page layout and screenshot review
 
 `PageContent` uses the full width on every screen (only `reading` keeps a 1120px measure),
@@ -109,6 +115,8 @@ Styling changes are verified by screenshot review, not the behaviour suite:
 `npx playwright test -c playwright.visual.config.ts` (from `frontend`) fills every screen
 with fixed sample data and saves light and dark screenshots at 1440, 1280 and 390px to
 `test-output/visual/latest`. `VISUAL_ROUTES`, `VISUAL_WIDTHS` and `VISUAL_MODES` narrow it.
+It shares the behaviour suite's fixture server and `e2e/global-teardown.ts`, which removes the
+fixture's temporary log folder when the run ends.
 
 `InspectionWorkspace` fills the remaining viewport height (320px minimum, then the page
 scrolls) and switches between list and detail at 900px of content width; see the

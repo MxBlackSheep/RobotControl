@@ -19,6 +19,16 @@ const PANEL_REFRESH_MS = 60000;
 const LIST_ROWS = 7;
 const mono = { fontFamily: fontMono, fontSize: 12, color: 'text.secondary' } as const;
 
+/**
+ * The list panels sit side by side, so their rows follow the panel's width, not the window's:
+ * at 900px each is ~388px. Thresholds keep the name column at least ~150px wide.
+ */
+const listPanel = { containerType: 'inline-size', containerName: 'list' } as const;
+const upNextFull = '@container list (min-width: 500px)';
+const recentStarted = '@container list (min-width: 464px)';
+const recentFull = '@container list (min-width: 544px)';
+const shownFrom = (query: string) => ({ display: 'none', [query]: { display: 'block' } });
+
 const headerLink = (to: string, text: string) => <MuiLink component={Link} to={to} underline="hover" sx={{ fontSize: 13 }}>{text}</MuiLink>;
 
 /** A panel's read failed: keep what was shown and offer a retry, without blanking the page. */
@@ -73,22 +83,26 @@ export function UpNext({ canOpenScheduling, span }: { canOpenScheduling: boolean
     .filter(schedule => schedule.is_active && !schedule.archived && schedule.next_run && !Number.isNaN(new Date(schedule.next_run).getTime()))
     .sort((a, b) => new Date(a.next_run!).getTime() - new Date(b.next_run!).getTime())
     .slice(0, LIST_ROWS);
-  return <Panel title="Up next" span={span} inset={false} fill actions={canOpenScheduling && headerLink('/scheduling', 'All schedules')}>
+  return <Panel title="Up next" span={span} inset={false} fill sx={listPanel} actions={canOpenScheduling && headerLink('/scheduling', 'All schedules')}>
     {polling.error && <ReadProblem error="Could not load schedules." stale={!!schedules} onRetry={() => void polling.refresh()} pending={polling.pending} />}
     {schedules && !upcoming.length && <EmptyRow>No scheduled runs.</EmptyRow>}
     {upcoming.map(schedule => {
       const duration = schedule.estimated_duration > 0 ? `${schedule.estimated_duration} min` : '';
-      return <ListRow key={schedule.schedule_id} columns={{ xs: '104px minmax(0, 1fr) 48px', sm: '128px minmax(0, 1fr) 96px 56px' }}>
+      return <ListRow key={schedule.schedule_id} columns="104px minmax(0, 1fr) 48px" sx={{ [upNextFull]: { gridTemplateColumns: '128px minmax(0, 1fr) 96px 56px' } }}>
         <Box component="span" sx={mono}>{dayTime(schedule.next_run!)}</Box>
         <Box component="span" sx={{ fontWeight: 500 }}>{schedule.experiment_name}</Box>
-        <Box component="span" sx={{ display: { xs: 'none', sm: 'block' }, color: 'text.secondary' }}>{repeatLabel(schedule)}</Box>
+        <Box component="span" sx={{ ...shownFrom(upNextFull), color: 'text.secondary' }}>{repeatLabel(schedule)}</Box>
         <Box component="span" sx={{ ...mono, textAlign: 'right' }}>{duration}</Box>
       </ListRow>;
     })}
   </Panel>;
 }
 
-type CameraHealth = { capture_state?: string; recording_state?: string; error?: string | null };
+/** Equal shares of a line, but never narrower than the cell's own text. */
+const healthCell = { display: 'flex', alignItems: 'center', flex: '1 1 0', minWidth: 'max-content', height: layout.row, px: `${layout.inset}px`,
+  borderRight: 1, borderBottom: 1, borderColor: 'surface.rowLine' } as const;
+
+type CameraHealth ={ capture_state?: string; recording_state?: string; error?: string | null };
 type Health = { database: boolean | null; camera: CameraHealth | null };
 
 /** One-line strip of instrument states across the page, like a console status bar. */
@@ -124,13 +138,15 @@ export function InstrumentHealth({ status }: { status: RobotStatus | null }) {
   ];
   return <Box component="section" aria-label="Instrument health" sx={{ gridColumn: '1 / -1', order: { xs: -2, md: 0 }, minWidth: 0, bgcolor: 'background.paper', border: 1, borderColor: 'divider', borderRadius: `${layout.radius}px`, overflow: 'hidden' }}>
     {polling.error && <ReadProblem error="Could not check the database and camera." stale={!!health} onRetry={() => void polling.refresh()} pending={polling.pending} />}
-    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(5, minmax(0, 1fr)) auto' } }}>
-      {cells.map(([name, [state, tone]]) => <Box key={name} sx={{ display: 'flex', alignItems: 'center', gap: 1, height: layout.row, px: `${layout.inset}px`, minWidth: 0,
-        borderRight: 1, borderBottom: { xs: 1, md: 0 }, borderColor: 'surface.rowLine' }}>
+    {/* Cells wrap by their content, so a long state ("Needs attention") moves to the next line
+        instead of being clipped. Each cell draws its right and bottom line; the -1px margins push
+        the lines on the outer edge under the section's border. */}
+    <Box sx={{ display: 'flex', flexWrap: 'wrap', mr: '-1px', mb: '-1px' }}>
+      {cells.map(([name, [state, tone]]) => <Box key={name} sx={{ ...healthCell, gap: 2 }}>
         <Typography component="span" variant="overline" sx={{ textTransform: 'uppercase', color: 'surface.label', whiteSpace: 'nowrap' }}>{name}</Typography>
-        <Box sx={{ ml: 'auto', minWidth: 0 }}><StatusDot tone={tone} label={state} /></Box>
+        <Box sx={{ ml: 'auto' }}><StatusDot tone={tone} label={state} /></Box>
       </Box>)}
-      <Box sx={{ display: 'flex', alignItems: 'center', height: layout.row, px: `${layout.inset}px` }}>{headerLink('/system-status', 'System status')}</Box>
+      <Box sx={healthCell}>{headerLink('/system-status', 'System status')}</Box>
     </Box>
   </Box>;
 }
@@ -155,15 +171,15 @@ export function RecentRuns({ canOpenScheduling, span }: { canOpenScheduling: boo
     },
     onSuccess: setRuns,
   });
-  return <Panel title="Recent runs" span={span} inset={false} fill actions={canOpenScheduling && headerLink('/scheduling?section=history', 'History')}>
+  return <Panel title="Recent runs" span={span} inset={false} fill sx={listPanel} actions={canOpenScheduling && headerLink('/scheduling?section=history', 'History')}>
     {polling.error && <ReadProblem error="Could not load recent runs." stale={!!runs} onRetry={() => void polling.refresh()} pending={polling.pending} />}
     {runs && !runs.length && <EmptyRow>No runs yet.</EmptyRow>}
     {(runs ?? []).map(run => {
       const [label, tone] = executionTone(run.status);
-      return <ListRow key={run.id} columns={{ xs: 'minmax(0, 1fr) auto', sm: 'minmax(0, 1fr) 128px 56px 136px' }}>
+      return <ListRow key={run.id} columns="minmax(0, 1fr) auto" sx={{ [recentStarted]: { gridTemplateColumns: 'minmax(0, 1fr) 128px 136px' }, [recentFull]: { gridTemplateColumns: 'minmax(0, 1fr) 128px 56px 136px' } }}>
         <Box component="span" sx={{ fontWeight: 500 }}>{run.name}</Box>
-        <Box component="span" sx={{ ...mono, display: { xs: 'none', sm: 'block' } }}>{run.started ? dayTime(run.started) : '—'}</Box>
-        <Box component="span" sx={{ ...mono, display: { xs: 'none', sm: 'block' }, textAlign: 'right' }}>{run.minutes !== null ? `${run.minutes} min` : '—'}</Box>
+        <Box component="span" sx={{ ...mono, ...shownFrom(recentStarted) }}>{run.started ? dayTime(run.started) : '—'}</Box>
+        <Box component="span" sx={{ ...mono, ...shownFrom(recentFull), textAlign: 'right' }}>{run.minutes !== null ? `${run.minutes} min` : '—'}</Box>
         <Box component="span" sx={{ justifySelf: 'end' }}><StatusChip tone={tone} label={label} /></Box>
       </ListRow>;
     })}

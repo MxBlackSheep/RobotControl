@@ -49,6 +49,9 @@ async function sampleData(page: Page, mode: string) {
   await page.route('**/api/monitoring/system-health', route => route.fulfill({ json: { data: { sampled_at: now.toISOString(),
     system: { cpu_percent: 23, memory_percent: 61, disk_percent: 48, memory_used_gb: 9.8, memory_total_gb: 16, disk_used_gb: 240, disk_total_gb: 500 },
     database: { is_connected: true, mode: 'primary', database_name: 'EvoYeast', server_name: 'LAB-PC\\HAMILTON' } } } }));
+  // Ended present: the widest Latest experiment row (Started, Ended and Duration).
+  await page.route('**/api/experiments/latest', route => route.fulfill({ json: { success: true, data: { run_guid: '7f3c2a91-5d4e-4b8a-9c1f-2e6d8a0b4c71',
+    method_name: 'C:\\Methods\\CellCulture\\CellFeedingStack2_MediaExchange.hsl', start_time: ago(255), end_time: ago(208), run_state: 128 } } }));
   await page.route('**/api/monitoring/experiments', route => route.fulfill({ json: { data: [] } }));
   await page.route('**/api/camera/streaming/status', route => route.fulfill({ json: { data: { status: { enabled: true, active_session_count: 1, max_sessions: 4 } } } }));
   await page.route('**/api/camera/recordings?**', route => route.fulfill({ json: { data: { experiment_folders: [

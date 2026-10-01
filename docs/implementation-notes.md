@@ -1,3 +1,9 @@
+## 2026-10-01 Overview at narrow widths (Codex review)
+
+- At 900px (collapsed rail, ~388px half panels) Recent runs showed no experiment names and Up next truncated them; strip states overlapped the next label and were clipped on 320px phones; Latest experiment hid its times below 900px and squeezed the method name at 900px. Rows now follow the panel's width (`@container`, as Users and Database do), strip cells wrap by content, and Latest experiment puts its details below the name when narrow.
+- The screenshot runner now uses the suite's `global-teardown.ts`; before, each run left a `viewer-e2e-*` folder (large fixture logs) in `%TEMP%`. The runner's sample data now includes a Latest experiment with an end time.
+- Verified by screenshot review (light/dark, 320/390/900/1280/1440px, plus worst-case strip states) and the Overview behaviour check. Presentation only: requests, Retry and accessible names unchanged.
+
 ## 2026-10-01 Design system A: one system for every screen
 
 - Approved direction A ("instrument console", mock: https://claude.ai/artifact/ApKjN7njdXXfQpZ1RDqRhx), light and dark. Tokens on a 4px unit and the primitives `PageGrid`, `Panel`, `ListRow`, `StatusDot` in `PageLayout.tsx`; every screen moved onto them (`a3db127`, `4faf47e`, `0d45d4b`). Overview, Maintenance and Labware follow the mock exactly.

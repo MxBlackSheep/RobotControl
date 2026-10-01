@@ -10,6 +10,8 @@ import path from 'node:path';
  */
 export default defineConfig({
   testDir: './e2e/visual', timeout: 240000, workers: 1,
+  // Same fixture server as the behaviour suite, so the same shutdown removes its temporary logs.
+  globalTeardown: './e2e/global-teardown.ts',
   reporter: [['list']],
   outputDir: '../test-output/visual/results',
   use: { baseURL: 'http://127.0.0.1:8016', channel: 'msedge', trace: 'off', screenshot: 'off' },
