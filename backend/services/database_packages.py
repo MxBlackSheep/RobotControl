@@ -58,7 +58,9 @@ class ToolDefinition(BaseModel):
     model_config = ConfigDict(extra="forbid")
     id: str = Field(pattern=IDENTIFIER)
     name: str = Field(min_length=1, max_length=100)
-    kind: Literal["operation", "report"]
+    # preparation: prepare(context, inputs) runs unattended before a scheduled run, in a
+    # time-limited child process, against the package's operation connection.
+    kind: Literal["operation", "report", "preparation"]
     entrypoint: str = Field(pattern=ENTRY)
     preview: str | None = Field(default=None, pattern=ENTRY)
     confirmation_field: str | None = None
@@ -97,6 +99,9 @@ class ToolDefinition(BaseModel):
             visit(name, set())
         if self.kind == "operation" and (not self.preview or not any(field.name == self.confirmation_field and field.required for field in self.inputs)):
             raise ValueError("Operations require a preview and confirmation field")
+        if self.kind == "preparation" and (self.preview or self.confirmation_field):
+            # Saving the schedule is the review; nobody is present to confirm at run time.
+            raise ValueError("Preparation steps have no preview or confirmation field")
         return self
 
     def validate_values(self, values, partial=False):
@@ -140,8 +145,8 @@ class Manifest(BaseModel):
 
     @model_validator(mode='after')
     def contract(self):
-        if self.contract_version == 1 and any(t.sources or any(f.type in {'lookup', 'date'} for f in t.inputs) for t in self.tools):
-            raise ValueError('Sources, dates and database choices require contract version 2')
+        if self.contract_version == 1 and any(t.sources or t.kind == 'preparation' or any(f.type in {'lookup', 'date'} for f in t.inputs) for t in self.tools):
+            raise ValueError('Sources, dates, database choices and preparation steps require contract version 2')
         return self
 
 
@@ -201,6 +206,9 @@ class PackageCatalogue:
         self.root.mkdir(parents=True, exist_ok=True)
         self.lock = threading.RLock()
         self.running = {}
+        # Set by DatabaseTools: names of active schedules whose preparation step uses a
+        # package. Seeding at first start runs before it is set (no schedules use those yet).
+        self.in_use = None
         self.modules = {}
         self.index_path = root / "installed.json"
         # A missing index is first installation; an empty index means deliberately removed.
@@ -352,6 +360,7 @@ class PackageCatalogue:
             with self.lock:
                 if self.running.get(manifest.id, 0):
                     raise PackageError("This package is running. Try again when it finishes.", 409)
+                self.refuse_if_scheduled(manifest.id)
                 self._check_conflicts(manifest)
                 current = self.index.get(manifest.id)
                 if expected_package is not None and expected_package != manifest.id:
@@ -400,12 +409,25 @@ class PackageCatalogue:
                 sys.modules.pop(name, None)
         shutil.rmtree(self.root / entry["directory"], ignore_errors=True)
 
+    def refuse_if_scheduled(self, package_id):
+        """An armed schedule must run the package version it was saved with."""
+        if self.in_use is None:
+            return
+        try:
+            names = self.in_use(package_id)
+        except Exception as exc:
+            raise PackageError("Could not confirm that no active schedule uses this package. Try again.", 503) from exc
+        if names:
+            raise PackageError("Active schedules run this package before their runs: " + ", ".join(sorted(names)[:5])
+                               + ". Disable them, change the package, then review and save them again.", 409)
+
     def remove(self, package_id):
         with self.lock:
             if package_id not in self.index:
                 raise PackageError("Package is not installed", 404)
             if self.running.get(package_id, 0):
                 raise PackageError("This package is running. Try again when it finishes.", 409)
+            self.refuse_if_scheduled(package_id)
             old = self.index[package_id]
             updated = {key: value for key, value in self.index.items() if key != package_id}
             self._save(updated)

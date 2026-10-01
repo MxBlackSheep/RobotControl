@@ -61,6 +61,10 @@ router = APIRouter(prefix='/api/database/tools', tags=['database'], route_class=
                    dependencies=[Depends(get_current_user)])
 
 
+# Tool kinds that write through the package's operation connection.
+WRITING_KINDS = {'operation', 'preparation'}
+
+
 def local_admin(user=Depends(get_current_user), connection: ConnectionContext=Depends(require_local_access)):
     if user.get('role') != 'admin':
         raise HTTPException(403, 'Local administrator required')
@@ -128,8 +132,8 @@ class Execution(BaseModel):
 
 
 @router.get('/catalogue')
-def catalogue(kind: Literal['operation', 'report'], user=Depends(get_current_user), service=Depends(get_database_tools)):
-    if kind == 'operation' and user.get('role') != 'admin':
+def catalogue(kind: Literal['operation', 'report', 'preparation'], user=Depends(get_current_user), service=Depends(get_database_tools)):
+    if kind in ('operation', 'preparation') and user.get('role') != 'admin':
         return []
     return service.public_catalogue(kind)
 
@@ -147,6 +151,11 @@ def report_choices(tool_id: str, field_name: str, payload: ChoiceRequest, servic
 @router.post('/operations/{tool_id}/choices/{field_name}')
 def operation_choices(tool_id: str, field_name: str, payload: ChoiceRequest, user=Depends(local_admin), service=Depends(get_database_tools)):
     return service.choices(tool_id, field_name, payload.inputs, payload.search, payload.page, kind='operation')
+
+
+@router.post('/preparations/{tool_id}/choices/{field_name}')
+def preparation_choices(tool_id: str, field_name: str, payload: ChoiceRequest, user=Depends(local_admin), service=Depends(get_database_tools)):
+    return service.choices(tool_id, field_name, payload.inputs, payload.search, payload.page, kind='preparation')
 
 
 @router.get('/sources')
@@ -213,7 +222,7 @@ def package_sources(package_id: str, user=Depends(local_admin), service=Depends(
         if not entry:
             raise HTTPException(404, 'Package not found')
         return dict(aliases=service.sources.aliases(entry['manifest']), mappings=service.sources.bindings(package_id),
-                    has_operation=any(t['kind']=='operation' for t in entry['manifest']['tools']),
+                    has_operation=any(t['kind'] in WRITING_KINDS for t in entry['manifest']['tools']),
                     operation_source=service.sources.state['operation_bindings'].get(package_id))
 
 
@@ -227,9 +236,12 @@ def bind_sources(package_id: str, payload: Mappings, user=Depends(local_admin), 
             raise HTTPException(409, 'Package is running. Wait until it finishes.')
         with service.sources.lock:
             if payload.operation_source:
-                if not any(t['kind']=='operation' for t in entry['manifest']['tools']):
-                    raise HTTPException(400, 'Package has no operation')
+                if not any(t['kind'] in WRITING_KINDS for t in entry['manifest']['tools']):
+                    raise HTTPException(400, 'Package has no operation or preparation step')
                 service.sources.get(payload.operation_source, 'operation')
+            if payload.operation_source != service.sources.state['operation_bindings'].get(package_id):
+                # A pinned preparation step must keep writing to the connection it was saved with.
+                service.catalogue.refuse_if_scheduled(package_id)
             service.sources.bind(package_id, service.sources.aliases(entry['manifest']), payload.mappings)
             service.sources.bind_operation(package_id, payload.operation_source)
     return {'message': 'Connections assigned.'}

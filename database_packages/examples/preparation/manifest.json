@@ -1,0 +1,19 @@
+{
+  "contract_version": 2,
+  "id": "record-scheduled-run",
+  "name": "Record scheduled run",
+  "version": "1.0.0",
+  "libraries": [],
+  "tools": [
+    {
+      "id": "record-scheduled-run",
+      "name": "Record scheduled run",
+      "kind": "preparation",
+      "entrypoint": "prepare:prepare",
+      "inputs": [
+        {"name": "note", "label": "Note", "type": "text", "required": false}
+      ],
+      "sources": []
+    }
+  ]
+}
