@@ -34,6 +34,8 @@ def run_report(channel, package_root, entry, definition, inputs, snapshot, folde
         channel.send({'output': output})
     except BaseException as exc:
         traceback.print_exc()
-        channel.send({'error': str(exc)[:4000] or 'Report process failed.'})
+        # The parent shows a ValueError as the message and anything else as Details,
+        # matching how the report behaved before it ran in its own process.
+        channel.send({'error': str(exc)[:4000] or 'Report process failed.', 'expected': isinstance(exc, ValueError)})
     finally:
         channel.close()

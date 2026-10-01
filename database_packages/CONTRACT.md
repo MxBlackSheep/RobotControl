@@ -108,6 +108,8 @@ a draft removes its trial package but does not remove the installed report.
 Reports use a captured connection configuration while running; later source changes
 apply to future runs. Trials share the two-report worker limit and private download
 expiry with installed reports. Do not store per-run globals in package code.
+Raise `ValueError` with a short sentence for a problem the user can fix; other
+exceptions show "Report generation failed" with the text under Details.
 
 Installation checks syntax and entry-point definitions without importing. Keep
 imports free of side effects; there are no installation hooks or automatic SQL migrations. Any required
