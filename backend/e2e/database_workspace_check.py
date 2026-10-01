@@ -327,9 +327,6 @@ def run():
                     result['passed']=True
             finally:
                 service.close()
-                admin.execute('USE master')
-                if admin.execute('SELECT name FROM sys.server_principals WHERE name=?',new_login).fetchone():
-                    admin.execute('USE ['+fixture['names'][0]+']; DROP USER ['+new_login+']; USE master; DROP LOGIN ['+new_login+']')
     except Exception:
         result['passed']=False
         result['failure']=traceback.format_exc()

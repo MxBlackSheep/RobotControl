@@ -59,10 +59,8 @@ def sql_fixture():
     server = r'.\HAMILTON'
     admin = pyodbc.connect(f'DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={server};DATABASE=master;Trusted_Connection=yes;TrustServerCertificate=yes', timeout=5, autocommit=True)
     created = []
-    logged = False
     try:
         admin.execute(f"CREATE LOGIN [{login}] WITH PASSWORD='{password}', CHECK_POLICY=OFF")
-        logged = True
         for name in names:
             assert name.startswith('rc_report_check_') and name.replace('_', '').isalnum()
             admin.execute(f'CREATE DATABASE [{name}]'); created.append(name)
@@ -78,12 +76,16 @@ def sql_fixture():
         for name in reversed(created):
             admin.execute(f'ALTER DATABASE [{name}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE')
             admin.execute(f'DROP DATABASE [{name}]')
-        if logged:
-            # ODBC pooling can retain this fixture's login after a failed setup.
-            sessions = admin.execute('SELECT session_id FROM sys.dm_exec_sessions WHERE login_name=?', login).fetchall()
-            for session in sessions:
-                admin.execute(f'KILL {int(session[0])}')
-            admin.execute(f'DROP LOGIN [{login}]')
+        # Checks name their extra logins login + '_<role>'; the UUID prefix makes every
+        # match this run's own, whichever step failed. ODBC pooling keeps sessions open,
+        # and DROP LOGIN fails while one exists, so end them first. One statement per
+        # execute: pyodbc raises a later statement's error only on nextset().
+        owned = admin.execute('SELECT name FROM sys.server_principals WHERE name=? OR LEFT(name, ?)=?',
+                              login, len(login) + 1, login + '_').fetchall()
+        for (name,) in owned:
+            for (session,) in admin.execute('SELECT session_id FROM sys.dm_exec_sessions WHERE login_name=?', name).fetchall():
+                admin.execute(f'KILL {int(session)}')
+            admin.execute(f'DROP LOGIN [{name}]')
         admin.close()
 
 
