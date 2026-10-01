@@ -12,20 +12,37 @@ import { expect, test, type APIRequestContext, type Page } from '@playwright/tes
  *   by an automatic reconnect.
  * - Frames are not acknowledged (the server then sends at most two and ends a silent
  *   viewer after 15 s); a hidden tab keeps receiving frames or does not resume.
+ * - H.264 frames are not decoded onto the canvas (blank or wrong picture), or a new frame
+ *   size is not followed.
+ * - A browser without WebCodecs H.264, or a plain-HTTP page, starts a session, shows a blank
+ *   canvas or falls back to JPEG instead of its message (live view is H.264 only).
  * - Collapsing controls stops health polling or hides recording/errors.
  * - Small screens overflow, touch controls shrink, or keyboard focus is lost.
  * - An expired access token makes status polls and live-view start fail with 401 forever
  *   instead of renewing the sign-in once (a lab screen left open overnight).
  * Fixture contract: POST /__e2e/camera configures dimensions, send_frames,
- * disconnect and generation; only the isolated fixture handles these requests.
+ * disconnect and generation; only the isolated fixture handles these requests. Its frames are
+ * real H.264 from the bundled ffmpeg (red, lime, yellow, magenta corner squares on blue).
  */
 test.beforeEach(async ({ page, request }) => {
   await request.post('/__e2e/camera', { data: { width: 640, height: 480, send_frames: true, disconnect: false, generation: 'g1' } });
   await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));
 });
 
+const liveImage = (page: Page) => page.getByRole('img', { name: 'Live camera stream', exact: true });
+const frameWidth = (page: Page) => liveImage(page).evaluate((canvas: HTMLCanvasElement) => canvas.width);
+
+/** Decoded colours at the frame's corners: proves H.264 reached the canvas, not just an element. */
+const cornerColours = (page: Page) => liveImage(page).evaluate((canvas: HTMLCanvasElement) => {
+  const context = canvas.getContext('2d')!;
+  const name = ([r, g, b]: Uint8ClampedArray) => r > 180 && g < 90 && b < 90 ? 'red' : r < 90 && g > 180 && b < 90 ? 'lime'
+    : r > 180 && g > 180 && b < 90 ? 'yellow' : r > 180 && g < 90 && b > 180 ? 'magenta' : `rgb(${r},${g},${b})`;
+  return [[20, 20], [canvas.width - 20, 20], [20, canvas.height - 20], [canvas.width - 20, canvas.height - 20]]
+    .map(([x, y]) => name(context.getImageData(x, y, 1, 1).data));
+});
+
 /** Pixels of the image hidden by its stage, and the stage width. */
-const wholeFrame = (page: Page) => page.getByAltText('Live camera stream').evaluate((image: HTMLImageElement) => {
+const wholeFrame = (page: Page) => liveImage(page).evaluate((image: HTMLCanvasElement) => {
   const r = image.getBoundingClientRect(), s = image.closest('[data-testid="camera-stage"]')!.getBoundingClientRect();
   return { clipped: Math.round(Math.max(0, s.top - r.top) + Math.max(0, r.bottom - s.bottom) + Math.max(0, s.left - r.left) + Math.max(0, r.right - s.right)),
     width: Math.round(s.width) };
@@ -34,8 +51,8 @@ const wholeFrame = (page: Page) => page.getByAltText('Live camera stream').evalu
 async function openLiveView(page: Page) {
   await page.goto('/camera?section=live');
   await page.getByRole('button', { name: 'Start my live view', exact: true }).click();
-  await expect(page.getByAltText('Live camera stream')).toBeVisible();
-  await expect.poll(() => page.getByAltText('Live camera stream').evaluate((node: HTMLImageElement) => node.naturalWidth)).toBeGreaterThan(0);
+  await expect(liveImage(page)).toBeVisible();
+  await expect.poll(() => cornerColours(page)).toEqual(['red', 'lime', 'yellow', 'magenta']);
   await expect(page.getByText('Live view receiving frames', { exact: true })).toBeVisible();
 }
 
@@ -45,10 +62,10 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 320, height: 568
       await page.setViewportSize(viewport);
       await request.post('/__e2e/camera', { data: frame });
       await openLiveView(page);
-      const geometry = await page.getByAltText('Live camera stream').evaluate((image: HTMLImageElement) => {
+      const geometry = await liveImage(page).evaluate((image: HTMLCanvasElement) => {
         const rect = image.getBoundingClientRect();
         const surface = image.closest('[data-testid="camera-stage"]')!.getBoundingClientRect();
-        return { width: rect.width, height: rect.height, naturalWidth: image.naturalWidth, naturalHeight: image.naturalHeight,
+        return { width: rect.width, height: rect.height, naturalWidth: image.width, naturalHeight: image.height,
           inside: rect.left >= surface.left - 1 && rect.right <= surface.right + 1 && rect.top >= surface.top - 1 && rect.bottom <= surface.bottom + 1,
           pageOverflow: document.documentElement.scrollWidth > window.innerWidth + 1 };
       });
@@ -69,7 +86,7 @@ test('inspection actions preserve the session and keep crop/zoom explicit', asyn
   await openLiveView(page);
   await page.getByRole('button', { name: 'Expand live view', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Live camera inspection' })).toBeVisible();
-  await expect(page.getByAltText('Live camera stream')).toHaveCount(1);
+  await expect(liveImage(page)).toHaveCount(1);
   // Fit width shows the whole frame at the dialog's width and scrolls; only zoom crops.
   await page.getByRole('button', { name: 'Fit width', exact: true }).click();
   await expect(page.getByText('Cropped view', { exact: true })).toHaveCount(0);
@@ -77,13 +94,14 @@ test('inspection actions preserve the session and keep crop/zoom explicit', asyn
   await page.getByRole('button', { name: 'Zoom in', exact: true }).click();
   await expect(page.getByText('Cropped view', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Reset view', exact: true }).click();
-  // A smaller frame (the server lowers resolution under load) keeps the viewer's choice.
+  // A different frame size (another camera) restarts decoding at its keyframe and keeps the viewer's choice.
   await request.post('/__e2e/camera', { data: { width: 320, height: 240 } });
-  await expect.poll(() => page.getByAltText('Live camera stream').evaluate((node: HTMLImageElement) => node.naturalWidth)).toBe(320);
+  await expect.poll(() => frameWidth(page)).toBe(320);
+  await expect.poll(() => cornerColours(page)).toEqual(['red', 'lime', 'yellow', 'magenta']);
   await expect(page.getByRole('button', { name: 'Fit width', exact: true })).toHaveAttribute('aria-pressed', 'true');
   expect(await wholeFrame(page)).toEqual({ clipped: 0, width: page.viewportSize()!.width });
   await request.post('/__e2e/camera', { data: { width: 640, height: 480 } });
-  await expect.poll(() => page.getByAltText('Live camera stream').evaluate((node: HTMLImageElement) => node.naturalWidth)).toBe(640);
+  await expect.poll(() => frameWidth(page)).toBe(640);
   await page.getByRole('button', { name: 'Fit entire frame', exact: true }).click();
   await page.getByRole('button', { name: 'Zoom in', exact: true }).click();
   await page.getByRole('button', { name: 'Pan up', exact: true }).click();
@@ -93,7 +111,7 @@ test('inspection actions preserve the session and keep crop/zoom explicit', asyn
   await expect(page.getByText('1×', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Zoom in', exact: true }).click();
   await request.post('/__e2e/camera', { data: { width: 480, height: 800 } });
-  await expect.poll(() => page.getByAltText('Live camera stream').evaluate((node: HTMLImageElement) => node.naturalWidth)).toBe(480);
+  await expect.poll(() => frameWidth(page)).toBe(480);
   await expect(page.getByText('1×', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Zoom in', exact: true }).click();
   // Hold the source-change gap open: disabling the focused zoom control must
@@ -120,7 +138,8 @@ test('a dropped live view keeps the last image as stale, reconnects by itself an
   await request.post('/__e2e/camera', { data: { disconnect: true } });
   await expect(page.getByRole('dialog', { name: 'Live camera inspection' })).toBeVisible();
   // The last image stays (marked stale) and a new session is created without a click.
-  await expect(page.getByAltText('Live camera stream')).toBeVisible();
+  await expect(liveImage(page)).toBeVisible();
+  expect(await cornerColours(page)).toEqual(['red', 'lime', 'yellow', 'magenta']);
   await expect.poll(async () => (await fixture(request)).sessions, { timeout: 10_000 }).toBeGreaterThan(sessions);
   await expect(page.getByText('My view: connected', { exact: true })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('reconnected-stale.png'), fullPage: true });
@@ -148,8 +167,31 @@ test('frames are acknowledged and a hidden tab pauses the stream', async ({ page
   await expect.poll(controls).toContain('pause');
   await setVisibility('visible');
   await expect.poll(controls).toContain('resume');
+  // Decoding resumes at the next keyframe: new frames are acknowledged again.
+  const acknowledged = (await controls()).filter(type => type === 'ack').length;
+  await expect.poll(async () => (await controls()).filter(type => type === 'ack').length).toBeGreaterThan(acknowledged);
   await expect(page.getByText('Live view receiving frames', { exact: true })).toBeVisible();
 });
+
+for (const [name, setup, message] of [
+  ['a browser without H.264 decoding', () => { delete (window as { VideoDecoder?: unknown }).VideoDecoder; },
+    "This browser can't show live view; use Chrome/Edge 94+, Safari 16.4+ or Firefox 130+."],
+  ['a plain-HTTP page', () => { Object.defineProperty(window, 'isSecureContext', { get: () => false }); },
+    'Live view needs a secure connection. Open RobotControl through its https:// address, or on the RobotControl computer.'],
+] as const) {
+  test(`${name} shows why live view is unavailable and starts no session`, async ({ page }, testInfo) => {
+    const sessions: string[] = [];
+    page.on('request', req => { if (req.url().includes('/api/camera/streaming/session')) sessions.push(req.method()); });
+    await page.addInitScript(setup);
+    await page.goto('/camera?section=live');
+    await expect(page.getByText(message, { exact: true })).toBeVisible();
+    await expect(page.getByText('Live view is not available here', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Start my live view', exact: true })).toBeDisabled();
+    await expect(liveImage(page)).toHaveCount(0);
+    expect(sessions).toEqual([]);
+    await page.screenshot({ path: testInfo.outputPath('unavailable.png'), fullPage: true });
+  });
+}
 
 test('collapsed controls keep polling and phone controls remain touchable', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -190,7 +232,7 @@ test('an expired sign-in is renewed and live view still starts', async ({ page }
   await expect.poll(() => rejected.length, { timeout: 15_000 }).toBeGreaterThan(0);
   await expect.poll(() => page.evaluate(() => localStorage.getItem('access_token'))).toBe('e2e-admin');
   await page.getByRole('button', { name: 'Start my live view', exact: true }).click();
-  await expect(page.getByAltText('Live camera stream')).toBeVisible();
+  await expect(liveImage(page)).toBeVisible();
   await expect(page.getByText(/\(401\)|Failed to create streaming session/)).toHaveCount(0);
   expect(refreshes).toBe(1);
   await page.screenshot({ path: testInfo.outputPath('renewed-sign-in.png') });

@@ -12,7 +12,7 @@ The recorder observes existing services; it does not start cameras, query SQL or
 
 ## Repeatable validation
 
-Run `python -m backend.scripts.performance_probe --seconds 3 --trials 3` before and after changes. This uses deterministic 720p frames and zero, one and two simulated viewers. It never starts hardware or sends email. Compare all three trials, including CPU seconds, delivered frames and event-loop delay. This does not measure camera capture, browser latency, disk recording or actual network performance.
+Run `python -m backend.scripts.performance_probe --seconds 3 --trials 3` before and after changes. This feeds deterministic moving 640×480 frames (worst case for compression: noise) through the real H.264 encoder (`build/vendor/ffmpeg`) to zero, one and two simulated viewers. It never starts hardware or sends email. Compare all three trials, including CPU seconds (RobotControl and, separately, the ffmpeg child), delivered frames and event-loop delay. Two viewers should receive about twice the frames from one encoder. This does not measure camera capture, browser latency, disk recording or actual network performance.
 
 For the N100 acceptance test, keep camera resolution/FPS, database content, browser version, power mode and background workload identical. Measure idle operation, running/paused scheduler monitoring, 1,000-method browsing, SQL/log browsing, recording, one remote viewer and multiple viewers. Repeat each short workload three times. Check API latency and browser responsiveness as well as CPU/private memory.
 
