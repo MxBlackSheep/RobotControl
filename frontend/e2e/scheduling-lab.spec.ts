@@ -1,41 +1,48 @@
 import { expect, test } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 
-/** Failure cases for laboratory preparation forms:
- * - Default and batch forms at desktop and phone widths keep saved steps and the saved
- *   selection when option reads fail or arrive late.
+/** Failure cases for the schedule's "Before this run" step:
+ * - A schedule saved with the retired EvoYeast adapter tokens loses them silently: the form
+ *   must show Needs review with the old steps, prefill the EvoYeast package step (experiment
+ *   visible, reset tables, saved order) for an administrator and send it on save, never send
+ *   tokens; a non-admin sees it read-only and a timing edit sends neither; a package that is
+ *   not installed is named and the prefill kept.
  * - The database step: a timing edit never sends it (the server keeps it); a non-admin sees it
  *   read-only; an administrator's change sends tool and inputs; a rejected save keeps them.
  * Server-side preparation cases are in backend/e2e/scheduling_lab_check.py and
  * backend/e2e/preparation_step_check.py.
  */
 const evidence = '../test-output/scheduling-lab-verification';
-for (const [id, width] of [['evoyeast', 1280], ['batch-sqlite', 390]] as const) {
-  test(`${id} preparation at ${width}px preserves saved steps and failed reads`, async ({ page }) => {
+const oldTokens = ['ResetHamiltonTables:Runtime', 'ScheduledToRun', 'EvoYeastExperiment:42|set'];
+const suggestion = { tool_id: 'evoyeast-experiment', inputs: { experiment_id: 42, reset_tables: true, table_list: 'Runtime', reset_first: true } };
+const evoyeastTool = { id: 'evoyeast-experiment', name: 'Select EvoYeast experiment', package_version: '1.0.0', target: 'EvoYeast writer · LAB / EvoYeast',
+  setup_needed: false, inputs: [
+    { name: 'experiment_id', label: 'Experiment', type: 'lookup', required: false, choices: [], lookup: { parameters: [], value_type: 'integer' } },
+    { name: 'reset_tables', label: 'Reset Hamilton tables', type: 'boolean', required: false, choices: [] },
+    { name: 'table_list', label: 'Tables to reset (comma-separated; blank resets all)', type: 'text', required: false, choices: [] },
+    { name: 'reset_first', label: 'Reset tables before selecting the experiment', type: 'boolean', required: false, choices: [] }] };
+
+for (const [role, width, installed] of [['admin', 1280, true], ['admin', 390, false], ['user', 390, true]] as const) {
+  test(`old EvoYeast selection needs review: ${role} at ${width}px${installed ? '' : ', package not installed'}`, async ({ page }) => {
     mkdirSync(evidence, { recursive: true });
     await page.setViewportSize({ width, height: 844 });
-    const batch = id === 'batch-sqlite';
-    const prerequisites = batch ? ['Batch:B-02'] : ['ResetHamiltonTables:Runtime', 'ScheduledToRun', 'EvoYeastExperiment:42|set'];
+    const message = "This schedule's EvoYeast selection moved to a database step. A local administrator must review and save the schedule before it runs.";
     const schedule = { schedule_id: 'lab-reference', experiment_name: 'Reference method', experiment_path: 'C:\\Methods\\reference.med',
       schedule_type: 'interval', interval_hours: 6, estimated_duration: 20, log_inactivity_threshold_minutes: 3, is_active: true,
-      created_by: 'operator', created_at: '2026-09-25T10:00:00', updated_at: '2026-09-25T10:00:00', prerequisites, notification_contacts: [] };
+      created_by: 'operator', created_at: '2026-09-25T10:00:00', updated_at: '2026-09-25T10:00:00', prerequisites: oldTokens, notification_contacts: [],
+      preparation: null, legacy_preparation: { steps: oldTokens, suggestion, message }, preparation_state: 'needs_review' };
     const writes: any[] = [];
-    let unavailable = false;
     await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));
     await page.route('**/api/auth/me', route => route.fulfill({ json: { success: true, data: {
-      user_id: 'viewer-admin', username: 'operator', role: 'admin', session_is_local: true, session: { is_local: true },
-    } } }));
+      user_id: 'operator', username: 'operator', role, session_is_local: true, session: { is_local: true } } } }));
+    await page.route('**/api/database/tools/catalogue?kind=preparation', route => route.fulfill({ json: installed ? [evoyeastTool] : [] }));
+    await page.route('**/api/database/tools/preparations/evoyeast-experiment/choices/experiment_id', route => route.fulfill({ json: {
+      options: [{ value: 42, label: 'Reference (42)' }, { value: 41, label: 'Previous (41)' }], has_more: false } }));
     await page.route('**/api/scheduling/**', async route => {
       const path = new URL(route.request().url()).pathname;
       if (route.request().method() !== 'GET') {
         writes.push(route.request().postDataJSON());
         return route.fulfill({ status: 409, json: { detail: 'Fixture keeps this draft open.' } });
-      }
-      if (path.endsWith('/lab/preparation')) {
-        if (unavailable) return route.fulfill({ status: 502, json: { detail: 'Cannot load lab choices. Check the lab database connection and schema.' } });
-        return route.fulfill({ json: { id, name: batch ? 'Batch example' : 'EvoYeast', selection_step: batch ? 'Batch' : 'EvoYeastExperiment',
-          selection_label: batch ? 'Batch' : 'Experiment', preparation_label: batch ? 'Select batch before running' : 'Select experiment before running',
-          choices: [{ value: batch ? 'B-02' : '42', label: batch ? 'Sample batch' : 'Reference experiment', selected: !batch }] } });
       }
       let data: unknown = [];
       if (path.endsWith('/list')) data = [schedule];
@@ -47,37 +54,50 @@ for (const [id, width] of [['evoyeast', 1280], ['batch-sqlite', 390]] as const) 
     });
     await page.goto('/scheduling?section=schedules');
     await page.getByRole('button', { name: 'Open Reference method', exact: true }).click();
+    await expect(page.getByText('Old EvoYeast selection · needs review', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Edit schedule', exact: true }).click();
     const editor = page.getByRole('dialog', { name: 'Edit schedule', exact: true });
-    await expect(editor.getByRole('radio', { name: batch ? 'Select batch before running' : 'Select experiment before running' })).toBeChecked();
-    const choice = editor.getByRole('combobox', { name: batch ? 'Batch' : 'Experiment', exact: true });
-    await expect(choice).toContainText(batch ? 'Sample batch' : 'Reference experiment');
-    await editor.getByLabel('Estimated duration (minutes)', { exact: true }).fill('42');
+    await expect(editor.getByText(message)).toBeVisible();
+    await expect(editor.getByText(`Saved before: ${oldTokens.join(', ')}`)).toBeVisible();
+    await expect(editor.getByText('Needs review', { exact: true })).toBeVisible();
+    await expect(editor.getByRole('radio')).toHaveCount(0);
+    await editor.getByText(message).scrollIntoViewIfNeeded();
+    if (role === 'user') {
+      await expect(editor.getByText('Database step: none')).toBeVisible();
+      await expect(editor.getByRole('combobox', { name: 'Database step' })).toHaveCount(0);
+      await page.screenshot({ path: `${evidence}/old-selection-user-${width}.png` });
+      await editor.getByLabel('Estimated duration (minutes)', { exact: true }).fill('42');
+      await editor.getByRole('button', { name: 'Save schedule', exact: true }).click();
+      await expect.poll(() => writes.length).toBe(1);
+      expect(writes[0]).not.toHaveProperty('preparation');
+      expect(writes[0]).not.toHaveProperty('prerequisites');
+      return;
+    }
+    const step = editor.getByRole('combobox', { name: 'Database step' });
+    if (!installed) {
+      await expect(step).toContainText('evoyeast-experiment · not installed');
+      await expect(editor.getByText('Package evoyeast-experiment is not installed.', { exact: false })).toBeVisible();
+      await page.screenshot({ path: `${evidence}/old-selection-not-installed-${width}.png` });
+      await editor.getByRole('button', { name: 'Save schedule', exact: true }).click();
+      await expect.poll(() => writes.length).toBe(1);
+      // The prefill is still what a save sends; the server refuses an uninstalled tool.
+      expect(writes[0].preparation).toEqual(suggestion);
+      return;
+    }
+    await expect(step).toContainText('Select EvoYeast experiment');
+    await expect(editor.getByRole('combobox', { name: 'Experiment', exact: true })).toHaveValue('Reference (42)');
+    await expect(editor.getByRole('checkbox', { name: 'Reset Hamilton tables' })).toBeChecked();
+    await expect(editor.getByLabel('Tables to reset (comma-separated; blank resets all)')).toHaveValue('Runtime');
+    await expect(editor.getByRole('checkbox', { name: 'Reset tables before selecting the experiment' })).toBeChecked();
+    await editor.getByText('Runs before the method starts, writing to EvoYeast writer', { exact: false }).scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `${evidence}/old-selection-admin-${width}.png` });
     await editor.getByRole('button', { name: 'Save schedule', exact: true }).click();
     await expect.poll(() => writes.length).toBe(1);
-    expect(writes[0].prerequisites).toEqual(prerequisites);
-    // A timing edit never sends the database step; the server keeps the saved one.
-    expect(writes[0]).not.toHaveProperty('preparation');
-    // The fixture returns a conflict so the dialog/draft remains open.
-    await page.keyboard.press('Escape');
-    if (await page.getByRole('button', { name: 'Keep editing', exact: true }).isVisible()) await page.getByRole('button', { name: 'Keep editing', exact: true }).click();
-    await choice.scrollIntoViewIfNeeded();
-    await page.screenshot({ path: `${evidence}/${id}-${width}.png` });
-    unavailable = true;
-    const retryRequest = page.waitForResponse(r => r.url().includes('/lab/preparation'));
-    // The preparation refresh button is the last icon button before its selector.
-    await editor.getByRole('button', { name: 'Refresh lab choices' }).click();
-    await retryRequest;
-    await expect(editor.getByText('Cannot load lab choices. Check the lab database connection and schema.')).toBeVisible();
-    await expect(choice).toContainText(batch ? 'Sample batch' : 'Reference experiment');
-    await expect(choice).toBeDisabled();
-    unavailable = false;
-    await editor.getByRole('button', { name: 'Retry', exact: true }).click();
-    await expect(choice).toBeEnabled();
-    await editor.getByRole('radio', { name: batch ? 'No batch selection' : 'No experiment selection' }).click();
-    await editor.getByRole('button', { name: 'Save schedule', exact: true }).click();
-    await expect.poll(() => writes.length).toBe(2);
-    expect(writes[1].prerequisites).toEqual(batch ? [] : ['ResetHamiltonTables:Runtime']);
+    expect(writes[0].preparation).toEqual(suggestion);
+    expect(writes[0]).not.toHaveProperty('prerequisites');
+    // A rejected save keeps the dialog and the prefilled step.
+    await expect(editor).toBeVisible();
+    await expect(editor.getByRole('combobox', { name: 'Experiment', exact: true })).toHaveValue('Reference (42)');
   });
 }
 
@@ -103,8 +123,6 @@ for (const role of ['admin', 'user'] as const) {
         return route.fulfill({ status: 409, json: { detail: 'The package changed. Review the step again.' } });
       }
       let data: unknown = [];
-      if (path.endsWith('/lab/preparation')) return route.fulfill({ json: { id: 'evoyeast', name: 'EvoYeast', selection_step: 'EvoYeastExperiment',
-        selection_label: 'Experiment', preparation_label: 'Select experiment before running', choices: [] } });
       if (path.endsWith('/list')) data = [schedule];
       else if (path.endsWith('/status/scheduler')) data = { is_running: true };
       else if (path.endsWith('/status/queue')) data = { queue: { running_jobs: 0, queued_jobs: 0 }, manual_recovery: { active: false, storage_healthy: true, pending_recoveries: [] } };

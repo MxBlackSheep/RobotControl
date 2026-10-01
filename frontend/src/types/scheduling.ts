@@ -21,6 +21,17 @@ export interface PinnedPreparation extends PreparationStep {
   attached_at?: string;
 }
 
+/**
+ * Derived on read for schedules saved with the retired built-in lab adapter's tokens. The run
+ * is refused until a local administrator saves a database step; suggestion prefills it, or is
+ * null when the tokens cannot be expressed by the EvoYeast package.
+ */
+export interface LegacyPreparation {
+  steps: string[];
+  suggestion: PreparationStep | null;
+  message: string;
+}
+
 /** Derived on read: ready, or the package/connection changed (needs_review), or it is gone. */
 export type PreparationState = 'ready' | 'needs_review' | 'missing' | 'invalid' | 'unknown';
 
@@ -39,8 +50,10 @@ export interface ScheduledExperiment {
   is_active: boolean;
   archived: boolean;
   timeout_config: TimeoutConfig;
+  /** Retired adapter tokens, kept until an administrator reviews them (legacy_preparation). */
   prerequisites: string[];
   preparation?: PinnedPreparation | null;
+  legacy_preparation?: LegacyPreparation | null;
   preparation_state?: PreparationState;
   notification_contacts: string[];
   recovery_required: boolean;
@@ -243,14 +256,6 @@ export interface QueueStatus {
   hamilton_available: boolean;
 }
 
-export interface EvoYeastExperimentOption {
-  experiment_id: string;
-  experiment_name?: string | null;
-  user_defined_id?: string | null;
-  note?: string | null;
-  scheduled_to_run?: boolean;
-}
-
 export interface RunningJobDetail {
   schedule_id: string;
   experiment_name: string;
@@ -307,7 +312,6 @@ export interface CreateScheduleRequest {
     cleanup_experiment_name?: string | null;
     cleanup_experiment_path?: string | null;
   };
-  prerequisites?: string[];
   preparation?: PreparationStep | null;
   notification_contacts?: string[];
 }
@@ -327,7 +331,6 @@ export interface UpdateScheduleRequest {
     cleanup_experiment_name?: string | null;
     cleanup_experiment_path?: string | null;
   };
-  prerequisites?: string[];
   /** Omitted: the saved step stays. null removes it. Only a local administrator may change it. */
   preparation?: PreparationStep | null;
   notification_contacts?: string[];
@@ -405,7 +408,6 @@ export interface CreateScheduleFormData {
   timeout_action: 'continue' | 'run_cleanup_and_terminate';
   timeout_cleanup_experiment_name?: string | null;
   timeout_cleanup_experiment_path?: string | null;
-  prerequisites: string[];
   preparation?: PreparationStep | null;
   notification_contacts: string[];
 }
@@ -423,16 +425,6 @@ export interface ScheduleListProps {
   archivedView?: boolean;
 }
 
-export interface ScheduleActionsProps {
-  selectedSchedule: ScheduledExperiment | null;
-  onCreateSchedule: (data: CreateScheduleFormData) => Promise<void>;
-  onUpdateSchedule: (scheduleId: string, data: UpdateScheduleRequest) => Promise<void>;
-  onDeleteSchedule: (schedule: ScheduledExperiment) => Promise<void>;
-  onRequireRecovery: (scheduleId: string, note?: string) => Promise<void>;
-  onResolveRecovery: (scheduleId: string, note?: string) => Promise<void>;
-  operationStatus: SchedulingOperationStatus;
-  disabled?: boolean;
-}
 // Constants and validation
 export const SCHEDULING_CONSTANTS = {
   MIN_ESTIMATED_DURATION: 1, // minutes
@@ -512,60 +504,3 @@ export const getNextExecutionTime = (schedule: ScheduledExperiment): Date | null
   return parsed;
 };
 
-// Validation functions
-export const validateScheduleFormData = (data: CreateScheduleFormData): string[] => {
-  const errors: string[] = [];
-  
-  if (!data.experiment_name.trim()) {
-    errors.push('Experiment name is required');
-  }
-  
-  if (data.experiment_name.length > SCHEDULING_CONSTANTS.EXPERIMENT_NAME_MAX_LENGTH) {
-    errors.push(`Experiment name must be ${SCHEDULING_CONSTANTS.EXPERIMENT_NAME_MAX_LENGTH} characters or less`);
-  }
-  
-  if (!data.experiment_path.trim()) {
-    errors.push('Experiment path is required');
-  }
-  
-  if (data.experiment_path.length > SCHEDULING_CONSTANTS.EXPERIMENT_PATH_MAX_LENGTH) {
-    errors.push(`Experiment path must be ${SCHEDULING_CONSTANTS.EXPERIMENT_PATH_MAX_LENGTH} characters or less`);
-  }
-  
-  if (!Number.isInteger(data.log_inactivity_threshold_minutes) || data.log_inactivity_threshold_minutes <= 0) {
-    errors.push('Log inactivity threshold must be a positive whole number of minutes');
-  }
-  if (data.estimated_duration < SCHEDULING_CONSTANTS.MIN_ESTIMATED_DURATION || 
-      data.estimated_duration > SCHEDULING_CONSTANTS.MAX_ESTIMATED_DURATION) {
-    errors.push(`Estimated duration must be between ${SCHEDULING_CONSTANTS.MIN_ESTIMATED_DURATION} and ${SCHEDULING_CONSTANTS.MAX_ESTIMATED_DURATION} minutes`);
-  }
-  
-  if (data.schedule_type === 'interval') {
-    if (!data.interval_hours || data.interval_hours <= 0) {
-      errors.push('Interval must be greater than 0 minutes');
-    } else if (data.interval_hours > SCHEDULING_CONSTANTS.MAX_INTERVAL_HOURS) {
-      errors.push(`Interval must be ${SCHEDULING_CONSTANTS.MAX_INTERVAL_HOURS} hours or less`);
-    }
-  }
-
-  if (data.start_time && data.start_time.getTime() < Date.now()) {
-    errors.push('Start time cannot be in the past');
-  }
-
-  if (data.timeout_minutes !== undefined && data.timeout_minutes !== null) {
-    if (
-      data.timeout_minutes < SCHEDULING_CONSTANTS.MIN_TIMEOUT_MINUTES ||
-      data.timeout_minutes > SCHEDULING_CONSTANTS.MAX_TIMEOUT_MINUTES
-    ) {
-      errors.push(
-        `Timeout must be between ${SCHEDULING_CONSTANTS.MIN_TIMEOUT_MINUTES} and ${SCHEDULING_CONSTANTS.MAX_TIMEOUT_MINUTES} minutes`,
-      );
-    }
-  }
-
-  if (data.timeout_action === 'run_cleanup_and_terminate' && !data.timeout_cleanup_experiment_path?.trim()) {
-    errors.push('Cleanup method is required for "Run cleanup and terminate" timeout action');
-  }
-  
-  return errors;
-};

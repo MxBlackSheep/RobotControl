@@ -1,192 +1,235 @@
-"""Disposable SQL Server + SQLite + HTTP/executor integration; no robot launch.
+"""Disposable SQL Server + SQLite + HTTP/executor check of the EvoYeast preparation package
+and of schedules saved with the retired built-in adapter's tokens. No robot launch.
 
 Run: .venv/Scripts/python.exe -m backend.e2e.scheduling_lab_check
-Uses the existing SQL fixture's UUID databases, never application credentials.
+Installs database_packages/evoyeast-experiment into a temporary catalogue, with a read-only
+login for experiment choices and a separate writer login, in the SQL fixture's UUID database.
 
 Failure cases:
-- Editing timing or contacts keeps the EvoYeast preparation pair and every unrelated
-  prerequisite in order. Native SQLite and Hamilton run matching stay separate from
-  the selected laboratory connection.
-- A missing or duplicate experiment leaves flags unchanged; a missing database, schema
-  or procedure cannot report successful preparation; a standalone legacy
-  ScheduledToRun marker cannot guess an experiment.
-- Unknown or foreign adapter steps are rejected before any write. A repeated
-  submission or restart cannot repeat preparation. Changing the integration or target
-  while jobs or recovery are unfinished cannot redirect them.
-- A SQLite batch failure rolls back and never changes the native/Hamilton connection.
-  SQL preparation and robot launch are not one transaction, so ambiguous partial work
-  requires recovery.
-Supervised acceptance with a real method is separate from this disposable check.
+- The package does not mark exactly the chosen experiment ScheduledToRun, or does not run
+  dbo.ResetHamiltonTables with the method name and listed tables in the schedule's saved
+  order (reset first when the old tokens had it first), in one host-committed transaction.
+- An experiment duplicated, or deleted after the schedule was saved, a failing reset
+  procedure, or tables listed with reset off leaves any flag changed or launches the run.
+- A schedule saved with adapter tokens runs without them: it must show Needs review with
+  the tokens prefilled as the package step, refuse the run before any write (also after a
+  restart), keep the tokens when a user edits timing, and change only when a local
+  administrator saves the step; the saved step then runs the same SQL.
+- Tokens the package cannot express (batch example, unknown, ScheduledToRun without an ID,
+  two selections, or a schedule that already has a database step) lose the step silently
+  or are prefilled with a guess. A no-op selection (|none) blocks a run that wrote nothing.
+- A client adds or edits adapter tokens through the schedule API.
+Supervised acceptance with a real method and the lab's ResetHamiltonTables is separate.
 """
-from contextlib import contextmanager, closing
+from contextlib import closing
 import hashlib
 import json
 from pathlib import Path
-import sqlite3
+import secrets
 import subprocess
 import tempfile
-from types import SimpleNamespace
+import threading
 import traceback
+from types import SimpleNamespace
 from unittest.mock import patch
 import uuid
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 
-from backend.e2e.report_wizard_check import sql_fixture
-from backend.services.auth import get_current_user
-from backend.services.database import DatabaseService
-from backend.services.scheduling.lab_integration import load_lab_integration, LabIntegration, BatchSqliteLab
-from backend.services.scheduling.sqlite_database import SQLiteSchedulingDatabase
-from backend.services.scheduling.experiment_executor import ExperimentExecutor, ExecutionConfig, ExecutionResult
-from backend.services.sqlite_safety import SafetyConflict
-from backend.models import ScheduledExperiment, JobExecution
-import backend.api.scheduling as api
-
 ROOT = Path(__file__).resolve().parents[2]
 EVIDENCE = ROOT / 'test-output/scheduling-lab-verification'
+TOOL = 'evoyeast-experiment'
+OLD_FORM = ['ResetHamiltonTables:Runtime', 'ScheduledToRun', 'EvoYeastExperiment:42|set']
 
 
 def run():
+    from backend.e2e.report_wizard_check import sql_fixture
+    from backend.api import scheduling as api
+    from backend.models import JobExecution, ScheduledExperiment
+    from backend.services.auth import get_current_user
+    from backend.services.database_tools import DatabaseTools
+    from backend.services.report_sources import ReportSource
+    from backend.services.scheduling.experiment_executor import ExecutionConfig, ExecutionResult, ExperimentExecutor
+    from backend.services.scheduling.sqlite_database import SQLiteSchedulingDatabase
+    from backend.services.sqlite_safety import SafetyConflict
+
     EVIDENCE.mkdir(parents=True, exist_ok=True)
+    package = ROOT / 'database_packages/evoyeast-experiment/evoyeast_experiment.py'
     result = dict(passed=False, checks=[], command='.venv/Scripts/python.exe -m backend.e2e.scheduling_lab_check',
                   commit=subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
-                  source_sha256=hashlib.sha256((ROOT/'backend/services/scheduling/lab_integration.py').read_bytes()).hexdigest())
+                  package_sha256=hashlib.sha256(package.read_bytes()).hexdigest())
     try:
         with sql_fixture() as fixture, tempfile.TemporaryDirectory(prefix='rc-lab-check-') as temporary:
             root = Path(temporary)
-            result['fixture'] = dict(databases=fixture['names'], sqlite='temporary scheduler.db and batches.db',
-                                     rows='Experiments 41/42; Batches B-01/B-02; no hardware')
-            admin = fixture['admin']
-            admin.execute('USE ['+fixture['names'][0]+']')
-            admin.execute('CREATE TABLE Experiments(ExperimentID int PRIMARY KEY, UserDefinedID nvarchar(100), Note nvarchar(100), ScheduledToRun bit); INSERT Experiments VALUES(41,\'Previous\',NULL,1),(42,\'Reference\',NULL,0)')
-            admin.execute("CREATE PROCEDURE ResetHamiltonTables @ExperimentName nvarchar(100), @TablesJson nvarchar(max)=NULL AS BEGIN RAISERROR('Fixture reset failure',16,1) END")
-            native = DatabaseService()
-            native._primary_config = dict(driver='{ODBC Driver 17 for SQL Server}', server=fixture['server'],
-                                          database=fixture['names'][0], trusted_connection='yes')
-            storage = SQLiteSchedulingDatabase(str(root/'scheduler.db'))
-            lab = load_lab_integration(storage, native, root)
-            manager = SimpleNamespace(lab=lab, sqlite_db=storage, should_block_due_to_abort=lambda _: None)
-            app = FastAPI(); app.include_router(api.router)
-            app.dependency_overrides[get_current_user] = lambda: {'username': 'fixture', 'role': 'admin'}
-            app.add_exception_handler(SafetyConflict, lambda req, exc: JSONResponse(status_code=409, content={'detail': str(exc)}))
+            database, admin = fixture['names'][0], fixture['admin']
+            writer, writer_password = fixture['login'] + '_writer', secrets.token_urlsafe(32)
+            admin.execute(f"CREATE LOGIN [{writer}] WITH PASSWORD='{writer_password}', CHECK_POLICY=OFF")
+            admin.execute(f'USE [{database}]')
+            # No primary key: a duplicated ID must be refused by the package's own lock query.
+            admin.execute("CREATE TABLE dbo.Experiments(ExperimentID int NOT NULL, UserDefinedID nvarchar(100), Note nvarchar(100), ScheduledToRun bit)")
+            admin.execute("INSERT dbo.Experiments VALUES(41,'Previous',NULL,1),(42,'Reference',NULL,0),(43,'Copied',NULL,0),(43,'Copied',NULL,0),(44,'Deleted later',NULL,0)")
+            admin.execute('CREATE TABLE dbo.ResetLog(ExperimentName nvarchar(200), TablesJson nvarchar(max) NULL, FlaggedAtCall int NULL)')
+            # Records which experiment was flagged when the reset ran, which shows the step order.
+            admin.execute("CREATE PROCEDURE dbo.ResetHamiltonTables @ExperimentName nvarchar(200), @TablesJson nvarchar(max) = NULL AS BEGIN "
+                          "IF @TablesJson LIKE '%Fail%' BEGIN RAISERROR('Fixture reset failure', 16, 1); RETURN; END; "
+                          "INSERT dbo.ResetLog VALUES(@ExperimentName, @TablesJson, (SELECT MIN(ExperimentID) FROM dbo.Experiments WHERE ScheduledToRun = 1)) END")
+            admin.execute(f'CREATE USER [{writer}] FOR LOGIN [{writer}]')
+            admin.execute(f'GRANT SELECT, UPDATE ON dbo.Experiments TO [{writer}]')
+            admin.execute(f'GRANT EXECUTE ON dbo.ResetHamiltonTables TO [{writer}]')
+            admin.execute('USE master')
+            flags = lambda: sorted(tuple(r) for r in admin.execute(f'SELECT ExperimentID, ScheduledToRun FROM [{database}].dbo.Experiments'))
+            resets = lambda: [tuple(r) for r in admin.execute(f'SELECT ExperimentName, TablesJson, FlaggedAtCall FROM [{database}].dbo.ResetLog')]
+            result['fixture'] = dict(database=database, reader=fixture['login'], writer=writer, sqlite='temporary scheduler.db',
+                                     rows='Experiments 41 (flagged), 42, 43 twice, 44; no hardware')
+
+            tools = DatabaseTools(root / 'tools', ROOT / 'database_packages', database=object())
+            storage = SQLiteSchedulingDatabase(str(root / 'scheduler.db'))
+            tools.catalogue.in_use = lambda package_id: [s.experiment_name for s in storage.get_schedules(active_only=True, archived_only=False)
+                                                         if (s.preparation or {}).get('package_id') == package_id]
+            common = dict(server=fixture['server'], database=database, trust_certificate=True)
+            tools.sources.save(ReportSource(id='reader', name='EvoYeast reader', username=fixture['login'], password=fixture['password'], access='read', **common))
+            tools.sources.save(ReportSource(id='writer', name='EvoYeast writer', username=writer, password=writer_password, access='operation', **common))
+            tools.sources.bind(TOOL, ['primary'], {'primary': 'reader'})
+            tools.sources.bind_operation(TOOL, 'writer')
+
+            manager = SimpleNamespace(sqlite_db=storage, should_block_due_to_abort=lambda _: None)
+            scheduler = SimpleNamespace(add_schedule=storage.create_schedule, get_schedule=storage.get_schedule_by_id, _schedules_lock=threading.RLock(),
+                                        update_schedule=lambda s, expected_updated_at=None: storage.update_schedule(s, expected_updated_at=expected_updated_at),
+                                        invalidate_schedule=lambda _: None)
+            method = root / 'Reference method.med'
+            method.write_text('fixture')
             launched = []
 
-            def execute(steps, *, execution_id=None, schedule=None):
-                experiment = schedule or ScheduledExperiment('', 'Reference method', str(root/'never-launch.med'), 'once', prerequisites=steps, is_active=False)
-                execution = JobExecution(execution_id or str(uuid.uuid4()), experiment.schedule_id, 'running')
+            def execute(schedule_id):
+                schedule = storage.get_schedule_by_id(schedule_id)
+                execution = JobExecution(str(uuid.uuid4()), schedule.schedule_id, 'running')
                 with patch('backend.services.scheduling.experiment_executor.get_scheduling_database_manager', return_value=manager):
-                    executor = ExperimentExecutor(ExecutionConfig(hxrun_path=str(root/'not-a-robot.exe')))
+                    executor = ExperimentExecutor(ExecutionConfig(hxrun_path=str(root / 'not-a-robot.exe')))
                 def command(*args):
                     launched.append(execution.execution_id)
                     return ExecutionResult(True, 0, '', '', 0, 'fixture-command')
                 executor._execute_hamilton_command = command
-                # No real catalogue singleton or filesystem method is involved.
                 with patch('backend.services.scheduling.experiment_executor.get_experiment_discovery_service',
                            return_value=SimpleNamespace(db=SimpleNamespace(update_method_usage=lambda _: None))):
-                    ok = executor.execute_experiment(experiment, execution)
-                return ok, execution
+                    ok = executor.execute_experiment(schedule, execution)
+                return ok, execution.execution_id
 
-            with patch.object(api, 'get_services', return_value=(None, manager, None)), TestClient(app) as client:
-                response = client.get('/api/scheduling/lab/preparation')
-                assert response.status_code == 200, response.text
-                assert response.json()['choices'][0]['value']=='42'
-                ok, execution = execute(['ScheduledToRun','EvoYeastExperiment:42|set'])
-                assert ok and len(launched)==1
-                assert [tuple(r) for r in admin.execute('SELECT ExperimentID,ScheduledToRun FROM Experiments ORDER BY ExperimentID')]==[(41,False),(42,True)]
+            def receipt(execution_id):
                 with storage._get_connection() as conn:
-                    receipt=dict(conn.execute('SELECT * FROM LabPreparation WHERE execution_id=?',(execution.execution_id,)).fetchone())
-                assert receipt['status']=='prepared' and fixture['names'][0] in receipt['identity']
-                result['checks'].append('HTTP catalogue + existing form tokens reach executor; SQL flags match reference; identity receipt saved before launch boundary')
-                # Restart the lab/storage, not a new in-memory deduplication list.
-                manager.lab=load_lab_integration(SQLiteSchedulingDatabase(str(root/'scheduler.db')), native, root)
-                assert not execute(['ScheduledToRun','EvoYeastExperiment:42|set'],execution_id=execution.execution_id)[0]
-                assert len(launched)==1
-                for steps in [['ScheduledToRun'], ['EvoYeastExperiment:41|set','Batch:B-01'], ['Unknown']]:
-                    assert not execute(steps)[0]
-                assert len(launched)==1
-                result['checks'].append('Restart/repeated execution cannot repeat preparation; standalone marker, unknown and foreign steps rejected before SQL/launch')
-                for steps in [['EvoYeastExperiment:999|set'], ['EvoYeastExperiment:41|set','ResetHamiltonTables:Fail']]:
-                    assert not execute(steps)[0]
-                    assert [tuple(r) for r in admin.execute('SELECT ExperimentID,ScheduledToRun FROM Experiments ORDER BY ExperimentID')]==[(41,False),(42,True)]
-                assert storage.get_manual_recovery_state().active
-                assert len(launched)==1
-                result['checks'].append('Missing target and failing stored procedure roll back flags; preparation error blocks launch and requests recovery')
-                original=manager.lab.adapter.connect
-                @contextmanager
-                def offline():
-                    raise ConnectionError('Disposable unavailable database')
-                    yield
-                manager.lab.adapter.connect=offline
-                assert client.get('/api/scheduling/lab/preparation').status_code==502
-                assert not execute(['EvoYeastExperiment:42|set'])[0]
-                assert execute(['EvoYeastExperiment:42|none'])[0]
-                manager.lab.adapter.connect=original
-                result['checks'].append('Connection failure is unavailable (HTTP 502), not empty choices or successful no-op')
+                    row = conn.execute('SELECT status, message FROM LabPreparation WHERE execution_id=?', (execution_id,)).fetchone()
+                return dict(row) if row else None
 
-                batch_file=root/'batches.db'
-                with closing(sqlite3.connect(batch_file)) as conn, conn:
-                    conn.executescript((ROOT/'backend/services/scheduling/examples/batch-schema.sql').read_text('utf-8'))
-                (root/'scheduling-lab.json').write_text(json.dumps(dict(adapter='batch-sqlite',sqlite_path='batches.db')),'utf-8')
-                try: load_lab_integration(storage,native,root)
-                except SafetyConflict: pass
-                else: raise AssertionError('Changed lab during recovery')
-                # A separate installation with a genuinely different schema.
-                batch_storage=SQLiteSchedulingDatabase(str(root/'second-scheduler.db'))
-                manager.lab=load_lab_integration(batch_storage,native,root)
-                assert client.get('/api/scheduling/lab/preparation').json()['selection_label']=='Batch'
-                assert execute(['Batch:B-02'])[0]
-                with closing(sqlite3.connect(batch_file)) as conn, conn:
-                    assert conn.execute('SELECT batch_code,method FROM InstrumentWorkOrder WHERE slot=1').fetchone()==('B-02','Reference method')
-                assert not execute(['EvoYeastExperiment:42|set'])[0]
-                assert [tuple(r) for r in admin.execute('SELECT ExperimentID,ScheduledToRun FROM Experiments ORDER BY ExperimentID')]==[(41,False),(42,True)]
-                result['checks'].append('Batch HTTP catalogue and executor use different SQLite schema; EvoYeast rows and Hamilton/native connection unchanged')
-                saved=ScheduledExperiment('', 'Saved batch', 'fixture.med','once',is_active=False,prerequisites=['Batch:B-02'])
-                assert batch_storage.create_schedule(saved)
-                second_batch=root/'other-batches.db'
-                with closing(sqlite3.connect(second_batch)) as conn, conn:
-                    conn.executescript((ROOT/'backend/services/scheduling/examples/batch-schema.sql').read_text('utf-8'))
-                (root/'scheduling-lab.json').write_text(json.dumps(dict(adapter='batch-sqlite',sqlite_path='other-batches.db')),'utf-8')
-                manager.lab=load_lab_integration(batch_storage,native,root)
-                before=len(launched)
-                assert not execute(saved.prerequisites,schedule=saved)[0]
-                assert len(launched)==before
-                with closing(sqlite3.connect(second_batch)) as conn:
-                    assert conn.execute('SELECT batch_code FROM InstrumentWorkOrder').fetchone()[0] is None
-                result['checks'].append('Inactive saved schedule retains original database binding; same batch code in a different database cannot redirect its launch')
-                for busy_kind in ('active', 'pending', 'monitoring'):
-                    busy_storage=SQLiteSchedulingDatabase(str(root/f'{busy_kind}.db'))
-                    # Bind first, then add live work using the ordinary scheduler store.
-                    bound=load_lab_integration(busy_storage,native,root)
-                    schedule=ScheduledExperiment('', 'Waiting', 'fixture.med','once',is_active=busy_kind=='active')
-                    assert busy_storage.create_schedule(schedule)
-                    if busy_kind=='pending':
-                        busy_storage.create_job_execution(JobExecution('',schedule.schedule_id,'pending'))
-                    if busy_kind=='monitoring':
-                        # Reuse the existing monitor persistence schema rather than inventing one.
-                        from backend.services.scheduling.run_log_store import RunLogStore
-                        from backend.services.scheduling.run_log_monitor import RunObservation
-                        from dataclasses import asdict
-                        RunLogStore(busy_storage).save(asdict(RunObservation(str(uuid.uuid4()),schedule.schedule_id,schedule.to_dict(),{})))
-                    try: LabIntegration(BatchSqliteLab(batch_file),busy_storage,dict(source='different'))
-                    except SafetyConflict: pass
-                    else: raise AssertionError('Changed configuration with '+busy_kind)
-                result['checks'].append('Installation change rejected during active schedule, pending job, unfinished monitoring and recovery')
-                empty_root=root/'empty';empty_root.mkdir()
-                other_storage=SQLiteSchedulingDatabase(str(root/'empty-scheduler.db'))
-                manager.lab=load_lab_integration(other_storage,native,empty_root)
-                assert execute([])[0]
-                assert execute(['scheduled_to_run','evoYeastExperiment: 42 | SET'])[0]
-                result['checks'].append('Explicit no-preparation method remains supported; old registry name/action aliases still select the intended record')
-        result['fixtures_removed']=True
-        result['passed']=True
+            def saved(tokens, name='Reference method', **extra):
+                schedule = ScheduledExperiment('', name, str(method), 'interval', interval_hours=6, prerequisites=tokens, is_active=True, **extra)
+                assert storage.create_schedule(schedule)
+                return schedule.schedule_id
+
+            app = FastAPI()
+            app.include_router(api.router)
+            def user(request: Request):
+                name = request.headers.get('authorization', 'admin')
+                return {'username': name, 'role': 'user' if name == 'user' else 'admin'}
+            app.dependency_overrides[get_current_user] = user
+            app.add_exception_handler(SafetyConflict, lambda req, exc: JSONResponse(status_code=409, content={'detail': str(exc)}))
+
+            with patch.object(api, 'get_services', return_value=(scheduler, storage, None)), \
+                 patch('backend.services.database_tools.get_database_tools', return_value=tools), \
+                 TestClient(app, client=('127.0.0.1', 1)) as client:
+
+                def read(schedule_id):
+                    return client.get(f'/api/scheduling/{schedule_id}').json()['data']
+
+                def update(schedule_id, changes, role='admin'):
+                    return client.put(f'/api/scheduling/{schedule_id}', json={**changes, 'expected_updated_at': read(schedule_id)['updated_at']},
+                                      headers={'authorization': role})
+
+                def create(inputs, name='Reference method'):
+                    body = dict(experiment_name=name, experiment_path=str(method), schedule_type='once', estimated_duration=5, is_active=True,
+                                preparation=dict(tool_id=TOOL, inputs=inputs))
+                    response = client.post('/api/scheduling/create', json=body)
+                    assert response.status_code == 200, response.text
+                    return response.json()['data']['schedule_id']
+
+                # A schedule saved by the old form, with a reset saved before the selection.
+                old = saved(OLD_FORM)
+                view = read(old)
+                assert view['preparation_state'] == 'needs_review' and view['preparation'] is None
+                suggestion = view['legacy_preparation']['suggestion']
+                assert suggestion == dict(tool_id=TOOL, inputs=dict(experiment_id=42, reset_tables=True, table_list='Runtime', reset_first=True)), suggestion
+                ok, blocked = execute(old)
+                assert not ok and not launched and receipt(blocked) is None and flags() == [(41, True), (42, False), (43, False), (43, False), (44, False)]
+                storage = SQLiteSchedulingDatabase(str(root / 'scheduler.db'))  # Restart: derived again, never rewritten.
+                manager.sqlite_db = storage
+                assert update(old, {'estimated_duration': 9}, role='user').status_code == 200
+                assert update(old, {'preparation': suggestion}, role='user').status_code == 403
+                assert storage.get_schedule_by_id(old).prerequisites == OLD_FORM and read(old)['preparation_state'] == 'needs_review'
+                assert not execute(old)[0] and not launched and not resets()
+                assert update(old, {'prerequisites': ['EvoYeastExperiment:41|set']}).status_code == 400
+                body = dict(experiment_name='Tokens', experiment_path=str(method), schedule_type='once', estimated_duration=5, prerequisites=['ScheduledToRun'])
+                assert client.post('/api/scheduling/create', json=body).status_code == 400
+                result['checks'].append('Old-form schedule is Needs review with its tokens prefilled in saved order; the run is refused before any write, also after a restart; a user edit keeps the tokens; clients cannot add or edit tokens')
+
+                response = update(old, {'preparation': suggestion})
+                assert response.status_code == 200, response.text
+                migrated = storage.get_schedule_by_id(old)
+                assert migrated.prerequisites == [] and migrated.preparation['inputs'] == suggestion['inputs'] and read(old)['preparation_state'] == 'ready'
+                assert migrated.preparation['source_id'] == 'writer' and migrated.preparation['database'] == database
+                ok, first = execute(old)
+                assert ok and launched == [first] and receipt(first)['status'] == 'prepared', receipt(first)
+                assert flags() == [(41, False), (42, True), (43, False), (43, False), (44, False)]
+                assert resets() == [('Reference method', '["Runtime"]', 41)], resets()  # Reset ran while 41 was still flagged.
+                selected_first = create(dict(experiment_id=41, reset_tables=True), name='Select first')
+                ok, second = execute(selected_first)
+                assert ok and launched[-1] == second and flags()[:2] == [(41, True), (42, False)]
+                assert resets()[-1] == ('Select first', None, 41) and 'Experiment 41 marked' in receipt(second)['message']
+                result['checks'].append('After an administrator saves the prefilled step it is pinned, the tokens are cleared and the package clears all flags, sets one and resets tables with the method name in the saved order; select-then-reset and reset-all also verified')
+
+                failing = {'duplicate': create(dict(experiment_id=43)),
+                           'deleted': create(dict(experiment_id=44)),
+                           'reset fails': create(dict(experiment_id=42, reset_tables=True, table_list='Fail')),
+                           'tables without reset': create(dict(experiment_id=42, table_list='Runtime'))}
+                admin.execute(f'DELETE FROM [{database}].dbo.Experiments WHERE ExperimentID = 44')
+                before, messages = flags(), {}
+                for case, schedule_id in failing.items():
+                    ok, execution_id = execute(schedule_id)
+                    assert not ok and execution_id not in launched, case
+                    assert flags() == before and len(resets()) == 2, case
+                    messages[case] = receipt(execution_id)
+                    assert messages[case]['status'] == 'failed' and storage.get_schedule_by_id(schedule_id).recovery_required, (case, messages[case])
+                assert 'missing or not unique' in messages['duplicate']['message'], messages
+                assert 'Fixture reset failure' in messages['reset fails']['message'], messages
+                result['failure_messages'] = {case: value['message'] for case, value in messages.items()}
+                result['checks'].append('Duplicated or deleted experiment, failing reset procedure and tables listed with reset off roll back every flag, never launch and request recovery')
+
+                expressed = saved(['scheduled_to_run', 'evoYeastExperiment: 42 | SET'], name='Alias form')
+                assert read(expressed)['legacy_preparation']['suggestion'] == dict(tool_id=TOOL, inputs=dict(experiment_id=42))
+                with_step = create(dict(experiment_id=42), name='Has a step')
+                with storage._get_connection() as conn:
+                    conn.execute('UPDATE ScheduledExperiments SET prerequisites=? WHERE schedule_id=?', (json.dumps(['EvoYeastExperiment:41|set']), with_step))
+                    conn.commit()
+                for schedule_id in [saved(['Batch:B-01']), saved(['Unknown']), saved(['ScheduledToRun']),
+                                    saved(['EvoYeastExperiment:41|set', 'EvoYeastExperiment:42|set']), with_step]:
+                    view = read(schedule_id)
+                    assert view['preparation_state'] == 'needs_review' and view['legacy_preparation']['suggestion'] is None, view
+                    assert 'cannot be carried over' in view['legacy_preparation']['message']
+                    count, rows = len(launched), flags()
+                    assert not execute(schedule_id)[0] and len(launched) == count and flags() == rows
+                noop = saved(['EvoYeastExperiment:42|none'], name='No selection')
+                assert 'legacy_preparation' not in read(noop)
+                rows = flags()
+                assert execute(noop)[0] and flags() == rows
+                result['checks'].append('Old registry aliases still prefill the intended experiment; batch, unknown, marker-only, double selection and token+step schedules are Needs review without a guess and refused; a no-op selection still runs and writes nothing')
+        result['fixtures_removed'] = True
+        result['passed'] = True
     except Exception:
-        result['error']=traceback.format_exc()
+        result['error'] = traceback.format_exc()
         raise
     finally:
-        (EVIDENCE/'http-results.json').write_text(json.dumps(result,indent=2),'utf-8')
-        print(json.dumps(result,indent=2))
+        (EVIDENCE / 'http-results.json').write_text(json.dumps(result, indent=2), 'utf-8')
+        print(json.dumps(result, indent=2))
 
 
-if __name__ == '__main__': run()
+if __name__ == '__main__':
+    run()

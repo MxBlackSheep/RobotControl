@@ -377,7 +377,8 @@ class DatabaseTools:
             from backend.utils.datetime import utc_now_as_local_naive
             return dict(package_id=package_id, tool_id=tool.id, tool_name=tool.name,
                         package_version=entry['manifest']['version'], sha256=entry['sha256'],
-                        source_id=target['id'], inputs=inputs, attached_by=actor,
+                        source_id=target['id'], server=target.get('server'), database=target.get('database'),
+                        inputs=inputs, attached_by=actor,
                         attached_at=utc_now_as_local_naive().isoformat())
 
     def preparation_state(self, preparation):
@@ -398,7 +399,14 @@ class DatabaseTools:
             target = self.sources.operation_target(preparation['package_id'])
         except PackageError:
             return 'needs_review'
-        return 'ready' if target['id'] == preparation.get('source_id') else 'needs_review'
+        return 'ready' if self._same_target(preparation, target) else 'needs_review'
+
+    @staticmethod
+    def _same_target(preparation, target):
+        # A rotated password keeps the connection; editing it to another server or database
+        # does not. Steps pinned before server/database were recorded need a review.
+        return (target['id'] == preparation.get('source_id') and target.get('server') == preparation.get('server')
+                and target.get('database') == preparation.get('database'))
 
     def prepare_for_run(self, preparation, run):
         """Run a schedule's pinned preparation step before its launch.
@@ -424,8 +432,7 @@ class DatabaseTools:
                 inputs = tool.validate_values(preparation.get('inputs') or {})
             except PackageError as exc:
                 raise PreparationFailed('failed', str(exc)) from exc
-            # A rotated password keeps the connection id; another database does not.
-            if target['id'] != preparation['source_id']:
+            if not self._same_target(preparation, target):
                 raise PreparationFailed('failed', 'The package uses a different connection than when this schedule was saved. Review the schedule.')
             outcome = self._run_preparation(entry, tool, inputs, snapshot, target, run)
         finally:

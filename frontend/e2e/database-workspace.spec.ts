@@ -2,8 +2,9 @@ import { test, expect } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 
 /** Failure cases for database settings screens:
- * - One viewer database is shown and the lab connection is explicit, never blank.
- *   Switching the viewer clears the previous table and leaves Restore separate.
+ * - One viewer database is shown; switching it clears the previous table and leaves Restore
+ *   separate. The retired "Schedule preparation" setup does not return (schedules use a
+ *   database step instead).
  * - Changing a parent choice clears its dependent choices; labels stay readable on phones.
  * - A failed account creation explains the reason (for example a name conflict), keeps
  *   non-secret settings and clears administrator credentials.
@@ -19,7 +20,7 @@ async function login(page: any) {
   await page.route('**/api/auth/me', (route: any) => route.fulfill({ json: { success: true, data: { user_id: 'viewer-admin', username: 'Fixture', role: 'admin', session_is_local: true } } }));
 }
 
-test('simplified settings show one viewer and an explicit existing lab connection', async ({page}) => {
+test('simplified settings show one viewer and no scheduling adapter setup', async ({page}) => {
   mkdirSync(evidence,{recursive:true}); await login(page);
   await page.route('**/api/database/tools/viewer-sources', r => r.fulfill({json:[{id:'primary',name:'Lab results',database:'EvoYeast',revision:'1'}]}));
   await page.route('**/api/database/tables?*', r => r.fulfill({json:{success:true,data:{table_details:[{name:'[dbo].[Experiments]'}]}}}));
@@ -27,15 +28,10 @@ test('simplified settings show one viewer and an explicit existing lab connectio
   await expect(page.getByText('Lab results · EvoYeast',{exact:true})).toBeVisible();
   await expect(page.getByRole('combobox',{name:'Database connection'})).toHaveCount(0);
   await page.screenshot({path:`${evidence}/viewer.png`});
-  await page.route('**/api/database/tools/scheduling-settings', r => r.fulfill({json:{active:{adapter:'evoyeast'},saved:{adapter:'evoyeast'},target:{server:'LAB-SQL',database:'EvoYeast'},pending:false,schedules:[]}}));
   await page.goto('/database?section=settings');
-  await expect(page.getByRole('heading',{name:'Schedule preparation'})).toBeVisible();
-  await expect(page.getByRole('combobox',{name:'Laboratory database'})).toHaveCount(0);
-  await page.screenshot({path:`${evidence}/settings-collapsed.png`,fullPage:true});
-  await page.getByRole('button',{name:'Change setup',exact:true}).click();
-  await expect(page.getByRole('combobox',{name:'Laboratory database'})).toContainText('Existing laboratory connection');
-  await page.getByRole('heading',{name:'Schedule preparation'}).scrollIntoViewIfNeeded();
-  await page.screenshot({path:`${evidence}/settings-expanded.png`,animations:'disabled'});
+  await expect(page.getByRole('heading',{name:'Package connections'})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Schedule preparation'})).toHaveCount(0);
+  await page.screenshot({path:`${evidence}/settings.png`,fullPage:true});
 });
 
 test('a remote administrator is told which sections need the RobotControl computer', async ({page}) => {
@@ -44,7 +40,7 @@ test('a remote administrator is told which sections need the RobotControl comput
   // The app reads data.session.is_local (backend/api/auth.py); without it, 127.0.0.1 counts as local.
   await page.route('**/api/auth/me', r => r.fulfill({ json: { success: true, data: { user_id: 'viewer-admin', username: 'Fixture', role: 'admin', session: { is_local: false } } } }));
   const localOnlyRequests: string[] = [];
-  await page.route('**/api/database/tools/{packages,sources,scheduling-settings}**', r => { localOnlyRequests.push(r.request().url()); return r.abort(); });
+  await page.route('**/api/database/tools/{packages,sources}**', r => { localOnlyRequests.push(r.request().url()); return r.abort(); });
   await page.goto('/database?section=packages');
   const tabs = page.getByRole('tablist', { name: 'Database sections' });
   await expect(page.getByText('On the RobotControl computer only: Operations, Manage packages, Database settings.')).toBeVisible();

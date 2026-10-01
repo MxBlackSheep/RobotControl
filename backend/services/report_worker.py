@@ -104,6 +104,7 @@ def run_preparation(channel, package_root, entry, definition, inputs, snapshot, 
     An error before 'committing' means nothing was written. The parent treats 'committing'
     without 'committed' (crash, timeout) as an unknown outcome.
     """
+    step_error = None
     try:
         sources, catalogue = _runtime(package_root)
         tool = ToolDefinition.model_validate(definition)
@@ -119,7 +120,10 @@ def run_preparation(channel, package_root, entry, definition, inputs, snapshot, 
                 if result is not None and not isinstance(result, dict):
                     raise ValueError('Return a dictionary such as {"message": "..."} from prepare.')
                 message = str((result or {}).get('message') or 'Preparation completed.')[:500]
-            except BaseException:
+            except BaseException as exc:
+                # sources.open reports any driver error in its block as a connection problem;
+                # the receipt needs the step's own error (e.g. a stored procedure's RAISERROR).
+                step_error = exc
                 conn.rollback()
                 raise
             channel.send({'committing': True})
@@ -127,6 +131,6 @@ def run_preparation(channel, package_root, entry, definition, inputs, snapshot, 
         channel.send({'committed': True, 'message': message})
     except BaseException as exc:
         traceback.print_exc()
-        channel.send({'error': str(exc)[:4000] or 'Preparation process failed.'})
+        channel.send({'error': str(step_error or exc)[:4000] or 'Preparation process failed.'})
     finally:
         channel.close()

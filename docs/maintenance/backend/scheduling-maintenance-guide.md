@@ -6,8 +6,8 @@ alerts. The Scheduling page is described in
 [the frontend scheduling guide](../frontend/scheduling-frontend-maintenance-guide.md).
 Recovery transitions, storage rules, lock details, repair and the recovery API are owned by
 [the SQLite safety guide](sqlite-safety-maintenance-guide.md); HxRun maintenance mode by
-[its guide](hxrun-maintenance-maintenance-guide.md); installing another laboratory database by
-[the scheduling examples README](../../../backend/services/scheduling/examples/README.md).
+[its guide](hxrun-maintenance-maintenance-guide.md); writing a preparation step by
+[the database package README](../../../database_packages/README.md).
 
 ## Files and ownership
 
@@ -18,9 +18,8 @@ All paths are under `backend/services/scheduling/` unless stated.
   transitions and finalization.
 - `experiment_executor.py`: `ExperimentExecutor` applies the late-start timeout action, runs
   laboratory preparation, launches `HxRun.exe "<method>" -t` once and waits for it to exit.
-  `pre_execution.py` hands the schedule's preparation steps to the laboratory integration.
-- `lab_integration.py` owns laboratory preparation and its connection; `lab_settings.py`
-  reviews and saves a change of laboratory database.
+  `pre_execution.py` writes the preparation receipt and runs the schedule's database package
+  step; `legacy_preparation.py` reads the retired adapter's tokens on older schedules.
 - `process_monitor.py`: detects HxRun with `psutil`, falling back to
   `tasklist /FO CSV /NH` (five-second timeout).
 - `run_log_monitor.py`: `HamiltonRunReader` matches the Hamilton run in SQL; `RunLogMonitor`
@@ -96,7 +95,8 @@ operations and laboratory settings take it; backup restore does not.
 
 - `schedule_type` is `once`, `interval`, or the aliases `hourly`, `daily`, `weekly` (default
   hours are filled in). `timeout_config` holds minutes, action and cleanup method;
-  `prerequisites` holds preparation steps.
+  `preparation` holds the pinned database step; `prerequisites` only keeps the retired
+  adapter's tokens until an administrator reviews them.
 - Create rejects a `start_time` in the past; update allows any value. Times are not rounded.
 - `log_inactivity_threshold_minutes` is a positive whole number, default 3. An update that
   omits it keeps the saved value; each launch captures the value, so edits apply to the next run.
@@ -117,76 +117,60 @@ operations and laboratory settings take it; backup restore does not.
 
 The native scheduling SQLite database (`data/robotcontrol_scheduling.db`) remains the owner of
 schedules, the queue, history and recovery. `HamiltonRunReader` still owns Hamilton run
-matching. `lab_integration.py` owns preparation and its own connection. The Database viewer
-choice has no effect on scheduling.
+matching through the native connection. Preparation has one mechanism: the schedule's
+database package step. The Database viewer choice has no effect on scheduling.
 
-`data/scheduling-lab.json` (keys `adapter`, `source_id`, `sqlite_path`) chooses the adapter.
-Without the file, EvoYeast uses the native connection. `evoyeast` may instead use a saved
-operation connection; `batch-sqlite` is an example using a separate SQLite file with `Batches`
-and `InstrumentWorkOrder` (exactly one work-order slot), not validated in another laboratory.
-The running process keeps the configuration it started with; an invalid file blocks
-preparation and never falls back to another database.
+**Database package step.** A schedule may carry one `preparation` (a database package tool of
+kind `preparation`), stored as JSON on `ScheduledExperiments.preparation` with the package file
+hash, version and the operation connection's id, server and database pinned by the server when
+a local administrator saved it (`_requested_preparation` in `backend/api/scheduling.py`;
+requests without the key keep it, other roles get 403 when changing it).
+`PreExecutionPipeline.prepare` checks `DatabaseTools.preparation_state` before the receipt (a
+changed or missing package, a rebound connection or one edited to another server or database
+refuses the run with no write), then runs `DatabaseTools.prepare_for_run`: a spawned child
+(`report_worker.run_preparation`) with a 120 s limit that commits only after `prepare` returns.
+It holds no scheduler lock; the registered execution keeps `database_change_guard` closed for
+manual operations. Error before commit: receipt `failed`, nothing committed, and the receipt
+keeps the step's own error (for example a procedure's RAISERROR). Timeout, crash or a commit
+without confirmation: `unknown`. Both mark the schedule for recovery with a note saying what is
+known. `PackageCatalogue.refuse_if_scheduled` refuses updating, removing or rebinding a package
+an active schedule uses; an unreadable stored step loads as `{"invalid": true}` and blocks
+dispatch. Schedule reads add `preparation_state` (`ready`/`needs_review`/`missing`/`invalid`).
+Steps pinned before server and database were recorded read as `needs_review` until saved again.
 
-**EvoYeast workflow.** A schedule saves `ScheduledToRun` plus `EvoYeastExperiment:<ID>|set`.
-At launch every step is validated before any write, and only one experiment is allowed per
-execution. In one SQL transaction the target row is locked (`UPDLOCK, HOLDLOCK`) and must be
-unique, all `ScheduledToRun` flags are cleared and the target is set; an explicit
-`ResetHamiltonTables` step runs in the same transaction. A failure rolls back what the
-transaction owns; a procedure's own commits or external effects are not guaranteed reversible.
-`none`, `noop` and `skip` actions write nothing. `ScheduledToRun` without an experiment fails
-with an actionable error. The selection stays set after the run; there is no post-run reset.
-`ResetHamiltonTables` is optional: ordinary selection does not require the procedure, so do not
-add an unconditional existence check.
+**EvoYeast flag.** The starter package `database_packages/evoyeast-experiment` ("Select EvoYeast
+experiment") runs the SQL the former built-in adapter ran. In the host's SERIALIZABLE
+transaction it locks the target row (`UPDLOCK, HOLDLOCK`), refuses a missing or duplicated
+`ExperimentID`, clears every `ScheduledToRun` flag and sets the target. With **Reset Hamilton
+tables** it runs `dbo.ResetHamiltonTables @ExperimentName = <method name>` plus `@TablesJson` when
+tables are listed; **Reset tables before selecting the experiment** keeps the order older
+schedules saved. A procedure's own commits or external effects are not guaranteed reversible.
+The selection stays set after the run; there is no post-run reset. It needs a read connection
+(`primary`, experiment choices) and an operation connection to the same EvoYeast database.
+New installations seed it; on an existing installation an administrator imports it
+(Database → Manage packages, from `database_packages/evoyeast-experiment`).
 
-**Receipts** in the scheduling SQLite database:
+**Schedules saved with the retired adapter.** Before this package, a built-in adapter
+(`lab_integration.py`, chosen by `data/scheduling-lab.json`) ran tokens saved in
+`prerequisites`, for example `ResetHamiltonTables:Runtime`, `ScheduledToRun`,
+`EvoYeastExperiment:42|set`, or `Batch:<code>` for the removed SQLite batch example. Nothing
+runs them now and `scheduling-lab.json` is no longer read. `legacy_preparation.py` derives, on
+every read, a review for such a schedule: `preparation_state` is `needs_review` and
+`legacy_preparation` carries the tokens, a message and, where the tokens fit the EvoYeast
+package (one selection, at most one reset, no unknown tokens, no existing database step), a
+prefilled `suggestion` in the saved order. The run is refused before any write until a local
+administrator saves the schedule with the `preparation` key; that save clears the tokens.
+`|none`, `|noop` and `|skip` selections never wrote anything and do not block. Clients cannot
+create or edit tokens (HTTP 400). Nothing is rewritten at startup, so restarts and repeated
+upgrades keep the tokens until that save.
 
-- `LabInstallation`: adapter, version, connection identity and signature; no secrets.
-- `LabScheduleBinding`: each schedule's data target. Rotating credentials keeps the target;
-  another database does not reuse old IDs, so re-create the schedule after review.
-- `LabPreparation`: execution ID, identity, steps, the pinned database package step (`package`),
-  status `preparing`/`prepared`/`failed`/`unknown` and the step's `message`. A repeated
-  execution ID is rejected even after restart. Receipts are kept as evidence.
-
-Preparation checks the installation signature and the schedule's target under
-`BEGIN IMMEDIATE` and writes the receipt before touching laboratory data. A failure after that
-marks the receipt failed and requires manual recovery. The restart reconciler never reruns
-preparation. At startup a changed signature is accepted only with no pending, queued or running
-executions, no unfinished monitoring, no recovery and no active schedules; otherwise restore
-the previous configuration.
-
-**Database package step.** A schedule may also carry one `preparation` (a database package
-tool of kind `preparation`), stored as JSON on `ScheduledExperiments.preparation` with the
-package file hash, version and operation connection id pinned by the server when a local
-administrator saved it (`_requested_preparation` in `backend/api/scheduling.py`; requests
-without the key keep it, other roles get 403 when changing it). `LabIntegration.prepare`
-checks `DatabaseTools.preparation_state` before the receipt (a changed or missing package
-refuses the run with no write), runs the adapter step, then `DatabaseTools.prepare_for_run`:
-a spawned child (`report_worker.run_preparation`) with a 120 s limit that commits only after
-`prepare` returns. It holds no scheduler lock; the registered execution keeps
-`database_change_guard` closed for manual operations. Error before commit: receipt `failed`,
-nothing committed. Timeout, crash or a commit without confirmation: `unknown`. Both mark the
-schedule for recovery with a note saying what is known. `PackageCatalogue.refuse_if_scheduled`
-refuses updating, removing or rebinding a package an active schedule uses; an unreadable stored
-step loads as `{"invalid": true}` and blocks dispatch. Schedule reads add `preparation_state`
-(`ready`/`needs_review`/`missing`). Check: `backend/e2e/preparation_step_check.py`.
-
-**Changing the laboratory database** (Database settings → Schedule preparation):
-
-- Review reads table metadata only; it never runs `ResetHamiltonTables` or prepares an
-  experiment, and passing does not prove execute permissions or a correct method. The batch
-  file must not be the scheduler database. The review token is owner-bound, expires after ten
-  minutes and captures the settings and connection revisions.
-- Apply takes `database_change_guard`, the settings lock, the connections lock and then a
-  scheduler `BEGIN IMMEDIATE`, and repeats every check. Active schedules, pending, queued or
-  running work, unfinished monitoring and recovery block saving. It writes the startup bytes to
-  `scheduling-lab.previous.json` and atomically replaces `scheduling-lab.json` with
-  `utils/filesystem.replace_file`, so a scanner reading the file cannot fail the save; the change
-  applies after restart.
-- **Cancel change** restores the exact startup bytes the same way, or removes the file when the
-  native default was active.
-- A connection scheduling uses cannot be edited or removed. Create a separate connection,
-  review, save, restart, then review the disabled schedules. Offline edits of the JSON still
-  pass the startup checks.
+**Receipts.** `LabPreparation` in the scheduling SQLite database holds the execution ID, the
+saved tokens (`steps`), the pinned step (`package`), status `preparing`/`prepared`/`failed`/
+`unknown` and the step's `message`; `identity` described the retired adapter and is now `{}`.
+The receipt is written under `BEGIN IMMEDIATE` before any laboratory write, also for a schedule
+without a step. A repeated execution ID is rejected even after restart, and the restart
+reconciler never reruns preparation. Receipts are kept as evidence. The `LabInstallation` and
+`LabScheduleBinding` tables of the retired adapter are no longer created or read.
 
 ## Run-log monitoring
 
@@ -295,8 +279,9 @@ their saved paths.
   They use temporary SQLite files, fake SQL, fake SMTP and a controllable clock; none launches
   Hamilton software.
 - Laboratory preparation: `.venv/Scripts/python.exe -X utf8 -m backend.e2e.scheduling_lab_check`
-  uses UUID-named disposable SQL Server databases and separate SQLite files, with a recorder in
-  place of process launch; the browser side is `frontend/e2e/scheduling-lab.spec.ts`. Evidence:
+  (EvoYeast package and retired-token schedules) and `backend.e2e.preparation_step_check`
+  (any step) use UUID-named disposable SQL Server databases, with a recorder in place of
+  process launch; the browser side is `frontend/e2e/scheduling-lab.spec.ts`. Evidence:
   `test-output/scheduling-lab-verification`. Failure cases are in each file's header.
 - Email records: `backend.e2e.notification_delivery_check` (commands in
   [frontend/e2e/README.md](../../../frontend/e2e/README.md)).
@@ -321,11 +306,9 @@ writes and send `expected_updated_at` from the latest schedule.
   resending.
 - **"Method file not found" or HxRun fails:** the executor logs the resolved path from
   `resolve_experiment_path` and the full command.
-- **"Scheduling lab setup is unavailable…":** `scheduling-lab.json` could not be loaded or a
-  startup safety check refused it; restore the previous file (or Cancel change) and restart.
-- **"The scheduling lab configuration changed. Restart and review the schedules":** the saved
-  settings differ from those in use; restart, then review the schedules.
-- **"This schedule belongs to a different lab database":** re-create the schedule after
-  reviewing its preparation.
+- **"…EvoYeast selection moved to a database step…" / "…old preparation … cannot be carried
+  over…":** the schedule still has retired adapter tokens. A local administrator opens it,
+  checks the prefilled step (or chooses one) and saves. Install the EvoYeast package and assign
+  its connections first if the step shows "not installed".
 - **"Preparation was already attempted for this execution":** review recovery; preparation is
   never repeated automatically.

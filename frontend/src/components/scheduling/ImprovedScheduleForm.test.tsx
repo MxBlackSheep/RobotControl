@@ -4,7 +4,6 @@ import ImprovedScheduleForm from './ImprovedScheduleForm';
 
 vi.mock('../../services/schedulingApi', () => ({
   schedulingAPI: { getAvailableExperiments: vi.fn(async () => ({ data: { success: true, data: { experiments: [], categorized: {} } } })) },
-  schedulingService: { getLabPreparation: vi.fn(async () => ({ experiments: [] })) },
 }));
 
 vi.mock('../../context/AuthContext', () => ({ useAuth: () => ({ user: { username: 'operator', role: 'user' } }) }));

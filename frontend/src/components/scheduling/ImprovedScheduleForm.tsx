@@ -6,7 +6,7 @@
  * 
  * Features:
  * - Experiment selection from discovered files (grouped by category)
- * - Prerequisite checkboxes with clear descriptions
+ * - Database step to run before the method (PreparationStepField)
  * - Auto-populated fields based on selection
  * - Validation and error handling
  * - Responsive layout
@@ -20,7 +20,7 @@ import MethodPicker from './MethodPicker';
 import { useAuth } from '../../context/AuthContext';
 import { isLocalUser } from '../navigation';
 import PreparationStepField from './PreparationStepField';
-import type { PinnedPreparation, PreparationState, PreparationStep } from '../../types/scheduling';
+import type { LegacyPreparation, PinnedPreparation, PreparationState, PreparationStep } from '../../types/scheduling';
 import { StatusMessage } from '../StatusDialog';
 import {
   Dialog,
@@ -36,7 +36,6 @@ import {
   Select,
   MenuItem,
   Typography,
-  Chip,
   FormControlLabel,
   CircularProgress,
   Stack,
@@ -44,9 +43,6 @@ import {
   InputAdornment,
   Tooltip,
   IconButton,
-  Radio,
-  RadioGroup,
-  FormLabel,
   Switch,
   Autocomplete,
   Checkbox
@@ -60,8 +56,8 @@ import {
   CheckBoxOutlineBlank as CheckBoxOutlineBlankIcon,
   CheckBox as CheckBoxIcon
 } from '@mui/icons-material';
-import { schedulingAPI, schedulingService } from '../../services/schedulingApi';
-import { EvoYeastExperimentOption, NotificationContact } from '../../types/scheduling';
+import { schedulingAPI } from '../../services/schedulingApi';
+import { NotificationContact } from '../../types/scheduling';
 
 interface ExperimentFile {
   name: string;
@@ -80,7 +76,6 @@ interface ScheduleFormData {
   start_time: string | null;
   estimated_duration: number;
   log_inactivity_threshold_minutes: number;
-  prerequisites: string[];
   /** Undefined until the administrator changes the database step; then sent (null removes it). */
   preparation?: PreparationStep | null;
   notification_contacts: string[];
@@ -102,6 +97,8 @@ interface ImprovedScheduleFormProps {
   /** The schedule's saved, pinned database step and its derived state (edit mode). */
   savedPreparation?: PinnedPreparation | null;
   preparationState?: PreparationState;
+  /** Retired adapter tokens of an older schedule, prefilled as its database step. */
+  legacyPreparation?: LegacyPreparation | null;
 }
 
 const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
@@ -114,8 +111,10 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
   catalogueVersion = 0,
   savedPreparation = null,
   preparationState,
+  legacyPreparation = null,
 }) => {
   const { user } = useAuth();
+  const canEditPreparation = user?.role === 'admin' && isLocalUser(user);
   // Form state
   const [formData, setFormData] = useState<ScheduleFormData>({
     experiment_name: '',
@@ -125,7 +124,6 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
     start_time: null,
     estimated_duration: 55,
     log_inactivity_threshold_minutes: 3,
-    prerequisites: initialData?.prerequisites ?? [],
     notification_contacts: initialData?.notification_contacts ?? [],
     is_active: true,
     timeout_minutes: null,
@@ -238,14 +236,6 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
   const [loading, setLoading] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [experiments, setExperiments] = useState<ExperimentFile[]>([]);
-  const [evoExperiments, setEvoExperiments] = useState<EvoYeastExperimentOption[]>([]);
-  const [evoLoading, setEvoLoading] = useState(false);
-  const [labDefinition, setLabDefinition] = useState<{ id: string; name: string; selection_step: string; selection_label: string; preparation_label: string }>();
-  const [labError, setLabError] = useState('');
-  const labRequest = useRef(0);
-  useEffect(() => { if (!open) labRequest.current += 1; }, [open]);
-  const [selectedExperimentId, setSelectedExperimentId] = useState<string>('');
-  const [experimentPrepOption, setExperimentPrepOption] = useState<'none' | 'schedule'>('none');
   const [notice, setNotice] = useState<StatusMessage | null>(null);
 
   const initializedSession = useRef(false);
@@ -280,19 +270,6 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
     if (open) void loadExperiments();
   }, [catalogueVersion, open, loadExperiments]);
 
-  const loadEvoExperiments = useCallback(async (limit: number = 100) => {
-    const request = ++labRequest.current;
-    setEvoLoading(true);
-    const result = await schedulingService.getLabPreparation(limit);
-    if (request !== labRequest.current) return;
-    setLabError(result.error || '');
-    if (result.definition) {
-      setLabDefinition(result.definition);
-      setEvoExperiments(result.experiments);
-    }
-    setEvoLoading(false);
-  }, []);
-
   useEffect(() => {
     if (!open) {
       initializedSession.current = false;
@@ -311,7 +288,6 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
       start_time: null,
       estimated_duration: 55,
     log_inactivity_threshold_minutes: 3,
-      prerequisites: [],
       notification_contacts: [],
       is_active: true,
       timeout_minutes: null,
@@ -320,13 +296,12 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
       timeout_cleanup_experiment_path: null,
     };
 
-    const initialPrereqs = initialData?.prerequisites ?? [];
     const mergedData: ScheduleFormData = {
       ...defaultFormData,
       ...initialData,
       start_time: initialData?.start_time ?? null,
-      prerequisites: initialPrereqs,
-      preparation: undefined,
+      // An administrator's save of the prefilled step replaces the retired tokens.
+      preparation: canEditPreparation && legacyPreparation?.suggestion ? legacyPreparation.suggestion : undefined,
       notification_contacts: initialData?.notification_contacts ?? defaultFormData.notification_contacts,
       timeout_minutes: initialData?.timeout_minutes ?? defaultFormData.timeout_minutes,
       timeout_action: initialData?.timeout_action ?? defaultFormData.timeout_action,
@@ -339,13 +314,6 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
     initialDraft.current = JSON.stringify(mergedData);
     setConfirmDiscard(false);
     setFormData(mergedData);
-
-    const selection = initialPrereqs.find(entry => entry.startsWith('EvoYeastExperiment:') || entry.startsWith('Batch:'));
-    setExperimentPrepOption(selection || initialPrereqs.includes('ScheduledToRun') ? 'schedule' : 'none');
-    setSelectedExperimentId(selection ? selection.slice(selection.indexOf(':') + 1).split('|')[0] : '');
-    setLabDefinition(undefined);
-    setLabError('');
-    setEvoExperiments([]);
 
     const intervalHours =
       typeof mergedData.interval_hours === 'number' && !Number.isNaN(mergedData.interval_hours)
@@ -362,30 +330,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
     }
 
     loadExperiments();
-    loadEvoExperiments();
-  }, [open, initialData, loadExperiments, loadEvoExperiments]);
-
-  const updatePreparation = (mode: 'none' | 'schedule', value: string) => {
-    setExperimentPrepOption(mode);
-    setSelectedExperimentId(value);
-    if (!labDefinition) return;
-    // Only explicit preparation edits replace its tokens. Timing/contact edits
-    // preserve the complete saved array, including reset steps and their order.
-    const isSelection = (token: string) => token === 'ScheduledToRun' || token.startsWith('EvoYeastExperiment:') || token.startsWith('Batch:');
-    const replacement = mode === 'none' ? [] : labDefinition.id === 'evoyeast'
-      ? ['ScheduledToRun', ...(value ? [`EvoYeastExperiment:${value}|set`] : [])]
-      : value ? [`Batch:${value}`] : [];
-    setFormData(prev => {
-      const first = prev.prerequisites.findIndex(isSelection);
-      const remaining = prev.prerequisites.filter(token => !isSelection(token));
-      remaining.splice(first < 0 ? remaining.length : first, 0, ...replacement);
-      return { ...prev, prerequisites: remaining };
-    });
-  };
-
-  const handleExperimentPrepChange = (value: 'none' | 'schedule') => {
-    updatePreparation(value, value === 'none' ? '' : selectedExperimentId);
-  };
+  }, [open, initialData, loadExperiments, canEditPreparation, legacyPreparation]);
 
   const handleExperimentSelect = (experimentPath: string) => {
     const selectedExperiment = experiments.find(exp => exp.path === experimentPath);
@@ -428,10 +373,6 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
 
     if (formData.schedule_type === 'interval' && formData.interval_hours <= 0) {
       newErrors.push('Interval must be greater than 0 minutes');
-    }
-
-    if (experimentPrepOption === 'schedule' && !selectedExperimentId) {
-      newErrors.push(`Select ${labDefinition?.selection_label === 'Batch' ? 'a batch' : 'an experiment'} before running`);
     }
 
     if (mode === 'create' && formData.start_time) {
@@ -795,106 +736,15 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
             </Box>
             <Box>
               <Stack spacing={2}>
-                {labError && <Alert severity="error" action={<Button onClick={() => loadEvoExperiments()}>Retry</Button>}>{labError}</Alert>}
-                <FormControl component="fieldset">
-                  {user?.role === 'admin' && isLocalUser(user) && <Button href="/database?section=settings" target="_blank" rel="noopener">Database settings</Button>}
-                  <FormLabel id="experiment-prep-options">{labDefinition ? `${labDefinition.name} preparation` : 'Before running'}</FormLabel>
-                  <RadioGroup
-                    aria-labelledby="experiment-prep-options"
-                    value={experimentPrepOption}
-                    onChange={(event) => handleExperimentPrepChange(event.target.value as 'none' | 'schedule')}
-                  >
-                    <FormControlLabel
-                      value="none"
-                      control={<Radio />}
-                      label={`No ${(labDefinition?.selection_label || 'record').toLowerCase()} selection`}
-                      disabled={!labDefinition || !!labError}
-                    />
-                    <FormControlLabel
-                      value="schedule"
-                      control={<Radio />}
-                      label={labDefinition?.preparation_label || 'Prepare lab data'}
-                      disabled={!labDefinition || !!labError}
-                    />
-                  </RadioGroup>
-                </FormControl>
-
+                {canEditPreparation && <Button sx={{ alignSelf: 'flex-start' }} href="/database?section=settings" target="_blank" rel="noopener">Database settings</Button>}
                 <PreparationStepField
                   saved={savedPreparation}
                   state={preparationState}
                   value={formData.preparation}
-                  editable={user?.role === 'admin' && isLocalUser(user)}
+                  editable={canEditPreparation}
+                  legacy={legacyPreparation}
                   onChange={(preparation) => setFormData(prev => ({ ...prev, preparation }))}
                 />
-                {formData.prerequisites.some(token => !['ScheduledToRun', 'EvoYeastExperiment', 'Batch'].includes(token.split(':')[0])) && (
-                  <Typography variant="caption" color="text.secondary">
-                    Other steps: {formData.prerequisites.filter(token => !['ScheduledToRun', 'EvoYeastExperiment', 'Batch'].includes(token.split(':')[0])).map(token => token.split(':')[0]).join(', ')}
-                  </Typography>
-                )}
-                {experimentPrepOption === 'schedule' && (
-                  <Stack spacing={1}>
-                    <Stack direction="row" alignItems="center" justifyContent="space-between">
-                      <Typography variant="body2" color="text.secondary">
-                        {labDefinition?.selection_label || 'Saved selection'}
-                      </Typography>
-                      <IconButton aria-label="Refresh lab choices" size="small" onClick={() => loadEvoExperiments()} disabled={evoLoading}>
-                        {evoLoading ? <CircularProgress size={16} /> : <RefreshIcon fontSize="small" />}
-                      </IconButton>
-                    </Stack>
-
-                    <FormControl fullWidth size="small">
-                      <InputLabel id="evoyeast-experiment-select">{labDefinition?.selection_label || 'Saved selection'}</InputLabel>
-                      <Select
-                        labelId="evoyeast-experiment-select"
-                        label={labDefinition?.selection_label || 'Saved selection'}
-                        disabled={!labDefinition || !!labError}
-                        value={selectedExperimentId}
-                        onChange={(event) => updatePreparation('schedule', event.target.value as string)}
-                        displayEmpty
-                      >
-                        <MenuItem value="">Choose…</MenuItem>
-                        {selectedExperimentId && !evoExperiments.some(x => x.experiment_id === selectedExperimentId) && (
-                          <MenuItem value={selectedExperimentId}>{selectedExperimentId} · saved</MenuItem>
-                        )}
-                        {evoExperiments.map((option) => (
-                          <MenuItem key={option.experiment_id} value={option.experiment_id}>
-                            <Stack direction="row" alignItems="center" spacing={1} justifyContent="space-between" sx={{ width: '100%' }}>
-                              <Box>
-                                <Typography variant="body2">{option.user_defined_id ?? option.experiment_id}</Typography>
-                                {option.note && (
-                                  <Typography variant="caption" color="text.secondary">
-                                    {option.note}
-                                  </Typography>
-                                )}
-                                {option.experiment_name &&
-                                  option.experiment_name !== (option.user_defined_id ?? option.experiment_id) && (
-                                    <Typography variant="caption" color="text.secondary">
-                                      {option.experiment_name}
-                                    </Typography>
-                                  )}
-                                {option.user_defined_id &&
-                                  option.user_defined_id !== option.experiment_id && (
-                                    <Typography variant="caption" color="text.secondary">
-                                      ID: {option.experiment_id}
-                                    </Typography>
-                                  )}
-                              </Box>
-                              {option.scheduled_to_run && (
-                                <Chip label="Scheduled" color="success" size="small" />
-                              )}
-                            </Stack>
-                          </MenuItem>
-                        ))}
-                      </Select>
-                    </FormControl>
-
-                    {!evoLoading && !labError && evoExperiments.length === 0 && (
-                      <Typography variant="caption" color="text.secondary">
-                        No choices available.
-                      </Typography>
-                    )}
-                  </Stack>
-                )}
               </Stack>
             </Box>
           </Box>
