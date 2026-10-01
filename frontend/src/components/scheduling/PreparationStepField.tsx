@@ -88,6 +88,9 @@ export default function PreparationStepField({ saved, state, value, onChange, ed
       </TextField>
       {chip && <Box sx={{ flexShrink: 0 }}>{chip}</Box>}
     </Stack>
+    {legacy && !current && (
+      <Typography variant="caption" color="warning.main">With None, this schedule runs without its old preparation ({legacy.steps.join(', ')}).</Typography>
+    )}
     {legacy && current && tools && !tool && (
       <Alert severity="info">Package {current.tool_id} is not installed. In Database → Manage packages, import starter-packages\{current.tool_id}.zip from the RobotControl folder, assign its connections, then save this schedule.</Alert>
     )}

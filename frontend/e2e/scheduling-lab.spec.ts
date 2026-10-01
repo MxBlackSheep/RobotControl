@@ -136,6 +136,7 @@ test('old tokens without a prefill: an administrator save sends an explicit step
   await expect(editor.getByText(message)).toBeVisible();
   await expect(editor.getByText('Saving replaces the old preparation with the step below.')).toBeVisible();
   await expect(editor.getByRole('combobox', { name: 'Database step' })).toContainText('None');
+  await expect(editor.getByText('With None, this schedule runs without its old preparation (Batch:B-01).')).toBeVisible();
   await editor.getByText(message).scrollIntoViewIfNeeded();
   await page.screenshot({ path: `${evidence}/old-selection-batch-390.png` });
   await editor.getByRole('button', { name: 'Save schedule', exact: true }).click();
