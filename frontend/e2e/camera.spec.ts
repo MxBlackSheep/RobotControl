@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 
 /** Failure scenarios written before the camera implementation:
  * - Fit crops or distorts 4:3, widescreen or portrait images on desktop/phone.
@@ -7,7 +7,11 @@ import { expect, test, type Page } from '@playwright/test';
  *   frame or ignores the expanded dialog's size; zoom crops without a visible warning;
  *   zoom/pan can lose the image; a smaller frame resets the viewer's sizing choice.
  * - Source dimensions change but the previous zoom/pan remains applied.
- * - Disconnect closes the inspection surface; stale images look live.
+ * - Disconnect closes the inspection surface; stale images look live; a dropped stream
+ *   clears the image or stays stopped instead of reconnecting by itself; Stop is undone
+ *   by an automatic reconnect.
+ * - Frames are not acknowledged (the server then sends at most two and ends a silent
+ *   viewer after 15 s); a hidden tab keeps receiving frames or does not resume.
  * - Collapsing controls stops health polling or hides recording/errors.
  * - Small screens overflow, touch controls shrink, or keyboard focus is lost.
  * - An expired access token makes status polls and live-view start fail with 401 forever
@@ -105,16 +109,46 @@ test('inspection actions preserve the session and keep crop/zoom explicit', asyn
   await page.screenshot({ path: testInfo.outputPath('inspection.png'), fullPage: true });
 });
 
-test('stale and disconnected views remain recoverable in the expanded reader', async ({ page, request }, testInfo) => {
+const fixture = async (request: APIRequestContext) => (await request.post('/__e2e/camera', { data: {} })).json();
+
+test('a dropped live view keeps the last image as stale, reconnects by itself and resumes', async ({ page, request }, testInfo) => {
   await openLiveView(page);
   await page.getByRole('button', { name: 'Expand live view', exact: true }).click();
+  const sessions = (await fixture(request)).sessions;
   await request.post('/__e2e/camera', { data: { send_frames: false } });
   await expect(page.getByText(/Stale image/)).toBeVisible({ timeout: 15000 });
   await request.post('/__e2e/camera', { data: { disconnect: true } });
   await expect(page.getByRole('dialog', { name: 'Live camera inspection' })).toBeVisible();
-  await expect(page.getByText('Live view disconnected', { exact: true })).toBeVisible();
+  // The last image stays (marked stale) and a new session is created without a click.
+  await expect(page.getByAltText('Live camera stream')).toBeVisible();
+  await expect.poll(async () => (await fixture(request)).sessions, { timeout: 10_000 }).toBeGreaterThan(sessions);
+  await expect(page.getByText('My view: connected', { exact: true })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('reconnected-stale.png'), fullPage: true });
+  await request.post('/__e2e/camera', { data: { send_frames: true } });
+  await expect(page.getByText('Live view receiving frames', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Reconnect live view', exact: true })).toBeEnabled();
-  await page.screenshot({ path: testInfo.outputPath('disconnected.png'), fullPage: true });
+  // After Stop, a closed stream is not reconnected.
+  await page.getByRole('button', { name: 'Stop my live view', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Start my live view', exact: true })).toBeVisible();
+  const stopped = (await fixture(request)).sessions;
+  await page.waitForTimeout(3000);
+  expect((await fixture(request)).sessions).toBe(stopped);
+});
+
+test('frames are acknowledged and a hidden tab pauses the stream', async ({ page, request }) => {
+  await request.post('/__e2e/camera', { data: { controls: [] } });
+  await openLiveView(page);
+  const controls = async () => (await fixture(request)).controls as string[];
+  await expect.poll(async () => (await controls()).filter(type => type === 'ack').length).toBeGreaterThan(1);
+  const setVisibility = (state: string) => page.evaluate(value => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => value });
+    document.dispatchEvent(new Event('visibilitychange'));
+  }, state);
+  await setVisibility('hidden');
+  await expect.poll(controls).toContain('pause');
+  await setVisibility('visible');
+  await expect.poll(controls).toContain('resume');
+  await expect(page.getByText('Live view receiving frames', { exact: true })).toBeVisible();
 });
 
 test('collapsed controls keep polling and phone controls remain touchable', async ({ page }, testInfo) => {

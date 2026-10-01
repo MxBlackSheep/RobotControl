@@ -19,7 +19,7 @@ from backend.services.streaming_types import (
     StreamingSession, StreamingStatus, QualitySettings,
     FrameData
 )
-from backend.services.streaming_session import StreamingSessionHandler
+from backend.services.streaming_session import ACK_TIMEOUT_SECONDS, StreamingSessionHandler
 from backend.services.shared_frame_buffer import get_shared_frame_buffer
 from backend.config import LIVE_STREAMING_CONFIG
 
@@ -397,11 +397,15 @@ class LiveStreamingService:
                 delay = handler.frame_interval - (time.monotonic() - handler.last_frame_time)
                 if delay > 0:
                     await asyncio.sleep(delay)
+                # Wait for the browser to acknowledge before taking (and encoding) the newest
+                # frame: a slow link lowers this viewer's frame rate instead of queueing
+                # seconds of video, and costs no encoding. Silence for 15 s ends the session.
+                await handler.wait_for_window(ACK_TIMEOUT_SECONDS)
                 frame = self._pending_frames.pop(session_id, None)
                 event.clear()
                 if frame is None:
                     continue
-                async with asyncio.timeout(5):
+                async with asyncio.timeout(ACK_TIMEOUT_SECONDS):
                     sent = await handler.send_frame(frame, self._encoder.encode)
                 if sent:
                     self.total_frames_distributed += 1

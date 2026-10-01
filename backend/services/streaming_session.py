@@ -4,8 +4,8 @@ Handles WebSocket communication, frame encoding, and quality adaptation.
 """
 
 import asyncio
-import base64
 import logging
+import struct
 import time
 from typing import Optional
 import numpy as np
@@ -19,6 +19,16 @@ from backend.config import LIVE_STREAMING_CONFIG
 from backend.services.frame_encoder import encode_jpeg
 
 logger = logging.getLogger(__name__)
+
+# Binary frame message: this header, then the JPEG. Little-endian: version, sequence,
+# capture time (Unix seconds), width, height. Errors and status stay JSON text.
+FRAME_HEADER = struct.Struct('<BIdHH')
+FRAME_VERSION = 1
+# Frames the browser has not yet acknowledged (decoded). Two keeps the pipe busy
+# without letting a slow tunnel queue seconds of video.
+MAX_UNACKNOWLEDGED = 2
+# A viewer that acknowledges nothing for this long has gone; its session ends.
+ACK_TIMEOUT_SECONDS = 15
 
 
 class StreamingSessionHandler:
@@ -68,6 +78,12 @@ class StreamingSessionHandler:
         self.is_running = False
         self._stopped = False
         self.is_paused = False
+
+        # Flow control: sequence of the last frame sent and the last one acknowledged.
+        self.sent_sequence = 0
+        self.acknowledged_sequence = 0
+        self._window_open = asyncio.Event()
+        self._window_open.set()
         
         logger.info(f"StreamingSessionHandler initialized for session {session.session_id}")
     
@@ -141,26 +157,21 @@ class StreamingSessionHandler:
         
         try:
             # Encode frame
-            encoded_frame = (await encoder(frame_data, self.quality_settings) if encoder
-                             else await asyncio.to_thread(self._encode_frame, frame_data.frame))
-            if encoded_frame is None:
+            encoded = (await encoder(frame_data, self.quality_settings) if encoder
+                       else await asyncio.to_thread(self._encode_frame, frame_data.frame))
+            if encoded is None:
                 return False
-            
-            # Create message
-            message = StreamFrame(
-                type="frame",
-                data=encoded_frame,
-                timestamp=frame_data.timestamp.timestamp(),
-                frame_number=frame_data.frame_number
-            )
-            
-            # Send via WebSocket
-            await self.websocket.send_json(message.to_dict())
-            
+            jpeg, width, height = encoded
+
+            self.sent_sequence += 1
+            header = FRAME_HEADER.pack(FRAME_VERSION, self.sent_sequence & 0xFFFFFFFF,
+                                       frame_data.timestamp.timestamp(), width, height)
+            await self.websocket.send_bytes(header + jpeg)
+
             # Update statistics
             self.session.frames_sent += 1
             self.frames_in_period += 1
-            frame_size = len(encoded_frame)
+            frame_size = FRAME_HEADER.size + len(jpeg)
             self.session.bytes_sent += frame_size
             self.bytes_in_period += frame_size
             
@@ -187,31 +198,40 @@ class StreamingSessionHandler:
             control: Control message
         """
         try:
-            if control.type == "start":
-                self.is_paused = False
-                self.session.is_active = True
-                await self._send_status()
-                
-            elif control.type == "stop":
-                self.is_paused = True
-                self.session.is_active = False
-                await self._send_status()
-                
-            elif control.type == "quality":
-                quality_level = control.parameters.get("quality", "adaptive")
-                self.update_quality(quality_level)
-                await self._send_status()
-                
-            elif control.type == "heartbeat":
+            if control.type == "ack":
+                self.acknowledge(control.parameters.get("sequence"))
+
+            elif control.type in ("pause", "resume"):
+                # A hidden browser tab pauses; frames in flight no longer count against it.
+                self.is_paused = control.type == "pause"
+                self.acknowledged_sequence = self.sent_sequence
+                self._window_open.set()
                 self.session.update_activity()
                 await self._send_status()
-            
+
             logger.debug(f"Handled control message: {control.type} for session {self.session.session_id}")
             
         except Exception as e:
             logger.error(f"Error handling control for session {self.session.session_id}: {e}")
             await self._send_error(str(e))
     
+    def acknowledge(self, sequence) -> None:
+        """The browser decoded frame `sequence` (and every earlier one)."""
+        if isinstance(sequence, int) and self.acknowledged_sequence < sequence <= self.sent_sequence:
+            self.acknowledged_sequence = sequence
+            self.session.update_activity()
+            self._window_open.set()
+
+    async def wait_for_window(self, timeout: float = ACK_TIMEOUT_SECONDS) -> None:
+        """Wait until fewer than MAX_UNACKNOWLEDGED frames are in flight.
+
+        Raises TimeoutError when the viewer acknowledges nothing for `timeout` seconds.
+        """
+        async with asyncio.timeout(timeout):
+            while self.sent_sequence - self.acknowledged_sequence >= MAX_UNACKNOWLEDGED:
+                self._window_open.clear()
+                await self._window_open.wait()
+
     async def receive_control(self) -> Optional[StreamControl]:
         """
         Receive control message from client.
@@ -250,16 +270,8 @@ class StreamingSessionHandler:
         
         logger.warning(f"Degraded quality for session {self.session.session_id}")
     
-    def _encode_frame(self, frame: np.ndarray) -> Optional[str]:
-        """
-        Encode frame to JPEG and base64.
-        
-        Args:
-            frame: Raw frame data (BGR format)
-            
-        Returns:
-            Base64 encoded JPEG string or None if encoding fails
-        """
+    def _encode_frame(self, frame: np.ndarray):
+        """Encode a BGR frame to (jpeg bytes, width, height), or None on failure."""
         try:
             return encode_jpeg(frame, self.quality_settings.resolution_scale, self.quality_settings.jpeg_quality)
         except Exception as exc:

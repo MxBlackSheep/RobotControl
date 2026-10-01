@@ -26,7 +26,7 @@ Show camera capture and recording separately from Streaming Session's browser co
 
 All camera JSON requests use the shared `api` client, so an expired access token is renewed once instead of failing with 401 on a screen left open. Polling and in-flight actions reset when the signed-in user changes, not when the token is renewed. Recording downloads stay on `fetch` (ranged, resumable, with progress) and call `attemptTokenRefresh` once on a 401. Each error has one owner: `archiveError` for the recordings list, `error` for downloads (archive dialog), `liveError` for the viewing session (shown in the viewer), and a failed live-view status read clears the old status and shows **Live view status unavailable** with Retry.
 
-Reconnect camera affects the shared source and can interrupt all viewers. Reconnect live view closes/replaces only that user's streaming session. It never changes recording intent or starts another camera. Stop My Stream remains independent of recording.
+Reconnect camera affects the shared source and can interrupt all viewers. Reconnect live view closes/replaces only that user's streaming session. `hooks/useLiveViewSocket.ts` owns the socket: it decodes binary frames off-screen, shows only newer sequences from the current socket, acknowledges each frame, releases object URLs a second after replacement, pauses while the tab is hidden, and after an unexpected close keeps the last image (stale after 10 s) and reconnects automatically with jittered back-off (1 s to 30 s; waits for `online`; never after Stop or unmount). The page owns the session requests it reconnects with. It never changes recording intent or starts another camera. Stop My Stream remains independent of recording.
 
 ## Frames and performance
 
