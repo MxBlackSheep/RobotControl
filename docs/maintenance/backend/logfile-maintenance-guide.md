@@ -25,7 +25,10 @@ TCP peer into a local client. A tunnel or proxy on this computer (for example
 cloudflared) connects from loopback, so a loopback peer is remote whenever it
 carries `cf-connecting-ip`, `cf-ray`, `true-client-ip`, `x-real-ip`, `forwarded`
 or any non-loopback `X-Forwarded-For` entry. Uvicorn peer rewriting is disabled
-in both launch modes.
+in both launch modes. A tunnel that adds none of these headers (for example
+`ssh -R` port forwarding, or a proxy configured to strip them) still looks local:
+do not expose the app that way. Audit logs record the proxy-reported address only
+for loopback peers; a LAN peer is recorded by its own address.
 
 Requests specify an allowed source ID and relative path, never arbitrary disk
 paths. Absolute paths, traversal and paths resolving outside the source are

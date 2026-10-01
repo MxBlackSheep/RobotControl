@@ -47,10 +47,13 @@ async def get_connection_context(request: Request) -> ConnectionContext:
         not is_local_ip(address) for address in forwarded_for
     )
 
-    # Report the address the nearest proxy vouches for, never the client-supplied first entry.
-    reported = next((normalize_ip(request.headers.get(name)) for name in _PROXY_CLIENT_HEADERS
-                     if normalize_ip(request.headers.get(name))), None)
-    client_ip: Optional[str] = reported or (forwarded_for[-1] if forwarded_for else None) or peer_ip
+    # Only a proxy on this computer (loopback peer) can vouch for another address; a LAN peer's
+    # headers are its own claims. Never use the client-supplied first X-Forwarded-For entry.
+    client_ip: Optional[str] = peer_ip
+    if is_local_ip(peer_ip):
+        reported = next((normalize_ip(request.headers.get(name)) for name in _PROXY_CLIENT_HEADERS
+                         if normalize_ip(request.headers.get(name))), None)
+        client_ip = reported or (forwarded_for[-1] if forwarded_for else None) or peer_ip
 
     if not is_local_ip(peer_ip):
         classification = classify_ip(peer_ip)
