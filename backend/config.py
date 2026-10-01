@@ -65,6 +65,7 @@ CAMERA_CONFIG = {
     "recording_duration_minutes": 1,        # Duration of each video segment in minutes
     "archive_duration_minutes": 15,         # Minutes of clips to archive per experiment
     "rolling_clips_count": 120,             # Maximum rolling clips to maintain
+    "clip_h264_kbps": 1000,                 # H.264 bitrate finalized clips are stored at (docs/plans/h264-rolling-clips.md)
     "default_fps": 30,                      # Default camera frame rate
     "default_resolution": [640, 480]        # Default camera resolution [width, height]
 }

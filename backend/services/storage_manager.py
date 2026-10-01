@@ -16,6 +16,7 @@ from collections import deque
 import time
 
 from backend.config import AUTO_RECORDING_CONFIG, VIDEO_PATH
+from backend.services.clip_transcoder import clip_files, finalized_clips
 from backend.services.automatic_recording_types import (
     ArchiveResult, StorageCleanupResult
 )
@@ -105,15 +106,13 @@ class StorageManager:
                 # Get all rolling clips sorted by modification time (oldest first)
                 clips = []
                 if self.rolling_clips_path.exists():
-                    # Look for both mp4 and avi files (camera can create either format)
-                    for pattern in ["*.mp4", "*.avi"]:
-                        for clip_file in self.rolling_clips_path.glob(pattern):
-                            if clip_file.is_file() and ".partial." not in clip_file.name:
-                                try:
-                                    stat = clip_file.stat()
-                                    clips.append((clip_file, stat.st_mtime, stat.st_size))
-                                except (OSError, FileNotFoundError) as e:
-                                    logger.warning(f"Could not stat rolling clip {clip_file}: {e}")
+                    # One entry per clip: while it is stored as H.264 it may briefly have both formats.
+                    for clip_file in finalized_clips(self.rolling_clips_path):
+                        try:
+                            stat = clip_file.stat()
+                            clips.append((clip_file, stat.st_mtime, sum(f.stat().st_size for f in clip_files(clip_file))))
+                        except (OSError, FileNotFoundError) as e:
+                            logger.warning(f"Could not stat rolling clip {clip_file}: {e}")
                 
                 # Sort by modification time (oldest first)
                 clips.sort(key=lambda x: x[1])
@@ -125,7 +124,8 @@ class StorageManager:
                     
                     for clip_file, _, size_bytes in clips[:clips_to_remove]:
                         try:
-                            clip_file.unlink()
+                            for format_file in clip_files(clip_file):
+                                format_file.unlink()
                             clip_file.with_suffix(".json").unlink(missing_ok=True)
                             result.rolling_clips_removed += 1
                             result.storage_freed_bytes += size_bytes
@@ -349,13 +349,10 @@ class StorageManager:
         try:
             # Count rolling clips and calculate size
             if self.rolling_clips_path.exists():
-                rolling_clips = []
-                # Look for both mp4 and avi files (camera can create either format)
-                for pattern in ["*.mp4", "*.avi"]:
-                    rolling_clips.extend(list(self.rolling_clips_path.glob(pattern)))
+                rolling_clips = finalized_clips(self.rolling_clips_path)
                 stats["rolling_clips_count"] = len(rolling_clips)
                 stats["rolling_clips_size_bytes"] = sum(
-                    f.stat().st_size for f in rolling_clips if f.is_file()
+                    f.stat().st_size for clip in rolling_clips for f in clip_files(clip)
                 )
             
             # Count experiment folders and calculate size
