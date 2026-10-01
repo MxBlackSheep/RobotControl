@@ -139,6 +139,9 @@ class ScheduledExperiment:
     archived: bool = False
     timeout_config: Optional[TimeoutConfig] = None
     prerequisites: List[str] = None  # Database flags to set before execution
+    # A database package's preparation step, pinned when a local administrator saved it:
+    # {package_id, tool_id, package_version, sha256, source_id, inputs, attached_by, attached_at}.
+    preparation: Optional[Dict[str, Any]] = None
     notification_contacts: List[str] = None  # Contact IDs to notify on issues
     recovery_required: bool = False
     recovery_note: Optional[str] = None
@@ -181,6 +184,7 @@ class ScheduledExperiment:
             "archived": self.archived,
             "timeout_config": self.timeout_config.to_dict() if self.timeout_config else None,
             "prerequisites": self.prerequisites,
+            "preparation": self.preparation,
             "notification_contacts": self.notification_contacts,
             "recovery_required": self.recovery_required,
             "recovery_note": self.recovery_note,
@@ -238,6 +242,7 @@ class ScheduledExperiment:
             archived=data.get("archived", False),
             timeout_config=timeout_config,
             prerequisites=data.get("prerequisites", []),
+            preparation=data.get("preparation"),
             notification_contacts=data.get("notification_contacts", []),
             recovery_required=data.get("recovery_required", False),
             recovery_note=data.get("recovery_note"),

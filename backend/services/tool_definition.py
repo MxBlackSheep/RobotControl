@@ -42,8 +42,10 @@ def definition(files, entry_file=None):
     allowed = {'name', 'kind', 'inputs', 'connections', 'confirm'}
     if not isinstance(config, dict) or set(config) - allowed:
         raise PackageError('TOOL supports name, kind, inputs, connections and confirm.')
-    if config.get('kind') not in {'report', 'operation'}:
-        raise PackageError('Set TOOL kind to report or operation.')
+    if config.get('kind') not in {'report', 'operation', 'preparation'}:
+        raise PackageError('Set TOOL kind to report, operation or preparation.')
+    if config['kind'] == 'preparation' and 'confirm' in config:
+        raise PackageError('A preparation step has no confirm field: saving the schedule is the review.')
     if not isinstance(config.get('name'), str) or not config['name'].strip():
         raise PackageError('Give the tool a name.')
     raw_inputs = config.get('inputs', {})
@@ -65,7 +67,8 @@ def definition(files, entry_file=None):
     sources = config.get('connections', ['primary'] if config['kind'] == 'report' else sorted({f['lookup']['source'] for f in fields if 'lookup' in f}))
     module = filename[:-3]
     functions = {n.name: n for n in trees[filename].body if isinstance(n, ast.FunctionDef)}
-    for name in (['run', 'preview'] if config['kind'] == 'operation' else ['run']):
+    required = {'operation': ['run', 'preview'], 'report': ['run'], 'preparation': ['prepare']}[config['kind']]
+    for name in required:
         fn = functions.get(name)
         if (not fn or [a.arg for a in fn.args.posonlyargs + fn.args.args] != ['context', 'inputs']
                 or any(x is None for x in fn.args.kw_defaults)):
@@ -90,7 +93,8 @@ def definition(files, entry_file=None):
                 elif top not in sys.stdlib_module_names and top != '__future__':
                     raise PackageError(f'Library {top} is not bundled. Adapt the script or upgrade RobotControl.')
     tool = dict(name=config['name'].strip(), kind=config['kind'], inputs=fields, sources=sources,
-                entrypoint=f'{module}:run', preview=f'{module}:preview' if config['kind'] == 'operation' else None,
+                entrypoint=f'{module}:prepare' if config['kind'] == 'preparation' else f'{module}:run',
+                preview=f'{module}:preview' if config['kind'] == 'operation' else None,
                 confirmation_field=config.get('confirm'))
     # Reuse the installed-package contract for input types, dependencies and limits.
     manifest = Manifest.model_validate(dict(contract_version=2, id='new-tool', name=tool['name'], version='1.0.0',

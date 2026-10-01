@@ -1,7 +1,9 @@
 """Installation-selected laboratory preparation; never a robot/run-state reader.
 
 Adapters own their schema and transactions. Scheduler storage owns the durable
-preparation receipt. No uploaded Python, SQL mapping language or hot reloading.
+preparation receipt. Adapters run no uploaded Python, SQL mapping language or hot
+reloading. A schedule may add one pinned database package step (kind "preparation"),
+which DatabaseTools runs in a separate, time-limited process under the same receipt.
 """
 from contextlib import contextmanager
 import copy
@@ -205,6 +207,19 @@ class LabIntegration:
 
     def prepare(self, experiment, execution_id, steps):
         self.adapter.validate(steps)  # All tokens checked before the first write.
+        # A database package step (uploaded Python) runs after the adapter's step, in a
+        # time-limited child process (DatabaseTools.prepare_for_run). Adapters never run
+        # uploaded Python. Its pinned package and connection are checked before any write.
+        preparation = getattr(experiment, 'preparation', None)
+        tools = None
+        if preparation:
+            from backend.services.database_tools import get_database_tools
+            tools = get_database_tools()
+            state = tools.preparation_state(preparation)
+            if state != 'ready':
+                raise SafetyConflict('The database preparation step '
+                    + ('is no longer installed' if state == 'missing' else 'changed after this schedule was saved')
+                    + '. A local administrator must review and save the schedule.')
         with self.storage._get_connection() as conn:
             conn.execute('BEGIN IMMEDIATE')
             bound = conn.execute('SELECT signature FROM LabInstallation WHERE id=1').fetchone()
@@ -216,23 +231,42 @@ class LabIntegration:
             conn.execute('INSERT OR IGNORE INTO LabScheduleBinding(schedule_id,target) VALUES (?,?)', (experiment.schedule_id, self.target))
             if conn.execute('SELECT 1 FROM LabPreparation WHERE execution_id=?', (execution_id,)).fetchone():
                 raise SafetyConflict('Preparation was already attempted for this execution. Review recovery; it will not be repeated.')
-            conn.execute('INSERT INTO LabPreparation(execution_id,identity,steps,status) VALUES (?,?,?,?)',
-                         (execution_id, json.dumps(self.identity), json.dumps(steps), 'preparing'))
+            conn.execute('INSERT INTO LabPreparation(execution_id,identity,steps,status,package) VALUES (?,?,?,?,?)',
+                         (execution_id, json.dumps(self.identity), json.dumps(steps), 'preparing',
+                          json.dumps(preparation) if preparation else None))
             conn.commit()
+        adapter_done = False
         try:
             self.adapter.prepare(experiment, steps)
-            self._result(execution_id, 'prepared')
-        except Exception:
+            adapter_done = True
+            message = None
+            if preparation:
+                from datetime import datetime
+                run = dict(schedule_id=experiment.schedule_id, execution_id=execution_id,
+                           experiment_name=experiment.experiment_name, experiment_path=experiment.experiment_path,
+                           scheduled_for=experiment.start_time.isoformat() if experiment.start_time else None,
+                           started_at=datetime.now().isoformat())
+                message = tools.prepare_for_run(preparation, run)
+            self._result(execution_id, 'prepared', message)
+        except Exception as exc:
             # Cross-database changes and process launch cannot share a transaction.
             # Leave a durable receipt and use the existing operator recovery flow.
-            self._result(execution_id, 'failed')
-            self.storage.mark_recovery_atomic(experiment.schedule_id,
-                'Lab preparation failed. Check laboratory data before resuming.', 'system', snapshot=experiment)
+            from backend.services.database_tools import PreparationFailed
+            status = exc.status if isinstance(exc, PreparationFailed) else 'failed'
+            self._result(execution_id, status, str(exc)[:2000])
+            if isinstance(exc, PreparationFailed):
+                note = (('Lab selection applied. ' if adapter_done and steps else '')
+                        + ('Database step failed; nothing it wrote was committed. ' if status == 'failed'
+                           else 'Database step outcome unknown: check the database before resuming. ')
+                        + str(exc))[:1000]
+            else:
+                note = 'Lab preparation failed. Check laboratory data before resuming.'
+            self.storage.mark_recovery_atomic(experiment.schedule_id, note, 'system', snapshot=experiment)
             raise
 
-    def _result(self, execution_id, status):
+    def _result(self, execution_id, status, message=None):
         with self.storage._get_connection() as conn:
-            conn.execute('UPDATE LabPreparation SET status=? WHERE execution_id=?', (status, execution_id))
+            conn.execute('UPDATE LabPreparation SET status=?, message=? WHERE execution_id=?', (status, message, execution_id))
             conn.commit()
 
 

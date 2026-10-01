@@ -25,6 +25,17 @@ from backend.utils.data_paths import get_path_manager
 
 logger = logging.getLogger(__name__)
 REPORT_TIMEOUT_SECONDS = 300
+# Preparation is short data setup before a launch; a longer step is treated as hung.
+PREPARATION_TIMEOUT_SECONDS = 120
+
+
+class PreparationFailed(Exception):
+    """A preparation step did not complete. status: 'failed' (nothing was committed) or
+    'unknown' (the commit may have happened; an operator must check before resuming)."""
+
+    def __init__(self, status, message):
+        super().__init__(message)
+        self.status = status
 
 
 def digest(value):
@@ -35,6 +46,7 @@ class DatabaseTools:
     def __init__(self, root, defaults, database=None, guard=None):
         self.root = Path(root)
         self.catalogue = PackageCatalogue(self.root / "packages", defaults)
+        self.catalogue.in_use = self.schedules_using
         self.database = database or get_database_service()
         self.sources = ReportSources(self.root)
         from backend.services.database_access import DatabaseAccess
@@ -342,6 +354,123 @@ class DatabaseTools:
         finally:
             reservation.__exit__(None, None, None)
             self.slots.release()
+
+    @staticmethod
+    def schedules_using(package_id):
+        """Names of active schedules whose preparation step uses this package."""
+        from backend.services.scheduling.database_manager import get_scheduling_database_manager
+        return [schedule.experiment_name
+                for schedule in get_scheduling_database_manager().get_schedules(active_only=True, archived_only=False)
+                if (schedule.preparation or {}).get('package_id') == package_id]
+
+    def pin_preparation(self, tool_id, inputs, actor):
+        """Validate a preparation step for a schedule and pin what it will run: the package
+        file hash and the operation connection. Runs only the declared lookup queries."""
+        with self.catalogue.reserve(tool_id, 'preparation') as (entry, tool):
+            package_id = entry['manifest']['id']
+            inputs = tool.validate_values(inputs or {})
+            with self.sources.lock:
+                target = self.sources.operation_target(package_id)
+                snapshot = self.sources.snapshot(package_id, tool.sources)
+            with self.sources.connections(snapshot) as connections:
+                self.validate_choices(tool, inputs, connections)
+            from backend.utils.datetime import utc_now_as_local_naive
+            return dict(package_id=package_id, tool_id=tool.id, tool_name=tool.name,
+                        package_version=entry['manifest']['version'], sha256=entry['sha256'],
+                        source_id=target['id'], inputs=inputs, attached_by=actor,
+                        attached_at=utc_now_as_local_naive().isoformat())
+
+    def preparation_state(self, preparation):
+        """ready | needs_review (package or connection changed since saving) | missing."""
+        if not preparation or preparation.get('invalid'):
+            return 'missing' if preparation else None
+        with self.catalogue.lock:
+            try:
+                _, entry, _ = self.catalogue.resolve(preparation.get('tool_id'), 'preparation')
+            except PackageError:
+                return 'missing'
+            if entry['manifest']['id'] != preparation.get('package_id') or entry['sha256'] != preparation.get('sha256'):
+                return 'needs_review'
+        try:
+            target = self.sources.operation_target(preparation['package_id'])
+        except PackageError:
+            return 'needs_review'
+        return 'ready' if target['id'] == preparation.get('source_id') else 'needs_review'
+
+    def prepare_for_run(self, preparation, run):
+        """Run a schedule's pinned preparation step before its launch.
+
+        Holds no scheduler lock: the caller has already registered the execution, so
+        database_change_guard refuses manual operations meanwhile. Returns the step's
+        message; raises PreparationFailed otherwise.
+        """
+        if not preparation or preparation.get('invalid'):
+            raise PreparationFailed('failed', 'The saved preparation step is unreadable. Review the schedule.')
+        try:
+            reservation = self.catalogue.reserve(preparation['tool_id'], 'preparation')
+            entry, tool = reservation.__enter__()
+        except PackageError as exc:
+            raise PreparationFailed('failed', f'Preparation step unavailable: {exc}') from exc
+        try:
+            if entry['manifest']['id'] != preparation['package_id'] or entry['sha256'] != preparation['sha256']:
+                raise PreparationFailed('failed', 'The package changed after this schedule was saved. Review and save the schedule again.')
+            try:
+                with self.sources.lock:
+                    target = self.sources.operation_target(preparation['package_id'])
+                    snapshot = self.sources.snapshot(preparation['package_id'], tool.sources)
+                inputs = tool.validate_values(preparation.get('inputs') or {})
+            except PackageError as exc:
+                raise PreparationFailed('failed', str(exc)) from exc
+            # A rotated password keeps the connection id; another database does not.
+            if target['id'] != preparation['source_id']:
+                raise PreparationFailed('failed', 'The package uses a different connection than when this schedule was saved. Review the schedule.')
+            outcome = self._run_preparation(entry, tool, inputs, snapshot, target, run)
+        finally:
+            reservation.__exit__(None, None, None)
+        return outcome
+
+    def _run_preparation(self, entry, tool, inputs, snapshot, target, run):
+        from backend.services.report_worker import run_preparation
+        context = multiprocessing.get_context('spawn')
+        receiver, sender = context.Pipe(duplex=False)
+        process = context.Process(target=run_preparation, daemon=True,
+            args=(sender, str(self.catalogue.root), entry, tool.model_dump(), inputs, snapshot, target, run))
+        committing = False
+        try:
+            process.start()
+            sender.close()
+            deadline = time.monotonic() + PREPARATION_TIMEOUT_SECONDS
+            while True:
+                if receiver.poll(0.2):
+                    try:
+                        message = receiver.recv()
+                    except EOFError:
+                        break
+                    if message.get('committing'):
+                        committing = True
+                    elif message.get('committed'):
+                        return message.get('message') or 'Preparation completed.'
+                    elif message.get('error'):
+                        if committing:
+                            break
+                        raise PreparationFailed('failed', message['error'])
+                    continue
+                if time.monotonic() >= deadline:
+                    # Even before 'committing' a stopped process is not proof of a rollback
+                    # an operator can rely on before a robot run, so the outcome is unknown.
+                    raise PreparationFailed('unknown',
+                        'Preparation exceeded the two-minute limit and was stopped. Its database changes may or may not '
+                        'have been committed: check the database before resuming.')
+                if not process.is_alive() and not receiver.poll(0):
+                    break
+            raise PreparationFailed('unknown', 'The preparation process stopped without confirming its result. '
+                                    'Check the database before resuming.')
+        finally:
+            sender.close(); receiver.close()
+            if process.pid:
+                process.join(timeout=1)
+                if process.is_alive():
+                    process.terminate(); process.join(timeout=5)
 
     def report(self, key, owner):
         with self.lock:

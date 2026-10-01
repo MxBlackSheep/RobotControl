@@ -23,6 +23,7 @@ from backend.services.scheduling.experiment_executor import resolve_experiment_p
 from backend.models import ScheduledExperiment, TimeoutConfig, CalendarEvent, ApiResponse, NotificationContact, NotificationSettings
 from backend.api.dependencies import ConnectionContext, require_local_access
 from backend.utils.audit import log_action
+from backend.services.database_packages import PackageError
 from backend.utils.secret_cipher import encrypt_secret, SecretCipherError
 
 from backend.utils.datetime import (
@@ -71,6 +72,50 @@ def get_services():
     db_mgr = get_scheduling_database_manager()
     proc_monitor = get_hamilton_process_monitor()
     return scheduler, db_mgr, proc_monitor
+
+
+def _schedule_payload(schedule: ScheduledExperiment) -> Dict[str, Any]:
+    """to_dict plus the derived state of a database preparation step (never stored)."""
+    payload = schedule.to_dict()
+    if schedule.preparation:
+        try:
+            from backend.services.database_tools import get_database_tools
+            payload["preparation_state"] = get_database_tools().preparation_state(schedule.preparation)
+        except Exception:
+            logger.exception("Could not check the preparation step of %s", schedule.schedule_id)
+            payload["preparation_state"] = "unknown"
+    return payload
+
+
+def _requested_preparation(schedule_data: Dict[str, Any], current_user: dict, existing: Optional[Dict[str, Any]] = None):
+    """The schedule's database preparation step after this request.
+
+    Absent from the request: unchanged. Attaching, changing or removing a step schedules
+    uploaded Python to write unattended, so it needs an administrator (the routes already
+    require a local session). The server pins the package hash and connection; the client
+    sends only the tool and its inputs.
+    """
+    if "preparation" not in schedule_data:
+        return existing
+    requested = schedule_data.get("preparation")
+    is_admin = current_user.get("role") == "admin"
+    from backend.services.database_tools import get_database_tools
+    tools = get_database_tools()
+    if requested is None:
+        if existing is not None and not is_admin:
+            raise HTTPException(status_code=403, detail="Only a local administrator can remove a database preparation step")
+        return None
+    if not isinstance(requested, dict) or not isinstance(requested.get("tool_id"), str) or not isinstance(requested.get("inputs", {}), dict):
+        raise HTTPException(status_code=400, detail="preparation must be {tool_id, inputs}")
+    unchanged = bool(existing) and requested["tool_id"] == existing.get("tool_id") and requested.get("inputs", {}) == existing.get("inputs", {})
+    if unchanged and (not is_admin or tools.preparation_state(existing) == "ready"):
+        return existing
+    if not is_admin:
+        raise HTTPException(status_code=403, detail="Only a local administrator can attach or change a database preparation step")
+    try:
+        return tools.pin_preparation(requested["tool_id"], requested.get("inputs", {}), current_user.get("username", "unknown"))
+    except PackageError as exc:
+        raise HTTPException(status_code=getattr(exc, "status", 400), detail=str(exc)) from exc
 
 
 def _normalize_contact_ids(contact_ids: Optional[Any], db_mgr) -> List[str]:
@@ -840,6 +885,7 @@ def create_schedule(
             is_active=schedule_data.get("is_active", True),
             timeout_config=timeout_config,
             prerequisites=schedule_data.get("prerequisites", []),
+            preparation=_requested_preparation(schedule_data, current_user),
             notification_contacts=notification_contact_ids,
             created_at=None,  # Will be set in __post_init__
             updated_at=None   # Will be set in __post_init__
@@ -929,7 +975,7 @@ def list_schedules(
         if schedules:
             for schedule in schedules:
                 try:
-                    schedule_dict = schedule.to_dict()
+                    schedule_dict = _schedule_payload(schedule)
                     schedule_list.append(schedule_dict)
                     logger.debug(f"Added schedule: {schedule.experiment_name}")
                 except Exception as e:
@@ -1048,7 +1094,7 @@ def get_schedule(
         response = ApiResponse(
             success=True,
             message="Schedule retrieved successfully",
-            data=schedule.to_dict()
+            data=_schedule_payload(schedule)
         )
         
         return response.to_dict()
@@ -1109,6 +1155,8 @@ def update_schedule(
             updated_schedule.is_active = update_data["is_active"]
         if "prerequisites" in update_data:
             updated_schedule.prerequisites = update_data["prerequisites"] or []
+        # Outside the scheduler lock: pinning re-checks lookup choices against the database.
+        updated_schedule.preparation = _requested_preparation(update_data, current_user, base_schedule.preparation)
         if "timeout_config" in update_data:
             updated_schedule.timeout_config = _normalize_timeout_config(update_data["timeout_config"])
         if "notification_contacts" in update_data:
