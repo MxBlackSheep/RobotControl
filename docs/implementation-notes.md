@@ -1,3 +1,9 @@
+## 2026-10-01 Packaged database check uses a real report connection
+
+- `packaged_database_smoke` stopped with 409 "Connection setup needed" before generating culture history (seen on the `camera-live-view-b7027e0` and `database-preparation-fa8d0c4` candidates). Its uploaded fixture package swapped the server's database and report sources in module-level code. That ran only while installation imported packages, which ended in 10bf346, and reports now run in a spawned process that the swap could not reach. The product was right; the check was stale.
+- The check now saves a read-only connection to a disposable `.\HAMILTON` copy of the `DatabaseFixture` rows and assigns it to each package through the administrator routes. The fixture package proves activation by running its report. The default run therefore needs local SQL Server, like `--wizard`. The check also runs when started by file path.
+- Evidence: `test-output/packaged-smoke-cbc6771/{default,report-package,wizard}/packaged-results.json` on candidate `dist/packaged-smoke-cbc6771`.
+
 ## 2026-10-01 A database step before a scheduled run
 
 - Database packages gain a third kind, **preparation**: `prepare(context, inputs)` that runs unattended before a scheduled method starts. Before, only the two built-in lab adapters ran before a run, and their module stated that no uploaded Python ever would.
