@@ -181,7 +181,7 @@ class RunLogMonitor:
         state = RunObservation(execution.execution_id, schedule.schedule_id, schedule.to_dict(), execution.to_dict(),
             method_path=str(method_path), method_name=PureWindowsPath(str(method_path)).stem,
             threshold_minutes=schedule.log_inactivity_threshold_minutes,
-            launched_at=datetime.now().isoformat(), terminate_schedule=terminate_schedule)
+            launched_at=datetime.now().astimezone().isoformat(), terminate_schedule=terminate_schedule)
         try:
             state.sql_boundary, state.previous_guid = self.reader.boundary(state.method_path)
         except Exception as exc:
@@ -322,7 +322,13 @@ class RunLogMonitor:
             state = next((s for s in self._states.values() if s.schedule_id == schedule_id and not s.finished), None)
             if state is None:
                 return None
-            return {"state": state.state, "run_guid": state.run_guid,
+            try:
+                # Old observations stored server-local wall time. Qualify it using
+                # the launch date's offset, so browsers cannot reinterpret it locally.
+                launched_at = datetime.fromisoformat(state.launched_at).astimezone().isoformat() if state.launched_at else None
+            except (ValueError, TypeError, OverflowError, OSError):
+                launched_at = None
+            return {"state": state.state, "run_guid": state.run_guid, "launched_at": launched_at,
                     "run_state": state.run_state, "raw_run_state": state.raw_run_state,
                     "trace_filename": Path(state.trace_path).name if state.trace_path else None,
                     "last_activity_at": state.last_activity_at, "observed_at": state.observed_at,

@@ -47,6 +47,14 @@ procedures or change data.
 
 ## Restore feedback
 
+The Restore form is capped at 1120px and aligns with the module heading. Source
+tabs sit on the form surface, without a raised nested panel. Refresh List sits beside
+the managed backup selector (below on phones). The selector shows the filename;
+the full selection details and description appear once below it. Metadata retains
+the Valid/Invalid indicator and its expandable database/server/timestamp fields.
+Actions follow a divider. All restore confirmations and request ownership remain
+in `DatabaseRestore.tsx`.
+
 Restore requests use a 660-second timeout: the backend's 600-second restore allowance
 plus a minute of overhead. Other API calls retain the shared 10-second timeout.
 The confirmation stays busy with Restore and Cancel disabled until a response or timeout.

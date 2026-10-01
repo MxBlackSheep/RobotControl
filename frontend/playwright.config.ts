@@ -2,6 +2,8 @@ import { defineConfig } from '@playwright/test';
 import path from 'node:path';
 export default defineConfig({
   testDir: './e2e', timeout: 60000, workers: 1,
+  // Screenshot review (playwright.visual.config.ts) is not part of the behaviour suite.
+  testIgnore: ['**/visual/**'],
   globalTeardown: './e2e/global-teardown.ts',
   reporter: [['list'], ['html', { outputFolder: '../test-output/viewer-verification/report', open: 'never' }], ['json',{outputFile:'../test-output/viewer-verification/results.json'}]],
   outputDir: '../test-output/viewer-verification/results',

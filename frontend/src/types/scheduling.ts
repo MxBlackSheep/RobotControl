@@ -234,6 +234,8 @@ export interface EvoYeastExperimentOption {
 export interface RunningJobDetail {
   schedule_id: string;
   experiment_name: string;
+  experiment_path?: string | null;
+  estimated_duration?: number | null; // minutes, entered by the user
   priority: string;
   queued_time: string; // ISO format
   retry_count: number;
@@ -243,6 +245,7 @@ export interface RunningJobDetail {
     run_state?: string | null;
     raw_run_state?: string | null;
     run_guid?: string | null;
+    launched_at?: string | null; // offset-qualified ISO time when HxRun was launched
     trace_filename?: string | null;
     last_activity_at?: string | null;
     observed_at?: string | null;
@@ -348,7 +351,8 @@ export interface QueueStatusResponse extends ApiResponse<{
 }> {}
 
 export interface SchedulerServiceResponse extends ApiResponse<{
-  status: 'running' | 'stopped';
+  // Matches SchedulerEngine.get_status(); there is no 'status' string field.
+  is_running: boolean;
   manual_recovery?: ManualRecoveryState | null;
 }> {}
 

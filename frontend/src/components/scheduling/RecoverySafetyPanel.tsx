@@ -1,7 +1,10 @@
+import { DetailTitle } from '../PageLayout';
 import { useState } from 'react';
 import { Alert, Button, Card, CardContent, Checkbox, FormControlLabel, Stack, TextField, Typography } from '@mui/material';
 import { ManualRecoveryState } from '../../types/scheduling';
 import { api } from '../../services/api';
+import StatusChip from '../StatusChip';
+import { fontMono } from '../../theme';
 
 interface Props {
   state: ManualRecoveryState | null;
@@ -39,7 +42,7 @@ export default function RecoverySafetyPanel({ state, isLocal, onChanged }: Props
     }
   };
 
-  return <Stack spacing={2}>
+  return <Stack spacing={2} sx={{ maxWidth: 880 }}>
     <Alert severity={!healthy ? 'error' : state?.active || state?.resume_required ? 'warning' : 'info'}>
       {!healthy ? state?.storage_error || 'Scheduler safety state unavailable. Refresh status or review SQLite storage health.'
         : state?.active ? 'Automatic scheduling is paused. Acknowledge each recovery issue, then use Resume queued jobs.'
@@ -55,10 +58,13 @@ export default function RecoverySafetyPanel({ state, isLocal, onChanged }: Props
     </>}
     {pending.map((item, index) => <Card key={item.schedule_id ?? `missing-${index}`}><CardContent>
       <Stack spacing={1}>
-        <Typography variant="h6">{item.experiment_name || 'Unknown schedule'}</Typography>
-        <Typography>Schedule ID: {item.schedule_id || 'Unavailable'}</Typography>
+        <Stack direction="row" justifyContent="space-between" alignItems="flex-start" gap={1}>
+          <DetailTitle component="h3">{item.experiment_name || 'Unknown schedule'}</DetailTitle>
+          <StatusChip tone="attention" label="Recovery required" />
+        </Stack>
+        <Typography sx={{ fontFamily: fontMono, fontSize: 13, color: 'text.secondary' }}>Schedule ID: {item.schedule_id || 'Unavailable'}</Typography>
         <Typography>{item.note || 'Manual recovery required'}</Typography>
-        <Typography variant="body2">Triggered by {item.triggered_by || 'unknown'} at {item.triggered_at || 'unknown time'}</Typography>
+        <Typography variant="body2" color="text.secondary">Triggered by {item.triggered_by || 'unknown'} at {item.triggered_at || 'unknown time'}</Typography>
         {item.schedule_missing && <Alert severity="warning">The original schedule is missing. You can still acknowledge recovery here; a note is required.</Alert>}
         {item.archived && <Typography>This schedule is archived.</Typography>}
         {isLocal && <Button variant="contained" disabled={busy || !healthy || !ready || (item.schedule_missing && !note.trim())}

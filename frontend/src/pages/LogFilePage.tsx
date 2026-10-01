@@ -14,7 +14,7 @@ export default function LogFilePage(){
  useEffect(()=>{let current=true;setLoading(true);logFileApi.getSources().then(data=>{if(!current)return;setSources(data);setError('');
    if(!params.get('section')){const first=sourceIds.findIndex(id=>data.some(s=>s.id===id&&s.exists&&s.accessible&&s.permissions?.can_access!==false));if(first>0)setSection(first);}
  }).catch(()=>{if(current)setError('Unable to load log sources. Retry to check availability.');}).finally(()=>{if(current)setLoading(false);});return()=>{current=false;};},[refresh]);
- return <PageContent><PageHeader title="Logs"/>{loading&&<LinearProgress/>}{error&&<Alert severity="error" action={<Button onClick={()=>setRefresh(v=>v+1)}>Retry</Button>}>{error}</Alert>}
+ return <PageContent variant="inspection"><PageHeader title="Logs"/>{loading&&<LinearProgress/>}{error&&<Alert severity="error" action={<Button onClick={()=>setRefresh(v=>v+1)}>Retry</Button>}>{error}</Alert>}
    {sourceIds.map((id,index)=>{const source=sources.find(s=>s.id===id);return <SectionPanel key={id} active={section===index}>{source&&source.exists&&source.accessible&&source.permissions?.can_access!==false?<LogSourceBrowser source={source} active={section===index}/>:!loading&&<Alert severity="warning" action={<Button onClick={()=>setRefresh(v=>v+1)}>Retry</Button>}>{source?.label||id} is unavailable. {source?.error || (source?.permissions?.can_access===false?'This source requires an administrator or a local session.':'The configured folder is missing or inaccessible.')}</Alert>}</SectionPanel>;})}
  </PageContent>;
 }

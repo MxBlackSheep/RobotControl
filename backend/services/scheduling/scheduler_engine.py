@@ -443,6 +443,9 @@ class SchedulerEngine:
                 return {
                     "schedule_id": schedule_id,
                     "experiment_name": schedule.experiment_name if schedule else schedule_id,
+                    "experiment_path": schedule.experiment_path if schedule else None,
+                    # The user's estimate in minutes; the UI treats it as a hint, never an end time.
+                    "estimated_duration": schedule.estimated_duration if schedule else None,
                     "priority": "NORMAL",
                     "queued_time": queued_at.isoformat(),
                     "retry_count": 0,

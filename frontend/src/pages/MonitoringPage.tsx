@@ -1,7 +1,11 @@
-import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Card, CardContent, Chip, LinearProgress, Stack, Typography } from '@mui/material';
-import ExpandMore from '@mui/icons-material/ExpandMore';
+import React from 'react';
+import { Alert, Box, Button, LinearProgress, Typography } from '@mui/material';
+import StatusChip from '../components/StatusChip';
+import { fontMono, layout } from '../theme';
+import { dayTime } from '../utils/displayTime';
 import Refresh from '@mui/icons-material/Refresh';
-import { PageContent, PageHeader } from '../components/PageLayout';
+import { ListRow, PageContent, PageGrid, PageHeader, Panel } from '../components/PageLayout';
+import type { StatusTone } from '../theme';
 import useMonitoring from '../hooks/useMonitoring';
 
 export default function MonitoringPage() {
@@ -22,43 +26,45 @@ export default function MonitoringPage() {
     { name: 'Memory', value: systemHealth?.memory_percent, detail: capacity(systemHealth?.memory_used_gb, systemHealth?.memory_total_gb) },
     { name: 'Disk', value: systemHealth?.disk_percent, detail: capacity(systemHealth?.disk_used_gb, systemHealth?.disk_total_gb) },
   ];
+  // After a failed read the last state stays, in neutral colour beside "Stale data".
+  const database: [string, StatusTone] = databaseStatus?.is_connected === true ? ['Connected', error ? 'neutral' : 'completed']
+    : databaseStatus?.is_connected === false ? ['Disconnected', error ? 'neutral' : 'fault'] : ['Unavailable', 'neutral'];
+  const liveView: [string, StatusTone] = streamingStatus?.enabled === true ? ['Enabled', 'completed'] : streamingStatus?.enabled === false ? ['Disabled', 'neutral'] : ['Unavailable', 'neutral'];
   return <PageContent variant="overview">
-    <PageHeader title="System Status" actions={<>
-      <Chip size="small" label={error ? monitoringData ? 'Stale data' : 'Unavailable' : isLoading ? 'Updating' : monitoringData ? 'Updated' : 'Unknown'} color={error ? 'warning' : 'default'} />
-      <Button startIcon={<Refresh />} disabled={isLoading} onClick={() => void refreshData()}>Refresh</Button>
+    <PageHeader title="System status" actions={<>
+      <StatusChip tone={error ? 'attention' : 'neutral'} label={error ? monitoringData ? 'Stale data' : 'Unavailable' : isLoading ? 'Updating' : monitoringData ? 'Updated' : 'Unknown'} />
+      {timestamp && <Typography variant="caption" color="text.secondary">Last reading {dayTime(timestamp)}</Typography>}
+      <Button variant="outlined" startIcon={<Refresh />} disabled={isLoading} onClick={() => void refreshData()}>Refresh</Button>
     </>} />
-    {error && <Alert severity="warning" sx={{ mb: 1 }}>{error}{monitoringData ? ' · Last reading retained.' : ''}</Alert>}
-    {isLoading && <LinearProgress aria-label="Updating monitoring" sx={{ mb: 1 }} />}
-    <Stack direction="row" gap={1} flexWrap="wrap" sx={{ mb: 2 }}>
-      <Chip label={databaseStatus?.is_connected === true ? 'Database connected' : databaseStatus?.is_connected === false ? 'Database disconnected' : 'Database unavailable'} color={error ? 'default' : databaseStatus?.is_connected === true ? 'success' : databaseStatus?.is_connected === false ? 'error' : 'default'} />
-      <Chip label={streamingStatus?.enabled === true ? 'Live view enabled' : streamingStatus?.enabled === false ? 'Live view disabled' : 'Live view unavailable'} />
-      {timestamp && <Typography variant="caption" sx={{ alignSelf: 'center', ml: 'auto' }} color="text.secondary">Last reading {new Date(timestamp).toLocaleString()}</Typography>}
-    </Stack>
-    {databaseStatus?.error_message && <Alert severity="error" sx={{ mb: 2, overflowWrap: 'anywhere' }}>{databaseStatus.error_message}</Alert>}
-    <Typography variant="subtitle1" component="h2" sx={{ mb: 1 }}>Resource use</Typography>
-    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, minmax(0, 1fr))' }, gap: 1.5, mb: 2 }}>
-      {metrics.map(metric => <Card key={metric.name} variant="outlined"><CardContent>
-        <Stack direction="row" justifyContent="space-between" alignItems="baseline"><Typography component="h3" variant="subtitle1">{metric.name}</Typography><Typography variant="h5">{Number.isFinite(metric.value) ? `${Math.round(metric.value!)}%` : '—'}</Typography></Stack>
-        {Number.isFinite(metric.value) && <LinearProgress aria-label={`${metric.name} usage`} variant="determinate" value={Math.max(0, Math.min(100, metric.value!))} color={metric.value! > 90 ? 'error' : metric.value! > 80 ? 'warning' : 'primary'} sx={{ mt: 1.5 }} />}
-        {metric.detail && <Typography variant="caption" color="text.secondary">{metric.detail}</Typography>}
-      </CardContent></Card>)}
-    </Box>
-    <Accordion disableGutters variant="outlined">
-      <AccordionSummary id="connection-details-heading" aria-controls="connection-details-content" expandIcon={<ExpandMore />}>
-        <Typography>Connection details</Typography>
-      </AccordionSummary>
-      <AccordionDetails id="connection-details-content" sx={{ overflowWrap: 'anywhere' }}>
-        <Box component="dl" sx={{ m: 0, display: 'grid', gridTemplateColumns: 'minmax(100px, 1fr) minmax(0, 3fr)', gap: 1, '& dt': { color: 'text.secondary' }, '& dd': { m: 0, minWidth: 0 } }}>
-          <Typography component="dt" variant="body2">Database</Typography>
-          <Typography component="dd" variant="body2">{databaseStatus?.database_name || 'Unavailable'}</Typography>
-          <Typography component="dt" variant="body2">Server</Typography>
-          <Typography component="dd" variant="body2">{databaseStatus?.server_name || 'Unavailable'}</Typography>
-          <Typography component="dt" variant="body2">Connection mode</Typography>
-          <Typography component="dd" variant="body2">{databaseStatus?.mode || 'Unavailable'}</Typography>
-          <Typography component="dt" variant="body2">Live view sessions</Typography>
-          <Typography component="dd" variant="body2">{sessionSummary}</Typography>
-        </Box>
-      </AccordionDetails>
-    </Accordion>
+    {error && <Alert severity="warning" sx={{ mb: `${layout.gutter}px` }}>{error}{monitoringData ? ' · Last reading retained.' : ''}</Alert>}
+    {isLoading && <LinearProgress aria-label="Updating monitoring" sx={{ mb: `${layout.gutter}px` }} />}
+    <PageGrid>
+      {metrics.map(metric => <Panel key={metric.name} title={metric.name} span={4}
+        actions={metric.detail && <Typography variant="caption" color="text.secondary" sx={{ fontFamily: fontMono }}>{metric.detail}</Typography>}>
+        <Typography sx={{ fontFamily: fontMono, fontSize: 32, lineHeight: '40px', fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>{Number.isFinite(metric.value) ? `${Math.round(metric.value!)}%` : '—'}</Typography>
+        <LinearProgress aria-label={`${metric.name} usage`} variant="determinate" value={Number.isFinite(metric.value) ? Math.max(0, Math.min(100, metric.value!)) : 0}
+          color={metric.value! > 90 ? 'error' : metric.value! > 80 ? 'warning' : 'primary'} sx={{ mt: 1, height: 8, borderRadius: 1, bgcolor: 'surface.track', visibility: Number.isFinite(metric.value) ? 'visible' : 'hidden' }} />
+      </Panel>)}
+      <ServiceCard span={8} title="Database" state={database} rows={[
+        ['Database', databaseStatus?.database_name || 'Unavailable'],
+        ['Server', databaseStatus?.server_name || 'Unavailable'],
+        ['Connection mode', databaseStatus?.mode || 'Unavailable'],
+      ]}>
+        {databaseStatus?.error_message && <Alert severity="error" sx={{ m: 2, overflowWrap: 'anywhere' }}>{databaseStatus.error_message}</Alert>}
+      </ServiceCard>
+      <ServiceCard span={4} title="Live view" state={liveView} rows={[['Sessions', sessionSummary]]} />
+    </PageGrid>
   </PageContent>;
+}
+
+function ServiceCard({ title, span, state: [label, tone], rows, children }: { title: string; span: number; state: [string, StatusTone]; rows: [string, string][]; children?: React.ReactNode }) {
+  return <Panel title={title} span={span} inset={false} actions={<StatusChip tone={tone} label={label} />}>
+    <Box component="dl" sx={{ m: 0 }}>
+      {/* Identifiers can be long (server names); these rows grow rather than clip. */}
+      {rows.map(([name, value]) => <ListRow key={name} columns={{ xs: '112px minmax(0, 1fr)', sm: '160px minmax(0, 1fr)' }} sx={{ height: 'auto', minHeight: layout.row, py: 1, '& > *': { whiteSpace: 'normal', overflowWrap: 'anywhere' } }}>
+        <Typography component="dt" variant="body2" color="text.secondary">{name}</Typography><Typography component="dd" variant="body2" sx={{ m: 0 }}>{value}</Typography>
+      </ListRow>)}
+    </Box>
+    {children}
+  </Panel>;
 }

@@ -25,8 +25,16 @@ method library, notifications and history. Backend behavior is in
 - `services/schedulingApi.ts` normalizes responses (older payloads get defaults, for
   example a 3-minute log inactivity threshold).
 
-`ScheduleCollection` searches and sorts the loaded list; `ScheduleList` remains the
-archived table. Calendar groups derive from the current schedule array. Use the
+`ScheduleCollection` searches, filters (All/Active/Inactive/Recovery, with counts) and
+sorts the loaded list. In `InspectionWorkspace`'s `layout="table"` it is the wide side and
+the details are a 400px panel; from 640px of its own width (a container query) it shows the
+table columns Experiment, Repeats, Next run, Last run and Status, otherwise one stacked row
+per schedule. Back from details on a phone focuses the open row (`aria-current`), not the
+selected filter button, which is also `.Mui-selected`; `ScheduleList` remains the
+archived table. `scheduleState` (exported from `ScheduleCollection`) is the one mapping
+from a schedule to its label and tone: Recovery required is amber (needs action), Active
+green, Inactive and Archived grey. The list, detail panel and calendar all use it or the
+same tones through `StatusChip`. Calendar groups derive from the current schedule array. Use the
 backend's `next_run`/`start_time`; never recalculate run times in the browser.
 
 ## Layout and sections
@@ -40,9 +48,11 @@ its own Contacts/History/Email settings tabs. Visited sections stay mounted thro
 
 The list and runtime queue use a named CSS container query: two columns only when at
 least 1100px remains after navigation and gutters (not a viewport breakpoint). The
-service strip shows scheduler state, Refresh, Recovery required and a Queue details
-disclosure. History, notification and method tables scroll inside their container; the
-Methods table uses page scrolling while its folder tree scrolls on its own. Opening or
+service strip shows scheduler state, Refresh queue, Recovery required and a Queue
+details disclosure. The collection has a Schedules heading with Refresh schedules,
+then search, status filters and sort controls at a compact 16px inset. The two
+refresh labels describe their existing, separate request scopes. History, notification
+and method tables scroll inside their container; the Methods table uses page scrolling while its folder tree scrolls on its own. Opening or
 resizing any view never starts, resumes, archives or deletes a schedule.
 
 ## Local and remote sessions

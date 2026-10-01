@@ -59,8 +59,7 @@ async function fixtures(page:Page, canUpdate=true, realDeck=false) {
 }
 
 async function chooseStatus(page:Page,status='Dirty'){
-  await page.getByRole('combobox',{name:'Set tips to',exact:true}).click();
-  await page.getByRole('option',{name:status,exact:true}).click();
+  await page.getByRole('group',{name:'Set tips to',exact:true}).getByRole('button',{name:status,exact:true}).click();
 }
 
 test('selected rack has keyboard access and saves cannot lose newer edits',async({page},info)=>{
@@ -79,8 +78,11 @@ test('selected rack has keyboard access and saves cannot lose newer edits',async
   let release!:()=>void;state.saveGate=new Promise<void>(resolve=>release=resolve);
   await page.getByRole('button',{name:/Save changes/}).click();
   await expect.poll(()=>state.writes.length).toBe(1);
-  await expect(page.getByRole('combobox',{name:'Set tips to',exact:true})).toBeDisabled();
-  await expect(page.getByRole('combobox',{name:'Tip family'})).toBeDisabled();
+  for(const group of ['Set tips to','Tip family']){
+    const buttons=page.getByRole('group',{name:group,exact:true}).getByRole('button');
+    await expect(buttons.first()).toBeDisabled();
+    for(const button of await buttons.all())await expect(button).toBeDisabled();
+  }
   release();
   await expect(page.getByRole('button',{name:/Save changes/})).toBeDisabled();
   await expect(page.getByRole('button',{name:'Tip 2, dirty',exact:true})).toBeVisible();
@@ -167,7 +169,7 @@ test('phone rectangle uses two corners and Back preserves paint and orientation'
   const reads=state.reads;await page.waitForTimeout(1200);expect(state.reads).toBe(reads);
   await page.getByRole('button',{name:'Tip 10, clean',exact:true}).tap();for(const tip of[1,2,9,10])await expect(page.getByRole('button',{name:`Tip ${tip}, dirty`,exact:true})).toBeVisible();
   await page.getByRole('button',{name:'Back to deck',exact:true}).click();await page.getByRole('button',{name:'Open rack Rack B',exact:true}).click();
-  await expect(page.getByRole('combobox',{name:'Set tips to',exact:true})).toContainText('Dirty');
+  await expect(page.getByRole('group',{name:'Set tips to',exact:true}).getByRole('button',{name:'Dirty',exact:true})).toHaveAttribute('aria-pressed','true');
   await page.getByRole('button',{name:'Back to deck',exact:true}).click();await page.getByRole('button',{name:'Open rack Rack A',exact:true}).click();
   await expect(page.getByRole('button',{name:'Tip 10, dirty',exact:true})).toBeVisible();
   await info.attach('phone-two-corner-paint',{body:await page.screenshot({animations:'disabled'}),contentType:'image/png'});
@@ -194,7 +196,7 @@ test('phone selection survives native horizontal scrolling to a distant corner',
 
 test('read-only tip deck permits inspection and never exposes painting',async({page},info)=>{
   const state=await fixtures(page,false);await page.goto('/labware');await page.getByRole('button',{name:'Open rack Rack A',exact:true}).click();
-  await page.getByRole('button',{name:'Tip 1, clean',exact:true}).click();await expect(page.getByRole('combobox',{name:'Set tips to',exact:true})).toHaveCount(0);
+  await page.getByRole('button',{name:'Tip 1, clean',exact:true}).click();await expect(page.getByRole('group',{name:'Set tips to',exact:true})).toHaveCount(0);
   await expect(page.getByRole('button',{name:/Save changes/})).toHaveCount(0);expect(state.writes).toEqual([]);
   await info.attach('read-only-tip-deck',{body:await page.screenshot({animations:'disabled'}),contentType:'image/png'});
 });

@@ -6,6 +6,8 @@ The active page is `frontend/src/pages/CameraPage.tsx`. `CameraControls.tsx` own
 
 ## Reading the live image
 
+Live view is the first section (`?section=live` is the default; opening it never starts a session) and Video archive the second. Below the image, Recent recordings lists the four newest folders from the same archive read and links to the archive. Beside the image (1200px and wider) the controls are two cards, Recording and Camera, each with its state; on phones they share one collapsible panel.
+
 The image and a compact camera/recording status appear before the settings. **Start my live view**, **Stop my live view** and **Reconnect live view** affect this user's viewing session. Recording and source controls remain under **Camera and recording settings**. Collapsing settings only hides their contents: the polling owner stays mounted and errors remain visible above the image.
 
 **Fit** is the default and preserves the full image without distortion. Its inline surface follows the camera's actual aspect ratio and shrinks both dimensions when height is limited. **Fill** covers the available surface and explicitly displays **Cropped view**. Zoom also displays that label because some of the image can leave the viewing area. Zoom ranges from 1× to 4×. Use the plus/minus buttons, Reset, drag, or the pan arrows. The image accepts +/−, arrow keys and 0 when focused. The expanded image also supports pinch zoom; gesture handling is limited to the image, leaving browser zoom available elsewhere.

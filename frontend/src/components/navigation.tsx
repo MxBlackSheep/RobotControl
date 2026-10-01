@@ -1,7 +1,7 @@
-import { createContext, useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { useSearchParams } from 'react-router-dom';
-import { Dashboard, Storage, Schedule, Videocam, Science, Build, Description, MonitorHeart, AdminPanelSettings, Info } from '@mui/icons-material';
+import { Dashboard, Storage, Schedule, Videocam, Science, Build, Description, MonitorHeart, AdminPanelSettings } from '@mui/icons-material';
 export type NavigationUser = { role?: string; session_is_local?: boolean } | null;
 export const isLocalUser = (user: NavigationUser) => typeof user?.session_is_local === 'boolean' ? user.session_is_local : ['localhost', '127.0.0.1', '::1', '[::1]', '0.0.0.0'].includes(window.location.hostname);
 export const schedulingSections = [
@@ -14,7 +14,7 @@ export type Section = {id: string; label: string; index: number; local?: boolean
 export const sectionRegistry: Record<string, Section[]> = {
   '/scheduling': schedulingSections,
   '/database': [{id: 'tables', label: 'Tables', index: 0}, {id: 'procedures', label: 'Stored procedures', index: 1}, {id: 'restore', label: 'Restore', index: 2, adminOrLocal: true}, {id: 'operations', label: 'Operations', index: 3, local: true, admin: true}, {id: 'retrieval', label: 'Data retrieval', index: 4}, {id: 'packages', label: 'Manage packages', index: 5, local: true, admin: true}, {id: 'settings', label: 'Database settings', index: 6, local: true, admin: true}],
-  '/camera': [{id: 'archive', label: 'Video archive', index: 0}, {id: 'live', label: 'Live streaming', index: 1}],
+  '/camera': [{id: 'live', label: 'Live view', index: 0}, {id: 'archive', label: 'Video archive', index: 1}],
   '/labware': [{id: 'tips', label: 'Tip tracking', index: 0}, {id: 'cytomat', label: 'Cytomat', index: 1}],
   '/logfile': [{id: 'python', label: 'Python logs', index: 0}, {id: 'hamilton', label: 'Hamilton traces', index: 1}, {id: 'robotcontrol', label: 'RobotControl logs', index: 2, adminOrLocal: true}],
   '/admin': [{id: 'users', label: 'User accounts', index: 0}, {id: 'password-resets', label: 'Password reset requests', index: 1}, {id: 'storage', label: 'Storage health', index: 2, local: true}],
@@ -26,15 +26,13 @@ export const allowedSections = (path: string, user: NavigationUser) => {
 export const allowedSchedulingSections = (user: NavigationUser) => allowedSections('/scheduling', user);
 export const moduleSectionUrl = (path: string, index: number) => index === 0 ? path : `${path}?section=${sectionRegistry[path]?.find(section => section.index === index)?.id || ''}`;
 export const navigationItems = [
-  { label: 'Dashboard', path: '/', icon: Dashboard }, { label: 'Database', path: '/database', icon: Storage },
+  { label: 'Overview', path: '/', icon: Dashboard }, { label: 'Database', path: '/database', icon: Storage },
   { label: 'Scheduling', path: '/scheduling', icon: Schedule, roles: ['admin', 'user'] },
   { label: 'Camera', path: '/camera', icon: Videocam }, { label: 'Labware', path: '/labware', icon: Science, roles: ['admin', 'user'] },
   { label: 'Maintenance', path: '/maintenance', icon: Build }, { label: 'Logs', path: '/logfile', icon: Description },
-  { label: 'System Status', path: '/system-status', icon: MonitorHeart }, { label: 'Admin', path: '/admin', icon: AdminPanelSettings, roles: ['admin'] },
-  { label: 'About', path: '/about', icon: Info },
+  { label: 'System status', path: '/system-status', icon: MonitorHeart }, { label: 'Admin', path: '/admin', icon: AdminPanelSettings, roles: ['admin'] },
 ];
 export const visibleNavigation = (user: NavigationUser) => navigationItems.filter(item => !item.roles || item.roles.includes(user?.role || ''));
-export const SchedulingNavigationContext = createContext({ recoveryActive: false, setRecoveryActive: (_active: boolean) => {} });
 export function useModuleSection(path: string, user: NavigationUser) {
   const [params, setParams] = useSearchParams();
   const value = params.get('section');
