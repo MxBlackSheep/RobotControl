@@ -34,8 +34,8 @@ export async function liveViewUnsupportedReason(): Promise<string | null> {
 
 /**
  * Owns the live-view WebSocket: H.264 frames decoded by WebCodecs, acknowledgements (the server
- * sends at most two unacknowledged frames, so a slow tunnel lowers the frame rate instead of
- * queueing video), pause while the tab is hidden, and automatic reconnection. The page owns the
+ * keeps about one round trip of unacknowledged frames in flight, so a slow link lowers the frame
+ * rate instead of queueing video), pause while the tab is hidden, and automatic reconnection. The page owns the
  * session API: `reconnect` creates a new session and calls `connect`; it returns whether that
  * worked. Decoded frames go to `showFrame`, which takes ownership (the frame store closes them).
  */

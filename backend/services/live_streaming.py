@@ -94,6 +94,7 @@ class LiveStreamingService:
         self._encoder_retry_at = 0.0
         self._encoder_error: Optional[str] = None
         self._next_submit = 0.0
+        self._stream_fps = ENCODER_LEVELS[0].fps
         self._encoder_process: Optional[psutil.Process] = None
 
         self.cpu_soft_limit = self.config.get("cpu_soft_limit_percent", 75)
@@ -438,6 +439,7 @@ class LiveStreamingService:
             self._encoder = encoder
             self._encoder_error = None
             self._next_submit = 0.0
+            self._stream_fps = wanted.fps
             for handler in self.sessions.values():
                 handler.resync()  # A new encoder's first frame is a keyframe; older frames no longer apply.
 
@@ -449,7 +451,7 @@ class LiveStreamingService:
             pass  # The loop has closed (shutdown); nothing to deliver to.
 
     def _on_access_unit(self, encoder, unit: AccessUnit) -> None:
-        """Fan one encoded frame out to every watching viewer (each keeps at most one waiting)."""
+        """Fan one encoded frame out to every watching viewer (each with a short, bounded wait)."""
         if encoder is not self._encoder:
             return  # Late output from a stopped or crashed encoder.
         for session_id, handler in list(self.sessions.items()):
@@ -490,18 +492,19 @@ class LiveStreamingService:
             while self.sessions.get(session_id) is handler and handler.is_running:
                 await event.wait()
                 event.clear()
-                # Wait for the browser to acknowledge before sending: a slow link lowers this
-                # viewer's frame rate (it skips to the next keyframe) instead of queueing video.
-                # Silence for 15 s ends the session.
-                await handler.wait_for_window(ACK_TIMEOUT_SECONDS)
-                unit = handler.take_pending()
-                if unit is None:
-                    continue
-                async with asyncio.timeout(ACK_TIMEOUT_SECONDS):
-                    sent = await handler.send_access_unit(unit)
-                if sent:
-                    self.total_frames_distributed += 1
-                    self.total_bytes_distributed += len(unit.data)
+                while handler.pending:
+                    # Send only while the link has room (about one round trip of video): a far
+                    # link gets every frame; a slow one skips to the next keyframe instead of
+                    # queueing. Silence for 15 s ends the session.
+                    await handler.wait_for_window(self._stream_fps, ACK_TIMEOUT_SECONDS)
+                    unit = handler.take_pending()
+                    if unit is None:
+                        break
+                    async with asyncio.timeout(ACK_TIMEOUT_SECONDS):
+                        sent = await handler.send_access_unit(unit)
+                    if sent:
+                        self.total_frames_distributed += 1
+                        self.total_bytes_distributed += len(unit.data)
         except asyncio.CancelledError:
             raise
         except Exception as exc:

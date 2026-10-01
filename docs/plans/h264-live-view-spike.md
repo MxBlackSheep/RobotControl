@@ -86,8 +86,9 @@ Snapshots and MJPEG recording are unchanged.
   started when the first viewer is watching and stopped when none is (Stop, disconnect, hidden tab,
   shutdown, CPU hard limit). Encoded access units fan out to every viewer.
 - Binary frame message: `FRAME_VERSION` 2 adds one flags byte (bit 0 = keyframe) to the existing
-  header; the payload is one H.264 Annex-B access unit. Acknowledgements, `MAX_UNACKNOWLEDGED`,
-  `ACK_TIMEOUT_SECONDS`, keepalive and `BROWSER_SILENCE_SECONDS` keep their meaning.
+  header; the payload is one H.264 Annex-B access unit. Acknowledgements, `ACK_TIMEOUT_SECONDS`,
+  keepalive and `BROWSER_SILENCE_SECONDS` keep their meaning; the frames allowed in flight follow
+  each viewer's measured round trip (review finding: a fixed two froze far viewers).
 - Per viewer: "in step" or "waiting for keyframe". A viewer whose window is full when an access unit
   arrives, or that joins, resumes or reconnects, waits for the next keyframe. Nothing queues.
 - Browser: one `VideoDecoder`; the frame store holds the newest decoded `VideoFrame` (the previous

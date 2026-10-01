@@ -17,7 +17,7 @@ import pytest
 from backend.services.h264_encoder import AccessUnit, EncoderUnavailable
 from backend.services.live_streaming import ENCODER_LEVELS, LiveStreamingService
 from backend.services.shared_frame_buffer import SharedFrameBuffer
-from backend.services.streaming_session import FLAG_KEYFRAME, FRAME_HEADER, FRAME_VERSION, MAX_UNACKNOWLEDGED
+from backend.services.streaming_session import FLAG_KEYFRAME, FRAME_HEADER, FRAME_VERSION, MIN_IN_FLIGHT
 from backend.services.streaming_types import StreamControl
 
 
@@ -86,6 +86,31 @@ async def viewer(service, name, acknowledge=True):
             handler.acknowledge(FRAME_HEADER.unpack_from(payload)[1])
         socket.send_bytes.side_effect = ack
     return handler, socket
+
+
+def link(handler, socket, rtt, kbps=None, delays=None):
+    """The browser at the far end of a link: frames serialize at `kbps` (unlimited when None; a
+    keyframe counts 20 kB, a delta 2 kB), and each acknowledgement returns one round trip later."""
+    loop = asyncio.get_running_loop()
+    busy_until = [0.0]
+
+    async def send(payload):
+        sequence, keyframe = FRAME_HEADER.unpack_from(payload)[1], payload[FRAME_HEADER.size - 1] & FLAG_KEYFRAME
+        now = loop.time()
+        busy_until[0] = max(now, busy_until[0]) + ((20_000 if keyframe else 2_000) * 8 / (kbps * 1000) if kbps else 0)
+        delay = busy_until[0] - now + rtt
+        if delays is not None:
+            delays.append(delay)
+        loop.call_later(delay, handler.acknowledge, sequence)
+    socket.send_bytes.side_effect = send
+
+
+async def stream(encoder, seconds, fps=15):
+    """The encoder's real pace: `fps` frames a second, a keyframe each second."""
+    for number in range(round(seconds * fps)):
+        encoder.emit(number % fps == 0)
+        await asyncio.sleep(1 / fps)
+    await asyncio.sleep(.5)  # let the last acknowledgements return
 
 
 async def settle():
@@ -157,11 +182,54 @@ def test_lagging_viewer_skips_to_the_next_keyframe_and_never_holds_a_fast_one(se
             assert [i for i, _ in received(fast_socket)] == list(range(1, 31))
             slow_frames = received(slow_socket)
             assert_decodable(slow_frames)
-            # Two in flight, then one waiting frame (the newer keyframe 16 replaced frame 3); frame 17
-            # found that slot taken, so the viewer skips to the next keyframe instead of queueing.
-            assert [i for i, _ in slow_frames] == [1, 2, 16]
+            # Two in flight (nothing measured yet), then a short wait that overflowed: the viewer
+            # skipped the rest of that GOP and resumed at keyframe 16 instead of queueing it.
+            assert [i for i, _ in slow_frames][:3] == [1, 2, 16]
             for handler in (fast, slow):
                 await service.terminate_session(handler.session.session_id)
+    asyncio.run(scenario())
+
+
+def test_a_far_link_with_enough_bandwidth_gets_every_frame(service):
+    """A remote viewer through the tunnel: 300 ms round trip, ample bandwidth. A fixed window of two
+    frames delivered two per round trip, broke the chain each second and froze the picture."""
+    async def scenario():
+        with patch.object(service, 'ensure_service_started', new=AsyncMock()):
+            handler, socket = await viewer(service, 'remote', acknowledge=False)
+            link(handler, socket, rtt=.3)
+            await service._update_encoder()
+            broken = []
+            original = handler.offer
+            def offer(unit):
+                accepted = original(unit)
+                broken.append(handler.awaiting_keyframe)
+                return accepted
+            handler.offer = offer
+            await stream(service._encoder, seconds=3)
+            frames = received(socket)
+            assert_decodable(frames)
+            assert not any(broken), 'the chain broke: the picture froze until the next keyframe'
+            # Every frame, so the viewer sees the encoder's full rate (15 fps), about 150 ms late.
+            assert [index for index, _ in frames] == list(range(1, service._encoder.index + 1))
+            await service.terminate_session(handler.session.session_id)
+    asyncio.run(scenario())
+
+
+def test_a_link_slower_than_the_stream_skips_to_keyframes_with_bounded_delay(service):
+    """200 kbit/s against a ~380 kbit/s stream: frames must be skipped, never queued without limit."""
+    async def scenario():
+        with patch.object(service, 'ensure_service_started', new=AsyncMock()):
+            handler, socket = await viewer(service, 'thin', acknowledge=False)
+            delays = []
+            link(handler, socket, rtt=.05, kbps=200, delays=delays)
+            await service._update_encoder()
+            await stream(service._encoder, seconds=4)
+            frames = received(socket)
+            assert_decodable(frames)
+            assert len(frames) < service._encoder.index  # it skipped
+            assert sum(keyframe for _, keyframe in frames) >= 3  # and kept up at keyframes
+            assert max(delays) < 2.0, max(delays)  # a 20 kB keyframe alone needs 0.85 s here
+            await service.terminate_session(handler.session.session_id)
     asyncio.run(scenario())
 
 
@@ -175,7 +243,7 @@ def test_unacknowledged_viewer_gets_two_frames_then_its_session_ends(service):
             for number in range(10):
                 service._encoder.emit(number == 0)
                 await settle()
-            assert len(received(socket)) == MAX_UNACKNOWLEDGED
+            assert len(received(socket)) == MIN_IN_FLIGHT  # nothing measured yet: the floor
             await asyncio.sleep(.5)
             assert handler.session.session_id not in service.sessions
             socket.close.assert_awaited()

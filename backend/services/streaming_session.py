@@ -5,9 +5,11 @@ Handles one viewer's WebSocket: H.264 frames from the shared encoder, acknowledg
 
 import asyncio
 import logging
+import math
 import struct
 import time
-from typing import Optional
+from collections import deque
+from typing import Deque, Dict, Optional, Tuple
 from fastapi import WebSocket
 
 from backend.services.h264_encoder import AccessUnit
@@ -22,9 +24,21 @@ FRAME_HEADER = struct.Struct('<BIdHHB')
 FRAME_VERSION = 2
 # A keyframe (IDR with SPS/PPS) decodes on its own; a viewer starts and resumes on one.
 FLAG_KEYFRAME = 1
-# Frames the browser has not yet acknowledged (decoded). Two keeps the pipe busy
-# without letting a slow tunnel queue seconds of video.
-MAX_UNACKNOWLEDGED = 2
+# Frames in flight (sent, not yet acknowledged as decoded) are sized to the viewer's link: about
+# one round trip of video, from the smallest round trip seen in the last RTT_WINDOW_SECONDS. The
+# smallest reflects distance, not the queueing our own frames cause on a thin link, so a far but
+# fast link (the tunnel from another site) gets every frame and a slow one cannot fill a queue.
+# A fixed window of two frames allowed only two per round trip: above ~130 ms the H.264 chain broke
+# every second and the picture froze until the next keyframe.
+MIN_IN_FLIGHT = 2                # before the first measurement, and the floor
+MAX_IN_FLIGHT_SECONDS = 1.0      # at most one second of video in flight
+MAX_IN_FLIGHT_BYTES = 256_000    # and at most this much data (a keyframe plus deltas)
+RTT_HEADROOM = 1.5               # room for jitter above the smallest round trip
+RTT_WINDOW_SECONDS = 10
+# Frames waiting for the window. A frame waiting longer than this, or more of them, means the link
+# is slower than the stream: drop them and resume at the next keyframe instead of falling behind.
+MAX_WAIT_SECONDS = 0.5
+MAX_WAITING = 8
 # A viewer that acknowledges nothing for this long has gone; its session ends.
 ACK_TIMEOUT_SECONDS = 15
 # The browser sends a keepalive every 30 s (also while its tab is hidden and paused, and through
@@ -55,17 +69,22 @@ class StreamingSessionHandler:
         self._stopped = False
         self.is_paused = False
 
-        # Flow control: sequence of the last frame sent and the last one acknowledged.
+        # Flow control: sequence of the last frame sent and the last one acknowledged; send time and
+        # size of each frame in flight; recent round trips (monotonic time, seconds).
         self.sent_sequence = 0
         self.acknowledged_sequence = 0
         self._window_open = asyncio.Event()
         self._window_open.set()
+        self._in_flight: Dict[int, Tuple[float, int]] = {}
+        self._in_flight_bytes = 0
+        self._round_trips: Deque[Tuple[float, float]] = deque(maxlen=64)
+        self._smallest_round_trip: Optional[float] = None
         # Last message from the browser (any control: ack, pause, resume, keepalive).
         self.last_heard = time.monotonic()
         # A delta frame needs every frame since the last keyframe, so a viewer that joins, resumes
-        # or misses a frame waits for the next keyframe. At most one frame waits here for the
-        # acknowledgement window: never a queue.
-        self.pending: Optional[AccessUnit] = None
+        # or misses a frame waits for the next keyframe. Frames waiting for the window, with the
+        # time each arrived; bounded by MAX_WAIT_SECONDS and MAX_WAITING.
+        self.pending: Deque[Tuple[AccessUnit, float]] = deque()
         self.awaiting_keyframe = True
 
         logger.info(f"StreamingSessionHandler initialized for session {session.session_id}")
@@ -104,7 +123,7 @@ class StreamingSessionHandler:
         self.is_running = False
         self.session.is_active = False
         self.session.websocket_state = "disconnected"
-        self.pending = None
+        self.pending.clear()
 
         try:
             if self.websocket is not None:
@@ -121,26 +140,28 @@ class StreamingSessionHandler:
 
     def offer(self, unit: AccessUnit) -> bool:
         """Take a frame from the shared encoder; True when it now waits to be sent."""
+        now = time.monotonic()
         if unit.keyframe:
-            # Decodable on its own: it replaces a waiting frame and restarts this viewer's chain.
-            self.pending, self.awaiting_keyframe = unit, False
+            # Decodable on its own: it replaces waiting frames and restarts this viewer's chain.
+            self.pending.clear()
+            self.pending.append((unit, now))
+            self.awaiting_keyframe = False
             return True
         if self.awaiting_keyframe:
             return False
-        if self.pending is None:
-            self.pending = unit
-            return True
-        # A frame is already waiting: skipping this one breaks the chain until the next keyframe.
-        self.awaiting_keyframe = True
-        return False
+        if self.pending and (now - self.pending[0][1] > MAX_WAIT_SECONDS or len(self.pending) >= MAX_WAITING):
+            # The link is slower than the stream: skip to the next keyframe rather than fall behind.
+            self.resync()
+            return False
+        self.pending.append((unit, now))
+        return True
 
     def take_pending(self) -> Optional[AccessUnit]:
-        unit, self.pending = self.pending, None
-        return unit
+        return self.pending.popleft()[0] if self.pending else None
 
     def resync(self) -> None:
-        """Drop the waiting frame and start again at the next keyframe (pause, new encoder)."""
-        self.pending = None
+        """Drop the waiting frames and start again at the next keyframe (pause, new encoder, lag)."""
+        self.pending.clear()
         self.awaiting_keyframe = True
 
     async def send_access_unit(self, unit: AccessUnit) -> bool:
@@ -149,6 +170,9 @@ class StreamingSessionHandler:
             return False
         try:
             self.sent_sequence += 1
+            size = FRAME_HEADER.size + len(unit.data)
+            self._in_flight[self.sent_sequence] = (time.monotonic(), size)
+            self._in_flight_bytes += size
             header = FRAME_HEADER.pack(FRAME_VERSION, self.sent_sequence & 0xFFFFFFFF, unit.captured_at,
                                        unit.width, unit.height, FLAG_KEYFRAME if unit.keyframe else 0)
             await self.websocket.send_bytes(header + unit.data)
@@ -188,6 +212,8 @@ class StreamingSessionHandler:
                 self.is_paused = control.type == "pause"
                 self.resync()
                 self.acknowledged_sequence = self.sent_sequence
+                self._in_flight.clear()
+                self._in_flight_bytes = 0
                 self._window_open.set()
                 self.session.update_activity()
                 await self._send_status()
@@ -201,17 +227,41 @@ class StreamingSessionHandler:
     def acknowledge(self, sequence) -> None:
         """The browser decoded frame `sequence` (and every earlier one)."""
         if isinstance(sequence, int) and self.acknowledged_sequence < sequence <= self.sent_sequence:
+            now = time.monotonic()
+            sent = self._in_flight.get(sequence)
+            if sent is not None:
+                self._round_trips.append((now, now - sent[0]))
+            for acknowledged in range(self.acknowledged_sequence + 1, sequence + 1):
+                self._in_flight_bytes -= self._in_flight.pop(acknowledged, (0, 0))[1]
             self.acknowledged_sequence = sequence
             self.session.update_activity()
             self._window_open.set()
 
-    async def wait_for_window(self, timeout: float = ACK_TIMEOUT_SECONDS) -> None:
-        """Wait until fewer than MAX_UNACKNOWLEDGED frames are in flight.
+    def smallest_round_trip(self) -> Optional[float]:
+        """Smallest recent round trip; the last known one while there are no recent samples."""
+        cutoff = time.monotonic() - RTT_WINDOW_SECONDS
+        while self._round_trips and self._round_trips[0][0] < cutoff:
+            self._round_trips.popleft()
+        if self._round_trips:
+            self._smallest_round_trip = min(round_trip for _, round_trip in self._round_trips)
+        return self._smallest_round_trip
+
+    def window(self, fps: float) -> int:
+        """Frames allowed in flight: about one round trip of video, within the limits above."""
+        round_trip = self.smallest_round_trip()
+        if round_trip is None:
+            return MIN_IN_FLIGHT
+        frames = math.ceil(fps * round_trip * RTT_HEADROOM) + 1
+        return max(MIN_IN_FLIGHT, min(frames, math.ceil(fps * MAX_IN_FLIGHT_SECONDS)))
+
+    async def wait_for_window(self, fps: float, timeout: float = ACK_TIMEOUT_SECONDS) -> None:
+        """Wait until the link has room for another frame (see window()).
 
         Raises TimeoutError when the viewer acknowledges nothing for `timeout` seconds.
         """
         async with asyncio.timeout(timeout):
-            while self.sent_sequence - self.acknowledged_sequence >= MAX_UNACKNOWLEDGED:
+            while (self.sent_sequence - self.acknowledged_sequence >= self.window(fps)
+                   or self._in_flight_bytes >= MAX_IN_FLIGHT_BYTES):
                 self._window_open.clear()
                 await self._window_open.wait()
 
