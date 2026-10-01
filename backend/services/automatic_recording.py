@@ -503,6 +503,7 @@ class AutomaticRecordingService:
                 exp_id = hash(completed_experiment.run_guid) % 1000000
             experiment_identifier = str(exp_id)
             
+            self.camera_service.wait_for_stored_clips(storage_manager.archive_duration_minutes)
             archive_result = storage_manager.archive_experiment_videos(
                 experiment_id=experiment_identifier,
                 method_name=completed_experiment.method_name,
