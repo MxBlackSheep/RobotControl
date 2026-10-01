@@ -1,3 +1,8 @@
+## 2026-10-01 Clip storage no longer reports a recovered ffmpeg as missing
+
+- `control-status` → `clip_storage.last_error` kept "ffmpeg.exe is missing" after ffmpeg was available again and clips were converting (found by the central review of #42). That message describes a current condition, so it now clears when ffmpeg is found; a per-clip failure stays reported, because that clip remains MJPEG and is counted in `failed`.
+- Check: `clip_transcode_check.py` now asserts the error clears after ffmpeg returns (failed before the fix: idle, 5 transcoded, still "missing"); 31/31 with `--clips`.
+
 ## 2026-10-01 System status lists the database connections in use
 
 - The Database card showed only the built-in connection as "EvoYeast · LOCALHOST\HAMILTON · Connection mode primary", left over from when that connection also prepared schedules. RobotControl now depends on the saved workspace connections too (viewer, packages, schedules' before-run steps), and the built-in one still serves Hamilton run records, labware and backup. The **Databases** card lists each connection with its server/database, access, uses and its own state and message; the header is Connected only when every connection is, otherwise a failure count or Partly unknown. An incomplete reply is Unavailable.
