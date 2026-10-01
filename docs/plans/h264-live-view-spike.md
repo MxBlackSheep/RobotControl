@@ -61,4 +61,10 @@ RobotControl, `-f dshow -i video="<camera name>"` replaces the `lavfi` source.
   only rawvideo input and the H.264 encoders, or Cisco's OpenH264 DLL (~1 MB; Cisco's own binary
   carries its H.264 patent licence) behind a small binding. Licence review needed before bundling.
 
-Decision needed from the owner after the N100 run: adopt (as a separate feature), or keep JPEG.
+## Decision (2026-10-01)
+
+The owner chose to adopt H.264 as a separate feature, as the **only** live-view encoding: no JPEG
+fallback for live view. A browser without WebCodecs H.264 decoding shows a clear "browser not
+supported" message instead of a degraded stream. Snapshots and MJPEG recording stay as they are.
+Still open before release: the N100 measurement above (real camera, QuickSync availability, CPU
+headroom beside the robot) and the licence review for whichever encoder is bundled.
