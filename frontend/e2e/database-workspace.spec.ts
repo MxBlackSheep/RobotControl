@@ -9,6 +9,8 @@ import { mkdirSync } from 'node:fs';
  *   non-secret settings and clears administrator credentials.
  * - Several operation choices each show their own inputs without submitting changes.
  * - Certificate trust is remembered only for the exact server after a successful save.
+ * - A remote administrator (e.g. through the tunnel) sees local-only sections or requests
+ *   them, or is not told those sections exist on the RobotControl computer.
  * Server-side cases are in backend/e2e/database_workspace_check.py.
  */
 const evidence = process.env.ROBOTCONTROL_E2E_EVIDENCE || '../test-output/database-workspace-verification';
@@ -34,6 +36,22 @@ test('simplified settings show one viewer and an explicit existing lab connectio
   await expect(page.getByRole('combobox',{name:'Laboratory database'})).toContainText('Existing laboratory connection');
   await page.getByRole('heading',{name:'Schedule preparation'}).scrollIntoViewIfNeeded();
   await page.screenshot({path:`${evidence}/settings-expanded.png`,animations:'disabled'});
+});
+
+test('a remote administrator is told which sections need the RobotControl computer', async ({page}) => {
+  mkdirSync(evidence,{recursive:true});
+  await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));
+  // The app reads data.session.is_local (backend/api/auth.py); without it, 127.0.0.1 counts as local.
+  await page.route('**/api/auth/me', r => r.fulfill({ json: { success: true, data: { user_id: 'viewer-admin', username: 'Fixture', role: 'admin', session: { is_local: false } } } }));
+  const localOnlyRequests: string[] = [];
+  await page.route('**/api/database/tools/{packages,sources,scheduling-settings}**', r => { localOnlyRequests.push(r.request().url()); return r.abort(); });
+  await page.goto('/database?section=packages');
+  const tabs = page.getByRole('tablist', { name: 'Database sections' });
+  await expect(page.getByText('On the RobotControl computer only: Operations, Manage packages, Database settings.')).toBeVisible();
+  for (const name of ['Operations', 'Manage packages', 'Database settings']) await expect(tabs.getByRole('tab', { name })).toHaveCount(0);
+  await expect(tabs.getByRole('tab', { name: 'Restore' })).toBeVisible();
+  expect(localOnlyRequests).toEqual([]);
+  await page.screenshot({path:`${evidence}/remote-admin.png`});
 });
 
 test('simplified dependent choices clear children and use friendly labels on phone', async ({page}) => {

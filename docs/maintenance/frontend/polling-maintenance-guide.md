@@ -1,6 +1,6 @@
 # Polling without duplicate work
 
-`useSerialPolling` owns a single timer, abort controller and in-flight request. Requests with the same owner cannot overlap; changing identity or unmounting aborts and invalidates the old response. Interval timing resumes after a request settles. Failed reads preserve the last successful data. It does not inspect document visibility: hidden views continue their existing refresh policy.
+`useSerialPolling` owns a single timer, abort controller and in-flight request. Requests with the same owner cannot overlap; changing identity or unmounting aborts and invalidates the old response. Interval timing resumes after a request settles. Failed reads preserve the last successful data. Hidden views continue their existing refresh policy (status must never go stale on purpose), but browsers throttle hidden tabs' timers, so the hook refreshes at once when the tab becomes visible or the network comes back (`online`), joining any request already in flight.
 
 System Status refreshes normally every 60 seconds and retries failed reads every 30 seconds when automatic recovery is enabled. Its component must not add a second retry timer. Execution History uses the same owner, fetching once by default and every 30 seconds if automatic refresh is selected. An interval of zero means manual refresh after the initial read.
 

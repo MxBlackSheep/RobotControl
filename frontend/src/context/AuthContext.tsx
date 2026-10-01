@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, ReactNode } from 'react';
 import { authAPI, ACCESS_TOKEN_UPDATED_EVENT } from '../services/api';
+import { isSignInRejected } from '../services/requestError';
 
 interface User {
   user_id: string;
@@ -87,7 +88,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         setLoading(false);
       } catch (error: any) {
         if (!isCurrent()) return;
-        if (error.response?.status === 401 || error.response?.status === 403) {
+        if (isSignInRejected(error)) {
           localStorage.removeItem('access_token');
           localStorage.removeItem('refresh_token');
           setToken(null);
@@ -124,37 +125,30 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const login = useCallback(async (username: string, password: string) => {
     authRevision.current += 1;
-    try {
-      const response = await authAPI.login(username, password);
-      // Handle standardized response format: { success, data: {...}, metadata }
-      const responseData = response.data.data || response.data;
-      const { access_token, refresh_token, user: userData, session } = responseData;
-      
-      localStorage.setItem('access_token', access_token);
-      localStorage.setItem('refresh_token', refresh_token);
-      setToken(access_token);
-      setUser(normalizeUser(userData, session));
-      setLoading(false);
-    } catch (error) {
-      throw new Error('Login failed');
-    }
+    // Errors propagate unchanged: the page must tell a wrong password from an unreachable server.
+    const response = await authAPI.login(username, password);
+    // Handle standardized response format: { success, data: {...}, metadata }
+    const responseData = response.data.data || response.data;
+    const { access_token, refresh_token, user: userData, session } = responseData;
+
+    localStorage.setItem('access_token', access_token);
+    localStorage.setItem('refresh_token', refresh_token);
+    setToken(access_token);
+    setUser(normalizeUser(userData, session));
+    setLoading(false);
   }, [normalizeUser]);
 
   const register = useCallback(async (username: string, email: string, password: string) => {
     authRevision.current += 1;
-    try {
-      const response = await authAPI.register(username, email, password);
-      const responseData = response.data.data || response.data;
-      const { access_token, refresh_token, user: userData, session } = responseData;
+    const response = await authAPI.register(username, email, password);
+    const responseData = response.data.data || response.data;
+    const { access_token, refresh_token, user: userData, session } = responseData;
 
-      localStorage.setItem('access_token', access_token);
-      localStorage.setItem('refresh_token', refresh_token);
-      setToken(access_token);
-      setUser(normalizeUser(userData, session));
-      setLoading(false);
-    } catch (error) {
-      throw new Error('Registration failed');
-    }
+    localStorage.setItem('access_token', access_token);
+    localStorage.setItem('refresh_token', refresh_token);
+    setToken(access_token);
+    setUser(normalizeUser(userData, session));
+    setLoading(false);
   }, [normalizeUser]);
 
   const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
@@ -165,11 +159,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       const userData = response.data.data || response.data;
       setUser(normalizeUser(userData, userData?.session));
     } catch (error) {
-      // If fetching profile fails, log the user out to avoid inconsistent state
-      localStorage.removeItem('access_token');
-      localStorage.removeItem('refresh_token');
-      setToken(null);
-      setUser(null);
+      if (isSignInRejected(error)) {
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('refresh_token');
+        setToken(null);
+        setUser(null);
+      } else {
+        // The change succeeded; a dropped profile read must not sign the user out.
+        setUser((current) => (current ? { ...current, must_reset: false } : current));
+      }
     }
   }, [normalizeUser]);
 

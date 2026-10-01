@@ -3,14 +3,16 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import { visualizer } from 'rollup-plugin-visualizer';
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
+  // dist/ is embedded in the packaged app and reachable through the remote tunnel, so source
+  // maps and the bundle report are opt-in: SOURCEMAP=1, or `npm run bundle-analyze` (--mode analyze).
   plugins: [
     react(),
-    visualizer({
+    ...(mode === 'analyze' ? [visualizer({
       filename: 'dist/bundle-analysis.html',
       open: false,
       gzipSize: true,
-    }),
+    })] : []),
   ],
   resolve: {
     alias: {
@@ -39,7 +41,7 @@ export default defineConfig({
   build: {
     target: 'es2022',
     outDir: 'dist',
-    sourcemap: true,
+    sourcemap: process.env.SOURCEMAP === '1',
     minify: 'esbuild',
     // Configure for unified port serving
     assetsDir: 'assets',
@@ -53,4 +55,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));

@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Alert, Autocomplete, Button, Checkbox, FormControlLabel, MenuItem, Stack, TextField, Typography } from '@mui/material';
 import { api } from '../services/api';
+import { requestErrorMessage } from '../services/requestError';
 
 export type ReportField = { name: string; label: string; type: string; required: boolean; choices: string[];
   lookup?: { source?: string; query?: string; parameters: string[]; value_type: string } | null };
-export const requestMessage = (e: any): string => typeof e?.response?.data?.detail === 'string' ? e.response.data.detail : 'Check the fields and try again.';
+export const requestMessage = (e: any): string => requestErrorMessage(e, 'Check the fields and try again.');
 export function changedInputs(fields: ReportField[], values: Record<string, any>, name: string, value: any) {
   const next = { ...values, [name]: value }, cleared = new Set([name]);
   for (let pass = 0; pass < fields.length; pass++) for (const field of fields) {

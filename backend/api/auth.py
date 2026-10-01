@@ -34,6 +34,58 @@ class LoginRequest(BaseModel):
     username: str = Field(..., min_length=1, max_length=100)
     password: str = Field(..., min_length=1)
 
+class LoginThrottle:
+    """Failed remote sign-ins per username and per client address, in a sliding window.
+
+    The app is reachable through a public tunnel, so password guessing is limited there.
+    Local sign-ins (the RobotControl computer) are never throttled, so remote guessing
+    cannot lock the lab out of its own accounts. Kept in memory: a restart clears it.
+    """
+
+    WINDOW_SECONDS = 300
+    LIMITS = {"user": 5, "ip": 20}
+
+    def __init__(self):
+        self._failures: Dict[tuple, list] = {}
+
+    def _keys(self, username: str, client_ip: Optional[str]):
+        yield ("user", username.strip().lower())
+        if client_ip:
+            yield ("ip", client_ip)
+
+    def _recent(self, key, now):
+        recent = [at for at in self._failures.get(key, []) if now - at < self.WINDOW_SECONDS]
+        if recent:
+            self._failures[key] = recent
+        else:
+            self._failures.pop(key, None)
+        return recent
+
+    def retry_after(self, username: str, client_ip: Optional[str]) -> int:
+        """Seconds until another attempt is allowed; 0 when allowed now."""
+        now = time.monotonic()
+        wait = 0
+        for key in self._keys(username, client_ip):
+            recent = self._recent(key, now)
+            if len(recent) >= self.LIMITS[key[0]]:
+                wait = max(wait, int(self.WINDOW_SECONDS - (now - recent[0])) + 1)
+        return wait
+
+    def failed(self, username: str, client_ip: Optional[str]):
+        now = time.monotonic()
+        if len(self._failures) > 10_000:  # Many one-off addresses: drop expired keys.
+            for key in list(self._failures):
+                self._recent(key, now)
+        for key in self._keys(username, client_ip):
+            self._failures.setdefault(key, []).append(now)
+
+    def succeeded(self, username: str):
+        self._failures.pop(("user", username.strip().lower()), None)
+
+
+login_throttle = LoginThrottle()
+
+
 class RegisterRequest(BaseModel):
     username: str = Field(..., min_length=3, max_length=100)
     email: EmailStr
@@ -121,7 +173,20 @@ async def login(
         Access token, refresh token, and user information
     """
     start_time = time.time()
-    
+    throttled = not connection.is_local
+
+    if throttled:
+        wait = login_throttle.retry_after(request.username, connection.client_ip)
+        if wait:
+            logger.warning("Throttled remote sign-in for %s from %s", request.username, connection.client_ip)
+            response = ResponseFormatter.error(
+                message=f"Too many failed sign-in attempts. Try again in {max(1, round(wait / 60))} min.",
+                error_code="TOO_MANY_ATTEMPTS",
+                status_code=429,
+            )
+            response.headers["Retry-After"] = str(wait)
+            return response
+
     try:
         # Attempt login
         client_info = {
@@ -129,13 +194,17 @@ async def login(
             "user_agent": http_request.headers.get("user-agent"),
         }
         result = auth_service.login(request.username, request.password, client_info=client_info)
-        
+
         if not result:
             logger.warning(f"Failed login attempt for username: {request.username}")
+            if throttled:
+                login_throttle.failed(request.username, connection.client_ip)
             return ResponseFormatter.unauthorized(
                 message="Invalid username or password",
                 details={"username": request.username}
             )
+        if throttled:
+            login_throttle.succeeded(request.username)
         
         # Create metadata
         metadata = ResponseMetadata()

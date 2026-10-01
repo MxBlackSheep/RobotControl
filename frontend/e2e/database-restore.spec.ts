@@ -11,6 +11,8 @@ import { mkdirSync } from 'node:fs';
  * - One click sends the restore request more than once, or sends the wrong body.
  * - A response beyond the shared 10 s timeout must keep the confirmation busy and
  *   eventually display completion; the SQL check cannot detect a browser timeout.
+ * - A dropped connection during restore reads "Restore Failed" (the restore may have run)
+ *   or is retried automatically.
  * - Stale listings must not change the backup being selected; navigating clears old
  *   selection, and slow responses must retain the next path draft.
  * Real SQL Server restores, runner timeouts and the failure body shape are checked by
@@ -88,6 +90,21 @@ test('slow successful restore stays pending, then shows warnings and maintenance
   expect(sent).toEqual([{ filename: bak.filename }]);
 });
 
+
+test('a dropped connection during restore reports an unknown outcome and never retries', async ({ page }) => {
+  const sent = await openRestore(page, { success: true });
+  await page.getByRole('main').getByRole('combobox').click();
+  await page.getByRole('option', { name: bak.filename, exact: false }).click();
+  await page.route('**/api/admin/backup/restore', route => { sent.push(route.request().postDataJSON()); return route.abort('connectionreset'); });
+  await confirmRestore(page);
+  const status = page.getByRole('dialog', { name: 'Restore outcome unknown' });
+  await expect(status).toContainText('may still be running or may have finished');
+  await expect(page.getByText('Restore Failed')).toHaveCount(0);
+  await expect(page.getByText('Database Maintenance In Progress')).toHaveCount(0);
+  await page.screenshot({ path: `${evidence}/outcome-unknown.png`, animations: 'disabled' });
+  await page.waitForTimeout(1000);
+  expect(sent).toEqual([{ filename: bak.filename }]);
+});
 
 test('backup selection survives stale listings and preserves the next path draft', async ({ page }) => {
   await openRestore(page, { success: false });

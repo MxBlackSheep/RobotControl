@@ -4,7 +4,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 // forever: no further polls, Refresh disabled and a stale "connected" state.
 const REQUEST_DEADLINE_MS = 20000;
 
-/** One request and timer per owner. Visibility never changes the refresh policy. */
+/**
+ * One request and timer per owner. Hidden tabs keep the same refresh policy (status must not
+ * go stale on purpose), but browsers throttle their timers, so returning to the tab or
+ * regaining the network refreshes at once instead of waiting for the next tick.
+ */
 export function useSerialPolling<T>(options: {
   request: (signal: AbortSignal) => Promise<T>;
   onSuccess: (value: T) => void;
@@ -100,6 +104,17 @@ export function useSerialPolling<T>(options: {
     if (options.enabled !== false) start();
     return stop;
   }, [options.enabled, options.identity, start, stop]);
+
+  useEffect(() => {
+    // refresh() joins a request already in flight, so this never adds a second owner.
+    const resume = () => { if (running.current && document.visibilityState === 'visible') void refresh(); };
+    document.addEventListener('visibilitychange', resume);
+    window.addEventListener('online', resume);
+    return () => {
+      document.removeEventListener('visibilitychange', resume);
+      window.removeEventListener('online', resume);
+    };
+  }, [refresh]);
 
   useEffect(() => {
     clearTimeout(timer.current);

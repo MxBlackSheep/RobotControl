@@ -466,8 +466,10 @@ app = FastAPI(
     title="RobotControl Backend",
     description="Unified backend for Hamilton VENUS liquid handling robot management",
     version=__version__,
-    docs_url="/docs",
-    redoc_url="/redoc",
+    # The packaged app is reachable through a public tunnel; its API description is not published.
+    docs_url=None if EMBEDDED_MODE else "/docs",
+    redoc_url=None if EMBEDDED_MODE else "/redoc",
+    openapi_url=None if EMBEDDED_MODE else "/openapi.json",
     lifespan=lifespan,
 )
 
@@ -571,6 +573,12 @@ async def health_check():
         "message": "Server is running"
     }
 
+def _is_asset_path(path: str) -> bool:
+    """Files (not page routes) must 404 when missing. Serving index.html for an old
+    hashed chunk after an upgrade makes the browser's module import fail."""
+    return path.startswith('assets/') or '.' in path.split('/')[-1]
+
+
 # Add embedded static file serving (must be after API routes)
 if EMBEDDED_MODE:
     resource_manager = get_resource_manager()
@@ -590,7 +598,9 @@ if EMBEDDED_MODE:
         # Get resource from embedded files
         resource = resource_manager.get_resource(path)
         if not resource:
-            # Try index.html for SPA routing
+            if _is_asset_path(path):
+                raise HTTPException(status_code=404, detail="File not found")
+            # Page route: index.html for SPA routing
             resource = resource_manager.get_resource('index.html')
             if not resource:
                 raise HTTPException(status_code=404, detail="Resource not found")
@@ -637,7 +647,7 @@ else:
             # Check if file exists
             if not file_path.exists() or not file_path.is_file():
                 # Only fall back to index.html for navigation routes (not assets)
-                if path.startswith('assets/') or '.' in path.split('/')[-1]:
+                if _is_asset_path(path):
                     # This is likely an asset file, return 404
                     raise HTTPException(status_code=404, detail="File not found")
                 else:
@@ -699,7 +709,7 @@ async def root():
             "backup": "/api/admin/backup/",
             "admin": "/api/admin/",
             "labware": "/api/labware/",
-            "documentation": "/docs",
+            **({} if EMBEDDED_MODE else {"documentation": "/docs"}),
             "health": "/health"
         }
     }
@@ -759,11 +769,12 @@ async def api_info():
                 "note": "Update and reset operations require local network access"
             }
         },
-        "documentation": {
+        # The packaged app does not publish its API description (see the FastAPI setup above).
+        **({} if EMBEDDED_MODE else {"documentation": {
             "swagger_ui": "/docs",
             "redoc": "/redoc",
             "openapi_json": "/openapi.json"
-        }
+        }}),
     }
 
 

@@ -35,7 +35,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "type-check": "tsc --noEmit",
-    "bundle-analyze": "npm run build && start dist/bundle-analysis.html"
+    "bundle-analyze": "tsc && vite build --mode analyze && start dist/bundle-analysis.html"
   },
   "engines": {
     "node": ">=18.0.0",

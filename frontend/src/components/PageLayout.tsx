@@ -22,6 +22,9 @@ export function PageHeader({ title, description, actions }: { title: string; des
   const { user } = useAuth();
   const { pathname } = useLocation();
   const sections = allowedSections(pathname, user);
+  // Sections this user would have on the RobotControl computer (remote sessions, e.g. the tunnel).
+  const localOnly = allowedSections(pathname, user && { ...user, session_is_local: true })
+    .filter(section => !sections.some(allowed => allowed.id === section.id));
   const [selected] = useModuleSection(pathname, user);
   const attention = robotAttention(useRobotStatusContext().status);
   const tabbed = sections.length > 1;
@@ -40,6 +43,9 @@ export function PageHeader({ title, description, actions }: { title: string; des
       {actions && <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap" sx={{ ml: { xs: 0, sm: 'auto' } }}>{actions}</Stack>}
     </Box>
     {description && <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>{description}</Typography>}
+    {localOnly.length > 0 && <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+      On the RobotControl computer only: {localOnly.map(section => section.label).join(', ')}.
+    </Typography>}
   </Box>;
 }
 
