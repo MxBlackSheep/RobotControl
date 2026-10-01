@@ -1,3 +1,9 @@
+## 2026-10-01 Report wizard SQL check matches the current draft and publish contract
+
+- `backend.e2e.report_wizard_check` had failed since `10bf346`; the product was right both times. A saved draft is stored as the full `ReportDraft`, so GET returns every field, with defaults (`tool_id`, `entrypoint`, later `kind`, `files`, `change_note`…) for ones the client omitted; the wizard round-trips that whole object, and installed-tool edits depend on it. The check now compares against the sent draft over the model defaults, still whole-object equality.
+- Since `5aed710` publishing retires the draft and an identical repeat returns the installed result without another history event (lost-response retry). The check's second install was such a repeat yet expected 409. It now asserts the repeat changes nothing, and keeps stale-update coverage with a second draft installed against a stale hash (409, package and history unchanged); disabling the hash guard makes it fail.
+- Real SQL Server `.\HAMILTON` run passed with fixtures removed (`test-output/report-wizard-verification/sql-http-results.json`). No product code changed.
+
 ## 2026-10-01 Database tools check matches no-import installation
 
 - `backend/e2e/database_tools_check.py` still expected a package that fails on import to be rejected at install (400). Since `10bf346` installation deliberately does not import package Python in the server, so that package installs. The check now proves the current contract: the import failure ends that report run, the server keeps answering and a following good update reports again. Sections after that point had never run on `main`.

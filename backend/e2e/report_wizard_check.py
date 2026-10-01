@@ -6,7 +6,8 @@ application DB credentials or modifies existing databases/users/grants.
 
 Failure cases:
 - Upload never imports Python; an unfinished adapter cannot be tried or installed.
-- Draft Back/reload keeps inputs and source settings; stale saves and another
+- Draft Back/reload keeps inputs and source settings and returns the full draft, with
+  every field the client omitted at its default; stale saves and another
   administrator's requests cannot replace a draft. Discarding a fresh report creates
   no draft; discarding a saved draft removes only it; a failed delete keeps the editor
   open; a running trial blocks deletion.
@@ -15,6 +16,8 @@ Failure cases:
   elevated and EXECUTE permissions, including EXECUTE inherited through public.
 - Cycles, unknown dependencies or sources and invalid queries fail without activation.
   Active jobs keep their source snapshot; failed or stale updates keep the package.
+  Publishing retires the draft; repeating the same publish after a lost response
+  returns the installed result without another history event.
 - Reader account setup distinguishes an existing login and missing CREATE LOGIN
   authority from sign-in, driver and access failures, without raw driver text or
   credentials. Failed verification removes only the new login; existing principals
@@ -39,6 +42,7 @@ from fastapi.testclient import TestClient
 from backend.api.database_tools import router
 from backend.services.auth import get_current_user
 from backend.services.database_tools import DatabaseTools, get_database_tools
+from backend.services.report_authoring import ReportDraft
 
 ROOT = Path(__file__).resolve().parents[2]
 EVIDENCE = ROOT / 'test-output/report-wizard-verification'
@@ -143,7 +147,8 @@ def run():
                             dict(name='day', label='Day', type='date', required=True, choices=[])], step=0)
                     saved = call('POST','/drafts',dict(draft=draft))
                     key = saved['id']
-                    assert call('GET',f'/drafts/{key}')['draft']==draft
+                    # The stored draft is the full model: sent values unchanged, every omitted field at its default.
+                    assert call('GET',f'/drafts/{key}')['draft']=={**ReportDraft().model_dump(), **draft}
                     call('PUT',f'/drafts/{key}',dict(draft=draft, revision=0),409)
                     client.headers['authorization']='another-admin'; call('GET',f'/drafts/{key}',status=404)
                     client.headers['authorization']='user'; call('GET','/sources',status=403); call('GET',f'/drafts/{key}',status=403)
@@ -187,15 +192,26 @@ def run(context, inputs):
                         assert sorted(archive.namelist())==['handler.py','manifest.json']
                         assert fixture['password'].encode() not in b''.join(archive.read(x) for x in archive.namelist())
                     review=call('GET',f'/drafts/{key}/review')
-                    call('POST',f'/drafts/{key}/install',dict(expected_current=review['current_sha256'],revision=saved['revision']))
+                    assert review['current_sha256']==''
+                    publish=dict(expected_current=review['current_sha256'],revision=saved['revision'])
+                    installed=call('POST',f'/drafts/{key}/install',publish)
                     client.headers['authorization']='user'
                     job=wait(call('POST','/reports/two-source',dict(inputs={'project':1,'plate':11,'day':'2026-09-28'})))
                     assert job['status']=='ready'
                     client.headers['authorization']='admin'
                     call('GET','/reports/'+job['id'],status=404)
-                    call('POST',f'/drafts/{key}/install',dict(expected_current='',revision=saved['revision']),409)
-                    call('DELETE',f'/drafts/{key}')
-                    result['checks'].append('Draft ownership/revision, original never imported, starter/edit/reupload, dependent membership, private trial, Excel values, export/install and stale activation passed')
+                    def package():
+                        return next(p['sha256'] for p in call('GET','/packages') if p['id']=='two-source'), len(call('GET','/packages/two-source/history'))
+                    active=package()
+                    # Publishing retires the draft; repeating the request after a lost response adds no history.
+                    call('GET',f'/drafts/{key}',status=404)
+                    assert call('POST',f'/drafts/{key}/install',publish)==installed and package()==active
+                    # A stale update from another draft is rejected and keeps the installed package.
+                    stale=call('POST','/drafts',dict(draft=dict(draft,version='1.0.1')))
+                    call('POST',f"/drafts/{stale['id']}/install",dict(expected_current='',revision=stale['revision']),409)
+                    assert package()==active
+                    call('DELETE',f"/drafts/{stale['id']}")
+                    result['checks'].append('Draft ownership/revision, original never imported, starter/edit/reupload, dependent membership, private trial, Excel values, export/install, idempotent repeat and stale activation passed')
                     with TestClient(app,client=('10.0.0.1',1234),headers={'authorization':'admin','x-forwarded-for':'127.0.0.1'}) as remote:
                         assert remote.get(BASE+'/drafts').status_code==403
                     result['passed']=True
