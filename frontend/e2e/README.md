@@ -141,6 +141,7 @@ below remain. Run them from the repository root; each check's header lists its f
 | `backend.e2e.database_tools_check` | Disposable SQLite-backed SQL rows | Authoring from an existing script, rejecting an unfinished adapter, ZIP build, update review/activation, workbook parity with the original script |
 | `backend.e2e.tool_authoring_check` | Disposable SQL Server databases and logins | Python-defined tool addition and editing |
 | `backend.e2e.report_wizard_check` | Disposable SQL Server databases and a SELECT-only login | Report creation; real SQL permission denial |
+| `backend.e2e.draft_replace_check` | A temporary data folder; no SQL Server | Draft saves while another program has the draft open (Windows); `--stress N` repeats saves |
 | `backend.e2e.database_workspace_check` | The report-wizard SQL fixture plus a reader created through the API | Provisioning rollback, existing-login rejection, write denial, schema-qualified browsing, operation target revision, rollback/deduplication, nested import inspection, the zero-database example |
 | `backend.e2e.notification_delivery_check` | Local mail sink, disposable storage | Notification email delivery |
 | `database-tools.spec.ts`, `database-workspace.spec.ts` | Disposable package APIs, synthetic viewer data | Browser flows (the account flow stops at review) |
@@ -150,6 +151,7 @@ below remain. Run them from the repository root; each check's header lists its f
 .venv/Scripts/python.exe -X utf8 -W ignore::UserWarning -m backend.e2e.database_tools_check --evidence test-output/database-verification
 .venv/Scripts/python.exe -m backend.e2e.tool_authoring_check
 .venv/Scripts/python.exe -m backend.e2e.report_wizard_check
+.venv/Scripts/python.exe -m backend.e2e.draft_replace_check --stress 5000
 .venv/Scripts/python.exe -m backend.e2e.database_workspace_check
 .venv/Scripts/python.exe -W ignore::UserWarning -m backend.e2e.notification_delivery_check
 Set-Location frontend

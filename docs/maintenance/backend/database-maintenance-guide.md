@@ -223,6 +223,9 @@ catalogue → connections; publication takes catalogue then connections.
   since, it returns 409.
 - `/drafts/{key}/editing-files` downloads the original Python, handler, inputs and editing
   instructions. It is not an installable package and downloading runs nothing.
+- Drafts, `installed.json` and `report-sources.json` are written to a `.tmp` file and swapped in
+  with `utils/filesystem.replace_file`. It uses a POSIX-semantics rename because `os.replace`
+  fails with WinError 5 while antivirus or an indexer briefly has the file open.
 
 ## Checks
 
@@ -237,6 +240,8 @@ failure cases in its header:
 - `backend.e2e.report_wizard_check`, `tool_authoring_check`, `bundled_tools_check`: real SQL
   permissions, authoring, publication and bundled tool updates.
 - `backend.e2e.packaged_database_smoke`: the same boundary in a relocated executable.
+- `backend.e2e.draft_replace_check [--stress N]`: draft writes while another program has the
+  file open; no SQL Server.
 - `.venv/Scripts/python.exe -m backend.e2e.backup_restore_check`: real SQL Server backup,
   listing, managed-file and `.bck` path restore (with an open session), the restore timeout
   argument, invalid path and invalid-backup rejection and multi-user recovery using a disposable `RC_BackupCheck_<id>` database. Requires `sqlcmd`
@@ -272,3 +277,7 @@ those separately with disposable data when changing their behavior.
 - **"Finish the run and resolve recovery before changing the database":** the scheduler guard
   refused; finish the run and recovery first.
 - **Operation result `unknown`:** check the database before repeating.
+- **Draft save or Try fails with "WinError 32 … being used by another process":** a program
+  holds the draft, package index or connections file open without allowing deletion (scanners
+  normally allow it). Find it with Resource Monitor → CPU → Associated Handles, searching for
+  `report-drafts`, and exclude `data/database-tools` from that program.

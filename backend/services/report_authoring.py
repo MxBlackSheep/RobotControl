@@ -12,6 +12,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 from backend.services.database_packages import Manifest, PackageCatalogue, PackageError, inspect_archive, SUPPORTED_LIBRARIES
+from backend.utils.filesystem import replace_file
 
 
 def inspect_python(source):
@@ -114,9 +115,7 @@ class ReportAuthoring:
         state = self.service.sources.state
         record = dict(package_id=package_id, sha256=hashlib.sha256(content).hexdigest(),
                       mappings=state['bindings'].get(package_id), operation=state['operation_bindings'].get(package_id))
-        temporary = self.activation.with_suffix('.tmp')
-        temporary.write_text(json.dumps(record), encoding='utf-8')
-        temporary.replace(self.activation)
+        self._write(self.activation, record)
 
     def finish_activation(self):
         self.activation.unlink(missing_ok=True)
@@ -136,6 +135,12 @@ class ReportAuthoring:
                     state[group][record['package_id']] = value
             self.service.sources._save(state)
         self.finish_activation()
+
+    @staticmethod
+    def _write(path, record):
+        temporary = path.with_suffix('.tmp')
+        temporary.write_text(json.dumps(record), encoding='utf-8')
+        replace_file(temporary, path)
 
     def _path(self, key):
         if not re.fullmatch('[0-9a-f]{32}', key):
@@ -188,10 +193,7 @@ class ReportAuthoring:
                 record['verification'] = {**current['verification'], 'revision':revision+1}
             if revision and current.get('base'):
                 record['base'] = current['base']
-            path = self._path(key)
-            temporary = path.with_suffix('.tmp')
-            temporary.write_text(json.dumps(record), encoding='utf-8')
-            temporary.replace(path)
+            self._write(self._path(key), record)
             return self.get(key, owner)
 
     def import_files(self, files, owner, key=None, revision=0, mode='all'):
@@ -284,9 +286,7 @@ class ReportAuthoring:
                 mappings=self.service.sources.bindings(package_id), operation_source=draft.operation_source, kind=kind)
             path = self._path(record['id'])
             path.with_suffix('.zip').write_bytes(content)
-            temporary = path.with_suffix('.tmp')
-            temporary.write_text(json.dumps(record), encoding='utf-8')
-            temporary.replace(path)
+            self._write(path, record)
             return self.get(record['id'], owner)
 
     def check_base(self, key, owner):
@@ -404,19 +404,13 @@ class ReportAuthoring:
         record.update(owner=owner, verification=dict(revision=revision, job=job,
                       session=self.session,
                       connections=self.connection_fingerprint(self.draft(key, owner))))
-        path = self._path(key)
-        temporary = path.with_suffix('.tmp')
-        temporary.write_text(json.dumps(record), encoding='utf-8')
-        temporary.replace(path)
+        self._write(self._path(key), record)
 
     def clear_trial(self, key, owner):
         record = self.get(key, owner)
         record.pop('verification', None)
         record['owner'] = owner
-        path = self._path(key)
-        temporary = path.with_suffix('.tmp')
-        temporary.write_text(json.dumps(record), encoding='utf-8')
-        temporary.replace(path)
+        self._write(self._path(key), record)
 
     def require_trial(self, key, owner):
         record = self.get(key, owner)
