@@ -58,7 +58,7 @@ export default function MonitoringPage() {
             {connections.map(connection => <DatabaseRow key={connection.id} connection={connection} state={connectionState(connection)} />)}
             {databases.connections === null && <DatabaseRow connection={{ id: 'saved', name: 'Saved connections', access: '', uses: [], state: 'unknown',
               message: 'The saved connections could not be checked.' }} state={['Unknown', 'neutral']} />}
-            {databases.connections?.length === 0 && <ListRow component="li" columns="minmax(0, 1fr)">
+            {databases.connections?.length === 0 && <ListRow component="li" columns="minmax(0, 1fr)" sx={{ height: 'auto', minHeight: layout.row, py: 1, '& > *': { whiteSpace: 'normal' } }}>
               <Typography variant="body2" color="text.secondary">No saved connections. Add them in Database → Database settings.</Typography></ListRow>}
           </Box>}
       </Panel>
