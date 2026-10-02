@@ -27,7 +27,8 @@ logger = logging.getLogger(__name__)
 CPU_RECOVER_PERCENT = 50
 CPU_RECOVER_SAMPLES = 10
 # The shared stream's settings; the CPU guard moves between them (0 is normal).
-ENCODER_LEVELS = tuple(EncoderSettings(level["fps"], level["bitrate_kbps"])
+ENCODER_LEVELS = tuple(EncoderSettings(level["fps"], level["bitrate_kbps"],
+                                       LIVE_STREAMING_CONFIG["denoise_filter"] if level.get("denoise") else "")
                        for level in LIVE_STREAMING_CONFIG["encoder_levels"])
 # After an encoder crash, wait 1, 2, 4 … up to 30 s before the next start; a minute without a
 # crash resets the delay.

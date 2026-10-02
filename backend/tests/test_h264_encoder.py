@@ -4,6 +4,9 @@ Failure cases: keyframes are not one second apart, or a stream joined at a later
 not decode; the child survives stop(), or survives RobotControl being killed (orphan); a crash is
 not reported, or stop() is reported as a crash; a missing ffmpeg.exe fails without its reason;
 frames offered faster than ffmpeg reads them queue up instead of replacing the one waiting.
+Each configured level (config.py encoder_levels, with its denoise filter): the bundled ffmpeg
+rejects the filter (live view dead, though the packaged smoke passes: it sends no frames); frames the
+filter holds back never come out, or come out with another frame's capture time.
 """
 import subprocess
 import sys
@@ -17,6 +20,7 @@ import pytest
 
 from backend.services.h264_encoder import (AccessUnit, EncoderSettings, EncoderUnavailable, H264Encoder,
                                            HEIGHT, WIDTH, find_ffmpeg)
+from backend.services.live_streaming import ENCODER_LEVELS
 
 ROOT = Path(__file__).resolve().parents[2]
 SETTINGS = EncoderSettings(fps=15, bitrate_kbps=400)
@@ -31,17 +35,21 @@ def wait_until(condition, seconds=5.0):
     return condition()
 
 
-def encode(frames):
-    units, exits = [], []
-    encoder = H264Encoder(SETTINGS, units.append, exits.append)
+def encode(frames, settings=SETTINGS, held=0):
+    """Encode moving frames one at a time; `held` frames may still be inside a filter."""
+    units, exits, captured = [], [], []
+    encoder = H264Encoder(settings, units.append, exits.append)
     encoder.start()
     base = np.random.default_rng(1).integers(0, 256, (HEIGHT, WIDTH, 3), dtype=np.uint8)
     try:
         for number in range(frames):
-            encoder.submit(np.roll(base, number * 4, axis=1).copy(), time.time())
-            assert wait_until(lambda: len(units) > number, 2), f'frame {number} was not encoded'
+            captured.append(1_000_000.0 + number)
+            encoder.submit(np.roll(base, number * 4, axis=1).copy(), captured[-1])
+            assert wait_until(lambda: encoder._waiting is None, 2)  # written, not replaced by the next
+            assert wait_until(lambda: len(units) > number - held, 2), f'frame {number - held} was not encoded'
     finally:
         encoder.stop()
+    assert [unit.captured_at for unit in units] == captured[:len(units)]
     return encoder, units, exits
 
 
@@ -59,6 +67,16 @@ def test_keyframes_each_second_and_a_stream_joined_at_a_keyframe_decodes():
     assert units[15].data[4] & 0x1F == 7  # a keyframe starts with its SPS
     assert decoded_frames(b''.join(unit.data for unit in units[15:])) == 16  # a viewer joining at 15
     assert not psutil.pid_exists(encoder.pid) and not exits  # stop() is not a crash
+
+
+@pytest.mark.parametrize('level', range(len(ENCODER_LEVELS)))
+def test_each_configured_level_encodes_and_a_stream_joined_at_a_keyframe_decodes(level):
+    settings = ENCODER_LEVELS[level]
+    gop = max(1, int(settings.fps))
+    encoder, units, exits = encode(2 * gop + 6, settings, held=4 if settings.denoise else 0)
+    assert len(units) >= 2 * gop + 2 and not exits
+    assert [number for number, unit in enumerate(units) if unit.keyframe][:3] == [0, gop, 2 * gop]
+    assert decoded_frames(b''.join(unit.data for unit in units[gop:])) == len(units) - gop
 
 
 def test_crash_is_reported_once_and_ends_the_child():

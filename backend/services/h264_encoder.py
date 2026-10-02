@@ -37,6 +37,7 @@ class EncoderUnavailable(RuntimeError):
 class EncoderSettings:
     fps: float
     bitrate_kbps: int
+    denoise: str = ""  # ffmpeg video filter run before encoding; "" for none (LIVE_STREAMING_CONFIG)
 
 
 @dataclass(frozen=True)
@@ -63,10 +64,14 @@ def find_ffmpeg() -> Path:
 
 
 def ffmpeg_command(ffmpeg: Path, settings: EncoderSettings) -> list:
-    """Constrained Baseline (no B-frames), GOP of at most one second, so a viewer can join within a second."""
+    """Constrained Baseline (no B-frames), GOP of at most one second, so a viewer can join within a second.
+
+    A denoise filter runs on the encoder's own yuv420p planes, on one thread like the encoder.
+    """
+    video_filter = ["-filter_threads", "1", "-vf", f"format=yuv420p,{settings.denoise}"] if settings.denoise else []
     return [str(ffmpeg), "-hide_banner", "-loglevel", "error", "-nostats",
             "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{WIDTH}x{HEIGHT}", "-framerate", str(settings.fps),
-            "-thread_queue_size", "2", "-i", "pipe:0", "-an",
+            "-thread_queue_size", "2", "-i", "pipe:0", "-an", *video_filter,
             "-c:v", "libopenh264", "-profile:v", "constrained_baseline", "-rc_mode", "bitrate",
             "-b:v", f"{settings.bitrate_kbps}k", "-g", str(max(1, int(settings.fps))), "-bf", "0", "-slices", "1",
             "-threads", "1", "-pix_fmt", "yuv420p", "-fps_mode", "passthrough",
@@ -185,7 +190,8 @@ class H264Encoder:
             thread = threading.Thread(target=target, name=name, daemon=True)
             thread.start()
             self._threads.append(thread)
-        logger.info("Live view encoder started | pid=%s | fps=%s | kbps=%s", self.pid, self.settings.fps, self.settings.bitrate_kbps)
+        logger.info("Live view encoder started | pid=%s | fps=%s | kbps=%s | denoise=%s", self.pid, self.settings.fps,
+                    self.settings.bitrate_kbps, "on" if self.settings.denoise else "off")
 
     def submit(self, frame, captured_at: float) -> None:
         """Offer a BGR frame; it replaces a frame still waiting for the pipe."""
