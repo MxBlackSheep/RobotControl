@@ -25,6 +25,11 @@ ratio depends on the scene: a quieter 35 MB clip shrank 4.9×.)
   1000 kbit/s; a 15-minute experiment archive drops from ≈680 MB to ≈110 MB.
 - CPU is about 1 s of one core per 1-minute clip (decode MJPEG + encode), i.e. ≈2 % of one core.
   The bitrate barely changes it. Decode-verification adds ≈0.3 s.
+  *Corrected 2026-10-02 (same i5 VM, the product's full command incl. verification, 8 clips,
+  `clip_transcode_probe.ps1 -Profiles product-1000-before,product-1000`):* 1.50 CPU-s per clip
+  as first shipped, 1.24 CPU-s with one thread per stage (still ≈2 % of one core averaged over
+  the minute). It is not one core while it runs: FFmpeg decodes and encodes side by side, so a
+  conversion peaks at about 1.5 cores for 1–3 s.
 - SSIM against the source is low at every bitrate (0.71–0.78) because the encoder removes sensor
   noise, which SSIM counts as loss; the crops, not SSIM, decided the bitrate.
 - MJPEG is full-range YUV. Kept full-range, OpenH264 output lifted blacks (mean pixel error 9.2);
@@ -34,7 +39,9 @@ ratio depends on the scene: a quieter 35 MB clip shrank 4.9×.)
   but software OpenH264 already fits; QuickSync is not needed.
 
 **Not yet measured: the N100.** Its Gracemont cores are slower per thread; expect 2–3 s per clip
-(still under 5 % of one core, under 2 % of the machine). The owner runs the probe there:
+(still under 5 % of one core, under 2 % of the machine, averaged over the minute). The probe
+command for that machine (add `-Profiles product-1000-before,product-1000` for the product's
+conversion):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File clip_transcode_probe.ps1 -Ffmpeg <RobotControl folder>\ffmpeg.exe -Clips <RobotControl folder>\data\videos\rolling_clips

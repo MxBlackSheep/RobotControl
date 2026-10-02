@@ -24,6 +24,8 @@ export interface ExperimentData {
 export interface SystemHealth {
   timestamp: string;
   cpu_percent: number;
+  /** RobotControl and its child processes, % of the whole machine; null until known. */
+  robotcontrol_cpu_percent?: number | null;
   memory_percent: number;
   memory_used_gb: number;
   memory_total_gb: number;

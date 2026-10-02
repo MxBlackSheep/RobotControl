@@ -49,7 +49,7 @@ async function sampleData(page: Page, mode: string) {
     run('e1', 'Cell feeding · stack 2', 'recovery_required', 255, 47), run('e2', 'Cell feeding · stack 1', 'completed', 390, 44),
     run('e3', 'Daily tip wash', 'completed', 25 * 60 + 45, 58), run('e4', 'Plate reader QC', 'failed', 46 * 60, 4), run('e5', 'Weekly deck cleanup', 'completed', 7 * 24 * 60, 31)] } }));
   await page.route('**/api/monitoring/system-health', route => route.fulfill({ json: { data: { sampled_at: now.toISOString(),
-    system: { cpu_percent: 23, memory_percent: 61, disk_percent: 48, memory_used_gb: 9.8, memory_total_gb: 16, disk_used_gb: 240, disk_total_gb: 500 },
+    system: { cpu_percent: 23, robotcontrol_cpu_percent: 9, memory_percent: 61, disk_percent: 48, memory_used_gb: 9.8, memory_total_gb: 16, disk_used_gb: 240, disk_total_gb: 500 },
     database: { is_connected: true, mode: 'primary', database_name: 'EvoYeast', server_name: 'LAB-PC\\HAMILTON' } } } }));
   // Ended present: the widest Latest experiment row (Started, Ended and Duration).
   await page.route('**/api/experiments/latest', route => route.fulfill({ json: { success: true, data: { run_guid: '7f3c2a91-5d4e-4b8a-9c1f-2e6d8a0b4c71',

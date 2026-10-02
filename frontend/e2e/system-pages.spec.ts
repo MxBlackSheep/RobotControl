@@ -4,6 +4,7 @@ import { test, expect } from '@playwright/test';
 // - Process CPU or cached JPEG throughput is presented as live-view utilization/health.
 // - Enabled configuration is mistaken for a connected camera or recording state.
 // - A missing/non-boolean enabled field is mislabeled as disabled or enabled.
+// - RobotControl's own CPU share reads 0 % or disappears while it is unknown (first sample).
 // - Incomplete database/size fields imply disconnection or print undefined capacity; an
 //   incomplete connection reply looks like an empty, healthy list.
 // - The Databases card shows only the built-in connection (once "EvoYeast, mode primary"), or a
@@ -237,7 +238,7 @@ for (const width of [320, 1280]) {
     await page.route('**/api/monitoring/system-health', route => {
       healthRequests++;
       return route.fulfill({ json: { data: {
-        sampled_at: new Date().toISOString(), system: { cpu_percent: 4, memory_percent: 12, disk_percent: 25 },
+        sampled_at: new Date().toISOString(), system: { cpu_percent: 4, robotcontrol_cpu_percent: 2.6, memory_percent: 12, disk_percent: 25 },
         database: { is_connected: false, mode: 'primary', database_name: 'EvoYeast', server_name: 'LOCALHOST\\HAMILTON' },
       } } });
     });
@@ -254,6 +255,7 @@ for (const width of [320, 1280]) {
     await page.goto('/system-status');
     await expect(page.getByRole('region', { name: 'Live view', exact: true }).getByTitle('Enabled', { exact: true })).toBeVisible();
     await expect(page.getByRole('progressbar', { name: 'CPU usage', exact: true })).toHaveAttribute('aria-valuenow', '4');
+    await expect(page.getByRole('region', { name: 'CPU', exact: true }).getByText('RobotControl 3%', { exact: true })).toBeVisible();
     // Connection facts are shown in their cards, as in the approved mock (no disclosure).
     const databases = page.getByRole('region', { name: 'Databases', exact: true });
     await expect(databases.getByTitle('1 cannot connect', { exact: true })).toBeVisible();
@@ -282,6 +284,7 @@ test('live view configuration stays unknown when the status contract is incomple
   await page.goto('/system-status');
   await expect(page.getByRole('region', { name: 'Live view', exact: true }).getByTitle('Unavailable', { exact: true })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Databases', exact: true }).getByTitle('Unavailable', { exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'CPU', exact: true }).getByText('RobotControl —', { exact: true })).toBeVisible();
   await expect(page.getByText(/undefined|NaN/)).toHaveCount(0);
   status = { enabled: 'true' };
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
