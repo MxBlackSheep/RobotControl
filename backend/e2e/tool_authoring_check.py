@@ -20,7 +20,12 @@ Failure cases:
   TOOL among supporting files, retires only its draft, survives a lost response or
   repeated submission, and leaves failed updates editable. History (publisher,
   version, note, file changes) is saved atomically with activation.
-- Export carries code and definitions, never local credentials or mappings.
+- Export carries code and definitions, never local credentials, mappings or history.
+- A published change note becomes the new version's section at the top of CHANGELOG.md:
+  the file is created when missing, kept when Replace all files omits it, earlier sections
+  survive and a section already written for that version is replaced, never duplicated.
+  Download package returns the installed bytes unchanged (schedules pin their sha256),
+  including an imported ZIP; import review returns only that version's CHANGELOG section.
 """
 from contextlib import nullcontext
 import hashlib
@@ -152,8 +157,14 @@ def run():
                     assert finish(trial(edit,{'experiment':2,'plate':21}))['status']=='ready'
                     edit=save(edit,change_note='Use Updated heading; remove obsolete helper.')
                     enable(edit)
-                    with zipfile.ZipFile(io.BytesIO(call('GET','/packages/plate-export/export'))) as z:
-                        assert set(z.namelist())=={'manifest.json','export.py'}
+                    def export():
+                        content=call('GET','/packages/plate-export/export')
+                        assert content==call('GET','/packages/plate-export/export')
+                        assert hashlib.sha256(content).hexdigest()==service.catalogue.index['plate-export']['sha256']
+                        return content
+                    with zipfile.ZipFile(io.BytesIO(export())) as z:
+                        assert set(z.namelist())=={'manifest.json','export.py','CHANGELOG.md'}
+                        assert z.read('CHANGELOG.md').decode()=='# Plate export changes\n\n## 1.0.1\n\nUse Updated heading; remove obsolete helper.\n'
                     call('GET',f'/drafts/{key}/review',status=404)
                     call('GET',f"/drafts/{edit['id']}/review",status=404)
                     assert any(d['id']==parallel['id'] for d in call('GET','/drafts'))
@@ -161,7 +172,7 @@ def run():
                     assert len(history)==2 and history[0]['actor']=='admin'
                     assert history[0]['note']=='Use Updated heading; remove obsolete helper.'
                     assert history[0]['files']['removed']==['helper.py','report.py']
-                    assert history[0]['files']['added']==['export.py']
+                    assert history[0]['files']['added']==['CHANGELOG.md','export.py']
                     client.headers['authorization']='user';call('GET','/packages/plate-export/history',status=403)
                     client.headers['authorization']='admin'
                     call('DELETE',f"/drafts/{parallel['id']}")
@@ -173,16 +184,34 @@ def run():
                             value=source.read(name)
                             if name=='manifest.json':
                                 manifest=json.loads(value);manifest['version']='1.0.2';value=json.dumps(manifest).encode()
+                            if name=='CHANGELOG.md':  # As an author editing the package outside RobotControl.
+                                value=value.replace(b'## 1.0.1',b'## 1.0.3 (unreleased)\n\nPlanned.\n\n## 1.0.2\n\nReviewed outside\nRobotControl.\n\n## 1.0.1')
                             target.writestr(name,value)
                     current=service.catalogue.index['plate-export']['sha256']
+                    review=client.post(BASE+'/packages/inspect',files={'file':('report.zip',buffer.getvalue())}).json()
+                    assert review['changelog']=='Reviewed outside RobotControl.',review
                     response=client.post(BASE+'/packages',files={'file':('report.zip',buffer.getvalue())},data={'expected_current':current,'change_note':'Imported reviewed ZIP.'})
                     assert response.status_code==200,response.text
                     history=call('GET','/packages/plate-export/history')
                     assert len(history)==3 and history[0]['note']=='Imported reviewed ZIP.'
-                    assert history[0]['files']['changed']==['manifest.json']
+                    assert history[0]['files']['changed']==['CHANGELOG.md','manifest.json']
+                    assert export()==buffer.getvalue()
                     response=client.post(BASE+'/packages',files={'file':('report.zip',buffer.getvalue())},data={'expected_current':current})
                     assert response.status_code==409 and call('GET','/packages/plate-export/history')==history
+                    # Replace all files without CHANGELOG.md; the author's planned 1.0.3 section is replaced.
+                    edit=call('POST','/authoring/report/plate-export/edit',{})
+                    assert edit['draft']['version']=='1.0.3' and 'CHANGELOG.md' in edit['draft']['files']
+                    edit=call('POST','/authoring/import',dict(files=replacement,key=edit['id'],revision=edit['revision']))
+                    assert finish(trial(edit,{'experiment':2,'plate':21}))['status']=='ready'
+                    enable(save(edit,change_note='Third release:\n- reviewed in RobotControl'))
+                    with zipfile.ZipFile(io.BytesIO(export())) as z:
+                        changelog=z.read('CHANGELOG.md').decode()
+                    assert changelog==('# Plate export changes\n\n## 1.0.3\n\nThird release:\n- reviewed in RobotControl\n\n'
+                                       '## 1.0.2\n\nReviewed outside\nRobotControl.\n\n## 1.0.1\n\nUse Updated heading; remove obsolete helper.\n'),changelog
+                    history=call('GET','/packages/plate-export/history')
+                    assert len(history)==4 and history[0]['note']=='Third release:\n- reviewed in RobotControl'
                     result['checks'].append('Edit retains source files and identity; complete replacement renames entry file/removes helper; version, readiness and stale-base checks passed')
+                    result['checks'].append('Published notes head CHANGELOG.md (created, kept through Replace all, no duplicate version); import review shows its version section; exports are byte-identical to the installed ZIP')
                     op=call('POST','/authoring/import',dict(files={'operation.py':(ROOT/'database_packages/examples/operation.py').read_text('utf-8')}))
                     op=save(op,operation_source='writer')
                     call('POST',f"/drafts/{op['id']}/check",{})

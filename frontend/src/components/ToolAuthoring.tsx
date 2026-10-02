@@ -115,10 +115,11 @@ export default function ToolAuthoring({ draftId, onClose }: { draftId?: string; 
             <Typography variant="body2">{draft.package_id} · {draft.version}</Typography>
           </Box>
           <Typography variant="h6">2. Connections</Typography>
-          {draft.kind === 'operation' && <TextField select label="Operation database" size="small" value={draft.operation_source || ''} disabled={locked} onChange={e=>change({operation_source:e.target.value})}>
+          <SourceMappings aliases={draft.sources} sources={sources} mappings={draft.mappings} disabled={locked} onChange={mappings=>change({mappings})} />
+          {draft.kind === 'operation' && <TextField select label="Writing connection" size="small" value={draft.operation_source || ''} disabled={locked} onChange={e=>change({operation_source:e.target.value})}
+            helperText="Deletes, resets and other changes run here. Same database as the reading connection.">
             {sources.filter(s=>s.access==='operation').map(s=><MenuItem key={s.id} value={s.id}>{s.name} · {s.database}</MenuItem>)}
           </TextField>}
-          <SourceMappings aliases={draft.sources} sources={sources} mappings={draft.mappings} disabled={locked} onChange={mappings=>change({mappings})} />
           {!draft.sources.length && draft.kind==='report' && <Typography variant="body2">No database connection needed.</Typography>}
           <Button disabled={locked} sx={{alignSelf:'flex-start'}} onClick={()=>setConnections(true)}>Manage connections</Button>
           <Button disabled={locked} variant="outlined" sx={{alignSelf:'flex-start'}} onClick={()=>work(async()=>{

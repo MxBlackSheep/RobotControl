@@ -78,11 +78,47 @@ export default function ReportConnections({ open, onClose }: { open: boolean; on
   </Dialog>;
 }
 
+// A source alias is the package author's name for a connection; show it only when it tells two fields apart.
+export const readingLabel = (aliases: string[], alias: string) => aliases.length > 1 ? `Reading connection · ${alias}` : 'Reading connection';
+const option = (s: Source) => <MenuItem key={s.id} value={s.id}>{s.name} · {s.database}</MenuItem>;
+
 export function SourceMappings({ aliases, sources, mappings, onChange, disabled = false }: {
   aliases: string[]; sources: Source[]; mappings: Record<string, string>; onChange: (mapping: Record<string, string>) => void; disabled?: boolean;
 }) {
-  return <Stack spacing={2}>{aliases.map(alias => <TextField select key={alias} size="small" label={`Connection for ${alias}`} value={mappings[alias] || ''}
-    disabled={disabled} onChange={e => onChange({ ...mappings, [alias]: e.target.value })}>
-    {sources.filter(s => !s.access || s.access === 'read').map(s => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
+  return <Stack spacing={2}>{aliases.map(alias => <TextField select key={alias} size="small" label={readingLabel(aliases, alias)} value={mappings[alias] || ''}
+    helperText="Experiment lists and reports. Read-only accounts only." disabled={disabled} onChange={e => onChange({ ...mappings, [alias]: e.target.value })}>
+    {sources.filter(s => !s.access || s.access === 'read').map(option)}
   </TextField>)}</Stack>;
+}
+
+export type PackageBinding = { id: string; name: string; aliases: string[]; mappings: Record<string, string>; has_operation?: boolean; operation_source?: string | null };
+
+/** Assigns an installed package's connections. The opener owns the edited binding; this dialog owns saving it. */
+export function AssignConnections({ binding, sources, onChange, onClose, onSaved, onManage }: {
+  binding?: PackageBinding; sources: Source[]; onChange: (binding: PackageBinding) => void;
+  onClose: () => void; onSaved: () => void; onManage: () => void;
+}) {
+  const [busy, setBusy] = useState(false), [error, setError] = useState('');
+  const close = () => { if (!busy) { setError(''); onClose(); } };
+  const save = async () => {
+    if (!binding) return; setBusy(true); setError('');
+    try {
+      await api.put(`${base}/packages/${binding.id}/sources`, { mappings: Object.fromEntries(binding.aliases.map(x => [x, binding.mappings[x]])), operation_source: binding.operation_source || null });
+      onSaved();
+    } catch (e) { setError(requestMessage(e)); } finally { setBusy(false); }
+  };
+  return <Dialog open={!!binding} onClose={close} fullWidth maxWidth="sm">
+    <DialogTitle sx={{ overflowWrap: 'anywhere' }}>Assign connections — {binding?.name}</DialogTitle>
+    <DialogContent><Stack spacing={2} sx={{ pt: 1 }}>
+      {error && <Alert severity="error">{error}</Alert>}
+      {binding && <SourceMappings aliases={binding.aliases} sources={sources} mappings={binding.mappings} disabled={busy} onChange={mappings => onChange({ ...binding, mappings })} />}
+      {binding?.has_operation && <TextField select size="small" label="Writing connection" value={binding.operation_source || ''} disabled={busy}
+        helperText="Deletes, resets and other changes run here. Same database as the reading connection." onChange={e => onChange({ ...binding, operation_source: e.target.value })}>
+        <MenuItem value="">Not configured</MenuItem>{sources.filter(s => s.access === 'operation').map(option)}
+      </TextField>}
+      {binding && !binding.aliases.length && !binding.has_operation && <Typography>This package needs no database connection.</Typography>}
+      <Button disabled={busy} sx={{ alignSelf: 'flex-start' }} onClick={onManage}>Manage connections</Button>
+    </Stack></DialogContent>
+    <DialogActions><Button disabled={busy} onClick={close}>Cancel</Button><Button variant="contained" disabled={busy} onClick={() => void save()}>Save connections</Button></DialogActions>
+  </Dialog>;
 }

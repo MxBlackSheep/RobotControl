@@ -38,7 +38,12 @@ versions, bundled tool details and authoring steps are owned by
   journal, under `data/database-tools/report-drafts`. `tool_definition.py` reads `TOOL`.
 - `api/database_tools.py`: every `/api/database/tools` route.
 - `build_scripts/database_package.py`: `create` and `build` for authors; neither runs package code.
-- `database_packages/`: bundled Culture history (1.0.3) and Delete Experiment (1.0.1).
+- `database_packages/`: bundled starter packages Culture history, Delete Experiment and Select
+  EvoYeast experiment, all 1.0.0. Each `CHANGELOG.md` section is the default history message
+  for its version and the import review's suggested note (`changelog_note` in
+  `database_packages.py`). Publishing a draft adds its change note as the new version's
+  section (`changelog_with_note`, called from `ReportAuthoring.archive(note=…)`) when
+  RobotControl builds the ZIP; `export` always returns the retained ZIP, unchanged.
   Updating the executable never replaces an installed package; update through Manage packages.
 
 ## Backup and restore

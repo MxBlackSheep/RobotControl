@@ -2,7 +2,7 @@
   "contract_version": 2,
   "id": "culture-history",
   "name": "Culture history",
-  "version": "1.0.3",
+  "version": "1.0.0",
   "libraries": [
     "openpyxl",
     "pandas",

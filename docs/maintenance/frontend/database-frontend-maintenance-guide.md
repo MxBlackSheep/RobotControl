@@ -24,8 +24,12 @@ authoring steps are in [database_packages/README.md](../../../database_packages/
 - `DatabasePackages.tsx`: Manage packages. `ToolAuthoring.tsx` adds and edits Python-defined
   tools; `ReportWizard.tsx` only resumes older, non-code drafts and its endpoints stay compatible.
 - `DatabaseSettings.tsx`: saved connections and their uses, the viewer database and Schedule
-  preparation. `ReportConnections.tsx` (with `SourceMappings`) is the single connection editor,
-  reused by settings, packages and authoring.
+  preparation. `ReportConnections.tsx` is the single connection editor, reused by settings, packages and
+  authoring. Its `SourceMappings` renders the **Reading connection** fields (read-only accounts;
+  the alias is shown only when a package has several), and `AssignConnections` is the one
+  **Assign connections** dialog for an installed package, opened from Database settings and
+  Manage packages. It adds the **Writing connection** (operation accounts) for packages that
+  write, and saves only the declared aliases.
 - `services/api.ts` supplies `databaseAPI`.
 
 ## Sections and access
@@ -135,19 +139,20 @@ ignores results after the section becomes inactive.
 ## Manage packages
 
 - Each package row shows Excel report or Database operation, and offers Edit, Download package,
-  Connections (report mappings and operation target), History and Remove. A package that needs
+  Connections (reading and writing connections), History and Remove. A package that needs
   setup cannot run. History lists metadata and file-change names, not source rollback; older
   installations say they have none.
 - **Import package ZIP** inspects first. Review shows installed and incoming versions and flags
   unchanged, same-version-different-code and older packages; installing sends the reviewed
   package ID and installed hash, so another administrator's change requires a new review. A
-  failed request keeps the chosen file.
+  failed request keeps the chosen file. **What changed?** starts with the package's CHANGELOG
+  section for the incoming version (set once, when the review opens) and stays editable.
 - **Add tool** and **Edit** open `ToolAuthoring`. The form comes from the Python's
   `TOOL['inputs']`. Replace Python replaces the defining script, even when renamed; helpers are
   kept, and helper upload and Replace all files live under Supporting files. File or connection
   edits clear readiness. Reports need a successful workbook; operation trials only preview and
   expose no execution token. Publishing needs the review checkbox. The optional change note
-  appears in History. Success returns to the list with a versioned message; after a lost
+  appears in History and heads the published package's CHANGELOG.md. Success returns to the list with a versioned message; after a lost
   response the exact publication request is kept so Retry works although the draft was retired.
 - `ReportWizard` offers Save and close, and Discard and close (confirmed; deletes only the
   draft). Busy work or a running trial blocks both; Keep editing, Escape or the backdrop dismiss

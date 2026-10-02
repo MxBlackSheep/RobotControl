@@ -18,6 +18,34 @@ The three existing EvoYeast tools are also ready as single Python files:
   reader and an operation connection to the same EvoYeast database, then open each schedule
   marked **Needs review** and save it.
 
+All three starter packages are version 1.0.0. Each has a `CHANGELOG.md` with a `## <version>`
+section per release, newest first. The CHANGELOG travels inside the package ZIP and its
+download. The history under **Manage packages** (who installed what, and when) belongs to one
+installation and is not part of the ZIP. When **What changed?** is left blank on install (and at
+first start), the history message is taken from the CHANGELOG section for the installed
+version; **Import package ZIP** shows that section in **What changed?**, where it can be edited.
+When releasing a new version of a package outside RobotControl, add its section to the
+CHANGELOG. **Publish update** inside RobotControl does this for you (see below).
+
+**Connections for the starter packages.** Each package's **Reading connection** accepts only a
+read-only connection. RobotControl checks that the account can do nothing but read, so an
+account that can change data is refused there. Delete Experiment and Select EvoYeast experiment
+also need a **Writing connection**, an operation connection that makes their changes.
+Culture history is a report and needs only the read-only one. So the lab needs two SQL logins
+for the EvoYeast database:
+
+- **Read-only:** in **Database settings**, choose **New connection**, set **Account setup** to
+  **Create read-only account**, and give an account allowed to create SQL logins. RobotControl
+  creates a SELECT-only login and checks it. **Download SQL for your administrator** gives the
+  same script to run by hand; then add it with **Use existing account**.
+- **Operation:** the existing account that can change data, added with **Use existing account**
+  and **Access: Operations: database changes**.
+
+Then **Assign** each package: **Reading connection** to the read-only connection, and
+**Writing connection** to the operation connection on the same database. (A package whose
+Python names several connections shows each name after the label, e.g.
+**Reading connection · plates**; the starter packages use one, `primary`.)
+
 For an installed tool, choose **Edit report/operation → Replace Python**, select
 its `.py` file, check the connections, try, then **Publish update**. For a new
 installation, use **Add tool** instead. No manifest or supporting file upload is
@@ -134,8 +162,11 @@ separate input settings file. `kind: 'report'` places it in Data retrieval;
 `kind: 'operation'` places it in Operations.
 
 **What changed?** is an optional publication note, saved with unfinished drafts.
-Publishing returns to the installed list with a success message and removes the
-completed draft. **History** shows version, time, publisher, note and filenames
+Publishing writes it as the new version's `## <version>` section at the top of the package's
+`CHANGELOG.md` (created if missing; earlier sections are kept, and a section already written
+for that version is replaced), so **Download package** carries it to other labs. A downloaded
+package is the installed ZIP, unchanged, because schedules pin its SHA-256. Publishing
+returns to the installed list with a success message and removes the completed draft. **History** shows version, time, publisher, note and filenames
 added/changed/removed. History starts when recording is available; earlier changes
 are not reconstructed. It is installation history, not retained source revisions
 or rollback. Removing a package removes its local history. Use the single **Edit**

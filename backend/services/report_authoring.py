@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
-from backend.services.database_packages import Manifest, PackageCatalogue, PackageError, inspect_archive, SUPPORTED_LIBRARIES
+from backend.services.database_packages import Manifest, PackageCatalogue, PackageError, changelog_with_note, inspect_archive, SUPPORTED_LIBRARIES
 from backend.utils.filesystem import replace_file
 
 
@@ -317,7 +317,9 @@ class ReportAuthoring:
                 '    # Write Excel under context.output_dir; return its filename.\n'
                 '    raise NotImplementedError("ADAPT_BEFORE_BUILD")\n')
 
-    def archive(self, draft, key=None, owner=None, trial=False):
+    def archive(self, draft, key=None, owner=None, trial=False, note=None):
+        """The package ZIP for a draft. `note` is given only when publishing: it becomes the
+        new version's CHANGELOG section, so the release note travels with Download package."""
         draft = draft.model_copy(deep=True).derive()
         manifest = draft.manifest()
         files = {}
@@ -340,8 +342,14 @@ class ReportAuthoring:
             manifest.id = 'draft-' + key
             manifest.tools = [next(t for t in manifest.tools if t.id == (draft.tool_id or draft.package_id))]
             manifest.tools[0].id = manifest.id
+        retained = files
         if draft.definition_file:
             files = {name:text.encode('utf-8') for name,text in draft.files.items()}
+        if note is not None:
+            # Replace all files may omit CHANGELOG.md; the published version keeps its history.
+            if not any(name.lower() == 'changelog.md' for name in files):
+                files = {**files, **{name:value for name,value in retained.items() if name.lower() == 'changelog.md'}}
+            files = changelog_with_note(files, manifest.name, manifest.version, note)
         if not draft.handler or 'ADAPT_BEFORE_BUILD' in draft.handler:
             raise PackageError('Upload the completed handler.py before trying or installing this report.')
         tree = ast.parse(draft.handler)
