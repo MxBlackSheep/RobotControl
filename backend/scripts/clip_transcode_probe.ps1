@@ -121,6 +121,17 @@ foreach ($clip in $sources) {
 }
 if (-not $selected) { throw "No complete clip_*.avi files in $Clips" }
 
+# Background load, so a machine peak below can be read against it.
+$baseline = @(); $last = Get-MachineTimes
+for ($i = 0; $i -lt 12; $i++) {
+    Start-Sleep -Milliseconds 250
+    $now = Get-MachineTimes
+    $baseline += 100 * ($now.Busy - $last.Busy) / [math]::Max(1, $now.Total - $last.Total); $last = $now
+}
+$baselineText = "machine before the runs: mean {0:N0} %, peak {1:N0} % (250 ms windows)" -f
+    ($baseline | Measure-Object -Average).Average, ($baseline | Measure-Object -Maximum).Maximum
+Write-Host $baselineText
+
 $rows = @()
 foreach ($clip in $selected) {
     $sourceFrames = Get-FrameCount $clip.FullName
@@ -186,5 +197,5 @@ $rows | Where-Object { -not $_.error } | Group-Object profile | ForEach-Object {
         @($group | Where-Object { $_.output_frames -eq $_.source_frames }).Count, $group.Count
 } | Write-Host
 $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
-Write-Host ("CPU: {0}, {1} logical processors. Output: {2}" -f $cpu.Name.Trim(), $cpu.NumberOfLogicalProcessors, $OutDir)
+Write-Host ("CPU: {0}, {1} logical processors; {2}. Output: {3}" -f $cpu.Name.Trim(), $cpu.NumberOfLogicalProcessors, $baselineText, $OutDir)
 Remove-Item -ErrorAction SilentlyContinue (Join-Path $OutDir "ffmpeg-stdout.txt"), (Join-Path $OutDir "ffmpeg-stderr.txt")
