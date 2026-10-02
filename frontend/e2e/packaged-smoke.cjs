@@ -120,12 +120,21 @@ const path = require('node:path');
       sampled_at: '2026-09-26T12:00:00Z', system: { cpu_percent: 4, memory_percent: 25, disk_percent: 50 },
       database: { is_connected: true, database_name: 'Fixture DB', server_name: 'Fixture server', mode: 'primary' },
     } } }));
+    // The Databases card reads /api/monitoring/databases: the built-in connection plus saved ones.
+    await page.route('**/api/monitoring/databases', route => route.fulfill({ json: { data: {
+      built_in: { id: 'built-in', name: 'Built-in Hamilton connection', access: 'built-in', server: 'Fixture server', database: 'Fixture DB',
+        uses: ['Hamilton run records', 'Labware', 'Backup and restore'], state: 'connected', message: null },
+      connections: [], checked_at: '2026-09-26T12:00:00',
+    } } }));
     await page.route('**/api/camera/streaming/status', route => route.fulfill({ json: { data: {
       enabled: true, active_session_count: 0, max_sessions: 10, resource_usage_percent: 45, total_bandwidth_mbps: 7,
     } } }));
     await page.goto('http://127.0.0.1:8017/system-status');
-    // Connection facts are shown in the Database and Live view cards (no disclosure).
-    await expect(page.getByRole('region', { name: 'Database', exact: true }).getByText('Fixture server', { exact: true })).toBeVisible();
+    // Connection facts are shown in the Databases and Live view cards (no disclosure); nothing reads as unknown.
+    const databases = page.getByRole('region', { name: 'Databases', exact: true });
+    await expect(databases.getByText('Fixture server / Fixture DB', { exact: true })).toBeVisible();
+    await expect(databases.getByTitle('Connected', { exact: true }).first()).toBeVisible();
+    await expect(databases.getByText(/Unknown|Unavailable|cannot connect/i)).toHaveCount(0);
     await expect(page.getByText('0 of 10 slots in use', { exact: true })).toBeVisible();
     await expect(page.getByText(/Utilization|Bandwidth/)).toHaveCount(0);
     await page.screenshot({ path: path.join(output, 'packaged-connections-phone.png'), fullPage: true, animations: 'disabled' });
