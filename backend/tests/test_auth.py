@@ -7,7 +7,9 @@ from backend.services.auth import AuthService, DEFAULT_ADMIN_PASSWORD
 from backend.main import app
 
 
-client = TestClient(app)
+# Loopback peer: the admin signs in with the built-in password, which only the RobotControl
+# computer may use (remote refusal: backend/e2e/auth_storage_check.py).
+client = TestClient(app, client=("127.0.0.1", 50000))
 
 
 @pytest.fixture(autouse=True)

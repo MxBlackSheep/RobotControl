@@ -33,7 +33,10 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # Configuration (environment overrides supported for deployments)
 DEFAULT_ADMIN_USERNAME = os.getenv("ROBOTCONTROL_ADMIN_USERNAME", "admin")
-DEFAULT_ADMIN_PASSWORD = os.getenv("ROBOTCONTROL_ADMIN_PASSWORD", "ShouGroupAdmin")
+# Published in the public repository, so anyone can try it. The login route refuses it from
+# outside the RobotControl computer (a deployment's own ROBOTCONTROL_ADMIN_PASSWORD is not public).
+BUILT_IN_ADMIN_PASSWORD = "ShouGroupAdmin"
+DEFAULT_ADMIN_PASSWORD = os.getenv("ROBOTCONTROL_ADMIN_PASSWORD", BUILT_IN_ADMIN_PASSWORD)
 DEFAULT_ADMIN_EMAIL = os.getenv("ROBOTCONTROL_ADMIN_EMAIL", "admin@localhost")
 
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ROBOTCONTROL_ACCESS_TOKEN_MINUTES", "240"))
@@ -133,6 +136,22 @@ class AuthService:
         except Exception as exc:
             logger.error("Password verification error: %s", exc)
             return False
+
+    @staticmethod
+    def is_built_in_password(password: str) -> bool:
+        return secrets.compare_digest(password.encode("utf-8"), BUILT_IN_ADMIN_PASSWORD.encode("utf-8"))
+
+    def has_built_in_password(self, username: str, password: str) -> bool:
+        """True when `password` is the built-in default and is this active account's current password.
+
+        Checked at sign-in rather than stored: no schema change, and it stops applying the
+        moment the password changes. A wrong password is always False, so callers answer it
+        like any other wrong password.
+        """
+        if not self.is_built_in_password(password):
+            return False
+        row = self.db.get_user_by_username(username)
+        return bool(row and row["is_active"] and self.verify_password(password, row["password_hash"]))
 
     # ------------------------------------------------------------------
     # User operations
