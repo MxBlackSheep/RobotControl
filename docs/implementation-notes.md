@@ -1,3 +1,8 @@
+## 2026-10-02 README rewritten; MIT licence
+
+- The repository was public with no licence. It is now MIT (`LICENSE`, copyright Andy Sun and Shou Group, UCL; `license` in `pyproject.toml`). The bundled ffmpeg keeps its LGPL 3.0 notice in the package's `THIRD_PARTY_NOTICES`.
+- `README.md` rewritten for people who install or work on RobotControl: app icon, an Overview screenshot (`docs/images/overview.png`, sample data from the visual review), what each page does, requirements, install and update, the `data` folder, development, tests, packaging and licences. Removed: the printed default admin password (the README now says to set `ROBOTCONTROL_ADMIN_PASSWORD`, and that remote sign-in with the built-in default is refused, #53), the `--layout onefile` advice and the old `dist/RobotControl` output path.
+
 ## 2026-10-02 The built-in admin password no longer signs in remotely
 
 - Before, the sign-in page showed every visitor the default admin username and password, which are also in the public repository, and RobotControl is reachable through the Cloudflare tunnel, so anyone with the URL could try them. Now the hint is gone, and while an account still has the built-in password (`BUILT_IN_ADMIN_PASSWORD`, `backend/services/auth.py`) a non-local sign-in (tunnel or LAN, `get_connection_context`) answers 403 "Change the default password on the robot PC before signing in remotely." without tokens or a recorded login. On the RobotControl computer the same sign-in works and opens the existing required change-password dialog (`must_reset` in the login response only; nothing stored).
