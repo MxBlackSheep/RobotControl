@@ -1,3 +1,8 @@
+## 2026-10-02 README rewritten; MIT licence
+
+- The repository was public with no licence. It is now MIT (`LICENSE`, copyright Andy Sun and Shou Group, UCL; `license` in `pyproject.toml`). The bundled ffmpeg keeps its LGPL 3.0 notice in the package's `THIRD_PARTY_NOTICES`.
+- `README.md` rewritten for people who install or work on RobotControl: app icon, an Overview screenshot (`docs/images/overview.png`, sample data from the visual review), what each page does, requirements, install and update, the `data` folder, development, tests, packaging and licences. Removed: the printed default admin password (the README now says to set `ROBOTCONTROL_ADMIN_PASSWORD` or change it at once), the `--layout onefile` advice and the old `dist/RobotControl` output path.
+
 ## 2026-10-02 Live view: temporal denoise at 400 kbit/s; camera asked for 30 fps again
 
 - After #48 the owner found live view laggy again over the Cloudflare tunnel, with no less noise. Level 0 was 15 fps at 600 kbit/s, and libopenh264 overshoots in noise (≈840). Now level 0 runs `atadenoise` (serial, 5 frames, thresholds 0.16/0.32; `LIVE_STREAMING_CONFIG.denoise_filter`, `""` turns it off) in the ffmpeg child before encoding, on its yuv420p planes with one filter thread, at **400 kbit/s**. Measured on the development PC with the extended `live_view_quality_probe`: detail kept is above #48's 600k in all five scenes (owner clip 92.6 vs 90.5 %, light-off model 87.7 vs 84.8 %), frame-to-frame noise is about a third, and it sends 406–426 kbit/s even in the light-off model (600k: 846). The moving gripper does not ghost (0.109 vs 0.091 share of the previous frame; averaging two frames reads 0.5).

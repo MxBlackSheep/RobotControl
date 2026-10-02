@@ -1,71 +1,88 @@
+<img src="build_scripts/icon/icon-detailed.svg" alt="" width="88" align="right">
+
 # RobotControl
 
-Join different system utilities and provide unified control surface for the ShouGroup Hamilton Liquid Handling Robot.
+RobotControl is a browser-based control panel for the Hamilton liquid-handling robot in the
+Shou Group at UCL. It runs on the Windows PC next to the robot and brings scheduling, the deck
+camera, labware tracking and the Hamilton database into one place, on that PC or remotely
+through a Cloudflare Tunnel.
 
-# Usage
+![Overview page with a running method, upcoming schedules and recent runs](docs/images/overview.png)
 
-## Run-Time Logs, Backups, and Data Paths
-- Auto-generated folder to hold run-time data. 
-- Rotating backend logs live in `data/logs/` (main + error aliases). 
-- Automatic recordings accumulate in `data/videos/` (clean periodically).
-- Database backups `data/backups/`;
-- Scheduling metadata persists in `data/robotcontrol_scheduling.db`; removing it resets the scheduler state.
-- User Auth persists in `data/robotcontrol_auth.db`; Local admin generated automatically with default username "admin" and password "ShouGroupAdmin"
+## What it does
 
-## SQL Server Access
-- PyODBC-backed service to view database, perform basic operations and restore the database if needed.
+- **Scheduling.** Recurring and one-off runs of Hamilton methods (started through HxRun), with
+  a calendar, run history and archived schedules. After a run fails or its log goes quiet, new
+  runs are held until someone has checked the deck and marked it recovered.
+- **Camera.** Live view in the browser (H.264), one-minute rolling recordings, and an archive
+  of the footage around each experiment.
+- **Labware.** Tip tracking for every tip rack, and plate assignments for the Cytomat.
+- **Database.** Browse tables and stored procedures, back up and restore the Hamilton SQL Server
+  database, and run installable Python database packages (reports, data retrieval, preparation
+  steps). See [database_packages/README.md](database_packages/README.md).
+- **Logs and maintenance.** RobotControl logs, Hamilton traces, and HxRun maintenance mode.
+- **System status.** CPU (with RobotControl's own share), memory, disk, database connections and
+  live-view sessions.
+- **Accounts.** Local users with admin and user roles. Risky actions, such as uploads and some
+  database operations, only work from a browser on the robot PC itself.
 
-## Camera Access for Recording and Streaming
-- Camera service to handle detection, rolling recordings, archiving, and live streams.
+## Requirements
 
-## Scheduling Engine
-- SQLite-backed job store and queue with retry policy, grace windows, and manual recovery gating.
+- 64-bit Windows 10 or 11 on the robot PC.
+- Hamilton VENUS with HxRun and its SQL Server instance, for scheduling and the database pages.
+- [Microsoft ODBC Driver for SQL Server](https://learn.microsoft.com/en-us/sql/connect/odbc/download-odbc-driver-for-sql-server)
+  (18 or 17; RobotControl picks the newest one installed).
+- A USB camera, if you want live view and recordings.
+- For live view: Chrome or Edge 94+, Safari 16.4+ or Firefox 130+, opened on `localhost` or an
+  `https://` address.
 
-## Repository Layout
+RobotControl still starts without SQL Server, Hamilton software or a camera. The affected pages
+then report what is missing, and local sign-in keeps working.
 
-The [documentation map](docs/README.md) separates current maintenance instructions
-from historical reviews and release evidence. Branch, commit-message and tagging
-rules are in [CONTRIBUTING.md](CONTRIBUTING.md).
+## Installing
 
-### backend/
-- FastAPI application (routers, services, utils), pytest tests and HTTP end-to-end checks (`backend/e2e`)
-### frontend/
-- React + Vite client (TypeScript, MUI) and Playwright browser checks (`frontend/e2e`)
-### database_packages/
-- Python database tools and reports that can be installed into the app; see its README
-### build_scripts/
-- Asset embedding, PyInstaller and database-package automation
-### docs/
-- Module maintenance guides, change history and dated reviews
+RobotControl ships as a folder containing `RobotControl.exe`, `_internal`, `ffmpeg.exe`,
+the starter database packages and the licence notices. Older pre-release builds are on the
+[Releases page](https://github.com/MxBlackSheep/RobotControl/releases); to get the current
+code, build it yourself (see [Building the Windows package](#building-the-windows-package)).
 
-# Installation
+1. Install the ODBC driver on the robot PC.
+2. Copy the whole `RobotControl` folder to the robot PC. `RobotControl.exe` does not run
+   without the rest of the folder.
+3. Start `RobotControl.exe`. It serves the app on port 8005 and opens
+   <http://localhost:8005> in your browser.
+4. Sign in as `admin`. To choose the password for this account before the first start, set
+   the `ROBOTCONTROL_ADMIN_PASSWORD` environment variable. Otherwise the app uses a built-in
+   default, which you should change straight away under **Admin → User accounts**, especially
+   before you open remote access.
 
-## Compiled Release
+To update, replace everything in the folder except `data`.
 
-This repository provides compiled binary release that could be run directly on target machine. To fully utilize the features implemented, please make sure:
-- ODBC driver has been installed on the target machine ([Microsoft ODBC Driver](https://learn.microsoft.com/en-us/sql/connect/odbc/download-odbc-driver-for-sql-server?view=sql-server-ver17))
-- [optional]: To use camera service please make sure at least one camera is connected to the PC.
+### Where things are kept
 
-## Local Usage
+Everything RobotControl writes goes into the `data` folder next to `RobotControl.exe`.
 
-For local usage, double-click the binary to run the application. Then access the frontend interface via `localhost:8005`
+| Path | Contents |
+| --- | --- |
+| `data/logs/` | Backend logs (`robotcontrol_backend.log`), rotated automatically |
+| `data/videos/rolling_clips/` | The last 120 one-minute camera clips, stored as MP4 |
+| `data/videos/experiments/` | Footage archived around each finished experiment |
+| `data/backups/` | SQL Server database backups |
+| `data/config/` | Camera selection and other runtime settings |
+| `data/robotcontrol_scheduling.db` | Schedules and run history. Deleting it resets the scheduler. |
+| `data/robotcontrol_auth.db` | User accounts |
 
-## Remote Usage
+### Remote access
 
-Remote access (other PCs, phones) goes through a Cloudflare Tunnel, which serves RobotControl over
-HTTPS. Setup and the limits of remote sessions are in
-[docs/maintenance/backend/remote-access-guide.md](docs/maintenance/backend/remote-access-guide.md).
-Camera live view needs a secure page, so it works through the tunnel's `https://` address or on
-the RobotControl computer itself (`localhost`), in Chrome/Edge 94+, Safari 16.4+ or Firefox 130+.
+Other PCs and phones reach RobotControl through a Cloudflare Tunnel that serves it over
+HTTPS. Setup, and what remote users can and cannot do, are described in the
+[remote access guide](docs/maintenance/backend/remote-access-guide.md).
 
-## Source Code (Windows)
+## Development
 
-### First setup
-
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and
-[Node.js 24 LTS with npm](https://nodejs.org/en/download). Open a new PowerShell
-window after installation so the commands are on PATH. Run all commands below
-from the **RobotControl repository root**.
+You need [uv](https://docs.astral.sh/uv/getting-started/installation/) and
+[Node.js 24 LTS](https://nodejs.org/en/download). Open a new PowerShell window after
+installing them, then run these from the repository root:
 
 ```powershell
 uv sync --locked
@@ -74,77 +91,87 @@ npm --prefix frontend run build
 uv run --locked python build_scripts/fetch_ffmpeg.py
 ```
 
-The last command downloads the pinned LGPL `ffmpeg.exe` that encodes camera live view (H.264)
-into `build/vendor` (171 MB archive, checked against its SHA-256; not committed).
+uv installs the Python version pinned in `.python-version` (3.14) into `.venv`; you don't
+need a separate Python install. The last command downloads the pinned LGPL build of
+`ffmpeg.exe` into `build/vendor`, which live view and clip storage use. It is checked against
+its SHA-256 and is not committed.
 
-uv automatically installs the Python version in `.python-version` (64-bit Python
-3.14.7) and creates `.venv`. No separate Python installation or environment
-activation is needed. `pyproject.toml` declares dependencies; `uv.lock` records the
-exact versions for repeatable installations. Commit both when dependencies change.
-
-### Run
+Start the backend, which also serves the built frontend:
 
 ```powershell
 uv run --locked python backend/main.py --host 127.0.0.1 --port 8005 --no-browser
 ```
 
-Open [RobotControl](http://127.0.0.1:8005). The backend serves the built frontend.
-Local authentication uses SQLite and works without SQL Server. The default account
-is `admin` / `ShouGroupAdmin`; change its password after first login. Stop the
-server with Ctrl+C. For frontend development, run `npm --prefix frontend run dev`
-in another terminal and open port 3005; API requests are proxied to port 8005.
+Then open <http://127.0.0.1:8005>. For frontend work with hot reload, run
+`npm --prefix frontend run dev` in a second window and use port 3005; API calls are proxied to
+8005.
 
-SQL Server, its Microsoft ODBC driver, cameras, and the Hamilton software are
-separate machine dependencies. uv installs Python packages, not those drivers or
-services. Unavailable integrations can report errors while the web app and local
-login remain usable. Only start schedules when the target robot is configured.
-
-To work on the interface without starting scheduled jobs or automatic recordings,
-set these optional flags in the same PowerShell window before starting the app:
+To keep a development copy from starting scheduled runs or recordings, set these before
+starting it (they work for the packaged app too):
 
 ```powershell
 $env:ROBOTCONTROL_SCHEDULER_AUTOSTART_DELAY_SECONDS = "disable"
 $env:ROBOTCONTROL_AUTO_RECORDING_ENABLED = "0"
 ```
 
-These flags also work with the executable. Without them, existing automatic-start
-behavior is preserved.
-
-### Test and manage Python dependencies
+### Tests
 
 ```powershell
 uv run --locked python -m pytest backend/tests
-uv lock --check
-uv pip check
+npm --prefix frontend run type-check
 ```
 
-The default `dev` dependency group includes pytest and HTTPX. Use `uv sync --locked
---no-dev` for runtime dependencies only. PyInstaller belongs to the opt-in `build`
-group. Windows-only packages (including WMI and pywin32) have platform markers.
+Browser checks use Playwright against a faked backend and need a current frontend build. How
+to run them, and which spec covers which page, is in
+[frontend/e2e/README.md](frontend/e2e/README.md). Checks that reach real SQL Server, ffmpeg or
+packaging live in `backend/e2e`; each file's header says what it covers and how to run it.
 
-Use `uv add PACKAGE`, `uv add --dev PACKAGE`, or `uv remove PACKAGE` to change
-dependencies. To update an existing package, run `uv lock --upgrade-package PACKAGE`,
-then `uv sync --locked` and the tests. Review and commit the manifest and lockfile.
-Passlib **1.7.4** and bcrypt **4.3.0** are deliberately pinned together to preserve
-password compatibility; bcrypt 5 requires a separate password-library migration.
+### Dependencies
 
-### Build the Windows executable
+Python dependencies are declared in `pyproject.toml` and locked in `uv.lock`; commit both. Use
+`uv add`, `uv remove` or `uv lock --upgrade-package <name>`. Passlib 1.7.4 and bcrypt 4.3.0 are
+pinned together on purpose: newer bcrypt breaks Passlib, and changing either needs a password
+migration.
+
+### Building the Windows package
 
 ```powershell
 npm --prefix frontend run build
 uv run --locked python build_scripts/embed_resources.py
-uv run --locked --group build python build_scripts/pyinstaller_build.py --layout onedir
+uv run --locked --group build python build_scripts/pyinstaller_build.py --output-dir dist/<name>
 ```
 
-The output is `dist/RobotControl/RobotControl.exe`. Copy the **whole RobotControl
-folder**, including `_internal`, to the target Windows machine. It does not need
-Python, uv, or Node installed. Runtime data stays in the `data` folder beside the
-executable. Keep that folder when updating a deployed installation.
+The package ends up in `dist/<name>/RobotControl`, with the app icon and `ffmpeg.exe`
+included. Add `--console` to see diagnostic output in a console window. Before handing a build
+over, run the packaged smoke test and walkthrough described in
+[frontend/e2e/README.md](frontend/e2e/README.md).
 
-Use `--layout onefile` instead for `dist/RobotControl.exe`, or add `--console` to
-show diagnostic output. RobotControl is delivered only as this Windows executable.
+## Repository layout
 
-# Contacts/Issues
+| Folder | Contents |
+| --- | --- |
+| `backend/` | FastAPI app (API routes, services), pytest tests and `e2e` checks |
+| `frontend/` | React, TypeScript and MUI client, with Playwright checks in `e2e` |
+| `database_packages/` | Installable database tools and reports, with their authoring guide |
+| `build_scripts/` | Resource embedding, PyInstaller build, ffmpeg fetch, app icon |
+| `docs/` | Maintenance guides per module, change history and dated reviews ([map](docs/README.md)) |
 
-- This project will be primarily maintained by Andy Sun (sunfangziyue@gmail.com and zcbtunx@ucl.ac.uk)
-- For usage issues please either log under 'Issues' on Github or contact Andy directly. 
+## Contributing
+
+Changes go through pull requests into `main`; branch naming, commit messages and release
+tags are in [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+RobotControl is released under the [MIT License](LICENSE).
+
+The Windows package also bundles third-party software under its own licences. `ffmpeg.exe`
+is a separate LGPL 3.0 build of FFmpeg with OpenH264; their licence texts are in the
+package's `THIRD_PARTY_NOTICES` folder. The Python and JavaScript libraries keep their own
+licences. Hamilton, VENUS and HxRun are products of Hamilton Company; RobotControl is not
+affiliated with or endorsed by Hamilton.
+
+## Contact
+
+Maintained by Andy Sun (sunfangziyue@gmail.com, zcbtunx@ucl.ac.uk). Please report problems
+through [GitHub Issues](https://github.com/MxBlackSheep/RobotControl/issues).
