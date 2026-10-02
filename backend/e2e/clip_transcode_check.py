@@ -13,6 +13,7 @@ Failure cases:
   sidecar path or modification time is wrong, or the clip list still names the AVI;
 - ffmpeg is missing, crashes mid-transcode, or yields a different frame count: the AVI is lost,
   a temporary file remains, the failure is not reported in clip_storage, or it raises;
+- ffmpeg returns after being missing, but clip_storage still reports it missing;
 - RobotControl is killed mid-transcode: ffmpeg outlives it, or the next start keeps the temporary
   file or does not finish the clip;
 - two transcodes run at once, or one runs above BelowNormal priority;
@@ -226,7 +227,10 @@ def run(real_clips: Path = None):
               and "missing" in (status["last_error"] or ""), status)
         transcoder.wake()
         settled(transcoder, 5)
-        check("after ffmpeg returns, the waiting clip is transcoded", missing.with_suffix(".mp4").exists() and not missing.exists())
+        status = transcoder.status()
+        check("after ffmpeg returns, the waiting clip is transcoded and the missing-ffmpeg error clears",
+              missing.with_suffix(".mp4").exists() and not missing.exists() and status["state"] == "idle"
+              and status["last_error"] is None, status)
 
         # Wrong frame count (sidecar says one more than the file holds).
         short = write_clip(rolling, now + timedelta(seconds=40), 30)
