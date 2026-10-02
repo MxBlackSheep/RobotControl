@@ -24,8 +24,12 @@ authoring steps are in [database_packages/README.md](../../../database_packages/
 - `DatabasePackages.tsx`: Manage packages. `ToolAuthoring.tsx` adds and edits Python-defined
   tools; `ReportWizard.tsx` only resumes older, non-code drafts and its endpoints stay compatible.
 - `DatabaseSettings.tsx`: saved connections and their uses, the viewer database and Schedule
-  preparation. `ReportConnections.tsx` (with `SourceMappings`) is the single connection editor,
-  reused by settings, packages and authoring.
+  preparation. `ReportConnections.tsx` is the single connection editor, reused by settings, packages and
+  authoring. Its `SourceMappings` renders the **Reading connection** fields (read-only accounts;
+  the alias is shown only when a package has several), and `AssignConnections` is the one
+  **Assign connections** dialog for an installed package, opened from Database settings and
+  Manage packages. It adds the **Writing connection** (operation accounts) for packages that
+  write, and saves only the declared aliases.
 - `services/api.ts` supplies `databaseAPI`.
 
 ## Sections and access
@@ -135,7 +139,7 @@ ignores results after the section becomes inactive.
 ## Manage packages
 
 - Each package row shows Excel report or Database operation, and offers Edit, Download package,
-  Connections (report mappings and operation target), History and Remove. A package that needs
+  Connections (reading and writing connections), History and Remove. A package that needs
   setup cannot run. History lists metadata and file-change names, not source rollback; older
   installations say they have none.
 - **Import package ZIP** inspects first. Review shows installed and incoming versions and flags

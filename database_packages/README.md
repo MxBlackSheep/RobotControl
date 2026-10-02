@@ -25,10 +25,10 @@ history under **Manage packages** belongs to one installation and is not part of
 from the CHANGELOG section for the installed version. When releasing a new version of a
 package, add its section to the CHANGELOG.
 
-**Connections for the starter packages.** Each package's `primary` source accepts only a
+**Connections for the starter packages.** Each package's **Reading connection** accepts only a
 read-only connection. RobotControl checks that the account can do nothing but read, so an
 account that can change data is refused there. Delete Experiment and Select EvoYeast experiment
-also need an operation connection, chosen as **Operation target**, which makes their changes.
+also need a **Writing connection**, an operation connection that makes their changes.
 Culture history is a report and needs only the read-only one. So the lab needs two SQL logins
 for the EvoYeast database:
 
@@ -39,8 +39,10 @@ for the EvoYeast database:
 - **Operation:** the existing account that can change data, added with **Use existing account**
   and **Access: Operations: database changes**.
 
-Then **Assign** each package: `primary` to the read-only connection, and **Operation target**
-to the operation connection on the same database.
+Then **Assign** each package: **Reading connection** to the read-only connection, and
+**Writing connection** to the operation connection on the same database. (A package whose
+Python names several connections shows each name after the label, e.g.
+**Reading connection · plates**; the starter packages use one, `primary`.)
 
 For an installed tool, choose **Edit report/operation → Replace Python**, select
 its `.py` file, check the connections, try, then **Publish update**. For a new

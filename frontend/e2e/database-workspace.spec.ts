@@ -10,6 +10,10 @@ import { mkdirSync } from 'node:fs';
  *   non-secret settings and clears administrator credentials.
  * - Several operation choices each show their own inputs without submitting changes.
  * - Certificate trust is remembered only for the exact server after a successful save.
+ * - Assign connections (one dialog, from Database settings and Manage packages): the Reading
+ *   connection offers an operation account or the Writing connection a read-only one; a save
+ *   sends anything but the declared aliases and the writing connection; a failed save closes
+ *   the dialog or loses the selection.
  * - A remote administrator (e.g. through the tunnel) sees local-only sections or requests
  *   them, or is not told those sections exist on the RobotControl computer.
  * Server-side cases are in backend/e2e/database_workspace_check.py.
@@ -166,4 +170,62 @@ test('certificate trust is remembered only for a successfully saved exact server
   await expect(page.getByLabel('Trust server certificate', { exact: true })).toBeChecked();
   await page.getByLabel('Server', { exact: true }).fill('ANOTHER-LAB');
   await expect(page.getByLabel('Trust server certificate', { exact: true })).not.toBeChecked();
+});
+
+test('assigning package connections offers matching accounts and saves only declared aliases', async ({ page }) => {
+  mkdirSync(evidence, { recursive: true }); await login(page);
+  const profiles = [{ id: 'reader', name: 'Lab reader', database: 'EvoYeast', access: 'read' }, { id: 'writer', name: 'Lab writer', database: 'EvoYeast', access: 'operation' }];
+  const packages = [{ id: 'delete-experiment', name: 'Delete Experiment', version: '1.0.0', sha256: 'a', running: 0, libraries: [], tools: [{ id: 'delete-experiment', name: 'Delete Experiment', kind: 'operation' }] },
+    { id: 'plate-report', name: 'Plate report', version: '1.0.0', sha256: 'b', running: 0, libraries: [], tools: [{ id: 'plate-report', name: 'Plate report', kind: 'report' }] }];
+  // 'retired' is a stale alias from an earlier version; it must not be sent back.
+  const bindings: Record<string, any> = { 'delete-experiment': { aliases: ['primary'], mappings: { retired: 'reader' }, has_operation: true, operation_source: null },
+    'plate-report': { aliases: ['plates', 'results'], mappings: {}, has_operation: false, operation_source: null } };
+  const saved: any[] = [];
+  await page.route('**/api/database/tools/sources', r => r.fulfill({ json: profiles }));
+  await page.route('**/api/database/tools/viewer-sources', r => r.fulfill({ json: [] }));
+  await page.route('**/api/database/tools/drafts', r => r.fulfill({ json: [] }));
+  await page.route('**/api/database/tools/packages', r => r.fulfill({ json: packages }));
+  await page.route('**/api/database/tools/packages/*/sources', r => {
+    const id = r.request().url().split('/packages/')[1].split('/')[0];
+    if (r.request().method() === 'GET') return r.fulfill({ json: bindings[id] });
+    saved.push(r.request().postDataJSON());
+    return saved.length === 1 ? r.fulfill({ status: 409, json: { detail: 'Package is running. Wait until it finishes.' } }) : r.fulfill({ json: { message: 'Connections assigned.' } });
+  });
+  await page.goto('/database?section=settings');
+  await expect(page.getByText('Reading connection · plates: Not configured · Reading connection · results: Not configured', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Assign', exact: true }).first().click();
+  const dialog = page.getByRole('dialog', { name: 'Assign connections — Delete Experiment' });
+  const reading = dialog.getByRole('combobox', { name: /^Reading connection(?! ·)/ }) // a select's name also carries its value;
+  const writing = dialog.getByRole('combobox', { name: /^Writing connection/ });
+  await reading.click();
+  await expect(page.getByRole('option')).toHaveText(['Lab reader · EvoYeast']);
+  await page.getByRole('option', { name: 'Lab reader · EvoYeast' }).click();
+  await writing.click();
+  await expect(page.getByRole('option')).toHaveText(['Not configured', 'Lab writer · EvoYeast']);
+  await page.getByRole('option', { name: 'Lab writer · EvoYeast' }).click();
+  for (const [width, height] of [[1440, 900], [390, 844]]) for (const scheme of ['light', 'dark'] as const) {
+    await page.setViewportSize({ width, height }); await page.emulateMedia({ colorScheme: scheme });
+    await page.screenshot({ path: `${evidence}/assign-connections-${width}-${scheme}.png`, animations: 'disabled' });
+  }
+  await page.emulateMedia({ colorScheme: 'light' }); await page.setViewportSize({ width: 1440, height: 900 });
+  await dialog.getByRole('button', { name: 'Save connections', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toContainText('Package is running.');
+  await expect(reading).toHaveText('Lab reader · EvoYeast');
+  await expect(writing).toHaveText('Lab writer · EvoYeast');
+  await dialog.getByRole('button', { name: 'Save connections', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await page.goto('/database?section=packages');
+  await page.getByRole('button', { name: 'Connections', exact: true }).nth(1).click();
+  const plates = page.getByRole('dialog', { name: 'Assign connections — Plate report' });
+  await expect(plates.getByRole('combobox')).toHaveCount(2);
+  await expect(plates.getByRole('combobox', { name: /^Writing connection/ })).toHaveCount(0);
+  for (const alias of ['plates', 'results']) {
+    await plates.getByRole('combobox', { name: new RegExp(`^Reading connection · ${alias}`) }).click();
+    await page.getByRole('option', { name: 'Lab reader · EvoYeast' }).click();
+  }
+  await page.screenshot({ path: `${evidence}/assign-connections-aliases.png`, animations: 'disabled' });
+  await plates.getByRole('button', { name: 'Save connections', exact: true }).click();
+  await expect(plates).toHaveCount(0);
+  expect(saved).toEqual([{ mappings: { primary: 'reader' }, operation_source: 'writer' }, { mappings: { primary: 'reader' }, operation_source: 'writer' },
+    { mappings: { plates: 'reader', results: 'reader' }, operation_source: null }]);
 });
