@@ -1,3 +1,9 @@
+## 2026-10-02 Tip tracking no longer offers Reserved or Unclear
+
+- The owner asked to remove the reserved and unclear tip statuses from the frontend only. Before, Set tips to offered seven statuses; now it offers clean, empty, dirty, rinsed and washed. The backend, API and database are unchanged: they still store and report both, and a missing or unrecognised stored value still arrives as unclear.
+- A tip saved as reserved or unclear still shows its own colour and name ("Tip 1, reserved"), counts in After saving, and appears in the deck/rack legend only while a shown tip has it, so unknown data never reads as clean. Repainting it saves the chosen allowed status. One named list (`hiddenFromEditing`, `TipTrackingPanel.tsx`) does the hiding; nothing else in the frontend reads tip statuses.
+- Checks: new case in `labware.spec.ts` (fails on main: the palette shows Reserved and Unclear); screenshots `test-output/visual/latest/{light,dark}-{1440,390}-labware.png`.
+
 ## 2026-10-02 RobotControl.exe and the browser tab show the gripper icon
 
 - Before, RobotControl.exe carried PyInstaller's default icon (floppy disk and Python logo) in Explorer, the taskbar and Task Manager, and `index.html` linked `/vite.svg`, which did not exist, so the tab had no icon. Now both show design B, a gripper carrying a plate. The EXE icon has frames at 16, 20, 24, 32, 40 and 48 px from the simplified art and at 64, 128 and 256 px from the detailed art.

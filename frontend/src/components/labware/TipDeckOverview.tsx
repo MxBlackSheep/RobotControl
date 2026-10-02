@@ -9,7 +9,8 @@ interface Props {
   rows: number;
   columns: number;
   selected: string;
-  statuses: string[];
+  /** Statuses shown on the deck, in backend order. */
+  legend: string[];
   colors: Record<string, string>;
   statusAt: (rack: string, position: number) => string;
   pendingAt: (rack: string) => number;
@@ -17,7 +18,7 @@ interface Props {
 }
 
 /** The array order is deck geometry. Never sort these racks by name or state. */
-export default function TipDeckOverview({ family, joined, rows, columns, selected, statuses, colors, statusAt, pendingAt, onOpen }: Props) {
+export default function TipDeckOverview({ family, joined, rows, columns, selected, legend, colors, statusAt, pendingAt, onOpen }: Props) {
   const rackRows = Math.max(1, family.left_racks.length, family.right_racks.length);
   const mapMinimum = rows * 5 + rows - 1;
   const rackMinimum = mapMinimum + 24; // Title, gap, padding and border.
@@ -51,7 +52,7 @@ export default function TipDeckOverview({ family, joined, rows, columns, selecte
       </Box>)}
     </Box>
     <Stack direction="row" gap={1.5} flexWrap="wrap" alignItems="center" aria-label="Tip status legend" sx={{ gridRow: 4, px: 2, py: 0.5, borderTop: 1, borderColor: 'surface.headLine' }}>
-      {statuses.map(status => <Stack key={status} direction="row" gap={0.5} alignItems="center"><Box aria-hidden="true" sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: colors[status] || 'text.disabled' }} /><Typography variant="caption" color="text.secondary">{status.charAt(0).toUpperCase() + status.slice(1)}</Typography></Stack>)}
+      {legend.map(status => <Stack key={status} direction="row" gap={0.5} alignItems="center"><Box aria-hidden="true" sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: colors[status] || 'text.disabled' }} /><Typography variant="caption" color="text.secondary">{status.charAt(0).toUpperCase() + status.slice(1)}</Typography></Stack>)}
     </Stack>
   </Box>;
 }
