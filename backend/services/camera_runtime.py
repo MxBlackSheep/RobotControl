@@ -61,7 +61,7 @@ class CameraRuntime:
         self.counters = [0.] * 6
         self.no_frame_seconds = 10
         self.startup_seconds = 20
-        self.capture_fps = 15
+        self.capture_fps = 30
         self.graceful_stop_seconds = 15
         self.on_recording_started = None
 

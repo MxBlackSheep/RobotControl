@@ -65,10 +65,11 @@ CAMERA_CONFIG = {
     "recording_duration_minutes": 1,        # Duration of each video segment in minutes
     "archive_duration_minutes": 15,         # Minutes of clips to archive per experiment
     "rolling_clips_count": 120,             # Maximum rolling clips to maintain
-    # Frame rate requested from the camera. Live view uses at most 15 and recording at most 7.5; 15 also
-    # lets auto-exposure expose up to 1/15 s in the dark instead of adding gain (docs/plans/live-view-low-light.md).
-    # 30 restores the earlier request; LIVE_STREAMING_CONFIG encoder_levels rates should divide it.
-    "capture_fps": 15,
+    # Frame rate requested from the camera; a hint only (live view paces itself to at most 15, recording
+    # measures its rate and keeps at most 7.5). The production camera delivers YUY2 at 30 whatever is
+    # requested, so 30 matches what arrives (docs/plans/live-view-denoise.md). LIVE_STREAMING_CONFIG
+    # encoder_levels rates should divide it.
+    "capture_fps": 30,
     "clip_h264_kbps": 1000,                 # H.264 bitrate finalized clips are stored at (docs/plans/h264-rolling-clips.md)
     "default_resolution": [640, 480]        # Default camera resolution [width, height]
 }
@@ -105,7 +106,7 @@ LIVE_STREAMING_CONFIG = {
     "denoise_filter": "atadenoise=0a=0.16:0b=0.32:1a=0.16:1b=0.32:2a=0.16:2b=0.32:s=5:a=s",
     # One H.264 stream (640×480, one-second GOP) shared by every viewer. Level 0 is normal; the CPU
     # guard steps down one level at a time under load and back up when calm. Each rate divides the
-    # camera's 15 fps (CAMERA_CONFIG capture_fps; also 30) so frames stay evenly spaced. "denoise"
+    # camera's 30 fps (CAMERA_CONFIG capture_fps; also 15) so frames stay evenly spaced. "denoise"
     # applies denoise_filter; the degraded levels go without, as 3 held frames there are 400–600 ms.
     "encoder_levels": [
         {"fps": 15, "bitrate_kbps": 400, "denoise": True},
