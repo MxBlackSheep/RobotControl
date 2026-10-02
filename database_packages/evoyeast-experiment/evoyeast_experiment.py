@@ -1,15 +1,12 @@
-"""Before a scheduled run: mark one EvoYeast experiment ScheduledToRun, optionally reset tables.
+"""Before a scheduled run: mark the chosen EvoYeast experiment ScheduledToRun, and no other.
 
-This replaces RobotControl's former built-in EvoYeast preparation with the same SQL.
-Assign a read-only connection (experiment choices) and an operation connection to the
-same EvoYeast database in Database settings, then attach it to a schedule under
-**Before this run**. RobotControl runs it in one SERIALIZABLE transaction and commits
-after prepare() returns; raising rolls everything back and stops the run.
-
-dbo.ResetHamiltonTables must already exist when a schedule resets tables. It receives
-the scheduled method's name and, when tables are listed, @TablesJson (a JSON array).
+This replaces RobotControl's former built-in EvoYeast preparation with the same SQL: clear
+ScheduledToRun on every experiment, then set it on the chosen one. Assign a read-only
+connection (experiment choices) and an operation connection to the same EvoYeast database in
+Database settings, then attach it to a schedule under **Before this run**. RobotControl runs
+it in one SERIALIZABLE transaction and commits after prepare() returns; raising rolls
+everything back and stops the run.
 """
-import json
 
 TOOL = {
     "name": "Select EvoYeast experiment",
@@ -18,12 +15,8 @@ TOOL = {
         "experiment_id": {
             "label": "Experiment",
             "type": "integer",
-            "required": False,
             "query": "SELECT ExperimentID AS value, COALESCE(UserDefinedID + N' (', N'(') + CAST(ExperimentID AS nvarchar(40)) + N')' AS label FROM dbo.Experiments",
         },
-        "reset_tables": {"label": "Reset Hamilton tables", "type": "boolean", "required": False},
-        "table_list": {"label": "Tables to reset (comma-separated; blank resets all)", "type": "text", "required": False},
-        "reset_first": {"label": "Reset tables before selecting the experiment", "type": "boolean", "required": False},
     },
 }
 
@@ -40,34 +33,9 @@ def select_experiment(cursor, experiment_id):
     return f"Experiment {experiment_id} marked ScheduledToRun"
 
 
-def reset_tables(cursor, method_name, table_list):
-    tables = [name.strip() for name in table_list.split(",")] if table_list.strip() else []
-    if any(not name for name in tables):
-        raise ValueError("Invalid reset table list: remove the empty entry.")
-    if tables:
-        cursor.execute("EXEC dbo.ResetHamiltonTables @ExperimentName = ?, @TablesJson = ?", method_name, json.dumps(tables))
-    else:
-        cursor.execute("EXEC dbo.ResetHamiltonTables @ExperimentName = ?", method_name)
-    # Consume every result so an error raised after an intermediate result surfaces.
-    while cursor.nextset():
-        pass
-    return "Hamilton tables reset" + (f" ({', '.join(tables)})" if tables else "")
-
-
 def prepare(context, inputs):
-    table_list = inputs.get("table_list") or ""
-    if table_list.strip() and not inputs.get("reset_tables"):
-        raise ValueError("Tables are listed but Reset Hamilton tables is off. Review the schedule.")
-    steps = []
-    if inputs.get("experiment_id") is not None:
-        steps.append(lambda cursor: select_experiment(cursor, inputs["experiment_id"]))
-    if inputs.get("reset_tables"):
-        steps.append(lambda cursor: reset_tables(cursor, context.run.experiment_name, table_list))
-    if inputs.get("reset_first"):
-        steps.reverse()
     cursor = context.connection.cursor()
     try:
-        done = [step(cursor) for step in steps]
+        return {"message": select_experiment(cursor, inputs["experiment_id"])}
     finally:
         cursor.close()
-    return {"message": "; ".join(done) or "Nothing selected: no experiment flag or table reset."}
