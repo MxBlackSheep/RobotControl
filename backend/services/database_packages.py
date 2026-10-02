@@ -28,6 +28,30 @@ MAX_EXPANDED = 50 * 1024 * 1024
 SUPPORTED_LIBRARIES = {"pandas", "openpyxl", "pyodbc", "numpy"}
 IDENTIFIER = r"^[a-z][a-z0-9-]{0,63}$"
 ENTRY = r"^[a-zA-Z_][a-zA-Z_0-9]*:[a-zA-Z_][a-zA-Z_0-9]*$"
+MAX_NOTE = 2000
+
+
+def changelog_note(payloads: dict, version: str) -> str:
+    """The package's own CHANGELOG.md text under the `## <version>` heading, or ''.
+
+    Used as the history message when the installer gives none (first-start seeding, or an
+    import with "What changed?" left blank). History stays per installation; the CHANGELOG
+    travels inside the ZIP and its exports.
+    """
+    try:
+        lines = payloads.get("CHANGELOG.md", b"").decode("utf-8").splitlines()
+    except UnicodeDecodeError:
+        return ""
+    section = None
+    for line in lines:
+        if line.startswith("#"):
+            if section is not None:
+                break
+            if re.fullmatch(r"#+\s*" + re.escape(version) + r"\b.*", line.strip()):
+                section = []
+        elif section is not None:
+            section.append(line.strip())
+    return " ".join(part for part in (section or []) if part)[:MAX_NOTE]
 
 
 class PackageError(ValueError):
@@ -377,7 +401,8 @@ class PackageCatalogue:
                              if p.is_file() and p.suffix in {'.py','.json','.txt','.md'}} if old else set()
                 names = set(payloads)
                 event = dict(version=manifest.version, previous_version=old['manifest']['version'] if old else None,
-                             at=datetime.now(timezone.utc).isoformat(), actor=actor, note=note.strip(), sha256=entry['sha256'],
+                             at=datetime.now(timezone.utc).isoformat(), actor=actor, sha256=entry['sha256'],
+                             note=note.strip() or changelog_note(payloads, manifest.version),
                              files=dict(added=sorted(names-old_names), removed=sorted(old_names-names),
                                         changed=sorted(n for n in names & old_names if previous.get(n) != payloads[n])))
                 if draft:

@@ -1,3 +1,9 @@
+## 2026-10-02 Starter packages restart at 1.0.0 with a change message
+
+- Culture history (was 1.0.3) and Delete Experiment (was 1.0.1) are now 1.0.0, like Select EvoYeast experiment. Each starter package has a `CHANGELOG.md`; installing with **What changed?** blank (including first-start seeding, which recorded no message) takes the history message from the CHANGELOG section for that version. History stays per installation; the CHANGELOG travels in the ZIP and its download.
+- On an installation that already has 1.0.3 or 1.0.1, importing the 1.0.0 ZIP shows "Install older version"; the calculations are unchanged.
+- README: the starter packages need a read-only connection for `primary` (created under **Create read-only account**) and, for Delete Experiment and Select EvoYeast experiment, an operation connection as **Operation target**.
+
 ## 2026-10-01 Clip storage no longer reports a recovered ffmpeg as missing
 
 - `control-status` → `clip_storage.last_error` kept "ffmpeg.exe is missing" after ffmpeg was available again and clips were converting (found by the central review of #42). That message describes a current condition, so it now clears when ffmpeg is found; a per-clip failure stays reported, because that clip remains MJPEG and is counted in `failed`.

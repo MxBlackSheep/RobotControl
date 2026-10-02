@@ -18,6 +18,30 @@ The three existing EvoYeast tools are also ready as single Python files:
   reader and an operation connection to the same EvoYeast database, then open each schedule
   marked **Needs review** and save it.
 
+All three starter packages are version 1.0.0. Each has a `CHANGELOG.md` with a `## <version>`
+section per release. The CHANGELOG travels inside the package ZIP and its download. The
+history under **Manage packages** belongs to one installation and is not part of the ZIP. When
+**What changed?** is left blank on install (and at first start), the history message is taken
+from the CHANGELOG section for the installed version. When releasing a new version of a
+package, add its section to the CHANGELOG.
+
+**Connections for the starter packages.** Each package's `primary` source accepts only a
+read-only connection. RobotControl checks that the account can do nothing but read, so an
+account that can change data is refused there. Delete Experiment and Select EvoYeast experiment
+also need an operation connection, chosen as **Operation target**, which makes their changes.
+Culture history is a report and needs only the read-only one. So the lab needs two SQL logins
+for the EvoYeast database:
+
+- **Read-only:** in **Database settings**, choose **New connection**, set **Account setup** to
+  **Create read-only account**, and give an account allowed to create SQL logins. RobotControl
+  creates a SELECT-only login and checks it. **Download SQL for your administrator** gives the
+  same script to run by hand; then add it with **Use existing account**.
+- **Operation:** the existing account that can change data, added with **Use existing account**
+  and **Access: Operations: database changes**.
+
+Then **Assign** each package: `primary` to the read-only connection, and **Operation target**
+to the operation connection on the same database.
+
 For an installed tool, choose **Edit report/operation → Replace Python**, select
 its `.py` file, check the connections, try, then **Publish update**. For a new
 installation, use **Add tool** instead. No manifest or supporting file upload is
