@@ -1,15 +1,14 @@
 import { useEffect, useState } from 'react';
-import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material';
+import { Alert, Box, Button, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material';
 import { api } from '../services/api';
-import ReportConnections, { Source, SourceMappings } from './ReportConnections';
+import ReportConnections, { AssignConnections, PackageBinding, readingLabel, Source } from './ReportConnections';
 import { requestMessage } from './ReportInputs';
 
 const base = '/api/database/tools';
-type Assignment = { id: string; name: string; aliases: string[]; mappings: Record<string,string>; has_operation: boolean; operation_source?: string };
 export default function DatabaseSettings({ active }: { active: boolean }) {
-  const [sources, setSources] = useState<Source[]>([]), [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [sources, setSources] = useState<Source[]>([]), [assignments, setAssignments] = useState<PackageBinding[]>([]);
   const [connections, setConnections] = useState(false), [error, setError] = useState('');
-  const [busy, setBusy] = useState(false), [binding, setBinding] = useState<Assignment>();
+  const [busy, setBusy] = useState(false), [binding, setBinding] = useState<PackageBinding>();
   const [viewer, setViewer] = useState(''), [savedViewer, setSavedViewer] = useState('');
   const load = async (signal?: AbortSignal) => {
     const [profiles, packages] = await Promise.all([api.get(`${base}/sources`, {signal}), api.get(`${base}/packages`, {signal})]);
@@ -37,13 +36,10 @@ export default function DatabaseSettings({ active }: { active: boolean }) {
       </TextField><Button sx={{alignSelf:'flex-start'}} disabled={busy || !viewer || viewer === savedViewer} onClick={() => void work(async () => { await api.put(`${base}/viewer-source`, {source_id:viewer}); setSavedViewer(viewer); })}>Save viewer database</Button>
     </Stack></Paper>
     <Paper variant="outlined" sx={{p:2}}><Typography variant="h6">Package connections</Typography>
-      {assignments.map(a => <Stack key={a.id} direction="row" gap={1} justifyContent="space-between" alignItems="center" sx={{py:1}}><Box><Typography>{a.name}</Typography><Typography variant="body2" color="text.secondary">{[...a.aliases.map(alias => `${alias}: ${sources.find(s => s.id === a.mappings[alias])?.name || 'Not configured'}`), ...(a.has_operation ? [`Operations: ${sources.find(s => s.id === a.operation_source)?.name || 'Not configured'}`] : [])].join(' · ') || 'No database required'}</Typography></Box><Button disabled={busy} onClick={() => setBinding({...a, mappings:{...a.mappings}})}>Assign</Button></Stack>)}
+      {assignments.map(a => <Stack key={a.id} direction="row" gap={1} justifyContent="space-between" alignItems="center" sx={{py:1}}><Box><Typography>{a.name}</Typography><Typography variant="body2" color="text.secondary">{[...a.aliases.map(alias => `${readingLabel(a.aliases, alias)}: ${sources.find(s => s.id === a.mappings[alias])?.name || 'Not configured'}`), ...(a.has_operation ? [`Writing connection: ${sources.find(s => s.id === a.operation_source)?.name || 'Not configured'}`] : [])].join(' · ') || 'No database required'}</Typography></Box><Button disabled={busy} onClick={() => setBinding({...a, mappings:{...a.mappings}})}>Assign</Button></Stack>)}
     </Paper>
     <ReportConnections open={connections} onClose={() => { setConnections(false); void work(() => load()); }} />
-    <Dialog open={!!binding} onClose={() => !busy && setBinding(undefined)} fullWidth maxWidth="sm"><DialogTitle>Assign connections — {binding?.name}</DialogTitle><DialogContent><Stack spacing={2} sx={{pt:1}}>
-      {error && <Alert severity="error">{error}</Alert>}
-      {binding?.has_operation && <TextField select label="Operation target" value={binding.operation_source || ''} onChange={e => setBinding({...binding, operation_source:e.target.value})} disabled={busy}><MenuItem value="">Not configured</MenuItem>{sources.filter(s => s.access === 'operation').map(s => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}</TextField>}
-      {binding && <SourceMappings aliases={binding.aliases} sources={sources} mappings={binding.mappings} disabled={busy} onChange={mappings => setBinding({...binding,mappings})} />}
-    </Stack></DialogContent><DialogActions><Button disabled={busy} onClick={() => setBinding(undefined)}>Cancel</Button><Button disabled={busy} onClick={() => void work(async () => { await api.put(`${base}/packages/${binding!.id}/sources`, {mappings:binding!.mappings, operation_source:binding!.operation_source || null}); setBinding(undefined); await load(); })}>Save assignments</Button></DialogActions></Dialog>
+    <AssignConnections binding={binding} sources={sources} onChange={setBinding} onClose={() => setBinding(undefined)} onManage={() => setConnections(true)}
+      onSaved={() => { setBinding(undefined); void work(() => load()); }} />
   </Stack>;
 }

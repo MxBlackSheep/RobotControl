@@ -1,3 +1,12 @@
+## 2026-10-02 Starter packages at 1.0.0, release notes in the package, clearer connections
+
+- **Assign connections** (Database settings and Manage packages) was two copies of one dialog, listing "Operation target" before "Connection for primary" (the author's alias). One `AssignConnections` now shows **Reading connection** (read-only accounts) and then, for writing packages, **Writing connection** (operation accounts, same database); an alias is shown only when a package names several. It saves only the declared aliases, as Manage packages did; the Settings copy sent stored mappings unchanged, which the server refuses after an update renames an alias. Check: the new `database-workspace.spec.ts` case.
+- Release notes travel with the package: **Publish update** writes the change note as the new version's section at the top of `CHANGELOG.md` when RobotControl builds the ZIP, and **Import package ZIP** prefills **What changed?** from the incoming version's section. Installation history stays local. Download package stays byte-identical to the installed ZIP (schedules pin its SHA-256). Check: `tool_authoring_check.py` (fails without the change at the CHANGELOG assertion).
+
+- Culture history (was 1.0.3) and Delete Experiment (was 1.0.1) are now 1.0.0, like Select EvoYeast experiment. Each starter package has a `CHANGELOG.md`; installing with **What changed?** blank (including first-start seeding, which recorded no message) takes the history message from the CHANGELOG section for that version. History stays per installation; the CHANGELOG travels in the ZIP and its download.
+- On an installation that already has 1.0.3 or 1.0.1, importing the 1.0.0 ZIP shows "Install older version"; the calculations are unchanged.
+- README: the starter packages need a read-only connection for `primary` (created under **Create read-only account**) and, for Delete Experiment and Select EvoYeast experiment, an operation connection as the **Writing connection**.
+
 ## 2026-10-01 Clip storage no longer reports a recovered ffmpeg as missing
 
 - `control-status` → `clip_storage.last_error` kept "ffmpeg.exe is missing" after ffmpeg was available again and clips were converting (found by the central review of #42). That message describes a current condition, so it now clears when ffmpeg is found; a per-clip failure stays reported, because that clip remains MJPEG and is counted in `failed`.

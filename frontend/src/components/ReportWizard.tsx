@@ -147,7 +147,7 @@ export default function ReportWizard({ draftId, onClose }: { draftId?: string; o
         </Stack></Box>
       </Stack>}
       {draft.step === 1 && <Stack spacing={2}>
-        <Stack direction="row" justifyContent="space-between"><Typography variant="subtitle1">Sources</Typography><Button onClick={() => setConnectionsOpen(true)}>Configure connections</Button></Stack>
+        <Stack direction="row" justifyContent="space-between"><Typography variant="subtitle1">Sources</Typography><Button onClick={() => setConnectionsOpen(true)}>Manage connections</Button></Stack>
         <FormControlLabel label="Uses a database" control={<Checkbox checked={!!draft.sources.length} onChange={(_, checked) => update({ sources: checked ? ['primary'] : [], mappings: {} })} />} />
         {!!draft.sources.length && <Box component="details"><Typography component="summary">Source names in Python</Typography>
           <TextField fullWidth sx={{ mt: 1 }} label="Names used in Python (comma separated)" value={draft.sources.join(', ')} onChange={e => update({ sources: e.target.value.split(',').map(x => x.trim()) })} />

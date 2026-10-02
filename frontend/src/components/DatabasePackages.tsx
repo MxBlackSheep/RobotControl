@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, LinearProgress, MenuItem, TextField, Paper, Stack, Typography } from '@mui/material';
+import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, LinearProgress, TextField, Paper, Stack, Typography } from '@mui/material';
 import { api } from '../services/api';
 import { saveBlob } from './ReportInputs';
 import { Link } from 'react-router-dom';
 import ReportWizard from './ReportWizard';
 import ToolAuthoring from './ToolAuthoring';
-import ReportConnections, { Source, SourceMappings } from './ReportConnections';
+import ReportConnections, { AssignConnections, PackageBinding, Source } from './ReportConnections';
 
 type Package = { id: string; name: string; version: string; sha256: string; running: number;
   libraries: string[]; tools: { id: string; name: string; kind: string }[] };
-type Review = { package: Package; sha256: string; current_version: string | null; current_sha256: string; running: number };
+type Review = { package: Package; sha256: string; current_version: string | null; current_sha256: string; running: number; changelog: string };
 type Change = { version:string; previous_version?:string; at:string; actor?:string; note:string; files:{added:string[];changed:string[];removed:string[]} };
 const message = (error: any) => typeof error?.response?.data?.detail === 'string' ? error.response.data.detail : 'The request could not be completed. Try again.';
 const older = (a: string, b: string) => {
@@ -34,7 +34,7 @@ export default function DatabasePackages({ active }: { active: boolean }) {
   const [removeDraft, setRemoveDraft] = useState<{ id: string; name: string }>();
   const [connectionsOpen, setConnectionsOpen] = useState(false);
   const [sources, setSources] = useState<Source[]>([]);
-  const [binding, setBinding] = useState<{ id: string; aliases: string[]; mappings: Record<string, string>; operation_source?: string; has_operation?: boolean }>();
+  const [binding, setBinding] = useState<PackageBinding>();
   const input = useRef<HTMLInputElement>(null);
   const load = useCallback(async (signal?: AbortSignal) => {
     const { data } = await api.get('/api/database/tools/packages', { signal });
@@ -53,7 +53,8 @@ export default function DatabasePackages({ active }: { active: boolean }) {
     try {
       const form = new FormData(); form.append('file', incoming);
       const { data } = await api.post('/api/database/tools/packages/inspect', form, { headers: { 'Content-Type': 'multipart/form-data' } });
-      setFile(incoming); setReview(data);
+      // Prefilled once, as the review opens: later typing is never replaced.
+      setFile(incoming); setReview(data); setChangeNote(data.changelog || '');
     } catch (error) { setError(message(error)); }
     finally { setBusy(false); }
   };
@@ -127,7 +128,7 @@ export default function DatabasePackages({ active }: { active: boolean }) {
             {<Button disabled={busy || pkg.running > 0} onClick={async () => {
               try {
                 const [mapping, profiles] = await Promise.all([api.get(`/api/database/tools/packages/${pkg.id}/sources`), api.get('/api/database/tools/sources')]);
-                setSources(profiles.data); setBinding({ id: pkg.id, ...mapping.data });
+                setSources(profiles.data); setBinding({ id: pkg.id, name: pkg.name, ...mapping.data });
               } catch (e) { setError(message(e)); }
             }}>Connections</Button>}
             <Button disabled={busy} aria-label={`History for ${pkg.name}`} onClick={async()=>{
@@ -147,7 +148,8 @@ export default function DatabasePackages({ active }: { active: boolean }) {
         <Typography>{review?.current_version ? `${review.current_version} → ${review.package.version}` : `Version ${review?.package.version}`}</Typography>
         <Typography>{review?.package.tools.map(tool => `${tool.name} (${tool.kind === 'report' ? 'Report' : 'Operation'})`).join(', ')}</Typography>
         <Typography variant="body2" color="text.secondary">Package structure and declared libraries checked. Python code has not been run.</Typography>
-        <TextField label="What changed? (optional)" multiline maxRows={4} inputProps={{maxLength:2000}} value={changeNote} onChange={e=>setChangeNote(e.target.value)} disabled={busy} />
+        <TextField label="What changed? (optional)" multiline maxRows={4} inputProps={{maxLength:2000}} value={changeNote} onChange={e=>setChangeNote(e.target.value)} disabled={busy}
+          helperText={review?.changelog ? `From the package's CHANGELOG for ${review.package.version}. You can edit it.` : undefined} />
         {unchanged && <Alert severity="info">This package is already installed.</Alert>}
         {downgrade && <Alert severity="warning">This replaces the installed code with an older version.</Alert>}
         {!unchanged && review?.current_version === review?.package.version && <Alert severity="warning">A different package file uses the same version number. Ask the author to increase the version.</Alert>}
@@ -178,22 +180,8 @@ export default function DatabasePackages({ active }: { active: boolean }) {
         catch (e) { setError(message(e)); } finally { setBusy(false); }
       }}>Remove draft</Button></DialogActions>
     </Dialog>
-    <Dialog open={!!binding} onClose={() => !busy && setBinding(undefined)} fullWidth maxWidth="sm">
-      <DialogTitle>Assign connections</DialogTitle><DialogContent><Stack spacing={2} sx={{ pt: 1 }}>
-        {error && <Alert severity="error">{error}</Alert>}
-        <Button onClick={() => setConnectionsOpen(true)}>Configure connections</Button>
-        {binding?.has_operation && <TextField select label="Operation target" value={binding.operation_source || ''} disabled={busy} onChange={e => setBinding({ ...binding, operation_source: e.target.value })}>
-          <MenuItem value="">Not configured</MenuItem>{sources.filter(s => s.access === 'operation').map(s => <MenuItem key={s.id} value={s.id}>{s.name} · {s.database}</MenuItem>)}
-        </TextField>}
-        {binding && <SourceMappings aliases={binding.aliases} sources={sources} mappings={binding.mappings}
-          onChange={mappings => setBinding({ ...binding, mappings })} disabled={busy} />}
-      </Stack></DialogContent><DialogActions><Button onClick={() => setBinding(undefined)} disabled={busy}>Cancel</Button>
-        <Button disabled={busy} onClick={async () => {
-          if (!binding) return; setBusy(true); setError('');
-          try { await api.put(`/api/database/tools/packages/${binding.id}/sources`, { mappings: Object.fromEntries(binding.aliases.map(x => [x, binding.mappings[x]])), operation_source: binding.operation_source || null }); setBinding(undefined); }
-          catch (e) { setError(message(e)); } finally { setBusy(false); }
-        }}>Save connections</Button></DialogActions>
-    </Dialog>
+    <AssignConnections binding={binding} sources={sources} onChange={setBinding} onClose={() => setBinding(undefined)}
+      onSaved={() => setBinding(undefined)} onManage={() => setConnectionsOpen(true)} />
     <Dialog open={!!remove} onClose={() => !busy && setRemove(undefined)}>
       <DialogTitle>Remove {remove?.name}?</DialogTitle><DialogContent>Its operations and reports will no longer be available.</DialogContent>
       <DialogActions><Button disabled={busy} onClick={() => setRemove(undefined)}>Cancel</Button><Button color="error" disabled={busy} onClick={removePackage}>Remove package</Button></DialogActions>

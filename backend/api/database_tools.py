@@ -385,7 +385,8 @@ def install_draft(key: str, payload: DraftInstall, user=Depends(local_admin), se
                 raise PackageError('Review the trial result before enabling this tool.', 409)
             service.authoring.require_trial(key, owner(user))
         baseline = service.authoring.check_base(key, owner(user))
-        content = service.authoring.archive(draft, key, owner(user))
+        note = payload.change_note if payload.change_note is not None else draft.change_note
+        content = service.authoring.archive(draft, key, owner(user), note=note)
         from backend.services.database_packages import inspect_archive
         manifest, _ = inspect_archive(content)
         aliases = service.sources.aliases(manifest.model_dump())
@@ -410,7 +411,7 @@ def install_draft(key: str, payload: DraftInstall, user=Depends(local_admin), se
             if operation_source:
                 service.sources.bind_operation(draft.package_id, operation_source)
             result = service.catalogue.install(content, expected_current=payload.expected_current, actor=owner(user),
-                note=payload.change_note if payload.change_note is not None else draft.change_note,
+                note=note,
                 draft=dict(id=key, revision=payload.revision))
         except Exception:
             service.sources._save(old_sources)
