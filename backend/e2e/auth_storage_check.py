@@ -1,4 +1,4 @@
-"""Sign-in storage outages over HTTP: a locked auth database must not sign anyone out.
+"""Sign-in over HTTP: storage outages must not sign anyone out; the public default password stays local.
 
 Run: .venv/Scripts/python.exe -m backend.e2e.auth_storage_check
 Needs no SQL Server: the real AuthService runs against a disposable SQLite file, and a second
@@ -13,6 +13,14 @@ a tunnel on this computer (loopback peer with forwarding headers) is reported as
 password guessing is unlimited (including through the tunnel with a spoofed first
 X-Forwarded-For entry), remote guessing locks the RobotControl computer out, or an auth storage
 outage counts as wrong passwords.
+
+Built-in admin password (public in the repository): a remote sign-in with it (tunnel, spoofed
+first X-Forwarded-For, LAN peer) gets tokens or records a last login instead of 403 "Change the
+default password on the robot PC before signing in remotely."; refused attempts count toward the
+remote throttle; a local sign-in with it is refused or does not ask for a password change
+(must_reset); after the change, the new password is refused remotely or the old one is not
+refused like any wrong password; a wrong password's answer differs depending on whether the
+default is still in use (account oracle).
 """
 import json
 import os
@@ -30,7 +38,12 @@ from fastapi import Depends, FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from backend.api import auth as auth_api  # noqa: E402
-from backend.services.auth import DEFAULT_ADMIN_PASSWORD, DEFAULT_ADMIN_USERNAME, get_auth_service, get_current_user  # noqa: E402
+from backend.services.auth import (  # noqa: E402
+    BUILT_IN_ADMIN_PASSWORD,
+    DEFAULT_ADMIN_USERNAME,
+    get_auth_service,
+    get_current_user,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 EVIDENCE = ROOT / 'test-output/auth-storage-verification'
@@ -53,7 +66,7 @@ def run():
     lock = None
     try:
         with TestClient(app, client=('127.0.0.1', 1234)) as client:
-            tokens = service.login(DEFAULT_ADMIN_USERNAME, DEFAULT_ADMIN_PASSWORD)
+            tokens = service.login(DEFAULT_ADMIN_USERNAME, BUILT_IN_ADMIN_PASSWORD)
             access, refresh = tokens['access_token'], tokens['refresh_token']
             bearer = {'Authorization': f'Bearer {access}'}
 
@@ -89,7 +102,60 @@ def run():
             response = client.post('/api/auth/refresh', json={'refresh_token': refresh})
             check('revoked refresh token answers 401', response.status_code == 401, [response.status_code, response.text])
 
-            credentials = {'username': DEFAULT_ADMIN_USERNAME, 'password': DEFAULT_ADMIN_PASSWORD}
+            # The built-in password is public: refused from outside this computer until changed.
+            built_in = {'username': DEFAULT_ADMIN_USERNAME, 'password': BUILT_IN_ADMIN_PASSWORD}
+            wrong = {'username': DEFAULT_ADMIN_USERNAME, 'password': 'not-the-password'}
+            tunnel = {'x-forwarded-for': '127.0.0.1, 203.0.113.5', 'cf-connecting-ip': '203.0.113.5'}
+            refusal = 'Change the default password on the robot PC before signing in remotely.'
+
+            def last_login():
+                return service.db.get_user_by_username(DEFAULT_ADMIN_USERNAME)['last_login_at']
+
+            def answer(response):
+                body = response.json()
+                return [response.status_code, body.get('message'), body.get('error')]
+
+            auth_api.login_throttle._failures.clear()
+            login_before = last_login()
+            refused = [client.post('/api/auth/login', json=built_in, headers=tunnel) for _ in range(6)]
+            check('six tunnelled sign-ins with the built-in password answer 403 with the change message, never 429',
+                  all(r.status_code == 403 and r.json()['error']['message'] == refusal for r in refused),
+                  [answer(r) for r in refused])
+            check('a refused sign-in issues no tokens and records no last login',
+                  not any('access_token' in r.text or 'refresh_token' in r.text for r in refused)
+                  and last_login() == login_before, [login_before, last_login()])
+            with TestClient(app, client=('192.168.1.20', 1234)) as lan:
+                response = lan.post('/api/auth/login', json=built_in)
+                check('a LAN sign-in with the built-in password answers 403', response.status_code == 403, answer(response))
+            wrong_while_default = client.post('/api/auth/login', json=wrong, headers=tunnel)
+            check('a wrong tunnelled password still answers the generic 401', answer(wrong_while_default) ==
+                  [401, 'Invalid username or password', {'message': 'Invalid username or password', 'code': 'UNAUTHORIZED',
+                                                         'details': {'username': DEFAULT_ADMIN_USERNAME}}],
+                  answer(wrong_while_default))
+
+            local = client.post('/api/auth/login', json=built_in)
+            local_user = local.json().get('data', {}).get('user', {}) if local.status_code == 200 else {}
+            check('a local sign-in with the built-in password works and asks for a change (must_reset)',
+                  local.status_code == 200 and local_user.get('must_reset') is True, [local.status_code, local_user])
+            changed = 'Lab-owned password 7'
+            response = client.post('/api/auth/change-password',
+                                   json={'current_password': BUILT_IN_ADMIN_PASSWORD, 'new_password': changed},
+                                   headers={'Authorization': f"Bearer {local.json()['data']['access_token']}"})
+            check('the local session changes the password', response.status_code == 200, [response.status_code, response.text])
+
+            credentials = {'username': DEFAULT_ADMIN_USERNAME, 'password': changed}
+            response = client.post('/api/auth/login', json=credentials, headers=tunnel)
+            remote_user = response.json().get('data', {}).get('user', {}) if response.status_code == 200 else {}
+            check('after the change, a tunnelled sign-in with the new password works without must_reset',
+                  response.status_code == 200 and remote_user.get('must_reset') is False, [response.status_code, remote_user])
+            old = client.post('/api/auth/login', json=built_in, headers=tunnel)
+            wrong_after_change = client.post('/api/auth/login', json=wrong, headers=tunnel)
+            check('after the change, the built-in password is a plain wrong password (401), remote and local',
+                  answer(old) == answer(wrong_while_default)
+                  and client.post('/api/auth/login', json=built_in).status_code == 401, answer(old))
+            check('a wrong password answers the same whether or not the default was in use (no oracle)',
+                  answer(wrong_after_change) == answer(wrong_while_default), [answer(wrong_while_default), answer(wrong_after_change)])
+
             for name, headers, local in [
                 ('plain loopback sign-in is local', {}, True),
                 ('tunnelled sign-in with spoofed first X-Forwarded-For is remote',
@@ -103,7 +169,6 @@ def run():
             # The guesses come the way an attacker would: through the tunnel (loopback peer), with
             # a spoofed first X-Forwarded-For entry that the classifier must not trust.
             auth_api.login_throttle._failures.clear()
-            wrong = {'username': DEFAULT_ADMIN_USERNAME, 'password': 'not-the-password'}
             remote = {'x-forwarded-for': '127.0.0.1, 203.0.113.7', 'cf-connecting-ip': '203.0.113.7'}
             answers = [client.post('/api/auth/login', json=wrong, headers=remote).status_code for _ in range(5)]
             check('five wrong tunnelled passwords (spoofed 127.0.0.1 first) answer 401', answers == [401] * 5, answers)

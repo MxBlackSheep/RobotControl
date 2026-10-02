@@ -6,7 +6,11 @@ import { test, expect } from '@playwright/test';
  * destination; a late refresh reinstates credentials after logout; a 503 from /me
  * starts the maintenance window and blocks the recovered page; a tunnel's HTML 403
  * challenge page signs the user out; sign-in reports an unreachable server or tunnel
- * error page as a wrong password. Synthetic HTTP fixtures exercise the real app and Axios interceptors.
+ * error page as a wrong password; the sign-in page prints the default admin credentials;
+ * a refused remote default-password sign-in (403) is shown as a connection problem or wrong
+ * password instead of RobotControl's message; a local default-password sign-in (must_reset)
+ * does not open the required password change. Backend side: backend/e2e/auth_storage_check.py.
+ * Synthetic HTTP fixtures exercise the real app and Axios interceptors.
  */
 for (const failure of ['network', 'server', 'timeout', 'refresh', 'proxy'] as const) {
   test(`saved sign-in recovers after ${failure} failure`, async ({ page }, testInfo) => {
@@ -80,13 +84,26 @@ for (const rejection of [401, 403]) {
 
 
 test('sign-in tells an unreachable server from a wrong password', async ({ page }, testInfo) => {
-  let answer: 'tunnel' | 'refused' | 'wrong' = 'tunnel';
+  let answer: 'tunnel' | 'refused' | 'wrong' | 'default-remote' | 'default-local' = 'tunnel';
+  const defaultRemote = 'Change the default password on the robot PC before signing in remotely.';
   await page.route('**/api/auth/login', route => {
     if (answer === 'refused') return route.abort('connectionrefused');
     if (answer === 'tunnel') return route.fulfill({ status: 502, contentType: 'text/html', body: '<html>Bad gateway</html>' });
+    if (answer === 'default-remote') {
+      return route.fulfill({ status: 403, json: { success: false, message: defaultRemote, data: null, error: { message: defaultRemote, code: 'DEFAULT_PASSWORD_REMOTE' } } });
+    }
+    if (answer === 'default-local') {
+      return route.fulfill({ json: { success: true, data: {
+        access_token: 'viewer-admin', refresh_token: 'viewer-refresh', token_type: 'bearer', expires_in: 14400,
+        user: { user_id: 'viewer-admin', username: 'admin', role: 'admin', is_active: true, must_reset: true },
+        session: { is_local: true, ip_classification: 'local' },
+      } } });
+    }
     return route.fulfill({ status: 401, json: { success: false, error: { message: 'Invalid username or password', code: 'UNAUTHORIZED' } } });
   });
   await page.goto('/login');
+  await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
+  await expect(page.locator('body')).not.toContainText(/Default admin|ShouGroupAdmin/);
   await page.getByLabel('Username', { exact: true }).fill('operator');
   await page.getByLabel('Password', { exact: true }).fill('secret');
   const submit = page.getByRole('button', { name: 'Sign in' });
@@ -105,6 +122,21 @@ test('sign-in tells an unreachable server from a wrong password', async ({ page 
   await submit.click();
   await expect(dialog.getByRole('heading', { name: 'Authentication Required' })).toBeVisible();
   await expect(dialog).toContainText('Invalid username or password');
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  answer = 'default-remote';
+  await submit.click();
+  await expect(dialog.getByRole('heading', { name: 'Authentication Required' })).toBeVisible();
+  await expect(dialog).toContainText(defaultRemote);
+  await expect(dialog).not.toContainText('Invalid username or password');
+  await page.screenshot({ path: testInfo.outputPath('sign-in-default-password-remote.png'), animations: 'disabled' });
+  expect(await page.evaluate(() => localStorage.getItem('access_token'))).toBeNull();
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  answer = 'default-local';
+  await submit.click();
+  const change = page.getByRole('dialog', { name: 'Password Reset Required' });
+  await expect(change).toBeVisible();
+  await expect(change.getByRole('button', { name: 'Cancel' })).toBeDisabled();
+  await page.screenshot({ path: testInfo.outputPath('sign-in-default-password-local.png') });
 });
 
 test('a late refresh cannot restore credentials after logout', async ({ page }, testInfo) => {

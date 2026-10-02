@@ -47,6 +47,11 @@ a loopback peer carrying `cf-connecting-ip`, `cf-ray`, `true-client-ip`, `x-real
 - Remote sign-in is throttled: 5 failed attempts per username, or 20 per address, in 5
   minutes answer 429 with `Retry-After` (`LoginThrottle` in `backend/api/auth.py`). Local
   sign-ins are never throttled. The counters are in memory; a restart clears them.
+- The built-in admin password (public in the repository) never signs in remotely: while an
+  account still has it, a remote sign-in answers 403 "Change the default password on the robot
+  PC before signing in remotely." Sign in on the RobotControl computer, where the app asks for
+  a new password, then sign in remotely with that. A wrong password still gets the usual
+  "Invalid username or password". Details: authentication guide, lifecycle step 1.
 - The packaged app does not publish `/docs`, `/openapi.json`, source maps or the bundle
   report. Development builds keep `/docs`; set `SOURCEMAP=1` for a build with source maps,
   or run `npm --prefix frontend run bundle-analyze` for the bundle report. Never package
@@ -60,5 +65,6 @@ a loopback peer carrying `cf-connecting-ip`, `cf-ray`, `true-client-ip`, `x-real
 | Sign-in says "The connection to RobotControl was interrupted (530)" | Tunnel not connected (Cloudflare 1033/530). Restart the `cloudflared` service. |
 | Sign-in says "(403)" | A Cloudflare challenge or Access policy blocked the API call. Add the WAF skip rule or sign in to Access again (reload the page). |
 | "Too many failed sign-in attempts" | Wait for the stated time, or sign in on the RobotControl computer. |
+| "Change the default password on the robot PC before signing in remotely." | The account still has the built-in password. Change it on the RobotControl computer (Admin → User accounts, or sign in there and use the dialog that opens). |
 | Live view stops after a few seconds | WebSockets disabled on the hostname, or the connection is too slow; see the camera guide. |
 | A page shows "This page could not load" | Its file failed to download (connection drop, or the server was upgraded while the page was open). Reload. |

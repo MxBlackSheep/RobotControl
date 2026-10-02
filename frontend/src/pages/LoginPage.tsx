@@ -280,9 +280,6 @@ const LoginPage: React.FC = () => {
               </Box>
 
               <Stack spacing={1} textAlign="center">
-                <Typography variant="caption" color="textSecondary">
-                  Default admin: admin / ShouGroupAdmin
-                </Typography>
                 {mode === 'forgot' ? (
                   <Typography variant="caption" color="textSecondary">
                     Submit the form and our admins will follow up with next steps.
