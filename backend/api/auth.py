@@ -189,6 +189,21 @@ async def login(
 
     try:
         # Attempt login
+        # The built-in password is public. Refused before tokens or last-login are recorded,
+        # and not counted as a failure: the password was right, and counting it would lock
+        # the owner out while they read the message. A wrong password never gets here.
+        if not connection.is_local and auth_service.has_built_in_password(request.username, request.password):
+            logger.warning(
+                "Refused remote sign-in for %s with the built-in default password (from %s)",
+                request.username,
+                connection.client_ip,
+            )
+            return ResponseFormatter.error(
+                message="Change the default password on the robot PC before signing in remotely.",
+                error_code="DEFAULT_PASSWORD_REMOTE",
+                status_code=403,
+            )
+
         client_info = {
             "ip": connection.client_ip,
             "user_agent": http_request.headers.get("user-agent"),
@@ -217,6 +232,9 @@ async def login(
                 "is_local": connection.is_local,
                 "ip_classification": connection.ip_classification,
             }
+            # Opens the existing required change-password dialog; nothing is stored.
+            if auth_service.is_built_in_password(request.password):
+                result["user"]["must_reset"] = True
 
         logger.info(
             "Successful login for user: %s (connection=%s)",
