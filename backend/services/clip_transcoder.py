@@ -2,10 +2,12 @@
 
 The camera helper keeps writing MJPEG AVI, so recording never depends on ffmpeg. After a clip is
 finalized, one ffmpeg child at BelowNormal priority, in a kill-on-close Job Object, encodes it to
-a temporary file. Only when that file decodes to exactly the sidecar's frame count does it become
-`<stem>.mp4` (atomic rename) and the AVI get deleted, under the camera's clip lock, which the
-experiment archive also holds while it copies. Any failure leaves the AVI and is reported in
-status(). Measurements and the brief: docs/plans/h264-rolling-clips.md.
+a temporary file. Decoder, filters, encoder and the verifying decoder get one thread each; FFmpeg
+still runs these stages side by side, so a conversion peaks at about 1.5 cores for a few seconds.
+Only when the file decodes to exactly the sidecar's frame count does it become `<stem>.mp4`
+(atomic rename) and the AVI get deleted, under the camera's clip lock, which the experiment
+archive also holds while it copies. Any failure leaves the AVI and is reported in status().
+Measurements and the brief: docs/plans/h264-rolling-clips.md.
 
 Invariant: an MP4 exists only after verification, so if both formats of a clip exist (killed
 between rename and delete, or the AVI was open), the AVI is redundant and is removed later.
@@ -31,6 +33,9 @@ TEMPORARY_SUFFIX = ".mp4.tmp"
 GOP_FRAMES = 75  # a keyframe every 10 s at 7.5 fps: seeking stays quick, size barely changes
 MISSING_ENCODER = "ffmpeg.exe is missing; clips are kept as MJPEG AVI"
 CHILD_TIMEOUT_SECONDS = 600  # BelowNormal may wait behind a busy machine; a 1-minute clip takes ~1-3 s
+# Before -i: decoder threads and filter-graph threads. By default both start one thread per core;
+# the H.264 verifying decoder then bursts over several cores (CPU per clip -17 %, 2026-10-02 probe).
+SINGLE_THREADED = ("-threads", "1", "-filter_threads", "1")
 
 
 class TranscodeFailed(RuntimeError):
@@ -175,7 +180,7 @@ class ClipTranscoder:
         started = time.monotonic()
         try:
             frames = _frame_count(sidecar)
-            self._run_child([str(ffmpeg), "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
+            self._run_child([str(ffmpeg), "-hide_banner", "-nostdin", "-loglevel", "error", "-y", *SINGLE_THREADED,
                              "-i", str(avi), "-map", "0:v:0", "-an",
                              # MJPEG is full-range; players expect limited range (lifted blacks otherwise).
                              "-vf", "scale=out_range=tv,format=yuv420p", "-color_range", "tv",
@@ -217,7 +222,7 @@ class ClipTranscoder:
 
     def _decoded_frames(self, ffmpeg: Path, path: Path) -> int:
         """Decode every frame; any decoder error fails the check."""
-        output = self._run_child([str(ffmpeg), "-hide_banner", "-nostdin", "-loglevel", "error", "-i", str(path),
+        output = self._run_child([str(ffmpeg), "-hide_banner", "-nostdin", "-loglevel", "error", *SINGLE_THREADED, "-i", str(path),
                                   "-map", "0:v:0", "-f", "null", "-", "-progress", "pipe:1"])
         counts = [line.split("=", 1)[1] for line in output.splitlines() if line.startswith("frame=")]
         return int(counts[-1]) if counts else 0
