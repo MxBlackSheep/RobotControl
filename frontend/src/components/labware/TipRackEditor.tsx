@@ -10,7 +10,10 @@ interface Props {
   rows: number;
   columns: number;
   position: number;
-  statuses: string[];
+  /** Statuses the user may set. */
+  choices: string[];
+  /** Statuses shown on this rack (choices plus any hidden status a tip still has), in backend order. */
+  legend: string[];
   colors: Record<string, string>;
   statusAt: (position: number) => string;
   pendingAt: (position: number) => boolean;
@@ -26,7 +29,7 @@ interface Props {
 
 type Press = { pointer: number; first: number; last: number | null; x: number; y: number; dragging: boolean };
 
-export default function TipRackEditor({ rack, headingId, joined, side, rows, columns, position, statuses, colors, statusAt, pendingAt, canUpdate, disabled, active, paint, onPaintChange, onSelect, onApply, onGestureChange }: Props) {
+export default function TipRackEditor({ rack, headingId, joined, side, rows, columns, position, choices, legend, colors, statusAt, pendingAt, canUpdate, disabled, active, paint, onPaintChange, onSelect, onApply, onGestureChange }: Props) {
   const [corners, setCorners] = useState<{ first: number; last: number } | null>(null);
   const press = useRef<Press | null>(null);
   const ignoreClick = useRef(false);
@@ -105,7 +108,7 @@ export default function TipRackEditor({ rack, headingId, joined, side, rows, col
   const stateName = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
   const tips = Array.from({ length: positions }, (_, index) => index + 1);
   const hasDrafts = tips.some(pendingAt);
-  const afterSaving = hasDrafts ? statuses.map(status => [status, tips.filter(tip => statusAt(tip) === status).length] as const)
+  const afterSaving = hasDrafts ? legend.map(status => [status, tips.filter(tip => statusAt(tip) === status).length] as const)
     .filter(([, count]) => count).map(([status, count]) => `${count} ${status}`).join(' · ') : '';
   const dotSize = `max(14px, min(calc((100cqw - ${(columns - 1) * 4}px) / ${columns} * 0.32), calc((100cqh - ${(rows - 1) * 4}px) / ${rows} * 0.32)))`;
   const fontSize = `clamp(12px, min(calc(100cqw / ${columns} * 0.21), calc(100cqh / ${rows} * 0.21)), 22px)`;
@@ -126,11 +129,11 @@ export default function TipRackEditor({ rack, headingId, joined, side, rows, col
           <ToggleButtonGroup size="small" exclusive value={paint} disabled={disabled} aria-label="Set tips to" onChange={(_, value: string | null) => onPaintChange(value)}
             sx={{ flexWrap: 'wrap', gap: 1, '& .MuiToggleButtonGroup-grouped': { m: 0, border: 1, borderColor: 'surface.control', borderRadius: `${layout.radius}px` },
               '& .MuiToggleButtonGroup-grouped.Mui-selected': { borderColor: 'primary.main', bgcolor: theme => theme.palette.tone.running.bg, fontWeight: 600 } }}>
-            {statuses.map(status => <ToggleButton key={status} value={status} sx={{ gap: 1, px: 1.5 }}>
+            {choices.map(status => <ToggleButton key={status} value={status} sx={{ gap: 1, px: 1.5 }}>
               <Box component="span" aria-hidden="true" sx={{ bgcolor: colors[status] || 'text.disabled', width: 10, height: 10, borderRadius: '50%' }} />{stateName(status)}
             </ToggleButton>)}
           </ToggleButtonGroup>
-        : <Stack direction="row" gap={1.5} flexWrap="wrap" aria-label="Tip status legend">{statuses.map(status => <Stack key={status} direction="row" gap={0.5} alignItems="center"><Box aria-hidden="true" sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: colors[status] || 'text.disabled' }} /><Typography variant="caption">{stateName(status)}</Typography></Stack>)}</Stack>}
+        : <Stack direction="row" gap={1.5} flexWrap="wrap" aria-label="Tip status legend">{legend.map(status => <Stack key={status} direction="row" gap={0.5} alignItems="center"><Box aria-hidden="true" sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: colors[status] || 'text.disabled' }} /><Typography variant="caption">{stateName(status)}</Typography></Stack>)}</Stack>}
     </Box>
     {canUpdate && <Button size="small" disabled={!enabled || Boolean(corners)} onClick={() => apply(Array.from({ length: positions }, (_, index) => index + 1))}
       sx={{ gridRow: 1, gridColumn: 1, justifySelf: 'end', alignSelf: 'center', mr: 1, whiteSpace: 'nowrap' }}>Set entire rack</Button>}
