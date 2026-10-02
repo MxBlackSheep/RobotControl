@@ -10,16 +10,19 @@ The three existing EvoYeast tools are also ready as single Python files:
 
 - [culture_history.py](culture-history/culture_history.py): the existing Culture history calculations and Excel formatting.
 - [delete_experiment.py](delete-experiment/delete_experiment.py): preview and execution through `dbo.DeleteExperiment`.
-- [evoyeast_experiment.py](evoyeast-experiment/evoyeast_experiment.py): a pre-run step that marks one
-  experiment `ScheduledToRun` and optionally runs `dbo.ResetHamiltonTables`. It replaces the
-  former built-in EvoYeast schedule preparation. New installations include it. On an existing
-  installation, import `starter-packages\evoyeast-experiment.zip` from the RobotControl folder
-  under **Manage packages** (each release ships a ZIP of every starter package there), assign a
-  reader and an operation connection to the same EvoYeast database, then open each schedule
-  marked **Needs review** and save it.
+- [evoyeast_experiment.py](evoyeast-experiment/evoyeast_experiment.py): a pre-run step with one
+  required **Experiment** choice. It clears `ScheduledToRun` on every experiment and sets it on
+  the chosen one, as the former built-in EvoYeast schedule preparation did. New installations
+  include it. On an existing installation, import `starter-packages\evoyeast-experiment.zip`
+  from the RobotControl folder under **Manage packages** (each release ships a ZIP of every
+  starter package there), assign a reader and an operation connection to the same EvoYeast
+  database, then open each schedule marked **Needs review** and save it. A schedule pins the
+  package version it was saved with, so importing an update is refused while an active schedule
+  uses the package: disable those schedules, import, then open each one (now **Needs review**),
+  check the step and save it.
 
-All three starter packages are version 1.0.0. Each has a `CHANGELOG.md` with a `## <version>`
-section per release, newest first. The CHANGELOG travels inside the package ZIP and its
+Culture history and Delete Experiment are version 1.0.0; Select EvoYeast experiment is 1.0.1.
+Each has a `CHANGELOG.md` with a `## <version>` section per release, newest first. The CHANGELOG travels inside the package ZIP and its
 download. The history under **Manage packages** (who installed what, and when) belongs to one
 installation and is not part of the ZIP. When **What changed?** is left blank on install (and at
 first start), the history message is taken from the CHANGELOG section for the installed

@@ -141,11 +141,12 @@ Steps pinned before server and database were recorded read as `needs_review` unt
 **EvoYeast flag.** The starter package `database_packages/evoyeast-experiment` ("Select EvoYeast
 experiment") runs the SQL the former built-in adapter ran. In the host's SERIALIZABLE
 transaction it locks the target row (`UPDLOCK, HOLDLOCK`), refuses a missing or duplicated
-`ExperimentID`, clears every `ScheduledToRun` flag and sets the target. With **Reset Hamilton
-tables** it runs `dbo.ResetHamiltonTables @ExperimentName = <method name>` plus `@TablesJson` when
-tables are listed; **Reset tables before selecting the experiment** keeps the order older
-schedules saved. A procedure's own commits or external effects are not guaranteed reversible.
-The selection stays set after the run; there is no post-run reset. It needs a read connection
+`ExperimentID`, clears every `ScheduledToRun` flag and sets the target; it has one required
+input, **Experiment**. Version 1.0.0 also offered a `dbo.ResetHamiltonTables` table reset copied
+from the adapter's token support, which no form in use had offered; 1.0.1 removed it. Importing
+1.0.1 is refused while an active schedule uses 1.0.0 (`refuse_if_scheduled`); after the import
+such schedules read Needs review (changed hash) until an administrator saves them again. The
+selection stays set after the run; there is no post-run reset. It needs a read connection
 (`primary`, experiment choices) and an operation connection to the same EvoYeast database.
 New installations seed it; on an existing installation an administrator imports
 `starter-packages\evoyeast-experiment.zip` from the release folder (Database → Manage packages;
@@ -158,10 +159,11 @@ New installations seed it; on an existing installation an administrator imports
 runs them now and `scheduling-lab.json` is no longer read. `legacy_preparation.py` derives, on
 every read, a review for such a schedule: `preparation_state` is `needs_review` and
 `legacy_preparation` carries the tokens, a message and, where the tokens fit the EvoYeast
-package (one selection, at most one reset, no unknown tokens, no existing database step), a
-prefilled `suggestion` in the saved order. The run is refused before any write until a local
-administrator saves the schedule with the `preparation` key; that save clears the tokens. The
-form always sends that key for an administrator (the suggestion, else the saved step, else
+package (one selection, optionally the `ScheduledToRun` marker, no existing database step), a
+prefilled `suggestion` `{experiment_id}`. A `ResetHamiltonTables` token is never prefilled or
+dropped: the message says the table reset is no longer part of the step and an administrator
+decides. The run is refused before any write until a local administrator saves the schedule
+with the `preparation` key; that save clears the tokens. The form always sends that key for an administrator (the suggestion, else the saved step, else
 `null`), so schedules without a prefill can be resolved too.
 `|none`, `|noop` and `|skip` selections never wrote anything and do not block. Clients cannot
 create or edit tokens (HTTP 400). Nothing is rewritten at startup, so restarts and repeated

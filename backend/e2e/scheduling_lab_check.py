@@ -6,20 +6,22 @@ Installs database_packages/evoyeast-experiment into a temporary catalogue, with 
 login for experiment choices and a separate writer login, in the SQL fixture's UUID database.
 
 Failure cases:
-- The package does not mark exactly the chosen experiment ScheduledToRun, or does not run
-  dbo.ResetHamiltonTables with the method name and listed tables in the schedule's saved
-  order (reset first when the old tokens had it first), in one host-committed transaction.
-- An experiment duplicated, or deleted after the schedule was saved, a failing reset
-  procedure, or tables listed with reset off leaves any flag changed or launches the run.
+- A run leaves more or fewer than one experiment ScheduledToRun: the package must clear the
+  flag on every experiment and set it on exactly the chosen one, in one host-committed
+  transaction.
+- A step saves with no experiment chosen, or with the removed 1.0.0 table-reset inputs.
+- An experiment duplicated, or deleted after the schedule was saved, leaves any flag changed
+  or launches the run.
 - A schedule saved with adapter tokens runs without them: it must show Needs review with
-  the tokens prefilled as the package step, refuse the run before any write (also after a
+  the selection prefilled as the package step, refuse the run before any write (also after a
   restart), keep the tokens when a user edits timing, and change only when a local
   administrator saves the step; the saved step then runs the same SQL.
-- Tokens the package cannot express (batch example, unknown, ScheduledToRun without an ID,
-  two selections, or a schedule that already has a database step) lose the step silently,
-  are prefilled with a guess, or cannot be resolved by an administrator's save. A no-op selection (|none) blocks a run that wrote nothing.
+- Tokens the package cannot express (a ResetHamiltonTables table reset, batch example,
+  unknown, ScheduledToRun without an ID, two selections, or a schedule that already has a
+  database step) lose the step silently, are prefilled with a guess, or cannot be resolved by
+  an administrator's save. A no-op selection (|none) blocks a run that wrote nothing.
 - A client adds or edits adapter tokens through the schedule API.
-Supervised acceptance with a real method and the lab's ResetHamiltonTables is separate.
+Supervised acceptance with a real method is separate.
 """
 from contextlib import closing
 import hashlib
@@ -41,7 +43,8 @@ from fastapi.testclient import TestClient
 ROOT = Path(__file__).resolve().parents[2]
 EVIDENCE = ROOT / 'test-output/scheduling-lab-verification'
 TOOL = 'evoyeast-experiment'
-OLD_FORM = ['ResetHamiltonTables:Runtime', 'ScheduledToRun', 'EvoYeastExperiment:42|set']
+OLD_FORM = ['ScheduledToRun', 'EvoYeastExperiment:42|set']
+OLD_RESET = ['ResetHamiltonTables:Runtime', 'ScheduledToRun', 'EvoYeastExperiment:42|set']
 
 
 def run():
@@ -70,17 +73,10 @@ def run():
             # No primary key: a duplicated ID must be refused by the package's own lock query.
             admin.execute("CREATE TABLE dbo.Experiments(ExperimentID int NOT NULL, UserDefinedID nvarchar(100), Note nvarchar(100), ScheduledToRun bit)")
             admin.execute("INSERT dbo.Experiments VALUES(41,'Previous',NULL,1),(42,'Reference',NULL,0),(43,'Copied',NULL,0),(43,'Copied',NULL,0),(44,'Deleted later',NULL,0)")
-            admin.execute('CREATE TABLE dbo.ResetLog(ExperimentName nvarchar(200), TablesJson nvarchar(max) NULL, FlaggedAtCall int NULL)')
-            # Records which experiment was flagged when the reset ran, which shows the step order.
-            admin.execute("CREATE PROCEDURE dbo.ResetHamiltonTables @ExperimentName nvarchar(200), @TablesJson nvarchar(max) = NULL AS BEGIN "
-                          "IF @TablesJson LIKE '%Fail%' BEGIN RAISERROR('Fixture reset failure', 16, 1); RETURN; END; "
-                          "INSERT dbo.ResetLog VALUES(@ExperimentName, @TablesJson, (SELECT MIN(ExperimentID) FROM dbo.Experiments WHERE ScheduledToRun = 1)) END")
             admin.execute(f'CREATE USER [{writer}] FOR LOGIN [{writer}]')
             admin.execute(f'GRANT SELECT, UPDATE ON dbo.Experiments TO [{writer}]')
-            admin.execute(f'GRANT EXECUTE ON dbo.ResetHamiltonTables TO [{writer}]')
             admin.execute('USE master')
             flags = lambda: sorted(tuple(r) for r in admin.execute(f'SELECT ExperimentID, ScheduledToRun FROM [{database}].dbo.Experiments'))
-            resets = lambda: [tuple(r) for r in admin.execute(f'SELECT ExperimentName, TablesJson, FlaggedAtCall FROM [{database}].dbo.ResetLog')]
             result['fixture'] = dict(database=database, reader=fixture['login'], writer=writer, sqlite='temporary scheduler.db',
                                      rows='Experiments 41 (flagged), 42, 43 twice, 44; no hardware')
 
@@ -145,19 +141,22 @@ def run():
                     return client.put(f'/api/scheduling/{schedule_id}', json={**changes, 'expected_updated_at': read(schedule_id)['updated_at']},
                                       headers={'authorization': role})
 
-                def create(inputs, name='Reference method'):
+                def post(inputs, name='Reference method'):
                     body = dict(experiment_name=name, experiment_path=str(method), schedule_type='once', estimated_duration=5, is_active=True,
                                 preparation=dict(tool_id=TOOL, inputs=inputs))
-                    response = client.post('/api/scheduling/create', json=body)
+                    return client.post('/api/scheduling/create', json=body)
+
+                def create(inputs, name='Reference method'):
+                    response = post(inputs, name)
                     assert response.status_code == 200, response.text
                     return response.json()['data']['schedule_id']
 
-                # A schedule saved by the old form, with a reset saved before the selection.
+                # A schedule saved by the old form: the lab's only shape, ScheduledToRun plus one selection.
                 old = saved(OLD_FORM)
                 view = read(old)
                 assert view['preparation_state'] == 'needs_review' and view['preparation'] is None
                 suggestion = view['legacy_preparation']['suggestion']
-                assert suggestion == dict(tool_id=TOOL, inputs=dict(experiment_id=42, reset_tables=True, table_list='Runtime', reset_first=True)), suggestion
+                assert suggestion == dict(tool_id=TOOL, inputs=dict(experiment_id=42)), suggestion
                 ok, blocked = execute(old)
                 assert not ok and not launched and receipt(blocked) is None and flags() == [(41, True), (42, False), (43, False), (43, False), (44, False)]
                 storage = SQLiteSchedulingDatabase(str(root / 'scheduler.db'))  # Restart: derived again, never rewritten.
@@ -165,11 +164,11 @@ def run():
                 assert update(old, {'estimated_duration': 9}, role='user').status_code == 200
                 assert update(old, {'preparation': suggestion}, role='user').status_code == 403
                 assert storage.get_schedule_by_id(old).prerequisites == OLD_FORM and read(old)['preparation_state'] == 'needs_review'
-                assert not execute(old)[0] and not launched and not resets()
+                assert not execute(old)[0] and not launched and flags() == [(41, True), (42, False), (43, False), (43, False), (44, False)]
                 assert update(old, {'prerequisites': ['EvoYeastExperiment:41|set']}).status_code == 400
                 body = dict(experiment_name='Tokens', experiment_path=str(method), schedule_type='once', estimated_duration=5, prerequisites=['ScheduledToRun'])
                 assert client.post('/api/scheduling/create', json=body).status_code == 400
-                result['checks'].append('Old-form schedule is Needs review with its tokens prefilled in saved order; the run is refused before any write, also after a restart; a user edit keeps the tokens; clients cannot add or edit tokens')
+                result['checks'].append('Old-form schedule is Needs review with its experiment prefilled; the run is refused before any write, also after a restart; a user edit keeps the tokens; clients cannot add or edit tokens')
 
                 response = update(old, {'preparation': suggestion})
                 assert response.status_code == 200, response.text
@@ -179,29 +178,33 @@ def run():
                 ok, first = execute(old)
                 assert ok and launched == [first] and receipt(first)['status'] == 'prepared', receipt(first)
                 assert flags() == [(41, False), (42, True), (43, False), (43, False), (44, False)]
-                assert resets() == [('Reference method', '["Runtime"]', 41)], resets()  # Reset ran while 41 was still flagged.
-                selected_first = create(dict(experiment_id=41, reset_tables=True), name='Select first')
-                ok, second = execute(selected_first)
-                assert ok and launched[-1] == second and flags()[:2] == [(41, True), (42, False)]
-                assert resets()[-1] == ('Select first', None, 41) and 'Experiment 41 marked' in receipt(second)['message']
-                result['checks'].append('After an administrator saves the prefilled step it is pinned, the tokens are cleared and the package clears all flags, sets one and resets tables with the method name in the saved order; select-then-reset and reset-all also verified')
+                assert receipt(first)['message'] == 'Experiment 42 marked ScheduledToRun', receipt(first)
+                ok, second = execute(create(dict(experiment_id=41), name='Previous method'))
+                assert ok and launched[-1] == second and flags() == [(41, True), (42, False), (43, False), (43, False), (44, False)]
+                result['checks'].append('After an administrator saves the prefilled step it is pinned, the tokens are cleared and the package clears every flag and sets exactly the chosen one; a second schedule moves the flag')
+
+                count = len(storage.get_schedules(active_only=False, archived_only=False))
+                refused = {'no experiment': post({}), 'experiment empty': post(dict(experiment_id=None)),
+                           '1.0.0 reset inputs': post(dict(experiment_id=42, reset_tables=True, table_list='Runtime'))}
+                assert {case: r.status_code for case, r in refused.items()} == dict.fromkeys(refused, 400), {c: r.text for c, r in refused.items()}
+                assert 'Experiment is required' in refused['no experiment'].text and 'Experiment is required' in refused['experiment empty'].text
+                assert 'Unexpected input field' in refused['1.0.0 reset inputs'].text
+                assert len(storage.get_schedules(active_only=False, archived_only=False)) == count
+                result['checks'].append('A step without an experiment, or with the removed 1.0.0 reset inputs, is refused (400) and no schedule is created')
 
                 failing = {'duplicate': create(dict(experiment_id=43)),
-                           'deleted': create(dict(experiment_id=44)),
-                           'reset fails': create(dict(experiment_id=42, reset_tables=True, table_list='Fail')),
-                           'tables without reset': create(dict(experiment_id=42, table_list='Runtime'))}
+                           'deleted': create(dict(experiment_id=44))}
                 admin.execute(f'DELETE FROM [{database}].dbo.Experiments WHERE ExperimentID = 44')
                 before, messages = flags(), {}
                 for case, schedule_id in failing.items():
                     ok, execution_id = execute(schedule_id)
                     assert not ok and execution_id not in launched, case
-                    assert flags() == before and len(resets()) == 2, case
+                    assert flags() == before, case
                     messages[case] = receipt(execution_id)
                     assert messages[case]['status'] == 'failed' and storage.get_schedule_by_id(schedule_id).recovery_required, (case, messages[case])
                 assert 'missing or not unique' in messages['duplicate']['message'], messages
-                assert 'Fixture reset failure' in messages['reset fails']['message'], messages
                 result['failure_messages'] = {case: value['message'] for case, value in messages.items()}
-                result['checks'].append('Duplicated or deleted experiment, failing reset procedure and tables listed with reset off roll back every flag, never launch and request recovery')
+                result['checks'].append('A duplicated experiment, or one deleted after the schedule was saved, rolls back every flag, never launches and requests recovery')
 
                 expressed = saved(['scheduled_to_run', 'evoYeastExperiment: 42 | SET'], name='Alias form')
                 assert read(expressed)['legacy_preparation']['suggestion'] == dict(tool_id=TOOL, inputs=dict(experiment_id=42))
@@ -210,18 +213,26 @@ def run():
                     conn.execute('UPDATE ScheduledExperiments SET prerequisites=? WHERE schedule_id=?', (json.dumps(['EvoYeastExperiment:41|set']), with_step))
                     conn.commit()
                 batch = saved(['Batch:B-01'])
-                for schedule_id in [batch, saved(['Unknown']), saved(['ScheduledToRun']),
+                reset = saved(OLD_RESET, name='Reset form')
+                for schedule_id in [reset, saved(['ResetHamiltonTables']), batch, saved(['Unknown']), saved(['ScheduledToRun']),
                                     saved(['EvoYeastExperiment:41|set', 'EvoYeastExperiment:42|set']), with_step]:
                     view = read(schedule_id)
                     assert view['preparation_state'] == 'needs_review' and view['legacy_preparation']['suggestion'] is None, view
                     assert 'cannot be carried over' in view['legacy_preparation']['message']
                     count, rows = len(launched), flags()
                     assert not execute(schedule_id)[0] and len(launched) == count and flags() == rows
-                # Without a prefill an administrator still resolves the review: an explicit "none",
-                # or the schedule's existing step resent unchanged, replaces the tokens.
+                reset_message = read(reset)['legacy_preparation']['message']
+                assert 'the Hamilton table reset (ResetHamiltonTables:Runtime) is no longer part of the EvoYeast step' in reset_message, reset_message
+                assert storage.get_schedule_by_id(reset).prerequisites == OLD_RESET
+                # Without a prefill an administrator still resolves the review: a chosen experiment,
+                # an explicit "none", or the schedule's existing step resent unchanged replaces the tokens.
                 kept = storage.get_schedule_by_id(with_step).preparation
+                assert update(reset, {'preparation': dict(tool_id=TOOL, inputs=dict(experiment_id=42))}).status_code == 200
                 assert update(batch, {'preparation': None}).status_code == 200
                 assert update(with_step, {'preparation': dict(tool_id=TOOL, inputs=kept['inputs'])}).status_code == 200
+                assert read(reset)['preparation_state'] == 'ready' and storage.get_schedule_by_id(reset).prerequisites == []
+                ok, chosen = execute(reset)
+                assert ok and launched[-1] == chosen and flags() == [(41, False), (42, True), (43, False), (43, False)]
                 assert 'legacy_preparation' not in read(batch) and storage.get_schedule_by_id(batch).prerequisites == []
                 assert read(with_step)['preparation_state'] == 'ready' and storage.get_schedule_by_id(with_step).preparation == kept
                 assert storage.get_schedule_by_id(with_step).prerequisites == []
@@ -229,7 +240,7 @@ def run():
                 assert 'legacy_preparation' not in read(noop)
                 rows = flags()
                 assert execute(noop)[0] and flags() == rows
-                result['checks'].append('Old registry aliases still prefill the intended experiment; batch, unknown, marker-only, double selection and token+step schedules are Needs review without a guess and refused until an administrator saves none or the existing step; a no-op selection still runs and writes nothing')
+                result['checks'].append('Old registry aliases still prefill the intended experiment; ResetHamiltonTables, batch, unknown, marker-only, double selection and token+step schedules are Needs review without a guess, keep their tokens and are refused before any write until an administrator saves an experiment, none or the existing step; a no-op selection still runs and writes nothing')
         result['fixtures_removed'] = True
         result['passed'] = True
     except Exception:
