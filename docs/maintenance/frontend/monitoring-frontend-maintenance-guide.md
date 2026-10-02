@@ -17,7 +17,9 @@ not WebSockets, despite some older type names/comments. Reads go through the sha
 signed-in user changes. An experiment without a start time keeps `start_time: null`.
 
 Database connection and streaming availability are independent of CPU/memory/disk
-usage. Never infer service health from a low CPU reading. Missing values display
+usage. Never infer service health from a low CPU reading. The CPU card's detail,
+**RobotControl N%**, is `robotcontrol_cpu_percent` (RobotControl's processes as a share of the
+machine); while it is null it reads "RobotControl —", never 0 %. Missing values display
 an em dash or Unavailable. A failed cycle retains the previous reading, marks it
 Stale data and displays the last reading time. The Refresh control is disabled
 while a read is pending.

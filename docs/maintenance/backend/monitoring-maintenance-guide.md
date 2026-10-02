@@ -46,7 +46,7 @@ SQL status calls and blocking Database/Experiments API calls run in Starlette's 
 
 2. **Background loop** (`MonitoringService._monitoring_loop`) runs every 5 seconds:  
    - `_update_experiment_data()` pulls the latest experiment from `ExperimentMonitor`.  
-   - `_update_system_health()` takes the latest CPU/memory/disk sample from `health_sampler`, which owns one five-second sampler started and stopped with the application. `/system-health` includes `sampled_at` (the frontend shows sample time, not request time); the first CPU sample is a warm-up value.  
+   - `_update_system_health()` takes the latest CPU/memory/disk sample from `health_sampler`, which owns one five-second sampler started and stopped with the application. `/system-health` includes `sampled_at` (the frontend shows sample time, not request time); the first CPU sample is a warm-up value. `robotcontrol_cpu_percent` is the CPU of RobotControl's process tree as % of the machine over the same window, null until known (performance guide: why this differs from Task Manager).  
    - `_update_db_performance()` calls `get_database_service().get_performance_stats()`.
 
 3. **Cached snapshots** live in `MonitoringService.last_experiment_data`, `last_system_health`, `last_db_performance`. These keep REST endpoints fast.

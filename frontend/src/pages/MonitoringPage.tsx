@@ -21,8 +21,10 @@ export default function MonitoringPage() {
     : 'Unavailable';
   const capacity = (used?: number, total?: number) => Number.isFinite(used) && Number.isFinite(total)
     ? `${used} / ${total} GB` : '';
+  // An unknown share (first sample, unreadable process tree) shows a dash, never 0 %.
+  const percent = (value?: number | null) => Number.isFinite(value) ? `${Math.round(value!)}%` : '—';
   const metrics = [
-    { name: 'CPU', value: systemHealth?.cpu_percent },
+    { name: 'CPU', value: systemHealth?.cpu_percent, detail: systemHealth ? `RobotControl ${percent(systemHealth.robotcontrol_cpu_percent)}` : '' },
     { name: 'Memory', value: systemHealth?.memory_percent, detail: capacity(systemHealth?.memory_used_gb, systemHealth?.memory_total_gb) },
     { name: 'Disk', value: systemHealth?.disk_percent, detail: capacity(systemHealth?.disk_used_gb, systemHealth?.disk_total_gb) },
   ];
@@ -48,7 +50,7 @@ export default function MonitoringPage() {
     <PageGrid>
       {metrics.map(metric => <Panel key={metric.name} title={metric.name} span={4}
         actions={metric.detail && <Typography variant="caption" color="text.secondary" sx={{ fontFamily: fontMono }}>{metric.detail}</Typography>}>
-        <Typography sx={{ fontFamily: fontMono, fontSize: 32, lineHeight: '40px', fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>{Number.isFinite(metric.value) ? `${Math.round(metric.value!)}%` : '—'}</Typography>
+        <Typography sx={{ fontFamily: fontMono, fontSize: 32, lineHeight: '40px', fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>{percent(metric.value)}</Typography>
         <LinearProgress aria-label={`${metric.name} usage`} variant="determinate" value={Number.isFinite(metric.value) ? Math.max(0, Math.min(100, metric.value!)) : 0}
           color={metric.value! > 90 ? 'error' : metric.value! > 80 ? 'warning' : 'primary'} sx={{ mt: 1, height: 8, borderRadius: 1, bgcolor: 'surface.track', visibility: Number.isFinite(metric.value) ? 'visible' : 'hidden' }} />
       </Panel>)}
