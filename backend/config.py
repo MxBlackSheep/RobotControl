@@ -104,7 +104,11 @@ LIVE_STREAMING_CONFIG = {
     # 400 kbit/s keeps more detail than 600 did and stays near 400 in noisy scenes. It holds back
     # 3 frames (200 ms at 15 fps). "" turns it off (docs/plans/live-view-denoise.md).
     "denoise_filter": "atadenoise=0a=0.16:0b=0.32:1a=0.16:1b=0.32:2a=0.16:2b=0.32:s=5:a=s",
-    # One H.264 stream (640×480, one-second GOP) shared by every viewer. Level 0 is normal; the CPU
+    # Seconds between keyframes (GOP = int(fps × this) frames). A viewer who joins, resumes or is
+    # skipped for lag waits for the next keyframe, so this bounds that wait; each keyframe is about
+    # five delta frames of data, which a thin link takes longer to carry (docs/plans/live-view-keyframes.md).
+    "keyframe_seconds": 1,
+    # One H.264 stream (640×480, keyframe every keyframe_seconds) shared by every viewer. Level 0 is normal; the CPU
     # guard steps down one level at a time under load and back up when calm. Each rate divides the
     # camera's 30 fps (CAMERA_CONFIG capture_fps; also 15) so frames stay evenly spaced. "denoise"
     # applies denoise_filter; the degraded levels go without, as 3 held frames there are 400–600 ms.
