@@ -35,7 +35,7 @@ class EncoderUnavailable(RuntimeError):
 
 @dataclass(frozen=True)
 class EncoderSettings:
-    fps: int
+    fps: float
     bitrate_kbps: int
 
 
@@ -63,12 +63,12 @@ def find_ffmpeg() -> Path:
 
 
 def ffmpeg_command(ffmpeg: Path, settings: EncoderSettings) -> list:
-    """Constrained Baseline (no B-frames), one-second GOP, so a viewer can join within a second."""
+    """Constrained Baseline (no B-frames), GOP of at most one second, so a viewer can join within a second."""
     return [str(ffmpeg), "-hide_banner", "-loglevel", "error", "-nostats",
             "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{WIDTH}x{HEIGHT}", "-framerate", str(settings.fps),
             "-thread_queue_size", "2", "-i", "pipe:0", "-an",
             "-c:v", "libopenh264", "-profile:v", "constrained_baseline", "-rc_mode", "bitrate",
-            "-b:v", f"{settings.bitrate_kbps}k", "-g", str(settings.fps), "-bf", "0", "-slices", "1",
+            "-b:v", f"{settings.bitrate_kbps}k", "-g", str(max(1, int(settings.fps))), "-bf", "0", "-slices", "1",
             "-threads", "1", "-pix_fmt", "yuv420p", "-fps_mode", "passthrough",
             "-flush_packets", "1", "-flvflags", "no_duration_filesize", "-f", "flv", "pipe:1"]
 
