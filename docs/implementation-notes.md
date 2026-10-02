@@ -1,3 +1,9 @@
+## 2026-10-02 Tip tracking no longer offers Reserved or Unclear
+
+- The owner asked to remove the reserved and unclear tip statuses from the frontend only. Before, Set tips to offered seven statuses; now it offers clean, empty, dirty, rinsed and washed. The backend, API and database are unchanged: they still store and report both, and a missing or unrecognised stored value still arrives as unclear.
+- A tip saved as reserved or unclear still shows its own colour and name ("Tip 1, reserved"), counts in After saving, and appears in the deck/rack legend only while a shown tip has it, so unknown data never reads as clean. Repainting it saves the chosen allowed status. One named list (`hiddenFromEditing`, `TipTrackingPanel.tsx`) does the hiding; nothing else in the frontend reads tip statuses.
+- Checks: new case in `labware.spec.ts` (fails on main: the palette shows Reserved and Unclear); screenshots `test-output/visual/latest/{light,dark}-{1440,390}-labware.png`.
+
 ## 2026-10-02 Sharper live view in low light: 15 fps capture, 600 kbit/s live view
 
 - Before, the camera was asked for 30 fps while live view used at most 15 and recording 7.5, and live view had 400 kbit/s (≈3.3 kB a frame), which smeared the moving gripper and plate wells once low light raised sensor noise. Now the camera is asked for 15 fps (`CAMERA_CONFIG.capture_fps`; 30 reverts): half the decode and copy work, and in the dark auto-exposure may expose up to 1/15 s instead of adding gain. Live view level 0 is 15 fps at 600 kbit/s (+50 % per viewer in every scene: 610–661 against 407–439 kbit/s lit, 844 against 554 in heavy noise, where libopenh264 overshoots); degraded levels are 7.5/300 and 5/200, which divide 15 so frames stay evenly spaced (GOP `int(fps)`, at most a second).
