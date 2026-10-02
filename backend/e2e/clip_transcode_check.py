@@ -78,8 +78,14 @@ def accept(service, path: Path) -> None:
 
 
 def ffmpeg_children():
-    return [child for child in psutil.Process().children(recursive=True)
-            if child.name().lower() == "ffmpeg.exe"]
+    running = []
+    for child in psutil.Process().children(recursive=True):
+        try:
+            if child.name().lower() == "ffmpeg.exe":
+                running.append(child)
+        except psutil.NoSuchProcess:
+            pass  # exited after it was listed (encode or verify just finished)
+    return running
 
 
 def wait_for(condition, seconds=60.0, step=.02):

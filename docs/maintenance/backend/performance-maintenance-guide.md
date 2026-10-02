@@ -10,6 +10,19 @@ Rows separate RobotControl and its children, SQL Server and local browsers. Work
 
 The recorder observes existing services; it does not start cameras, query SQL or read credentials. Allocation tracing is off; enable Python tracing only in isolated investigations, and compare private memory too because OpenCV/native allocations may not appear in Python traces.
 
+## Why System status differs from Task Manager
+
+System status → **CPU** is the whole machine, the share of time the logical processors were busy, averaged over the 5 s between `health_sampler` samples. Its detail, **RobotControl N%**, is the CPU time of RobotControl's main process and every process it started (camera helper, live-view and clip ffmpeg, package scripts) over the same 5 s, as a share of the whole machine; it shows a dash until two samples exist, never 0 %. A child that starts and ends between two samples, such as a clip's 0.3 s verifying decode, is missed. Task Manager differs for four reasons:
+
+- Its CPU column is "% Processor Utility": busy time scaled by the current clock relative to the base clock. A CPU with a low base clock that turbo-boosts, like the N100, shows more utility than busy time for the same work.
+- It refreshes every second, so it shows bursts (a clip conversion lasts 1–3 s) that the 5 s average flattens.
+- Observers cost CPU too: Task Manager itself and remote-desktop tools (on 2026-10-02 the owner saw 11 % and 14 %), and a local browser showing System status. None of these belong to RobotControl's share.
+- Its RobotControl group lists the main process and camera helper; ffmpeg children may appear as separate rows.
+
+Clip conversion is a short burst, not the steady load: on the development PC (i5-12490F VM) it costs about 1.2 CPU-s per 1-minute clip, about 2 % of one core averaged over the minute. The steady camera cost is the camera helper (capture and MJPEG writing), the 14.6 % process in the owner's Task Manager reading.
+
+The live-view guard's CPU figure (camera guide) is a different unit: percent of one core (75 % = three quarters of a core), deliberately not of the machine. For a record per process, set `ROBOTCONTROL_RESOURCE_DIAGNOSTICS=1` (above). To measure what clip conversion costs on a machine, run `backend/scripts/clip_transcode_probe.ps1 -Profiles product-1000-before,product-1000` (header has the full command): CPU-seconds and wall time per clip, peak cores and the machine's peak against its background load.
+
 ## Repeatable validation
 
 Run `python -m backend.scripts.performance_probe --seconds 3 --trials 3` before and after changes. This feeds deterministic moving 640×480 frames (worst case for compression: noise) through the real H.264 encoder (`build/vendor/ffmpeg`) to zero, one and two simulated viewers. It never starts hardware or sends email. Compare all three trials, including CPU seconds (RobotControl and, separately, the ffmpeg child), delivered frames and event-loop delay. Two viewers should receive about twice the frames from one encoder. This does not measure camera capture, browser latency, disk recording or actual network performance.
