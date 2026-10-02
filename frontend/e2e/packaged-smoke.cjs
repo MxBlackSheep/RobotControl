@@ -117,7 +117,7 @@ const path = require('node:path');
     await page.setViewportSize({ width: 320, height: 740 });
     await page.route('**/api/monitoring/experiments', route => route.fulfill({ json: { data: [] } }));
     await page.route('**/api/monitoring/system-health', route => route.fulfill({ json: { data: {
-      sampled_at: '2026-09-26T12:00:00Z', system: { cpu_percent: 4, memory_percent: 25, disk_percent: 50 },
+      sampled_at: '2026-09-26T12:00:00Z', system: { cpu_percent: 4, robotcontrol_cpu_percent: 2, memory_percent: 25, disk_percent: 50 },
       database: { is_connected: true, database_name: 'Fixture DB', server_name: 'Fixture server', mode: 'primary' },
     } } }));
     // The Databases card reads /api/monitoring/databases: the built-in connection plus saved ones.
@@ -136,6 +136,7 @@ const path = require('node:path');
     await expect(databases.getByTitle('Connected', { exact: true }).first()).toBeVisible();
     await expect(databases.getByText(/Unknown|Unavailable|cannot connect/i)).toHaveCount(0);
     await expect(page.getByText('0 of 10 slots in use', { exact: true })).toBeVisible();
+    await expect(page.getByText('RobotControl 2%', { exact: true })).toBeVisible();
     await expect(page.getByText(/Utilization|Bandwidth/)).toHaveCount(0);
     await page.screenshot({ path: path.join(output, 'packaged-connections-phone.png'), fullPage: true, animations: 'disabled' });
     expect(errors).toEqual([]);
