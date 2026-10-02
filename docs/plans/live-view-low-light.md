@@ -1,5 +1,15 @@
 # Live view in low light: measurements and decision (2026-10-02)
 
+> **Correction, later on 2026-10-02** (`docs/plans/live-view-denoise.md`). The production camera's log
+> after this change: `format=YUY2 | requested_fps=15 | reported_fps=15.0`, then `delivered_fps=30.0`.
+> The driver reports the 15 fps request but delivers 30, so on this camera the capture saving below,
+> the longer exposure (the ×4 rows) and the expected "RobotControl N% about 5–6 points lower" did not
+> happen; `capture_fps` is 30 again. Level 0 is now 15 fps at **400 kbit/s with temporal denoise**:
+> the owner views through the Cloudflare tunnel, and on a simulated 450–500 kbit/s link (600 in
+> noise) 600 kbit/s fell to 7–12 fps and 0.8–1.9 s behind.
+> The "Temporal denoise" finding below used default `atadenoise` settings and a detail measure that
+> does not see noise; with tuned settings it is what lets the bitrate drop.
+
 The owner (production Intel N100, 4 cores, USB camera in the Hamilton enclosure) reported that live
 view is "a bit blurry, especially when the outer light is turned off": cyan-tinted, noisy, smeared
 plate barcodes and labware, shown about 3× enlarged. They asked for better image quality without
@@ -111,10 +121,11 @@ and 5 fps from 15 at their rates (`test-output/live-view-quality/pacing_sim.py`)
 
 ## Decision
 
-- `CAMERA_CONFIG["capture_fps"] = 15`. The helper decodes and copies half as many frames; the parent
+- *(Did not hold on the production camera, which delivers 30 fps regardless; reverted to 30, see the correction above.)*
+  `CAMERA_CONFIG["capture_fps"] = 15`. The helper decodes and copies half as many frames; the parent
   copies half as many. Recording still measures its rate at connection and keeps at most 7.5 (every
   second frame).
-- `encoder_levels` **15/600, 7.5/300, 5/200**. Each divides 15 (and 30), so frames stay evenly
+- *(Level 0 superseded by 15/400 with denoise, see the correction above.)* `encoder_levels` **15/600, 7.5/300, 5/200**. Each divides 15 (and 30), so frames stay evenly
   spaced. The GOP is `int(fps)` frames (at most a second; 7 at 7.5 fps), so joining and keyframe
   recovery stay within a second. The CPU guard and its ladder are unchanged.
 - Each connection logs `Camera capture | … | format=… | requested_fps=15 | reported_fps=…`, then 10 s
@@ -134,7 +145,7 @@ and 5 fps from 15 at their rates (`test-output/live-view-quality/pacing_sim.py`)
 - Helper, main and ffmpeg CPU on the Gracemont cores, light on and off.
 - The picture with the real outer light off.
 
-**Expected System status figure.** **RobotControl N%** (main process plus camera helper and ffmpeg
+**Expected System status figure** *(did not apply: the camera delivers 30 fps, see the correction above)*. **RobotControl N%** (main process plus camera helper and ffmpeg
 children, as a share of the machine) should fall by about **5–6 points** on the N100 if the camera
 delivers 15 fps, for example from about 20 % to about 14–15 % with recording on and one viewer.
 The estimate is built from the owner's Task Manager reading:
