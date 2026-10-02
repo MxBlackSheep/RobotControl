@@ -122,6 +122,7 @@ class CameraService:
                                      self._publish_frame, self._accept_clip)
         self.runtime.no_frame_seconds = CAMERA_CONFIG.get("no_frame_seconds", 10)
         self.runtime.startup_seconds = CAMERA_CONFIG.get("startup_seconds", 20)
+        self.runtime.capture_fps = CAMERA_CONFIG["capture_fps"]
         logger.info("CameraService initialized")
     
     def enable_streaming_integration(self):

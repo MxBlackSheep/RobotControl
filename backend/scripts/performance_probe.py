@@ -2,7 +2,7 @@
 
 Run: python -m backend.scripts.performance_probe --seconds 3 --trials 3
      python -m backend.scripts.performance_probe --seconds 6 --trials 1 --rtt 0.3   (a far viewer)
-Frames are 640x480 at CAPTURE_FPS (the camera's request) with motion, encoded by the real H.264 encoder
+Frames are 640x480 at CAMERA_CONFIG capture_fps (the camera's request) with motion, encoded by the real H.264 encoder
 (build/vendor/ffmpeg, see build_scripts/fetch_ffmpeg.py). CPU seconds include the ffmpeg child.
 This is a microbenchmark, not real camera/endurance acceptance.
 """
@@ -16,7 +16,8 @@ from unittest.mock import patch
 import numpy as np
 import psutil
 
-from backend.services.camera_worker import CAPTURE_FPS
+from backend.config import CAMERA_CONFIG
+
 from backend.services.live_streaming import LiveStreamingService
 from backend.services.streaming_session import FLAG_KEYFRAME, FRAME_HEADER, StreamingSessionHandler
 from backend.services.streaming_types import StreamingSession
@@ -68,7 +69,8 @@ async def trial(seconds, viewers, rtt=0.0):
     await service.start_service()
     ticks, delays, encoder_cpu = 0, [], 0.0
     while time.monotonic() - started < seconds:
-        service.frame_buffer.put_frame(np.roll(base, ticks * 4, axis=1))
+        # 120 px/s whatever the camera rate, so rates are compared on the same motion
+        service.frame_buffer.put_frame(np.roll(base, round(ticks * 120 / CAMERA_CONFIG["capture_fps"]), axis=1))
         if service._encoder is not None and service._encoder.pid:
             try:
                 times = psutil.Process(service._encoder.pid).cpu_times()
@@ -76,7 +78,7 @@ async def trial(seconds, viewers, rtt=0.0):
             except psutil.Error:
                 pass
         # Due times, not fixed sleeps: Windows' 15.6 ms timer would otherwise slow the camera.
-        due = started + (ticks + 1) / CAPTURE_FPS
+        due = started + (ticks + 1) / CAMERA_CONFIG["capture_fps"]
         await asyncio.sleep(max(0, due - time.monotonic()))
         delays.append(max(0, time.monotonic() - due))
         ticks += 1

@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 
 from backend.services.camera_devices import enumerate_devices, resolve_device
-from backend.services.camera_worker import CAPTURE_FPS, FRAME_BYTES, capture_worker
+from backend.services.camera_worker import FRAME_BYTES, capture_worker
 from backend.utils.filesystem import replace_file
 
 logger = logging.getLogger(__name__)
@@ -48,6 +48,7 @@ class CameraRuntime:
         self.counters = [0.] * 6
         self.no_frame_seconds = 10
         self.startup_seconds = 20
+        self.capture_fps = 15
         self.graceful_stop_seconds = 15
         self.on_recording_started = None
 
@@ -105,7 +106,7 @@ class CameraRuntime:
         self.events = parent
         options = {"identity": identity, "camera_id": self.camera_id, "generation": self.generation,
                    "folder": str(self.folder), "clip_seconds": self.clip_seconds,
-                   "recording": self.recording_requested}
+                   "recording": self.recording_requested, "capture_fps": self.capture_fps}
         self.started = time.monotonic()
         self.process = ctx.Process(target=capture_worker,
             args=(options, self.stop_event, self.pixels, self.frame_lock, self.counters, child),
@@ -148,7 +149,7 @@ class CameraRuntime:
                         self.ready = True
                         capture = event.get("capture", {})
                         logger.info("Camera capture | generation=%s | format=%s | requested_fps=%s | reported_fps=%s",
-                                    generation, capture.get("fourcc"), CAPTURE_FPS, capture.get("reported_fps"))
+                                    generation, capture.get("fourcc"), capture.get("requested_fps"), capture.get("reported_fps"))
                         rate_from = (time.monotonic(), self.counters[2])
                     elif event["kind"] == "error":
                         self.error, self.error_kind = event["error"], event["error_kind"]

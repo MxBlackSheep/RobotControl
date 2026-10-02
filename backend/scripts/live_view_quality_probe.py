@@ -10,7 +10,8 @@ Detail kept (%): on the still frames, the decoded image's fine detail (image min
 σ 1.5) projected onto that of the mean of the still source frames. Averaging removes sensor noise,
 and noise is uncorrelated with the scene, so reproducing noise does not raise the score but smearing
 lowers it. PSNR/SSIM against the noisy source reward reproduced noise; do not use them for this.
---darken G simulates less light: frame / G, sensor noise σ 2.5, 8-bit rounding, × G (camera gain).
+--darken G simulates 1/G of the light made up by camera gain G, with shot and read noise and a cyan
+cast (see darken()); the still reference is then the mean of the darkened still frames.
 Crops are of the plate and gripper area in the enclosure camera's view (--roi to change). CPU is the
 ffmpeg child's user+system time per frame (best of 3 runs of the frames ×4). This is a development
 measurement, not acceptance on the robot PC.
@@ -36,10 +37,33 @@ def read_frames(ffmpeg, clip, first, count):
     return np.frombuffer(raw, np.uint8).reshape(-1, HEIGHT, WIDTH, 3)
 
 
-def darken(frames, gain):
-    noise = np.random.default_rng(7).normal(0, 2.5, frames.shape).astype(np.float32)
-    dark = np.clip(frames.astype(np.float32) / gain + noise, 0, 255)
-    return np.clip(np.round(dark) * gain, 0, 255).astype(np.uint8)
+# Equivalent electrons at 8-bit white, calibrated to the lit robot clip: its temporal noise (σ 12.5
+# levels in mid-tones) is taken as about 45 % shot noise, the rest compression and fixed noise.
+FULL_WELL = 100
+READ_NOISE = .5  # same equivalent electrons
+CYAN_CAST = np.array([1.06, 1.04, 0.82], np.float32)  # B, G, R gains in linear light: less red
+
+
+def darken(frames, gain, seed=7):
+    """The same scene with 1/gain of the light, brought back to brightness by the camera's gain.
+
+    Per frame and channel, in linear light (8-bit gamma 2.2 undone): the light becomes 1/gain of the
+    lit clip's, in electrons; Poisson shot noise and Gaussian read noise are drawn (new every frame,
+    one fixed seed, so every setting sees identical frames); the noise is slightly smoothed (σ 0.6 px)
+    as demosaicing correlates neighbours; × gain; white balance shifts toward cyan; gamma; 8 bits.
+    Gain amplifies both noises, so relative noise grows about √gain in light areas and faster in
+    shadows. A model, not camera output.
+    """
+    rng = np.random.default_rng(seed)
+    out = np.empty_like(frames)
+    for index, frame in enumerate(frames):
+        electrons = (frame.astype(np.float32) / 255) ** 2.2 * FULL_WELL / gain
+        noise = rng.poisson(electrons).astype(np.float32) - electrons
+        noise += rng.normal(0, READ_NOISE, frame.shape).astype(np.float32)
+        noise = cv2.GaussianBlur(noise, (0, 0), .6)
+        linear = np.clip((electrons + noise) * gain / FULL_WELL * CYAN_CAST, 0, 1)
+        out[index] = np.round(linear ** (1 / 2.2) * 255).astype(np.uint8)
+    return out
 
 
 def encode(ffmpeg, frames, settings, path):
@@ -88,9 +112,9 @@ def main():
     rois = [tuple(map(int, roi.split(","))) for roi in args.roi] if args.roi else ROIS
     frames = read_frames(ffmpeg, args.clip, first, args.moving - first + 31)
     still = end - first
-    reference = fine_detail(np.round(frames[:still].mean(axis=0)).astype(np.uint8), rois)
     if args.darken:
         frames = darken(frames, args.darken)
+    reference = fine_detail(np.round(frames[:still].mean(axis=0)).astype(np.uint8), rois)
     args.out.mkdir(parents=True, exist_ok=True)
     name = args.clip.stem + (f"_darken{args.darken:g}" if args.darken else "")
     scored = range(min(30, still // 2), still)  # after the first frames settle

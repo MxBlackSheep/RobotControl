@@ -18,10 +18,6 @@ import numpy as np
 from backend.services.camera_devices import enumerate_devices, resolve_device
 
 FRAME_BYTES = 640 * 480 * 3
-# Live view encodes at most 15 fps and recording keeps at most 7.5, so faster capture is decoded only
-# to be discarded. At 15 fps auto-exposure may also expose up to 1/15 s instead of 1/30 s in the dark,
-# needing less gain (sensor noise). The camera may deliver another rate: the parent logs what arrives.
-CAPTURE_FPS = 15
 
 
 def fourcc_name(code):
@@ -87,9 +83,10 @@ def capture_worker(options, stop, pixels, frame_lock, counters, events):
             raise RuntimeError("Camera mapping changed while opening; refresh and reconnect")
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        cap.set(cv2.CAP_PROP_FPS, CAPTURE_FPS)
+        # CAMERA_CONFIG capture_fps. A driver may deliver another rate: the parent logs what arrives.
+        cap.set(cv2.CAP_PROP_FPS, options["capture_fps"])
         capture_format = {"fourcc": fourcc_name(cap.get(cv2.CAP_PROP_FOURCC)),
-                          "reported_fps": cap.get(cv2.CAP_PROP_FPS)}
+                          "requested_fps": options["capture_fps"], "reported_fps": cap.get(cv2.CAP_PROP_FPS)}
         # Keep the existing measured rolling FPS (maximum 7.5), and capture quality.
         calibration_start = time.monotonic()
         calibrated = 0

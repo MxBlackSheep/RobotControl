@@ -65,6 +65,10 @@ CAMERA_CONFIG = {
     "recording_duration_minutes": 1,        # Duration of each video segment in minutes
     "archive_duration_minutes": 15,         # Minutes of clips to archive per experiment
     "rolling_clips_count": 120,             # Maximum rolling clips to maintain
+    # Frame rate requested from the camera. Live view uses at most 15 and recording at most 7.5; 15 also
+    # lets auto-exposure expose up to 1/15 s in the dark instead of adding gain (docs/plans/live-view-low-light.md).
+    # 30 restores the earlier request; LIVE_STREAMING_CONFIG encoder_levels rates should divide it.
+    "capture_fps": 15,
     "clip_h264_kbps": 1000,                 # H.264 bitrate finalized clips are stored at (docs/plans/h264-rolling-clips.md)
     "default_resolution": [640, 480]        # Default camera resolution [width, height]
 }
@@ -95,7 +99,7 @@ LIVE_STREAMING_CONFIG = {
     "cpu_hard_limit_percent": int(os.getenv("STREAMING_CPU_HARD_LIMIT", "90")),  # CPU% to stop streaming sessions
     # One H.264 stream (640×480, one-second GOP) shared by every viewer. Level 0 is normal; the CPU
     # guard steps down one level at a time under load and back up when calm. Each rate divides the
-    # camera's 15 fps (camera_worker.CAPTURE_FPS) so frames stay evenly spaced. 600 kbit/s at level 0:
+    # camera's 15 fps (CAMERA_CONFIG capture_fps; also 30) so frames stay evenly spaced. 600 kbit/s at level 0:
     # 400 smeared plate wells in low light (docs/plans/live-view-low-light.md).
     "encoder_levels": [
         {"fps": 15, "bitrate_kbps": 600},
