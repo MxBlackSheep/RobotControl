@@ -129,18 +129,49 @@ and 5 fps from 15 at their rates (`test-output/live-view-quality/pacing_sim.py`)
 
 ## Not confirmed on the N100
 
-- The camera's delivered rate and format (see the log lines above), and whether its auto-exposure uses
-  the longer frame time (the ×4 row) or not (the ×8 row).
+- The camera's delivered rate and format, and whether its auto-exposure uses the longer frame time
+  (the ×4 row) or not (the ×8 row).
 - Helper, main and ffmpeg CPU on the Gracemont cores, light on and off.
 - The picture with the real outer light off.
 
-A real clip can be scored with
+**Expected System status figure.** **RobotControl N%** (main process plus camera helper and ffmpeg
+children, as a share of the machine) should fall by about **5–6 points** on the N100 if the camera
+delivers 15 fps, for example from about 20 % to about 14–15 % with recording on and one viewer.
+The estimate is built from the owner's Task Manager reading:
+
+| part | basis | change |
+| --- | --- | --- |
+| camera helper, 7.5 fps clip write (fixed) | 5.5 ms per frame here, ≈1.7× slower per thread on the N100 → ≈7 % of a core ≈ 1.8 % of the machine | none |
+| camera helper, per delivered frame (driver, decode, slot copy) | 14.6 − 1.8 ≈ 12.8 % | halves: −6.4 |
+| main process, frame copy | 0.4 ms × 15 frames a second fewer | −0.3 |
+| live encoder 400 → 600 kbit/s, only while someone watches | +0.9 % of a core here | +0.4 |
+
+If only half of the helper's remainder is per frame, the fall is about 3 points. If the log shows
+`delivered_fps` ≈ 30 (the driver ignored the request), there is no fall. Task Manager's percentages
+are processor utility, which runs higher than busy time on the N100
+(`docs/maintenance/backend/performance-maintenance-guide.md`).
+
+**Passive checks** (no action needed from the owner):
+- System status → CPU → **RobotControl N%**, read whenever convenient.
+- `data\logs\robotcontrol_backend.log`: `Camera capture | … | delivered_fps=…` once per connection.
+- A warning per clip if the camera slows below the recording rate after connection, for example once
+  the light is switched off: `Camera delivered N fps, below the recording rate (7.5 fps); this clip
+  plays faster than real time`. Recording is unchanged; if it appears, a fix is decided on that evidence.
+
+**Optional, if someone is at the N100:**
+1. Find the two `Camera capture` lines in the log: format and requested/reported fps at connection,
+   `delivered_fps` 10 s later.
+2. With recording on and one live viewer, note Task Manager → Details CPU for the camera helper,
+   `RobotControl.exe` and `ffmpeg.exe` for a minute, light on and off (before: helper 14.6 %, main 5.2 %).
+
+If a lights-off clip ever turns up, `live_view_quality_probe` is ready to score it:
 `uv run --locked python -m backend.scripts.live_view_quality_probe --clip <clip> --still <a:b> --moving <n>`.
 An `.mp4` rolling clip has already been through the 1000 kbit/s transcode (some noise removed), so it
 is close to, not identical to, the camera's output.
 
 Evidence (local): `test-output/live-view-quality/`: crop sheets, `option-matrix*.json` (real footage),
-`model-option-matrix.json`, `cpu_runs_all.txt`, `performance_probe_ab_20s.txt`, `levels_after.txt`.
+`model-option-matrix.json`, `cpu_runs_all.txt`, `performance_probe_ab_20s.txt`, `levels_after.txt`,
+`slow_clip_warning_check.txt`.
 
 Not part of this change: the cyan tint is the camera's white balance (lit footage has it too); a
 manual white balance or sharpness setting in the camera driver may help, but needs the camera.

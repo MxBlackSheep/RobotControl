@@ -16,6 +16,19 @@ from backend.utils.filesystem import replace_file
 logger = logging.getLogger(__name__)
 
 
+def warn_if_clip_too_fast(clip):
+    """The recording rate is measured once at connection; a camera that later slows down (exposure
+    priority after the light is switched off) leaves fewer frames than the clip's rate claims, so it
+    plays faster than real time. Reported only: recording is unchanged."""
+    try:
+        delivered = clip["frame_count"] / clip["actual_duration"]
+        if delivered < .8 * clip["fps"]:
+            logger.warning("Camera delivered %.1f fps, below the recording rate (%.1f fps); this clip plays "
+                           "faster than real time | %s", delivered, clip["fps"], clip["path"])
+    except (KeyError, TypeError, ZeroDivisionError):
+        pass  # incomplete metadata is not this check's concern
+
+
 class CameraRuntime:
     def __init__(self, folder, clip_seconds, publish, accept_clip):
         self.folder = Path(folder)
@@ -157,6 +170,7 @@ class CameraRuntime:
                     elif event["kind"] == "clip":
                         self.accept_clip(event["clip"])
                         events.send("ack")
+                        warn_if_clip_too_fast(event["clip"])
                 if generation != self.generation:
                     break
                 if rate_from and time.monotonic() - rate_from[0] >= 10:
