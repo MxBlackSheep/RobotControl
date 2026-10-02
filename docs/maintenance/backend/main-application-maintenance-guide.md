@@ -26,6 +26,7 @@ This guide explains how the FastAPI entry point, logging, static assets, and bui
 - Build scripts
   - `build_scripts/embed_resources.py` – bake `frontend/dist` into `backend/embedded_static.py`.
   - `build_scripts/pyinstaller_build.py` – run PyInstaller with the right hidden imports, data files, and backup preservation.
+  - `build_scripts/icon/` – the app icon's SVG masters and the committed `RobotControl.ico` that packaging embeds (the build stops if it is missing). After changing the art, run `uv run --locked python build_scripts/icon/make_icon.py` (needs `frontend/node_modules` and Microsoft Edge) and commit the regenerated `.ico` and `frontend/src/favicon.svg`. Sizes 16–48 use the simplified art; `icon-16.svg` and `icon-24.svg` are copies snapped to whole pixels at those sizes, so edit them along with `icon-small.svg`.
 
 ---
 
