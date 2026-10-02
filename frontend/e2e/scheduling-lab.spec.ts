@@ -3,8 +3,8 @@ import { mkdirSync } from 'node:fs';
 
 /** Failure cases for the schedule's "Before this run" step:
  * - A schedule saved with the retired EvoYeast adapter tokens loses them silently: the form
- *   must show Needs review with the old steps, prefill the EvoYeast package step (experiment
- *   visible, reset tables, saved order) for an administrator and send it on save, never send
+ *   must show Needs review with the old steps, prefill the EvoYeast package step (its one
+ *   Experiment choice visible) for an administrator and send it on save, never send
  *   tokens; a non-admin sees it read-only and a timing edit sends neither; a package that is
  *   not installed is named and the prefill kept. Tokens without a prefill (batch example)
  *   still let an administrator resolve the review: saving sends an explicit step (none).
@@ -14,14 +14,11 @@ import { mkdirSync } from 'node:fs';
  * backend/e2e/preparation_step_check.py.
  */
 const evidence = '../test-output/scheduling-lab-verification';
-const oldTokens = ['ResetHamiltonTables:Runtime', 'ScheduledToRun', 'EvoYeastExperiment:42|set'];
-const suggestion = { tool_id: 'evoyeast-experiment', inputs: { experiment_id: 42, reset_tables: true, table_list: 'Runtime', reset_first: true } };
-const evoyeastTool = { id: 'evoyeast-experiment', name: 'Select EvoYeast experiment', package_version: '1.0.0', target: 'EvoYeast writer · LAB / EvoYeast',
+const oldTokens = ['ScheduledToRun', 'EvoYeastExperiment:42|set'];
+const suggestion = { tool_id: 'evoyeast-experiment', inputs: { experiment_id: 42 } };
+const evoyeastTool = { id: 'evoyeast-experiment', name: 'Select EvoYeast experiment', package_version: '1.0.1', target: 'EvoYeast writer · LAB / EvoYeast',
   setup_needed: false, inputs: [
-    { name: 'experiment_id', label: 'Experiment', type: 'lookup', required: false, choices: [], lookup: { parameters: [], value_type: 'integer' } },
-    { name: 'reset_tables', label: 'Reset Hamilton tables', type: 'boolean', required: false, choices: [] },
-    { name: 'table_list', label: 'Tables to reset (comma-separated; blank resets all)', type: 'text', required: false, choices: [] },
-    { name: 'reset_first', label: 'Reset tables before selecting the experiment', type: 'boolean', required: false, choices: [] }] };
+    { name: 'experiment_id', label: 'Experiment', type: 'lookup', required: true, choices: [], lookup: { parameters: [], value_type: 'integer' } }] };
 
 for (const [role, width, installed] of [['admin', 1280, true], ['admin', 390, false], ['user', 390, true]] as const) {
   test(`old EvoYeast selection needs review: ${role} at ${width}px${installed ? '' : ', package not installed'}`, async ({ page }) => {
@@ -87,9 +84,6 @@ for (const [role, width, installed] of [['admin', 1280, true], ['admin', 390, fa
     }
     await expect(step).toContainText('Select EvoYeast experiment');
     await expect(editor.getByRole('combobox', { name: 'Experiment', exact: true })).toHaveValue('Reference (42)');
-    await expect(editor.getByRole('checkbox', { name: 'Reset Hamilton tables' })).toBeChecked();
-    await expect(editor.getByLabel('Tables to reset (comma-separated; blank resets all)')).toHaveValue('Runtime');
-    await expect(editor.getByRole('checkbox', { name: 'Reset tables before selecting the experiment' })).toBeChecked();
     await editor.getByText('Runs before the method starts, writing to EvoYeast writer', { exact: false }).scrollIntoViewIfNeeded();
     await page.screenshot({ path: `${evidence}/old-selection-admin-${width}.png` });
     await editor.getByRole('button', { name: 'Save schedule', exact: true }).click();

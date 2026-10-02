@@ -2,7 +2,7 @@
   "contract_version": 2,
   "id": "evoyeast-experiment",
   "name": "Select EvoYeast experiment",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "libraries": [],
   "tools": [
     {
@@ -15,7 +15,7 @@
           "name": "experiment_id",
           "label": "Experiment",
           "type": "lookup",
-          "required": false,
+          "required": true,
           "choices": [],
           "lookup": {
             "source": "primary",
@@ -23,27 +23,6 @@
             "parameters": [],
             "value_type": "integer"
           }
-        },
-        {
-          "name": "reset_tables",
-          "label": "Reset Hamilton tables",
-          "type": "boolean",
-          "required": false,
-          "choices": []
-        },
-        {
-          "name": "table_list",
-          "label": "Tables to reset (comma-separated; blank resets all)",
-          "type": "text",
-          "required": false,
-          "choices": []
-        },
-        {
-          "name": "reset_first",
-          "label": "Reset tables before selecting the experiment",
-          "type": "boolean",
-          "required": false,
-          "choices": []
         }
       ],
       "sources": [
