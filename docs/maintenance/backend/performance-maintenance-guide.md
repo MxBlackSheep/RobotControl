@@ -19,6 +19,8 @@ System status → **CPU** is the whole machine, the share of time the logical pr
 - Observers cost CPU too: Task Manager itself and remote-desktop tools (on 2026-10-02 the owner saw 11 % and 14 %), and a local browser showing System status. None of these belong to RobotControl's share.
 - Its RobotControl group lists the main process and camera helper; ffmpeg children may appear as separate rows.
 
+Clip conversion is a short burst, not the steady load: on the development PC (i5-12490F VM) it costs about 1.2 CPU-s per 1-minute clip, about 2 % of one core averaged over the minute. The steady camera cost is the camera helper (capture and MJPEG writing), the 14.6 % process in the owner's Task Manager reading.
+
 The live-view guard's CPU figure (camera guide) is a different unit: percent of one core (75 % = three quarters of a core), deliberately not of the machine. For a record per process, set `ROBOTCONTROL_RESOURCE_DIAGNOSTICS=1` (above). To measure what clip conversion costs on a machine, run `backend/scripts/clip_transcode_probe.ps1 -Profiles product-1000-before,product-1000` (header has the full command): CPU-seconds and wall time per clip, peak cores and the machine's peak against its background load.
 
 ## Repeatable validation
