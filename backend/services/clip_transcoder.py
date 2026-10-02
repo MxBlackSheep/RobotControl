@@ -29,6 +29,7 @@ CLIP_SUFFIXES = (".mp4", ".avi")  # preferred first
 # Ends in .tmp, so no clip glob (*.avi, *.mp4) or attachment scan matches it.
 TEMPORARY_SUFFIX = ".mp4.tmp"
 GOP_FRAMES = 75  # a keyframe every 10 s at 7.5 fps: seeking stays quick, size barely changes
+MISSING_ENCODER = "ffmpeg.exe is missing; clips are kept as MJPEG AVI"
 CHILD_TIMEOUT_SECONDS = 600  # BelowNormal may wait behind a busy machine; a 1-minute clip takes ~1-3 s
 
 
@@ -141,8 +142,10 @@ class ClipTranscoder:
             except EncoderUnavailable as exc:
                 if self._state != "unavailable":
                     logger.warning("Rolling clips stay MJPEG: %s", exc)
-                self._state, self._last_error = "unavailable", "ffmpeg.exe is missing; clips are kept as MJPEG AVI"
+                self._state, self._last_error = "unavailable", MISSING_ENCODER
                 return
+            if self._last_error == MISSING_ENCODER:
+                self._last_error = None  # a condition, not a past failure; per-clip failures stay reported
             self._state = "transcoding"
             self._transcode(ffmpeg, waiting[0])
 
