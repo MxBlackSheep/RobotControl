@@ -12,6 +12,9 @@ import { fontMono, layout } from '../../theme';
 type Pending = Record<string, Record<string, string>>;
 type Stroke = Record<string, string | undefined>;
 const keyFor = (rack: string, position: number) => JSON.stringify([rack, position]);
+// The backend still stores and reports these (unknown values arrive as unclear), but users no
+// longer choose them. Tips that have one keep its colour, name, counts and legend entry.
+const hiddenFromEditing = ['reserved', 'unclear'];
 const message = (error: any) => error?.response?.data?.error?.message || error?.response?.data?.message || error?.message || 'Unable to save changes.';
 const stringArray = (value: unknown): value is string[] => Array.isArray(value) && value.every(item => typeof item === 'string');
 const validSnapshot = (value: TipTrackingSnapshot) => Boolean(value &&
@@ -53,19 +56,24 @@ export default function TipTrackingPanel({ active = true }: { active?: boolean }
   const columns = snapshot?.grid.cols || 12;
   const editorMinimum = columns * 44 + (columns - 1) * 4 + 24;
   const narrow = workspace.width < 320 + layout.gutter + editorMinimum;
-  const statuses = snapshot?.status_order || [];
+  const statuses = useMemo(() => snapshot?.status_order || [], [snapshot?.status_order]);
+  const choices = useMemo(() => statuses.filter(status => !hiddenFromEditing.includes(status)), [statuses]);
   const unknown = snapshot?.unknown_status || 'unclear';
   const savedStatus = (rackId: string, tip: number) => family?.tips[rackId]?.[String(tip)] || unknown;
   const shownStatus = (rackId: string, tip: number) => currentPending[keyFor(rackId, tip)] ?? savedStatus(rackId, tip);
+  const legendFor = (rackIds: string[]) => {
+    const shown = new Set(rackIds.flatMap(rackId => Array.from({ length: rows * columns }, (_, index) => shownStatus(rackId, index + 1))));
+    return statuses.filter(status => choices.includes(status) || shown.has(status));
+  };
 
   useEffect(() => {
     if (family && familyId !== family.family_id) setFamilyId(family.family_id);
-    if (paint && !statuses.includes(paint)) setPaint(null);
-  }, [family, familyId, paint, statuses]);
+    if (paint && !choices.includes(paint)) setPaint(null);
+  }, [family, familyId, paint, choices]);
   useEffect(() => { setGesture(false); }, [familyId, rack, active, narrow, rackOpen]);
 
   const apply = (tips: number[], status: string) => {
-    if (!active || (narrow && !rackOpen) || !family || !rack || !canUpdate || busyRef.current || !statuses.includes(status)) return;
+    if (!active || (narrow && !rackOpen) || !family || !rack || !canUpdate || busyRef.current || !choices.includes(status)) return;
     const edits = { ...currentPending };
     const before: Stroke = {};
     tips.forEach(tip => {
@@ -157,7 +165,7 @@ export default function TipTrackingPanel({ active = true }: { active?: boolean }
     </Stack>
     {(readError || writeError) && <Alert severity="error" action={!totalPending && !busy && !gesture ? <Button onClick={() => void refresh()}>Retry</Button> : undefined}>{writeError || readError}{readError && ' Previous data is shown.'}</Alert>}
   </Stack>;
-  const editor = rack ? <TipRackEditor rack={rack} headingId="selected-tip-rack-heading" joined={!narrow} side={family.left_racks.includes(rack) ? 'Col A' : 'Col B'} rows={rows} columns={columns} position={position} statuses={statuses} colors={snapshot.status_colors}
+  const editor = rack ? <TipRackEditor rack={rack} headingId="selected-tip-rack-heading" joined={!narrow} side={family.left_racks.includes(rack) ? 'Col A' : 'Col B'} rows={rows} columns={columns} position={position} choices={choices} legend={legendFor([rack])} colors={snapshot.status_colors}
     statusAt={tip => shownStatus(rack, tip)} pendingAt={tip => Object.prototype.hasOwnProperty.call(currentPending, keyFor(rack, tip))}
     canUpdate={canUpdate} disabled={busy} active={active && (!narrow || rackOpen)} paint={paint} onPaintChange={setPaint}
     onSelect={tip => setSelectedTips(previous => ({ ...previous, [`${family.family_id}:${rack}`]: tip }))} onApply={apply} onGestureChange={selecting => { if (selecting) suspend(); setGesture(selecting); }} /> : <Alert severity="info">No racks found.</Alert>;
@@ -171,7 +179,7 @@ export default function TipTrackingPanel({ active = true }: { active?: boolean }
         <Box sx={{ display: 'grid', columnGap: `${layout.gutter}px`, minHeight: narrow ? undefined : '100%',
           gridTemplateColumns: narrow ? 'minmax(0, 1fr)' : `clamp(320px, calc(100% - ${editorMinimum + layout.gutter}px), 40%) minmax(0, 1fr)`,
           gridTemplateRows: `minmax(${layout.header}px, auto) auto minmax(min-content, 1fr) minmax(${layout.header}px, auto)` }}>
-        <TipDeckOverview family={family} joined={!narrow} rows={rows} columns={columns} selected={rack} statuses={statuses} colors={snapshot.status_colors} statusAt={shownStatus}
+        <TipDeckOverview family={family} joined={!narrow} rows={rows} columns={columns} selected={rack} legend={legendFor(racks)} colors={snapshot.status_colors} statusAt={shownStatus}
           pendingAt={rackId => Object.keys(currentPending).filter(key => (JSON.parse(key) as [string, number])[0] === rackId).length}
           onOpen={rackId => { setSelectedRacks(previous => ({ ...previous, [family.family_id]: rackId })); setRackOpen(true); }} />
         {!narrow && editor}

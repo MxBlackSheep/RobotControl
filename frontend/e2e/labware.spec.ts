@@ -17,13 +17,17 @@ import { expect, Page, test } from '@playwright/test';
  * - Load failures show an error and Retry, never an empty deck; malformed snapshots do
  *   not crash the page. Read-only sessions can inspect everything but cannot paint.
  * - 2x device scale uses the same CSS layout as 1x.
+ * - Only clean, empty, dirty, rinsed and washed can be set. A saved reserved or unclear
+ *   tip (missing data reads unclear) keeps its own colour, name and After-saving count,
+ *   never clean or empty; the deck legend lists such a status only while a shown tip has
+ *   it. Repainting one saves the chosen status; Undo and family changes keep it exact.
  */
 async function fixtures(page:Page, canUpdate=true, realDeck=false) {
   await page.addInitScript(()=>localStorage.setItem('access_token','viewer-admin'));
   const permissions={role:'admin',is_local_session:canUpdate,can_update:canUpdate};
   const statuses=['clean','empty','dirty','rinsed','washed','reserved','unclear'];
   const tips={grid:{rows:8,cols:12,positions_per_rack:96},auto_refresh_ms:1000,status_order:statuses,status_colors:{clean:'#22c55e',empty:'#d1d5db',dirty:'#ef4444',rinsed:'#3b82f6',washed:'#a855f7',reserved:'#f59e0b',unclear:'#6b7280'},unknown_status:'unclear',refreshed_at:'2026-09-26T12:00:00Z',permissions,families:[
-    {family_id:'tips300',display_name:'300 µL tips',left_racks:['Rack A','Rack A5','Rack A2','Rack A8','Rack A9'],right_racks:['Rack B','Rack B4','Rack B7','Rack B3','Rack B10'],reset_map:{},tips:{'Rack A':Object.fromEntries(Array.from({length:96},(_,i)=>[String(i+1),'clean'])),'Rack B':{}}},
+    {family_id:'tips300',display_name:'300 µL tips',left_racks:['Rack A','Rack A5','Rack A2','Rack A8','Rack A9'],right_racks:['Rack B','Rack B4','Rack B7','Rack B3','Rack B10'],reset_map:{},tips:{'Rack A':Object.fromEntries(Array.from({length:96},(_,i)=>[String(i+1),'clean'])),'Rack B':{'1':'reserved'}}},
     {family_id:'tips1000',display_name:'1000 µL tips',left_racks:['Rack C'],right_racks:[],reset_map:{},tips:{'Rack C':{}}},
   ]};
   if(realDeck){
@@ -192,6 +196,34 @@ test('phone selection survives native horizontal scrolling to a distant corner',
   await info.attach('phone-across-columns',{body:await page.screenshot({animations:'disabled'}),contentType:'image/png'});
   await page.getByRole('button',{name:'Undo',exact:true}).tap();await expect(page.getByRole('button',{name:/Save changes/})).toBeDisabled();
 });
+});
+
+test('reserved and unclear tips stay visible but only the five allowed statuses can be set',async({page},info)=>{
+  const state=await fixtures(page);await page.setViewportSize({width:1440,height:1100});await page.goto('/labware');
+  await page.getByRole('button',{name:'Open rack Rack B',exact:true}).click();
+  await expect(page.getByRole('group',{name:'Set tips to',exact:true}).getByRole('button')).toHaveText(['Clean','Empty','Dirty','Rinsed','Washed']);
+  const reserved=page.getByRole('button',{name:'Tip 1, reserved',exact:true});
+  await expect(reserved.locator('[data-tip-dot]')).toHaveCSS('background-color','rgb(245, 158, 11)');
+  await expect(page.getByRole('button',{name:'Tip 2, unclear',exact:true}).locator('[data-tip-dot]')).toHaveCSS('background-color','rgb(107, 114, 128)');
+  const legend=page.getByRole('region',{name:'Tip deck'}).getByLabel('Tip status legend');
+  for(const status of['Reserved','Unclear'])await expect(legend.getByText(status,{exact:true})).toBeVisible();
+  await chooseStatus(page,'Clean');await reserved.dblclick();
+  await expect(page.getByRole('button',{name:'Tip 1, clean',exact:true})).toBeVisible();
+  await expect(page.getByLabel('This rack after saving')).toHaveText('After saving: 1 clean · 95 unclear');
+  await expect(legend.getByText('Reserved',{exact:true})).toHaveCount(0);await expect(legend.getByText('Unclear',{exact:true})).toBeVisible();
+  const families=page.getByRole('group',{name:'Tip family',exact:true});
+  await families.getByRole('button',{name:'1000 µL tips',exact:true}).click();await families.getByRole('button',{name:'300 µL tips · Unsaved',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Tip 1, clean',exact:true})).toContainText('1*');
+  await page.getByRole('button',{name:'Undo',exact:true}).click();
+  await expect(reserved).toBeVisible();await expect(legend.getByText('Reserved',{exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Set entire rack',exact:true}).click();
+  await expect(page.getByRole('group',{name:'Rack B tips',exact:true}).getByRole('button',{name:/, clean$/})).toHaveCount(96);
+  await expect(legend.getByText('Reserved',{exact:true})).toHaveCount(0);
+  await page.getByRole('button',{name:/Save changes/}).click();
+  await expect(page.getByRole('button',{name:/Save changes/})).toBeDisabled();
+  expect(state.writes).toHaveLength(1);expect(state.writes[0].family).toBe('tips300');
+  expect(state.writes[0].updates).toEqual(Array.from({length:96},(_,i)=>({labware_id:'Rack B',position_id:i+1,status:'clean'})));
+  await info.attach('hidden-tip-statuses',{body:await page.screenshot({animations:'disabled'}),contentType:'image/png'});
 });
 
 test('read-only tip deck permits inspection and never exposes painting',async({page},info)=>{
