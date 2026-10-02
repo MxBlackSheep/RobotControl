@@ -28,7 +28,8 @@ CPU_RECOVER_PERCENT = 50
 CPU_RECOVER_SAMPLES = 10
 # The shared stream's settings; the CPU guard moves between them (0 is normal).
 ENCODER_LEVELS = tuple(EncoderSettings(level["fps"], level["bitrate_kbps"],
-                                       LIVE_STREAMING_CONFIG["denoise_filter"] if level.get("denoise") else "")
+                                       LIVE_STREAMING_CONFIG["denoise_filter"] if level.get("denoise") else "",
+                                       LIVE_STREAMING_CONFIG["keyframe_seconds"])
                        for level in LIVE_STREAMING_CONFIG["encoder_levels"])
 # After an encoder crash, wait 1, 2, 4 … up to 30 s before the next start; a minute without a
 # crash resets the delay.
@@ -356,6 +357,7 @@ class LiveStreamingService:
         if task and task is not asyncio.current_task():
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
+        handler.report_delivery(self._stream_fps, ended=True)
         await handler.stop()
         self._frame_event.set()  # Stop the encoder promptly if that was the last viewer.
         return True
@@ -566,6 +568,8 @@ class LiveStreamingService:
             return
         self._last_resource_check = now
         await self._expire_pending_sessions()
+        for handler in list(self.sessions.values()):
+            handler.report_delivery(self._stream_fps)  # once a minute per viewer
 
         cpu_percent = self._sample_cpu()
 
