@@ -51,10 +51,10 @@ code, build it yourself (see [Building the Windows package](#building-the-window
    without the rest of the folder.
 3. Start `RobotControl.exe`. It serves the app on port 8005 and opens
    <http://localhost:8005> in your browser.
-4. Sign in as `admin`. To choose the password for this account before the first start, set
-   the `ROBOTCONTROL_ADMIN_PASSWORD` environment variable. Otherwise the app uses a built-in
-   default, which you should change straight away under **Admin → User accounts**, especially
-   before you open remote access.
+4. Sign in as `admin` on the robot PC. To choose this account's password before the first
+   start, set the `ROBOTCONTROL_ADMIN_PASSWORD` environment variable. Otherwise the app uses a
+   built-in default and asks you to change it when you sign in. Remote sign-in with the
+   built-in default is refused, so do this before you use remote access.
 
 To update, replace everything in the folder except `data`.
 

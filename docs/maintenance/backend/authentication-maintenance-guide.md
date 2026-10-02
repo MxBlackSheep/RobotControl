@@ -37,7 +37,8 @@ This guide walks through the authentication stack so you always know **which fil
 ## 2. Authentication Lifecycle Cheat Sheet
 
 1. **User submits credentials** (`POST /api/auth/login`).  
-   `AuthService.login` verifies the password (bcrypt via `pwd_context`), logs IP/user agent, and returns access + refresh tokens.
+   `AuthService.login` verifies the password (bcrypt via `pwd_context`), logs IP/user agent, and returns access + refresh tokens.  
+   **Built-in default password.** `BUILT_IN_ADMIN_PASSWORD` (`backend/services/auth.py`) is public in the repository. A sign-in with it that is not local (tunnel, LAN; rule in `get_connection_context`, see the [remote access guide](remote-access-guide.md)) answers 403 "Change the default password on the robot PC before signing in remotely." and issues no tokens. The route checks this at sign-in (`AuthService.has_built_in_password`: the submitted password equals the built-in one *and* verifies against the account's hash), so nothing is stored and the rule ends as soon as the password changes. It applies to any account carrying that password, is checked only after the throttle, is not counted as a failed attempt, and never runs for a wrong password, which keeps the generic 401 (no hint whether the default is in use). A local sign-in with it succeeds with `user.must_reset: true` in the response, so the app opens the required change-password dialog. A deployment that set its own `ROBOTCONTROL_ADMIN_PASSWORD` is not affected. Check: `backend/e2e/auth_storage_check.py`.
 
 2. **Tokens hit the browser.**  
    `AuthContext.login` stores `access_token` and `refresh_token` in `localStorage` so other requests can attach them.
@@ -67,7 +68,7 @@ This guide walks through the authentication stack so you always know **which fil
   - `password_reset_requests` – audit log for manual reset tickets (status, resolver notes, IP, user agent).
 
 - **Environment variables** (read at import time in `AuthService`):
-  - `ROBOTCONTROL_ADMIN_USERNAME`, `ROBOTCONTROL_ADMIN_PASSWORD`, `ROBOTCONTROL_ADMIN_EMAIL` – one-time bootstrap admin.
+  - `ROBOTCONTROL_ADMIN_USERNAME`, `ROBOTCONTROL_ADMIN_PASSWORD`, `ROBOTCONTROL_ADMIN_EMAIL` – one-time bootstrap admin. Without `ROBOTCONTROL_ADMIN_PASSWORD` the admin gets `BUILT_IN_ADMIN_PASSWORD`, which works only on the RobotControl computer until changed (Admin → User accounts, or the account menu's Change password).
   - `ROBOTCONTROL_ACCESS_TOKEN_MINUTES` (default 240) & `ROBOTCONTROL_REFRESH_TOKEN_HOURS` (default 168) – expiry windows.
   - `ROBOTCONTROL_ACCESS_TOKEN_SECRET`, `ROBOTCONTROL_REFRESH_TOKEN_SECRET` – must be long random strings; update in tandem.
   - `ROBOTCONTROL_AUTH_DB_FILENAME` – override database filename/location (useful for testing).
@@ -146,19 +147,22 @@ This guide walks through the authentication stack so you always know **which fil
    - Check `data/robotcontrol_auth.db` exists and contains the bootstrap user (`sqlite3 ... "SELECT username FROM users"`).  
    - Confirm env secrets match the ones used when the tokens were issued—changing `ROBOTCONTROL_ACCESS_TOKEN_SECRET` immediately invalidates existing cookies.
 
-2. **Refresh loop / user kicked out repeatedly**  
+2. **"Change the default password on the robot PC before signing in remotely."**  
+   - The account still has the built-in password. Sign in on the RobotControl computer itself (`http://localhost:8005`), set a new password in the dialog that opens, then sign in remotely with it.
+
+3. **Refresh loop / user kicked out repeatedly**  
    - Inspect logs for “Refresh attempt with revoked token.” This usually means duplicate browser tabs fought over tokens. Clearing `refresh_tokens` table fixes the loop.
 
-3. **`sqlalchemy.InterfaceError` or DB file locked**  
+4. **`sqlalchemy.InterfaceError` or DB file locked**  
    - A storage error while checking a token (`sqlite3.Error`, `StorageUnavailable`; listed in `AUTH_STORAGE_ERRORS`) answers 503, never 401, so browsers keep their sign-in and retry. Only a bad, expired, wrong-type or revoked token answers 401. Check: `.venv/Scripts/python.exe -m backend.e2e.auth_storage_check`.  
    - Windows: make sure no other process has the SQLite file open. The service uses `check_same_thread=False`, so if you see locks it’s almost always external (Explorer preview, antivirus).  
    - As a last resort, stop the backend, remove the DB file, and let it recreate.
 
-4. **Password reset tickets never generate emails**  
+5. **Password reset tickets never generate emails**  
    - Intentional: there is no automatic emailer. Admins must poll `/api/admin/password-reset/requests`.  
    - To auto-email, integrate `EmailNotificationService` from `backend/services/notifications.py` and call it inside `request_password_reset`.
 
-5. **JWT verification fails after deployment**  
+6. **JWT verification fails after deployment**  
    - Double-check system clocks (access tokens include `exp`/`iat`).  
    - Ensure new environment sets both `ROBOTCONTROL_ACCESS_TOKEN_SECRET` and `ROBOTCONTROL_REFRESH_TOKEN_SECRET`; mismatched secrets break verification.
 
