@@ -38,6 +38,12 @@ class EncoderSettings:
     fps: float
     bitrate_kbps: int
     denoise: str = ""  # ffmpeg video filter run before encoding; "" for none (LIVE_STREAMING_CONFIG)
+    keyframe_seconds: float = 1  # LIVE_STREAMING_CONFIG keyframe_seconds
+
+    @property
+    def gop(self) -> int:
+        """Frames from one keyframe to the next (int(7.5) = 7: never longer than keyframe_seconds)."""
+        return max(1, int(self.fps * self.keyframe_seconds))
 
 
 @dataclass(frozen=True)
@@ -64,7 +70,8 @@ def find_ffmpeg() -> Path:
 
 
 def ffmpeg_command(ffmpeg: Path, settings: EncoderSettings) -> list:
-    """Constrained Baseline (no B-frames), GOP of at most one second, so a viewer can join within a second.
+    """Constrained Baseline (no B-frames), a keyframe at least every keyframe_seconds, so a viewer
+    can join within that time.
 
     A denoise filter runs on the encoder's own yuv420p planes, on one thread like the encoder.
     """
@@ -73,7 +80,7 @@ def ffmpeg_command(ffmpeg: Path, settings: EncoderSettings) -> list:
             "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{WIDTH}x{HEIGHT}", "-framerate", str(settings.fps),
             "-thread_queue_size", "2", "-i", "pipe:0", "-an", *video_filter,
             "-c:v", "libopenh264", "-profile:v", "constrained_baseline", "-rc_mode", "bitrate",
-            "-b:v", f"{settings.bitrate_kbps}k", "-g", str(max(1, int(settings.fps))), "-bf", "0", "-slices", "1",
+            "-b:v", f"{settings.bitrate_kbps}k", "-g", str(settings.gop), "-bf", "0", "-slices", "1",
             "-threads", "1", "-pix_fmt", "yuv420p", "-fps_mode", "passthrough",
             "-flush_packets", "1", "-flvflags", "no_duration_filesize", "-f", "flv", "pipe:1"]
 

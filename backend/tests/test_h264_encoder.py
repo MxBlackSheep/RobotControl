@@ -1,6 +1,6 @@
 """The real ffmpeg encoder child (needs build/vendor/ffmpeg: build_scripts/fetch_ffmpeg.py).
 
-Failure cases: keyframes are not one second apart, or a stream joined at a later keyframe does
+Failure cases: keyframes are not one second apart (each level: keyframe_seconds apart), or a stream joined at a later keyframe does
 not decode; the child survives stop(), or survives RobotControl being killed (orphan); a crash is
 not reported, or stop() is reported as a crash; a missing ffmpeg.exe fails without its reason;
 frames offered faster than ffmpeg reads them queue up instead of replacing the one waiting.
@@ -72,7 +72,7 @@ def test_keyframes_each_second_and_a_stream_joined_at_a_keyframe_decodes():
 @pytest.mark.parametrize('level', range(len(ENCODER_LEVELS)))
 def test_each_configured_level_encodes_and_a_stream_joined_at_a_keyframe_decodes(level):
     settings = ENCODER_LEVELS[level]
-    gop = max(1, int(settings.fps))
+    gop = settings.gop  # keyframe_seconds; 15, 7 and 5 frames at 1 s
     encoder, units, exits = encode(2 * gop + 6, settings, held=4 if settings.denoise else 0)
     assert len(units) >= 2 * gop + 2 and not exits
     assert [number for number, unit in enumerate(units) if unit.keyframe][:3] == [0, gop, 2 * gop]
