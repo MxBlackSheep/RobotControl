@@ -19,11 +19,13 @@ The three existing EvoYeast tools are also ready as single Python files:
   marked **Needs review** and save it.
 
 All three starter packages are version 1.0.0. Each has a `CHANGELOG.md` with a `## <version>`
-section per release. The CHANGELOG travels inside the package ZIP and its download. The
-history under **Manage packages** belongs to one installation and is not part of the ZIP. When
-**What changed?** is left blank on install (and at first start), the history message is taken
-from the CHANGELOG section for the installed version. When releasing a new version of a
-package, add its section to the CHANGELOG.
+section per release, newest first. The CHANGELOG travels inside the package ZIP and its
+download. The history under **Manage packages** (who installed what, and when) belongs to one
+installation and is not part of the ZIP. When **What changed?** is left blank on install (and at
+first start), the history message is taken from the CHANGELOG section for the installed
+version; **Import package ZIP** shows that section in **What changed?**, where it can be edited.
+When releasing a new version of a package outside RobotControl, add its section to the
+CHANGELOG. **Publish update** inside RobotControl does this for you (see below).
 
 **Connections for the starter packages.** Each package's **Reading connection** accepts only a
 read-only connection. RobotControl checks that the account can do nothing but read, so an
@@ -160,8 +162,11 @@ separate input settings file. `kind: 'report'` places it in Data retrieval;
 `kind: 'operation'` places it in Operations.
 
 **What changed?** is an optional publication note, saved with unfinished drafts.
-Publishing returns to the installed list with a success message and removes the
-completed draft. **History** shows version, time, publisher, note and filenames
+Publishing writes it as the new version's `## <version>` section at the top of the package's
+`CHANGELOG.md` (created if missing; earlier sections are kept, and a section already written
+for that version is replaced), so **Download package** carries it to other labs. A downloaded
+package is the installed ZIP, unchanged, because schedules pin its SHA-256. Publishing
+returns to the installed list with a success message and removes the completed draft. **History** shows version, time, publisher, note and filenames
 added/changed/removed. History starts when recording is available; earlier changes
 are not reconstructed. It is installation history, not retained source revisions
 or rollback. Removing a package removes its local history. Use the single **Edit**

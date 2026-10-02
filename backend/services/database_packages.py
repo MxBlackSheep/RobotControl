@@ -31,27 +31,82 @@ ENTRY = r"^[a-zA-Z_][a-zA-Z_0-9]*:[a-zA-Z_][a-zA-Z_0-9]*$"
 MAX_NOTE = 2000
 
 
+HEADING = re.compile(r"(#{1,6})(?:\s+(.*))?$")
+
+
+def _changelog_name(files) -> str:
+    # Package file names are unique regardless of case, so a changelog.md is the same file.
+    return next((name for name in files if name.lower() == "changelog.md"), "CHANGELOG.md")
+
+
+def _is_version(heading, version) -> bool:
+    return re.fullmatch(re.escape(version) + r"\b.*", heading[2] or "") is not None
+
+
 def changelog_note(payloads: dict, version: str) -> str:
     """The package's own CHANGELOG.md text under the `## <version>` heading, or ''.
 
     Used as the history message when the installer gives none (first-start seeding, or an
-    import with "What changed?" left blank). History stays per installation; the CHANGELOG
-    travels inside the ZIP and its exports.
+    import with "What changed?" left blank), and to prefill that field when an import is
+    reviewed. History stays per installation; the CHANGELOG travels inside the ZIP and its
+    exports. Wrapped lines are joined; paragraphs, list items and sub-headings keep their own line.
     """
     try:
-        lines = payloads.get("CHANGELOG.md", b"").decode("utf-8").splitlines()
+        lines = payloads.get(_changelog_name(payloads), b"").decode("utf-8-sig").splitlines()
     except UnicodeDecodeError:
         return ""
-    section = None
+    level, blocks, joining = None, [], False
     for line in lines:
-        if line.startswith("#"):
-            if section is not None:
-                break
-            if re.fullmatch(r"#+\s*" + re.escape(version) + r"\b.*", line.strip()):
-                section = []
-        elif section is not None:
-            section.append(line.strip())
-    return " ".join(part for part in (section or []) if part)[:MAX_NOTE]
+        text = line.strip()
+        heading = HEADING.match(text)
+        if level is None:
+            if heading and _is_version(heading, version):
+                level = len(heading[1])
+            continue
+        if heading and len(heading[1]) <= level:
+            break
+        if heading or not text:
+            if heading and heading[2]:
+                blocks.append(heading[2])
+            joining = False
+            continue
+        text = text[1:] if text.startswith("\\#") else text
+        if joining and not re.match(r"([-*+]|\d+[.)])\s", text):
+            blocks[-1] += " " + text
+        else:
+            blocks.append(text)
+            joining = True
+    return "\n".join(blocks)[:MAX_NOTE]
+
+
+def changelog_with_note(files: dict, name: str, version: str, note: str) -> dict:
+    """`files` with `note` as the `## <version>` section at the top of CHANGELOG.md.
+
+    Earlier sections are kept and an existing section for this version is replaced, so a
+    version is never listed twice. Only RobotControl's own build of a ZIP (publishing an in-app
+    edit) calls this: an installed ZIP is never rewritten, because schedules pin its sha256.
+    """
+    note = note.strip()
+    if not note:
+        return files
+    filename = _changelog_name(files)
+    try:
+        lines = files[filename].decode("utf-8-sig").splitlines() if filename in files else [f"# {name} changes"]
+    except UnicodeDecodeError:
+        raise PackageError(f"{filename} is not UTF-8 text. Correct it in the package files, then publish again.") from None
+    kept, dropping = [], None
+    for line in lines:
+        heading = HEADING.match(line.strip())
+        if heading and (dropping is None or len(heading[1]) <= dropping):
+            dropping = len(heading[1]) if _is_version(heading, version) else None
+        if dropping is None:
+            kept.append(line)
+    top = next((i for i, line in enumerate(kept) if (h := HEADING.match(line.strip())) and len(h[1]) > 1), len(kept))
+    # A note line that looks like a heading would end this section when the file is read back.
+    body = ["\\" + line.strip() if HEADING.match(line.strip()) else line.rstrip() for line in note.splitlines()]
+    combined = [*kept[:top], "", f"## {version}", "", *body, "", *kept[top:]]
+    text = re.sub(r"\n{3,}", "\n\n", "\n".join(combined)).strip("\n") + "\n"
+    return {**files, filename: text.encode("utf-8")}
 
 
 class PackageError(ValueError):
@@ -355,14 +410,14 @@ class PackageCatalogue:
             return function
 
     def inspect(self, content):
-        manifest, _ = inspect_archive(content)
+        manifest, payloads = inspect_archive(content)
         with self.lock:
             self._check_conflicts(manifest)
             current = self.index.get(manifest.id)
             return dict(package=manifest.model_dump(), sha256=hashlib.sha256(content).hexdigest(),
                         current_version=current['manifest']['version'] if current else None,
                         current_sha256=current['sha256'] if current else '',
-                        running=self.running.get(manifest.id, 0))
+                        running=self.running.get(manifest.id, 0), changelog=changelog_note(payloads, manifest.version))
 
     def _check_conflicts(self, manifest):
         existing_ids = {tool['id'] for key, value in self.index.items() if key != manifest.id

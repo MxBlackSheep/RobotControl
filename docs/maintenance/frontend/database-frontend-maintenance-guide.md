@@ -145,13 +145,14 @@ ignores results after the section becomes inactive.
 - **Import package ZIP** inspects first. Review shows installed and incoming versions and flags
   unchanged, same-version-different-code and older packages; installing sends the reviewed
   package ID and installed hash, so another administrator's change requires a new review. A
-  failed request keeps the chosen file.
+  failed request keeps the chosen file. **What changed?** starts with the package's CHANGELOG
+  section for the incoming version (set once, when the review opens) and stays editable.
 - **Add tool** and **Edit** open `ToolAuthoring`. The form comes from the Python's
   `TOOL['inputs']`. Replace Python replaces the defining script, even when renamed; helpers are
   kept, and helper upload and Replace all files live under Supporting files. File or connection
   edits clear readiness. Reports need a successful workbook; operation trials only preview and
   expose no execution token. Publishing needs the review checkbox. The optional change note
-  appears in History. Success returns to the list with a versioned message; after a lost
+  appears in History and heads the published package's CHANGELOG.md. Success returns to the list with a versioned message; after a lost
   response the exact publication request is kept so Retry works although the draft was retired.
 - `ReportWizard` offers Save and close, and Discard and close (confirmed; deletes only the
   draft). Busy work or a running trial blocks both; Keep editing, Escape or the backdrop dismiss
