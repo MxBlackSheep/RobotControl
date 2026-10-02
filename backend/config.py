@@ -66,7 +66,6 @@ CAMERA_CONFIG = {
     "archive_duration_minutes": 15,         # Minutes of clips to archive per experiment
     "rolling_clips_count": 120,             # Maximum rolling clips to maintain
     "clip_h264_kbps": 1000,                 # H.264 bitrate finalized clips are stored at (docs/plans/h264-rolling-clips.md)
-    "default_fps": 30,                      # Default camera frame rate
     "default_resolution": [640, 480]        # Default camera resolution [width, height]
 }
 
@@ -95,10 +94,12 @@ LIVE_STREAMING_CONFIG = {
     "cpu_soft_limit_percent": int(os.getenv("STREAMING_CPU_SOFT_LIMIT", "75")),  # CPU% to start degrading streams
     "cpu_hard_limit_percent": int(os.getenv("STREAMING_CPU_HARD_LIMIT", "90")),  # CPU% to stop streaming sessions
     # One H.264 stream (640×480, one-second GOP) shared by every viewer. Level 0 is normal; the CPU
-    # guard steps down one level at a time under load and back up when calm.
+    # guard steps down one level at a time under load and back up when calm. Each rate divides the
+    # camera's 15 fps (camera_worker.CAPTURE_FPS) so frames stay evenly spaced. 600 kbit/s at level 0:
+    # 400 smeared plate wells in low light (docs/plans/live-view-low-light.md).
     "encoder_levels": [
-        {"fps": 15, "bitrate_kbps": 400},
-        {"fps": 10, "bitrate_kbps": 300},
+        {"fps": 15, "bitrate_kbps": 600},
+        {"fps": 7.5, "bitrate_kbps": 300},
         {"fps": 5, "bitrate_kbps": 200},
     ],
     "websocket": {

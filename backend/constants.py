@@ -4,7 +4,6 @@ Consolidated constants for camera service and API operations
 """
 
 # Camera system constants
-CAMERA_STREAM_FPS = 15  # FPS for live streaming (lower than recording FPS)
 VIDEO_CODEC = 'mp4v'    # Video codec for recording
 CAMERA_DETECTION_TIMEOUT = 5  # Seconds to wait when detecting cameras
 

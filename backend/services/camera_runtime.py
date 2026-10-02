@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 
 from backend.services.camera_devices import enumerate_devices, resolve_device
-from backend.services.camera_worker import FRAME_BYTES, capture_worker
+from backend.services.camera_worker import CAPTURE_FPS, FRAME_BYTES, capture_worker
 from backend.utils.filesystem import replace_file
 
 logger = logging.getLogger(__name__)
@@ -134,6 +134,7 @@ class CameraRuntime:
 
     def _observe(self, process, generation, events):
         last_sequence = 0
+        rate_from = None  # (monotonic, frame count) once ready, until the delivered rate is logged
         try:
             while process.is_alive() or events.poll():
                 if events.poll(.03):
@@ -145,6 +146,10 @@ class CameraRuntime:
                         continue
                     if event["kind"] == "ready":
                         self.ready = True
+                        capture = event.get("capture", {})
+                        logger.info("Camera capture | generation=%s | format=%s | requested_fps=%s | reported_fps=%s",
+                                    generation, capture.get("fourcc"), CAPTURE_FPS, capture.get("reported_fps"))
+                        rate_from = (time.monotonic(), self.counters[2])
                     elif event["kind"] == "error":
                         self.error, self.error_kind = event["error"], event["error_kind"]
                         logger.error("Camera generation %s: %s", generation, self.error)
@@ -153,6 +158,11 @@ class CameraRuntime:
                         events.send("ack")
                 if generation != self.generation:
                     break
+                if rate_from and time.monotonic() - rate_from[0] >= 10:
+                    # Drivers may ignore the requested rate, and lower it in the dark.
+                    delivered = (self.counters[2] - rate_from[1]) / (time.monotonic() - rate_from[0])
+                    logger.info("Camera capture | generation=%s | delivered_fps=%.1f", generation, delivered)
+                    rate_from = None
                 if self.counters[5] != last_sequence and self.frame_lock.acquire(False):
                     try:
                         frame = np.frombuffer(self.pixels, dtype=np.uint8).reshape(480, 640, 3).copy()
