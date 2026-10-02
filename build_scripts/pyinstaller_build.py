@@ -79,6 +79,12 @@ def build_with_pyinstaller(layout: str = "onedir", console: bool = False, output
         logger.error("Frontend is not embedded. Run uv run --locked python build_scripts/embed_resources.py first.")
         return False
 
+    # Explorer, the taskbar and Task Manager show this; regenerate it with build_scripts/icon/make_icon.py.
+    icon = project_root / "build_scripts" / "icon" / "RobotControl.ico"
+    if not icon.is_file():
+        logger.error("Application icon not found: %s (run build_scripts/icon/make_icon.py)", icon)
+        return False
+
     # Live view encodes H.264 with ffmpeg.exe beside RobotControl.exe; fail before a long build.
     try:
         ffmpeg_dir = ensure_ffmpeg()
@@ -128,6 +134,7 @@ def build_with_pyinstaller(layout: str = "onedir", console: bool = False, output
         str(backend_main),
 
         "--name", "RobotControl",
+        "--icon", str(icon),
 
         # Python path setup
         "--paths", str(project_root),
