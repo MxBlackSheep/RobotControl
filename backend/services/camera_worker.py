@@ -20,6 +20,14 @@ from backend.services.camera_devices import enumerate_devices, resolve_device
 FRAME_BYTES = 640 * 480 * 3
 
 
+def fourcc_name(code):
+    """For the log only; whatever a driver reports must not stop capture."""
+    try:
+        return int(code).to_bytes(4, "little").decode("ascii", "replace") if code > 0 else "unknown"
+    except (TypeError, ValueError, OverflowError):
+        return "unknown"
+
+
 def capture_worker(options, stop, pixels, frame_lock, counters, events):
     cap = writer = None
     active_path = None
@@ -75,7 +83,10 @@ def capture_worker(options, stop, pixels, frame_lock, counters, events):
             raise RuntimeError("Camera mapping changed while opening; refresh and reconnect")
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        cap.set(cv2.CAP_PROP_FPS, 30)
+        # CAMERA_CONFIG capture_fps. A driver may deliver another rate: the parent logs what arrives.
+        cap.set(cv2.CAP_PROP_FPS, options["capture_fps"])
+        capture_format = {"fourcc": fourcc_name(cap.get(cv2.CAP_PROP_FOURCC)),
+                          "requested_fps": options["capture_fps"], "reported_fps": cap.get(cv2.CAP_PROP_FPS)}
         # Keep the existing measured rolling FPS (maximum 7.5), and capture quality.
         calibration_start = time.monotonic()
         calibrated = 0
@@ -127,7 +138,7 @@ def capture_worker(options, stop, pixels, frame_lock, counters, events):
                         next_write += 1 / target_fps
             if not ready:
                 ready = True
-                send("ready")
+                send("ready", capture=capture_format)
         finalize()
     except BaseException as exc:
         try:

@@ -16,6 +16,19 @@ from backend.utils.filesystem import replace_file
 logger = logging.getLogger(__name__)
 
 
+def warn_if_clip_too_fast(clip):
+    """The recording rate is measured once at connection; a camera that later slows down (exposure
+    priority after the light is switched off) leaves fewer frames than the clip's rate claims, so it
+    plays faster than real time. Reported only: recording is unchanged."""
+    try:
+        delivered = clip["frame_count"] / clip["actual_duration"]
+        if delivered < .8 * clip["fps"]:
+            logger.warning("Camera delivered %.1f fps, below the recording rate (%.1f fps); this clip plays "
+                           "faster than real time | %s", delivered, clip["fps"], clip["path"])
+    except (KeyError, TypeError, ZeroDivisionError):
+        pass  # incomplete metadata is not this check's concern
+
+
 class CameraRuntime:
     def __init__(self, folder, clip_seconds, publish, accept_clip):
         self.folder = Path(folder)
@@ -48,6 +61,7 @@ class CameraRuntime:
         self.counters = [0.] * 6
         self.no_frame_seconds = 10
         self.startup_seconds = 20
+        self.capture_fps = 15
         self.graceful_stop_seconds = 15
         self.on_recording_started = None
 
@@ -105,7 +119,7 @@ class CameraRuntime:
         self.events = parent
         options = {"identity": identity, "camera_id": self.camera_id, "generation": self.generation,
                    "folder": str(self.folder), "clip_seconds": self.clip_seconds,
-                   "recording": self.recording_requested}
+                   "recording": self.recording_requested, "capture_fps": self.capture_fps}
         self.started = time.monotonic()
         self.process = ctx.Process(target=capture_worker,
             args=(options, self.stop_event, self.pixels, self.frame_lock, self.counters, child),
@@ -134,6 +148,7 @@ class CameraRuntime:
 
     def _observe(self, process, generation, events):
         last_sequence = 0
+        rate_from = None  # (monotonic, frame count) once ready, until the delivered rate is logged
         try:
             while process.is_alive() or events.poll():
                 if events.poll(.03):
@@ -145,14 +160,24 @@ class CameraRuntime:
                         continue
                     if event["kind"] == "ready":
                         self.ready = True
+                        capture = event.get("capture", {})
+                        logger.info("Camera capture | generation=%s | format=%s | requested_fps=%s | reported_fps=%s",
+                                    generation, capture.get("fourcc"), capture.get("requested_fps"), capture.get("reported_fps"))
+                        rate_from = (time.monotonic(), self.counters[2])
                     elif event["kind"] == "error":
                         self.error, self.error_kind = event["error"], event["error_kind"]
                         logger.error("Camera generation %s: %s", generation, self.error)
                     elif event["kind"] == "clip":
                         self.accept_clip(event["clip"])
                         events.send("ack")
+                        warn_if_clip_too_fast(event["clip"])
                 if generation != self.generation:
                     break
+                if rate_from and time.monotonic() - rate_from[0] >= 10:
+                    # Drivers may ignore the requested rate, and lower it in the dark.
+                    delivered = (self.counters[2] - rate_from[1]) / (time.monotonic() - rate_from[0])
+                    logger.info("Camera capture | generation=%s | delivered_fps=%.1f", generation, delivered)
+                    rate_from = None
                 if self.counters[5] != last_sequence and self.frame_lock.acquire(False):
                     try:
                         frame = np.frombuffer(self.pixels, dtype=np.uint8).reshape(480, 640, 3).copy()

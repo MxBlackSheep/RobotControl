@@ -394,14 +394,15 @@ class LiveStreamingService:
                 await asyncio.sleep(.1)
 
     def _submit_frame(self, frame) -> None:
-        """Pace camera frames (about 30 fps) to the encoder's rate. Encoding happens only here,
+        """Pace camera frames (about 15 fps) to the encoder's rate. Encoding happens only here,
         once for every viewer, and only while the encoder runs (someone watches)."""
         encoder = self._encoder
         if encoder is None:
             return
         interval = 1 / encoder.settings.fps
         now = time.monotonic()
-        # A quarter interval of tolerance keeps 15 of 30 camera frames despite arrival jitter.
+        # A quarter interval of tolerance keeps the intended share of camera frames (all 15 at 15 fps)
+        # despite arrival jitter: the camera supervisor notices new frames on a ~31 ms poll.
         if now + interval / 4 < self._next_submit:
             return
         self._next_submit = max(self._next_submit + interval, now)

@@ -29,7 +29,7 @@ def test_worker_finalizes_only_successful_clips(tmp_path, recording):
         Path(path).write_bytes(b"encoded clip")
         return writer
     options = {"identity": "test", "camera_id": 2, "generation": "test", "folder": str(tmp_path),
-               "clip_seconds": 60, "recording": recording}
+               "clip_seconds": 60, "recording": recording, "capture_fps": 15}
     with patch("backend.services.camera_worker.enumerate_devices", return_value=[device]), \
          patch("backend.services.camera_worker.cv2.VideoCapture", return_value=cap), \
          patch("backend.services.camera_worker.cv2.VideoWriter", side_effect=open_writer):
