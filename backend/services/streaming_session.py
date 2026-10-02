@@ -39,6 +39,12 @@ RTT_WINDOW_SECONDS = 10
 # is slower than the stream: drop them and resume at the next keyframe instead of falling behind.
 MAX_WAIT_SECONDS = 0.5
 MAX_WAITING = 8
+# Until the viewer's first acknowledgement nothing is known about its link, and the first keyframe
+# after the encoder starts is 2–3 times a normal one (30 kB against 13 kB at 400 kbit/s): on a
+# 600 kbit/s link 0.3 s away its acknowledgement takes 0.7 s, and 0.5 s skipped the viewer to the next
+# keyframe just before it, freezing the first picture for a GOP. Until then frames may wait this long.
+FIRST_ACK_WAIT_SECONDS = 1.0
+FIRST_ACK_WAITING = 16
 # A viewer that acknowledges nothing for this long has gone; its session ends.
 ACK_TIMEOUT_SECONDS = 15
 # The browser sends a keepalive every 30 s (also while its tab is hidden and paused, and through
@@ -200,11 +206,12 @@ class StreamingSessionHandler:
         if self.awaiting_keyframe:
             self.delivery.dropped += self._lagging
             return False
-        if self.pending and now - self.pending[0][1] > MAX_WAIT_SECONDS:
+        measured = self._smallest_round_trip is not None or bool(self._round_trips)
+        if self.pending and now - self.pending[0][1] > (MAX_WAIT_SECONDS if measured else FIRST_ACK_WAIT_SECONDS):
             # The link is slower than the stream: skip to the next keyframe rather than fall behind.
             self._skip("late", 1)
             return False
-        if len(self.pending) >= MAX_WAITING:
+        if len(self.pending) >= (MAX_WAITING if measured else FIRST_ACK_WAITING):
             self._skip("full", 1)
             return False
         self.pending.append((unit, now))
