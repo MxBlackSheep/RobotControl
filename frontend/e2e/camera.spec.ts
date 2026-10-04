@@ -1,3 +1,4 @@
+import { writeFileSync } from 'node:fs';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 
 /** Failure scenarios written before the camera implementation:
@@ -20,12 +21,20 @@ import { expect, test, type APIRequestContext, type Page } from '@playwright/tes
  * - Small screens overflow, touch controls shrink, or keyboard focus is lost.
  * - An expired access token makes status polls and live-view start fail with 401 forever
  *   instead of renewing the sign-in once (a lab screen left open overnight).
+ * - Playout buffer (useLiveViewSocket.ts): frames that arrive in bursts are still shown in bursts
+ *   instead of evenly by capture time; a frame past its slot waits anyway, or any frame waits
+ *   longer than the 300 ms clamp; a VideoFrame is never closed, closed twice, or more than 8 are
+ *   held; hiding the tab leaves held frames queued; held frames pin a hardware decoder's output
+ *   pool (it stalls: live view freezes on GPUs the checks never see), so decoding must be software. Turned off (PLAYOUT_BUFFER), the same case
+ *   fails on evenness with the numbers from before the buffer (frames shown as decoded).
  * Fixture contract: POST /__e2e/camera configures dimensions, send_frames,
- * disconnect and generation; only the isolated fixture handles these requests. Its frames are
+ * disconnect, generation, interval (seconds between captured frames) and burst (frames sent
+ * together); only the isolated fixture handles these requests. Its frames are
  * real H.264 from the bundled ffmpeg (red, lime, yellow, magenta corner squares on blue).
  */
 test.beforeEach(async ({ page, request }) => {
-  await request.post('/__e2e/camera', { data: { width: 640, height: 480, send_frames: true, disconnect: false, generation: 'g1' } });
+  await request.post('/__e2e/camera', { data: { width: 640, height: 480, send_frames: true, disconnect: false, generation: 'g1',
+    interval: .2, burst: 1 } });
   await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));
 });
 
@@ -171,6 +180,114 @@ test('frames are acknowledged and a hidden tab pauses the stream', async ({ page
   const acknowledged = (await controls()).filter(type => type === 'ack').length;
   await expect.poll(async () => (await controls()).filter(type => type === 'ack').length).toBeGreaterThan(acknowledged);
   await expect(page.getByText('Live view receiving frames', { exact: true })).toBeVisible();
+});
+
+/** Through platform APIs only: when each sequence arrived (chunk created), was decoded and was
+ * drawn, decoder outputs, and first and repeated VideoFrame closes (open = outputs − first closes). */
+const instrumentFrames = () => {
+  const target = window as unknown as Record<string, unknown>;
+  const log = { received: {} as Record<number, number>, decoded: {} as Record<number, number>, draws: [] as [number, number][],
+    opened: 0, closed: 0, closedTwice: 0, acceleration: [] as string[] };
+  target.__liveView = log;
+  const Chunk = EncodedVideoChunk;
+  target.EncodedVideoChunk = class extends Chunk {
+    constructor(init: EncodedVideoChunkInit) { super(init); log.received[init.timestamp] = performance.now(); }
+  };
+  const Decoder = VideoDecoder;
+  target.VideoDecoder = class extends Decoder {
+    constructor(init: VideoDecoderInit) { super({ ...init, output: frame => { log.opened++; log.decoded[frame.timestamp] = performance.now(); init.output(frame); } }); }
+    configure(config: VideoDecoderConfig) { log.acceleration.push(config.hardwareAcceleration ?? 'no-preference'); super.configure(config); }
+  };
+  const closed = new WeakSet<VideoFrame>();
+  const close = VideoFrame.prototype.close;
+  VideoFrame.prototype.close = function (this: VideoFrame) {
+    if (closed.has(this)) log.closedTwice++;
+    else { closed.add(this); log.closed++; }
+    close.call(this);
+  };
+  const draw = CanvasRenderingContext2D.prototype.drawImage as (...args: unknown[]) => void;
+  CanvasRenderingContext2D.prototype.drawImage = function (this: CanvasRenderingContext2D, ...args: unknown[]) {
+    if (args[0] instanceof VideoFrame) log.draws.push([args[0].timestamp, performance.now()]);
+    draw.apply(this, args);
+  } as typeof CanvasRenderingContext2D.prototype.drawImage;
+};
+type FrameLog = { received: Record<number, number>; decoded: Record<number, number>; draws: [number, number][]; opened: number; closed: number; closedTwice: number; acceleration: string[] };
+const frameLog = (page: Page) => page.evaluate(() => (window as unknown as { __liveView: FrameLog }).__liveView);
+const percentile = (values: number[], share: number) => [...values].sort((a, b) => a - b)[Math.min(values.length - 1, Math.floor(share * values.length))];
+
+/** Draws during `ms`: gaps between them and how long each frame waited from arrival to drawing. */
+async function playout(page: Page, ms: number) {
+  await page.evaluate(() => { (window as unknown as { __liveView: FrameLog }).__liveView.draws = []; });
+  await page.waitForTimeout(ms);
+  const { draws, received, decoded, opened, closed, closedTwice } = await frameLog(page);
+  const gaps = draws.slice(1).map(([, at], index) => at - draws[index][1]);
+  const waits = draws.map(([sequence, at]) => at - received[sequence]);
+  const decoding = draws.map(([sequence]) => decoded[sequence] - received[sequence]);
+  const round = (value: number) => Math.round(value);
+  return { shown: draws.length, gap_ms_p50: round(percentile(gaps, .5)), gap_ms_p95: round(percentile(gaps, .95)),
+    gap_ms_max: round(Math.max(...gaps)), wait_ms_median: round(percentile(waits, .5)), wait_ms_max: round(Math.max(...waits)),
+    decode_ms_median: round(percentile(decoding, .5)), decode_ms_p95: round(percentile(decoding, .95)),
+    open: opened - closed, closedTwice, draws, received };
+}
+
+test('frames delivered in bursts are shown evenly, late frames at once, within the delay clamp', async ({ page, request }, testInfo) => {
+  // The owner's tunnel: 15 fps, acknowledgements p95 280 ms apart. Here 4 frames (267 ms) arrive together.
+  await page.addInitScript(instrumentFrames);
+  await request.post('/__e2e/camera', { data: { interval: 1 / 15, burst: 4 } });
+  await openLiveView(page);
+  await page.waitForTimeout(3000); // the jitter estimate fills and the delay settles
+  const { draws: _bursts, received: _r1, ...bursts } = await playout(page, 8000);
+  // 10 frames (667 ms) together: the oldest are later than the 300 ms clamp allows.
+  await request.post('/__e2e/camera', { data: { burst: 10 } });
+  await page.waitForTimeout(3000);
+  const { draws, received, ...late } = await playout(page, 8000);
+  const report = { burst4: bursts, burst10: late };
+  writeFileSync(testInfo.outputPath('playout.json'), JSON.stringify(report, null, 2));
+  await testInfo.attach('playout', { path: testInfo.outputPath('playout.json'), contentType: 'application/json' });
+
+  // Even: drawn about one capture interval (67 ms) apart, not three at once and then a 267 ms pause.
+  expect(bursts.gap_ms_p95).toBeLessThanOrEqual(100);
+  expect(bursts.shown).toBeGreaterThan(100);
+  // No frame waits longer than the 300 ms clamp, plus one display frame and decoding.
+  expect(bursts.wait_ms_max).toBeLessThanOrEqual(350);
+  expect(late.wait_ms_max).toBeLessThanOrEqual(350);
+  // The oldest frame of each burst is past its slot: drawn as soon as it is decoded.
+  const arrivals = Object.entries(received).map(([sequence, at]) => [Number(sequence), at]).sort((a, b) => a[0] - b[0]);
+  const firsts = arrivals.filter(([, at], index) => index > 0 && at - arrivals[index - 1][1] > 300).map(([sequence]) => sequence);
+  const drawnAt = new Map(draws);
+  const firstWaits = firsts.filter(sequence => drawnAt.has(sequence)).map(sequence => drawnAt.get(sequence)! - received[sequence]);
+  expect(firstWaits.length).toBeGreaterThan(5);
+  expect(Math.max(...firstWaits)).toBeLessThanOrEqual(50);
+  // Held frames must not pin a hardware decoder's small output pool (it would stall): software decoding.
+  expect(new Set((await frameLog(page)).acceleration)).toEqual(new Set(['prefer-software']));
+  // Bounded and released: at most 8 held plus the one shown; nothing closed twice.
+  for (const result of [bursts, late]) {
+    expect(result.open).toBeLessThanOrEqual(9);
+    expect(result.closedTwice).toBe(0);
+  }
+
+  // Hiding the tab releases the held frames at once (resume starts again from a keyframe).
+  await page.waitForFunction(() => {
+    const log = (window as unknown as { __liveView: FrameLog }).__liveView;
+    return log.opened - log.closed >= 3;
+  });
+  const afterHide = await page.evaluate(() => {
+    const log = (window as unknown as { __liveView: FrameLog }).__liveView;
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+    document.dispatchEvent(new Event('visibilitychange'));
+    return log.opened - log.closed;
+  });
+  expect(afterHide).toBe(1);
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  const shownBefore = (await frameLog(page)).draws.length;
+  await expect.poll(async () => (await frameLog(page)).draws.length).toBeGreaterThan(shownBefore);
+  // Stop releases every frame exactly once.
+  await page.getByRole('button', { name: 'Stop my live view', exact: true }).click();
+  await expect.poll(async () => { const log = await frameLog(page); return log.opened - log.closed; }).toBe(0);
+  expect((await frameLog(page)).closedTwice).toBe(0);
 });
 
 for (const [name, setup, message] of [
