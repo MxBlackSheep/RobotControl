@@ -184,6 +184,9 @@ async def video(ws: WebSocket, ident: str):
                 paused = message['type'] == 'pause'
     reader = asyncio.create_task(read_controls())
     sequence, position, size = 0, 0, None
+    # A frame is captured every `interval` seconds and stamped then; `burst` > 1 holds frames and
+    # sends them together, as a tunnel that delivers unevenly does.
+    held, due = [], time.monotonic()
     try:
         while not reader.done():
             if camera['disconnect']:
@@ -196,11 +199,17 @@ async def video(ws: WebSocket, ident: str):
                 keyframe, data = clip[position % len(clip)]
                 position += 1
                 sequence += 1
-                await ws.send_bytes(FRAME_HEADER.pack(FRAME_VERSION, sequence, time.time(), size[0], size[1],
-                                                      FLAG_KEYFRAME if keyframe else 0) + data)
+                held.append(FRAME_HEADER.pack(FRAME_VERSION, sequence, time.time(), size[0], size[1],
+                                              FLAG_KEYFRAME if keyframe else 0) + data)
+                if len(held) >= camera.get('burst', 1):
+                    for frame in held:
+                        await ws.send_bytes(frame)
+                    held.clear()
             else:
                 position = 0  # Resume at the clip's first frame, a keyframe.
-            await asyncio.sleep(.2)
+                held.clear()
+            due = max(due + camera.get('interval', .2), time.monotonic())
+            await asyncio.sleep(due - time.monotonic())
     except Exception:
         pass
     finally:

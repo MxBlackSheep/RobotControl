@@ -30,6 +30,19 @@ All camera JSON requests use the shared `api` client, so an expired access token
 
 Reconnect camera affects the shared source and can interrupt all viewers. Reconnect live view closes/replaces only that user's streaming session. `hooks/useLiveViewSocket.ts` owns the socket: one `VideoDecoder` per socket and frame size; it starts at a keyframe and skips delta frames until one arrives (after an error or a size change), shows only newer sequences from the current socket, acknowledges each frame once decoded or skipped (cumulatively, also after a decoder error, so the server keeps sending), pauses while the tab is hidden, and after an unexpected close keeps the last image (stale after 10 s) and reconnects automatically with jittered back-off (1 s to 30 s; waits for `online`; never after Stop or unmount). The page owns the session requests it reconnects with. It never changes recording intent or starts another camera. Stop My Stream remains independent of recording.
 
+### Playout buffer
+
+Over a long link (the Cloudflare tunnel) frames reach the browser in bursts, so showing each one as it is decoded looks like a freeze followed by a quick catch-up. The hook therefore holds decoded frames briefly and shows them evenly spaced by their capture times (`createPlayout` in `useLiveViewSocket.ts`):
+
+- **When a frame is shown:** at capture time (the frame header's Unix time) + offset + delay. The offset is the smallest (arrival − capture) over the last 90 frames (6 s at 15 fps), so a difference between the server's and the browser's clocks cancels out. The delay follows the p95 of the arrival jitter above that minimum, clamped to 0–300 ms; it rises within about a second and falls over several (`DELAY_RISE`, `DELAY_FALL`), so it does not swing.
+- **Never later than needed:** a frame already past its time is shown at once, so no frame waits more than the current delay. On each animation frame only the newest due frame is shown; older due frames are closed unshown. At most 8 frames are held (the oldest is closed beyond that).
+- **Acknowledgements stay at decode time**, before the buffer, so the server's window and the delivery log still measure the link, not the buffer.
+- **Reset:** hiding or showing the tab, a new socket (reconnect), a new decoder (a frame size change, or a decoder error after which decoding restarts at a keyframe) and Stop close the held frames and restart the estimates.
+- **Cost:** the picture lags by about the link's recent jitter: in the burst check below, frames waited 124 ms (median) and 225 ms at most, about +100–250 ms on the owner's tunnel. Beyond the 300 ms clamp a burst is still partly visible, by design: the lag stays bounded.
+- **Off switch:** set `PLAYOUT_BUFFER = false` in `useLiveViewSocket.ts` and rebuild; every frame is then shown as soon as it is decoded, exactly as before October 2026. A frontend constant was chosen because a `LIVE_STREAMING_CONFIG` field would also need a rebuild of the packaged app, plus an API field and a state path to the hook.
+
+If the owner still sees freezes, read the delivery log: `ack_gap_ms_max` well above 300 ms means bursts longer than the clamp, which still show as a pause by design; a `rtt_ms_median` that rose by about the delay would mean the browser's decoder slowed while frames were held.
+
 ## Frames and performance
 
 The page stores image availability; CameraViewport stores dimensions and viewing transforms. The decoded `VideoFrame` lives in one current-frame store, drawn by a single visible LiveFrame canvas from a store subscription (no React render per frame). The store owns frames: replacing or clearing one closes the previous (a decoder stalls when frames are not released). Never move per-frame images into page state or add per-frame console logs. Clear frames through the page's `setCurrentFrame` function so availability and image data cannot disagree.
@@ -53,5 +66,5 @@ portrait frames, Fit/Fit width/zoom, one visible frame, stale and disconnected e
 polling with settings collapsed, touch targets) and `operations.spec.ts` (archive). Both
 run against the isolated fixture and save screenshots and JSON reports to
 `test-output/viewer-verification`; `CameraControls.test.tsx` remains. The fixture streams real H.264 from the bundled
-ffmpeg; `camera.spec.ts` reads decoded corner colours from the canvas. Physical disconnect/reconnect and long recordings are hardware acceptance tasks
+ffmpeg; `camera.spec.ts` reads decoded corner colours from the canvas. Its burst case sends 15 fps in groups of 4 and 10 frames (fixture `interval` and `burst`) and measures, through the platform APIs only, the gaps between drawn frames, each frame's wait and open `VideoFrame`s; the numbers are attached as `playout.json`. Physical disconnect/reconnect and long recordings are hardware acceptance tasks
 on an isolated package and data folder.
