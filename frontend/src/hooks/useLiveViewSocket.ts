@@ -23,6 +23,15 @@ const MAX_DELAY_MS = 300;
 const DELAY_RISE = 0.1;
 const DELAY_FALL = 0.02;
 const MAX_HELD = 8;
+// Held frames pin the decoder's output buffers. Hardware decoders have small fixed pools and stall
+// when they run out, so with the buffer live view asks for software decoding first (640×480
+// Constrained Baseline is a few ms a frame); a browser that refuses it uses the default.
+const DECODER_CONFIGS: VideoDecoderConfig[] = [
+  ...(PLAYOUT_BUFFER ? [{ codec: H264_CODEC, optimizeForLatency: true, hardwareAcceleration: 'prefer-software' as const }] : []),
+  { codec: H264_CODEC, optimizeForLatency: true },
+];
+/** The first of DECODER_CONFIGS this browser supports, chosen by liveViewUnsupportedReason. */
+let decoderConfig = DECODER_CONFIGS[DECODER_CONFIGS.length - 1];
 
 export type LiveViewState = 'connecting' | 'connected' | 'disconnected' | 'reconnecting';
 
@@ -91,12 +100,17 @@ export async function liveViewUnsupportedReason(): Promise<string | null> {
   // WebCodecs exists only on secure pages (HTTPS, or localhost on the RobotControl computer).
   if (!window.isSecureContext) return INSECURE_PAGE;
   if (typeof VideoDecoder === 'undefined') return UNSUPPORTED_BROWSER;
-  try {
-    const { supported } = await VideoDecoder.isConfigSupported({ codec: H264_CODEC, optimizeForLatency: true });
-    return supported ? null : UNSUPPORTED_BROWSER;
-  } catch {
-    return UNSUPPORTED_BROWSER;
+  for (const config of DECODER_CONFIGS) {
+    try {
+      if ((await VideoDecoder.isConfigSupported(config)).supported) {
+        decoderConfig = config;
+        return null;
+      }
+    } catch {
+      /* Try the next configuration. */
+    }
   }
+  return UNSUPPORTED_BROWSER;
 }
 
 /**
@@ -180,7 +194,7 @@ export function useLiveViewSocket(options: {
         }
       },
     });
-    entry.decoder.configure({ codec: H264_CODEC, optimizeForLatency: true });
+    entry.decoder.configure(decoderConfig);
     return entry;
   };
 
