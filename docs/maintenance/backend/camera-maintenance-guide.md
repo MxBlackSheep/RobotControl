@@ -63,7 +63,7 @@ Each live-view viewer logs one INFO line per minute while frames flow (`event=de
 | `sent`, `kbps` | frames sent to this viewer and the data rate, over `seconds` |
 | `keyframes`, `keyframe_kb_avg/max` | keyframes sent (one per `keyframe_seconds`) and their size; a delta frame is about 2.5 kB at 400 kbit/s |
 | `send_gap_ms_p95/max` | gaps between frames the server sent. Large values mean frames waited for this viewer's window, or the encoder or camera stalled. |
-| `ack_gap_ms_p95/max`, `hitches` | gaps between this browser's acknowledgements. The browser acknowledges each frame as it decodes it, so this is the closest the server sees to the picture's rhythm, plus the jitter of the way back. `hitches` counts gaps of at least two frame intervals (≥ 133 ms at 15 fps). |
+| `ack_gap_ms_p95/max`, `hitches` | gaps between this browser's acknowledgements. The browser acknowledges each frame as it decodes it, so this is the rhythm frames arrive in, plus the jitter of the way back. Since October 2026 the browser's playout buffer shows frames evenly up to 300 ms of this jitter, so hitches here no longer mean pauses on screen (camera frontend guide, "Playout buffer"). `hitches` counts gaps of at least two frame intervals (≥ 133 ms at 15 fps). |
 | `rtt_ms_min/median` | send to acknowledgement. The minimum is about the link's distance; the median adds the time frames queue on the link (a keyframe holds up the frames behind it). |
 | `wait_ms_avg/max` | how long frames waited on the server for the window (`StreamingSessionHandler.window`) |
 | `window` | frames allowed in flight now |
