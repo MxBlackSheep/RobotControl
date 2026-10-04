@@ -1,6 +1,16 @@
-<img src="build_scripts/icon/icon-detailed.svg" alt="" width="88" align="right">
+<p align="center">
+  <img src="build_scripts/icon/icon-detailed.svg" alt="RobotControl icon" width="112">
+</p>
 
-# RobotControl
+<h1 align="center">RobotControl</h1>
+
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/MxBlackSheep/RobotControl" alt="License: MIT"></a>
+  <img src="https://img.shields.io/badge/python-3.14-3776AB?logo=python&amp;logoColor=white" alt="Python 3.14">
+  <img src="https://img.shields.io/badge/FastAPI-backend-009688?logo=fastapi&amp;logoColor=white" alt="FastAPI backend">
+  <img src="https://img.shields.io/badge/React-frontend-61DAFB?logo=react&amp;logoColor=black" alt="React frontend">
+  <img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D4" alt="Platform: Windows 10 and 11">
+</p>
 
 RobotControl is a browser-based control panel for the Hamilton liquid-handling robot in the
 Shou Group at UCL. It runs on the Windows PC next to the robot and brings scheduling, the deck
