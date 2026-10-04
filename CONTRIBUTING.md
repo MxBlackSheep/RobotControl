@@ -1,51 +1,75 @@
 # Contributing
 
-These rules keep `main` readable for people and coding agents alike.
+Thanks for helping out. This page covers how changes get into `main` and how releases are
+tagged. For setting up a development copy, see the [README](README.md#development).
 
-## Branches
+## Making a change
 
-- `main` only changes through a pull request. Never commit or push to it directly.
-- Start each change from an up-to-date `main` on a short-lived branch named by purpose:
-  `feature/<topic>`, `fix/<topic>`, `docs/<topic>` or `chore/<topic>`
-  (for example `fix/scheduler-restore-lock`).
-- One topic per branch. Unrelated edits go on their own branch.
-- Pull requests are squash-merged, and GitHub deletes the branch afterwards.
-  Do not keep long-lived or "backup" branches; tag a commit instead if it must be found again.
+`main` is protected: every change goes in through a pull request, including small ones.
 
-## Delivering a change
+1. Start from an up-to-date `main` and make a branch for the one thing you are changing:
 
-1. Update `main` (`git switch main`, `git pull`) and create the branch (`git switch -c fix/<topic>`).
-2. Commit, run the verification the change needs, and push (`git push -u origin fix/<topic>`).
-3. Open a pull request into `main`. Write the title and description as the final commit
-   message (see below); the description says what changed, why, and what was checked.
-4. Review the diff on GitHub, then choose **Squash and merge**. GitHub deletes the remote branch.
-5. Once GitHub shows the pull request as **Merged**: `git switch main`, `git pull`, `git fetch --prune`,
-   then `git branch -D fix/<topic>`. The capital `-D` is needed because squashing gives `main` a new
-   commit, so Git cannot tell the branch was merged; check the pull request state instead.
+   ```powershell
+   git switch main
+   git pull
+   git switch -c fix/scheduler-restore-lock
+   ```
 
-## Commit messages and pull request titles
+   Use `feature/`, `fix/`, `docs/` or `chore/` at the front of the name. If you notice
+   something unrelated along the way, put it on its own branch.
 
-With squash merging, the pull request title becomes the single commit on `main`,
-so it matters most.
+2. Commit, test what your change affects, and push:
 
-- Start with a verb and say what changes for the user or maintainer, in under about 70 characters:
-  `Preserve scheduling drafts during status refresh`, not `UI Improvement` or `Fix`.
-- No type prefixes (`feat:`, `New Feature:`) and no file lists in the title.
-- Put the reason, trade-off and verification in the body or pull request description.
-- Commits inside a branch may be rough; the pull request title and description must not be.
+   ```powershell
+   git push -u origin fix/scheduler-restore-lock
+   ```
 
-## Versions and tags
+3. Open a pull request into `main`. Say what changed, why, and how you checked it.
 
-- Tag released commits on `main` as `v<major>.<minor>.<patch>` with a lowercase `v`, for example `v0.1.5`.
-  The older tags `V0.1.1`–`V0.1.4` keep their capital `V`. Do not add lowercase copies:
-  Windows treats `V0.1.1` and `v0.1.1` as the same file name, so both in one repository breaks fetches there.
-- The version in `backend/version.py`, `pyproject.toml` and `frontend/package.json` must match the tag.
-- Record what the release contains in `docs/implementation-notes.md`.
+4. When it has been reviewed, merge it with **Squash and merge**. GitHub deletes the branch on
+   its side.
 
-## GitHub settings that enforce this
+5. Clean up your local copy:
 
-Repository admins keep these on:
+   ```powershell
+   git switch main
+   git pull
+   git fetch --prune
+   git branch -D fix/scheduler-restore-lock
+   ```
 
-- Settings → Branches → rule for `main`: require a pull request before merging; block force pushes and deletion.
-- Settings → General → Pull Requests: allow squash merging only, default message "Pull request title";
-  enable "Automatically delete head branches".
+   You need `-D` rather than `-d` because squashing gives `main` a new commit, so Git can't
+   tell that your branch was merged. Check on GitHub that the pull request says **Merged**
+   before you delete it.
+
+Don't keep long-lived or "backup" branches. If a commit needs to be easy to find later, tag it.
+
+## Pull request titles
+
+The title becomes the one commit on `main`, so it is worth a moment. Start with a verb and say
+what changes for whoever uses or maintains RobotControl, in about 70 characters or fewer:
+
+- Good: `Preserve scheduling drafts during status refresh`
+- Not useful: `UI improvement`, `Fix`, `feat: scheduling`
+
+Leave out type prefixes and file lists. Reasons, trade-offs and test notes belong in the
+description. Commits inside your branch can be as rough as you like.
+
+## Releases
+
+Release tags look like `v0.1.5`, with a lowercase `v`. The older tags `V0.1.1` to `V0.1.4` keep
+their capital `V`; don't add lowercase copies of them, because Windows treats `V0.1.1` and
+`v0.1.1` as the same name and fetching breaks.
+
+Before tagging, make sure the version is the same in `backend/version.py`, `pyproject.toml`
+and `frontend/package.json`, and that `docs/implementation-notes.md` says what the release
+contains.
+
+## Repository settings
+
+For admins, so the rules above are enforced rather than just written down:
+
+- Settings → Branches, rule for `main`: require a pull request before merging, and block force
+  pushes and deletion.
+- Settings → General → Pull Requests: allow squash merging only, with "Pull request title" as
+  the default message, and turn on "Automatically delete head branches".
