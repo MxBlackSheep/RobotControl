@@ -75,6 +75,15 @@ function AppShell() {
   const robotStatus = useRobotStatus(user?.username ?? null);
   const { helpOpen: shortcutsHelpOpen, closeHelp: hideShortcutsHelp } = useKeyboardNavigation({ enabled: true });
   const { pathname } = useLocation();
+  // Pinned headings and bars (phone inspection lists) sit below this sticky header, whose banner can wrap.
+  const appHeader = React.useRef<HTMLElement>(null);
+  React.useLayoutEffect(() => {
+    const element = appHeader.current;
+    if (!element) return;
+    const observer = new ResizeObserver(() => document.documentElement.style.setProperty('--app-header-height', `${element.offsetHeight}px`));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
   const railFooter = <Box sx={{ display: 'flex', flexDirection: isMobile || sidebarExpanded ? 'row' : 'column', alignItems: 'center', gap: 0.5, width: '100%', color: 'rail.text', '& .MuiIconButton-root': { color: 'rail.text' } }}>
     <AccountMenu compact={!isMobile && !sidebarExpanded} onChangePassword={() => { setMobileDrawerOpen(false); setPasswordDialogOpen(true); }} />
     <AppearanceControl />
@@ -87,7 +96,7 @@ function AppShell() {
       <SkipLink />
       <MaintenanceDialog />
 
-      <Box component="header" sx={{ position: 'sticky', top: 0, zIndex: theme => theme.zIndex.appBar }}>
+      <Box component="header" ref={appHeader} sx={{ position: 'sticky', top: 0, zIndex: theme => theme.zIndex.appBar }}>
         {isMobile && <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minHeight: 52, pl: 0.5, pr: 2, bgcolor: 'rail.bg', color: 'rail.activeText' }}>
           <IconButton aria-label="Open navigation" color="inherit" onClick={() => setMobileDrawerOpen(true)}><MenuIcon /></IconButton>
           <Typography component="span" sx={{ fontWeight: 600, fontSize: 16 }}>RobotControl</Typography>

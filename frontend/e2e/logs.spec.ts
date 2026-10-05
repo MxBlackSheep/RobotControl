@@ -14,6 +14,9 @@ import { createHash } from 'node:crypto';
  *   replace a newer selection. Follow is opt-in and hidden readers stop polling.
  * - Phones show the reader instead of the catalogue stacked above it, with no horizontal
  *   scroll. Back, resize and expansion keep selection, section, scroll and focus.
+ * - A phone file list scrolls with the page, not in a box (the owner saw 2 of 2,072 files):
+ *   Load more appends the next API page without duplicates, Refresh and a folder change
+ *   start again from the first page, and sizes read "537 B", not "537.0 B".
  */
 test.beforeEach(async ({ page }) => { await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin')); });
 const headers = { Authorization: 'Bearer viewer-admin' };
@@ -77,6 +80,34 @@ test('phone history reader, section search and expansion retain selected file', 
   await expect(page.getByLabel('Log content')).toContainText('END-MARKER');
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBeTruthy();
   await page.screenshot({path:'../test-output/viewer-verification/log-phone.png',fullPage:true});
+});
+
+test('phone file list flows with the page and Load more appends the next page', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/logfile?section=python');
+  await page.getByRole('button', { name: /^▸ rotated/ }).click();
+  await expect(page.getByText('50 of 2,000 files', { exact: true })).toBeVisible();
+  const files = page.getByRole('list', { name: 'Log files' }).getByRole('button');
+  const workspace = page.getByLabel('Log inspection');
+  expect(await workspace.evaluate(root => [...root.querySelectorAll('*')].filter(element =>
+    /auto|scroll/.test(getComputedStyle(element).overflowY) && element.scrollHeight > element.clientHeight + 1).length)).toBe(0);
+  await expect(page.getByRole('button', { name: 'Load more', exact: true })).toBeInViewport();
+  await page.getByRole('button', { name: 'Load more', exact: true }).click();
+  await expect(page.getByText('100 of 2,000 files', { exact: true })).toBeVisible();
+  const names = await files.evaluateAll(items => items.map(item => item.getAttribute('title')));
+  expect(names).toHaveLength(100);
+  expect(new Set(names).size).toBe(100);
+  expect(names[0]).toContain('robotcontrol_1999.log');
+  expect(names[99]).toContain('robotcontrol_1900.log');
+  await testInfo.attach('phone-log-list', { body: await page.screenshot(), contentType: 'image/png' });
+  await page.getByRole('button', { name: 'More file options' }).click();
+  await page.getByRole('menuitem', { name: 'Refresh files' }).click();
+  await expect(page.getByText('50 of 2,000 files', { exact: true })).toBeVisible();
+  await page.getByRole('textbox', { name: 'Find filenames' }).fill('robotcontrol_0000');
+  await page.getByRole('textbox', { name: 'Find filenames' }).press('Enter');
+  await expect(page.getByText('1 of 1 file', { exact: true })).toBeVisible();
+  await expect(files.first()).toContainText('· 537 B');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
 });
 
 test('follow is opt-in and section navigation stops polling without Latest restarting it', async ({ page }) => {

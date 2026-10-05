@@ -1,5 +1,6 @@
 import React from 'react';
-import { Box, Stack, Tab, Tabs, Typography, type SxProps, type Theme } from '@mui/material';
+import { Box, IconButton, Stack, Tab, Tabs, Typography, type SxProps, type Theme } from '@mui/material';
+import InfoOutlined from '@mui/icons-material/InfoOutlined';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { allowedSections, moduleSectionUrl, useModuleSection } from './navigation';
@@ -28,9 +29,16 @@ export function PageHeader({ title, description, actions }: { title: string; des
   const [selected] = useModuleSection(pathname, user);
   const attention = robotAttention(useRobotStatusContext().status);
   const tabbed = sections.length > 1;
+  // Phones keep the local-only note behind an info button so the page content starts higher.
+  const [noteOpen, setNoteOpen] = React.useState(false);
+  const noteId = React.useId();
   return <Box component="header" sx={{ mb: `${layout.gutter}px` }}>
     <Box sx={{ display: 'flex', alignItems: 'center', minHeight: layout.header, columnGap: 3, rowGap: 1, flexWrap: 'wrap' }}>
       <Typography component="h1" variant="h1" sx={{ fontSize: { xs: 20, sm: 24 } }}>{title}</Typography>
+      {localOnly.length > 0 && <IconButton aria-label="Sections on the RobotControl computer only" aria-expanded={noteOpen} aria-controls={noteId}
+        onClick={() => setNoteOpen(open => !open)} onKeyDown={event => { if (event.key === 'Escape') setNoteOpen(false); }} sx={{ display: { xs: 'inline-flex', sm: 'none' }, ml: -2, color: 'text.secondary' }}>
+        <InfoOutlined fontSize="small" />
+      </IconButton>}
       {tabbed && <Tabs value={sections.some(section => section.index === selected) ? selected : false} variant="scrollable" scrollButtons={false}
         aria-label={`${title} sections`} sx={{ alignSelf: 'stretch', minWidth: 0, flex: '1 1 auto', order: { xs: 3, md: 0 }, flexBasis: { xs: '100%', md: 'auto' } }}>
         {sections.map(section => <Tab key={section.id} value={section.index} component={Link} to={moduleSectionUrl(pathname, section.index)}
@@ -43,7 +51,7 @@ export function PageHeader({ title, description, actions }: { title: string; des
       {actions && <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap" sx={{ ml: { xs: 0, sm: 'auto' } }}>{actions}</Stack>}
     </Box>
     {description && <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>{description}</Typography>}
-    {localOnly.length > 0 && <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+    {localOnly.length > 0 && <Typography id={noteId} variant="body2" color="text.secondary" sx={{ mt: 1, display: { xs: noteOpen ? 'block' : 'none', sm: 'block' } }}>
       On the RobotControl computer only: {localOnly.map(section => section.label).join(', ')}.
     </Typography>}
   </Box>;
@@ -86,8 +94,9 @@ export function Panel({ title, label, actions, headerExtra, tone, span, footer, 
   footer?: React.ReactNode; inset?: boolean; fill?: boolean; component?: React.ElementType; sx?: SxProps<Theme>; bodySx?: SxProps<Theme>; children?: React.ReactNode;
 }) {
   const name = label ?? (typeof title === 'string' ? title : undefined);
+  // Clip, not hidden: a hidden panel is a scroll container, so bars pinned inside it (phone lists) would not stick to the screen.
   return <Box component={component} aria-label={name} sx={[{
-    gridColumn: spanColumn(span), minWidth: 0, minHeight: 0, display: 'grid', overflow: 'hidden',
+    gridColumn: spanColumn(span), minWidth: 0, minHeight: 0, display: 'grid', overflow: 'clip',
     gridTemplateRows: `${layout.header}px ${fill ? 'minmax(0, 1fr)' : 'auto'}${footer ? ` ${layout.header}px` : ''}`, alignContent: 'start',
     bgcolor: 'background.paper', border: 1, borderColor: tone === 'attention' ? 'attentionSurface.line' : 'divider', borderRadius: `${layout.radius}px`,
   }, ...(Array.isArray(sx) ? sx : [sx])]}>
