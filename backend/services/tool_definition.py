@@ -6,7 +6,7 @@ import sys
 import zipfile
 from pathlib import PurePosixPath
 
-from backend.services.database_packages import Manifest, PackageError, SUPPORTED_LIBRARIES
+from backend.services.database_packages import LOOKUP_ORDERS, Manifest, PackageError, SUPPORTED_LIBRARIES
 
 
 def definition(files, entry_file=None):
@@ -54,15 +54,18 @@ def definition(files, entry_file=None):
     fields = []
     for name, value in raw_inputs.items():
         settings = {'type': value} if isinstance(value, str) else dict(value) if isinstance(value, dict) else None
-        if settings is None or set(settings) - {'label', 'type', 'required', 'choices', 'query', 'source', 'depends_on'}:
-            raise PackageError(f'{name}: use type, label, required, choices, query, source or depends_on.')
+        if settings is None or set(settings) - {'label', 'type', 'required', 'choices', 'query', 'source', 'depends_on', 'order'}:
+            raise PackageError(f'{name}: use type, label, required, choices, query, source, depends_on or order.')
+        if 'order' in settings and settings['order'] not in LOOKUP_ORDERS:
+            raise PackageError(f"{name}: order must be one of {', '.join(LOOKUP_ORDERS)}.")
         field = dict(name=name, label=settings.get('label', name.replace('_', ' ').capitalize()),
                      type=settings.get('type', 'text'), required=settings.get('required', True), choices=settings.get('choices', []))
         if 'query' in settings:
             field.update(type='lookup', lookup=dict(source=settings.get('source', 'primary'), query=settings['query'],
-                         parameters=settings.get('depends_on', []), value_type=settings.get('type', 'text')))
-        elif 'source' in settings or 'depends_on' in settings:
-            raise PackageError(f'{name}: source and depends_on require a query.')
+                         parameters=settings.get('depends_on', []), value_type=settings.get('type', 'text'),
+                         order=settings.get('order', 'label')))
+        elif 'source' in settings or 'depends_on' in settings or 'order' in settings:
+            raise PackageError(f'{name}: source, depends_on and order require a query.')
         fields.append(field)
     sources = config.get('connections', ['primary'] if config['kind'] == 'report' else sorted({f['lookup']['source'] for f in fields if 'lookup' in f}))
     module = filename[:-3]
@@ -116,6 +119,8 @@ def with_definition(source, tool):
         if field.lookup:
             value.update(type=field.lookup.value_type, query=field.lookup.query,
                          source=field.lookup.source, depends_on=field.lookup.parameters)
+            if field.lookup.order != 'label':
+                value['order'] = field.lookup.order
         elif field.type == 'experiment':
             value.update(type='integer', query='SELECT ExperimentID AS value, UserDefinedID AS label FROM dbo.Experiments', source='primary')
             if 'primary' not in config['connections']:

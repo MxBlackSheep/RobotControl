@@ -4,6 +4,23 @@
 - Database table on phones: the name on one line (tap shows it whole), More, and one search field that applies on Enter or with the search button. Filters, Refresh, Expand table and Page and rows are in More. Rows scroll sideways with the Row column pinned and a right-edge fade while more columns remain. The headings are pinned under the app header (`--app-header-height`, set by `App.tsx`) in a separate strip that follows the rows' sideways scroll and copies widths from an invisible `inert` heading row. A compact paging bar is pinned at the bottom (safe-area inset). 7 rows show on opening at 390×844, and about 10 between the headings and the bar once scrolled at 375×667.
 - Logs, archive recordings: `LoadMoreBar` ("50 of 2,000 files", Load more) replaces paging on phones. Logs appends the next API page and lists files that shifted between pages only once. Scheduling's list simply flows. Log sizes read "537 B", not "537.0 B" (`_format_file_size`). The local-only note in `PageHeader` is an info button on phones. `Panel` clips with `overflow: clip` so bars pinned inside it stick to the screen.
 - Checks: new phone cases in `database.spec.ts` (390×844, 375×667: rows on screen, no nested vertical scroll, headings pinned and aligned after a sideways swipe, Row column fixed, fade, bar on screen, paging, 320 px overflow), `inspection-pagination.spec.ts` (phone paging and Page and rows) and `logs.spec.ts` (Load more, Refresh, "537 B"). The shared fixtures gained the owner's volumes (`e2e/database-fixture.ts` ActivePlateView, 2,000 files in `viewer_server.py`). The screenshot review gained 375 px, opened views and `VISUAL_SESSION=remote`. `E2E_PORT` lets two worktrees run the fixture at once. Not checked on a real iPhone.
+## 2026-10-05 Experiment choices newest first (lookup order setting)
+
+- Before, the Experiment list in Culture history and Delete Experiment was alphabetical by
+  UserDefinedID, because `lookup_rows` ordered every lookup by label; an `ORDER BY` in the
+  package query is invalid in the derived table it pages. Now a lookup may set `order`
+  (`label` default, `label_desc`, `value`, `value_desc`), validated in manifests and Python
+  `TOOL` definitions and mapped to fixed SQL (`LOOKUP_ORDER_SQL`); package text never reaches
+  the `ORDER BY`. Lookups without it keep label order, and written manifests leave out the
+  default, so packages that do not use it stay importable by 0.1.4.
+- Culture history and Delete Experiment 1.0.1 use `value_desc` (highest ExperimentID first).
+  A manifest cannot declare a minimum app version: 0.1.4 refuses these ZIPs on import
+  (`lookup.order: Extra inputs are not permitted`) and keeps 1.0.0. Stated in both CHANGELOGs.
+- Checks: `report_wizard_check` (new case: 30 rows, `value_desc` page 1 = 30..6, page 2 = 5..1,
+  search, membership from page 2, default label order, unknown order refused via Python and
+  ZIP); fails before the change. `tool_authoring_check`, `database_workspace_check`,
+  `database_tools_check`, `bundled_tools_check`, `preparation_step_check` pass. Evidence:
+  `test-output/lookup-order/`.
 
 ## 2026-10-05 Stored clips are denoised in the H.264 conversion
 
