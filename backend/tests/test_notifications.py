@@ -52,11 +52,12 @@ class StubEmailService:
         )()
         self.last_error = None
 
-    def send(self, subject, body, *, to=None, attachments=None):
+    def send(self, subject, body, *, to=None, attachments=None, html=None):
         self.calls.append(
             {
                 "subject": subject,
                 "body": body,
+                "html": html,
                 "recipients": list(to or []),
                 "attachments": [str(path) for path in (attachments or [])],
             }
@@ -270,7 +271,7 @@ def test_schedule_alert_uses_rolling_clip_fallback(monkeypatch, tmp_path):
     assert stub_email.calls, "Expected email send to be invoked"
     attachments = stub_email.calls[0]["attachments"]
     assert attachments == [str(summary_clip)]
-    assert any("summary" in note.lower() for note in result.attachment_notes)
+    assert any(note.startswith("Camera clip: the latest camera recordings") for note in result.attachment_notes)
 
 
 def test_manual_recovery_prefers_configured_recipients():
