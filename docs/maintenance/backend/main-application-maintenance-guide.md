@@ -138,6 +138,7 @@ This guide explains how the FastAPI entry point, logging, static assets, and bui
 
 5. **System tray**  
    - Compiled mode attempts to launch a tray icon (`backend/utils/system_tray.py`). Failures are logged but non-fatal.
+   - The tray image is `build_scripts/icon/RobotControl.ico` (bundled at the same path) with a status dot: starting orange, running green, stopped/error red. pystray loads the image at `SM_CXICON` and `LoadImage` smooths any stretch, so the frame for the tray's own size (`SM_CXSMICON`) is pixel-doubled to the handle size when that is a whole multiple. If the ICO cannot be read, the tray shows the plain drawn status icon and logs one warning.
 
 ---
 

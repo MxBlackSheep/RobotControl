@@ -1,3 +1,23 @@
+## 2026-10-05 Tray shows the app icon with a status dot
+
+- Before, the tray showed a 16 px white square with a coloured circle and a "P". Now it shows the
+  RobotControl icon (the frame for the tray's size) with a status dot in the bottom-right corner:
+  starting orange, running green, stopped/error red, unknown grey (same colours and meanings).
+  The dot is 7/16 of the icon with a dark ring, drawn without anti-aliasing so it stays distinct
+  from the white gripper at 16 px.
+- Measured: pystray saves the image as ICO and `LoadImage(LR_DEFAULTSIZE)` makes a 32 px handle
+  (process DPI-unaware). A 16 px-only ICO is stretched with smoothing (32 of 920 opaque pixels
+  equal plain doubling), which also blurred the old icon; a pre-doubled 32 px image loads 920/920
+  identical. So when the handle is a whole multiple of the tray size, the tray-size frame is
+  pixel-doubled to it; otherwise the handle-size frame is used (125 %/150 % scaling: the shell
+  reduces a 32 px design). The shell's reduction at 100 % was not observable on the 200 %
+  development PC.
+- `RobotControl.ico` is bundled at `build_scripts/icon`; if it cannot be read, the tray keeps the
+  old drawn image and logs one warning (ten updates with a missing ICO: one line).
+- Checks: status images at 16/24/32 px light and dark, the fallback and the packaged candidate's
+  tray (overflow flyout, 200 %) in the PR. No new check: a tray icon failure is not a safety,
+  data or scheduling failure. Full browser suite, packaged smoke and walkthrough passed.
+
 ## 2026-10-05 Stored clips are denoised in the H.264 conversion
 
 - The owner found recordings "quite noisy, despite the live preview being much better": #51 denoised live view only, and `clip_transcoder.py` stored the camera's noise at 1000 kbit/s. Now the conversion runs `atadenoise` (serial, up to 7 frames, thresholds 0.16/0.32; one filter thread, after the range conversion) from its own setting, `CAMERA_CONFIG.clip_denoise_filter` (`""` stores the noise as recorded). It is wider than live view's 5 frames because a clip has no delay to pay for the held frames; at the same thresholds it removes about 20 % more noise with the same ghosting. `transcode_command()` is the one command the product, `live_view_quality_probe` (`clip:<kbit/s>[:d]` settings, new) and `clip_transcode_probe.ps1` (`product-1000-denoise`, new) share.
