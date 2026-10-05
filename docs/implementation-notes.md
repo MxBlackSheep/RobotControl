@@ -17,6 +17,7 @@
 - Checks: status images at 16/24/32 px light and dark, the fallback and the packaged candidate's
   tray (overflow flyout, 200 %) in the PR. No new check: a tray icon failure is not a safety,
   data or scheduling failure. Full browser suite, packaged smoke and walkthrough passed.
+
 ## 2026-10-05 Experiment choices newest first (lookup order setting)
 
 - Before, the Experiment list in Culture history and Delete Experiment was alphabetical by
