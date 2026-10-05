@@ -167,6 +167,8 @@ def build_with_pyinstaller(layout: str = "onedir", console: bool = False, output
         "--hidden-import", "pandas",
         "--hidden-import", "openpyxl",
         "--add-data", f"{project_root / 'database_packages'};database_packages",
+        # The tray draws its status dot on this icon (backend/utils/system_tray.py).
+        "--add-data", f"{icon};build_scripts/icon",
         "--hidden-import", "bcrypt",
         
         # Collect submodules
