@@ -2,7 +2,7 @@
   "contract_version": 2,
   "id": "culture-history",
   "name": "Culture history",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "libraries": [
     "openpyxl",
     "pandas",
@@ -27,7 +27,8 @@
             "source": "primary",
             "query": "SELECT ExperimentID AS value, UserDefinedID AS label FROM dbo.Experiments",
             "parameters": [],
-            "value_type": "integer"
+            "value_type": "integer",
+            "order": "value_desc"
           }
         }
       ],

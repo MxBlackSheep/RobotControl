@@ -91,7 +91,12 @@ New input types: `date` (ISO `YYYY-MM-DD`) and `lookup`. A lookup field supplies
 Declare `project_id` separately. Parameters refer to input names in placeholder
 order; unknown names and cycles are rejected. Choices are searchable and paginated
 (25 per page); a query must be a composable SELECT without comments/trailing
-semicolon, and must return `value` and `label`. Use unique stable values. The host
+semicolon, and must return `value` and `label`. The optional lookup `order` lists
+choices by `label` (default), `label_desc`, `value` or `value_desc`; other values are
+rejected. The host pages the query as a derived table, so an `ORDER BY` inside it is
+not used. Manifests omit `order` when it is `label`; one that sets it needs
+RobotControl 0.1.5 or later (older versions reject the key). Manifests cannot declare a
+minimum application version. Use unique stable values. The host
 checks submitted membership with the same query before running Python. Values stay
 typed (`text`, `integer`, `number`); labels are only for display. Lookups time out
 after 30 seconds. SQL statement restrictions aid composition, not security.
