@@ -3,10 +3,14 @@ System tray icon for RobotControl server status indication.
 Shows server running status and provides convenient management options.
 """
 
+import ctypes
+import functools
 import os
+import sys
 import webbrowser
 import threading
 import logging
+from pathlib import Path
 from typing import Optional, Callable
 import subprocess
 
@@ -24,6 +28,79 @@ except ImportError:
     ImageDraw = None
 
 logger = logging.getLogger(__name__)
+
+# Bundled by build_scripts/pyinstaller_build.py at the same relative path.
+APP_ICON = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parents[2])) / 'build_scripts' / 'icon' / 'RobotControl.ico'
+
+STATUS_COLORS = {
+    'starting': '#FFA500',  # Orange
+    'running': '#00FF00',   # Green
+    'stopped': '#FF0000',   # Red
+    'error': '#FF0000'      # Red
+}
+UNKNOWN_STATUS_COLOR = '#808080'
+STATUS_DOT_RING = '#0b1f3a'
+
+
+def _tray_icon_sizes() -> tuple[int, int]:
+    """(drawn, handle): the size the notification area draws icons at, and the size of the
+    icon handle pystray makes (LoadImage with LR_DEFAULTSIZE: SM_CXICON for this thread)."""
+    try:
+        user32 = ctypes.windll.user32
+        user32.SetThreadDpiAwarenessContext.restype = ctypes.c_void_p
+        user32.SetThreadDpiAwarenessContext.argtypes = [ctypes.c_void_p]
+        handle = user32.GetSystemMetrics(11)  # SM_CXICON
+        # The shell is per-monitor DPI aware; ask in that context for its real small-icon size.
+        previous = user32.SetThreadDpiAwarenessContext(ctypes.c_void_p(-4))  # PER_MONITOR_AWARE_V2
+        try:
+            drawn = user32.GetSystemMetrics(49)  # SM_CXSMICON
+        finally:
+            if previous:
+                user32.SetThreadDpiAwarenessContext(ctypes.c_void_p(previous))
+        if drawn > 0 and handle > 0:
+            return drawn, handle
+    except (AttributeError, OSError):
+        pass
+    return 16, 32
+
+
+@functools.cache
+def _app_icon_frames() -> Optional[dict]:
+    """RobotControl.ico's frames by pixel size, or None (logged once) when it cannot be read."""
+    try:
+        frames = {}
+        with Image.open(APP_ICON) as ico:
+            for size in sorted(ico.info['sizes']):
+                ico.size = size
+                frames[size[0]] = ico.convert('RGBA')
+        return frames
+    except Exception:
+        logger.warning("Tray: app icon %s could not be read; showing the plain status icon", APP_ICON, exc_info=True)
+        return None
+
+
+def _app_status_image(color: str) -> Optional['Image.Image']:
+    """The app icon frame for the tray's size with a status dot in the bottom-right corner."""
+    frames = _app_icon_frames()
+    if not frames:
+        return None
+    drawn, handle = _tray_icon_sizes()
+    # LoadImage smooths any stretch, which blurs the hand-tuned 16/24 px frames. When the handle
+    # is a whole multiple of the drawn size, design at the drawn size and enlarge it by pixel
+    # doubling: the handle then needs no stretch and the shell's reduction restores the frame.
+    size = drawn if handle % drawn == 0 else handle
+    best = min((s for s in frames if s >= size), default=max(frames))
+    image = frames[best].copy() if best == size else frames[best].resize((size, size), Image.Resampling.LANCZOS)
+    # A crisp dot 7/16 of the icon with a dark ring stays distinct from the white gripper and
+    # the blue art at 16 px; anti-aliasing blurred it into both.
+    dot, ring = round(size * 7 / 16), max(1, size // 16)
+    draw = ImageDraw.Draw(image)
+    outer = [size - dot, size - dot, size - 1, size - 1]
+    draw.ellipse(outer, fill=STATUS_DOT_RING)
+    draw.ellipse([outer[0] + ring, outer[1] + ring, outer[2] - ring, outer[3] - ring], fill=color)
+    if size != handle:
+        image = image.resize((handle, handle), Image.Resampling.NEAREST)
+    return image
 
 
 class RobotControlSystemTray:
@@ -77,20 +154,18 @@ class RobotControlSystemTray:
         if not TRAY_AVAILABLE:
             return None
 
+        color = STATUS_COLORS.get(status, UNKNOWN_STATUS_COLOR)
         try:
-            # Create a 16x16 image with appropriate color
+            image = _app_status_image(color)
+            if image is not None:
+                return image
+        except Exception:
+            logger.warning("Tray: app icon status image failed; showing the plain status icon", exc_info=True)
+
+        try:
+            # Plain fallback: a 16x16 image with appropriate color
             image = Image.new('RGB', (16, 16), color='white')
             draw = ImageDraw.Draw(image)
-
-            # Status colors
-            colors = {
-                'starting': '#FFA500',  # Orange
-                'running': '#00FF00',   # Green
-                'stopped': '#FF0000',   # Red
-                'error': '#FF0000'      # Red
-            }
-
-            color = colors.get(status, '#808080')  # Gray fallback
 
             # Draw a filled circle as status indicator
             draw.ellipse([2, 2, 14, 14], fill=color, outline='black')

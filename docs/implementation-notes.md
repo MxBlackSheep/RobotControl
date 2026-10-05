@@ -1,9 +1,30 @@
+## 2026-10-05 Tray shows the app icon with a status dot
+
+- Before, the tray showed a 16 px white square with a coloured circle and a "P". Now it shows the
+  RobotControl icon (the frame for the tray's size) with a status dot in the bottom-right corner:
+  starting orange, running green, stopped/error red, unknown grey (same colours and meanings).
+  The dot is 7/16 of the icon with a dark ring, drawn without anti-aliasing so it stays distinct
+  from the white gripper at 16 px.
+- Measured: pystray saves the image as ICO and `LoadImage(LR_DEFAULTSIZE)` makes a 32 px handle
+  (process DPI-unaware). A 16 px-only ICO is stretched with smoothing (32 of 920 opaque pixels
+  equal plain doubling), which also blurred the old icon; a pre-doubled 32 px image loads 920/920
+  identical. So when the handle is a whole multiple of the tray size, the tray-size frame is
+  pixel-doubled to it; otherwise the handle-size frame is used (125 %/150 % scaling: the shell
+  reduces a 32 px design). The shell's reduction at 100 % was not observable on the 200 %
+  development PC.
+- `RobotControl.ico` is bundled at `build_scripts/icon`; if it cannot be read, the tray keeps the
+  old drawn image and logs one warning (ten updates with a missing ICO: one line).
+- Checks: status images at 16/24/32 px light and dark, the fallback and the packaged candidate's
+  tray (overflow flyout, 200 %) in the PR. No new check: a tray icon failure is not a safety,
+  data or scheduling failure. Full browser suite, packaged smoke and walkthrough passed.
+
 ## 2026-10-05 Phones: Database, Logs, Scheduling and archive lists scroll with the page
 
 - The owner, on an iPhone through the tunnel, saw about 1.5 rows of `dbo.ActivePlateView` (32 rows), with the OD column cut off at the right edge, and about 2 of 2,072 Python log files in a small box. `InspectionWorkspace` kept a measured height (`70dvh` until measured) on phones too, and the table or list scrolled inside it under its own header, while page chrome took about 40 % of the screen. Now, under 600 px, the workspace has no height of its own: lists and tables scroll with the page. Text readers (SQL, log) keep their own pane (`boundedDetail`), because Follow, Top/Bottom and scroll restore depend on it. At 600 px and wider nothing changes (1440 px screenshots are pixel-identical apart from fixture timestamps and animation timing).
 - Database table on phones: the name on one line (tap shows it whole), More, and one search field that applies on Enter or with the search button. Filters, Refresh, Expand table and Page and rows are in More. Rows scroll sideways with the Row column pinned and a right-edge fade while more columns remain. The headings are pinned under the app header (`--app-header-height`, set by `App.tsx`) in a separate strip that follows the rows' sideways scroll and copies widths from an invisible `inert` heading row. A compact paging bar is pinned at the bottom (safe-area inset). 7 rows show on opening at 390×844, and about 10 between the headings and the bar once scrolled at 375×667.
 - Logs, archive recordings: `LoadMoreBar` ("50 of 2,000 files", Load more) replaces paging on phones. Logs appends the next API page and lists files that shifted between pages only once. Scheduling's list simply flows. Log sizes read "537 B", not "537.0 B" (`_format_file_size`). The local-only note in `PageHeader` is an info button on phones. `Panel` clips with `overflow: clip` so bars pinned inside it stick to the screen.
 - Checks: new phone cases in `database.spec.ts` (390×844, 375×667: rows on screen, no nested vertical scroll, headings pinned and aligned after a sideways swipe, Row column fixed, fade, bar on screen, paging, 320 px overflow), `inspection-pagination.spec.ts` (phone paging and Page and rows) and `logs.spec.ts` (Load more, Refresh, "537 B"). The shared fixtures gained the owner's volumes (`e2e/database-fixture.ts` ActivePlateView, 2,000 files in `viewer_server.py`). The screenshot review gained 375 px, opened views and `VISUAL_SESSION=remote`. `E2E_PORT` lets two worktrees run the fixture at once. Not checked on a real iPhone.
+
 ## 2026-10-05 Experiment choices newest first (lookup order setting)
 
 - Before, the Experiment list in Culture history and Delete Experiment was alphabetical by
