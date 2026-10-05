@@ -63,7 +63,12 @@ to list cases without running them.
 Playwright uses installed Microsoft Edge and starts its own fixture server on
 port 8016. Do not run another harness on that port concurrently; when another
 worktree is using it, set `E2E_PORT` (for example `$env:E2E_PORT='8026'`) and both
-configs, the teardown and the fixture server use that port instead. The fixture uses
+configs, the teardown and the fixture server use that port instead. The packaged
+checks below have their own setting, `PACKAGED_E2E_PORT` (default 8017; 8018 for the
+database smoke), used by each launcher and its browser script. They refuse a port that
+is already in use, naming the program holding it, and send no request until the
+listening socket belongs to the process they started; they stop only that process
+(`backend/e2e/packaged_app.py`). The fixture uses
 real log routes and disposable files; most other APIs, including Labware writes,
 are synthetic. It starts no robot services and cleans its temporary files at exit.
 
@@ -95,7 +100,7 @@ uv run --locked --group build python build_scripts/pyinstaller_build.py --output
 uv run --locked python backend/e2e/packaged_viewer_smoke.py dist/review-candidate/RobotControl
 ```
 
-The packaged check runs a relocated copy on port 8017 with automatic recording and
+The packaged check runs a relocated copy on port 8017 (or `PACKAGED_E2E_PORT`) with automatic recording and
 scheduler autostart disabled, disposable authentication and a nonproduction SQL
 address. It checks embedded viewers, the relocated log root, complete archive
 reading and reader cleanup. It removes its process/copy; the original candidate

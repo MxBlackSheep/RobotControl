@@ -1,6 +1,10 @@
 // Called by backend/e2e/packaged_viewer_smoke.py while its relocated EXE is running.
+// PACKAGED_E2E_PORT comes from the launcher, which has proven its own app listens there.
 const { chromium, expect } = require('@playwright/test');
 const path = require('node:path');
+
+if (!process.env.PACKAGED_E2E_PORT) throw new Error('Run through backend/e2e/packaged_viewer_smoke.py, which sets PACKAGED_E2E_PORT');
+const base = `http://127.0.0.1:${process.env.PACKAGED_E2E_PORT}`;
 
 (async () => {
   const output = path.resolve(__dirname, '../../test-output/viewer-verification');
@@ -12,7 +16,7 @@ const path = require('node:path');
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   try {
-    await page.goto('http://127.0.0.1:8017/logfile?section=robotcontrol');
+    await page.goto(base + '/logfile?section=robotcontrol');
     await page.getByRole('button', { name: 'History', exact: true }).click();
     await page.getByRole('button', { name: /packaged-check.log.gz/ }).click();
     await expect(page.getByLabel('Log content')).toContainText('Packaged archive verification αβγ');
@@ -68,7 +72,7 @@ const path = require('node:path');
       } } });
     });
     await page.setViewportSize({ width: 1280, height: 720 });
-    await page.goto('http://127.0.0.1:8017/labware');
+    await page.goto(base + '/labware');
     await expect(page.getByRole('button', { name: /^Open rack / })).toHaveCount(10);
     const firstLeft = page.getByRole('button', { name: `Open rack ${left[0]}`, exact: true });
     const firstRight = page.getByRole('button', { name: `Open rack ${right[0]}`, exact: true });
@@ -99,7 +103,7 @@ const path = require('node:path');
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
     await page.screenshot({ path: path.join(output, 'packaged-deck-phone.png'), fullPage: true, animations: 'disabled' });
     // Failure case: physical shelves are reordered, omitted, or unused positions become editable.
-    await page.goto('http://127.0.0.1:8017/labware?section=cytomat');
+    await page.goto(base + '/labware?section=cytomat');
     const topShelf = page.getByRole('group', { name: 'Position 1', exact: true });
     const bottomShelf = page.getByRole('group', { name: 'Position 7', exact: true });
     await expect(topShelf).toBeVisible();
@@ -129,7 +133,7 @@ const path = require('node:path');
     await page.route('**/api/camera/streaming/status', route => route.fulfill({ json: { data: {
       enabled: true, active_session_count: 0, max_sessions: 10, resource_usage_percent: 45, total_bandwidth_mbps: 7,
     } } }));
-    await page.goto('http://127.0.0.1:8017/system-status');
+    await page.goto(base + '/system-status');
     // Connection facts are shown in the Databases and Live view cards (no disclosure); nothing reads as unknown.
     const databases = page.getByRole('region', { name: 'Databases', exact: true });
     await expect(databases.getByText('Fixture server / Fixture DB', { exact: true })).toBeVisible();
