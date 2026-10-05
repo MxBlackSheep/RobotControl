@@ -21,7 +21,7 @@ The three existing EvoYeast tools are also ready as single Python files:
   uses the package: disable those schedules, import, then open each one (now **Needs review**),
   check the step and save it.
 
-Culture history and Delete Experiment are version 1.0.0; Select EvoYeast experiment is 1.0.1.
+Culture history, Delete Experiment and Select EvoYeast experiment are version 1.0.1.
 Each has a `CHANGELOG.md` with a `## <version>` section per release, newest first. The CHANGELOG travels inside the package ZIP and its
 download. The history under **Manage packages** (who installed what, and when) belongs to one
 installation and is not part of the ZIP. When **What changed?** is left blank on install (and at
@@ -104,6 +104,12 @@ and `label` (what the user sees). Each `?` receives the input at the correspondi
 position in `depends_on`. Changing a parent clears its dependent choices; the
 server checks membership again when running. Queries can use joins and your own
 tables; no particular experiment or plate schema is required.
+
+Choices are listed alphabetically by label. To list them another way, add `'order'`:
+`'value_desc'` (highest value first, e.g. newest ExperimentID, as Culture history and
+Delete Experiment do), `'value'`, `'label_desc'` or `'label'` (the default). An
+`ORDER BY` inside the query has no effect, because RobotControl pages the results
+itself. `order` needs RobotControl 0.1.5 or later: an older version refuses the package.
 
 Ordinary fields can be concise: `'start_date': 'date'` or
 `'format': {'type': 'choice', 'choices': ['Detailed', 'Summary']}`. Supported types
