@@ -71,6 +71,12 @@ CAMERA_CONFIG = {
     # encoder_levels rates should divide it.
     "capture_fps": 30,
     "clip_h264_kbps": 1000,                 # H.264 bitrate finalized clips are stored at (docs/plans/h264-rolling-clips.md)
+    # Temporal denoise in the clip conversion (ffmpeg filter, one thread): each pixel is averaged over
+    # up to 7 frames, stopping at the first that differs more than the thresholds, so moving parts keep
+    # their edges. Stored clips then no longer carry the camera's raw sensor noise; "" stores it as
+    # recorded. Live view's denoise_filter is separate: it holds frames back (delay), clips do not
+    # care, so this window is wider (docs/plans/clip-transcode-denoise.md).
+    "clip_denoise_filter": "atadenoise=0a=0.16:0b=0.32:1a=0.16:1b=0.32:2a=0.16:2b=0.32:s=7:a=s",
     "default_resolution": [640, 480]        # Default camera resolution [width, height]
 }
 

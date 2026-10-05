@@ -2,12 +2,13 @@
 
 The camera helper keeps writing MJPEG AVI, so recording never depends on ffmpeg. After a clip is
 finalized, one ffmpeg child at BelowNormal priority, in a kill-on-close Job Object, encodes it to
-a temporary file. Decoder, filters, encoder and the verifying decoder get one thread each; FFmpeg
-still runs these stages side by side, so a conversion peaks at about 1.5 cores for a few seconds.
-Only when the file decodes to exactly the sidecar's frame count does it become `<stem>.mp4`
-(atomic rename) and the AVI get deleted, under the camera's clip lock, which the experiment
-archive also holds while it copies. Any failure leaves the AVI and is reported in status().
-Measurements and the brief: docs/plans/h264-rolling-clips.md.
+a temporary file, denoised unless CAMERA_CONFIG clip_denoise_filter is "". Decoder, filters,
+encoder and the verifying decoder get one thread each; FFmpeg still runs these stages side by
+side, so a conversion peaks at about 1.5 cores (2.5 with the denoise) for a few seconds. Only when
+the file decodes to exactly the sidecar's frame count does it become `<stem>.mp4` (atomic rename)
+and the AVI get deleted, under the camera's clip lock, which the experiment archive also holds
+while it copies. Any failure leaves the AVI and is reported in status().
+Measurements and the brief: docs/plans/h264-rolling-clips.md, clip-transcode-denoise.md.
 
 Invariant: an MP4 exists only after verification, so if both formats of a clip exist (killed
 between rename and delete, or the AVI was open), the AVI is redundant and is removed later.
@@ -57,6 +58,18 @@ def clip_files(path: Path) -> List[Path]:
     return [candidate for candidate in (path.with_suffix(suffix) for suffix in CLIP_SUFFIXES) if candidate.exists()]
 
 
+def transcode_command(ffmpeg: Path, source: Path, target: Path, bitrate_kbps: int, denoise_filter: str = "") -> list:
+    """The conversion of one clip; the denoise filter (CAMERA_CONFIG clip_denoise_filter) runs on the
+    encoder's yuv420p planes after the range conversion."""
+    # MJPEG is full-range; players expect limited range (lifted blacks otherwise).
+    video_filter = "scale=out_range=tv,format=yuv420p" + (f",{denoise_filter}" if denoise_filter else "")
+    return [str(ffmpeg), "-hide_banner", "-nostdin", "-loglevel", "error", "-y", *SINGLE_THREADED,
+            "-i", str(source), "-map", "0:v:0", "-an", "-vf", video_filter, "-color_range", "tv",
+            "-c:v", "libopenh264", "-profile:v", "constrained_baseline", "-rc_mode", "bitrate",
+            "-b:v", f"{bitrate_kbps}k", "-g", str(GOP_FRAMES), "-bf", "0", "-threads", "1",
+            "-fps_mode", "passthrough", "-movflags", "+faststart", "-f", "mp4", str(target)]
+
+
 def _frame_count(sidecar: Path) -> Optional[int]:
     try:
         count = json.loads(sidecar.read_text(encoding="utf-8")).get("frame_count")
@@ -71,11 +84,13 @@ class ClipTranscoder:
     on_replaced(avi, mp4) runs with `lock` held, right after the MP4 is published.
     """
 
-    def __init__(self, folder: Path, lock, on_replaced: Callable[[Path, Path], None], bitrate_kbps: int):
+    def __init__(self, folder: Path, lock, on_replaced: Callable[[Path, Path], None], bitrate_kbps: int,
+                 denoise_filter: str = ""):
         self.folder = Path(folder)
         self.lock = lock
         self.on_replaced = on_replaced
         self.bitrate_kbps = bitrate_kbps
+        self.denoise_filter = denoise_filter
         self._wake = threading.Event()
         self._stopping = threading.Event()
         self._thread: Optional[threading.Thread] = None
@@ -120,7 +135,7 @@ class ClipTranscoder:
     def status(self) -> dict:
         return {"state": self._state, "pending": self._pending, "transcoded": self._transcoded,
                 "failed": len(self._failed), "last_error": self._last_error,
-                "format": f"H.264 MP4 {self.bitrate_kbps} kbit/s"}
+                "format": f"H.264 MP4 {self.bitrate_kbps} kbit/s{', denoised' if self.denoise_filter else ''}"}
 
     def _run(self) -> None:
         for stale in self.folder.glob(f"*{TEMPORARY_SUFFIX}"):
@@ -180,13 +195,7 @@ class ClipTranscoder:
         started = time.monotonic()
         try:
             frames = _frame_count(sidecar)
-            self._run_child([str(ffmpeg), "-hide_banner", "-nostdin", "-loglevel", "error", "-y", *SINGLE_THREADED,
-                             "-i", str(avi), "-map", "0:v:0", "-an",
-                             # MJPEG is full-range; players expect limited range (lifted blacks otherwise).
-                             "-vf", "scale=out_range=tv,format=yuv420p", "-color_range", "tv",
-                             "-c:v", "libopenh264", "-profile:v", "constrained_baseline", "-rc_mode", "bitrate",
-                             "-b:v", f"{self.bitrate_kbps}k", "-g", str(GOP_FRAMES), "-bf", "0", "-threads", "1",
-                             "-fps_mode", "passthrough", "-movflags", "+faststart", "-f", "mp4", str(temporary)])
+            self._run_child(transcode_command(ffmpeg, avi, temporary, self.bitrate_kbps, self.denoise_filter))
             decoded = self._decoded_frames(ffmpeg, temporary)
             if decoded != frames:
                 raise TranscodeFailed(f"H.264 copy has {decoded} frames, the clip has {frames}")

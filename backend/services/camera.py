@@ -105,7 +105,7 @@ class CameraService:
         self.clips_lock = threading.Lock()
         # Finalized MJPEG clips are re-stored as H.264 MP4 by a low-priority ffmpeg child.
         self.clip_transcoder = ClipTranscoder(self.rolling_clips_path, self.clips_lock, self._clip_transcoded,
-                                              CAMERA_CONFIG["clip_h264_kbps"])
+                                              CAMERA_CONFIG["clip_h264_kbps"], CAMERA_CONFIG["clip_denoise_filter"])
         
         # Integration with new live streaming system
         self.streaming_integration_enabled = False
