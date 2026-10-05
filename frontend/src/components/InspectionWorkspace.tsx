@@ -1,7 +1,47 @@
 import { ReactNode, useLayoutEffect, useRef, useState } from "react";
-import { Box, Button, IconButton, Tooltip } from "@mui/material";
+import { Box, Button, IconButton, Tooltip, Typography, useMediaQuery } from "@mui/material";
 import ChevronLeft from '@mui/icons-material/ChevronLeft';
 import ChevronRight from '@mui/icons-material/ChevronRight';
+import type { SystemStyleObject } from "@mui/system";
+import type { Theme } from "@mui/material/styles";
+
+/** Phones: under 600 px (MUI's xs). */
+const phoneQuery = '(max-width: 599.95px)';
+
+/** True on phones, where the workspace flows with the page instead of keeping a measured height. */
+export const usePhoneWorkspace = () => useMediaQuery(phoneQuery, { noSsr: true });
+
+/** A bar pinned to the bottom of the screen while its list scrolls with the page (phones). */
+export const pinnedBarSx = {
+  position: 'sticky', bottom: 0, zIndex: 3, bgcolor: 'background.paper', borderTop: 1, borderColor: 'divider',
+  pb: 'env(safe-area-inset-bottom)',
+} as const;
+
+/**
+ * The open table's or definition's name. Phones show one line (tap shows it whole; screen
+ * readers always get the full name); wider screens wrap it.
+ */
+export function InspectionName({ name, variant, sx }: { name: string; variant?: 'subtitle1'; sx?: SystemStyleObject<Theme> }) {
+  const phone = usePhoneWorkspace();
+  const [whole, setWhole] = useState(false);
+  const oneLine = phone && !whole;
+  return <Typography component="h2" variant={variant} title={name} onClick={phone ? () => setWhole(value => !value) : undefined}
+    sx={{ minWidth: 0, ...sx, ...(oneLine ? { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer' } : { overflowWrap: 'anywhere' }) }}>
+    {name}
+  </Typography>;
+}
+
+/** "50 of 2,072 files" with Load more: a phone list grows in place instead of paging. `noun` is singular. */
+export function LoadMoreBar({ shown, total, noun, loading = false, onMore }: {
+  shown: number; total: number; noun: string; loading?: boolean; onMore: () => void;
+}) {
+  return <Box sx={[{ display: 'flex', alignItems: 'center', gap: 1, px: 1.5, minHeight: 52 }, pinnedBarSx]}>
+    <Typography variant="body2" color="text.secondary" sx={{ flex: 1, minWidth: 0 }}>
+      {shown.toLocaleString()} of {total.toLocaleString()} {noun}{total === 1 ? '' : 's'}
+    </Typography>
+    {shown < total && <Button onClick={onMore} disabled={loading}>Load more</Button>}
+  </Box>;
+}
 
 interface InspectionWorkspaceProps {
   label: string;
@@ -12,10 +52,19 @@ interface InspectionWorkspaceProps {
   onDetailVisibilityChange?: (visible: boolean) => void;
   /** "table": the selector is a wide table and the detail a fixed side panel (Scheduling). */
   layout?: 'list' | 'table';
+  /**
+   * The detail is a text reader with its own scrolling pane (SQL, log). On phones it keeps the
+   * measured height while lists and tables flow with the page.
+   */
+  boundedDetail?: boolean;
   children: ReactNode;
 }
 
-/** A bounded reading area. The app header and page heading determine its height. */
+/**
+ * A bounded reading area. The app header and page heading determine its height. On phones it
+ * has no height of its own: lists and tables scroll with the page (one scroll), apart from a
+ * `boundedDetail` reader.
+ */
 export default function InspectionWorkspace({
   label,
   selector,
@@ -24,6 +73,7 @@ export default function InspectionWorkspace({
   onBack,
   onDetailVisibilityChange,
   layout = 'list',
+  boundedDetail = false,
   children,
 }: InspectionWorkspaceProps) {
   const tableLayout = layout === 'table';
@@ -38,6 +88,8 @@ export default function InspectionWorkspace({
   const resizeStart = useRef<{ x: number; width: number } | null>(null);
   const resize = (value: number) => setSelectorWidth(Math.max(240, Math.min(480, value)));
   const detailVisible = !selector || !narrow || detailOpen;
+  const phone = usePhoneWorkspace();
+  const flow = phone && !(boundedDetail && detailVisible);
 
   useLayoutEffect(() => {
     onDetailVisibilityChange?.(detailVisible);
@@ -96,8 +148,8 @@ export default function InspectionWorkspace({
       ref={workspace}
       aria-label={label}
       sx={{
-        height: height ?? "70dvh",
-        minHeight: 320,
+        height: flow ? "auto" : height ?? "70dvh",
+        minHeight: flow ? 0 : 320,
         minWidth: 0,
         width: "100%",
         display: "flex",

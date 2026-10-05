@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 
 /** Failure cases for table paging and the SQL reader:
  * - First, Last and page jump never produce an invalid page, including for empty tables
- *   or a shrinking row count. A failed page or filter request keeps the previous rows
+ *   or a shrinking row count. On a phone they stay reachable (bar, then More > Page and rows). A failed page or filter request keeps the previous rows
  *   with their own page labels; Retry uses the requested query and current filters.
  * - SQL Top/Bottom/Go to line/Find reach the last line without repeated scrolling, keep
  *   reader state, and stay reachable on a phone.
@@ -36,6 +36,28 @@ test('table First, Last and page jump retain correct data after a failed request
   await expect(page.getByRole('button',{name:'Inspect row 51',exact:true})).toHaveCount(0);
   await expect(page.getByText('Page 2 of 3',{exact:true})).toBeVisible();
   await info.attach('table-retained-page',{body:await page.screenshot(),contentType:'image/png'});
+});
+
+test('phone paging bar and Page and rows reach every page', async ({page}, info) => {
+  await page.setViewportSize({width:375,height:667});
+  await page.goto('/database');
+  await page.getByRole('button',{name:/PageSamples Has data/}).click();
+  await page.getByRole('button',{name:'Go to last page'}).click();
+  await expect(page.getByText('51–57 of 57',{exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Inspect row 51',exact:true})).toBeInViewport();
+  await page.getByRole('button',{name:'More table options'}).click();
+  await page.getByRole('menuitem',{name:'Page and rows'}).click();
+  const dialog = page.getByRole('dialog',{name:'Page and rows'});
+  await dialog.getByRole('spinbutton',{name:'Page',exact:true}).fill('2');
+  await dialog.getByRole('button',{name:'Go to page',exact:true}).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByRole('button',{name:'Inspect row 26',exact:true})).toBeInViewport();
+  await page.getByRole('button',{name:'More table options'}).click();
+  await page.getByRole('menuitem',{name:'Page and rows'}).click();
+  await dialog.getByRole('combobox',{name:'Rows per page'}).click();
+  await page.getByRole('option',{name:'50',exact:true}).click();
+  await expect(page.getByText('1–50 of 57',{exact:true})).toBeVisible();
+  await info.attach('phone-paging',{body:await page.screenshot(),contentType:'image/png'});
 });
 
 test('SQL Bottom, Top, line jump and Find work at phone size', async ({page},info) => {

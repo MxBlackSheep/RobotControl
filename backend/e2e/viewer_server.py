@@ -5,6 +5,7 @@ import gzip
 import hashlib
 import io
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -42,6 +43,14 @@ ansi = 'ASCII prefix\r\n' * 90000 + 'café\r\n'
 (history / 'legacy.log.gz').write_bytes(gzip.compress(ansi.encode('cp1252')))
 files.append(dict(path='history/legacy.log.gz',entry=None,sha256=hashlib.sha256(ansi.encode()).hexdigest()))
 (history / 'corrupt.gz').write_bytes(b'not gzip')
+# The owner's Python log folder holds about 2,000 small rotated files; listings page through them.
+rotated = logs / 'rotated'
+rotated.mkdir()
+for index in range(2000):
+    path = rotated / f'robotcontrol_{index:04d}.log'
+    path.write_bytes(b'x' * (537 + index * 37 % 4000))
+    stamp = time.time() - 86400 * 30 + index * 60
+    os.utime(path, (stamp, stamp))
 (logs / 'robotcontrol_backend.log').write_text('ACTIVE-START\nCurrent log\nACTIVE-END\n', encoding='utf-8')
 evidence = ROOT / 'test-output' / 'viewer-verification'
 evidence.mkdir(parents=True, exist_ok=True)
@@ -256,6 +265,6 @@ def frontend(path: str):
 
 if __name__ == '__main__':
     import uvicorn
-    server = uvicorn.Server(uvicorn.Config(app, host='127.0.0.1', port=8016, log_level='warning', proxy_headers=False, timeout_graceful_shutdown=3))
+    server = uvicorn.Server(uvicorn.Config(app, host='127.0.0.1', port=int(os.environ.get('E2E_PORT', 8016)), log_level='warning', proxy_headers=False, timeout_graceful_shutdown=3))
     app.state.server = server
     server.run()

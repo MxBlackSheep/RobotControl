@@ -155,10 +155,11 @@ LOGFILE_SOURCES: Dict[str, Dict[str, Any]] = {
 
 
 def _format_file_size(size_bytes: int) -> str:
-    if size_bytes == 0:
-        return "0 B"
-    size = float(size_bytes)
-    for unit in ["B", "KB", "MB", "GB"]:
+    # Whole bytes have no fraction: "537 B", not "537.0 B".
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    size = size_bytes / 1024.0
+    for unit in ["KB", "MB", "GB"]:
         if size < 1024.0:
             return f"{size:.1f} {unit}"
         size /= 1024.0

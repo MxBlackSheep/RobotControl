@@ -1,9 +1,16 @@
 import { expect, Page, test } from '@playwright/test';
+import { routeDatabaseViewer, viewerRows as rows } from './database-fixture';
 
 /** Failure cases for the read-only table and SQL viewer:
  * - Narrow screens show the selected table or SQL, not the whole catalogue above it;
  *   Back keeps selection, search draft and scroll. Wide data scrolls locally, never the
  *   whole page. Reading and close controls stay reachable in short windows.
+ * - Phones (under 600 px) scroll a table with the page, not in a box (the owner saw 1.5
+ *   of 32 rows): at least 6 rows show at 390x844 and 375x667, nothing in the workspace
+ *   scrolls vertically, headings stay pinned and aligned with their columns after a
+ *   sideways swipe, the Row column stays put, the right-edge fade marks more columns, and
+ *   the paging bar stays on screen and shows the next page from its first row. Search
+ *   still applies on Enter and Expand stays reachable through More.
  * - Expand does not re-request data, clear filters or reset Find; Escape restores focus.
  * - The row inspector shows hidden columns and distinguishes NULL, empty and long values.
  *   Copy reports a clipboard failure instead of claiming success.
@@ -14,56 +21,30 @@ import { expect, Page, test } from '@playwright/test';
  * - Restore messages (no backups, a failed backup) appear inline, never as a second
  *   dialog stacked over the restore screen or the create-backup dialog.
  */
-const rows = Array.from({ length: 57 }, (_, index) => ({
-  ID: index + 1,
-  Name: `Sample ${String(index + 1).padStart(2, '0')}`,
-  Notes: index === 0 ? 'Long complete value: ' + 'laboratory inspection '.repeat(50) : `Observation ${index + 1}`,
-  Missing: null,
-  Empty: '',
-  LongColumnNameForResponsiveInspection: 'Preserved column value',
-}));
-const sql = '-- Inspection fixture\nCREATE PROCEDURE InspectSamples\n  @sample_id int,\n  @description nvarchar(200)\nAS\nBEGIN\n  SELECT * FROM Samples;\n  SELECT N\'Unicode Ω 中文\';\nEND;';
-
-async function fixtures(page: Page) {
-  await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));
-  await page.route('**/api/database/tables?*', route => route.fulfill({ json: { success: true, data: {
-    table_details: [{ name: 'ViewerSamples', has_data: true, is_important: true }, { name: 'EmptyTable', has_data: false, is_important: true }],
-  } } }));
-  await page.route('**/api/database/tables/ViewerSamples?*', async route => {
-    const query = new URL(route.request().url()).searchParams;
-    let selected = rows.filter(row => !query.get('search') || Object.values(row).some(value => String(value).toLowerCase().includes(query.get('search')!.toLowerCase())));
-    const filters = JSON.parse(query.get('filters') || '{}');
-    for (const [column, filter] of Object.entries(filters) as [string, { value: string; operator: string }][]) {
-      selected = selected.filter(row => String(row[column as keyof typeof row]).includes(filter.value));
-    }
-    if (query.get('sort_direction') === 'desc') selected = [...selected].reverse();
-    const limit = Number(query.get('limit') || 25), offset = (Number(query.get('page') || 1) - 1) * limit;
-    await route.fulfill({ json: { success: true, data: { columns: Object.keys(rows[0]), rows: selected.slice(offset, offset + limit), total_count: selected.length } } });
-  });
-  await page.route('**/api/database/tables/EmptyTable?*', route => route.fulfill({ json: { success: true, data: { columns: ['ID'], rows: [], total_count: 0 } } }));
-  await page.route('**/api/database/stored-procedures?*', route => route.fulfill({ json: { success: true, data: {
-    procedures: [{ name: 'InspectSamples', type: 'PROCEDURE', definition: sql, created_date: '2026-09-01T10:00:00', modified_date: '2026-09-20T12:00:00', parameters: [
-      { name: '@sample_id', data_type: 'int', mode: 'IN', max_length: null },
-      { name: '@description', data_type: 'nvarchar', mode: 'IN', max_length: 200 },
-    ] }],
-    functions: [{ name: 'SampleCount', type: 'FUNCTION', definition: 'CREATE FUNCTION SampleCount() RETURNS int AS BEGIN RETURN 57; END', parameters: [] }],
-  } } }));
-}
-
 async function assertNoPageOverflow(page: Page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
 }
 
-test.beforeEach(async ({ page }) => fixtures(page));
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));
+  await routeDatabaseViewer(page);
+});
 
 for (const size of [{ width: 390, height: 844 }, { width: 1920, height: 1080 }]) {
   test(`table and SQL inspection at ${size.width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize(size);
+    const phone = size.width < 600;
+    const count = (total: number) => page.getByText(phone ? `1–${Math.min(total, 25)} of ${total}` : `${total} matching rows`, { exact: true });
+    const expand = async () => {
+      if (!phone) return page.getByRole('button', { name: 'Expand table' }).click();
+      await page.getByRole('button', { name: 'More table options' }).click();
+      await page.getByRole('menuitem', { name: 'Expand table' }).click();
+    };
     const writes: string[] = [];
     page.on('request', request => { if (request.url().includes('/api/database/') && request.method() !== 'GET') writes.push(request.url()); });
     await page.goto('/database?section=tables');
     await page.getByRole('button', { name: /ViewerSamples Has data/ }).click();
-    await expect(page.getByText('57 matching rows')).toBeVisible();
+    await expect(count(57)).toBeVisible();
     await assertNoPageOverflow(page);
     await page.getByRole('button', { name: 'Inspect row 1', exact: true }).click();
     const record = page.getByRole('dialog', { name: /Row 1/ });
@@ -74,12 +55,12 @@ for (const size of [{ width: 390, height: 844 }, { width: 1920, height: 1080 }])
     await page.keyboard.press('Escape');
     await page.getByRole('textbox', { name: 'Search all supported columns' }).fill('Sample 02');
     await page.getByRole('button', { name: 'Apply', exact: true }).click();
-    await expect(page.getByText('1 matching rows')).toBeVisible();
-    await page.getByRole('button', { name: 'Expand table' }).click();
+    await expect(count(1)).toBeVisible();
+    await expand();
     await expect(page.getByRole('dialog', { name: 'Expanded table ViewerSamples' })).toBeVisible();
     await expect(page.getByRole('textbox', { name: 'Search all supported columns' })).toHaveValue('Sample 02');
     await page.keyboard.press('Escape');
-    await expect(page.getByRole('button', { name: 'Expand table' })).toBeFocused();
+    await expect(page.getByRole('button', { name: phone ? 'More table options' : 'Expand table' })).toBeFocused();
     if (size.width < 900) {
       await page.getByRole('button', { name: 'Back to tables' }).click();
       await page.getByRole('button', { name: /ViewerSamples Has data/ }).click();
@@ -134,8 +115,9 @@ test('short narrow windows keep reading and close controls reachable', async ({ 
   await page.setViewportSize({ width: 320, height: 390 });
   await page.goto('/database?section=tables');
   await page.getByRole('button', { name: /ViewerSamples Has data/ }).click();
-  await expect(page.getByText('57 matching rows')).toBeVisible();
-  await page.getByRole('button', { name: 'Expand table' }).click();
+  await expect(page.getByText('1–25 of 57', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'More table options' }).click();
+  await page.getByRole('menuitem', { name: 'Expand table' }).click();
   expect((await page.getByLabel('ViewerSamples rows').boundingBox())!.height).toBeGreaterThanOrEqual(119);
   await page.getByRole('button', { name: 'Close expanded table' }).click();
   await page.goto('/database?section=procedures');
@@ -147,6 +129,69 @@ test('short narrow windows keep reading and close controls reachable', async ({ 
   await page.getByRole('button', { name: 'Close expanded SQL' }).click();
   await expect(page.getByRole('button', { name: 'Expand SQL' })).toBeVisible();
 });
+
+/** Rows between the pinned headings and the paging bar, and where those two sit on screen. */
+const phoneTableLayout = (page: Page) => page.evaluate(() => {
+  const heading = [...document.querySelectorAll('th')].find(cell => cell.textContent === 'OD' && !cell.closest('[aria-hidden="true"]'))!;
+  const strip = heading.closest('table')!.parentElement!.getBoundingClientRect();
+  const bar = document.querySelector('.MuiTablePagination-root')!.parentElement!.getBoundingClientRect();
+  const rows = [...document.querySelectorAll('button[aria-label^="Inspect row"]')].map(button => button.closest('tr')!.getBoundingClientRect());
+  return {
+    rows: rows.filter(row => row.top >= strip.bottom - 1 && row.bottom <= bar.top + 1).length,
+    stripTop: strip.top, barBottom: bar.bottom, viewport: innerHeight,
+    header: parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--app-header-height')),
+  };
+});
+
+for (const size of [{ width: 390, height: 844 }, { width: 375, height: 667 }]) {
+  test(`phone table scrolls with the page, keeps headings, Row column and paging at ${size.width}x${size.height}`, async ({ page }, testInfo) => {
+    await page.setViewportSize(size);
+    await page.goto('/database?section=tables');
+    await page.getByRole('button', { name: /dbo\.ActivePlateView/ }).click();
+    await expect(page.getByText('1–25 of 32', { exact: true })).toBeVisible();
+    const workspace = page.getByLabel('Database table workspace');
+    // One scroll: nothing inside the workspace scrolls vertically.
+    expect(await workspace.evaluate(root => [...root.querySelectorAll('*')].filter(element =>
+      /auto|scroll/.test(getComputedStyle(element).overflowY) && element.scrollHeight > element.clientHeight + 1).length)).toBe(0);
+    // The pinned headings are the only ones screen readers and the keyboard reach.
+    await expect(page.getByRole('button', { name: 'OD', exact: true })).toHaveCount(1);
+    if (size.height >= 844) expect((await phoneTableLayout(page)).rows).toBeGreaterThanOrEqual(6);
+    await testInfo.attach(`phone-table-${size.width}-open`, { body: await page.screenshot(), contentType: 'image/png' });
+
+    await page.mouse.wheel(0, 600);
+    await expect.poll(async () => { const layout = await phoneTableLayout(page); return Math.abs(layout.stripTop - layout.header); }).toBeLessThan(1);
+    const scrolled = await phoneTableLayout(page);
+    expect(scrolled.rows).toBeGreaterThanOrEqual(6);
+    expect(scrolled.barBottom).toBeLessThanOrEqual(scrolled.viewport + 1);
+    expect(scrolled.barBottom).toBeGreaterThan(scrolled.viewport - 60);
+
+    // Sideways: the Row column stays, headings follow their columns, the fade ends at the last column.
+    const rows = page.getByLabel('dbo.ActivePlateView rows');
+    const fade = () => page.getByLabel('Database table workspace').evaluate(root =>
+      [...root.querySelectorAll('div')].filter(element => getComputedStyle(element).backgroundImage.includes('linear-gradient')).length);
+    expect(await fade()).toBe(1);
+    const rowButton = page.getByRole('button', { name: 'Inspect row 10', exact: true });
+    const before = (await rowButton.boundingBox())!.x;
+    await rows.evaluate(element => { element.scrollLeft = element.scrollWidth; });
+    await expect.poll(fade).toBe(0);
+    expect((await rowButton.boundingBox())!.x).toBeCloseTo(before, 0);
+    const odHeading = (await page.getByRole('columnheader', { name: 'OD', exact: true }).boundingBox())!;
+    const odCell = (await page.getByRole('button', { name: 'View OD, row 10', exact: true }).locator('xpath=..').boundingBox())!;
+    expect(Math.abs(odHeading.x - odCell.x)).toBeLessThan(1);
+    expect(Math.abs(odHeading.width - odCell.width)).toBeLessThan(1);
+    await testInfo.attach(`phone-table-${size.width}-scrolled`, { body: await page.screenshot(), contentType: 'image/png' });
+
+    // Paging from the bottom bar shows the next page from its first row.
+    await page.getByRole('button', { name: 'Go to next page' }).click();
+    await expect(page.getByText('26–32 of 32', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Inspect row 26', exact: true })).toBeInViewport();
+    await page.getByRole('textbox', { name: 'Search all supported columns' }).fill('Waiting for read');
+    await page.getByRole('textbox', { name: 'Search all supported columns' }).press('Enter');
+    await expect(page.getByText('1–7 of 7', { exact: true })).toBeVisible();
+    await page.setViewportSize({ width: 320, height: 568 });
+    await assertNoPageOverflow(page);
+  });
+}
 
 test('restore messages stay inline instead of stacking dialogs', async ({ page }, testInfo) => {
   await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));
