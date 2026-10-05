@@ -73,7 +73,8 @@ export function createAppTheme(mode: PaletteMode) {
     ? { head: '#1C212A', headLine: '#2A313C', rowLine: '#222831', track: '#25324A', label: '#AEB6C3', control: '#3A4350' }
     : { head: '#F6F7F9', headLine: '#DDE1E6', rowLine: '#EEF0F3', track: '#DCE5F3', label: '#4A5260', control: '#C9D0D9' };
   const focus = { outline: '2px solid', outlineColor: primary, outlineOffset: 2 };
-  const touch = { '@media (pointer: coarse), (max-width: 600px)': { minHeight: layout.touchRow, minWidth: layout.touchRow } };
+  const touchMedia = '@media (pointer: coarse), (max-width: 600px)';
+  const touch = { [touchMedia]: { minHeight: layout.touchRow, minWidth: layout.touchRow } };
   return createTheme({
     palette: {
       mode,
@@ -126,12 +127,13 @@ export function createAppTheme(mode: PaletteMode) {
         },
       },
       MuiIconButton: { styleOverrides: { root: { borderRadius: layout.radius, ...touch, '&:focus-visible': focus } } },
-      MuiInputBase: { styleOverrides: { root: { fontSize: 14, '@media (pointer: coarse), (max-width: 600px)': { minHeight: layout.touchRow } } } },
+      // iOS Safari zooms the page into any field below 16px when it is focused.
+      MuiInputBase: { styleOverrides: { root: { fontSize: 14, [touchMedia]: { minHeight: layout.touchRow, fontSize: 16 } } } },
       MuiOutlinedInput: { styleOverrides: { notchedOutline: { borderColor: surface.control } } },
       MuiMenuItem: { styleOverrides: { root: { fontSize: 14, minHeight: layout.row, ...touch } } },
-      MuiTabs: { styleOverrides: { root: { minHeight: layout.header } } },
-      MuiTab: { styleOverrides: { root: { textTransform: 'none', minHeight: layout.header, fontSize: 14, padding: '0 12px' } } },
-      MuiToggleButton: { styleOverrides: { root: { textTransform: 'none', fontSize: 13, height: 32, padding: '0 12px', borderColor: surface.control } } },
+      MuiTabs: { styleOverrides: { root: { minHeight: layout.header, [touchMedia]: { minHeight: layout.touchRow } } } },
+      MuiTab: { styleOverrides: { root: { textTransform: 'none', minHeight: layout.header, fontSize: 14, padding: '0 12px', [touchMedia]: { minHeight: layout.touchRow } } } },
+      MuiToggleButton: { styleOverrides: { root: { textTransform: 'none', fontSize: 13, height: 32, padding: '0 12px', borderColor: surface.control, [touchMedia]: { height: layout.touchRow } } } },
       MuiPaper: { styleOverrides: { root: { backgroundImage: 'none' }, outlined: { borderColor: divider }, rounded: { borderRadius: layout.radius } } },
       MuiCard: { defaultProps: { variant: 'outlined' }, styleOverrides: { root: { borderRadius: layout.radius } } },
       MuiCardContent: { styleOverrides: { root: { padding: layout.inset, '&:last-child': { paddingBottom: layout.inset } } } },

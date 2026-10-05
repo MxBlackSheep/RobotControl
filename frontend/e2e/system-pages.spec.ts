@@ -12,6 +12,7 @@ import { test, expect } from '@playwright/test';
 //   from its connection.
 // - Showing details creates another polling owner or loses the retained stale reading.
 // - Connection identifiers or session counts overflow a 320px screen or trap keyboard focus.
+// - On a 390x844 phone the Databases state ("1 cannot connect") is below the first screen.
 // - An expired access token makes System Status reads fail with 401 forever instead of
 //   renewing the sign-in once.
 // Keyboard shortcuts:
@@ -31,6 +32,9 @@ import { test, expect } from '@playwright/test';
 // - One panel's failed read (e.g. Recent runs) blanks the page instead of offering Retry.
 // - A failed robot status read shows "Nothing running" as if the robot were idle.
 // - The phone navigation button disappears with the status bar.
+// - The strip shows SQL Server again, or Overview polls system-health for nothing.
+// - On a 390x844 phone the strip, the hold (Review recovery) or the running job's name and bar
+//   fall below the first screen.
 // Unrelated 503s (the backend has no "database restarting" 503; restore success is checked
 // in database-restore.spec.ts):
 // - A camera or scheduler 503 opens "Database Maintenance In Progress", blocks later
@@ -63,6 +67,9 @@ test('monitoring has one refresh owner and shows stale and unknown services accu
   await expect(databases.getByTitle('Connected', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('region', { name: 'Live view', exact: true }).getByTitle('Unavailable', { exact: true })).toBeVisible();
   expect(healthRequests).toBe(1);
+  // On a phone the connection state is on the first screen, above the fold.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(databases.getByTitle('1 cannot connect', { exact: true })).toBeInViewport({ ratio: 1 });
   failed = true;
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
   await expect(page.getByText('Stale data', { exact: true })).toBeVisible();
@@ -159,7 +166,8 @@ test('Overview shows elapsed time against the estimate and keeps other panels wh
     { schedule_id: 'qc', experiment_name: 'Plate reader QC', experiment_path: 'qc.hsl', schedule_type: 'once', estimated_duration: 20, is_active: true, archived: false, next_run: local(new Date(now.getTime() + 90 * 60000)) },
     { schedule_id: 'deck', experiment_name: 'Weekly deck cleanup', experiment_path: 'deck.hsl', schedule_type: 'weekly', estimated_duration: 30, is_active: true, archived: false, next_run: local(new Date(now.getTime() + 30 * 60000)) },
   ] } }));
-  await page.route('**/api/monitoring/system-health', route => route.fulfill({ json: { data: { database: { is_connected: true } } } }));
+  const healthReads: string[] = [];
+  page.on('request', request => { if (request.url().includes('/api/monitoring/system-health')) healthReads.push(request.url()); });
   let historyFails = true;
   await page.route('**/api/scheduling/executions/history?*', route => historyFails
     ? route.fulfill({ status: 503, json: { detail: 'History unavailable' } })
@@ -173,7 +181,9 @@ test('Overview shows elapsed time against the estimate and keeps other panels wh
   // Soonest first, whatever order the list arrives in.
   await expect(page.getByRole('region', { name: 'Up next' })).toContainText(/Today 15:00Weekly deck cleanupWeekly30 min.*Today 16:00Plate reader QCOnce20 min/);
   const health = page.getByRole('region', { name: 'Instrument health' });
-  await expect(health).toContainText('SQL ServerConnected');
+  // SQL Server left the strip (the owner did not need it there; System status lists every connection).
+  await expect(health).not.toContainText('SQL Server');
+  expect(healthReads).toEqual([]);
   await expect(health).toContainText('HxRunRunning');
   await expect(health).toContainText('CameraRecording');
   const recent = page.getByRole('region', { name: 'Recent runs' });
@@ -194,7 +204,25 @@ test('Overview shows elapsed time against the estimate and keeps other panels wh
   await page.screenshot({ path: info.outputPath('overview-past-estimate.png'), fullPage: true, animations: 'disabled' });
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBeTruthy();
+  // A phone's first screen answers "is something running, does anything need attention".
+  await page.evaluate(() => scrollTo(0, 0));
+  await expect(health).toBeInViewport({ ratio: 1 });
+  await expect(running.getByText('Daily tip wash', { exact: true })).toBeInViewport({ ratio: 1 });
+  await expect(running.getByRole('progressbar', { name: 'Running past the estimate' })).toBeInViewport({ ratio: 1 });
   await page.screenshot({ path: info.outputPath('overview-phone.png'), fullPage: true, animations: 'disabled' });
+
+  // With runs held the hold comes right after the strip, and the run is still on the first screen.
+  await page.route('**/api/scheduling/status/queue', route => route.fulfill({ json: { success: true, data: {
+    queue: { queued_jobs: 1, running_job_details: [{ schedule_id: 'wash', experiment_name: 'Daily tip wash', estimated_duration: 60,
+      monitoring: { state: 'monitoring', launched_at: new Date(now.getTime() - 42 * 60000).toISOString(), inactivity_seconds: 18, threshold_minutes: 3 } }] },
+    hamilton: { is_running: true }, manual_recovery: { active: true, storage_healthy: true, safety_revision: 4,
+      pending_recoveries: [{ schedule_id: 'feed2', experiment_name: 'Cell feeding · stack 2', note: 'No log activity for 3 min.' }] } } } }));
+  await page.clock.fastForward(16000);
+  const hold = page.getByRole('region', { name: 'Needs attention' });
+  await expect(hold.getByRole('link', { name: 'Review recovery' })).toBeInViewport({ ratio: 1 });
+  await expect(health).toBeInViewport({ ratio: 1 });
+  await expect(running.getByText('Daily tip wash', { exact: true })).toBeInViewport({ ratio: 1 });
+  await page.screenshot({ path: info.outputPath('overview-phone-hold.png'), animations: 'disabled' });
 });
 
 test('System Status renews an expired sign-in', async ({ page }) => {

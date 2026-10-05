@@ -13,6 +13,8 @@ import {
   Stack,
   TextField,
   Typography,
+  useMediaQuery,
+  type Theme,
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import InfoOutlined from '@mui/icons-material/InfoOutlined';
@@ -132,6 +134,8 @@ const MaintenancePage: React.FC = () => {
   const stateTone: StatusTone = !state || error ? 'neutral' : state.enabled ? 'attention' : 'completed';
   const stateLabel = !state || error ? 'State unavailable' : state.enabled ? 'Blocked for maintenance' : 'Allowed';
   const runningNote = robot?.hamiltonRunning && !state?.enabled;
+  const phone = useMediaQuery((theme: Theme) => theme.breakpoints.down('sm'), { noSsr: true });
+  const lastChange = state && `Last change: ${state.updated_by || 'Unknown'} · ${formatTimestamp(state.updated_at)}`;
 
   return (
     <PageContent variant="task">
@@ -142,7 +146,7 @@ const MaintenancePage: React.FC = () => {
 
       <PageGrid>
         <Panel title="HxRun launches" inset={false} span={12}
-          actions={state && <Typography variant="caption" color="text.secondary">Last change: {state.updated_by || 'Unknown'} · {formatTimestamp(state.updated_at)}</Typography>}>
+          actions={lastChange && !phone && <Typography variant="caption" color="text.secondary">{lastChange}</Typography>}>
           {loading && !state
             ? <Box sx={{ py: 4, display: 'flex', justifyContent: 'center' }}><CircularProgress size={28} /></Box>
             : <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'minmax(0, 1fr) auto' }, gap: 3, alignItems: 'center', p: `${layout.inset}px` }}>
@@ -153,6 +157,8 @@ const MaintenancePage: React.FC = () => {
                 </Box>
                 <Typography variant="body2" color="text.secondary">Maintenance mode stops HxRun from being launched on this PC, so you can work on the instrument safely.</Typography>
                 {!state && <Typography variant="body2" color="text.secondary">Refresh to check the current state.</Typography>}
+                {/* A phone's header band has no room for it beside the label. */}
+                {lastChange && phone && <Typography variant="caption" color="text.secondary">{lastChange}</Typography>}
               </Stack>
               <Button
                 variant="contained"

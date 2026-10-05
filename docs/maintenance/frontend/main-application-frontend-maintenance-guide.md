@@ -100,10 +100,12 @@ three-letter names). Execution statuses map to tones in
 ## Overview
 
 `pages/Dashboard.tsx` follows the mock on `PageGrid`: the instrument strip (scheduler,
-storage, SQL Server, HxRun, camera; 12 columns), Now running (8) beside Needs attention (4;
+storage, HxRun, camera; 12 columns), Now running (8) beside Needs attention (4;
 Now running takes 12 when nothing is held), Up next (6) beside Recent runs (6, both seven
-single-line rows) and Latest experiment as one full-width row. On phones the strip and the
-hold come first. Each panel has its own error boundary and Retry, so one failed read never
+single-line rows) and Latest experiment as one full-width row. SQL Server left the strip in
+October 2026 at the owner's request; System status lists every database connection. On phones
+the strip and the hold come first, and a 390×844 screen shows the strip, the hold's Review
+recovery and the running job's name and bar without scrolling (`system-pages.spec.ts`). Each panel has its own error boundary and Retry, so one failed read never
 blanks the page. Now running shows elapsed time against the schedule's estimate; past the
 estimate the bar stops claiming progress (see `runTiming`).
 
@@ -112,6 +114,8 @@ rail at 900px the half-width lists are ~388px. Up next and Recent runs drop seco
 (repeat, then duration and start) before the name falls below ~150px. Latest experiment is one
 row from 1000px of panel width; narrower, its ID and times wrap below the method name. Strip
 cells wrap by their own text, so a long state moves to the next line instead of being clipped.
+Below 600px the cells form a grid instead, label above state, three across (two when the content
+is under 320px, i.e. a 320px phone), so the strip takes two rows of 52px.
 
 ## Page layout and screenshot review
 
@@ -138,7 +142,11 @@ OS in System mode, syncs between tabs and falls back to memory if storage fails.
 sidebar, and `palette.tone` (running, completed, neutral, attention, fault) colours
 `StatusChip`, the one status label for every screen; attention (amber) always means
 someone must act. The approved design is linked from `docs/plans/2026-09-30-frontend-redesign.md`. Touch and narrow-screen
-controls have 44px targets; full-screen dialogs bypass the normal dialog margins.
+controls have 44px targets, including section tabs and toggle buttons (the theme's
+`(pointer: coarse), (max-width: 600px)` rule), and text fields use 16px there because iOS Safari
+zooms the page into a smaller field when it is focused. A text link in a 40px band keeps its size
+and gets a 44px touch area from an `::after` pseudo-element (panel header links, the banner's
+recovery link). Full-screen dialogs bypass the normal dialog margins.
 
 ## Messages and dialogs
 

@@ -50,7 +50,9 @@ polling policy.
 ## Layout and verification
 
 Use the overview PageContent pattern, one PageHeader and theme palette tokens.
-Resource cards become one column on phones; the one connection disclosure is
+Below 900px (md) the CPU, Memory and Disk cards share one row, value and bar with the detail
+line under them (one copy, placed by `useMediaQuery`), so the Databases state stays on a phone's
+first screen; from md a `display: contents` wrapper leaves the 12-column grid unchanged; the one connection disclosure is
 collapsed by default and works with keyboard Enter/Space. Keep explanations out
 of metric cards.
 
