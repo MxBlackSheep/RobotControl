@@ -1,4 +1,4 @@
-"""Live-view encoder settings on a real clip: bitrate, encoder CPU, detail kept, 2× crops.
+"""Live-view and clip-storage encoder settings on a real clip: bitrate, encoder CPU, detail kept, 2× crops.
 
 Run: uv run --locked python -m backend.scripts.live_view_quality_probe --clip <clip .avi/.mp4>
          --still 240:330 --moving 400 [--settings 15:600,15:400:d] [--denoise <filter>] [--darken 4] [--out <folder>]
@@ -7,6 +7,9 @@ Run: uv run --locked python -m backend.scripts.live_view_quality_probe --clip <c
 denoise filter: LIVE_STREAMING_CONFIG denoise_filter, or --denoise) encodes the same frames with the
 live-view command (h264_encoder.ffmpeg_command, bundled ffmpeg). Clip frames are fed one per frame
 at the setting's rate: a 7.5 fps clip at 15 moves twice as fast, a harder case for temporal filters.
+A clip:kbit/s[:d] setting instead runs clip_transcoder.transcode_command on the whole clip (with :d
+CAMERA_CONFIG clip_denoise_filter, or --clip-denoise) and scores the same frames of its output; CPU is
+then per frame of the whole clip. It cannot be combined with --darken.
 
 Detail kept (%): on the still frames, the decoded image's fine detail (image minus a Gaussian blur,
 σ 1.5) projected onto that of the mean of the still source frames. Averaging removes sensor noise,
@@ -33,7 +36,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from backend.config import LIVE_STREAMING_CONFIG
+from backend.config import CAMERA_CONFIG, LIVE_STREAMING_CONFIG
+from backend.services.clip_transcoder import transcode_command
 from backend.services.h264_encoder import EncoderSettings, HEIGHT, WIDTH, ffmpeg_command, find_ffmpeg
 
 ROIS = ((180, 270, 500, 350), (280, 350, 600, 450))  # plates; gripper over the deck
@@ -86,6 +90,16 @@ def encode(ffmpeg, frames, settings, path):
     return float(times[1]) + float(times[2])
 
 
+def transcode(ffmpeg, clip, kbps, denoise, path):
+    """Store the clip as the product does; return ffmpeg's CPU seconds."""
+    command = transcode_command(ffmpeg, clip, path, kbps, denoise)
+    command[command.index("-loglevel") + 1] = "info"
+    command[command.index("-y"):command.index("-y")] = ["-benchmark"]
+    run = subprocess.run(command, capture_output=True, check=True)
+    times = re.search(rb"utime=([\d.]+)s stime=([\d.]+)s", run.stderr)
+    return float(times[1]) + float(times[2])
+
+
 def decode(ffmpeg, path):
     raw = subprocess.run([str(ffmpeg), "-v", "error", "-i", str(path), "-f", "rawvideo", "-pix_fmt", "bgr24", "-"],
                          capture_output=True, check=True).stdout
@@ -134,6 +148,7 @@ def main():
     parser.add_argument("--moving", type=int, required=True, help="a clip frame where the robot moves")
     parser.add_argument("--settings", default="15:600,15:400:d", help="fps:kbit/s[:d] list; d adds the denoise filter")
     parser.add_argument("--denoise", default=LIVE_STREAMING_CONFIG["denoise_filter"], help="filter for :d settings")
+    parser.add_argument("--clip-denoise", default=CAMERA_CONFIG["clip_denoise_filter"], help="filter for clip:kbit/s:d")
     parser.add_argument("--noise-box", default="100,150,540,450", help="x0,y0,x1,y1 still region for noise left")
     parser.add_argument("--darken", type=float, help="simulate less light with this camera gain")
     parser.add_argument("--roi", action="append", help="x0,y0,x1,y1 crop and score region (repeatable)")
@@ -154,6 +169,19 @@ def main():
     rows, columns = [], [("source", frames)]
     for item in args.settings.split(","):
         fps, kbps, *flags = item.split(":")
+        if fps == "clip":
+            if args.darken:
+                raise SystemExit("clip settings convert the clip file itself; --darken cannot apply")
+            denoise = args.clip_denoise if flags == ["d"] else ""
+            path = args.out / f"{name}_clip_{kbps}k{'_denoise' if denoise else ''}.mp4"
+            cpu = min(transcode(ffmpeg, args.clip, int(kbps), denoise, path) for _ in range(3))
+            decoded_all = decode(ffmpeg, path)
+            total = len(decoded_all)
+            decoded = decoded_all[first:first + len(frames)]
+            rows.append({"settings": item, "kbit_s": round(path.stat().st_size * 8 / 1000 / (total / 7.5)),
+                         "frames_out": total, "encoder_cpu_ms_per_frame": round(cpu / total * 1000, 2)})
+            columns.append((f"stored {kbps}k{' denoise' if denoise else ''}", decoded))
+            continue
         denoise = args.denoise if flags == ["d"] else ""
         settings = EncoderSettings(float(fps) if "." in fps else int(fps), int(kbps), denoise)
         path = args.out / f"{name}_{fps}fps_{kbps}k{'_denoise' if denoise else ''}.flv"

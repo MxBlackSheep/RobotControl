@@ -125,10 +125,8 @@ honours 15 would save capture work, but none is in use, and exposure gains were 
 
 ## Not done
 
-- **Clip transcode denoise.** The same filter would cost about 0.16 CPU-s per 1-minute clip
-  (0.36 ms × 450 frames, +13 % on 1.24 CPU-s) and flushes its held frames at end of input, so frame
-  counts and clip verification would be unaffected. Its benefit at 1000 kbit/s is unmeasured; a
-  separate change if wanted.
+- **Clip transcode denoise.** Done separately on 2026-10-05 with a wider window and its own
+  setting (`clip-transcode-denoise.md`).
 - Degraded levels (7.5/300, 5/200) are unchanged and without denoise; they exist for CPU, not links.
 - Not measured on the N100: filter and chain CPU, the real tunnel's capacity, lights-off footage.
 

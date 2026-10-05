@@ -14,10 +14,12 @@ machine's peak CPU % (both over 250 ms windows, time-based like System status, n
 frequency-scaled utility), frame counts of source and output, SSIM and PSNR against the source.
 The "product" profiles run the conversion exactly as backend/services/clip_transcoder.py does,
 including its verifying decode (verify_* columns); "product-1000-before" is the command before
-2026-10-02, which left the decoder, filters and verifying decoder on their default thread counts:
+2026-10-02, which left the decoder, filters and verifying decoder on their default thread counts;
+"product-1000" is the conversion without denoise and "product-1000-denoise" with -DenoiseFilter
+(default: CAMERA_CONFIG clip_denoise_filter as of 2026-10-05; pass the current value if it changed):
 
     powershell -ExecutionPolicy Bypass -File clip_transcode_probe.ps1 -Clips <folder> `
-        -Profiles product-1000-before,product-1000 -Count 8
+        -Profiles product-1000,product-1000-denoise -Count 8
  One side-by-side PNG (source left, H.264 right) per profile is saved for
 the first clip. A profile whose encoder is unavailable (h264_qsv / h264_mf without Intel graphics),
 or a clip ffmpeg cannot read (a truncated recording), is reported as failed and the others continue. Results: results.csv in -OutDir.
@@ -28,7 +30,8 @@ param(
     [int]$Count = 6,
     [string[]]$Profiles = @("openh264-300", "openh264-600", "openh264-1000", "qsv-600", "mf-600"),
     [string]$OutDir = (Join-Path ([IO.Path]::GetTempPath()) ("clip-transcode-probe-" + (Get-Date -Format "yyyyMMdd-HHmmss"))),
-    [int]$SampleFrame = 225
+    [int]$SampleFrame = 225,
+    [string]$DenoiseFilter = "atadenoise=0a=0.16:0b=0.32:1a=0.16:1b=0.32:2a=0.16:2b=0.32:s=7:a=s"
 )
 $ErrorActionPreference = "Stop"
 
@@ -51,9 +54,10 @@ $profileArgs = @{
     "mf-600"        = @("-c:v", "h264_mf", "-hw_encoding", "1", "-b:v", "600k", "-pix_fmt", "nv12")
     "product-1000"  = $productEncode
     "product-1000-before" = $productEncode
+    "product-1000-denoise" = @("-vf", "scale=out_range=tv,format=yuv420p,$DenoiseFilter") + $productEncode[2..($productEncode.Count - 1)]
 }
 # Placed before -i, for the encode and the verifying decode.
-$inputArgs = @{ "product-1000" = $singleThreaded; "product-1000-before" = @() }
+$inputArgs = @{ "product-1000" = $singleThreaded; "product-1000-denoise" = $singleThreaded; "product-1000-before" = @() }
 # "-File" passes "a,b" as one string; accept both that and a real array.
 $Profiles = @($Profiles | ForEach-Object { $_ -split "," } | Where-Object { $_ })
 foreach ($name in $Profiles) { if (-not $profileArgs.ContainsKey($name)) { throw "Unknown profile $name" } }

@@ -4,7 +4,8 @@ Run: uv run --locked python backend/e2e/clip_transcode_check.py [--clips <folder
 Needs the bundled ffmpeg (uv run --locked python build_scripts/fetch_ffmpeg.py); no camera, SQL
 Server or robot. Clips are disposable MJPEG AVIs written like camera_worker.py writes them (noise,
 moving plate, text) in a temporary folder; --clips also copies up to three real clips there and
-records their before/after size. Evidence: test-output/clip-transcode-verification/results.json.
+records their before/after size. Clips are converted with CAMERA_CONFIG clip_denoise_filter as set.
+Evidence: test-output/clip-transcode-verification/results.json.
 
 Failure cases:
 - a verified clip is not replaced: the MP4 is missing, its frame count or frame rate (playback
