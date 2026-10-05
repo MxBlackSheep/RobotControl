@@ -16,6 +16,7 @@ TOOL = {
             "label": "Experiment",
             "type": "integer",
             "query": "SELECT ExperimentID AS value, UserDefinedID AS label FROM dbo.Experiments",
+            "order": "value_desc",
         },
     },
 }

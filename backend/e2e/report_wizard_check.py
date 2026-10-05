@@ -14,6 +14,9 @@ Failure cases:
 - Missing mappings never fall back to the writer. SQL Server permissions, not a
   successful SELECT or query scanning, decide source eligibility: reject write, DDL,
   elevated and EXECUTE permissions, including EXECUTE inherited through public.
+- A lookup's order setting (value_desc) holds across pages, search and the membership
+  check; lookups without it stay alphabetical by label; an unknown order is refused in
+  a Python TOOL and in a manifest.
 - Cycles, unknown dependencies or sources and invalid queries fail without activation.
   Active jobs keep their source snapshot; failed or stale updates keep the package.
   Publishing retires the draft; repeating the same publish after a lost response
@@ -69,6 +72,8 @@ def sql_fixture():
             admin.execute(f'GRANT SELECT TO [{login}]')
             admin.execute('CREATE TABLE dbo.Projects (id int PRIMARY KEY, label nvarchar(80)); INSERT dbo.Projects VALUES (1,N\'Yeast Ω\'),(2,N\'Other\')')
             admin.execute('CREATE TABLE dbo.Plates (id int PRIMARY KEY, project int, label nvarchar(80)); INSERT dbo.Plates VALUES (11,1,N\'Same name\'),(12,1,N\'Same name\'),(21,2,N\'Other plate\')')
+            # 30 runs labelled by a permutation of 01..30 (id*7 mod 31): label order is not id order.
+            admin.execute("CREATE TABLE dbo.Runs (id int PRIMARY KEY, label nvarchar(80)); INSERT dbo.Runs SELECT number, RIGHT('0' + CAST(number * 7 % 31 AS varchar(2)), 2) FROM master.dbo.spt_values WHERE type = 'P' AND number BETWEEN 1 AND 30")
         admin.execute('USE master')
         yield dict(server=server, names=names, login=login, password=password, admin=admin)
     finally:
@@ -87,6 +92,50 @@ def sql_fixture():
                 admin.execute(f'KILL {int(session)}')
             admin.execute(f'DROP LOGIN [{name}]')
         admin.close()
+
+
+ORDERED_TOOL = """import openpyxl
+TOOL = {'name': 'Ordered runs', 'kind': 'report', 'inputs': {'run': {
+    'type': 'integer', 'query': 'SELECT id AS value, label FROM dbo.Runs', 'order': %r}}}
+def run(context, inputs):
+    book = openpyxl.Workbook()
+    book.active.append([inputs['run']])
+    book.save(context.output_dir / 'runs.xlsx')
+    return 'runs.xlsx'
+"""
+
+
+def lookup_order(call, client, wait):
+    """A package's lookup order holds across pages, search and the membership check."""
+    bad = client.post(BASE+'/authoring/import', json=dict(files={'ordered.py': ORDERED_TOOL % 'newest'}))
+    assert bad.status_code == 400 and 'order' in bad.text and 'value_desc' in bad.text, bad.text
+    imported = call('POST', '/authoring/import', dict(files={'ordered.py': ORDERED_TOOL % 'value_desc'}))
+    key = imported['id']
+    saved = call('PUT', f'/drafts/{key}', dict(draft={**imported['draft'], 'mappings': {'primary': 'primary'}}, revision=imported['revision']))
+    first, second = (call('POST', f'/drafts/{key}/choices/run', dict(inputs={}, page=page)) for page in (1, 2))
+    assert [x['value'] for x in first['options']] == list(range(30, 5, -1)) and first['has_more'], first
+    assert [x['value'] for x in second['options']] == list(range(5, 0, -1)) and not second['has_more'], second
+    label = {n: f'{n * 7 % 31:02d}' for n in range(1, 31)}
+    assert all(x['label'] == label[x['value']] for x in first['options'] + second['options'])
+    searched = call('POST', f'/drafts/{key}/choices/run', dict(inputs={}, search='1'))
+    assert [x['value'] for x in searched['options']] == [n for n in range(30, 0, -1) if '1' in label[n]], searched
+    # Membership looks up the selected value directly, so one from the second page still passes.
+    job = wait(call('POST', f'/drafts/{key}/try', dict(inputs={'run': 3}, revision=saved['revision'])))
+    assert job['status'] == 'ready', job
+    missing = wait(call('POST', f'/drafts/{key}/try', dict(inputs={'run': 31}, revision=saved['revision'])))
+    assert 'no longer available' in missing['error'], missing
+    call('DELETE', f'/drafts/{key}')
+    # The manifest route refuses an unknown order before anything is installed.
+    lookup = dict(source='primary', query='SELECT id AS value, label FROM dbo.Runs', parameters=[], value_type='integer', order='newest')
+    manifest = dict(contract_version=2, id='ordered-runs', name='Ordered runs', version='1.0.0', libraries=[], tools=[dict(
+        id='ordered-runs', name='Ordered runs', kind='report', entrypoint='handler:run', sources=['primary'],
+        inputs=[dict(name='run', label='Run', type='lookup', lookup=lookup)])])
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, 'w') as package:
+        package.writestr('manifest.json', json.dumps(manifest))
+        package.writestr('handler.py', 'def run(context, inputs):\n    return None\n')
+    refused = client.post(BASE+'/packages/inspect', files={'file': ('ordered.zip', archive.getvalue(), 'application/zip')})
+    assert refused.status_code == 400 and 'order' in refused.text, refused.text
 
 
 def run():
@@ -175,6 +224,8 @@ def run(context, inputs):
                     assert len({x['label'] for x in choices['options']})==1
                     call('POST',f'/drafts/{key}/choices/plate',dict(inputs={}),400)
                     assert call('POST',f'/drafts/{key}/choices/project',dict(inputs={},search="x' OR 1=1--"))['options']==[]
+                    # Without an order setting, choices stay alphabetical by label ('Other' before 'Yeast Ω').
+                    assert [x['value'] for x in call('POST',f'/drafts/{key}/choices/project',dict(inputs={}))['options']]==[2,1]
                     def wait(job):
                         deadline=time.monotonic()+30
                         while job['status'] in {'pending','running'}:
@@ -220,6 +271,8 @@ def run(context, inputs):
                     call('POST',f'/drafts/{key}/install',publish,409)
                     assert package()==newer
                     result['checks'].append('Draft ownership/revision, original never imported, starter/edit/reupload, dependent membership, private trial, Excel values, export/install, idempotent repeat, stale activation and replay over a newer version passed')
+                    lookup_order(call, client, wait)
+                    result['checks'].append('Lookup order: value_desc pages 30..6 then 5..1, search and membership in that order; default stays by label; an unknown order is refused in Python and in a manifest')
                     with TestClient(app,client=('10.0.0.1',1234),headers={'authorization':'admin','x-forwarded-for':'127.0.0.1'}) as remote:
                         assert remote.get(BASE+'/drafts').status_code==403
                     result['passed']=True

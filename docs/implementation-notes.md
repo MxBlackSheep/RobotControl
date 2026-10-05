@@ -4,6 +4,23 @@
 - SQL Server left the Overview strip at the owner's request, with the system-health read that fed only it; System status keeps every connection.
 - Touch screens (`theme.ts`, existing `(pointer: coarse), (max-width: 600px)` rule): text fields 16 px (iOS Safari zoomed into the 14 px Login, Maintenance Reason and search fields), section tabs and toggle buttons 44 px. Header text links and the banner's recovery link get a 44 px touch area from a pseudo-element, so bands keep their height. Maintenance's "Last change" moves into the card on phones. Desktop (1280/1440, mouse) is pixel-identical to main except the strip.
 - Checks: `system-pages.spec.ts` (Overview first screen at 390×844 with and without a hold, no SQL Server and no system-health read; System status's Databases state on the first screen), `camera.spec.ts` phone case (picture 390 px wide, controls below it); `system-pages` and `camera` specs pass. Screenshots (PR evidence): before/after at 390 and 375, light and dark, plus desktop diffs against main.
+## 2026-10-05 Experiment choices newest first (lookup order setting)
+
+- Before, the Experiment list in Culture history and Delete Experiment was alphabetical by
+  UserDefinedID, because `lookup_rows` ordered every lookup by label; an `ORDER BY` in the
+  package query is invalid in the derived table it pages. Now a lookup may set `order`
+  (`label` default, `label_desc`, `value`, `value_desc`), validated in manifests and Python
+  `TOOL` definitions and mapped to fixed SQL (`LOOKUP_ORDER_SQL`); package text never reaches
+  the `ORDER BY`. Lookups without it keep label order, and written manifests leave out the
+  default, so packages that do not use it stay importable by 0.1.4.
+- Culture history and Delete Experiment 1.0.1 use `value_desc` (highest ExperimentID first).
+  A manifest cannot declare a minimum app version: 0.1.4 refuses these ZIPs on import
+  (`lookup.order: Extra inputs are not permitted`) and keeps 1.0.0. Stated in both CHANGELOGs.
+- Checks: `report_wizard_check` (new case: 30 rows, `value_desc` page 1 = 30..6, page 2 = 5..1,
+  search, membership from page 2, default label order, unknown order refused via Python and
+  ZIP); fails before the change. `tool_authoring_check`, `database_workspace_check`,
+  `database_tools_check`, `bundled_tools_check`, `preparation_step_check` pass. Evidence:
+  `test-output/lookup-order/`.
 
 ## 2026-10-05 Stored clips are denoised in the H.264 conversion
 

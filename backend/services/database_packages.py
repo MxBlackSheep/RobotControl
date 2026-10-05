@@ -17,9 +17,9 @@ from types import ModuleType
 from datetime import date, datetime, timezone
 from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
-from typing import Literal
+from typing import Literal, get_args
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 
 from backend.utils.filesystem import replace_file
 
@@ -115,12 +115,27 @@ class PackageError(ValueError):
         self.status = status
 
 
+# How a lookup's choices are listed; report_sources.lookup_rows maps each to fixed SQL.
+LookupOrder = Literal['label', 'label_desc', 'value', 'value_desc']
+LOOKUP_ORDERS = get_args(LookupOrder)
+
+
 class LookupDefinition(BaseModel):
     model_config = ConfigDict(extra="forbid")
     source: str = Field(pattern=IDENTIFIER)
     query: str = Field(min_length=1, max_length=12000)
     parameters: list[str] = Field(default_factory=list, max_length=20)
     value_type: Literal['text', 'integer', 'number'] = 'text'
+    order: LookupOrder = 'label'
+
+    @model_serializer(mode='wrap')
+    def _omit_default_order(self, handler):
+        # Applications before 0.1.5 refuse an `order` key, so a lookup that keeps the
+        # default writes the same manifest as before and stays importable there.
+        data = handler(self)
+        if data.get('order') == 'label':
+            del data['order']
+        return data
 
 
 class InputDefinition(BaseModel):
