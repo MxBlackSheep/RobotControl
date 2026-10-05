@@ -106,8 +106,8 @@ export function UpNext({ canOpenScheduling, span }: { canOpenScheduling: boolean
 
 /**
  * From 600px: equal shares of a line, but never narrower than the cell's own text. On phones the
- * cells form a grid with the label above the state (three across, two below 360px), so the strip
- * takes two short rows instead of one row per cell.
+ * cells form a grid with the label above the state, three across (two on a 320px phone, whose
+ * content is 288px), so the strip takes two short rows instead of one row per cell.
  */
 const healthCell = { display: 'flex', flex: '1 1 0', px: { xs: 1.5, sm: `${layout.inset}px` }, borderRight: 1, borderBottom: 1, borderColor: 'surface.rowLine',
   flexDirection: { xs: 'column', sm: 'row' }, alignItems: { xs: 'flex-start', sm: 'center' }, justifyContent: { xs: 'center', sm: 'flex-start' },
@@ -141,7 +141,7 @@ export function InstrumentHealth({ status }: { status: RobotStatus | null }) {
     {/* Cells wrap by their content, so a long state ("Needs attention") moves to the next line
         instead of being clipped. Each cell draws its right and bottom line; the -1px margins push
         the lines on the outer edge under the section's border. */}
-    <Box sx={{ display: { xs: 'grid', sm: 'flex' }, gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', '@container workspace (max-width: 359px)': { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' },
+    <Box sx={{ display: { xs: 'grid', sm: 'flex' }, gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', '@container workspace (max-width: 319px)': { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' },
       flexWrap: 'wrap', mr: '-1px', mb: '-1px' }}>
       {cells.map(([name, [state, tone]]) => <Box key={name} sx={{ ...healthCell, columnGap: 2 }}>
         <Typography component="span" variant="overline" sx={{ textTransform: 'uppercase', color: 'surface.label', whiteSpace: 'nowrap' }}>{name}</Typography>
