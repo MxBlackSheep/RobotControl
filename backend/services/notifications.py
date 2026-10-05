@@ -11,6 +11,7 @@ import tempfile
 import time
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
@@ -27,6 +28,7 @@ from backend.models import (
     ScheduledExperiment,
     NotificationSettings,
 )
+from backend.services.alert_email import AlertEmail, manual_recovery_email, schedule_alert_email
 from backend.utils.secret_cipher import decrypt_secret, SecretCipherError
 
 logger = logging.getLogger(__name__)
@@ -139,6 +141,7 @@ class EmailNotificationService:
         message_id: Optional[str] = None,
         timeout_seconds: Optional[float] = None,
         attempts: Optional[int] = None,
+        html: Optional[str] = None,
     ) -> bool:
         self.last_error = None
         self.last_delivery_status = None
@@ -167,6 +170,9 @@ class EmailNotificationService:
             message["Message-ID"] = message_id
         message["To"] = ", ".join(recipients)
         message.set_content(body)
+        if html:
+            # multipart/alternative: a client that blocks or cannot show HTML shows the text part.
+            message.add_alternative(html, subtype="html")
 
         for attachment in attachments:
             try:
@@ -270,11 +276,6 @@ class SchedulingNotificationService:
         self._hamilton_log_dir = self._resolve_trc_directory()
         self._rolling_clips_dir = self._video_root_dir / "rolling_clips"
 
-    def _format_timestamp(self, value: Optional[object]) -> Optional[str]:
-        if not value:
-            return None
-        return value.isoformat() if hasattr(value, "isoformat") else str(value)
-
     def manual_recovery_required(
         self,
         schedule: ScheduledExperiment,
@@ -282,32 +283,7 @@ class SchedulingNotificationService:
         note: Optional[str],
         actor: str,
     ) -> None:
-        recipients = self._manual_recovery_recipients(schedule)
-        if not recipients:
-            logger.warning(
-                "Skipping manual recovery notification for %s - no recipients configured",
-                schedule.schedule_id,
-            )
-            return
-
-        subject = f"RobotControl manual recovery required: {schedule.experiment_name}"
-        lines = [
-            "Status: Manual Recovery Required",
-            "",
-            f"Experiment: {schedule.experiment_name}",
-            f"Schedule ID: {schedule.schedule_id}",
-            f"Triggered by: {actor}",
-        ]
-        marked = self._format_timestamp(getattr(schedule, "recovery_marked_at", None))
-        if marked:
-            lines.append(f"Flagged at: {marked}")
-        if note:
-            lines.extend(["", "Reason:", note])
-
-        body = "\n".join(lines)
-        from backend.services.notification_delivery import send_recorded
-        send_recorded(self.email, subject, body, to=recipients, event_type='manual_recovery_required',
-                      schedule_id=schedule.schedule_id, actor=actor)
+        self._send_manual_recovery(schedule, note=note, actor=actor, required=True)
 
     def manual_recovery_cleared(
         self,
@@ -316,32 +292,27 @@ class SchedulingNotificationService:
         note: Optional[str],
         actor: str,
     ) -> None:
+        self._send_manual_recovery(schedule, note=note, actor=actor, required=False)
+
+    def _send_manual_recovery(self, schedule: ScheduledExperiment, *, note: Optional[str], actor: str, required: bool) -> None:
+        event_type = "manual_recovery_required" if required else "manual_recovery_cleared"
         recipients = self._manual_recovery_recipients(schedule)
         if not recipients:
-            logger.warning(
-                "Skipping manual recovery clearance notification for %s - no recipients configured",
-                schedule.schedule_id,
-            )
+            logger.warning("Skipping %s notification for %s - no recipients configured", event_type, schedule.schedule_id)
             return
 
-        subject = f"RobotControl manual recovery cleared: {schedule.experiment_name}"
-        lines = [
-            "Status: Manual Recovery Cleared",
-            "",
-            f"Experiment: {schedule.experiment_name}",
-            f"Schedule ID: {schedule.schedule_id}",
-            f"Resolved by: {actor}",
-        ]
-        resolved = self._format_timestamp(getattr(schedule, "recovery_resolved_at", None))
-        if resolved:
-            lines.append(f"Resolved at: {resolved}")
-        if note:
-            lines.extend(["", "Resolution notes:", note])
-
-        body = "\n".join(lines)
+        alert = manual_recovery_email(
+            required=required,
+            experiment=schedule.experiment_name,
+            schedule_id=schedule.schedule_id,
+            actor=actor,
+            at=getattr(schedule, "recovery_marked_at" if required else "recovery_resolved_at", None),
+            note=note,
+            now=datetime.now(),
+        )
         from backend.services.notification_delivery import send_recorded
-        send_recorded(self.email, subject, body, to=recipients, event_type='manual_recovery_cleared',
-                      schedule_id=schedule.schedule_id, actor=actor)
+        send_recorded(self.email, alert.subject, alert.text(), html=alert.html(), to=recipients,
+                      event_type=event_type, schedule_id=schedule.schedule_id, actor=actor)
 
     def _manual_recovery_recipients(self, schedule: ScheduledExperiment) -> List[str]:
         recipients = self.email.get_manual_recovery_recipients()
@@ -380,13 +351,14 @@ class SchedulingNotificationService:
     ) -> ScheduleAlertResult:
         """Send an alert for a schedule execution event."""
         recipients = [contact.email_address for contact in contacts if contact.is_active and contact.email_address]
-        subject = self._render_alert_subject(schedule, trigger)
-        body_lines, attachment_notes = self._render_alert_body(schedule, execution, trigger, context)
+        attachment_notes: List[str] = []
+        clip_attached = False
+        alert = self._alert_email(schedule, execution, trigger, context, attachment_notes, clip_attached)
+        subject, body = alert.subject, alert.text()
 
         attachments: List[Path] = []
         cleanup: List[Path] = []
 
-        body = "\n".join(body_lines)
         try:
             # Collect TRC file
             trc_file = trace_path if exact_trace else self._locate_trc_file(schedule, execution)
@@ -395,14 +367,14 @@ class SchedulingNotificationService:
                 if converted and converted.exists():
                     attachments.append(converted)
                     cleanup.append(converted)
-                    attachment_notes.append(f"Hamilton TRC log attached as {converted.name}.")
+                    attachment_notes.append(f"Run trace: {converted.name}")
                 elif not exact_trace:
                     attachments.append(trc_file)
-                    attachment_notes.append("Hamilton TRC log attached in original .trc format.")
+                    attachment_notes.append(f"Run trace: {trc_file.name} (original .trc file)")
                 else:
-                    attachment_notes.append("The exact run trace could not be read; no substitute log was attached.")
+                    attachment_notes.append("Run trace: could not be read, so no substitute log was attached")
             else:
-                attachment_notes.append("TRC log not found or unreadable.")
+                attachment_notes.append("Run trace: not found")
 
             # Rolling clip summary (always attempt for operator context)
             fallback_clips = self._collect_recent_rolling_clips(limit=3)
@@ -414,30 +386,29 @@ class SchedulingNotificationService:
                     size_bytes = summary_clip.stat().st_size
                     if size_bytes <= GMAIL_MESSAGE_SIZE_LIMIT:
                         attachments.append(summary_clip)
+                        clip_attached = True
                         attachment_notes.append(
-                            f"Attached rolling clip summary ({self._format_size(size_bytes)})."
+                            f"Camera clip: the latest camera recordings ({self._format_size(size_bytes)})"
                         )
                     else:
                         summary_clip.unlink(missing_ok=True)
                         attachment_notes.append(
-                            f"Rolling clip summary skipped (size {self._format_size(size_bytes)} exceeds limit)."
+                            f"Camera clip: not attached, {self._format_size(size_bytes)} is over the email size limit"
                         )
                 else:
-                    attachment_notes.append("Rolling clip summary unavailable (transcode failed).")
+                    attachment_notes.append("Camera clip: could not be prepared")
             else:
-                attachment_notes.append("Rolling clip summary unavailable (no recent clips).")
+                attachment_notes.append("Camera clip: no recent camera recordings")
 
-            if attachment_notes:
-                body_lines.extend(["", "Attachment notes:"])
-                body_lines.extend(f"  - {note}" for note in attachment_notes)
-
-            body = "\n".join(body_lines)
+            alert = self._alert_email(schedule, execution, trigger, context, attachment_notes, clip_attached)
+            subject, body = alert.subject, alert.text()
             send_error: Optional[str] = None
             if should_send is not None and not should_send():
                 return ScheduleAlertResult(False, subject, body, recipients, cancelled=True)
             sent = self.email.send(
                 subject,
                 body,
+                html=alert.html(),
                 to=recipients,
                 attachments=attachments or None,
                 **({"message_id": message_id} if message_id else {}),
@@ -484,97 +455,29 @@ class SchedulingNotificationService:
         from backend.services.scheduling.run_log_monitor import hamilton_log_directory
         return hamilton_log_directory()
 
-    def _render_alert_subject(self, schedule: ScheduledExperiment, trigger: str) -> str:
-        trigger_label = {
-            "log_inactive": "Run log inactive",
-            "monitoring_unavailable": "Run monitoring unavailable",
-            "long_running": "Long-running execution",
-            "aborted": "Aborted execution",
-            "execution_failed": "Launch failure",
-        }.get(trigger, trigger.replace("_", " ").title())
-        return f"RobotControl alert: {schedule.experiment_name} [{trigger_label}]"
-
-    def _render_alert_body(
+    def _alert_email(
         self,
         schedule: ScheduledExperiment,
         execution: JobExecution,
         trigger: str,
         context: Dict[str, Any],
-    ) -> Tuple[List[str], List[str]]:
-        trigger_label = {
-            "log_inactive": "Run Log Inactive",
-            "monitoring_unavailable": "Run Monitoring Unavailable",
-            "long_running": "Long-running Execution",
-            "aborted": "Aborted Execution",
-            "execution_failed": "Launch Failure",
-        }.get(trigger, trigger.replace("_", " ").title())
-
-        lines: List[str] = [
-            f"Status: {trigger_label}",
-            "",
-            f"Experiment: {schedule.experiment_name}",
-            f"Schedule ID: {schedule.schedule_id}",
-        ]
-        if execution.execution_id:
-            lines.append(f"Execution ID: {execution.execution_id}")
-        if execution.start_time:
-            lines.append(f"Started at: {self._format_timestamp(execution.start_time)}")
-        if execution.end_time:
-            lines.append(f"Ended at: {self._format_timestamp(execution.end_time)}")
-        if schedule.estimated_duration:
-            lines.append(f"Expected duration: {schedule.estimated_duration} minutes")
-        if execution.duration_minutes is not None:
-            lines.append(f"Recorded duration: {execution.duration_minutes} minutes")
-
-        context_lines = self._format_context_lines(context)
-        if context_lines:
-            lines.extend(["", "Details:"])
-            lines.extend(f"  - {line}" for line in context_lines)
-
-        lines.extend(
-            [
-                "",
-                "You are receiving this message because you are listed as a notification contact for this schedule.",
-            ]
+        attachment_notes: List[str],
+        clip_attached: bool,
+    ) -> AlertEmail:
+        return schedule_alert_email(
+            trigger=trigger,
+            experiment=schedule.experiment_name,
+            schedule_id=schedule.schedule_id,
+            execution_id=execution.execution_id,
+            start_time=execution.start_time,
+            end_time=execution.end_time,
+            estimated_duration=schedule.estimated_duration,
+            recorded_minutes=execution.duration_minutes,
+            context=context,
+            attached=attachment_notes,
+            clip_attached=clip_attached,
+            now=datetime.now(),
         )
-
-        return lines, []
-    def _format_context_lines(self, context: Dict[str, Any]) -> List[str]:
-        if not context:
-            return []
-        formatted: List[str] = []
-        mapping = [
-            ("run_guid", "Hamilton run GUID", False),
-            ("run_state", "Hamilton status", False),
-            ("raw_run_state", "Hamilton SQL state", False),
-            ("method_path", "Launched method", False),
-            ("trace_filename", "Run trace", False),
-            ("inactivity_minutes", "No log activity observed (minutes)", True),
-            ("unavailable_minutes", "Monitoring unavailable (minutes)", True),
-            ("last_activity_at", "Last observed log activity", False),
-            ("observed_at", "Observation time", False),
-            ("elapsed_minutes", "Elapsed runtime (minutes)", True),
-            ("threshold_minutes", "Alert threshold (minutes)", True),
-            ("expected_minutes", "Expected duration (minutes)", True),
-            ("runtime_minutes", "Recorded runtime (minutes)", True),
-            ("failure_count", "Failure count", False),
-            ("error_message", "Error", False),
-            ("note", "Note", False),
-        ]
-        seen = set()
-        for key, label, is_numeric in mapping:
-            if key in context and context[key] is not None:
-                value = context[key]
-                seen.add(key)
-                if is_numeric and isinstance(value, (int, float)):
-                    formatted.append(f"{label}: {float(value):.1f}")
-                else:
-                    formatted.append(f"{label}: {value}")
-        for key, value in context.items():
-            if key in seen or value is None:
-                continue
-            formatted.append(f"{key}: {value}")
-        return formatted
 
     def _convert_trc_to_log(self, trc_file: Path) -> Optional[Path]:
         try:
