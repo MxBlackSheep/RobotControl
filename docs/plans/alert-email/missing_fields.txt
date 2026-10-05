@@ -1,0 +1,15 @@
+Subject: RobotControl alert: ChamFl_Fluorence – run log silent
+
+Warning: Run log silent – ChamFl_Fluorence
+
+The Hamilton run log for ChamFl_Fluorence has stopped updating. The run may have stopped. Check the robot and the run trace.
+
+Attached
+  - Run trace: could not be read, so no substitute log was attached
+  - Camera clip: no recent camera recordings
+
+For troubleshooting
+  Schedule ID: sched-chamfl
+  Execution ID: exec-7f3a
+
+You are receiving this message because you are listed as a notification contact for this schedule.

@@ -1,0 +1,21 @@
+Subject: RobotControl alert: ChamFl_Fluorence – run failed
+
+Problem: Run failed – ChamFl_Fluorence
+
+The run for ChamFl_Fluorence failed with the error shown below. Check the robot (camera clip attached) and the run trace.
+
+Run
+  Started:   Mon 5 Oct, 05:41 (2 min ago)
+  Ended:     Mon 5 Oct, 05:41 (2 min ago)
+  Expected:  about 60 min
+  Error:     HxRun exited with return code 1: the method file could not be opened
+
+Attached
+  - Run trace: ChamFl_Fluorence_5f0c2a9e_Trace.log
+  - Camera clip: the latest camera recordings (3.2 MB)
+
+For troubleshooting
+  Schedule ID: sched-chamfl
+  Execution ID: exec-7f3a
+
+You are receiving this message because you are listed as a notification contact for this schedule.
