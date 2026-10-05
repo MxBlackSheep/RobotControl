@@ -4,7 +4,7 @@ The camera helper keeps writing MJPEG AVI, so recording never depends on ffmpeg.
 finalized, one ffmpeg child at BelowNormal priority, in a kill-on-close Job Object, encodes it to
 a temporary file, denoised unless CAMERA_CONFIG clip_denoise_filter is "". Decoder, filters,
 encoder and the verifying decoder get one thread each; FFmpeg still runs these stages side by
-side, so a conversion peaks at about 1.5 cores (2.5 with the denoise) for a few seconds. Only when
+side, so a conversion peaks at about 1.6 cores (2.5 with the denoise, for about 1 s) per clip. Only when
 the file decodes to exactly the sidecar's frame count does it become `<stem>.mp4` (atomic rename)
 and the AVI get deleted, under the camera's clip lock, which the experiment archive also holds
 while it copies. Any failure leaves the AVI and is reported in status().

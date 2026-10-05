@@ -58,10 +58,13 @@ All variants keep 451 of 451 frames and send 1000–1007 kbit/s. Averaging two f
   do not differ measurably. Roughly +0.5 s per clip on an N100 if it is ≈1.7× slower per thread
   (estimate).
 - `clip_transcode_probe.ps1 -Profiles product-1000,product-1000-denoise` (new profile, 8 clips,
-  machine 48–64 % busy): wall time per clip 1.73–1.88 → 1.44–1.53 s, peak 1.85–1.90 → 2.38–2.72
-  cores over 250 ms windows. The filter now does real work in its own stage beside the decoder and
-  encoder (still one thread each), so a conversion briefly uses more cores for a shorter time. Its
-  CPU-seconds there (+0.15 / −0.07 s) were within this busy machine's noise.
+  three runs, machine 48–65 % busy): **peak per clip median 1.6 → 2.4 cores** (1.4–1.9 → 1.8–2.5,
+  one 250 ms window at 3.1) for an encode of 0.7–1.2 s instead of 0.8–1.8 s (`cpu-peak/results.csv`).
+  The filter now does real work in the filter-graph thread beside the decoder and encoder threads,
+  so the ceiling is about 3 cores. Scale, format and denoise already share that one thread
+  (`-filter_threads 1`), so there is no free restructuring; pinning to one core cost +50 % CPU-s in
+  #47. On the 4-core N100 with Hamilton: up to about 2.5 of 4 cores for 1–2 s (estimate) once a
+  minute, at BelowNormal. Its CPU-seconds there were within this busy machine's noise.
 - Frames: `atadenoise` flushes its held frames at end of input, so every clip decodes to the
   sidecar's frame count (`clip_transcode_check` 28/28 and 31/31 with the filter, 31/31 without).
   A broken filter setting (an unknown filter) fails ffmpeg; the AVI is kept and `clip_storage`
