@@ -1,3 +1,21 @@
+## 2026-10-05 Experiment choices newest first (lookup order setting)
+
+- Before, the Experiment list in Culture history and Delete Experiment was alphabetical by
+  UserDefinedID, because `lookup_rows` ordered every lookup by label; an `ORDER BY` in the
+  package query is invalid in the derived table it pages. Now a lookup may set `order`
+  (`label` default, `label_desc`, `value`, `value_desc`), validated in manifests and Python
+  `TOOL` definitions and mapped to fixed SQL (`LOOKUP_ORDER_SQL`); package text never reaches
+  the `ORDER BY`. Lookups without it keep label order, and written manifests leave out the
+  default, so packages that do not use it stay importable by 0.1.4.
+- Culture history and Delete Experiment 1.0.1 use `value_desc` (highest ExperimentID first).
+  A manifest cannot declare a minimum app version: 0.1.4 refuses these ZIPs on import
+  (`lookup.order: Extra inputs are not permitted`) and keeps 1.0.0. Stated in both CHANGELOGs.
+- Checks: `report_wizard_check` (new case: 30 rows, `value_desc` page 1 = 30..6, page 2 = 5..1,
+  search, membership from page 2, default label order, unknown order refused via Python and
+  ZIP); fails before the change. `tool_authoring_check`, `database_workspace_check`,
+  `database_tools_check`, `bundled_tools_check`, `preparation_step_check` pass. Evidence:
+  `test-output/lookup-order/`.
+
 ## 2026-10-05 Stored clips are denoised in the H.264 conversion
 
 - The owner found recordings "quite noisy, despite the live preview being much better": #51 denoised live view only, and `clip_transcoder.py` stored the camera's noise at 1000 kbit/s. Now the conversion runs `atadenoise` (serial, up to 7 frames, thresholds 0.16/0.32; one filter thread, after the range conversion) from its own setting, `CAMERA_CONFIG.clip_denoise_filter` (`""` stores the noise as recorded). It is wider than live view's 5 frames because a clip has no delay to pay for the held frames; at the same thresholds it removes about 20 % more noise with the same ghosting. `transcode_command()` is the one command the product, `live_view_quality_probe` (`clip:<kbit/s>[:d]` settings, new) and `clip_transcode_probe.ps1` (`product-1000-denoise`, new) share.

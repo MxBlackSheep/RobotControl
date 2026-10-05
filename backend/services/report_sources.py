@@ -11,7 +11,7 @@ from typing import Literal
 
 import pyodbc
 from pydantic import BaseModel, ConfigDict, Field
-from backend.services.database_packages import PackageError, IDENTIFIER
+from backend.services.database_packages import LOOKUP_ORDERS, PackageError, IDENTIFIER
 from backend.utils.filesystem import replace_file
 from backend.utils.secret_cipher import encrypt_secret, decrypt_secret
 
@@ -232,6 +232,12 @@ class ReportSources:
             yield {name: stack.enter_context(self.open(source)) for name, source in snapshot.items()}
 
 
+# Each order ends with the other column, so equal labels or values still page deterministically.
+LOOKUP_ORDER_SQL = {'label': '[label], [value]', 'label_desc': '[label] DESC, [value] DESC',
+                    'value': '[value], [label]', 'value_desc': '[value] DESC, [label]'}
+assert set(LOOKUP_ORDER_SQL) == set(LOOKUP_ORDERS)
+
+
 def lookup_rows(conn, field, values, search='', page=1, selected=None):
     lookup = field.lookup
     if any(values.get(x) is None or values.get(x) == '' for x in lookup.parameters):
@@ -243,8 +249,10 @@ def lookup_rows(conn, field, values, search='', page=1, selected=None):
     params = [values[x] for x in lookup.parameters]
     where = '[value] = ?' if selected is not None else 'CAST([label] AS nvarchar(2000)) LIKE ?'
     params.append(selected if selected is not None else '%' + search.replace('[', '[[]').replace('%', '[%]').replace('_', '[_]') + '%')
-    # ROW_NUMBER also supports deployed SQL Server 2008 installations.
-    sql = f'SELECT [value], [label] FROM (SELECT [value], [label], ROW_NUMBER() OVER (ORDER BY [label], [value]) AS rn FROM (SELECT DISTINCT [value], [label] FROM ({query}) AS options WHERE {where}) AS distinct_options) AS numbered WHERE rn > ? AND rn <= ? ORDER BY rn'
+    # ROW_NUMBER also supports deployed SQL Server 2008 installations. The order clause comes
+    # from this fixed table, never from package text.
+    order = LOOKUP_ORDER_SQL[lookup.order]
+    sql = f'SELECT [value], [label] FROM (SELECT [value], [label], ROW_NUMBER() OVER (ORDER BY {order}) AS rn FROM (SELECT DISTINCT [value], [label] FROM ({query}) AS options WHERE {where}) AS distinct_options) AS numbered WHERE rn > ? AND rn <= ? ORDER BY rn'
     params.extend([(page - 1) * 25, (page - 1) * 25 + 26])
     conn.timeout = 30
     with conn.cursor() as cursor:

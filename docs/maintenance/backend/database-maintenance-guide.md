@@ -180,7 +180,9 @@ It must write one `.xlsx` in its folder. Package Python is imported only in this
 import failure fails that run, not installation. A `ValueError` from the child (such as a stale
 choice) becomes the job's `error`; any other exception gives a short `error` and the exception
 text in `error_details`. Choice queries are one `SELECT` with `ROW_NUMBER`
-paging, and chosen values are checked again before running.
+paging, and chosen values are checked again before running. The lookup's `order` (default
+`label`) picks the `ROW_NUMBER` ordering from the fixed `LOOKUP_ORDER_SQL` table in
+`report_sources.py`; an `ORDER BY` inside the package query is not used.
 
 ### Operations
 
