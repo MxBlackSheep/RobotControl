@@ -31,6 +31,7 @@ import { test, expect } from '@playwright/test';
 // - One panel's failed read (e.g. Recent runs) blanks the page instead of offering Retry.
 // - A failed robot status read shows "Nothing running" as if the robot were idle.
 // - The phone navigation button disappears with the status bar.
+// - The strip shows SQL Server again, or Overview polls system-health for nothing.
 // Unrelated 503s (the backend has no "database restarting" 503; restore success is checked
 // in database-restore.spec.ts):
 // - A camera or scheduler 503 opens "Database Maintenance In Progress", blocks later
@@ -159,7 +160,8 @@ test('Overview shows elapsed time against the estimate and keeps other panels wh
     { schedule_id: 'qc', experiment_name: 'Plate reader QC', experiment_path: 'qc.hsl', schedule_type: 'once', estimated_duration: 20, is_active: true, archived: false, next_run: local(new Date(now.getTime() + 90 * 60000)) },
     { schedule_id: 'deck', experiment_name: 'Weekly deck cleanup', experiment_path: 'deck.hsl', schedule_type: 'weekly', estimated_duration: 30, is_active: true, archived: false, next_run: local(new Date(now.getTime() + 30 * 60000)) },
   ] } }));
-  await page.route('**/api/monitoring/system-health', route => route.fulfill({ json: { data: { database: { is_connected: true } } } }));
+  const healthReads: string[] = [];
+  page.on('request', request => { if (request.url().includes('/api/monitoring/system-health')) healthReads.push(request.url()); });
   let historyFails = true;
   await page.route('**/api/scheduling/executions/history?*', route => historyFails
     ? route.fulfill({ status: 503, json: { detail: 'History unavailable' } })
@@ -173,7 +175,9 @@ test('Overview shows elapsed time against the estimate and keeps other panels wh
   // Soonest first, whatever order the list arrives in.
   await expect(page.getByRole('region', { name: 'Up next' })).toContainText(/Today 15:00Weekly deck cleanupWeekly30 min.*Today 16:00Plate reader QCOnce20 min/);
   const health = page.getByRole('region', { name: 'Instrument health' });
-  await expect(health).toContainText('SQL ServerConnected');
+  // SQL Server left the strip (the owner did not need it there; System status lists every connection).
+  await expect(health).not.toContainText('SQL Server');
+  expect(healthReads).toEqual([]);
   await expect(health).toContainText('HxRunRunning');
   await expect(health).toContainText('CameraRecording');
   const recent = page.getByRole('region', { name: 'Recent runs' });

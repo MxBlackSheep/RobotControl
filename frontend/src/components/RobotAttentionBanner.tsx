@@ -33,7 +33,7 @@ export default function RobotAttentionBanner() {
   return <Box role="region" aria-label="Robot status" sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', columnGap: 2, minHeight: layout.touchRow, px: { xs: `${layout.pagePhone}px`, sm: `${layout.page}px` },
     fontSize: 14, bgcolor: 'attentionSurface.head', color: 'attentionSurface.text', borderBottom: 1, borderColor: 'attentionSurface.line' }}>
     {attention && <MuiLink component={Link} to="/scheduling?section=recovery" underline="hover" color="inherit" aria-label={attention.label}
-      sx={{ display: 'flex', alignItems: 'center', gap: 1, fontWeight: 600, minHeight: 36 }}>
+      sx={{ display: 'flex', alignItems: 'center', gap: 1, fontWeight: 600, minHeight: layout.touchRow }}>
       <WarningAmber fontSize="small" />{attention.label}
     </MuiLink>}
     <Box sx={{ flex: 1 }} />

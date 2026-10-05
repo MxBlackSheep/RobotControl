@@ -16,6 +16,7 @@ import {
   ToggleButtonGroup,
   Tooltip,
   Typography,
+  useMediaQuery,
 } from "@mui/material";
 import {
   Add,
@@ -43,6 +44,10 @@ interface CameraViewportProps {
 }
 type Point = { x: number; y: number };
 const touchTarget = { minWidth: 44, minHeight: 44 };
+/** A phone, upright or on its side: the viewing controls go below the picture, within thumb reach. */
+const COMPACT = "(max-width: 599.95px), (max-height: 499.95px)";
+/** An upright phone: the picture uses the whole screen width, not the page's 16px margins. */
+const NARROW = "(max-width: 599.95px)";
 
 /** Viewing transforms never change the source camera, recording or stream session. */
 export default function CameraViewport({
@@ -67,6 +72,10 @@ export default function CameraViewport({
   const [area, setArea] = useState<HTMLDivElement | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
+  const controlsRef = useRef<HTMLDivElement>(null);
+  const viewerRef = useRef<HTMLDivElement>(null);
+  const compact = useMediaQuery(COMPACT);
+  const narrow = useMediaQuery(NARROW);
   const expandRef = useRef<HTMLButtonElement>(null);
   const pointers = useRef(new Map<number, Point>());
   const gesture = useRef<{
@@ -94,7 +103,7 @@ export default function CameraViewport({
       expanded &&
       (active === document.body ||
         (active instanceof HTMLElement &&
-          toolbarRef.current?.contains(active) &&
+          viewerRef.current?.contains(active) &&
           active.matches(":disabled")))
     ) {
       stageRef.current?.focus({ preventScroll: true });
@@ -111,12 +120,16 @@ export default function CameraViewport({
         ? parseFloat(getComputedStyle(main).paddingBottom) || 0
         : 0;
       // A minimum lets short/zoomed windows scroll without making the image vanish.
+      const remaining =
+        viewportHeight - (bounds.top + window.scrollY) - bottomPadding - 40;
+      // On a phone the controls above would leave the picture a sliver: it may fill one screen
+      // below the app's sticky header (the page scrolls to it), and its width usually decides.
+      const screen = main
+        ? viewportHeight - (main.getBoundingClientRect().top + window.scrollY) - 40
+        : 0;
       const height = expanded
         ? bounds.height
-        : Math.max(
-            180,
-            viewportHeight - (bounds.top + window.scrollY) - bottomPadding - 40,
-          );
+        : Math.max(180, remaining, compact ? screen : 0);
       // clientWidth excludes a scrollbar (expanded Fit width scrolls vertically).
       const width = area.clientWidth || bounds.width;
       setAvailable((previous) =>
@@ -129,6 +142,7 @@ export default function CameraViewport({
     const observer = new ResizeObserver(measure);
     observer.observe(area);
     if (toolbarRef.current) observer.observe(toolbarRef.current);
+    if (controlsRef.current) observer.observe(controlsRef.current);
     window.addEventListener("resize", measure);
     window.visualViewport?.addEventListener("resize", measure);
     return () => {
@@ -136,7 +150,7 @@ export default function CameraViewport({
       window.removeEventListener("resize", measure);
       window.visualViewport?.removeEventListener("resize", measure);
     };
-  }, [area, expanded]);
+  }, [area, expanded, compact]);
 
   const fitScale = Math.min(
     available.width / dimensions.width,
@@ -236,8 +250,156 @@ export default function CameraViewport({
         : null;
   };
 
+  // Viewing controls: above the picture on wider screens, below it (after the freshness line)
+  // on phones, so DOM and tab order follow what is on screen.
+  const controlRow = (
+    <>
+      <Stack
+        direction="row"
+        gap={1}
+        flexWrap="wrap"
+        alignItems="center"
+        justifyContent="space-between"
+      >
+        <Stack
+          direction="row"
+          gap={1}
+          flexWrap="wrap"
+          alignItems="center"
+          sx={{ "& button": touchTarget }}
+        >
+          {controls}
+        </Stack>
+        <Stack
+          data-testid="camera-toolbar"
+          direction="row"
+          gap={0.5}
+          flexWrap="wrap"
+          alignItems="center"
+        >
+          <ToggleButtonGroup
+            exclusive
+            value={mode}
+            onChange={(_, value) => {
+              if (value) {
+                setMode(value);
+                setZoom(1);
+                setPan({ x: 0, y: 0 });
+              }
+            }}
+            aria-label="Image sizing"
+          >
+            <ToggleButton
+              value="fit"
+              aria-label="Fit entire frame"
+              sx={touchTarget}
+            >
+              Fit
+            </ToggleButton>
+            <ToggleButton
+              value="width"
+              aria-label="Fit width"
+              sx={touchTarget}
+            >
+              Width
+            </ToggleButton>
+          </ToggleButtonGroup>
+          <Tooltip title="Zoom out">
+            <span>
+              <IconButton
+                aria-label="Zoom out"
+                disabled={!hasFrame || zoom <= 1}
+                onClick={() => changeZoom(zoom - 0.25)}
+                sx={touchTarget}
+              >
+                <Remove />
+              </IconButton>
+            </span>
+          </Tooltip>
+          <Typography
+            variant="body2"
+            sx={{ minWidth: 32, textAlign: "center" }}
+          >
+            {Number(zoom.toFixed(2))}×
+          </Typography>
+          <Tooltip title="Zoom in">
+            <span>
+              <IconButton
+                aria-label="Zoom in"
+                disabled={!hasFrame || zoom >= 4}
+                onClick={() => changeZoom(zoom + 0.25)}
+                sx={touchTarget}
+              >
+                <Add />
+              </IconButton>
+            </span>
+          </Tooltip>
+          <Tooltip title="Reset view">
+            <IconButton
+              aria-label="Reset view"
+              onClick={reset}
+              sx={touchTarget}
+            >
+              <RestartAlt />
+            </IconButton>
+          </Tooltip>
+          {zoom > 1 && (
+            <>
+              <Tooltip title="Pan left">
+                <IconButton
+                  aria-label="Pan left"
+                  disabled={!maxPanX}
+                  onClick={() => move(60, 0)}
+                  sx={touchTarget}
+                >
+                  <ArrowBack />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Pan right">
+                <IconButton
+                  aria-label="Pan right"
+                  disabled={!maxPanX}
+                  onClick={() => move(-60, 0)}
+                  sx={touchTarget}
+                >
+                  <ArrowForward />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Pan up">
+                <IconButton
+                  aria-label="Pan up"
+                  disabled={!maxPanY}
+                  onClick={() => move(0, 60)}
+                  sx={touchTarget}
+                >
+                  <ArrowUpward />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Pan down">
+                <IconButton
+                  aria-label="Pan down"
+                  disabled={!maxPanY}
+                  onClick={() => move(0, -60)}
+                  sx={touchTarget}
+                >
+                  <ArrowDownward />
+                </IconButton>
+              </Tooltip>
+            </>
+          )}
+        </Stack>
+      </Stack>
+      {zoom > 1 && (
+        <Typography role="status" color="warning.dark" variant="body2">
+          Cropped view
+        </Typography>
+      )}
+    </>
+  );
+
   const content = (
     <Box
+      ref={viewerRef}
       sx={{
         display: "flex",
         flexDirection: "column",
@@ -288,154 +450,15 @@ export default function CameraViewport({
           )}
         </Stack>
         <Box sx={{ px: 2, pt: 1.5, pb: 1.5 }}>
-        <Typography variant="body2" aria-live="polite" sx={{ mb: 1 }}>
+        <Typography variant="body2" aria-live="polite" sx={{ mb: compact && !error ? 0 : 1 }}>
           {summary}
         </Typography>
         {error && (
-          <Alert severity="warning" sx={{ mb: 1 }}>
+          <Alert severity="warning" sx={{ mb: compact ? 0 : 1 }}>
             {error}
           </Alert>
         )}
-        <Stack
-          direction="row"
-          gap={1}
-          flexWrap="wrap"
-          alignItems="center"
-          justifyContent="space-between"
-        >
-          <Stack
-            direction="row"
-            gap={1}
-            flexWrap="wrap"
-            alignItems="center"
-            sx={{ "& button": touchTarget }}
-          >
-            {controls}
-          </Stack>
-          <Stack
-            data-testid="camera-toolbar"
-            direction="row"
-            gap={0.5}
-            flexWrap="wrap"
-            alignItems="center"
-          >
-            <ToggleButtonGroup
-              exclusive
-              value={mode}
-              onChange={(_, value) => {
-                if (value) {
-                  setMode(value);
-                  setZoom(1);
-                  setPan({ x: 0, y: 0 });
-                }
-              }}
-              aria-label="Image sizing"
-            >
-              <ToggleButton
-                value="fit"
-                aria-label="Fit entire frame"
-                sx={touchTarget}
-              >
-                Fit
-              </ToggleButton>
-              <ToggleButton
-                value="width"
-                aria-label="Fit width"
-                sx={touchTarget}
-              >
-                Width
-              </ToggleButton>
-            </ToggleButtonGroup>
-            <Tooltip title="Zoom out">
-              <span>
-                <IconButton
-                  aria-label="Zoom out"
-                  disabled={!hasFrame || zoom <= 1}
-                  onClick={() => changeZoom(zoom - 0.25)}
-                  sx={touchTarget}
-                >
-                  <Remove />
-                </IconButton>
-              </span>
-            </Tooltip>
-            <Typography
-              variant="body2"
-              sx={{ minWidth: 32, textAlign: "center" }}
-            >
-              {Number(zoom.toFixed(2))}×
-            </Typography>
-            <Tooltip title="Zoom in">
-              <span>
-                <IconButton
-                  aria-label="Zoom in"
-                  disabled={!hasFrame || zoom >= 4}
-                  onClick={() => changeZoom(zoom + 0.25)}
-                  sx={touchTarget}
-                >
-                  <Add />
-                </IconButton>
-              </span>
-            </Tooltip>
-            <Tooltip title="Reset view">
-              <IconButton
-                aria-label="Reset view"
-                onClick={reset}
-                sx={touchTarget}
-              >
-                <RestartAlt />
-              </IconButton>
-            </Tooltip>
-            {zoom > 1 && (
-              <>
-                <Tooltip title="Pan left">
-                  <IconButton
-                    aria-label="Pan left"
-                    disabled={!maxPanX}
-                    onClick={() => move(60, 0)}
-                    sx={touchTarget}
-                  >
-                    <ArrowBack />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Pan right">
-                  <IconButton
-                    aria-label="Pan right"
-                    disabled={!maxPanX}
-                    onClick={() => move(-60, 0)}
-                    sx={touchTarget}
-                  >
-                    <ArrowForward />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Pan up">
-                  <IconButton
-                    aria-label="Pan up"
-                    disabled={!maxPanY}
-                    onClick={() => move(0, 60)}
-                    sx={touchTarget}
-                  >
-                    <ArrowUpward />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Pan down">
-                  <IconButton
-                    aria-label="Pan down"
-                    disabled={!maxPanY}
-                    onClick={() => move(0, -60)}
-                    sx={touchTarget}
-                  >
-                    <ArrowDownward />
-                  </IconButton>
-                </Tooltip>
-              </>
-            )}
-          </Stack>
-        </Stack>
-        {zoom > 1 && (
-          <Typography role="status" color="warning.dark" variant="body2">
-            Cropped view
-          </Typography>
-        )}
+        {!compact && controlRow}
         </Box>
       </Box>
       <Box
@@ -555,13 +578,24 @@ export default function CameraViewport({
       <Box sx={{ display: "flex", alignItems: "center", minHeight: layout.header, px: 2, flexShrink: 0, borderTop: 1, borderColor: "surface.headLine" }}>
         <FrameFreshness store={store} inline />
       </Box>
+      {compact && (
+        <Box ref={controlsRef} sx={{ px: 2, py: 1.5, flexShrink: 0, borderTop: 1, borderColor: "surface.headLine" }}>
+          {controlRow}
+        </Box>
+      )}
     </Box>
   );
 
   return (
     <>
       {!expanded && (
-        <Paper variant="outlined" sx={{ overflow: "hidden" }}>
+        <Paper
+          variant="outlined"
+          sx={{
+            overflow: "hidden",
+            ...(narrow && { mx: `-${layout.pagePhone}px`, borderLeft: 0, borderRight: 0, borderRadius: 0 }),
+          }}
+        >
           {content}
         </Paper>
       )}

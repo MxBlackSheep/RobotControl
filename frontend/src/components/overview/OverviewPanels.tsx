@@ -31,7 +31,9 @@ const recentStarted = '@container list (min-width: 464px)';
 const recentFull = '@container list (min-width: 544px)';
 const shownFrom = (query: string) => ({ display: 'none', [query]: { display: 'block' } });
 
-const headerLink = (to: string, text: string) => <MuiLink component={Link} to={to} underline="hover" sx={{ fontSize: 13 }}>{text}</MuiLink>;
+// The pseudo-element gives the 20px text link a 44px-high touch target without growing the 40px band.
+const headerLink = (to: string, text: string) => <MuiLink component={Link} to={to} underline="hover"
+  sx={{ fontSize: 13, position: 'relative', '&::after': { content: '""', position: 'absolute', inset: '-12px -8px' } }}>{text}</MuiLink>;
 
 /** A panel's read failed: keep what was shown and offer a retry, without blanking the page. */
 function ReadProblem({ error, stale, onRetry, pending }: { error: string; stale: boolean; onRetry: () => void; pending: boolean }) {
@@ -64,7 +66,8 @@ export function NeedsAttention({ status, span }: { status: RobotStatus | null; s
     <Typography sx={{ fontSize: 16, lineHeight: '24px', fontWeight: 600, overflowWrap: 'anywhere' }}>{heading}</Typography>
     {note && <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>{note}</Typography>}
     <Typography variant="body2" color="text.secondary">{body}</Typography>
-    <Box sx={{ flex: 1, minHeight: 8 }} />
+    {/* Desktop pins the action to the panel's foot beside Now running; a phone needs no spacer. */}
+    <Box sx={{ flex: 1, minHeight: 8, display: { xs: 'none', md: 'block' } }} />
     <Button variant="contained" component={Link} to="/scheduling?section=recovery"
       sx={{ alignSelf: 'flex-start', bgcolor: 'attentionSurface.action', color: 'attentionSurface.actionText', '&:hover': { bgcolor: 'attentionSurface.action', filter: 'brightness(0.94)' } }}>Review recovery</Button>
   </Panel>;
@@ -101,32 +104,27 @@ export function UpNext({ canOpenScheduling, span }: { canOpenScheduling: boolean
   </Panel>;
 }
 
-/** Equal shares of a line, but never narrower than the cell's own text. */
-const healthCell = { display: 'flex', alignItems: 'center', flex: '1 1 0', minWidth: 'max-content', height: layout.row, px: `${layout.inset}px`,
-  borderRight: 1, borderBottom: 1, borderColor: 'surface.rowLine' } as const;
+/**
+ * From 600px: equal shares of a line, but never narrower than the cell's own text. On phones the
+ * cells form a grid with the label above the state (three across, two below 360px), so the strip
+ * takes two short rows instead of one row per cell.
+ */
+const healthCell = { display: 'flex', flex: '1 1 0', px: { xs: 1.5, sm: `${layout.inset}px` }, borderRight: 1, borderBottom: 1, borderColor: 'surface.rowLine',
+  flexDirection: { xs: 'column', sm: 'row' }, alignItems: { xs: 'flex-start', sm: 'center' }, justifyContent: { xs: 'center', sm: 'flex-start' },
+  minWidth: { xs: 0, sm: 'max-content' }, minHeight: { xs: 52, sm: layout.row }, py: { xs: 0.75, sm: 0 } } as const;
 
-type CameraHealth ={ capture_state?: string; recording_state?: string; error?: string | null };
-type Health = { database: boolean | null; camera: CameraHealth | null };
+type CameraHealth = { capture_state?: string; recording_state?: string; error?: string | null };
 
 /** One-line strip of instrument states across the page, like a console status bar. */
 export function InstrumentHealth({ status }: { status: RobotStatus | null }) {
-  const [health, setHealth] = useState<Health | null>(null);
-  const polling = useSerialPolling<Health>({
+  // Undefined until the first read; null when the reply carried no health.
+  const [camera, setCamera] = useState<CameraHealth | null | undefined>(undefined);
+  const polling = useSerialPolling<CameraHealth | null>({
     interval: PANEL_REFRESH_MS,
-    request: async () => {
-      // One failing source must not hide the other.
-      const [database, camera] = await Promise.allSettled([api.get('/api/monitoring/system-health'), api.get('/api/camera/control-status')]);
-      if (database.status === 'rejected' && camera.status === 'rejected') throw new Error('Instrument health unavailable');
-      const connected = database.status === 'fulfilled' ? database.value.data?.data?.database?.is_connected : undefined;
-      return {
-        database: typeof connected === 'boolean' ? connected : null,
-        camera: camera.status === 'fulfilled' ? camera.value.data?.data?.health ?? null : null,
-      };
-    },
-    onSuccess: setHealth,
+    request: async () => (await api.get('/api/camera/control-status')).data?.data?.health ?? null,
+    onSuccess: setCamera,
   });
   const unknown: [string, StatusTone] = ['Unknown', 'neutral'];
-  const camera = health?.camera;
   const cameraState: [string, StatusTone] = !camera ? unknown
     : camera.error ? ['Error', 'fault']
     : camera.recording_state === 'recording' ? ['Recording', 'running']
@@ -135,21 +133,22 @@ export function InstrumentHealth({ status }: { status: RobotStatus | null }) {
   const cells: [string, [string, StatusTone]][] = [
     ['Scheduler', !status ? unknown : status.schedulerRunning ? ['Running', 'running'] : ['Stopped', 'neutral']],
     ['Storage', !status?.recovery ? unknown : status.recovery.storage_healthy ? ['Healthy', 'completed'] : ['Needs attention', 'attention']],
-    ['SQL Server', health?.database === true ? ['Connected', 'completed'] : health?.database === false ? ['Disconnected', 'fault'] : unknown],
     ['HxRun', status?.hamiltonRunning === true ? ['Running', 'running'] : status?.hamiltonRunning === false ? ['Not running', 'neutral'] : unknown],
     ['Camera', cameraState],
   ];
   return <Box component="section" aria-label="Instrument health" sx={{ gridColumn: '1 / -1', order: { xs: -2, md: 0 }, minWidth: 0, bgcolor: 'background.paper', border: 1, borderColor: 'divider', borderRadius: `${layout.radius}px`, overflow: 'hidden' }}>
-    {polling.error && <ReadProblem error="Could not check the database and camera." stale={!!health} onRetry={() => void polling.refresh()} pending={polling.pending} />}
+    {polling.error && <ReadProblem error="Could not check the camera." stale={camera !== undefined} onRetry={() => void polling.refresh()} pending={polling.pending} />}
     {/* Cells wrap by their content, so a long state ("Needs attention") moves to the next line
         instead of being clipped. Each cell draws its right and bottom line; the -1px margins push
         the lines on the outer edge under the section's border. */}
-    <Box sx={{ display: 'flex', flexWrap: 'wrap', mr: '-1px', mb: '-1px' }}>
-      {cells.map(([name, [state, tone]]) => <Box key={name} sx={{ ...healthCell, gap: 2 }}>
+    <Box sx={{ display: { xs: 'grid', sm: 'flex' }, gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', '@container workspace (max-width: 359px)': { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' },
+      flexWrap: 'wrap', mr: '-1px', mb: '-1px' }}>
+      {cells.map(([name, [state, tone]]) => <Box key={name} sx={{ ...healthCell, columnGap: 2 }}>
         <Typography component="span" variant="overline" sx={{ textTransform: 'uppercase', color: 'surface.label', whiteSpace: 'nowrap' }}>{name}</Typography>
-        <Box sx={{ ml: 'auto' }}><StatusDot tone={tone} label={state} /></Box>
+        <Box sx={{ ml: { xs: 0, sm: 'auto' }, '& > span': { whiteSpace: { xs: 'normal', sm: 'nowrap' } } }}><StatusDot tone={tone} label={state} /></Box>
       </Box>)}
-      <Box sx={healthCell}>{headerLink('/system-status', 'System status')}</Box>
+      {/* The link fills the rest of the phone grid's last row (two of three, or both of two). */}
+      <Box sx={{ ...healthCell, gridColumn: 'span 2' }}>{headerLink('/system-status', 'System status')}</Box>
     </Box>
   </Box>;
 }
