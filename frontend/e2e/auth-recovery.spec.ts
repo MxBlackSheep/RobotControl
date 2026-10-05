@@ -9,7 +9,9 @@ import { test, expect } from '@playwright/test';
  * error page as a wrong password; the sign-in page prints the default admin credentials;
  * a refused remote default-password sign-in (403) is shown as a connection problem or wrong
  * password instead of RobotControl's message; a local default-password sign-in (must_reset)
- * does not open the required password change. Backend side: backend/e2e/auth_storage_check.py.
+ * does not open the required password change; the page's delayed Username focus takes focus from
+ * Password chosen right after the page opens (typing lands in Username; seen as a flaky run).
+ * Backend side: backend/e2e/auth_storage_check.py.
  * Synthetic HTTP fixtures exercise the real app and Axios interceptors.
  */
 for (const failure of ['network', 'server', 'timeout', 'refresh', 'proxy'] as const) {
@@ -104,6 +106,11 @@ test('sign-in tells an unreachable server from a wrong password', async ({ page 
   await page.goto('/login');
   await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
   await expect(page.locator('body')).not.toContainText(/Default admin|ShouGroupAdmin/);
+  // Choosing Password straight away (a quick tap, or password autofill) must keep focus there:
+  // the page's delayed Username focus used to move the typing into Username.
+  await page.getByLabel('Password', { exact: true }).focus();
+  await page.waitForTimeout(300);
+  await expect(page.getByLabel('Password', { exact: true })).toBeFocused();
   await page.getByLabel('Username', { exact: true }).fill('operator');
   await page.getByLabel('Password', { exact: true }).fill('secret');
   const submit = page.getByRole('button', { name: 'Sign in' });

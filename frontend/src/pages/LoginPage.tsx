@@ -32,9 +32,14 @@ const LoginPage: React.FC = () => {
 
   React.useEffect(() => {
     const usernameInput = document.querySelector('input[name="username"]') as HTMLInputElement | null;
-    if (usernameInput) {
-      setTimeout(() => usernameInput.focus(), 100);
-    }
+    if (!usernameInput) return;
+    // Never take focus from a field the user (or password autofill) already chose: the delayed
+    // focus used to move typing meant for Password into Username.
+    const timer = setTimeout(() => {
+      const active = document.activeElement;
+      if (!(active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement)) usernameInput.focus();
+    }, 100);
+    return () => clearTimeout(timer);
   }, [mode]);
 
   const headerText = useMemo(() => {
