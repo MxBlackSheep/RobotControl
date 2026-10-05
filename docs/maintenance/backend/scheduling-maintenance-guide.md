@@ -266,6 +266,18 @@ their saved paths.
   first (no record, no send), then `sent`, `partial` or `error`. If the final update fails the
   response warns; accepted mail is never resent to repair a log. Background alerts use a
   90-second timeout and three attempts.
+- Schedule alerts and the two manual recovery emails are built once as an `AlertEmail`
+  (`backend/services/alert_email.py`) and sent as a plain-text part plus an HTML part with the
+  same content in the same order: a one-sentence summary and next step, the Run (or Recovery)
+  table in local time and whole minutes, Attached, then small troubleshooting IDs and unknown
+  context keys as `key: value`, then the footer. Subjects are
+  `RobotControl alert: <experiment> – <short fact>`; recipients' mail rules match that prefix.
+  `TRIGGERS` is the one table of event wording and banner tone; an unknown event gets a generic
+  sentence. Summaries state only what the scheduler does (for example, `aborted` mentions paused
+  scheduling only when it carries a `note`, which is when manual recovery is applied). The HTML
+  uses inline styles and tables only, at most 600 px wide, and escapes every value.
+  `NotificationLog.message` stores the text part. The SMTP test and manual email stay plain text
+  (`EmailNotificationService.send(html=None)`).
 - Sent means SMTP accepted the message, not inbox delivery. A partial refusal is recorded as
   `partial` and accepted recipients are not retried.
 - Errors name the host, port and step (connection/greeting, SSL, STARTTLS, authentication,
@@ -288,8 +300,9 @@ their saved paths.
   (any step) use UUID-named disposable SQL Server databases, with a recorder in place of
   process launch; the browser side is `frontend/e2e/scheduling-lab.spec.ts`. Evidence:
   `test-output/scheduling-lab-verification`. Failure cases are in each file's header.
-- Email records: `backend.e2e.notification_delivery_check` (commands in
-  [frontend/e2e/README.md](../../../frontend/e2e/README.md)).
+- Email records and alert layout: `backend.e2e.notification_delivery_check` (commands in
+  [frontend/e2e/README.md](../../../frontend/e2e/README.md)). Add `--render <folder>` to write
+  every sample alert as `.eml`, `.html` and `.txt` for review in a browser or mail client.
 - Operator acceptance on the simulator: schedule a simulator-only method with an email
   contact, pause trace writes for at least 3.5 minutes, confirm one `log_inactive` email (check
   the event type, not just receipt), resume, pause again and confirm a second; complete and
