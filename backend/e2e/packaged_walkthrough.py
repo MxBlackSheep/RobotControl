@@ -4,6 +4,7 @@ Run: uv run --locked python backend/e2e/packaged_walkthrough.py <candidate folde
 Uses disposable login data, an unreachable SQL Server address and disabled automation,
 like packaged_viewer_smoke.py. Evidence: test-output/packaged-walkthrough/<candidate name>/
 (summary.json, visits.json and one screenshot per page/section). The candidate is preserved.
+Port: 8017, or PACKAGED_E2E_PORT; it refuses a port already in use (see packaged_app.py).
 
 Pass criteria: no API 401/403/404/405 for the local admin, no failed asset, no page error or lazy-load failure, no blank
 page, and no 5xx except where the page depends on the unreachable SQL Server (listed for review).
@@ -14,12 +15,16 @@ import os
 import secrets
 import shutil
 import subprocess
+import sys
 import tempfile
-import time
 import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+from backend.e2e import packaged_app
+
+PORT = packaged_app.port(8017)
 parser = argparse.ArgumentParser()
 parser.add_argument('candidate', type=Path)
 args = parser.parse_args()
@@ -35,7 +40,7 @@ def request(path, body=None, token=None):
     headers = {'Content-Type': 'application/json'}
     if token:
         headers['Authorization'] = 'Bearer ' + token
-    req = urllib.request.Request('http://127.0.0.1:8017' + path,
+    req = urllib.request.Request(f'http://127.0.0.1:{PORT}' + path,
                                  data=json.dumps(body).encode() if body is not None else None, headers=headers)
     with urllib.request.urlopen(req, timeout=10) as response:
         return json.loads(response.read())
@@ -51,19 +56,10 @@ with tempfile.TemporaryDirectory(prefix='relocated-walkthrough-', dir=ROOT / 'te
                    'ROBOTCONTROL_ADMIN_USERNAME': 'walkthrough', 'ROBOTCONTROL_ADMIN_PASSWORD': password,
                    'ROBOTCONTROL_ACCESS_TOKEN_SECRET': secrets.token_urlsafe(32),
                    'ROBOTCONTROL_REFRESH_TOKEN_SECRET': secrets.token_urlsafe(32),
-                   'VM_SQL_SERVER': '127.0.0.1,1'}
-    proc = subprocess.Popen([str(relocated / 'RobotControl.exe'), '--host', '127.0.0.1', '--port', '8017', '--no-browser'],
-                            cwd=relocated, env=environment, creationflags=subprocess.CREATE_NO_WINDOW)
+                   'VM_SQL_SERVER': '127.0.0.1,1', 'PACKAGED_E2E_PORT': str(PORT)}
+    proc = packaged_app.launch(relocated, environment, PORT)
     try:
-        deadline = time.monotonic() + 90
-        while True:
-            try:
-                request('/health')
-                break
-            except Exception:
-                if proc.poll() is not None or time.monotonic() > deadline:
-                    raise
-                time.sleep(.5)
+        packaged_app.wait_until_serving(proc, PORT, lambda: request('/health'))
         token = request('/api/auth/login', dict(username='walkthrough', password=password))['data']['access_token']
         request('/api/auth/change-password', dict(current_password=password, new_password=secrets.token_urlsafe(24)), token)
         subprocess.run(['node', str(ROOT / 'frontend/e2e/packaged-walkthrough.cjs')], cwd=ROOT / 'frontend', check=True,
