@@ -33,7 +33,8 @@ export default function RobotAttentionBanner() {
   return <Box role="region" aria-label="Robot status" sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', columnGap: 2, minHeight: layout.touchRow, px: { xs: `${layout.pagePhone}px`, sm: `${layout.page}px` },
     fontSize: 14, bgcolor: 'attentionSurface.head', color: 'attentionSurface.text', borderBottom: 1, borderColor: 'attentionSurface.line' }}>
     {attention && <MuiLink component={Link} to="/scheduling?section=recovery" underline="hover" color="inherit" aria-label={attention.label}
-      sx={{ display: 'flex', alignItems: 'center', gap: 1, fontWeight: 600, minHeight: layout.touchRow }}>
+      // 36px inside the 44px band (border included); the pseudo-element makes the touch target 44px.
+      sx={{ display: 'flex', alignItems: 'center', gap: 1, fontWeight: 600, minHeight: 36, position: 'relative', '&::after': { content: '""', position: 'absolute', inset: '-4px 0' } }}>
       <WarningAmber fontSize="small" />{attention.label}
     </MuiLink>}
     <Box sx={{ flex: 1 }} />
