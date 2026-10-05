@@ -11,6 +11,7 @@ import {
   List,
   ListItemButton,
   ListItemText,
+  Menu,
   MenuItem,
   Stack,
   TablePagination,
@@ -19,6 +20,7 @@ import {
   Typography,
 } from "@mui/material";
 import ArrowUpward from "@mui/icons-material/ArrowUpward";
+import MoreVert from "@mui/icons-material/MoreVert";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import SearchIcon from "@mui/icons-material/Search";
 import {
@@ -27,7 +29,7 @@ import {
   LogFileListItem,
   BrowseOptions,
 } from "../services/logFileApi";
-import InspectionWorkspace from "./InspectionWorkspace";
+import InspectionWorkspace, { LoadMoreBar, usePhoneWorkspace } from "./InspectionWorkspace";
 import { EmptyPanel, Panel } from "./PageLayout";
 import LogReader, { LogSelection } from "./LogReader";
 import { fontMono } from "../theme";
@@ -46,6 +48,7 @@ const join = (path: string, name: string) =>
   [path, name].filter(Boolean).join("/");
 const same = (a: Location, b: Location) =>
   a.folder === b.folder && a.archive === b.archive && a.entry === b.entry;
+const itemKey = (item: LogFileListItem) => item.entry_path || item.path || item.name;
 const message = (error: any) =>
   error.response?.data?.error?.message ||
   error.message ||
@@ -57,10 +60,12 @@ export default function LogSourceBrowser({
   source: LogFileSource;
   active: boolean;
 }) {
+  // `append`: a phone's Load more adds the next page to the files already listed.
   const [intent, setIntent] = useState({
     location: root,
     query: defaults,
     revision: 0,
+    append: false,
   });
   const [listing, setListing] = useState<{
     location: Location;
@@ -71,7 +76,9 @@ export default function LogSourceBrowser({
   const [listLoading, setListLoading] = useState(false),
     [listError, setListError] = useState(""),
     [search, setSearch] = useState(""),
-    [filtersOpen, setFiltersOpen] = useState(false);
+    [filtersOpen, setFiltersOpen] = useState(false),
+    [listMenu, setListMenu] = useState<HTMLElement | null>(null);
+  const phone = usePhoneWorkspace();
   const [selected, setSelected] = useState<LogSelection | null>(null),
     [reading, setReading] = useState(false);
   const [detailVisible, setDetailVisible] = useState(false);
@@ -91,7 +98,7 @@ export default function LogSourceBrowser({
     const abort = new AbortController();
     setListLoading(true);
     setListError("");
-    const { location, query } = intent;
+    const { location, query, append } = intent;
     const request = location.archive
       ? logFileApi.browseArchive(
           source.id,
@@ -109,11 +116,16 @@ export default function LogSourceBrowser({
           setReading(false);
           listIdentity.current = location;
         }
-        setListing({
-          location,
-          query,
-          items: result.items,
-          total: result.total_items,
+        setListing((previous) => {
+          // Files can shift between pages while new logs arrive; list each one once.
+          const kept = append && previous && same(previous.location, location) ? previous.items : [];
+          const keys = new Set(kept.map(itemKey));
+          return {
+            location,
+            query,
+            items: [...kept, ...result.items.filter((item) => !keys.has(itemKey(item)))],
+            total: result.total_items,
+          };
         });
       })
       .catch((error) => {
@@ -132,15 +144,24 @@ export default function LogSourceBrowser({
       location,
       query: { ...v.query, page: 1, search: "" },
       revision: v.revision + 1,
+      append: false,
     }));
     setSearch("");
   };
-  const query = (patch: BrowseOptions) =>
+  const query = (patch: BrowseOptions, append = false) =>
     setIntent((v) => ({
       location: current,
       query: { ...v.query, ...patch, page: patch.page ?? 1 },
       revision: v.revision + 1,
+      append,
     }));
+  // A phone's list holds pages 1..n, so Refresh starts again from the first page.
+  const refresh = () => phone ? query({}) : setIntent((v) => ({
+    ...v,
+    location: current,
+    revision: v.revision + 1,
+    append: false,
+  }));
   const openItem = (item: LogFileListItem) => {
     if (item.is_directory) {
       browse(
@@ -177,6 +198,36 @@ export default function LogSourceBrowser({
           : { ...root, folder: current.folder }
         : { ...root, folder: parent(current.folder) },
     );
+  const sortControls = (
+    <>
+      <TextField
+        select
+        size="small"
+        label="Sort"
+        value={intent.query.sort_by}
+        onChange={(e) => query({ sort_by: e.target.value })}
+        sx={phone ? { width: 112, flexShrink: 0 } : { flex: 1, minWidth: 0 }}
+      >
+        {["name", "modified", "size"].map((value) => (
+          <MenuItem key={value} value={value}>
+            {value[0].toUpperCase() + value.slice(1)}
+          </MenuItem>
+        ))}
+      </TextField>
+      <Button
+        aria-label="Reverse file sort"
+        sx={phone ? { flexShrink: 0 } : undefined}
+        onClick={() =>
+          query({
+            sort_direction:
+              intent.query.sort_direction === "asc" ? "desc" : "asc",
+          })
+        }
+      >
+        {intent.query.sort_direction === "asc" ? "↑" : "↓"}
+      </Button>
+    </>
+  );
   const parts = (current.archive ? current.entry : current.folder)
     .split("/")
     .filter(Boolean);
@@ -258,23 +309,25 @@ export default function LogSourceBrowser({
             </IconButton>
           </span>
         </Tooltip>
-        <Tooltip title="Refresh files">
+        {phone ? <>
+          <IconButton aria-label="More file options" aria-haspopup="menu" aria-expanded={!!listMenu} onClick={(event) => setListMenu(event.currentTarget)}>
+            <MoreVert fontSize="small" />
+          </IconButton>
+          <Menu anchorEl={listMenu} open={!!listMenu} onClose={() => setListMenu(null)}>
+            <MenuItem disabled={listLoading} onClick={() => { setListMenu(null); refresh(); }}>Refresh files</MenuItem>
+            <MenuItem onClick={() => { setListMenu(null); setFiltersOpen((v) => !v); }}>{filtersOpen ? "Hide filters" : "Filters"}</MenuItem>
+          </Menu>
+        </> : <Tooltip title="Refresh files">
           <span>
             <IconButton
               aria-label="Refresh files"
               disabled={listLoading}
-              onClick={() =>
-                setIntent((v) => ({
-                  ...v,
-                  location: current,
-                  revision: v.revision + 1,
-                }))
-              }
+              onClick={refresh}
             >
               <RefreshIcon fontSize="small" />
             </IconButton>
           </span>
-        </Tooltip>
+        </Tooltip>}
       </Stack>
       {listError && (
         <Alert severity="error">
@@ -288,7 +341,8 @@ export default function LogSourceBrowser({
           e.preventDefault();
           query({ search: search.trim() });
         }}
-        sx={{ display: "flex", gap: 0.5, px: 1.5, pt: 1.5, pb: 1 }}
+        sx={phone ? { display: "flex", gap: 0.5, p: 1.5, borderBottom: 1, borderColor: "surface.rowLine" }
+          : { display: "flex", gap: 0.5, px: 1.5, pt: 1.5, pb: 1 }}
       >
         <TextField
           size="small"
@@ -299,35 +353,12 @@ export default function LogSourceBrowser({
           sx={{ flex: 1, minWidth: 0 }}
           InputProps={{ endAdornment: <InputAdornment position="end"><IconButton type="submit" edge="end" aria-label="Search"><SearchIcon fontSize="small" /></IconButton></InputAdornment> }}
         />
+        {phone && sortControls}
       </Box>
-      <Stack direction="row" gap={0.5} sx={{ px: 1.5, pb: 1.5, borderBottom: 1, borderColor: "surface.rowLine" }}>
-        <TextField
-          select
-          size="small"
-          label="Sort"
-          value={intent.query.sort_by}
-          onChange={(e) => query({ sort_by: e.target.value })}
-          sx={{ flex: 1, minWidth: 0 }}
-        >
-          {["name", "modified", "size"].map((value) => (
-            <MenuItem key={value} value={value}>
-              {value[0].toUpperCase() + value.slice(1)}
-            </MenuItem>
-          ))}
-        </TextField>
-        <Button
-          aria-label="Reverse file sort"
-          onClick={() =>
-            query({
-              sort_direction:
-                intent.query.sort_direction === "asc" ? "desc" : "asc",
-            })
-          }
-        >
-          {intent.query.sort_direction === "asc" ? "↑" : "↓"}
-        </Button>
+      {!phone && <Stack direction="row" gap={0.5} sx={{ px: 1.5, pb: 1.5, borderBottom: 1, borderColor: "surface.rowLine" }}>
+        {sortControls}
         <Button onClick={() => setFiltersOpen((v) => !v)}>Filters</Button>
-      </Stack>
+      </Stack>}
       {filtersOpen && (
         <Stack spacing={1} sx={{ p: 1.5 }}>
           <TextField
@@ -420,7 +451,10 @@ export default function LogSourceBrowser({
           </Typography>
         )}
       </List>
-      <TablePagination
+      {phone ? listing && (
+        <LoadMoreBar shown={listing.items.length} total={listing.total} noun="file" loading={listLoading}
+          onMore={() => query({ page: listing.query.page + 1 }, true)} />
+      ) : <TablePagination
         component="div"
         count={listing?.total || 0}
         page={Math.max(0, (listing?.query.page || 1) - 1)}
@@ -432,7 +466,7 @@ export default function LogSourceBrowser({
           "& .MuiTablePagination-toolbar": { flexWrap: "wrap", px: 1 },
           "& .MuiTablePagination-spacer": { display: "none" },
         }}
-      />
+      />}
     </Panel>
   );
   return (
@@ -441,6 +475,7 @@ export default function LogSourceBrowser({
         label="Log inspection"
         selector={selector}
         selectorLabel="files"
+        boundedDetail
         detailOpen={reading}
         onBack={() => setReading(false)}
         onDetailVisibilityChange={setDetailVisible}
