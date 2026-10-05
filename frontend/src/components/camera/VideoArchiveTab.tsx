@@ -3,7 +3,7 @@ import { dayTime } from '../../utils/displayTime';
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Box, Button, CircularProgress, LinearProgress, List, ListItemButton, Stack, TablePagination, TextField, Typography } from '@mui/material';
 import { Download, FolderOutlined, Refresh } from '@mui/icons-material';
-import InspectionWorkspace from '../InspectionWorkspace';
+import InspectionWorkspace, { LoadMoreBar, usePhoneWorkspace } from '../InspectionWorkspace';
 import { fontMono } from '../../theme';
 
 export interface VideoFile { filename: string; timestamp: string; size_bytes: number; duration?: number; }
@@ -29,6 +29,7 @@ export default function VideoArchiveTab({ experimentFolders, loading, error, onR
   const [pageSize, setPageSize] = useState(25);
   const [cache, setCache] = useState<Record<string, FolderState>>({});
   const mounted = useRef(true);
+  const phone = usePhoneWorkspace();
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => {
     setCache(previous => Object.fromEntries(experimentFolders.map(folder => [folder.folder_name,
@@ -61,6 +62,8 @@ export default function VideoArchiveTab({ experimentFolders, loading, error, onR
   };
   const videos = (state?.videos || folder?.videos || []).filter(video => video.filename.toLowerCase().includes(fileQuery.toLowerCase()));
   const safePage = Math.min(page, Math.max(0, Math.ceil(videos.length / pageSize) - 1));
+  // Phones grow one list (Load more adds a page) instead of paging; pageSize counts the pages shown.
+  const shown = phone ? videos.slice(0, (safePage + 1) * pageSize) : videos.slice(safePage * pageSize, (safePage + 1) * pageSize);
   return <Stack spacing={1} sx={{ minWidth: 0 }}>
     {error && <Alert severity="error" action={<Button color="inherit" onClick={refreshArchive}>Retry</Button>}>{error}</Alert>}
     <InspectionWorkspace label="Recording archive" selectorLabel="Folders" detailOpen={detailOpen} onBack={() => setDetailOpen(false)}
@@ -89,7 +92,7 @@ export default function VideoArchiveTab({ experimentFolders, loading, error, onR
         {state?.loading && <LinearProgress aria-label="Loading folder" />}
         {state?.error && <Alert severity="error" sx={{ mx: 2, mb: 1 }} action={<Button onClick={() => void load(folder)}>Retry</Button>}>{state.error}</Alert>}
         <Box sx={{ overflow: 'auto', minHeight: 0, flex: 1 }}>
-          {videos.slice(safePage * pageSize, (safePage + 1) * pageSize).map(video => <Stack key={video.filename} direction="row" gap={1.5} flexWrap="wrap"
+          {shown.map(video => <Stack key={video.filename} direction="row" gap={1.5} flexWrap="wrap"
             alignItems="center" justifyContent="space-between" sx={{ px: 2, py: 1, minHeight: 56, borderBottom: 1, borderColor: 'surface.rowLine' }}>
             <Box sx={{ minWidth: 0, flex: '1 1 240px' }}>
               <Typography sx={{ fontFamily: fontMono, fontSize: 12, lineHeight: '20px', overflowWrap: 'anywhere' }}>{video.filename}</Typography>
@@ -103,9 +106,10 @@ export default function VideoArchiveTab({ experimentFolders, loading, error, onR
           </Stack>)}
           {!state?.loading && !state?.error && !videos.length && <Typography variant="body2" sx={{ p: 2, color: 'text.secondary' }}>No recordings found.</Typography>}
         </Box>
-        <TablePagination component="div" count={videos.length} page={safePage} rowsPerPage={pageSize} rowsPerPageOptions={[25, 50, 100]}
+        {phone ? <LoadMoreBar shown={shown.length} total={videos.length} noun="recording" onMore={() => setPage(safePage + 1)} />
+        : <TablePagination component="div" count={videos.length} page={safePage} rowsPerPage={pageSize} rowsPerPageOptions={[25, 50, 100]}
           onPageChange={(_, next) => setPage(next)} onRowsPerPageChange={event => { setPageSize(Number(event.target.value)); setPage(0); }}
-          sx={{ flexShrink: 0, borderTop: 1, borderColor: 'surface.headLine', px: 1, '& .MuiTablePagination-toolbar': { flexWrap: 'wrap', px: 0 }, '& .MuiTablePagination-spacer': { display: 'none' } }} />
+          sx={{ flexShrink: 0, borderTop: 1, borderColor: 'surface.headLine', px: 1, '& .MuiTablePagination-toolbar': { flexWrap: 'wrap', px: 0 }, '& .MuiTablePagination-spacer': { display: 'none' } }} />}
       </Panel> : <EmptyPanel>Select a recording folder.</EmptyPanel>}
     </InspectionWorkspace>
   </Stack>;

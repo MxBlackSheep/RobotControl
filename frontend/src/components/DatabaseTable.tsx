@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   Alert,
   Box,
@@ -9,7 +9,10 @@ import {
   DialogContent,
   DialogTitle,
   FormControlLabel,
+  IconButton,
+  InputAdornment,
   LinearProgress,
+  ListItemText,
   Menu,
   MenuItem,
   Paper,
@@ -25,7 +28,10 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
+import { alpha } from "@mui/material/styles";
+import SearchIcon from "@mui/icons-material/Search";
 import { databaseAPI } from "../services/api";
+import { InspectionName, pinnedBarSx, usePhoneWorkspace } from "./InspectionWorkspace";
 import { collectMatchingRows, formatExport } from "./databaseExport";
 import { fontMono } from "../theme";
 type Filter = { column: string; operator: string; value: string };
@@ -120,6 +126,15 @@ function TableView({
     [copied, setCopied] = useState("");
   const tableScroll = useRef<HTMLDivElement>(null),
     expandButton = useRef<HTMLButtonElement>(null);
+  // Phones: rows scroll with the page; headings pin in a separate strip that follows sideways scroll.
+  const phone = usePhoneWorkspace();
+  const flow = phone && !expanded;
+  const [pageDialog, setPageDialog] = useState(false),
+    [widths, setWidths] = useState<number[]>([]),
+    [moreRight, setMoreRight] = useState(false);
+  const headingStrip = useRef<HTMLDivElement>(null),
+    sizingHead = useRef<HTMLTableSectionElement>(null),
+    rowsTop = useRef<HTMLDivElement>(null);
   const scroll = useRef({ top: 0, left: 0 });
   const attachTable = useCallback((element: HTMLDivElement | null) => {
     tableScroll.current = element;
@@ -174,6 +189,10 @@ function TableView({
         if (query !== displayedQuery) {
           scroll.current.top = 0;
           if (tableScroll.current) tableScroll.current.scrollTop = 0;
+          // A phone pages from the bottom bar; show the new page from its first row.
+          const top = rowsTop.current?.getBoundingClientRect().top;
+          const header = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--app-header-height")) || 52;
+          if (top !== undefined && top < header) window.scrollBy(0, top - header);
         }
         setUpdated(new Date().toLocaleTimeString());
       })
@@ -248,25 +267,183 @@ function TableView({
   const pageCount = Math.max(1, Math.ceil((data?.total_count || 0) / displayedQuery.limit));
   const targetPage = Number(pageDraft);
   const validPage = Number.isInteger(targetPage) && targetPage >= 1 && targetPage <= pageCount;
-  const view = (
-    <Paper
-      variant="outlined"
+  const rowNumber = (index: number) => displayedQuery.page * displayedQuery.limit + index + 1;
+  const followRows = () => {
+    const rows = tableScroll.current;
+    if (!rows) return;
+    if (headingStrip.current) headingStrip.current.scrollLeft = rows.scrollLeft;
+    setMoreRight(rows.scrollLeft + rows.clientWidth < rows.scrollWidth - 1);
+  };
+  const measureColumns = useCallback(() => {
+    const cells = sizingHead.current?.rows[0]?.cells;
+    if (cells) {
+      const next = Array.from(cells, (cell) => cell.getBoundingClientRect().width);
+      setWidths((previous) =>
+        previous.length === next.length && previous.every((width, index) => Math.abs(width - next[index]) < 0.5) ? previous : next);
+    }
+    followRows();
+  }, []);
+  const columnKey = columns.join("\n");
+  useLayoutEffect(() => {
+    if (!flow) return;
+    measureColumns();
+    const observer = new ResizeObserver(measureColumns);
+    if (sizingHead.current?.parentElement) observer.observe(sizingHead.current.parentElement);
+    if (tableScroll.current) observer.observe(tableScroll.current);
+    return () => observer.disconnect();
+  }, [flow, data, columnKey, wrap, measureColumns]);
+  const sortLabel = (column: string, focusable = true) => (
+    <TableSortLabel
+      tabIndex={focusable ? undefined : -1}
+      active={displayedQuery.order === column}
+      direction={displayedQuery.order === column ? displayedQuery.direction : "asc"}
       sx={{
-        display: "flex",
-        flexDirection: "column",
-        flex: 1,
-        minWidth: 0,
-        minHeight: 0,
-        overflow: "auto",
-        borderRadius: 2,
-        "& .MuiButton-root, & .MuiIconButton-root": {
-          minHeight: 44,
-          minWidth: 44,
-        },
-        "& .MuiInputBase-root": { minHeight: 44 },
+        minHeight: 44,
+        maxWidth: 260,
+        overflowWrap: "anywhere",
       }}
+      onClick={() =>
+        setQuery({
+          ...displayedQuery,
+          page: 0,
+          order: column,
+          direction:
+            displayedQuery.order === column && displayedQuery.direction === "asc"
+              ? "desc"
+              : "asc",
+        })
+      }
     >
-      <Stack spacing={0.5} sx={{ p: 1.5, flexShrink: 0 }}>
+      {column}
+    </TableSortLabel>
+  );
+  const rowHeading = {
+    position: "sticky",
+    left: 0,
+    zIndex: 3,
+    bgcolor: "background.paper",
+  } as const;
+  const bodyRows = (
+    <TableBody>
+      {data?.rows.map((row, index) => (
+        <TableRow key={index} hover>
+          <TableCell
+            sx={{
+              position: "sticky",
+              left: 0,
+              zIndex: 1,
+              bgcolor: "background.paper",
+            }}
+          >
+            <Button
+              aria-label={`Inspect row ${rowNumber(index)}`}
+              onClick={() => {
+                setRecord({
+                  row,
+                  number: rowNumber(index),
+                });
+                setCopied("");
+              }}
+            >
+              {rowNumber(index)}
+            </Button>
+          </TableCell>
+          {columns.map((column) => (
+            <TableCell key={column} sx={{ maxWidth: 284 }}>
+              <Box
+                component="button"
+                onClick={() => {
+                  setCell({ column, value: row[column] });
+                  setCopied("");
+                }}
+                aria-label={`View ${column}, row ${rowNumber(index)}`}
+                sx={{
+                  display: "block",
+                  border: 0,
+                  bgcolor: "transparent",
+                  color:
+                    row[column] == null ? "text.secondary" : "inherit",
+                  textAlign: "left",
+                  font: "inherit",
+                  fontFamily: fontMono,
+                  fontSize: 13,
+                  cursor: "pointer",
+                  minHeight: 44,
+                  minWidth: 80,
+                  maxWidth: 260,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: wrap ? "pre-wrap" : "nowrap",
+                  overflowWrap: wrap ? "anywhere" : "normal",
+                }}
+              >
+                {displayValue(row[column])}
+              </Box>
+            </TableCell>
+          ))}
+        </TableRow>
+      ))}
+      {!loading && !data?.rows.length && (
+        <TableRow>
+          <TableCell colSpan={columns.length + 1}>
+            {error
+              ? "Table unavailable."
+              : displayedQuery.search || displayedQuery.filters.length
+                ? "No rows match the applied search and filters."
+                : "This table is empty."}
+          </TableCell>
+        </TableRow>
+      )}
+    </TableBody>
+  );
+  const pageForm = (
+    <Box component="form" onSubmit={(event) => { event.preventDefault(); if (validPage && !loading) { setQuery({ ...displayedQuery, page: targetPage - 1 }); setPageDialog(false); } }} sx={{ display: "flex", alignItems: "center", gap: 0.5, flexWrap: "wrap", py: 0.5 }}>
+      <Typography variant="caption" sx={{ mr: 0.5 }}>Page {displayedQuery.page + 1} of {pageCount}</Typography>
+      <TextField type="number" size="small" label="Page" value={pageDraft} onChange={(event) => setPageDraft(event.target.value)} inputProps={{ min: 1, max: pageCount, step: 1 }} disabled={loading || !data?.total_count} sx={{ width: 78 }} />
+      <Button type="submit" aria-label="Go to page" disabled={loading || !data?.total_count || !validPage}>Go</Button>
+    </Box>
+  );
+  const moreButton = (
+    <Button
+      ref={phone && !expanded ? expandButton : undefined}
+      aria-label="More table options"
+      aria-haspopup="menu"
+      aria-expanded={!!more}
+      onClick={(event) => setMore(event.currentTarget)}
+      sx={phone ? { flexShrink: 0 } : undefined}
+    >
+      More
+    </Button>
+  );
+  // Phones: the name on one line (tap shows it whole) and one search field; the rest is in More.
+  const phoneHeader = (
+    <>
+      <Stack direction="row" gap={1} alignItems="center">
+        <InspectionName name={tableName} sx={{ flex: 1, fontFamily: fontMono, fontSize: 16, fontWeight: 500 }} />
+        {expanded && <Button onClick={() => setExpanded(false)} sx={{ flexShrink: 0 }}>Close expanded table</Button>}
+        {moreButton}
+      </Stack>
+      <Box
+        component="form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          apply();
+        }}
+      >
+        <TextField
+          size="small"
+          fullWidth
+          label="Search all supported columns"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          inputProps={{ maxLength: 200, enterKeyHint: "search" }}
+          InputProps={{ endAdornment: <InputAdornment position="end"><IconButton type="submit" edge="end" aria-label="Apply"><SearchIcon fontSize="small" /></IconButton></InputAdornment> }}
+        />
+      </Box>
+    </>
+  );
+  const desktopHeader = (
+    <>
         <Stack
           direction="row"
           gap={1}
@@ -317,14 +494,7 @@ function TableView({
           <Button onClick={() => setRefresh((v) => v + 1)} disabled={loading}>
             Refresh
           </Button>
-          <Button
-            aria-label="More table options"
-            aria-haspopup="menu"
-            aria-expanded={!!more}
-            onClick={(event) => setMore(event.currentTarget)}
-          >
-            More
-          </Button>
+          {moreButton}
         </Box>
         <Stack direction="row" gap={1} flexWrap="wrap">
           <Typography variant="caption" color="text.secondary">
@@ -338,16 +508,9 @@ function TableView({
             </Typography>
           )}
         </Stack>
-        {error && (
-          <Alert severity="error">
-            {error}
-            {data && " Previous rows are shown; refresh to retry."}
-          </Alert>
-        )}
-      </Stack>
-      {loading && (
-        <LinearProgress aria-label="Loading table" sx={{ flexShrink: 0 }} />
-      )}
+    </>
+  );
+  const scrollingTable = (
       <TableContainer
         ref={attachTable}
         sx={{ flex: "1 0 120px", minHeight: 120, overflow: "auto" }}
@@ -368,14 +531,7 @@ function TableView({
         >
           <TableHead>
             <TableRow>
-              <TableCell
-                sx={{
-                  position: "sticky",
-                  left: 0,
-                  zIndex: 3,
-                  bgcolor: "background.paper",
-                }}
-              >
+              <TableCell sx={rowHeading}>
                 Row
               </TableCell>
               {columns.map((column) => (
@@ -385,105 +541,116 @@ function TableView({
                       displayedQuery.order === column ? displayedQuery.direction : false
                   }
                 >
-                  <TableSortLabel
-                    active={displayedQuery.order === column}
-                    direction={displayedQuery.order === column ? displayedQuery.direction : "asc"}
-                    sx={{
-                      minHeight: 44,
-                      maxWidth: 260,
-                      overflowWrap: "anywhere",
-                    }}
-                    onClick={() =>
-                      setQuery({
-                        ...displayedQuery,
-                        page: 0,
-                        order: column,
-                        direction:
-                          displayedQuery.order === column && displayedQuery.direction === "asc"
-                            ? "desc"
-                            : "asc",
-                      })
-                    }
-                  >
-                    {column}
-                  </TableSortLabel>
+                  {sortLabel(column)}
                 </TableCell>
               ))}
             </TableRow>
           </TableHead>
-          <TableBody>
-            {data?.rows.map((row, index) => (
-              <TableRow key={index} hover>
-                <TableCell
-                  sx={{
-                    position: "sticky",
-                    left: 0,
-                    zIndex: 1,
-                    bgcolor: "background.paper",
-                  }}
-                >
-                  <Button
-                    aria-label={`Inspect row ${displayedQuery.page * displayedQuery.limit + index + 1}`}
-                    onClick={() => {
-                      setRecord({
-                        row,
-                        number: displayedQuery.page * displayedQuery.limit + index + 1,
-                      });
-                      setCopied("");
-                    }}
-                  >
-                    {displayedQuery.page * displayedQuery.limit + index + 1}
-                  </Button>
-                </TableCell>
-                {columns.map((column) => (
-                  <TableCell key={column} sx={{ maxWidth: 284 }}>
-                    <Box
-                      component="button"
-                      onClick={() => {
-                        setCell({ column, value: row[column] });
-                        setCopied("");
-                      }}
-                      aria-label={`View ${column}, row ${displayedQuery.page * displayedQuery.limit + index + 1}`}
-                      sx={{
-                        display: "block",
-                        border: 0,
-                        bgcolor: "transparent",
-                        color:
-                          row[column] == null ? "text.secondary" : "inherit",
-                        textAlign: "left",
-                        font: "inherit",
-                        fontFamily: fontMono,
-                        fontSize: 13,
-                        cursor: "pointer",
-                        minHeight: 44,
-                        minWidth: 80,
-                        maxWidth: 260,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: wrap ? "pre-wrap" : "nowrap",
-                        overflowWrap: wrap ? "anywhere" : "normal",
-                      }}
-                    >
-                      {displayValue(row[column])}
-                    </Box>
-                  </TableCell>
-                ))}
-              </TableRow>
-            ))}
-            {!loading && !data?.rows.length && (
-              <TableRow>
-                <TableCell colSpan={columns.length + 1}>
-                  {error
-                    ? "Table unavailable."
-                    : displayedQuery.search || displayedQuery.filters.length
-                      ? "No rows match the applied search and filters."
-                      : "This table is empty."}
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
+          {bodyRows}
         </Table>
       </TableContainer>
+  );
+  // The rows table keeps an invisible, zero-height copy of the headings so each column is at
+  // least as wide as its heading; the pinned strip copies those widths.
+  const hiddenHeading = { height: 0, py: 0, borderBottom: 0 } as const;
+  const flowingTable = (
+    <Box ref={rowsTop} sx={{ position: "relative", minWidth: 0 }}>
+      <Box ref={headingStrip} sx={{ position: "sticky", top: "var(--app-header-height, 52px)", zIndex: 2, overflow: "hidden", bgcolor: "surface.head", borderBottom: 1, borderColor: "surface.headLine" }}>
+        <Table size="small" sx={{ tableLayout: "fixed", width: widths.length ? widths.reduce((sum, width) => sum + width, 0) : "max-content" }}>
+          <colgroup>{widths.map((width, index) => <col key={index} style={{ width }} />)}</colgroup>
+          <TableHead>
+            <TableRow>
+              <TableCell sx={{ ...rowHeading, borderBottom: 0 }}>Row</TableCell>
+              {columns.map((column) => (
+                <TableCell key={column} sx={{ borderBottom: 0 }}
+                  sortDirection={displayedQuery.order === column ? displayedQuery.direction : false}>
+                  {sortLabel(column)}
+                </TableCell>
+              ))}
+            </TableRow>
+          </TableHead>
+        </Table>
+      </Box>
+      <TableContainer
+        ref={attachTable}
+        sx={{ overflowX: "auto", overflowY: "hidden" }}
+        tabIndex={0}
+        aria-label={`${tableName} rows`}
+        onScroll={() => {
+          if (tableScroll.current)
+            scroll.current = { top: 0, left: tableScroll.current.scrollLeft };
+          followRows();
+        }}
+      >
+        <Table size="small" sx={{ minWidth: "100%", width: "max-content" }}>
+          {/* inert: aria-hidden alone still exposes the copies' sort buttons to screen readers. */}
+          <TableHead ref={sizingHead} aria-hidden {...{ inert: "" }}>
+            <TableRow>
+              <TableCell sx={hiddenHeading}><Box sx={{ height: 0, overflow: "hidden" }}>Row</Box></TableCell>
+              {columns.map((column) => (
+                <TableCell key={column} sx={hiddenHeading}><Box sx={{ height: 0, overflow: "hidden" }}>{sortLabel(column, false)}</Box></TableCell>
+              ))}
+            </TableRow>
+          </TableHead>
+          {bodyRows}
+        </Table>
+      </TableContainer>
+      {moreRight && <Box aria-hidden sx={{ position: "absolute", top: 0, right: 0, bottom: 0, width: 32, zIndex: 2, pointerEvents: "none",
+        background: (theme) => `linear-gradient(to right, ${alpha(theme.palette.background.paper, 0)}, ${theme.palette.background.paper})` }} />}
+    </Box>
+  );
+  const view = (
+    <Paper
+      variant="outlined"
+      sx={{
+        display: "flex",
+        flexDirection: "column",
+        flex: 1,
+        minWidth: 0,
+        minHeight: 0,
+        overflow: flow ? "clip" : "auto",
+        borderRadius: 2,
+        "& .MuiButton-root, & .MuiIconButton-root": {
+          minHeight: 44,
+          minWidth: 44,
+        },
+        "& .MuiInputBase-root": { minHeight: 44 },
+      }}
+    >
+      <Stack spacing={phone ? 1 : 0.5} sx={{ p: 1.5, flexShrink: 0 }}>
+        {phone ? phoneHeader : desktopHeader}
+        {error && (
+          <Alert severity="error">
+            {error}
+            {data && " Previous rows are shown; refresh to retry."}
+          </Alert>
+        )}
+      </Stack>
+      {loading && (
+        <LinearProgress aria-label="Loading table" sx={{ flexShrink: 0 }} />
+      )}
+      {flow ? flowingTable : scrollingTable}
+      {phone ? (
+        <Box sx={[{ flexShrink: 0, px: 1 }, pinnedBarSx]}>
+          <TablePagination
+            component="div"
+            count={data?.total_count || 0}
+            page={displayedQuery.page}
+            rowsPerPage={displayedQuery.limit}
+            rowsPerPageOptions={[]}
+            showFirstButton
+            showLastButton
+            disabled={loading || !data}
+            onPageChange={(_, page) => setQuery({ ...displayedQuery, page })}
+            sx={{
+              "& .MuiTablePagination-toolbar": { px: 0, minHeight: 52 },
+              "& .MuiTablePagination-spacer": { display: "none" },
+              "& .MuiTablePagination-displayedRows": { flex: 1 },
+              "& .MuiTablePagination-actions": { ml: 0 },
+            }}
+          />
+        </Box>
+      ) : (
       <Stack direction="row" alignItems="center" flexWrap="wrap" gap={0.5} sx={{ flexShrink: 0, borderTop: 1, borderColor: "divider", px: 1 }}>
       <TablePagination
         component="div"
@@ -506,15 +673,13 @@ function TableView({
           "& .MuiTablePagination-actions": { ml: 0 },
         }}
       />
-      <Box component="form" onSubmit={(event) => { event.preventDefault(); if (validPage && !loading) setQuery({ ...displayedQuery, page: targetPage - 1 }); }} sx={{ display: "flex", alignItems: "center", gap: 0.5, flexWrap: "wrap", py: 0.5 }}>
-        <Typography variant="caption" sx={{ mr: 0.5 }}>Page {displayedQuery.page + 1} of {pageCount}</Typography>
-        <TextField type="number" size="small" label="Page" value={pageDraft} onChange={(event) => setPageDraft(event.target.value)} inputProps={{ min: 1, max: pageCount, step: 1 }} disabled={loading || !data?.total_count} sx={{ width: 78 }} />
-        <Button type="submit" aria-label="Go to page" disabled={loading || !data?.total_count || !validPage}>Go</Button>
-      </Box>
+      {pageForm}
       </Stack>
+      )}
     </Paper>
   );
   return (
+
     <>
       {!expanded && view}
       <Dialog
@@ -533,6 +698,22 @@ function TableView({
         {expanded && view}
       </Dialog>
       <Menu anchorEl={more} open={!!more} onClose={() => setMore(null)}>
+        {phone && [
+          <MenuItem key="filters" onClick={() => { setMore(null); setDialog("filters"); }}>
+            Filters ({displayedQuery.filters.filter((f) => f.value).length})
+          </MenuItem>,
+          <MenuItem key="refresh" disabled={loading} onClick={() => { setMore(null); setRefresh((v) => v + 1); }}>
+            <ListItemText primary="Refresh" secondary={updated && `Updated ${updated}`} />
+          </MenuItem>,
+          !expanded && (
+            <MenuItem key="expand" onClick={() => { setMore(null); setExpanded(true); }}>
+              Expand table
+            </MenuItem>
+          ),
+          <MenuItem key="page" disabled={!data} onClick={() => { setMore(null); setPageDialog(true); }}>
+            Page and rows
+          </MenuItem>,
+        ]}
         <MenuItem
           disabled={!data}
           onClick={() => {
@@ -571,6 +752,30 @@ function TableView({
           Clear search and filters
         </MenuItem>
       </Menu>
+      <Dialog open={pageDialog} onClose={() => setPageDialog(false)} fullWidth maxWidth="xs">
+        <DialogTitle>Page and rows</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2}>
+            {pageForm}
+            <TextField
+              select
+              size="small"
+              label="Rows per page"
+              value={displayedQuery.limit}
+              disabled={loading || !data}
+              onChange={(event) => {
+                setQuery({ ...displayedQuery, page: 0, limit: Number(event.target.value) });
+                setPageDialog(false);
+              }}
+            >
+              {[25, 50, 100].map((limit) => <MenuItem key={limit} value={limit}>{limit}</MenuItem>)}
+            </TextField>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPageDialog(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
       <Dialog
         open={!!record}
         onClose={() => setRecord(null)}

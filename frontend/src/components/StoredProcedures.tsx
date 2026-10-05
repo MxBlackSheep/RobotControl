@@ -16,7 +16,7 @@ import {
   Typography,
 } from "@mui/material";
 import { databaseAPI } from "../services/api";
-import InspectionWorkspace from "./InspectionWorkspace";
+import InspectionWorkspace, { InspectionName } from "./InspectionWorkspace";
 import InspectionTextViewer from "./InspectionTextViewer";
 import { fontMono } from "../theme";
 
@@ -225,6 +225,7 @@ export default function StoredProcedures({
         label="Stored procedure workspace"
         selector={selector}
         selectorLabel="Definitions"
+        boundedDetail
         detailOpen={detailOpen}
         onBack={() => setDetailOpen(false)}
       >
@@ -240,13 +241,7 @@ export default function StoredProcedures({
             }}
           >
             <Box sx={{ px: 1.5, pt: 1, minWidth: 0 }}>
-              <Typography
-                variant="subtitle1"
-                component="h2"
-                sx={{ overflowWrap: "anywhere" }}
-              >
-                {selected.name}
-              </Typography>
+              <InspectionName name={selected.name} variant="subtitle1" />
             </Box>
             <Tabs
               value={tab}

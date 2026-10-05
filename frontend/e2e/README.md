@@ -61,7 +61,9 @@ to list cases without running them.
 ## Evidence and isolation
 
 Playwright uses installed Microsoft Edge and starts its own fixture server on
-port 8016. Do not run another harness on that port concurrently. The fixture uses
+port 8016. Do not run another harness on that port concurrently; when another
+worktree is using it, set `E2E_PORT` (for example `$env:E2E_PORT='8026'`) and both
+configs, the teardown and the fixture server use that port instead. The fixture uses
 real log routes and disposable files; most other APIs, including Labware writes,
 are synthetic. It starts no robot services and cleans its temporary files at exit.
 
