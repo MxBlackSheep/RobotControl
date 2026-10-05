@@ -2,6 +2,7 @@
 
 Run: .venv/Scripts/python.exe backend/e2e/packaged_viewer_smoke.py <candidate folder>
 The candidate itself is preserved; its temporary relocated copy is removed.
+Port: 8017, or PACKAGED_E2E_PORT; it refuses a port already in use (see packaged_app.py).
 
 Failure cases include: the packaged app publishes /docs, /openapi.json, source maps or the
 bundle report through the remote tunnel; a missing hashed chunk answers index.html (200)
@@ -18,6 +19,7 @@ import os
 import secrets
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.error
@@ -28,6 +30,10 @@ import psutil
 from websockets.sync.client import connect
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+from backend.e2e import packaged_app
+
+PORT = packaged_app.port(8017)
 parser = argparse.ArgumentParser()
 parser.add_argument('candidate', type=Path)
 args = parser.parse_args()
@@ -48,7 +54,7 @@ def wait_for(condition, seconds=10):
 def request(path, body=None, token=None, method=None):
     headers = {'Content-Type':'application/json'}
     if token: headers['Authorization']='Bearer '+token
-    req=urllib.request.Request('http://127.0.0.1:8017'+path,
+    req=urllib.request.Request(f'http://127.0.0.1:{PORT}'+path,
         data=json.dumps(body).encode() if body is not None else None,headers=headers,method=method)
     with urllib.request.urlopen(req,timeout=10) as response:
         data=response.read()
@@ -71,16 +77,10 @@ with tempfile.TemporaryDirectory(prefix='relocated-viewer-',dir=ROOT/'test-outpu
         'ROBOTCONTROL_ADMIN_USERNAME':'viewer-smoke','ROBOTCONTROL_ADMIN_PASSWORD':password,
         'ROBOTCONTROL_ACCESS_TOKEN_SECRET':secrets.token_urlsafe(32),
         'ROBOTCONTROL_REFRESH_TOKEN_SECRET':secrets.token_urlsafe(32),
-        'VM_SQL_SERVER':'127.0.0.1,1'}
-    proc=subprocess.Popen([str(relocated/'RobotControl.exe'),'--host','127.0.0.1','--port','8017','--no-browser'],
-        cwd=relocated,env=environment,creationflags=subprocess.CREATE_NO_WINDOW)
+        'VM_SQL_SERVER':'127.0.0.1,1','PACKAGED_E2E_PORT':str(PORT)}
+    proc=packaged_app.launch(relocated,environment,PORT)
     try:
-        deadline=time.monotonic()+90
-        while True:
-            try: request('/health');break
-            except Exception:
-                if proc.poll() is not None or time.monotonic()>deadline:raise
-                time.sleep(.5)
+        packaged_app.wait_until_serving(proc,PORT,lambda:request('/health'))
         result['checks'].append('packaged health')
         assert not orphan.exists()
         result['checks'].append('startup removes orphaned reading copies')
@@ -141,7 +141,7 @@ with tempfile.TemporaryDirectory(prefix='relocated-viewer-',dir=ROOT/'test-outpu
             return found
         def viewer():
             session = request('/api/camera/streaming/session', token=token, method='POST')['data']
-            return connect(f"ws://127.0.0.1:8017/api/camera/streaming/video/{session['session_id']}")
+            return connect(f"ws://127.0.0.1:{PORT}/api/camera/streaming/video/{session['session_id']}")
         encoder_running = lambda: request('/api/camera/streaming/status', token=token)['data']['status']['encoder']['running']
         assert (relocated/'ffmpeg.exe').is_file() and (relocated/'THIRD_PARTY_NOTICES'/'FFmpeg.txt').is_file()
         assert not encoders() and not encoder_running()

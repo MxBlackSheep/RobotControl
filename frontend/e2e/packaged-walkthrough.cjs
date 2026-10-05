@@ -7,12 +7,14 @@
 //   4. a route used by a page returns 5xx for a reason other than the deliberately
 //      unreachable SQL Server;
 //   5. a navigation entry renders a blank page.
+// PACKAGED_E2E_PORT comes from the launcher, which has proven its own app listens there.
 const { chromium } = require('@playwright/test');
 const fs = require('node:fs');
 const path = require('node:path');
 
 const output = process.env.WALKTHROUGH_EVIDENCE;
-const base = 'http://127.0.0.1:8017';
+if (!process.env.PACKAGED_E2E_PORT) throw new Error('Run through backend/e2e/packaged_walkthrough.py, which sets PACKAGED_E2E_PORT');
+const base = `http://127.0.0.1:${process.env.PACKAGED_E2E_PORT}`;
 const pages = [
   ['/', []], ['/database', ['tables', 'procedures', 'restore', 'operations', 'retrieval', 'packages', 'settings']],
   ['/scheduling', ['schedules', 'methods', 'calendar', 'history', 'archived', 'recovery', 'notifications']],

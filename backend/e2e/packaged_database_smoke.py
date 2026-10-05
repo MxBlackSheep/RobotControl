@@ -1,7 +1,8 @@
 """Relocated executable check with no Python/UV on its PATH and disposable SQL rows.
 
 Usage: packaged_database_smoke.py dist/<candidate>/RobotControl [--report-package ZIP]
-[--evidence DIR] [--wizard]. Needs local .\\HAMILTON with Windows administrator access
+[--evidence DIR] [--wizard]. Port: 8018, or PACKAGED_E2E_PORT; it refuses a port already
+in use (see packaged_app.py). Needs local .\\HAMILTON with Windows administrator access
 to create and drop a UUID-named database and login (report_wizard_check.sql_fixture).
 
 Reports run in a spawned process that opens only configured read-only connections,
@@ -46,6 +47,9 @@ import openpyxl
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
+from backend.e2e import packaged_app
+
+PORT = packaged_app.port(8018)
 
 
 def wizard_check(request, token, result, evidence):
@@ -197,7 +201,7 @@ def run(candidate, report_package=None, evidence=ROOT/'test-output/database-veri
         else:
             headers['Content-Type']='application/json'
             data=json.dumps(body).encode() if body is not None else None
-        req=urllib.request.Request('http://127.0.0.1:8018'+path, data=data, headers=headers, method=method)
+        req=urllib.request.Request(f'http://127.0.0.1:{PORT}'+path, data=data, headers=headers, method=method)
         with urllib.request.urlopen(req,timeout=40) as response:
             data=response.read()
             return json.loads(data) if 'application/json' in response.headers.get('Content-Type','') else data
@@ -210,15 +214,9 @@ def run(candidate, report_package=None, evidence=ROOT/'test-output/database-veri
             ROBOTCONTROL_SCHEDULER_AUTOSTART_DELAY_SECONDS='disabled', ROBOTCONTROL_ADMIN_USERNAME='package-smoke',
             ROBOTCONTROL_ADMIN_PASSWORD=password, ROBOTCONTROL_ACCESS_TOKEN_SECRET=secrets.token_urlsafe(32),
             ROBOTCONTROL_REFRESH_TOKEN_SECRET=secrets.token_urlsafe(32), VM_SQL_SERVER='127.0.0.1,1')
-        process=subprocess.Popen([str(relocated/'RobotControl.exe'),'--host','127.0.0.1','--port','8018','--no-browser'],
-            cwd=relocated, env=environment, creationflags=subprocess.CREATE_NO_WINDOW)
+        process=packaged_app.launch(relocated, environment, PORT)
         try:
-            deadline=time.monotonic()+90
-            while True:
-                try: request('/health'); break
-                except Exception:
-                    if process.poll() is not None or time.monotonic()>deadline: raise
-                    time.sleep(.5)
+            packaged_app.wait_until_serving(process, PORT, lambda: request('/health'))
             token=request('/api/auth/login',dict(username='package-smoke',password=password))['data']['access_token']
             request('/api/auth/change-password',dict(current_password=password,new_password=secrets.token_urlsafe(24)),token)
             packages=request('/api/database/tools/packages',token=token)

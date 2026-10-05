@@ -1,3 +1,8 @@
+## 2026-10-05 Packaged checks choose their port and test only the app they started
+
+- Before, `packaged_viewer_smoke.py` and `packaged_walkthrough.py` always used port 8017 and `packaged_database_smoke.py` 8018. With two worktrees running packaged checks at once, one check could talk to the other's app: 401s, "orphan folder never seen", or a pass earned by someone else's build. Now `PACKAGED_E2E_PORT` sets the port for all three and their browser scripts (`packaged-smoke.cjs`, `packaged-walkthrough.cjs`, which now require it from the launcher). Defaults are unchanged.
+- `backend/e2e/packaged_app.py` refuses a port that is already in use, naming the PID and program, and sends no request (not even `/health`) until the listening socket belongs to the process it started. If another process takes the port during startup it refuses as well. It stops only its own process. Identity comes from the socket's owning PID, so no production route was added.
+- Checks: candidate `dist/packaged-port-5e03168` (built from 5e03168; the change touches only checks). All three passed on the default ports and with `PACKAGED_E2E_PORT=8027`. With 8017 and 8018 held by a dummy server, all three exited 1 with the refusal message and left the dummy running. The mid-start takeover was exercised directly against `wait_until_serving`. Evidence: `test-output/packaged-port-evidence/`.
 ## 2026-10-05 Tray shows the app icon with a status dot
 
 - Before, the tray showed a 16 px white square with a coloured circle and a "P". Now it shows the
