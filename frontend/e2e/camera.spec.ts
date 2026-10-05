@@ -18,7 +18,9 @@ import { expect, test, type APIRequestContext, type Page } from '@playwright/tes
  * - A browser without WebCodecs H.264, or a plain-HTTP page, starts a session, shows a blank
  *   canvas or falls back to JPEG instead of its message (live view is H.264 only).
  * - Collapsing controls stops health polling or hides recording/errors.
- * - Small screens overflow, touch controls shrink, or keyboard focus is lost.
+ * - Small screens overflow, touch controls shrink, or keyboard focus is lost. On an upright phone
+ *   the picture is narrower than the screen, or the viewing controls sit above it (out of thumb
+ *   reach) instead of below.
  * - An expired access token makes status polls and live-view start fail with 401 forever
  *   instead of renewing the sign-in once (a lab screen left open overnight).
  * - Playout buffer (useLiveViewSocket.ts): frames that arrive in bursts are still shown in bursts
@@ -324,6 +326,9 @@ test('collapsed controls keep polling and phone controls remain touchable', asyn
   await expect(page.getByRole('combobox', { name: 'Selected camera' })).not.toBeVisible();
   const targets = await page.getByTestId('camera-toolbar').getByRole('button').evaluateAll(buttons => buttons.map(button => ({ label: button.getAttribute('aria-label') ?? button.textContent, height: button.getBoundingClientRect().height })));
   for (const target of targets) expect(target.height, target.label ?? 'camera control').toBeGreaterThanOrEqual(44);
+  expect(await wholeFrame(page)).toEqual({ clipped: 0, width: 390 });
+  const stage = (await page.getByTestId('camera-stage').boundingBox())!;
+  expect((await page.getByTestId('camera-toolbar').boundingBox())!.y).toBeGreaterThan(stage.y + stage.height);
   await testInfo.attach('touch-targets', { body: JSON.stringify(targets, null, 2), contentType: 'application/json' });
   await page.screenshot({ path: testInfo.outputPath('phone-controls.png'), fullPage: true });
 });

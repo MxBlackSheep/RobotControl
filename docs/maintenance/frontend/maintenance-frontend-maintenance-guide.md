@@ -35,7 +35,8 @@ reads the shell's robot status context
 (HxRun, scheduler, current run, whether scheduled runs are held) and starts no request.
 While HxRun runs, the card names the run and the time left by the user's estimate (or how
 far past it); this is information only, and the backend still decides with its 409.
-Do not stretch the small form to fill the height.
+Do not stretch the small form to fill the height. On phones (under 600px) "Last change" sits under
+the description in the card, since the header band has no room for it beside the label.
 Use the common theme and compact PageHeader. The page scrolls naturally on short
 screens and with an onscreen keyboard.
 
