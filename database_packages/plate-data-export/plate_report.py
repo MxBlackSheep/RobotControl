@@ -1,11 +1,13 @@
 """Per-plate charts and the Excel workbook for the plate data export.
 
 Propagated cultures are blue and solid; cultures that were not propagated are orange
-and dotted, so the split never relies on colour alone.
+and dotted (lines), dot-patterned (bars) or open (points), so the split never relies on
+colour alone.
 
-RobotControl package: the matplotlib figure (time course, ranking and growth panels, saved
-as a PNG beside the workbook) is replaced by one native Excel chart per plate sheet that
-draws the time course the same way. Its points live on a hidden "Chart data" sheet.
+RobotControl package: the matplotlib figure (saved as a PNG beside the workbook) is replaced
+by native Excel charts on each plate sheet that draw the same panels: the time course, then
+per propagation its summary line, the robot ranking and the growth scatter. Their points live
+on a hidden "Chart data" sheet.
 """
 
 from datetime import datetime
@@ -20,9 +22,14 @@ from .runtime import discard_log
 
 PROPAGATED = "2A78D6"
 NOT_PROPAGATED = "EB6834"
+CRITICAL = "D03B3B"
+INK_SECONDARY = "52514E"
 MUTED = "898781"
 GRID = "E1E0D9"
 CHART_DATA = "Chart data"
+# Rows a chart covers at Excel's default row height (20 px), plus a blank row below it.
+TIME_COURSE_ROWS = 26
+PANEL_ROWS = 21
 
 
 # ---------------------------------------------------------------- chart
@@ -31,6 +38,24 @@ def plate_title(plate):
     meta = plate.plate
     parents = f", parent plate {meta['ParentPlates']}" if meta.get("ParentPlates") else ""
     return f"Plate {meta['PlateID']} ({meta.get('BarCode') or 'no barcode'}), generation {meta['Generation']}{parents}"
+
+
+def event_summary(event):
+    check = f"N/A ({event.CheckNote})" if event.RankingCheck == "N/A" else f"{event.RankingCheck}"
+    growth = f", growth agreement {event.GrowthOverlap}/{event.GrowthCompared}" if event.GrowthCompared else ""
+    return (f"Propagation {event.Event}, {event.EventTime:%Y-%m-%d %H:%M}: {event.Selected} of {event.Eligible} "
+            f"propagated, ranking check {check}{growth}")
+
+
+def event_panels(plate):
+    """The figure's rows under the time course, one per propagation, as plate_figure draws them.
+
+    Yields (event, ranking, growth): ``ranking`` is the event's Selection rows by robot rank (one
+    bar each, as ``_ranking``); ``growth`` maps False/True (propagated) to its rows (as ``_growth``).
+    """
+    for event in plate.events.itertuples():
+        rows = plate.selection[plate.selection["Event"] == event.Event]
+        yield event, rows.sort_values("RobotRank"), {s: rows[rows["Selected"] == s] for s in (False, True)}
 
 
 def time_course(plate):
@@ -73,6 +98,69 @@ def _write_runs(ws, column, runs, label):
     return row
 
 
+def _chart_data(workbook):
+    """The hidden sheet holding chart points, and its first free column."""
+    if CHART_DATA not in workbook.sheetnames:
+        workbook.create_sheet(CHART_DATA).sheet_state = "hidden"
+    data = workbook[CHART_DATA]
+    return data, data.max_column + 1 if data.max_row > 1 or data["A1"].value is not None else 1
+
+
+def _write_column(ws, column, header, values):
+    """One labelled column of chart values; NaN becomes a blank, which the chart skips."""
+    from openpyxl.chart import Reference
+    ws.cell(row=1, column=column, value=header)
+    for row, value in enumerate(values, 2):
+        ws.cell(row=row, column=column, value=_cell_value(value))
+    return Reference(ws, min_col=column, min_row=2, max_row=max(2, len(values) + 1))
+
+
+def _nice_bounds(values, pad=0.05):
+    """(min, max, step) on round numbers around ``values``, with a margin like the figure's.
+
+    Set explicitly because Excel starts a value axis at 0 whenever the data's minimum is below
+    5/6 of its maximum, which would squeeze OD 0.29-0.37 into the top fifth of the plot.
+    """
+    low, high = min(values), max(values)
+    span = high - low or abs(high) or 1.0
+    low, high = low - span * pad, high + span * pad
+    raw = (high - low) / 5
+    magnitude = 10 ** math.floor(math.log10(raw))
+    step = next(m * magnitude for m in (1, 2, 2.5, 5, 10) if m * magnitude >= raw)
+    return round(math.floor(low / step) * step, 10), round(math.ceil(high / step) * step, 10), step
+
+
+def _style_chart(chart, title, x_title, y_title):
+    """Title, axis titles and light gridlines, kept off the plot area."""
+    from openpyxl.chart.axis import ChartLines
+    from openpyxl.chart.shapes import GraphicalProperties
+    from openpyxl.drawing.line import LineProperties
+    chart.style = None
+    chart.title = title
+    chart.display_blanks = "gap"
+    chart.legend.position = "t"
+    chart.x_axis.title, chart.y_axis.title = x_title, y_title
+    # Without overlay=False, Excel draws the titles and legend over the plot and tick labels.
+    chart.title.overlay = chart.legend.overlay = False
+    for axis in (chart.x_axis, chart.y_axis):
+        axis.delete = False
+        if axis.title:
+            axis.title.overlay = False
+        axis.majorGridlines = ChartLines(spPr=GraphicalProperties(ln=LineProperties(solidFill=GRID)))
+
+
+def _markers(series, symbol, colour, filled, size=7):
+    """Points without a line: filled, or open (outline only)."""
+    from openpyxl.chart.marker import Marker
+    from openpyxl.chart.shapes import GraphicalProperties
+    series.marker = Marker(symbol=symbol, size=size)
+    series.marker.graphicalProperties = GraphicalProperties(solidFill=colour if filled else None)
+    if not filled:
+        series.marker.graphicalProperties.noFill = True
+    series.marker.graphicalProperties.line.solidFill = colour
+    series.graphicalProperties.line.noFill = True
+
+
 def add_chart(workbook, ws, plate, anchor):
     """Draw the plate's time course as a native Excel scatter chart at ``anchor``.
 
@@ -80,10 +168,7 @@ def add_chart(workbook, ws, plate, anchor):
     entries however many cultures the plate holds. Returns False when nothing can be drawn.
     """
     from openpyxl.chart import Reference, ScatterChart, Series
-    from openpyxl.chart.axis import ChartLines
     from openpyxl.chart.marker import Marker
-    from openpyxl.chart.shapes import GraphicalProperties
-    from openpyxl.drawing.line import LineProperties
 
     lines, lone, events, start = time_course(plate)
     ods = [y for group in (*lines.values(), *lone.values()) for points in group for _, y in points]
@@ -96,10 +181,7 @@ def add_chart(workbook, ws, plate, anchor):
     if high <= low:
         high = low * 2
 
-    if CHART_DATA not in workbook.sheetnames:
-        workbook.create_sheet(CHART_DATA).sheet_state = "hidden"
-    data = workbook[CHART_DATA]
-    first = data.max_column + 1 if data.max_row > 1 or data["A1"].value is not None else 1
+    data, first = _chart_data(workbook)
     name = f"Plate {plate.plate['PlateID']}"
     blocks = [
         # (runs, legend, colour, dotted, lone-reading dot filled)
@@ -111,16 +193,11 @@ def add_chart(workbook, ws, plate, anchor):
     ]
 
     chart = ScatterChart()
-    chart.style = None
     title = f"{plate_title(plate)}: OD over time, one line per culture"
     if not events:
         title += " (no propagation recorded from this plate yet)"
-    chart.title = title
-    chart.display_blanks = "gap"
+    _style_chart(chart, title, f"Hours since first measurement ({start:%Y-%m-%d %H:%M})", "OD (GFP + RFP, log scale)")
     chart.width, chart.height = 32, 13
-    chart.legend.position = "t"
-    chart.x_axis.title = f"Hours since first measurement ({start:%Y-%m-%d %H:%M})"
-    chart.y_axis.title = "OD (GFP + RFP, log scale)"
     chart.y_axis.scaling.logBase = 2
     chart.y_axis.scaling.min, chart.y_axis.scaling.max = low, high
     hours = [x for group in (*lines.values(), *lone.values()) for points in group for x, _ in points]
@@ -129,12 +206,6 @@ def add_chart(workbook, ws, plate, anchor):
     chart.x_axis.number_format = "General"
     chart.y_axis.number_format = "0.0##"
     chart.x_axis.crosses = chart.y_axis.crosses = "min"
-    # Without overlay=False, Excel draws the titles and legend over the plot and tick labels.
-    chart.title.overlay = chart.legend.overlay = False
-    for axis in (chart.x_axis, chart.y_axis):
-        axis.delete = False
-        axis.title.overlay = False
-        axis.majorGridlines = ChartLines(spPr=GraphicalProperties(ln=LineProperties(solidFill=GRID)))
 
     column = first
     for runs, legend, colour, dotted, filled in blocks:
@@ -150,16 +221,128 @@ def add_chart(workbook, ws, plate, anchor):
                 series.graphicalProperties.line.width = 15875  # 1.25 pt
                 series.graphicalProperties.line.prstDash = "sysDot" if dotted else "solid"
             else:
-                series.marker = Marker(symbol="circle", size=6)
-                series.marker.graphicalProperties = GraphicalProperties(solidFill=colour if filled else None)
-                if not filled:
-                    series.marker.graphicalProperties.noFill = True
-                series.marker.graphicalProperties.line.solidFill = colour
-                series.graphicalProperties.line.noFill = True
+                _markers(series, "circle", colour, filled, size=6)
             chart.series.append(series)
         column += 2
     ws.add_chart(chart, anchor)
     return True
+
+
+def add_ranking_chart(workbook, ws, plate, event, rows, anchor):
+    """The robot ranking: one bar per culture in robot-rank order, and the robot's cutoff.
+
+    A column chart cannot draw a vertical line, so the cutoff (between rank N and N + 1) and the
+    crosses where the robot rule disagrees are scatter series on the same axes, where Excel puts
+    category k at x = k.
+    """
+    from openpyxl.chart import BarChart, ScatterChart, Series
+    from openpyxl.chart.data_source import AxDataSource, StrRef
+    from openpyxl.chart.text import RichText
+    from openpyxl.drawing.fill import ColorChoice, PatternFillProperties
+    from openpyxl.drawing.text import CharacterProperties, Paragraph, ParagraphProperties, RichTextProperties
+
+    data, column = _chart_data(workbook)
+    label = f"Plate {plate.plate['PlateID']} propagation {event.Event} ranking"
+    selected = rows["Selected"].astype(bool).tolist()
+    ods = rows["OD"].astype(float).tolist()
+    checked = event.RankingCheck != "N/A"
+    wrong = [(position, od * 1.04) for position, (od, match) in enumerate(zip(ods, rows["Match"]), 1)
+             if checked and not bool(match)]
+    low = min([0.0, *ods])  # bars start at zero, as the figure's; an event can have no bars
+    _, high, step = _nice_bounds([low, max(ods + [y for _, y in wrong], default=low)], pad=0.04)
+
+    chart = BarChart()
+    chart.type, chart.grouping, chart.overlap, chart.gapWidth = "col", "clustered", 100, 25
+    _style_chart(chart, "Robot ranking: OD at propagation, highest first", None, "OD at propagation")
+    chart.width, chart.height = 22, 10
+    chart.y_axis.scaling.min, chart.y_axis.scaling.max, chart.y_axis.majorUnit = low, high, step
+    chart.y_axis.number_format = "0.00"
+    chart.x_axis.majorGridlines = None
+    chart.x_axis.tickLblSkip = 1
+    chart.x_axis.txPr = RichText(bodyPr=RichTextProperties(rot=-5400000, vert="horz"), p=[Paragraph(
+        pPr=ParagraphProperties(defRPr=CharacterProperties(sz=600 if len(ods) > 48 else 800)),
+        endParaRPr=CharacterProperties())])
+    wells = _write_column(data, column, f"{label} well", rows["Well"].tolist())
+    for offset, (name, propagated) in enumerate((("Propagated", True), ("Not propagated", False)), 1):
+        values = [od if s == propagated else None for od, s in zip(ods, selected)]
+        series = Series(_write_column(data, column + offset, f"{label} {name} OD", values), title=name)
+        series.graphicalProperties.line.solidFill = PROPAGATED if propagated else NOT_PROPAGATED
+        series.graphicalProperties.line.width = 12700  # 1 pt
+        if propagated:
+            series.graphicalProperties.solidFill = PROPAGATED
+        else:
+            # The figure's dot hatch: orange dots on white, which stays distinct in greyscale.
+            series.graphicalProperties.pattFill = PatternFillProperties(
+                prst="pct20", fgClr=ColorChoice(srgbClr=NOT_PROPAGATED), bgClr=ColorChoice(srgbClr="FFFFFF"))
+        chart.series.append(series)
+    for series in chart.series:
+        series.cat = AxDataSource(strRef=StrRef(f=str(wells)))
+
+    if checked:
+        overlay = ScatterChart()
+        # Share the bars' axes; openpyxl otherwise adds a second, autoscaled value axis.
+        overlay.x_axis, overlay.y_axis = chart.x_axis, chart.y_axis
+        cutoff = event.Expected + 0.5
+        x = _write_column(data, column + 3, f"{label} cutoff x", [cutoff, cutoff])
+        y = _write_column(data, column + 4, f"{label} cutoff OD", [low, high])
+        series = Series(y, x, title=f"Robot cutoff: top {event.Expected}")
+        series.marker.symbol = "none"
+        series.smooth = False
+        series.graphicalProperties.line.solidFill = INK_SECONDARY
+        series.graphicalProperties.line.width = 12700
+        overlay.series.append(series)
+        if wrong:
+            x = _write_column(data, column + 5, f"{label} disagrees x", [p for p, _ in wrong])
+            y = _write_column(data, column + 6, f"{label} disagrees OD", [y for _, y in wrong])
+            series = Series(y, x, title="Robot rule disagrees")
+            _markers(series, "x", CRITICAL, False)
+            overlay.series.append(series)
+        chart += overlay
+    ws.add_chart(chart, anchor)
+
+
+def add_growth_chart(workbook, ws, plate, event, growth, anchor):
+    """Growth rate against OD at propagation: propagated filled blue, not propagated open orange."""
+    from openpyxl.chart import ScatterChart, Series
+
+    data, column = _chart_data(workbook)
+    label = f"Plate {plate.plate['PlateID']} propagation {event.Event} growth"
+    chart = ScatterChart()
+    _style_chart(chart, "Growth rate vs OD at propagation", "OD at propagation", "Growth rate (ln OD per hour)")
+    chart.width, chart.height = 9.6, 10
+    for propagated, colour, name in ((False, NOT_PROPAGATED, "Not propagated"), (True, PROPAGATED, "Propagated")):
+        rows = growth[propagated]
+        x = _write_column(data, column, f"{label} {name} OD", rows["OD"].tolist())
+        y = _write_column(data, column + 1, f"{label} {name} rate", rows["GrowthRate"].tolist())
+        series = Series(y, x, title=name)
+        _markers(series, "circle", colour, propagated)
+        chart.series.append(series)
+        column += 2
+    points = pd.concat(growth.values())
+    points = points[points["GrowthRate"].notna()]
+    for axis, values, number_format in ((chart.x_axis, points["OD"], "0.00"),
+                                        (chart.y_axis, points["GrowthRate"], "0.000")):
+        if len(values):
+            axis.scaling.min, axis.scaling.max, axis.majorUnit = _nice_bounds(values.astype(float).tolist())
+        axis.number_format = number_format
+        axis.crosses = "min"
+    ws.add_chart(chart, anchor)
+
+
+def add_panels(workbook, ws, plate, row):
+    """From ``row`` down, per propagation: its summary line, then the ranking and growth charts.
+
+    The growth chart starts in column H, just past the 22 cm ranking chart at the plate sheets'
+    column widths (A-B 18, others 16), so the pair is as wide as the time course.
+    """
+    if plate.events.empty:
+        ws.cell(row=row, column=1, value="No propagation recorded from this plate yet")
+        return
+    for event, ranking, growth in event_panels(plate):
+        ws.cell(row=row, column=1, value=event_summary(event))
+        add_ranking_chart(workbook, ws, plate, event, ranking, f"A{row + 1}")
+        add_growth_chart(workbook, ws, plate, event, growth, f"H{row + 1}")
+        row += 1 + PANEL_ROWS
 
 
 # ---------------------------------------------------------------- workbook (Data.py style)
@@ -270,7 +453,7 @@ def _with_plate(plates, attribute, columns):
 
 
 def export_plates(data, plate_ids, out_dir, log=discard_log):
-    """Write the workbook, with one chart per plate sheet; returns the workbook path."""
+    """Write the workbook, with the figure's charts on each plate sheet; returns the workbook path."""
     from openpyxl import Workbook
     from openpyxl.worksheet.hyperlink import Hyperlink
     exported_at = datetime.now()
@@ -292,7 +475,10 @@ def export_plates(data, plate_ids, out_dir, log=discard_log):
         wide = wide_readings(plate)
         propagated = set(plate.cultures.loc[plate.cultures["Propagated"], "Well"])
         _write_sheet(ws, wide, freeze="D2", marked={c for c in wide.columns if c.split(" ")[0] in propagated})
-        add_chart(workbook, ws, plate, f"A{len(wide) + 4}")
+        below = len(wide) + 4
+        if add_chart(workbook, ws, plate, f"A{below}"):
+            below += TIME_COURSE_ROWS
+        add_panels(workbook, ws, plate, below)
         link = overview.cell(row=row, column=1)
         link.hyperlink = Hyperlink(ref=link.coordinate, location=f"'{name}'!A1", display=name)
         log(f"Plate {name}: {len(plate.cultures)} cultures, {len(plate.events)} propagations, check {plate_check(plate)}")

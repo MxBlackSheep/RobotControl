@@ -22,11 +22,11 @@ The three existing EvoYeast tools are also ready as single Python files:
   check the step and save it.
 
 [Plate data export](plate-data-export/README.md) is a report made of several files: the
-desktop Plate Data Export tool's calculations as helper modules, with a native Excel chart per
-plate. Its README says how to update it from upstream.
+desktop Plate Data Export tool's calculations as helper modules, with the desktop figure as native
+Excel charts on each plate sheet. Its README says how to update it from upstream.
 
 Culture history, Delete Experiment and Select EvoYeast experiment are version 1.0.1;
-Plate data export is 1.0.0.
+Plate data export is 1.1.0.
 Each has a `CHANGELOG.md` with a `## <version>` section per release, newest first. The CHANGELOG travels inside the package ZIP and its
 download. The history under **Manage packages** (who installed what, and when) belongs to one
 installation and is not part of the ZIP. When **What changed?** is left blank on install (and at
