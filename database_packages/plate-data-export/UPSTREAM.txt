@@ -1,0 +1,9 @@
+Source: C:\Users\Hamilton\Desktop\Shou_LHR_PythonPackage (https://github.com/MxBlackSheep/Shou_LHR_PythonPackage)
+Revision: bc8ebafe75996dc1c070b06b94da5dcde576ec4b plus uncommitted working-tree files, identified by SHA-256:
+  SQL Database/PlateDataExport.py                   7a84038846fa1d7c319a34bc5ea270ba547dd763298f59011164cdda5c2bd485 (untracked; the Tk front end, not vendored)
+  src/hamilton_workflows/plate_export.py            ba34f67ed1ad17d6be9fe1e72f5d9ee111d79139a7bc3189307d9fe35621b4f6 (untracked)
+  src/hamilton_workflows/plate_report.py            3e11fe1f480beb83aa1b853e35becb6a046c94d782b70413cc72ad8e8f0e2dfb (untracked)
+  src/hamilton_workflows/propagation.py             89e5956683e6b8833695f3b80bc0a33b7b920be6e86c3e926cf6cd92434e7fc5 (modified: adds rank_for_propagation)
+  src/hamilton_workflows/propagation_store.py       c7068b668c31c184ecafe3e5a3a7aa9a537e809c4e0bf310ab3b62d56980f0ff (as committed)
+  src/hamilton_workflows/runtime.py                 887c4be2bb6c2ec705b3f7fa7d278a38681901d100ef9dae78ffee902f148856 (as committed)
+Once these files are committed upstream, replace this with that commit.

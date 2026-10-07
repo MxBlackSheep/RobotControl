@@ -1,0 +1,39 @@
+{
+  "contract_version": 2,
+  "id": "plate-data-export",
+  "name": "Plate data export",
+  "version": "1.0.0",
+  "libraries": [
+    "openpyxl",
+    "pandas"
+  ],
+  "tools": [
+    {
+      "id": "plate-data-export",
+      "name": "Plate data export",
+      "kind": "report",
+      "entrypoint": "plate_data_export:run",
+      "preview": null,
+      "confirmation_field": null,
+      "inputs": [
+        {
+          "name": "experiment_id",
+          "label": "Experiment",
+          "type": "lookup",
+          "required": true,
+          "choices": [],
+          "lookup": {
+            "source": "primary",
+            "query": "SELECT ExperimentID AS value, UserDefinedID AS label FROM dbo.Experiments",
+            "parameters": [],
+            "value_type": "integer",
+            "order": "value_desc"
+          }
+        }
+      ],
+      "sources": [
+        "primary"
+      ]
+    }
+  ]
+}

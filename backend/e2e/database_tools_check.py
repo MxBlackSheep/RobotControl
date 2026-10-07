@@ -90,7 +90,7 @@ def run(evidence=ROOT/'test-output/database-verification'):
         try:
             with TestClient(app, client=('127.0.0.1', 1234)) as client:
                 client.headers['authorization'] = 'admin'
-                assert {p['id'] for p in client.get(BASE+'/packages').json()} == {'culture-history', 'delete-experiment', 'evoyeast-experiment'}
+                assert {p['id'] for p in client.get(BASE+'/packages').json()} == {'culture-history', 'delete-experiment', 'evoyeast-experiment', 'plate-data-export'}
                 assert client.post('/api/database/query', params={'query': 'DELETE FROM Experiments'}).status_code == 410
                 client.headers['authorization'] = 'user'
                 assert client.get(BASE+'/packages').status_code == 403
