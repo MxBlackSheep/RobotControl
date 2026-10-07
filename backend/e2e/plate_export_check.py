@@ -336,7 +336,7 @@ def run(args):
                     assert r.status_code == status, (path, r.status_code, r.text)
                     return r.json() if 'application/json' in r.headers.get('content-type', '') else r.content
                 installed = call('POST', '/packages', files={'file': ('plate-data-export.zip', zip_path.read_bytes())}, data={'expected_current': 'absent'})
-                assert installed['id'] == 'plate-data-export' and installed['version'] == '1.1.0', installed
+                assert installed['id'] == 'plate-data-export' and installed['version'] == json.loads((PACKAGE / 'manifest.json').read_text(encoding='utf-8'))['version'], installed
                 call('POST', '/sources', dict(id='primary', name='EvoYeast copy', server=SERVER, database=fixture['database'],
                                               username=fixture['login'], password=fixture['password'], trust_certificate=True))
                 call('PUT', '/packages/plate-data-export/sources', dict(mappings={'primary': 'primary'}))
