@@ -136,6 +136,9 @@ def _style_chart(chart, title, x_title, y_title):
     from openpyxl.chart.shapes import GraphicalProperties
     from openpyxl.drawing.line import LineProperties
     chart.style = None
+    # Excel treats a missing varyColors as on: a chart with one series (a plate with no
+    # propagation yet) then gets one legend entry and one colour per point.
+    chart.varyColors = False
     chart.title = title
     chart.display_blanks = "gap"
     chart.legend.position = "t"
@@ -280,6 +283,7 @@ def add_ranking_chart(workbook, ws, plate, event, rows, anchor):
 
     if checked:
         overlay = ScatterChart()
+        overlay.varyColors = False
         # Share the bars' axes; openpyxl otherwise adds a second, autoscaled value axis.
         overlay.x_axis, overlay.y_axis = chart.x_axis, chart.y_axis
         cutoff = event.Expected + 0.5
