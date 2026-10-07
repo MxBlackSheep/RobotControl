@@ -1,5 +1,33 @@
 # Plate data export changes
 
+## 1.1.0
+
+Each plate sheet now also has the desktop figure's two lower panels, as native Excel charts.
+Under the time course, each propagation gets the figure's summary line (for example
+"Propagation 1, 2026-09-26 13:40: 16 of 32 propagated, ranking check PASS, growth agreement
+8/16") and two charts side by side:
+
+- **Robot ranking: OD at propagation, highest first**: one bar per culture in robot-rank order,
+  labelled with its well. Propagated bars are solid blue; not propagated bars have an orange
+  outline and an orange dotted pattern (the figure's dot hatch), so the two stay apart in
+  greyscale. A dark vertical line after the robot's top N marks its cutoff, named in the legend
+  ("Robot cutoff: top 16"); red crosses mark cultures where the robot rule disagrees. As in the
+  figure, there is no cutoff or cross when the ranking check is N/A.
+- **Growth rate vs OD at propagation**: propagated cultures as filled blue points, not
+  propagated as open orange points; axes "OD at propagation" and "Growth rate (ln OD per hour)".
+
+A plate with several propagations gets one line and pair of charts per propagation, one under
+another. A plate without one has the line "No propagation recorded from this plate yet" and no
+ranking or growth charts. The values come from the same Selection rows the desktop figure plots.
+
+Script adaptation (changes to the upstream code), in plate_report.py only:
+
+- `event_summary` is copied from upstream unchanged. `event_panels` picks each propagation's
+  Selection rows as upstream's `plate_figure`, `_ranking` and `_growth` do; `add_ranking_chart`,
+  `add_growth_chart` and `add_panels` draw them in place of the matplotlib panels.
+- `add_chart` (time course) shares its title, axis and marker styling with the new charts; it
+  draws the same chart as 1.0.0.
+
 ## 1.0.0
 
 First release as a RobotControl package. Exports every plate of one EvoYeast experiment to

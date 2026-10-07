@@ -2,7 +2,7 @@
   "contract_version": 2,
   "id": "plate-data-export",
   "name": "Plate data export",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "libraries": [
     "openpyxl",
     "pandas"

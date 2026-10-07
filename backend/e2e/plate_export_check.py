@@ -15,11 +15,17 @@ Failure cases:
 - The chart leaves out or invents readings: its points differ from the positive OD readings the
   desktop figure plots, a culture lands in the wrong propagated group, a lone reading is not a dot,
   or propagation lines are missing. A plate with readings has no chart.
+- The ranking or growth charts differ from what the desktop figure's panels receive (recorded by
+  wrapping upstream's _ranking, _growth and event_summary): a bar missing, out of robot-rank order,
+  with another OD or in the wrong propagated group; the cutoff not after the robot's top N (or drawn
+  when the check is N/A); crosses on the wrong bars; a growth point moved or in the wrong group; a
+  summary line (or "No propagation recorded ...") different; a propagation without its two charts.
 - The Experiment list is not newest first; an experiment without plates fails with a raw error
   instead of a short message.
 - The output folder keeps upstream's PNG folder beside the workbook.
-Not covered: chart appearance (inspect a workbook), the ranking/growth panels (not reproduced),
-the lab's SQL Server version and data.
+- A Chart data column is not referenced by any chart.
+Not covered: chart appearance and layout (inspect a workbook in Excel), that a column is drawn by
+the right chart (columns are matched by their labels), the lab's SQL Server version and data.
 """
 from contextlib import contextmanager
 import argparse
@@ -27,6 +33,7 @@ from collections import Counter
 import io
 import json
 from pathlib import Path
+import re
 import secrets
 import subprocess
 import sys
@@ -37,6 +44,7 @@ import uuid
 import zipfile
 
 import openpyxl
+from openpyxl.utils import get_column_letter
 import pyodbc
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -56,12 +64,43 @@ TABLES = ('Experiments', 'AncestPlatesInExperiments', 'Plates', 'Cultures', 'Cul
 CHART_DATA = 'Chart data'
 
 REFERENCE = r'''
-import json, sys
+import json, math, sys
 from pathlib import Path
 import pyodbc
 from hamilton_workflows import plate_export, plate_report
 connection_string, out, experiments = sys.argv[1], Path(sys.argv[2]), json.loads(sys.argv[3])
 result = {}
+
+# Record what plate_figure hands its ranking and growth panels, and its summary lines, while
+# export_plates draws the desktop figure: {plate: {"events": [...]}}, saved beside the workbook.
+panels, current = {}, {}
+figure, ranking, growth, summary = (plate_report.plate_figure, plate_report._ranking,
+                                    plate_report._growth, plate_report.event_summary)
+def number(value):
+    return None if value is None or (isinstance(value, float) and math.isnan(value)) else float(value)
+def record_figure(plate):
+    current["plate"] = panels.setdefault(str(int(plate.plate["PlateID"])), {"events": []})
+    return figure(plate)
+def record_summary(event):
+    text = summary(event)
+    current["plate"]["events"].append({"summary": text})
+    return text
+def record_ranking(ax, rows, event):
+    rows = rows.sort_values("RobotRank")  # as _ranking
+    checked = event.RankingCheck != "N/A"
+    current["plate"]["events"][-1].update(
+        ranking=[[r.Well, number(r.OD), bool(r.Selected)] for r in rows.itertuples()],
+        cutoff=int(event.Expected) if checked else None,
+        disagrees=[i for i, m in enumerate(rows["Match"], 1) if not bool(m)] if checked else [])
+    return ranking(ax, rows, event)
+def record_growth(ax, rows):
+    current["plate"]["events"][-1]["growth"] = {
+        str(selected): [[number(r.OD), number(r.GrowthRate)] for r in rows[rows["Selected"] == selected].itertuples()]
+        for selected in (False, True)}
+    return growth(ax, rows)
+plate_report.plate_figure, plate_report._ranking = record_figure, record_ranking
+plate_report._growth, plate_report.event_summary = record_growth, record_summary
+
 with pyodbc.connect(connection_string) as conn:
     for experiment_id in experiments:
         # As PlateDataExport.py: list the experiment's plates, export them all.
@@ -73,7 +112,9 @@ with pyodbc.connect(connection_string) as conn:
         data = plate_export.load_experiment(conn.cursor(), experiment_id, plates, ids)
         folder = out / str(experiment_id)
         folder.mkdir(parents=True)
+        panels.clear()
         result[experiment_id] = str(plate_report.export_plates(data, ids, folder))
+        (folder / "panels.json").write_text(json.dumps(panels))
 print(json.dumps(result))
 '''
 
@@ -114,19 +155,80 @@ def sheet_values(book, name):
 
 
 def compare(reference, package):
-    """Cell-value differences between the desktop and package workbooks (charts/images ignored)."""
+    """Cell-value differences between the desktop and package workbooks (charts/images ignored).
+
+    Returns (problems, lines): below its table a package plate sheet has text lines in column A
+    (the figure's summary lines); ``lines`` maps plate to them for panel_points to check.
+    """
     expected, actual = openpyxl.load_workbook(reference), openpyxl.load_workbook(package)
     names = [n for n in actual.sheetnames if n != CHART_DATA]
     problems = [] if expected.sheetnames == names else [f'sheets {expected.sheetnames} != {names}']
+    lines = {}
     for name in set(expected.sheetnames) & set(names):
         want, got = sheet_values(expected, name), sheet_values(actual, name)
-        if len(want) != len(got):
+        extra = [r for r in got[len(want):] if any(v is not None for v in r)]
+        if name.isdigit():
+            lines[int(name)] = [r[0] for r in extra]
+            extra = [r for r in extra if any(v is not None for v in r[1:])]
+        if len(want) > len(got) or extra:
             problems.append(f'{name}: {len(want)} rows, package {len(got)}')
         for row, (a, b) in enumerate(zip(want, got), 1):
             if a != b:
                 problems.append(f'{name} row {row}: {a} != {b}')
                 break
-    return problems
+    return problems, lines
+
+
+def panel_points(reference, package, lines):
+    """The package's ranking and growth charts against what the desktop figure's panels received.
+
+    ``reference`` is the panels.json recorded from upstream's plate_figure. Per propagation: the
+    bars (well, OD) in robot-rank order and their propagated/not split, the cutoff (top N) and the
+    crosses where the rule disagrees, the growth points per group, and the summary line.
+    """
+    # openpyxl stores a float as '%.16g' (openpyxl.compat.strings.safe_string), so compare with
+    # that stored value, exactly as any workbook (the desktop one included) holds it.
+    stored = lambda v: float('%.16g' % v) if isinstance(v, float) else v
+    figure = {int(p): v['events'] for p, v in json.loads(Path(reference).read_text(),
+                                                         parse_float=lambda s: stored(float(s))).items()}
+    book = openpyxl.load_workbook(package)
+    data = book[CHART_DATA] if CHART_DATA in book.sheetnames else None  # absent when nothing is charted
+    columns = {data.cell(1, c).value: [data.cell(r, c).value for r in range(2, data.max_row + 1)]
+               for c in range(1, data.max_column + 1)} if data else {}
+    def column(header):
+        values = columns.get(header, [])
+        while values and values[-1] is None:
+            values = values[:-1]
+        return values
+    problems = []
+    for plate, events in figure.items():
+        want = [e['summary'] for e in events] or ['No propagation recorded from this plate yet']
+        if lines.get(plate) != want:
+            problems.append(f'plate {plate} lines {lines.get(plate)} != {want}')
+        for number, event in enumerate(events, 1):
+            label = f'Plate {plate} propagation {number}'
+            bars = event['ranking']
+            ranking = (column(f'{label} ranking well'), column(f'{label} ranking Propagated OD'),
+                       column(f'{label} ranking Not propagated OD'))
+            want = ([w for w, _, _ in bars], [od if s else None for _, od, s in bars],
+                    [None if s else od for _, od, s in bars])
+            got = list(zip(*[list(c) + [None] * (len(bars) - len(c)) for c in ranking]))
+            if got != list(zip(*want)):
+                first = next(((g, w) for g, w in zip(got + [None] * len(bars), zip(*want)) if g != w), (got, []))
+                problems.append(f'{label}: ranking bars differ, first (well, propagated OD, not propagated OD) {first[0]} != figure {first[1]}')
+            cutoff = event['cutoff']
+            if column(f'{label} ranking cutoff x') != ([cutoff + 0.5] * 2 if cutoff is not None else []):
+                problems.append(f'{label}: cutoff {column(f"{label} ranking cutoff x")}, figure top {cutoff}')
+            if column(f'{label} ranking disagrees x') != event['disagrees']:
+                problems.append(f'{label}: disagreeing bars {column(f"{label} ranking disagrees x")} != {event["disagrees"]}')
+            for selected, name in (('True', 'Propagated'), ('False', 'Not propagated')):
+                points = event['growth'][selected]
+                got = list(zip(column(f'{label} growth {name} OD'), column(f'{label} growth {name} rate') + [None] * len(points)))
+                want = [tuple(p) for p in points]
+                if got != want:
+                    first = next(((g, w) for g, w in zip(got + [None] * len(want), want + [None] * len(got)) if g != w))
+                    problems.append(f'{label}: {name} growth points differ, first (OD, rate) {first[0]} != figure {first[1]}')
+    return problems, sum(len(e) for e in figure.values()), sum(len(e['ranking']) for es in figure.values() for e in es)
 
 
 def chart_points(reference, package):
@@ -152,8 +254,10 @@ def chart_points(reference, package):
     if CHART_DATA in book.sheetnames:
         data = book[CHART_DATA]
         assert data.sheet_state == 'hidden'
-        for column in range(1, data.max_column + 1, 2):
+        for column in range(1, data.max_column + 1):
             label = data.cell(1, column).value
+            if not label.endswith(' hours'):  # the time course's (hours, OD) pairs; panel_points reads the rest
+                continue
             plate, group = label.removeprefix('Plate ').removesuffix(' hours').split(' ', 1)
             values = [(data.cell(r, column).value, data.cell(r, column + 1).value) for r in range(2, data.max_row + 1)]
             if group == 'Propagation':
@@ -162,10 +266,19 @@ def chart_points(reference, package):
             elif any(x is not None for x, _ in values):
                 actual.setdefault(int(plate), {})[group] = Counter(v for v in values if v[0] is not None)
     with zipfile.ZipFile(package) as archive:
-        charts = sum(1 for n in archive.namelist() if n.startswith('xl/charts/chart'))
+        xml = [archive.read(n).decode() for n in archive.namelist() if n.startswith('xl/charts/chart')]
+    charts = len(xml)
     problems = []
-    if charts != len(expected):
-        problems.append(f'{charts} charts for {len(expected)} plates with positive OD')
+    # Every Chart data column holding values is drawn: some chart's series refers to it.
+    drawn = {c for x in xml for c in re.findall(r"'Chart data'!\$([A-Z]+)\$2", x)}
+    if CHART_DATA in book.sheetnames:
+        data = book[CHART_DATA]
+        undrawn = [h.value for h in data[1] if get_column_letter(h.column) not in drawn
+                   and any(data.cell(r, h.column).value is not None for r in range(2, data.max_row + 1))]
+        if undrawn:
+            problems.append(f'chart data not drawn by any chart: {undrawn[:5]}')
+    if charts != len(expected) + 2 * sum(events.values()):
+        problems.append(f'{charts} charts for {len(expected)} plates with positive OD and {sum(events.values())} propagations')
     if actual != expected:
         problems.append(f'chart points differ on plates {sorted(p for p in set(actual) | set(expected) if actual.get(p) != expected.get(p))}')
     wrong = {p: (lines.get(p, 0), n) for p, n in events.items() if p in expected and lines.get(p, 0) != n}
@@ -215,7 +328,7 @@ def run(args):
                     assert r.status_code == status, (path, r.status_code, r.text)
                     return r.json() if 'application/json' in r.headers.get('content-type', '') else r.content
                 installed = call('POST', '/packages', files={'file': ('plate-data-export.zip', zip_path.read_bytes())}, data={'expected_current': 'absent'})
-                assert installed['id'] == 'plate-data-export' and installed['version'] == '1.0.0', installed
+                assert installed['id'] == 'plate-data-export' and installed['version'] == '1.1.0', installed
                 call('POST', '/sources', dict(id='primary', name='EvoYeast copy', server=SERVER, database=fixture['database'],
                                               username=fixture['login'], password=fixture['password'], trust_certificate=True))
                 call('PUT', '/packages/plate-data-export/sources', dict(mappings={'primary': 'primary'}))
@@ -240,18 +353,22 @@ def run(args):
                     assert job['status'] == 'ready', job
                     path = temporary/f'package-{experiment_id}.xlsx'
                     path.write_bytes(call('GET', '/reports/'+job['id']+'/download'))
-                    problems = compare(reference[experiment_id], path)
+                    problems, lines = compare(reference[experiment_id], path)
                     chart_problems, charts, points = chart_points(reference[experiment_id], path)
+                    panel_problems, events, bars = panel_points(Path(reference[experiment_id]).parent/'panels.json', path, lines)
                     plates = openpyxl.load_workbook(path)['Overview'].max_row - 1
                     result['experiments'][experiment_id] = dict(plates=plates, charts=charts, chart_points=points,
-                                                                problems=problems + chart_problems)
+                                                                propagations=events, bars=bars,
+                                                                problems=problems + chart_problems + panel_problems)
                     if not kept or plates > kept[1]:
                         kept = (experiment_id, plates, path)
                 failed = {k: v for k, v in result['experiments'].items() if isinstance(v, dict) and v['problems']}
                 assert not failed, json.dumps(failed, indent=2, default=str)
                 compared = [v for v in result['experiments'].values() if isinstance(v, dict)]
                 result['checks'].append(f"{len(compared)} experiments, {sum(v['plates'] for v in compared)} plates: every sheet's cell values equal the desktop export")
-                result['checks'].append(f"{sum(v['charts'] for v in compared)} charts plot exactly the desktop figure's {sum(v['chart_points'] for v in compared)} positive OD points, grouped by propagation, with one line per propagation event")
+                result['checks'].append(f"{sum(v['charts'] for v in compared)} charts (time course per plate with positive OD, ranking and growth per propagation)")
+                result['checks'].append(f"Time courses plot exactly the desktop figure's {sum(v['chart_points'] for v in compared)} positive OD points, grouped by propagation, with one line per propagation event")
+                result['checks'].append(f"{sum(v['propagations'] for v in compared)} propagations: ranking charts draw the figure's {sum(v['bars'] for v in compared)} bars in robot-rank order with its propagated split, cutoff and disagreements; growth charts its points; summary lines (or 'No propagation') equal the figure's")
                 (EVIDENCE/f'plate-data-export-{kept[0]}.xlsx').write_bytes(kept[2].read_bytes())
                 job_folders = [p for p in (temporary/'tools').rglob('*_plots')]
                 assert not job_folders, job_folders
