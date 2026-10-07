@@ -1,5 +1,15 @@
 # Plate data export changes
 
+## 1.1.1
+
+A plate with no propagation yet (a round in progress) had a broken time-course chart in Excel:
+the legend listed every reading as its own entry, named after its hour (0, 0.46, 4.47 ...),
+the plot was pushed to the bottom, and the dotted lines turned into vertical hatching. Cause:
+openpyxl wrote no varyColors setting, Excel treats a missing one as on, and such a plate's chart
+has a single series ("Not propagated"), which Excel then colours and lists point by point.
+Plates with a propagation always have two or more series, which hid it. Every chart now sets
+varyColors off. No calculation or sheet value changes.
+
 ## 1.1.0
 
 Each plate sheet now also has the desktop figure's two lower panels, as native Excel charts.

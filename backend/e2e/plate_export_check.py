@@ -24,6 +24,8 @@ Failure cases:
   instead of a short message.
 - The output folder keeps upstream's PNG folder beside the workbook.
 - A Chart data column is not referenced by any chart.
+- A chart plot leaves varyColors unset: Excel then lists every point of a one-series chart in the
+  legend and colours each point (seen on a plate with no propagation yet, 2026-10-07).
 Not covered: chart appearance and layout (inspect a workbook in Excel), that a column is drawn by
 the right chart (columns are matched by their labels), the lab's SQL Server version and data.
 """
@@ -269,6 +271,12 @@ def chart_points(reference, package):
         xml = [archive.read(n).decode() for n in archive.namelist() if n.startswith('xl/charts/chart')]
     charts = len(xml)
     problems = []
+    # Excel treats a missing varyColors as on, so a one-series chart (no propagation yet) lists
+    # every point in the legend and colours each one; the fixture's plates all have two series.
+    varied = sum(1 for x in xml for plot in re.findall(r'<(?:\w+:)?(?:scatter|bar)Chart>(.*?)</(?:\w+:)?(?:scatter|bar)Chart>', x, re.S)
+                 if not re.search(r'<(?:\w+:)?varyColors val="0"', plot))
+    if varied:
+        problems.append(f'{varied} chart plot(s) without varyColors="0" (Excel varies colours per point)')
     # Every Chart data column holding values is drawn: some chart's series refers to it.
     drawn = {c for x in xml for c in re.findall(r"'Chart data'!\$([A-Z]+)\$2", x)}
     if CHART_DATA in book.sheetnames:
@@ -328,7 +336,7 @@ def run(args):
                     assert r.status_code == status, (path, r.status_code, r.text)
                     return r.json() if 'application/json' in r.headers.get('content-type', '') else r.content
                 installed = call('POST', '/packages', files={'file': ('plate-data-export.zip', zip_path.read_bytes())}, data={'expected_current': 'absent'})
-                assert installed['id'] == 'plate-data-export' and installed['version'] == '1.1.0', installed
+                assert installed['id'] == 'plate-data-export' and installed['version'] == json.loads((PACKAGE / 'manifest.json').read_text(encoding='utf-8'))['version'], installed
                 call('POST', '/sources', dict(id='primary', name='EvoYeast copy', server=SERVER, database=fixture['database'],
                                               username=fixture['login'], password=fixture['password'], trust_certificate=True))
                 call('PUT', '/packages/plate-data-export/sources', dict(mappings={'primary': 'primary'}))

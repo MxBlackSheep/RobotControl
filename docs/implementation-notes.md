@@ -1,3 +1,8 @@
+## 2026-10-07 Plate data export 1.1.1: charts of plates without a propagation
+
+- The owner saw plate 970 (a round in progress, no propagation yet) export a time-course chart whose legend listed every reading by its hour and whose lines turned into vertical hatching. openpyxl wrote no `varyColors`, Excel treats a missing one as on, and a plate without a propagation has one series, which Excel then colours and lists per point. Every chart in `plate_report.py` now sets `varyColors` off (also the ranking chart's cutoff overlay).
+- Reproduced with 32 synthetic cultures through the package's own `add_chart`, rendered in Excel by COM: 159 legend entries before, 1 after. `backend/e2e/plate_export_check.py` now fails any chart plot without `varyColors="0"` (it flags the broken reproduction and passes the fixed one); the fixture's plates all had two or more series, so its point comparison could not see this. Package-only: `tasks/packages/plate-data-export-1.1.1.zip`.
+
 ## 2026-10-07 Plate data export 1.1.0: ranking and growth charts
 
 - Each plate sheet now has the desktop figure's lower panels as native Excel charts. Under the time course, per propagation: upstream's `event_summary` line in column A, then "Robot ranking" (column chart, 22 × 10 cm, from column A) and "Growth rate vs OD at propagation" (scatter, 9.6 × 10 cm, from column H), so the pair is as wide as the time course; further propagations stack below. A plate without one has the line "No propagation recorded from this plate yet". Values come from the Selection rows upstream's `plate_figure` hands `_ranking` and `_growth`.
