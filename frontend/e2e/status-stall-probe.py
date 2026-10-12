@@ -41,7 +41,7 @@ setInterval(async()=>{
  const sample={at:new Date().toISOString(),refresh_disabled:refresh?.disabled,
   has_spinner:!!root.querySelector('[role="progressbar"]'),
   connection_lost:root.innerText.includes('Stale data')||root.innerText.includes('Unavailable'),
-  connected_icon:root.innerText.includes('Updated'),
+  connected_icon:root.innerText.includes('Last reading')&&!(root.innerText.includes('Stale data')||root.innerText.includes('Unavailable')),
   text:root.innerText.slice(0,1600)};
  const r=await fetch('/evidence',{method:'POST',body:JSON.stringify(sample)});
  document.getElementById('probe-state').textContent=JSON.stringify(await r.json(),null,2);

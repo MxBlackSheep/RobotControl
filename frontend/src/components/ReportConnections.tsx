@@ -45,7 +45,6 @@ export default function ReportConnections({ open, onClose }: { open: boolean; on
           <Box component="details"><Typography component="summary">Technical details</Typography><Typography variant="body2">{review.grants.join(' · ')}</Typography></Box>
           <Typography variant="body2">Choose an account allowed to create SQL logins. Its credentials are not saved.</Typography>
           <FormControlLabel label="Use RobotControl's Windows account" control={<Checkbox checked={authority.windows_auth} disabled={busy} onChange={(_, v) => setAuthority(a => ({ ...a, windows_auth: v }))} />} />
-          {authority.windows_auth && <Typography variant="body2" color="text.secondary">Uses the Windows account running RobotControl, not the browser user. It must be allowed to create SQL logins.</Typography>}
           {!authority.windows_auth && <><TextField label="SQL administrator" autoComplete="off" value={authority.username} disabled={busy} onChange={e => setAuthority(a => ({ ...a, username: e.target.value }))} />
             <TextField label="Administrator password" type="password" autoComplete="new-password" value={authority.password} disabled={busy} onChange={e => setAuthority(a => ({ ...a, password: e.target.value }))} /></>}
           <Button onClick={() => saveBlob(new Blob([review.sql], { type: 'text/plain' }), 'create-read-only.sql')}>Download SQL for your administrator</Button>
@@ -64,7 +63,6 @@ export default function ReportConnections({ open, onClose }: { open: boolean; on
             <TextField size="small" label="ODBC driver" value={source.driver} disabled={busy} onChange={e => setSource(s => ({ ...s, driver: e.target.value }))} />
           </Stack></Box>
           <FormControlLabel label="Trust server certificate" control={<Checkbox disabled={busy} checked={source.trust_certificate} onChange={(_, v) => setSource(s => ({ ...s, trust_certificate: v }))} />} />
-          <Typography variant="caption" color="text.secondary">Encryption stays on. Trust skips certificate verification; remembered for this server after saving.</Typography>
           <Button disabled={busy} variant="contained" sx={{ alignSelf: 'flex-start' }} onClick={save}>{busy ? 'Checking…' : mode === 'create' ? 'Review access' : 'Check and save'}</Button>
         </Stack>}
       </Box>
@@ -86,7 +84,7 @@ export function SourceMappings({ aliases, sources, mappings, onChange, disabled 
   aliases: string[]; sources: Source[]; mappings: Record<string, string>; onChange: (mapping: Record<string, string>) => void; disabled?: boolean;
 }) {
   return <Stack spacing={2}>{aliases.map(alias => <TextField select key={alias} size="small" label={readingLabel(aliases, alias)} value={mappings[alias] || ''}
-    helperText="Experiment lists and reports. Read-only accounts only." disabled={disabled} onChange={e => onChange({ ...mappings, [alias]: e.target.value })}>
+    helperText="Read-only accounts only." disabled={disabled} onChange={e => onChange({ ...mappings, [alias]: e.target.value })}>
     {sources.filter(s => !s.access || s.access === 'read').map(option)}
   </TextField>)}</Stack>;
 }
@@ -113,7 +111,7 @@ export function AssignConnections({ binding, sources, onChange, onClose, onSaved
       {error && <Alert severity="error">{error}</Alert>}
       {binding && <SourceMappings aliases={binding.aliases} sources={sources} mappings={binding.mappings} disabled={busy} onChange={mappings => onChange({ ...binding, mappings })} />}
       {binding?.has_operation && <TextField select size="small" label="Writing connection" value={binding.operation_source || ''} disabled={busy}
-        helperText="Deletes, resets and other changes run here. Same database as the reading connection." onChange={e => onChange({ ...binding, operation_source: e.target.value })}>
+        onChange={e => onChange({ ...binding, operation_source: e.target.value })}>
         <MenuItem value="">Not configured</MenuItem>{sources.filter(s => s.access === 'operation').map(option)}
       </TextField>}
       {binding && !binding.aliases.length && !binding.has_operation && <Typography>This package needs no database connection.</Typography>}

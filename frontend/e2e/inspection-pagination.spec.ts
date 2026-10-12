@@ -18,23 +18,22 @@ test.beforeEach(async ({page}) => {
   await page.route('**/api/database/stored-procedures?*', route => route.fulfill({json:{success:true,data:{procedures:[{name:'LongDefinition',type:'PROCEDURE',parameters:[],definition:Array.from({length:300},(_,i)=>`-- Line ${i+1}`).join('\n')}],functions:[]}}}));
 });
 
-test('table First, Last and page jump retain correct data after a failed request', async ({page}, info) => {
+test('table First, Last and Next retain correct data after a failed request', async ({page}, info) => {
   await page.goto('/database');
   await page.getByRole('button',{name:/PageSamples Has data/}).click();
   await expect(page.getByRole('button',{name:'Inspect row 1',exact:true})).toBeVisible();
   await page.getByRole('button',{name:'Go to last page'}).click();
   await expect(page.getByRole('button',{name:'Inspect row 57',exact:true})).toBeVisible();
-  await expect(page.getByText('Page 3 of 3',{exact:true})).toBeVisible();
+  await expect(page.getByText('51–57 of 57',{exact:true})).toBeVisible();
   await page.getByRole('button',{name:'Go to first page'}).click();
-  await page.getByRole('spinbutton',{name:'Page',exact:true}).fill('2');
-  await page.getByRole('button',{name:'Go to page',exact:true}).click();
+  await page.getByRole('button',{name:'Go to next page'}).click();
   await expect(page.getByRole('button',{name:'Inspect row 26',exact:true})).toBeVisible();
   await page.route('**/api/database/tables/PageSamples?*', route => route.fulfill({status:500,json:{detail:'Read unavailable'}}));
   await page.getByRole('button',{name:'Go to last page'}).click();
   await expect(page.getByRole('alert')).toContainText('Previous rows');
   await expect(page.getByRole('button',{name:'Inspect row 26',exact:true})).toBeVisible();
   await expect(page.getByRole('button',{name:'Inspect row 51',exact:true})).toHaveCount(0);
-  await expect(page.getByText('Page 2 of 3',{exact:true})).toBeVisible();
+  await expect(page.getByText('26–50 of 57',{exact:true})).toBeVisible();
   await info.attach('table-retained-page',{body:await page.screenshot(),contentType:'image/png'});
 });
 

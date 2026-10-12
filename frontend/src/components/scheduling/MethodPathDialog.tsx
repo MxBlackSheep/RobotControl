@@ -49,12 +49,12 @@ export default function MethodPathDialog({ method, onClose, onChanged }: { metho
       {saved ? <Alert severity="success">{saved}</Alert> : !preview ? <>
         <Typography>Choose the existing .med file at its new location. RobotControl will not move files.</Typography>
         <TextField required autoFocus label="New absolute method path" value={path} fullWidth disabled={busy}
-          onChange={e => setPath(e.target.value)} helperText="Review the new path and affected schedules before saving." />
+          onChange={e => setPath(e.target.value)} />
         <Button disabled={busy} onClick={() => setBrowse(value => !value)}>{browse ? 'Hide folder browser' : 'Browse for method'}</Button>
         {browse && <HostMethodBrowser mode="method" disabled={busy} onSelect={value => { setPath(value); setBrowse(false); }} />}
       </> : <>
         <Typography sx={{ overflowWrap: 'anywhere' }}>New library path: {preview.new_path}</Typography>
-        <Alert severity="info">Select only the schedule references to update. Unselected schedules keep their old paths. Queued, running, paused and archived schedules cannot be selected.</Alert>
+        <Alert severity="info">Unselected schedules keep their old paths. Queued, running, paused and archived schedules cannot be selected.</Alert>
         {groups.map(group => {
           const references = preview.references.filter(group.matches);
           return references.length > 0 && <Box key={group.name}>

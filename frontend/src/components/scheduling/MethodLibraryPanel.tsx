@@ -70,8 +70,6 @@ export default function MethodLibraryPanel({ version, onChanged, onImport, onCre
     setError(failures.join('\n')); setArchiveAction(null); clearSelection(); setBusy(false); onChanged();
   };
   return <Stack spacing={2}>
-    <Typography variant="h6">Method library</Typography>
-
     <Stack direction="row" flexWrap="wrap" gap={1}>
       {showImportAction && <Button variant="contained" onClick={onImport}>Import methods</Button>}
       <Button disabled={busy} onClick={() => { setError(''); void load(); }}>Refresh library</Button>
@@ -94,7 +92,7 @@ export default function MethodLibraryPanel({ version, onChanged, onImport, onCre
     {!!message && <Alert severity="success">{message}</Alert>}
     {busy && <LinearProgress aria-label="Updating method library" />}
     {loaded && <>
-    <Typography variant="caption">{visible.length} methods · {targets.length} selected. </Typography>
+    {!!targets.length && <Typography variant="caption">{targets.length} selected</Typography>}
     <MethodExplorer items={visible} onViewChange={clearSelection}>{(pageItems, relativePath) => <>
     <TableContainer tabIndex={0} aria-label="Method records"><Table size="small" stickyHeader aria-label="Imported methods">
       <TableHead><TableRow>

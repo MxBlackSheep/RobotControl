@@ -5,7 +5,7 @@ import {
   DialogContent, DialogTitle, Divider, FormControlLabel, MenuItem, Stack, Switch,
   TextField, Typography,
 } from '@mui/material';
-import { ExpandMore, Refresh, Save, Send } from '@mui/icons-material';
+import { ExpandMore } from '@mui/icons-material';
 import { NotificationContact, NotificationSettings, NotificationSettingsUpdatePayload } from '../../types/scheduling';
 import { smtpDraft, smtpPayload, SmtpDraft, uniqueEmails, validEmail } from './smtpForm';
 
@@ -116,8 +116,8 @@ export default function NotificationEmailSettingsPanel({ settings, loading, onRe
 
   return (
     <Card sx={{ borderRadius: 2, width: '100%', maxWidth: 1000, mx: 'auto' }}>
-      <CardHeader title="Email delivery settings" subheader="Choose the account RobotControl uses to send scheduling alerts."
-        action={<Button startIcon={<Refresh />} disabled={disabled} onClick={() => dirty ? setConfirmDiscard(true) : void refresh()}>Refresh</Button>} />
+      <CardHeader title="Email delivery settings"
+        action={<Button disabled={disabled} onClick={() => dirty ? setConfirmDiscard(true) : void refresh()}>Refresh</Button>} />
       <Divider />
       <CardContent>
         <Stack component="form" spacing={3} onSubmit={save} autoComplete="off">
@@ -125,10 +125,9 @@ export default function NotificationEmailSettingsPanel({ settings, loading, onRe
             <Typography variant="h6">Sending account</Typography>
             {dirty && <Chip size="small" color="warning" label="Unsaved changes" />}
           </Stack>
-          <Typography color="text.secondary" variant="body2">This account sends emails. Choose who receives alerts in each schedule's Email alert recipients field.</Typography>
           <TextField label="Email account address" name="smtp-account-address" type="email" required fullWidth
             value={draft.account} onChange={event => change('account', event.target.value)} disabled={disabled}
-            placeholder="robot-alerts@example.com" helperText="Used for both mail-server login and the From address unless overridden below." />
+            placeholder="robot-alerts@example.com" helperText="Also the login and From address" />
           <Stack spacing={1}>
             <TextField label="App password / SMTP password" name="smtp-account-password" type="password" autoComplete="new-password" fullWidth
               value={draft.password} disabled={disabled} helperText={passwordHelp}
@@ -144,14 +143,13 @@ export default function NotificationEmailSettingsPanel({ settings, loading, onRe
           <Typography variant="h6">Mail server</Typography>
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
             <TextField label="Outgoing mail server (SMTP)" name="smtp-outgoing-server" required fullWidth disabled={disabled}
-              value={draft.host} onChange={event => change('host', event.target.value)} placeholder="smtp.example.com"
-              helperText="Use your provider's outgoing SMTP server, not its incoming IMAP server." />
+              value={draft.host} onChange={event => change('host', event.target.value)} placeholder="smtp.example.com" />
             <TextField label="Port" required type="number" disabled={disabled} sx={{ minWidth: 140 }}
               value={draft.port} onChange={event => change('port', event.target.value)} inputProps={{ min: 1, max: 65535, step: 1 }} />
           </Stack>
           <TextField select label="Connection security" fullWidth disabled={disabled} value={draft.security}
             onChange={event => change('security', event.target.value as SmtpDraft['security'])}
-            helperText="SSL/TLS commonly uses port 465; STARTTLS commonly uses 587. Changing security does not change the port.">
+            helperText="SSL/TLS: 465 · STARTTLS: 587">
             <MenuItem value="ssl">SSL/TLS</MenuItem><MenuItem value="starttls">STARTTLS</MenuItem><MenuItem value="none">None</MenuItem>
           </TextField>
           <Accordion expanded={advanced} onChange={(_, expanded) => setAdvanced(expanded)} disableGutters variant="outlined">
@@ -160,37 +158,36 @@ export default function NotificationEmailSettingsPanel({ settings, loading, onRe
               <FormControlLabel label="Different login username" control={<Switch disabled={disabled} checked={draft.customLogin}
                 onChange={(_, checked) => { if (checked && !draft.login) change('login', draft.account); change('customLogin', checked); }} />} />
               {draft.customLogin && <TextField label="Mail-server login username" name="smtp-login-override" value={draft.login} disabled={disabled}
-                onChange={event => change('login', event.target.value)} helperText="This is your email provider's login, not your RobotControl username. Blank uses the From address." />}
+                onChange={event => change('login', event.target.value)} helperText="Blank uses the From address" />}
               <FormControlLabel label="Different From address" control={<Switch disabled={disabled} checked={draft.customSender}
                 onChange={(_, checked) => { if (checked && !draft.sender) change('sender', draft.account); change('customSender', checked); }} />} />
               {draft.customSender && <TextField label="From email address" type="email" required disabled={disabled} value={draft.sender}
-                onChange={event => change('sender', event.target.value)} helperText="The address recipients see as the sender. Your mail provider must allow it." />}
+                onChange={event => change('sender', event.target.value)} helperText="Your provider must allow it" />}
               <Divider />
               <Typography variant="subtitle1">Manual-recovery notifications</Typography>
               <Autocomplete multiple freeSolo options={recoveryOptions} value={draft.recipients} disabled={disabled}
                 onChange={(_, values) => change('recipients', uniqueEmails(values))}
                 renderOption={(optionProps, email) => <li {...optionProps}>{contacts.find(contact => contact.email_address === email)?.display_name || 'Custom recipient'} — {email}</li>}
                 renderInput={params => <TextField {...params} label="Manual-recovery recipients"
-                  helperText="Only for manual recovery. Leave empty to use the schedule's selected active contacts." />} />
+                  helperText="Blank uses the schedule's contacts" />} />
             </Stack></AccordionDetails>
           </Accordion>
           {feedback && <Alert severity={feedback.severity} sx={{ whiteSpace: 'pre-line' }}>{feedback.message}</Alert>}
           <Stack direction="row" spacing={1} justifyContent="flex-end" flexWrap="wrap">
             <Button disabled={disabled || !dirty} onClick={() => setConfirmDiscard(true)}>Discard changes</Button>
-            <Button variant="contained" type="submit" disabled={disabled || !dirty} startIcon={busy === 'save' ? <CircularProgress size={18} /> : <Save />}>Save settings</Button>
+            <Button variant="contained" type="submit" disabled={disabled || !dirty} startIcon={busy === 'save' ? <CircularProgress size={18} /> : undefined}>Save settings</Button>
           </Stack>
           {saved?.updated_at && <Typography variant="caption" color="text.secondary">Last saved {new Date(saved.updated_at).toLocaleString()}{saved.updated_by && ` by ${saved.updated_by}`}</Typography>}
         </Stack>
         <Divider sx={{ my: 3 }} />
         <Stack spacing={2}>
           <Typography variant="h6">Test email</Typography>
-          <Typography variant="body2" color="text.secondary">Send one email using the saved settings. Saving settings does not send a message.</Typography>
           {dirty && <Alert severity="info">Save your changes before sending a test email.</Alert>}
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
             <TextField label="Send test to" type="email" fullWidth value={testRecipient} disabled={disabled}
               onChange={event => setTestRecipient(event.target.value)} />
             <Button variant="outlined" sx={{ minWidth: 180 }} disabled={disabled || dirty || !saved?.host || !validEmail(testRecipient)}
-              onClick={sendTest} startIcon={busy === 'test' ? <CircularProgress size={18} /> : <Send />}>
+              onClick={sendTest} startIcon={busy === 'test' ? <CircularProgress size={18} /> : undefined}>
               {busy === 'test' ? 'Sending…' : 'Send test email'}
             </Button>
           </Stack>

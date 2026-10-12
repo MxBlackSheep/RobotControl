@@ -12,7 +12,6 @@ import {
   TableCell,
   TableHead,
   TableRow,
-  Typography,
   useMediaQuery,
   useTheme,
 } from '@mui/material';
@@ -53,9 +52,6 @@ const KeyboardShortcutsHelp: React.FC<{ open: boolean; onClose: () => void }> = 
             ))}
           </TableBody>
         </Table>
-        <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-          Tab moves between controls, arrow keys move within lists and menus, and Enter or Space activates.
-        </Typography>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} sx={{ minHeight: 44 }}>Close</Button>

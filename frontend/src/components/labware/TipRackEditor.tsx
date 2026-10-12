@@ -6,7 +6,6 @@ interface Props {
   rack: string;
   headingId: string;
   joined: boolean;
-  side: string;
   rows: number;
   columns: number;
   position: number;
@@ -29,7 +28,7 @@ interface Props {
 
 type Press = { pointer: number; first: number; last: number | null; x: number; y: number; dragging: boolean };
 
-export default function TipRackEditor({ rack, headingId, joined, side, rows, columns, position, choices, legend, colors, statusAt, pendingAt, canUpdate, disabled, active, paint, onPaintChange, onSelect, onApply, onGestureChange }: Props) {
+export default function TipRackEditor({ rack, headingId, joined, rows, columns, position, choices, legend, colors, statusAt, pendingAt, canUpdate, disabled, active, paint, onPaintChange, onSelect, onApply, onGestureChange }: Props) {
   const [corners, setCorners] = useState<{ first: number; last: number } | null>(null);
   const press = useRef<Press | null>(null);
   const ignoreClick = useRef(false);
@@ -121,7 +120,6 @@ export default function TipRackEditor({ rack, headingId, joined, side, rows, col
     bgcolor: 'background.paper', border: joined ? 1 : 0, borderColor: 'divider', borderRadius: `${layout.radius}px`, overflow: 'hidden' }}>
     <Box sx={{ gridRow: 1, gridColumn: 1, display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, px: 2, pr: canUpdate ? 17 : 2, bgcolor: 'surface.head', borderBottom: 1, borderColor: 'surface.headLine' }}>
       <Typography id={headingId} component="h2" sx={{ fontFamily: fontMono, fontSize: 14, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={rack}>{rack}</Typography>
-      <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>{side}</Typography>
     </Box>
     <Box sx={{ gridRow: 2, gridColumn: 1, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1, minWidth: 0, px: 2, py: 1, borderBottom: 1, borderColor: 'surface.rowLine' }}>
       {canUpdate
@@ -179,7 +177,7 @@ export default function TipRackEditor({ rack, headingId, joined, side, rows, col
       </Box>
       {/* One fixed line: the draft summary never adds a row, so neither diagram moves when edits start. */}
       <Box sx={{ gridRow: 4, gridColumn: 1, display: 'flex', alignItems: 'center', gap: 2, minWidth: 0, px: 2, borderTop: 1, borderColor: 'surface.headLine', whiteSpace: 'nowrap' }}>
-        <Typography role="status" variant="body2" sx={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{corners ? `${preview.size} tips selected` : canUpdate ? paint ? 'Choose two corners or drag.' : 'Choose a status to edit tips.' : `Tip ${position}: ${stateName(statusAt(position))}`}</Typography>
+        <Typography role="status" variant="body2" sx={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{corners ? `${preview.size} tips selected` : canUpdate ? '' : `Tip ${position}: ${stateName(statusAt(position))}`}</Typography>
         <Button size="small" onClick={cancel} disabled={!corners} aria-hidden={!corners} tabIndex={corners ? 0 : -1} sx={{ visibility: corners ? 'visible' : 'hidden', flexShrink: 0 }}>Cancel selection</Button>
         {canUpdate && hasDrafts && <Typography aria-label="This rack after saving" title={`After saving: ${afterSaving}`}
           sx={{ ml: 'auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', fontFamily: fontMono, fontSize: 12, color: 'text.secondary' }}>After saving: {afterSaving}</Typography>}

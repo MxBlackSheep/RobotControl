@@ -150,7 +150,6 @@ export default function DatabaseTools({ kind, active }: { kind: 'operation' | 'r
         {tools.map(item => <MenuItem key={item.id} value={item.id}>{item.name}</MenuItem>)}
       </TextField>}
     </Stack>
-    {tool?.target && <Typography variant="body2" sx={{ mb: 1, overflowWrap: 'anywhere' }}>Target: {tool.target}</Typography>}
     <InspectionWorkspace label="Database task workspace">
       <Box sx={{ display: 'grid', gridTemplateColumns: experimentField ? 'minmax(0, 2fr) minmax(0, 3fr)' : '1fr', gap: 2, height: '100%', minHeight: 0,
         '@container workspace (max-width: 899px)': { gridTemplateColumns: '1fr' } }}>
@@ -175,7 +174,6 @@ export default function DatabaseTools({ kind, active }: { kind: 'operation' | 'r
               Connection setup needed. Ask a local administrator to assign a connection.</Alert>}
             {!tools.length && <Typography color="text.secondary">No {kind === 'operation' ? 'operations' : 'reports'} installed.</Typography>}
             {experimentField && (experiment ? <Box>
-              <Typography variant="overline">Experiment {experiment.ExperimentID}</Typography>
               <Typography component="h3" variant="h6" sx={{ overflowWrap: 'anywhere' }}>{experiment.UserDefinedID || 'Unnamed experiment'}</Typography>
               {experiment.Note && <Typography color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{experiment.Note}</Typography>}
             </Box> : <Typography color="text.secondary">Select an experiment.</Typography>)}
@@ -198,7 +196,6 @@ export default function DatabaseTools({ kind, active }: { kind: 'operation' | 'r
               {job.status === 'error' && <Alert severity="error">{job.error}</Alert>}
               {job.error_details && <Box component="details"><Typography component="summary">Details</Typography><Typography sx={{ overflowWrap: 'anywhere' }}>{job.error_details}</Typography></Box>}
               {job.status === 'ready' && <><Typography sx={{ overflowWrap: 'anywhere' }}>{job.filename}</Typography><Button variant="outlined" sx={{ alignSelf: 'flex-start' }} onClick={download} disabled={busy}>Download Excel</Button></>}
-              <Typography variant="caption" color="text.secondary">{tool?.name} · {job.package_version}</Typography>
             </Stack></Paper>}
           </Stack>
         </Paper>

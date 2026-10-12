@@ -184,7 +184,7 @@ test('short desktop has one stage scroll and container resizing cancels only the
   expect(await stage.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
   expect(await body.evaluate(element => element.scrollHeight <= element.clientHeight + 1)).toBe(true);
   await page.getByRole('button', { name: 'Tip 96, clean', exact: true }).scrollIntoViewIfNeeded();
-  await expect(page.getByText('Choose a status to edit tips.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Tip 96, clean', exact: true })).toBeInViewport();
   await stage.evaluate(element => { element.scrollTop = 0; });
   await page.getByRole('group', { name: 'Set tips to', exact: true }).getByRole('button', { name: 'Dirty', exact: true }).click();
   await page.getByRole('button', { name: 'Tip 1, clean', exact: true }).click();

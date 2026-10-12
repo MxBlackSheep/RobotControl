@@ -439,7 +439,7 @@ export default function LogSourceBrowser({
               }}
               secondary={
                 item.is_directory
-                  ? "Folder"
+                  ? undefined
                   : `${item.modified_date || "Metadata unavailable"} · ${item.size_formatted || "Unknown size"}`
               }
             />

@@ -24,12 +24,7 @@ import {
 } from '@mui/material';
 import {
   ExpandMore as ExpandMoreIcon,
-  ExpandLess as ExpandLessIcon,
-  CheckCircle as SuccessIcon,
-  Error as ErrorIcon,
-  Schedule as ScheduleIcon,
-  PlayArrow as RunningIcon,
-  Refresh as RefreshIcon
+  ExpandLess as ExpandLessIcon
 } from '@mui/icons-material';
 import { schedulingAPI } from '../services/schedulingApi';
 import { useSerialPolling } from '../hooks/useSerialPolling';
@@ -67,26 +62,6 @@ interface ExecutionRecord {
 }
 
 type FilterOption = { label: string; value: string };
-
-const getStatusIcon = (status?: string) => {
-  const normalizedStatus = typeof status === 'string' ? status.toLowerCase() : '';
-  switch (normalizedStatus) {
-    case 'success':
-    case 'completed':
-      return <SuccessIcon color="success" fontSize="small" />;
-    case 'failed':
-    case 'error':
-      return <ErrorIcon color="error" fontSize="small" />;
-    case 'running':
-    case 'executing':
-      return <RunningIcon color="primary" fontSize="small" />;
-    case 'scheduled':
-    case 'queued':
-      return <ScheduleIcon color="info" fontSize="small" />;
-    default:
-      return <ScheduleIcon color="disabled" fontSize="small" />;
-  }
-};
 
 export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
   scheduleId,
@@ -329,11 +304,10 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
   };
 
   return (
-    <Panel title="Execution history" inset={false}
-      headerExtra={<Typography variant="caption" color="text.secondary" sx={{ display: { xs: 'none', sm: 'block' }, whiteSpace: 'nowrap' }}>Showing {filteredExecutions.length} of {executions.length} executions</Typography>}
+    <Panel title={`${filteredExecutions.length} of ${executions.length} runs`} label="Execution history" inset={false}
       actions={<>
         <FormControlLabel sx={{ mr: 0, '& .MuiFormControlLabel-label': { fontSize: 13 } }} control={<Switch size="small" checked={autoRefresh} onChange={(event) => setAutoRefresh(event.target.checked)} />} label="Auto refresh" />
-        <Button size="small" startIcon={<RefreshIcon />} onClick={loadExecutionHistory} disabled={loading}>Refresh</Button>
+        <Button size="small" onClick={loadExecutionHistory} disabled={loading}>Refresh</Button>
       </>}>
       <Box sx={{ px: 2, py: 1.5, borderBottom: 1, borderColor: 'surface.rowLine' }}>
         <Stack direction="row" gap={1} flexWrap="wrap" alignItems="center">
@@ -432,7 +406,6 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
         <Table stickyHeader size="small" aria-label="Execution history">
           <TableHead>
             <TableRow>
-              <TableCell width="40px"></TableCell>
               <TableCell>Experiment</TableCell>
               <TableCell>Status</TableCell>
               <TableCell>Started</TableCell>
@@ -444,7 +417,7 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
           <TableBody>
             {filteredExecutions.length === 0 && !loading ? (
               <TableRow>
-                <TableCell colSpan={7} align="center">
+                <TableCell colSpan={6} align="center">
                   <Typography variant="body2" color="text.secondary" py={4}>
                     No execution history found
                   </Typography>
@@ -455,14 +428,8 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
                 <React.Fragment key={execution.execution_id}>
                   <TableRow hover>
                     <TableCell>
-                      {getStatusIcon(execution.status)}
-                    </TableCell>
-                    <TableCell>
                       <Typography variant="body2" fontWeight="medium">
                         {execution.experiment_name}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        ID: {execution.schedule_id.substring(0, 8)}...
                       </Typography>
                       {execution.archived_at && (
                         <Chip
@@ -488,17 +455,13 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
                       </Typography>
                     </TableCell>
                     <TableCell>
-                      {execution.retry_count > 0 ? (
+                      {execution.retry_count > 0 && (
                         <Chip
                           label={`${execution.retry_count} retries`}
                           color="warning"
                           variant="outlined"
                           size="small"
                         />
-                      ) : (
-                        <Typography variant="body2" color="text.secondary">
-                          None
-                        </Typography>
                       )}
                     </TableCell>
                     <TableCell>
@@ -519,7 +482,7 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
                   {/* Expanded Error Details */}
                   {execution.error_message && (
                     <TableRow>
-                      <TableCell colSpan={7} sx={{ py: 0 }}>
+                      <TableCell colSpan={6} sx={{ py: 0 }}>
                         <Collapse in={expandedRows.has(execution.execution_id)}>
                           <Box p={2} sx={{ bgcolor: 'action.hover', borderLeft: 3, borderColor: 'error.main' }}>
                             <Typography variant="subtitle2" color="error" gutterBottom>
@@ -528,14 +491,6 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
                             <Typography variant="body2" color="text.secondary">
                               {execution.error_message}
                             </Typography>
-                            <Stack direction="row" spacing={2} mt={1}>
-                              <Typography variant="caption" color="text.secondary">
-                                Execution ID: {execution.execution_id}
-                              </Typography>
-                              <Typography variant="caption" color="text.secondary">
-                                Updated: {formatDateTime(execution.updated_at)}
-                              </Typography>
-                            </Stack>
                           </Box>
                         </Collapse>
                       </TableCell>

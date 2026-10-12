@@ -586,9 +586,9 @@ export default function LogReader({
             Section {section.section_number} of {section.section_count}
           </Typography>
         )}
-        <Typography variant="caption" role="status" sx={{ ml: 'auto', color: 'text.secondary' }} title={updated ? `Updated ${updated}` : undefined}>
-          {follow ? 'Following latest · 1 MiB' : status?.compressed ? 'Archive · captured copy' : 'Captured copy'}
-        </Typography>
+        {follow && <Typography variant="caption" role="status" sx={{ ml: 'auto', color: 'text.secondary' }} title={updated ? `Updated ${updated}` : undefined}>
+          Following latest · 1 MiB
+        </Typography>}
       </Stack>
     </>
   );

@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react';
 import { Alert, Box, Button, LinearProgress, List, ListItemButton, Stack, TextField, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
-import { Refresh } from '@mui/icons-material';
 import { ScheduledExperiment } from '../../types/scheduling';
 import StatusChip from '../StatusChip';
 import { Panel } from '../PageLayout';
@@ -45,7 +44,7 @@ export default function ScheduleCollection({ schedules, selected, onSelect, onRe
   // Fills the workspace column: header band, toolbar, column headings, then a scrolling table.
   return <Box data-testid="schedule-collection" sx={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', containerType: 'inline-size', containerName: 'schedules' }}>
     <Panel title="Schedules" fill inset={false} sx={{ flex: 1 }} bodySx={{ display: 'flex', flexDirection: 'column' }}
-      actions={<Button size="small" startIcon={<Refresh />} onClick={onRefresh} disabled={loading}>Refresh schedules</Button>}>
+      actions={<Button size="small" onClick={onRefresh} disabled={loading}>Refresh</Button>}>
       <Stack direction="row" alignItems="center" flexWrap="wrap" gap={1} sx={{ px: 2, py: 1.5, borderBottom: 1, borderColor: 'surface.rowLine' }}>
         <TextField size="small" label="Search schedules" value={query} onChange={event => setQuery(event.target.value)} sx={{ flex: '1 1 180px', minWidth: 0, maxWidth: 320 }} />
         <ToggleButtonGroup size="small" exclusive value={filter} onChange={(_, value) => value && setFilter(value)} aria-label="Filter by status" sx={{ flexWrap: 'wrap' }}>

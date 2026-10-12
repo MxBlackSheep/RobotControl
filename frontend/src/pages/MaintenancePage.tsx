@@ -16,10 +16,7 @@ import {
   useMediaQuery,
   type Theme,
 } from '@mui/material';
-import RefreshIcon from '@mui/icons-material/Refresh';
 import InfoOutlined from '@mui/icons-material/InfoOutlined';
-import BlockIcon from '@mui/icons-material/Block';
-import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 
 import { useAuth } from '../context/AuthContext';
 import { hxrunMaintenanceApi, HxRunMaintenanceState } from '../services/hxrunMaintenanceApi';
@@ -71,7 +68,7 @@ const MaintenancePage: React.FC = () => {
   const scheduledHold = [state?.enabled ? 'Maintenance mode' : null, attention?.label].filter(Boolean).join(' · ');
   const scheduledUnknown = !state || loading || !!error || !!robotError || !robot?.recovery;
   const rightNow: [string, string, string, StatusTone][] = !robot ? [] : [
-    ['HxRun', 'Hamilton run software on this PC', robot.hamiltonRunning === true ? 'Running' : robot.hamiltonRunning === false ? 'Not running' : 'Unknown', robot.hamiltonRunning ? 'running' : 'neutral'],
+    ['HxRun', '', robot.hamiltonRunning === true ? 'Running' : robot.hamiltonRunning === false ? 'Not running' : 'Unknown', robot.hamiltonRunning ? 'running' : 'neutral'],
     ['Scheduler', robot.queued ? `${robot.queued} waiting` : 'Nothing waiting', robot.schedulerRunning ? 'Running' : 'Stopped', robot.schedulerRunning ? 'running' : 'neutral'],
     ['Current run', job?.experiment_name ?? 'None', job ? 'Running' : 'Idle', job ? 'running' : 'neutral'],
     ['Scheduled runs', scheduledHold || (scheduledUnknown ? 'Refresh to check the current state' : robot.schedulerRunning ? 'Not held' : 'Scheduler is stopped'),
@@ -139,7 +136,7 @@ const MaintenancePage: React.FC = () => {
 
   return (
     <PageContent variant="task">
-      <PageHeader title="Maintenance" actions={<Button variant="outlined" onClick={loadState} disabled={saving || loading} startIcon={<RefreshIcon />}>Refresh</Button>} />
+      <PageHeader title="Maintenance" actions={<Button variant="outlined" onClick={loadState} disabled={saving || loading}>Refresh</Button>} />
 
       {error && <Alert severity="error" sx={{ mb: `${layout.gutter}px` }}>{error}</Alert>}
       {state && !canEdit && <Alert severity="info" sx={{ mb: `${layout.gutter}px` }}>Changes require a local session.</Alert>}
@@ -156,7 +153,6 @@ const MaintenancePage: React.FC = () => {
                   <Typography component="p" sx={{ fontSize: 28, lineHeight: '36px', fontWeight: 600 }}>{stateLabel}</Typography>
                 </Box>
                 <Typography variant="body2" color="text.secondary">Maintenance mode stops HxRun from being launched on this PC, so you can work on the instrument safely.</Typography>
-                {!state && <Typography variant="body2" color="text.secondary">Refresh to check the current state.</Typography>}
                 {/* A phone's header band has no room for it beside the label. */}
                 {lastChange && phone && <Typography variant="caption" color="text.secondary">{lastChange}</Typography>}
               </Stack>
@@ -164,7 +160,6 @@ const MaintenancePage: React.FC = () => {
                 variant="contained"
                 onClick={() => updateState(!state?.enabled)}
                 disabled={!canEdit || saving || loading || !state || !!error}
-                startIcon={state?.enabled ? <CheckCircleOutlineIcon /> : <BlockIcon />}
                 sx={{ minHeight: layout.touchRow, px: 3, justifySelf: { xs: 'stretch', sm: 'end' }, ...(!state?.enabled && {
                   bgcolor: 'attentionSurface.action', color: 'attentionSurface.actionText', '&:hover': { bgcolor: 'attentionSurface.action', filter: 'brightness(0.94)' } }) }}
               >
@@ -178,7 +173,7 @@ const MaintenancePage: React.FC = () => {
           </Box>}
         </Panel>
 
-        <Panel title="Reason" label="Maintenance details" span={robot ? 8 : 12} fill actions={<Typography variant="caption" color="text.secondary">Optional · recorded with the change</Typography>}
+        <Panel title="Reason" label="Maintenance details" span={robot ? 8 : 12} fill
           bodySx={{ display: 'flex', flexDirection: 'column' }}>
           <TextField
             value={reasonInput}

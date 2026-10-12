@@ -80,7 +80,7 @@ export default function MethodExplorer<T extends MethodItem>({ items, initialPat
         </Box>
         <Box sx={{ minWidth: 0, display: mobileResults || query ? 'block' : 'none', '@container (min-width: 900px)': { display: 'block' } }}>
           <Button size="small" sx={{ '@container (min-width: 900px)': { display: 'none' } }} onClick={() => setMobileResults(false)}>Back to folders</Button>
-          {!folder && !query.trim() ? <Typography sx={{ p: 2 }}>Select a folder to see its methods, or search all methods above.</Typography> : <>
+          {(!!folder || !!query.trim()) && <>
             <Typography variant="caption">{shown.length} methods</Typography>
             {resultFolder !== folder && resultFolder !== '*' && <Typography variant="caption" display="block" sx={{ overflowWrap: 'anywhere' }}>Paths relative to {absoluteRoots[0].path}</Typography>}
             {children(rows, path => relativeMethodPath(path, inFolder(path, resultFolder) ? resultFolder : '*'))}

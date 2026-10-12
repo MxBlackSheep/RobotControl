@@ -139,7 +139,7 @@ export default function TipTrackingPanel({ active = true }: { active?: boolean }
   if (!snapshot) return readError ? <Alert severity="error" action={<Button onClick={() => void refresh()}>Retry</Button>}>{readError}</Alert> : <LinearProgress aria-label="Loading tips" />;
   if (!family) return <Alert severity="info" action={<Button onClick={() => void refresh()}>Refresh</Button>}>No tip families found.</Alert>;
 
-  const statusCaption = <Typography variant="caption" color="text.secondary" role="status" sx={{ fontFamily: fontMono, whiteSpace: 'nowrap' }}>{busy ? 'Saving…' : gesture ? 'Selection in progress' : totalPending ? `${totalPending} unsaved${totalPending > count ? ` (${totalPending - count} in other families)` : ''}` : reading ? 'Updating…' : notice || `Updated ${clockTime(new Date(snapshot.refreshed_at))}`}</Typography>;
+  const statusCaption = <Typography variant="caption" color="text.secondary" role="status" sx={{ fontFamily: fontMono, whiteSpace: 'nowrap' }}>{busy ? 'Saving…' : gesture ? 'Selection in progress' : totalPending ? '' : reading ? 'Updating…' : notice || `Updated ${clockTime(new Date(snapshot.refreshed_at))}`}</Typography>;
   const actions = <Stack gap={1}>
     <Stack direction="row" alignItems="center" gap={1.5} flexWrap="wrap" sx={{ minHeight: layout.control }}>
       {/* Buttons as in the mock; a long family list falls back to a menu that cannot overflow the toolbar. */}
@@ -165,7 +165,7 @@ export default function TipTrackingPanel({ active = true }: { active?: boolean }
     </Stack>
     {(readError || writeError) && <Alert severity="error" action={!totalPending && !busy && !gesture ? <Button onClick={() => void refresh()}>Retry</Button> : undefined}>{writeError || readError}{readError && ' Previous data is shown.'}</Alert>}
   </Stack>;
-  const editor = rack ? <TipRackEditor rack={rack} headingId="selected-tip-rack-heading" joined={!narrow} side={family.left_racks.includes(rack) ? 'Col A' : 'Col B'} rows={rows} columns={columns} position={position} choices={choices} legend={legendFor([rack])} colors={snapshot.status_colors}
+  const editor = rack ? <TipRackEditor rack={rack} headingId="selected-tip-rack-heading" joined={!narrow} rows={rows} columns={columns} position={position} choices={choices} legend={legendFor([rack])} colors={snapshot.status_colors}
     statusAt={tip => shownStatus(rack, tip)} pendingAt={tip => Object.prototype.hasOwnProperty.call(currentPending, keyFor(rack, tip))}
     canUpdate={canUpdate} disabled={busy} active={active && (!narrow || rackOpen)} paint={paint} onPaintChange={setPaint}
     onSelect={tip => setSelectedTips(previous => ({ ...previous, [`${family.family_id}:${rack}`]: tip }))} onApply={apply} onGestureChange={selecting => { if (selecting) suspend(); setGesture(selecting); }} /> : <Alert severity="info">No racks found.</Alert>;

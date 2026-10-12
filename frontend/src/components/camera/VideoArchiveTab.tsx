@@ -2,7 +2,6 @@ import { DetailTitle, EmptyPanel, Panel } from '../PageLayout';
 import { dayTime } from '../../utils/displayTime';
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Box, Button, CircularProgress, LinearProgress, List, ListItemButton, Stack, TablePagination, TextField, Typography } from '@mui/material';
-import { Download, FolderOutlined, Refresh } from '@mui/icons-material';
 import InspectionWorkspace, { LoadMoreBar, usePhoneWorkspace } from '../InspectionWorkspace';
 import { fontMono } from '../../theme';
 
@@ -68,7 +67,7 @@ export default function VideoArchiveTab({ experimentFolders, loading, error, onR
     {error && <Alert severity="error" action={<Button color="inherit" onClick={refreshArchive}>Retry</Button>}>{error}</Alert>}
     <InspectionWorkspace label="Recording archive" selectorLabel="Folders" detailOpen={detailOpen} onBack={() => setDetailOpen(false)}
       selector={<Panel title={`Folders (${experimentFolders.length})`} label="Folders" fill inset={false} sx={{ height: '100%' }} bodySx={{ display: 'flex', flexDirection: 'column' }}
-        actions={<Button size="small" onClick={refreshArchive} disabled={loading} startIcon={<Refresh />}>Refresh</Button>}>
+        actions={<Button size="small" onClick={refreshArchive} disabled={loading}>Refresh</Button>}>
         <Box sx={{ px: 2, py: 1.5, borderBottom: 1, borderColor: 'surface.rowLine' }}>
           <TextField label="Search folders" size="small" fullWidth value={query} onChange={event => setQuery(event.target.value)} />
         </Box>
@@ -77,7 +76,6 @@ export default function VideoArchiveTab({ experimentFolders, loading, error, onR
           {experimentFolders.filter(item => item.folder_name.toLowerCase().includes(query.toLowerCase())).map(item => <ListItemButton
             key={item.folder_name} aria-label={`Open folder ${item.folder_name}`} aria-current={selected === item.folder_name ? 'true' : undefined}
             selected={selected === item.folder_name} onClick={() => choose(item)} sx={{ gap: 1.5, alignItems: 'center', minHeight: 56, py: 1, px: 2, borderBottom: 1, borderColor: 'surface.rowLine' }}>
-            <FolderOutlined fontSize="small" sx={{ color: 'text.secondary' }} />
             <Box sx={{ minWidth: 0 }}><Typography sx={{ fontFamily: fontMono, fontSize: 12, lineHeight: '20px', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item.folder_name}>{item.folder_name}</Typography>
               <Typography variant="caption" color="text.secondary">{item.video_count} recordings · {fileSize(item.total_size_bytes)}</Typography></Box>
           </ListItemButton>)}
@@ -100,7 +98,7 @@ export default function VideoArchiveTab({ experimentFolders, loading, error, onR
             </Box>
             <Stack direction="row" gap={1}>
               <Button aria-label={`Download ${video.filename}`} onClick={() => void onDownloadVideo(video.filename)}
-                disabled={downloadBusy} startIcon={downloadingFilename === video.filename ? <CircularProgress size={18} /> : <Download />}>Download</Button>
+                disabled={downloadBusy} startIcon={downloadingFilename === video.filename ? <CircularProgress size={18} /> : undefined}>Download</Button>
               {onDeleteVideo && <Button color="error" aria-label={`Delete ${video.filename}`} disabled={downloadBusy} onClick={() => onDeleteVideo(video.filename)}>Delete</Button>}
             </Stack>
           </Stack>)}

@@ -133,7 +133,6 @@ export default function ReportWizard({ draftId, onClose }: { draftId?: string; o
           {draft.original && <Button onClick={() => saveBlob(new Blob([draft.original], { type: 'text/x-python' }), 'original.py')}>Download original</Button>}
         </Stack>
         {inspection && <Stack spacing={1}>
-          <Typography variant="body2">Available libraries: {inspection.available.join(', ') || 'Python standard library'}</Typography>
           {!!inspection.unavailable.length && <Alert severity="warning">Not bundled: {inspection.unavailable.join(', ')}. Adapt the script or upgrade RobotControl.</Alert>}
           {inspection.undetermined.map(text => <Alert key={text} severity="info">{text}</Alert>)}
           {inspection.adaptation.map(text => <Typography variant="body2" key={text}>{text}</Typography>)}
@@ -171,8 +170,7 @@ export default function ReportWizard({ draftId, onClose }: { draftId?: string; o
         <Button onClick={() => update({ inputs: [...draft.inputs, { name: `input_${draft.inputs.length + 1}`, label: 'Input', type: 'text', required: true, choices: [] }] })}>Add input</Button>
       </Stack>}
       {draft.step === 2 && <Stack spacing={2}>
-        {!draft.handler && <><Typography variant="subtitle1">Script needs adaptation</Typography>
-          <Typography variant="body2">Download your script and editing template. Adapt it yourself or with a coding agent, then upload the result.</Typography></>}
+        {!draft.handler && <Typography variant="subtitle1">Script needs adaptation</Typography>}
         <Stack direction="row" flexWrap="wrap" gap={1}>
           {!draft.handler && <Button variant="outlined" onClick={() => action(async () => { const s = await persist(); await download(`${base}/drafts/${s.id}/editing-files`, 'report-editing-files.zip'); })}>Download editing files</Button>}
           <Button component="label" variant="outlined">{saved?.base ? 'Replace Python' : 'Upload adapted script'}<input hidden type="file" accept=".py" aria-label="Completed handler" onChange={e => { upload('handler', e.target.files?.[0]); e.target.value = ''; }} /></Button>
@@ -181,9 +179,7 @@ export default function ReportWizard({ draftId, onClose }: { draftId?: string; o
             await persist({ ...draft, handler: draft.original }); setJob(undefined); setReview(undefined); setNotice('Original selected as handler.');
           })}>Use original as handler</Button>}
         </Stack>
-        {draft.handler && <Typography variant="body2">Python saved · {draft.handler.split('\n').length} lines</Typography>}
         <Typography variant="subtitle1">Try report</Typography>
-        {!draft.handler && <Typography variant="body2" color="text.secondary">Upload the adapted script to enable Try report.</Typography>}
         {saved && <ReportInputs fields={draft.inputs} values={values} disabled={busy || running} choiceBase={`${base}/drafts/${saved.id}/choices`}
           onChange={(name, v) => { setValues(old => changedInputs(draft.inputs, old, name, v)); setJob(undefined); }} />}
         <Button variant="contained" sx={{ alignSelf: 'flex-start' }} disabled={!scriptReady || !ready || busy || running} onClick={() => action(async () => {
@@ -194,7 +190,6 @@ export default function ReportWizard({ draftId, onClose }: { draftId?: string; o
       {draft.step === 3 && <Stack spacing={2}>
         <TextField label="What changed? (optional)" multiline maxRows={4} inputProps={{maxLength:2000}} value={draft.change_note || ''} onChange={e=>setDraft({...draft,change_note:e.target.value})} />
         <Typography variant="h6">{draft.name} · {draft.version}</Typography>
-        <Typography variant="body2">Install here, or export a package for another RobotControl installation.</Typography>
         <Button variant="outlined" sx={{ alignSelf: 'flex-start' }} onClick={() => action(async () => { const s = await persist(); await download(`${base}/drafts/${s.id}/package`, `${draft.package_id}-${draft.version}.zip`); })}>Export package</Button>
         {!review && <Button variant="contained" sx={{ alignSelf: 'flex-start' }} onClick={() => action(async () => { const s = await persist(); const r = await api.get(`${base}/drafts/${s.id}/review`); setReview(r.data); })}>{saved?.base ? 'Review update' : 'Review installation'}</Button>}
         {review && <><Typography>{review.current_version ? `${review.current_version} → ${draft.version}` : 'New package'}</Typography>

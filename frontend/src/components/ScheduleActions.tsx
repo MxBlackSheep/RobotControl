@@ -16,7 +16,6 @@ import {
   Card,
   CardContent,
 } from '@mui/material';
-import { Delete as DeleteIcon } from '@mui/icons-material';
 
 import { ScheduledExperiment, formatScheduleType } from '../types/scheduling';
 
@@ -49,10 +48,7 @@ const DeleteConfirmationDialog: React.FC<DeleteConfirmationDialogProps> = ({
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle>
-        <Stack direction="row" alignItems="center" spacing={1}>
-          <DeleteIcon color="error" />
-          <Typography variant="h6">Delete Schedule</Typography>
-        </Stack>
+        <Typography variant="h6">Delete Schedule</Typography>
       </DialogTitle>
       <DialogContent>
         <Stack spacing={2}>
@@ -97,7 +93,7 @@ const DeleteConfirmationDialog: React.FC<DeleteConfirmationDialogProps> = ({
           variant="contained"
           color="error"
           disabled={loading || Boolean(schedule?.recovery_required)}
-          startIcon={loading ? <CircularProgress size={16} /> : <DeleteIcon />}
+          startIcon={loading ? <CircularProgress size={16} /> : undefined}
         >
           {loading ? 'Deleting...' : 'Delete Schedule'}
         </Button>

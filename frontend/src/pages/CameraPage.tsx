@@ -17,7 +17,6 @@ import { PageContent, PageHeader } from '../components/PageLayout';
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Box, Typography, Button, Paper, Stack, LinearProgress, CircularProgress, useMediaQuery } from '@mui/material';
 import StatusChip from '../components/StatusChip';
-import { PlayArrow as PlayArrowIcon, Stop as StopIcon } from '@mui/icons-material';
 import StatusDialog from '../components/StatusDialog';
 import { isAxiosError } from 'axios';
 import { api, attemptTokenRefresh } from '@/services/api';
@@ -100,7 +99,7 @@ const CameraPage: React.FC = () => {
   // Live view is H.264 only: a browser or page that cannot decode it gets this reason instead.
   const [unsupported, setUnsupported] = useState<string | null>(null);
   const { user } = useAuth();
-  const [currentTab, setCurrentTab] = useModuleSection('/camera', user);
+  const [currentTab] = useModuleSection('/camera', user);
   // Wide screens put the controls beside the image; narrower ones keep them collapsible below it.
   const sideBySide = useMediaQuery('(min-width:1200px)');
   
@@ -116,7 +115,7 @@ const CameraPage: React.FC = () => {
     frameStore.set(value);
     if (changedAvailability) setHasFrame(Boolean(value));
   }, [frameStore]);
-  const [cameraSummary, setCameraSummary] = useState<CameraSummary>({ text: 'Camera: Checking · Recording: Checking', error: null });
+  const [cameraSummary, setCameraSummary] = useState<CameraSummary>({ text: 'Checking camera · Checking recording', error: null });
   const [sourceRevision, setSourceRevision] = useState(0);
   const handleSourceChange = useCallback(() => {
     setCurrentFrame(null);
@@ -506,7 +505,7 @@ const CameraPage: React.FC = () => {
     }
   };
 
-  const recentRecordings = <RecentRecordings folders={experimentFolders} loading={archiveLoading} error={archiveError} onOpenArchive={() => setCurrentTab(1)} />;
+  const recentRecordings = <RecentRecordings folders={experimentFolders} loading={archiveLoading} error={archiveError} />;
 
   return (
     <>
@@ -534,7 +533,6 @@ const CameraPage: React.FC = () => {
               {downloadProgress.totalBytes
                 ? `${formatBytes(downloadProgress.downloadedBytes)} / ${formatBytes(downloadProgress.totalBytes)}`
                 : `${formatBytes(downloadProgress.downloadedBytes)} downloaded`}
-              {` · Attempt ${downloadProgress.attempt}/${downloadProgress.maxAttempts}`}
               {downloadProgress.isRetrying ? ' · Reconnecting...' : ''}
             </Typography>
             {downloadProgress.totalBytes && downloadProgress.totalBytes > 0 ? (
@@ -570,17 +568,19 @@ const CameraPage: React.FC = () => {
           store={frameStore}
           hasFrame={hasFrame}
           connection={unsupported ? 'unavailable' : mySession?.websocket_state ?? 'idle'}
-          summary={cameraSummary.text}
+          summary={sideBySide ? undefined : cameraSummary.text}
           sourceRevision={sourceRevision}
           error={unsupported || cameraSummary.error || liveError}
           controls={<>
-            <StatusChip tone={mySession?.websocket_state === 'connected' ? 'completed' : 'neutral'} label={mySession ? `My view: ${mySession.websocket_state}` : 'My view: stopped'} />
+            {/* Only an in-between state needs words: Start shows stopped, a moving picture shows connected,
+                but a dropped view can still show its last (stale) picture. */}
+            {mySession && mySession.websocket_state !== 'connected' && <StatusChip tone="neutral" label={`My view: ${mySession.websocket_state}`} />}
             {mySession ? <>
-              <Button variant="outlined" startIcon={<StopIcon />} onClick={stopStreamingSession} disabled={streamingLoading}>
+              <Button variant="outlined" onClick={stopStreamingSession} disabled={streamingLoading}>
                 {streamingLoading ? <CircularProgress size={20} /> : 'Stop my live view'}
               </Button>
               <Button onClick={() => void reconnectLiveView()} disabled={streamingLoading}>Reconnect live view</Button>
-            </> : <Button variant="contained" startIcon={<PlayArrowIcon />} onClick={() => void createStreamingSession()}
+            </> : <Button variant="contained" onClick={() => void createStreamingSession()}
               disabled={streamingLoading || !streamingStatus?.enabled || Boolean(unsupported)}>
               {streamingLoading ? <CircularProgress size={20} /> : 'Start my live view'}
             </Button>}
@@ -596,12 +596,6 @@ const CameraPage: React.FC = () => {
         </Box>
         <Stack spacing={`${layout.gutter}px`} sx={{ minWidth: 0 }}>
         <CameraControls active={currentTab === 0} admin={user?.role === 'admin'} collapsible={!sideBySide} onSourceChange={handleSourceChange} onSummaryChange={setCameraSummary} />
-        {mySession && <Box component="details" sx={{ color: 'text.secondary', fontSize: '0.875rem', '& summary': { cursor: 'pointer', minHeight: 44, display: 'flex', alignItems: 'center' },
-          ...(sideBySide && { px: 2, py: 0.5, bgcolor: 'background.paper', border: 1, borderColor: 'divider', borderRadius: `${layout.radius}px` }) }}>
-          <summary>Live view details</summary>
-          <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>Session ID: {mySession.session_id}</Typography>
-          <Button onClick={() => void loadStreamingStatus()} sx={{ minHeight: 44 }}>Refresh view status</Button>
-        </Box>}
         {sideBySide && recentRecordings}
         </Stack>
         </Box>

@@ -169,7 +169,7 @@ test('a failed status read shows its own error until that status reads again', a
   await expect(statusError).toHaveCount(1);
   await expect(page.getByRole('dialog', { name: 'Server Error' })).toHaveCount(0);
 
-  await page.getByRole('button', { name: 'Refresh schedules', exact: true }).click();
+  await page.getByRole('region', { name: 'Schedules', exact: true }).getByRole('button', { name: 'Refresh', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Open Experiment 01', exact: true })).toBeVisible();
   await expect(statusError).toHaveCount(1);
   await page.screenshot({ path: testInfo.outputPath('status-error.png') });

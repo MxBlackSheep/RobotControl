@@ -6,7 +6,6 @@ import {
   DialogActions,
   TextField,
   Button,
-  Alert,
   Box,
 } from '@mui/material';
 import { isAxiosError } from 'axios';
@@ -102,10 +101,6 @@ const ChangePasswordDialog: React.FC<ChangePasswordDialogProps> = ({
       </DialogTitle>
       <Box component="form" onSubmit={handleSubmit}>
         <DialogContent dividers>
-          <Alert severity="info" sx={{ mb: 2 }}>
-            Use a strong password that you do not reuse elsewhere.
-          </Alert>
-          
           <TextField
             fullWidth
             type="password"
@@ -124,7 +119,7 @@ const ChangePasswordDialog: React.FC<ChangePasswordDialogProps> = ({
             onChange={(event) => setNewPassword(event.target.value)}
             margin="normal"
             required
-            helperText="At least 8 characters, include numbers and symbols for strength."
+            helperText="At least 8 characters."
           />
           <TextField
             fullWidth

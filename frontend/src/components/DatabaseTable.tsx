@@ -496,18 +496,6 @@ function TableView({
           </Button>
           {moreButton}
         </Box>
-        <Stack direction="row" gap={1} flexWrap="wrap">
-          <Typography variant="caption" color="text.secondary">
-            {data
-              ? `${data.total_count.toLocaleString()} matching rows`
-              : "Search uses text, numeric and date columns."}
-          </Typography>
-          {updated && (
-            <Typography variant="caption" color="text.secondary">
-              Updated {updated}
-            </Typography>
-          )}
-        </Stack>
     </>
   );
   const scrollingTable = (
@@ -673,7 +661,6 @@ function TableView({
           "& .MuiTablePagination-actions": { ml: 0 },
         }}
       />
-      {pageForm}
       </Stack>
       )}
     </Paper>
@@ -907,10 +894,6 @@ function TableView({
         <DialogTitle>Column filters</DialogTitle>
         <DialogContent dividers>
           <Stack spacing={2}>
-            <Typography variant="body2">
-              All conditions must match. Changes apply only when you choose
-              Apply filters.
-            </Typography>
             {filterDraft.map((filter, index) => (
               <Stack key={index} spacing={1}>
                 <TextField
@@ -1037,10 +1020,7 @@ function TableView({
               <MenuItem value="json">JSON</MenuItem>
             </TextField>
             <Alert severity="info">
-              Uses the applied search, filters, sort and visible columns.
-              Concurrent database writes may change rows during export; this is
-              not a database snapshot. Exports exceeding 50 MB must be narrowed
-              with filters.
+              Exports up to 50 MB. Narrow larger exports with filters.
             </Alert>
             {progress !== null && (
               <>

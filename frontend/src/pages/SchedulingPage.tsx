@@ -37,15 +37,7 @@ import {
   TableRow,
   CircularProgress
 } from '@mui/material';
-import {
-  Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-  FolderOpen as FolderIcon,
-  Refresh as RefreshIcon,
-  History as HistoryIcon,
-  Archive as ArchiveIcon
-} from '@mui/icons-material';
+import { Refresh as RefreshIcon } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
@@ -417,35 +409,16 @@ const SchedulingPage: React.FC = () => {
   const renderCalendarView = () => {
     if (calendarData.length === 0) {
       return (
-        <Alert severity="info">
-          <Typography variant="h6" gutterBottom>
-            No upcoming schedules
-          </Typography>
-          <Typography variant="body2">
-            Create new schedules to see them appear in the calendar view.
-          </Typography>
-        </Alert>
+        <Typography variant="body2" color="text.secondary">
+          No upcoming runs.
+        </Typography>
       );
     }
 
     return (
       <Box>
-        <Stack
-          direction={{ xs: 'column', sm: 'row' }}
-          justifyContent="space-between"
-          alignItems={{ xs: 'flex-start', sm: 'center' }}
-          spacing={1.5}
-          sx={{ mb: { xs: 2.5, md: 3 } }}
-        >
-          <Typography variant="h6" sx={{ fontWeight: 600 }}>
-            Upcoming runs
-          </Typography>
-          <Button
-            startIcon={<RefreshIcon />}
-            onClick={() => void actions.loadSchedules(false)}
-            size="small"
-            sx={{ alignSelf: { xs: 'flex-start', sm: 'center' } }}
-          >
+        <Stack direction="row" justifyContent="flex-end" sx={{ mb: { xs: 2.5, md: 3 } }}>
+          <Button onClick={() => void actions.loadSchedules(false)} size="small">
             Refresh
           </Button>
         </Stack>
@@ -472,7 +445,6 @@ const SchedulingPage: React.FC = () => {
                       </Typography>
                     </Box>
                     <Stack spacing={0.5} alignItems="flex-end">
-                      <StatusChip tone={schedule.is_active ? 'completed' : 'neutral'} label={schedule.is_active ? 'Active' : 'Inactive'} />
                       {schedule.preparation_state && schedule.preparation_state !== 'ready' && <StatusChip {...stateChip[schedule.preparation_state]} />}
                     </Stack>
                   </Box>
@@ -481,14 +453,6 @@ const SchedulingPage: React.FC = () => {
             </Grid>
           ))}
         </Grid>
-
-        <Alert severity="info" sx={{ mt: { xs: 2.5, md: 3 } }}>
-          <Typography variant="body2">
-            Showing {calendarData.reduce((total, [, schedules]) => total + schedules.length, 0)}
-            scheduled experiments across {calendarData.length} dates.
-            Next planned run for each schedule.
-          </Typography>
-        </Alert>
       </Box>
     );
   };
@@ -496,8 +460,8 @@ const SchedulingPage: React.FC = () => {
   return (
     <PageContent variant={currentTab === 5 && notificationsTab === 2 ? "task" : "inspection"}>
       <PageHeader title="Scheduling" actions={isLocalSession && <>
-        <Button variant="contained" startIcon={<AddIcon />} onClick={handleOpenCreateForm} disabled={state.loading}>Create schedule</Button>
-        <Button variant="outlined" startIcon={<FolderIcon />} onClick={() => setFolderImportOpen(true)} disabled={state.loading}>Import methods</Button>
+        <Button variant="contained" onClick={handleOpenCreateForm} disabled={state.loading}>Create schedule</Button>
+        <Button variant="outlined" onClick={() => setFolderImportOpen(true)} disabled={state.loading}>Import methods</Button>
       </>} />
       <Stack direction="row" gap={1} flexWrap="wrap" alignItems="center" sx={{ mb: `${layout.gutter}px`, px: 2, py: 0.5, minHeight: layout.row, boxSizing: 'border-box', bgcolor: 'background.paper', border: 1, borderColor: 'divider', borderRadius: `${layout.radius}px` }} aria-label="Scheduler service summary">
         <StatusChip tone={state.schedulerRunning ? 'running' : 'neutral'} label={`Scheduler service: ${state.schedulerRunning ? 'Running' : 'Stopped'}`} />
@@ -535,7 +499,6 @@ const SchedulingPage: React.FC = () => {
               {state.selectedSchedule.recovery_required && <Alert severity="warning" sx={{ m: 2 }} action={<Button color="inherit" onClick={() => setCurrentTab(1)}>Review recovery</Button>}>Recovery required</Alert>}
               <Box component="dl" sx={{ m: 0 }}>
                 {([
-                  ['Status', state.selectedSchedule.is_active ? 'Active' : 'Inactive'],
                   ['Timing', repeatLabel(state.selectedSchedule)],
                   ['Next run', formatTimestamp(state.selectedSchedule.next_run)],
                   ['Duration', formatDuration(state.selectedSchedule.estimated_duration)],
@@ -546,14 +509,13 @@ const SchedulingPage: React.FC = () => {
                 </ListRow>)}
               </Box>
               <Stack spacing={1.5} sx={{ p: 2 }}>
-                <Button sx={{ alignSelf: 'flex-start' }} startIcon={<HistoryIcon />} onClick={() => setCurrentTab(3)}>Execution history</Button>
                 {isLocalSession
                   ? <Stack direction="row" gap={1} flexWrap="wrap" aria-label="Schedule actions">
-                    <Button variant="contained" startIcon={<EditIcon />} onClick={handleOpenEditForm} disabled={state.loading}>Edit schedule</Button>
-                    <Button variant="outlined" startIcon={<ArchiveIcon />} disabled={state.loading || state.selectedSchedule.recovery_required}
+                    <Button variant="contained" onClick={handleOpenEditForm} disabled={state.loading}>Edit schedule</Button>
+                    <Button variant="outlined" disabled={state.loading || state.selectedSchedule.recovery_required}
                       onClick={() => state.selectedSchedule && void actions.archiveSchedule(state.selectedSchedule, !state.selectedSchedule.archived)}>
                       {state.selectedSchedule.archived ? 'Restore schedule' : 'Archive schedule'}</Button>
-                    <Button variant="outlined" color="error" startIcon={<DeleteIcon />} onClick={() => setDeleteDialogOpen(true)} disabled={state.loading || state.selectedSchedule.recovery_required}>Delete schedule</Button>
+                    <Button variant="outlined" color="error" onClick={() => setDeleteDialogOpen(true)} disabled={state.loading || state.selectedSchedule.recovery_required}>Delete schedule</Button>
                   </Stack>
                   : <Typography variant="body2" color="text.secondary">Read only · Changes require the local workstation.</Typography>}
               </Stack>
@@ -705,7 +667,6 @@ const SchedulingPage: React.FC = () => {
                       <Button
                         variant="outlined"
                         size="small"
-                        startIcon={<RefreshIcon />}
                         onClick={handleLogsRefresh}
                         disabled={logsLoading}
                       >

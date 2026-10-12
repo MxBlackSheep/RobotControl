@@ -48,10 +48,6 @@ import {
   Checkbox
 } from '@mui/material';
 import {
-  Add as AddIcon,
-  Science as ScienceIcon,
-  Schedule as ScheduleIcon,
-  Settings as SettingsIcon,
   Refresh as RefreshIcon,
   CheckBoxOutlineBlank as CheckBoxOutlineBlankIcon,
   CheckBox as CheckBoxIcon
@@ -444,12 +440,9 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
       disableEscapeKeyDown={loading}
     >
       <DialogTitle id="schedule-dialog-title">
-        <Stack direction="row" alignItems="center" spacing={1}>
-          <AddIcon color="primary" aria-hidden="true" />
-          <Typography variant="h6">
-            {mode === 'create' ? 'Create schedule' : 'Edit schedule'}
-          </Typography>
-        </Stack>
+        <Typography variant="h6">
+          {mode === 'create' ? 'Create schedule' : 'Edit schedule'}
+        </Typography>
       </DialogTitle>
 
       <DialogContent dividers id="schedule-dialog-description">
@@ -458,10 +451,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
           {/* Experiment Selection Section */}
           <Box component="section">
             <Box sx={{ mb: 1.5 }}>
-              <Stack direction="row" alignItems="center" spacing={1}>
-                <ScienceIcon color="primary" />
-                <Typography variant="subtitle1">Method</Typography>
-              </Stack>
+              <Typography variant="subtitle1">Method</Typography>
             </Box>
             <Box>
               <Stack spacing={2}>
@@ -477,17 +467,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                   </Tooltip>
                 </Box>
 
-                {formData.experiment_path && (
-                  <Alert severity="info" variant="outlined">
-                    <Typography variant="caption">
-                      Selected: {formData.experiment_name}
-                    </Typography>
-                    <br />
-                    <Typography variant="caption" color="text.secondary">
-                      Path: {formData.experiment_path}
-                    </Typography>
-                  </Alert>
-                )}
+                {formData.experiment_path && <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>{formData.experiment_name} · {formData.experiment_path}</Typography>}
                 {!loading && !!formData.experiment_path && !experiments.some(exp => exp.path === formData.experiment_path) &&
                   <Alert severity="warning">This saved path is not in the current available method library. It may be archived or unavailable. Your selection is preserved; review it in Methods before changing it.</Alert>}
 
@@ -500,7 +480,6 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                   InputProps={{
                     endAdornment: <InputAdornment position="end">min</InputAdornment>
                   }}
-                  helperText="How long this experiment typically takes to complete"
                 />
               </Stack>
             </Box>
@@ -509,10 +488,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
           {/* Schedule Configuration Section */}
           <Box component="section">
             <Box sx={{ mb: 1.5 }}>
-              <Stack direction="row" alignItems="center" spacing={1}>
-                <ScheduleIcon color="primary" />
-                <Typography variant="subtitle1">Timing and alerts</Typography>
-              </Stack>
+              <Typography variant="subtitle1">Timing and alerts</Typography>
             </Box>
             <Box>
               <Grid container spacing={2}>
@@ -573,9 +549,11 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                             fullWidth
                           />
                         </Stack>
-                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-                          Minutes must be between 0 and 59. Minimum interval is 1 minute.
-                        </Typography>
+                        {customInterval.hours * 60 + customInterval.minutes < 1 && (
+                          <Typography variant="caption" color="error" sx={{ display: 'block', mt: 1 }}>
+                            Minimum interval is 1 minute.
+                          </Typography>
+                        )}
                       </>
                     )}
                   </Grid>
@@ -590,7 +568,6 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                     fullWidth
                     InputLabelProps={{ shrink: true }}
                     inputProps={{ min: minimumStartTime }}
-                    helperText="When should this schedule start?"
                   />
                 </Grid>
 
@@ -611,7 +588,6 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                       endAdornment: <InputAdornment position="end">min</InputAdornment>
                     }}
                     inputProps={{ min: 1 }}
-                    helperText="Optional. If execution starts after this delay, timeout action is applied."
                   />
                 </Grid>
 
@@ -658,7 +634,6 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                     value={formData.log_inactivity_threshold_minutes}
                     onChange={(event) => setFormData({ ...formData, log_inactivity_threshold_minutes: Number(event.target.value) })}
                     inputProps={{ min: 1, step: 1 }}
-                    helperText="Email after the run log stops updating. Default: 3 minutes. Changes apply to the next run."
                   />
                 </Grid>
                 <Grid item xs={12} md={6}>
@@ -730,12 +705,9 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
           {/* Experiment Preparation Section */}
           <Box component="section">
             <Box sx={{ mb: 1.5 }}>
-              <Stack direction="row" alignItems="center" spacing={1}>
-                <SettingsIcon color="primary" />
-                <Typography variant="subtitle1">
-                  Before this run
-                </Typography>
-              </Stack>
+              <Typography variant="subtitle1">
+                Before this run
+              </Typography>
             </Box>
             <Box>
               <Stack spacing={2}>
@@ -762,7 +734,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
           onClick={handleSubmit}
           variant="contained"
           disabled={loading || scanning}
-          startIcon={loading ? <CircularProgress size={20} /> : <AddIcon />}
+          startIcon={loading ? <CircularProgress size={20} /> : undefined}
         >
           {mode === 'create' ? 'Create schedule' : 'Save schedule'}
         </Button>

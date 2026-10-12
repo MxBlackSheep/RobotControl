@@ -22,7 +22,7 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import { Search, ContentCopy, OpenInFull, CloseFullscreen, MoreVert, Close, KeyboardArrowUp, KeyboardArrowDown } from "@mui/icons-material";
+import { Search, ContentCopy, OpenInFull, CloseFullscreen, MoreVert, Close } from "@mui/icons-material";
 
 interface InspectionTextViewerProps {
   text: string;
@@ -287,9 +287,8 @@ export default function InspectionTextViewer({
         })}
       </Box>
       <Stack direction="row" gap={0.5} alignItems="center" sx={{ px: 1, flexShrink: 0, borderTop: 1, borderColor: "divider" }}>
-        <Button aria-label="Go to top" startIcon={<KeyboardArrowUp />} onClick={() => reader.current?.scrollTo({ top: 0 })}>Top</Button>
-        <Button aria-label="Go to bottom" startIcon={<KeyboardArrowDown />} onClick={() => { if (reader.current) reader.current.scrollTop = reader.current.scrollHeight; }}>Bottom</Button>
-        <Typography variant="caption" color="text.secondary" sx={{ ml: "auto" }}>Read only</Typography>
+        <Button aria-label="Go to top" onClick={() => reader.current?.scrollTo({ top: 0 })}>Top</Button>
+        <Button aria-label="Go to bottom" onClick={() => { if (reader.current) reader.current.scrollTop = reader.current.scrollHeight; }}>Bottom</Button>
       </Stack>
     </Box>
   );

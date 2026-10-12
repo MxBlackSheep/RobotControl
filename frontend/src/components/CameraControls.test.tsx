@@ -20,7 +20,7 @@ afterEach(() => { api.get.mockReset(); api.request.mockReset(); vi.useRealTimers
 it('keeps device controls admin-only and separates capture from recording', async () => {
   api.get.mockImplementation(statusResponse);
   render(<CameraControls admin={false} onSourceChange={() => {}} />);
-  await screen.findByText('Camera: Connected · Recording: Recording');
+  await screen.findByText('Camera connected · Recording');
   expect(screen.queryByRole('button', { name: 'Reconnect camera' })).toBeNull();
   expect(screen.getByText(/administrator can select/)).toBeTruthy();
 });
@@ -29,7 +29,7 @@ it('preserves selection after an operation error and explains recording locks', 
   api.get.mockImplementation(statusResponse);
   api.request.mockRejectedValue({ isAxiosError: true, response: { status: 409, data: { detail: 'A camera operation is already in progress' } } });
   render(<CameraControls admin onSourceChange={() => {}} />);
-  await screen.findByText('Camera: Connected · Recording: Recording');
+  await screen.findByText('Camera connected · Recording');
   expect(screen.getByText('Stop recording before changing cameras.')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Reconnect camera' }));
   await screen.findByText('A camera operation is already in progress');
@@ -53,7 +53,7 @@ it('cancels an in-flight control request when leaving the page', async () => {
   api.get.mockImplementation(statusResponse);
   api.request.mockImplementation(config => { signal = config.signal; return new Promise(() => {}); });
   const view = render(<CameraControls admin onSourceChange={() => {}} />);
-  await screen.findByText('Camera: Connected · Recording: Recording');
+  await screen.findByText('Camera connected · Recording');
   fireEvent.click(screen.getByRole('button', { name: 'Reconnect camera' }));
   expect(signal?.aborted).toBe(false);
   view.unmount();

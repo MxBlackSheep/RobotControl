@@ -77,8 +77,7 @@ test('account setup explains a name conflict and retains settings without creden
   await page.route('**/api/database/tools/sources/access/create', route => route.fulfill({ status: 400, json: {
     detail: "SQL login 'Hamilton' already exists. Choose a new name, such as RobotControl_ReadOnly. Existing logins are not changed.",
   } }));
-  await page.goto('/database?section=packages');
-  await page.getByRole('link', { name: 'Database settings', exact: true }).last().click();
+  await page.goto('/database?section=settings');
   await page.getByRole('button', { name: 'Manage connections', exact: true }).click();
   await page.getByRole('combobox', { name: 'Account setup' }).click();
   await page.getByRole('option', { name: 'Create read-only account', exact: true }).click();
@@ -91,7 +90,6 @@ test('account setup explains a name conflict and retains settings without creden
   await page.getByLabel('SQL administrator', { exact: true }).fill('fixture-admin');
   await page.getByLabel('Administrator password', { exact: true }).fill('fixture-secret');
   await page.getByLabel("Use RobotControl's Windows account").check();
-  await expect(page.getByText('Uses the Windows account running RobotControl, not the browser user. It must be allowed to create SQL logins.')).toBeVisible();
   await page.getByRole('button', { name: 'Create account', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText("SQL login 'Hamilton' already exists");
   await expect(page.getByLabel('Name', { exact: true })).toHaveValue('ShouLab-ReadOnly');

@@ -87,7 +87,7 @@ export default function CytomatPanel({ active = true }: { active?: boolean }) {
       onKeyDown={event => { if (open && event.key === 'Escape') { event.preventDefault(); closeEditor(position); } }}
       sx={{ minWidth: 0, px: { xs: 1.25, sm: 2 }, bgcolor: open ? 'action.selected' : undefined, borderBottom: 1, borderColor: 'divider', '&:last-child': { borderBottom: 0 } }}>
       <Box sx={{ display: 'grid', gridTemplateColumns: columns, alignItems: 'center', gap: 1, minHeight: configuredPositions.has(position) ? summaryHeight : 48, py: 0.25 }}>
-        <Typography component="h3" variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere', fontSize: rowFont }}>Position {position}</Typography>
+        <Typography component="h3" variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere', fontSize: rowFont }}>{position}</Typography>
         <Stack gap={0.25} sx={{ minWidth: 0 }}>
           <Typography variant="body2" color={!row || !plate ? 'text.secondary' : 'text.primary'} sx={{ overflowWrap: 'anywhere', fontSize: rowFont }}>
             {!row ? (groups.get(position)?.length || 0) > 1 ? 'Unavailable · duplicate position' : 'Unavailable' : plate || 'Empty'}
@@ -116,7 +116,7 @@ export default function CytomatPanel({ active = true }: { active?: boolean }) {
       {otherPositions.length > 0 && <Button disableRipple onClick={() => { otherPositionsRef.current?.scrollIntoView({ block: 'nearest' }); otherPositionsRef.current?.focus({ preventScroll: true }); }} sx={{ ml: 'auto', ...focusStyle }}>Other positions ({otherPositions.length})</Button>}
     </Stack>
     {(readError || writeError) && <Alert severity="error" sx={{ flexShrink: 0 }} action={!count && !saving && editing === null ? <Button onClick={() => void refresh()}>Retry</Button> : undefined}>{writeError || readError}{readError && ' Previous data is shown.'}</Alert>}
-    <Typography variant="caption" color="text.secondary" role="status" sx={{ minHeight: 20, flexShrink: 0 }}>{saving ? 'Saving…' : count ? count + ' unsaved' : reading ? 'Updating…' : notice || 'Updated ' + clockTime(new Date(snapshot.refreshed_at))}</Typography>
+    <Typography variant="caption" color="text.secondary" role="status" sx={{ minHeight: 20, flexShrink: 0 }}>{saving ? 'Saving…' : count ? '' : reading ? 'Updating…' : notice || 'Updated ' + clockTime(new Date(snapshot.refreshed_at))}</Typography>
     <Paper data-cytomat-register variant="outlined" sx={{ overflow: 'hidden', display: 'flex', flexDirection: 'column', flex: bounded ? '1 1 0%' : 'none', minHeight: 0 }}>
       <Box sx={{ display: 'grid', gridTemplateColumns: columns, gap: 1, px: { xs: 1.25, sm: 2 }, py: 1.25, bgcolor: 'action.hover', borderBottom: 1, borderColor: 'divider', flexShrink: 0 }}>
         <Typography variant="caption" color="text.secondary">Position</Typography><Typography variant="caption" color="text.secondary">Plate</Typography>

@@ -114,7 +114,7 @@ test('robot status keeps a recovery visible on every page and never reads a fail
 
   // Overview never reads a failed status as an idle robot.
   await page.goto('/');
-  await expect(page.getByRole('region', { name: 'Now running' })).toContainText('Robot status is unavailable');
+  await expect(page.getByRole('region', { name: 'Now running' })).toContainText('Robot status unavailable.');
   await expect(page.getByText('Nothing running')).toHaveCount(0);
 });
 
@@ -315,8 +315,9 @@ test('live view configuration stays unknown when the status contract is incomple
   await expect(page.getByRole('region', { name: 'CPU', exact: true }).getByText('RobotControl —', { exact: true })).toBeVisible();
   await expect(page.getByText(/undefined|NaN/)).toHaveCount(0);
   status = { enabled: 'true' };
-  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
-  await expect(page.getByText('Updated', { exact: true })).toBeVisible();
+  // A good reading shows no header chip, so wait for the refreshed status itself.
+  await Promise.all([page.waitForResponse('**/api/camera/streaming/status'), page.getByRole('button', { name: 'Refresh', exact: true }).click()]);
+  await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
   await expect(page.getByRole('region', { name: 'Live view', exact: true }).getByTitle('Unavailable', { exact: true })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Live view', exact: true }).getByTitle(/^(Enabled|Disabled)$/)).toHaveCount(0);
 });
