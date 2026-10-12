@@ -141,15 +141,18 @@ const SchedulingPage: React.FC = () => {
   const openScheduleId = detailOpen ? state.selectedSchedule?.schedule_id : undefined;
 
   // Phones: an opened schedule starts at the top of the screen, not where the list was scrolled.
-  // Runs after InspectionWorkspace focuses its detail, so the heading takes focus.
+  // Runs after InspectionWorkspace focuses its detail, so the heading takes focus. Only opening a
+  // schedule triggers it; rotating or resizing with one open must not scroll or move focus.
+  const phoneNow = useRef(phone);
+  phoneNow.current = phone;
   useLayoutEffect(() => {
-    if (!phone || !openScheduleId) return;
+    if (!phoneNow.current || !openScheduleId) return;
     const top = workspaceTop.current?.getBoundingClientRect().top;
     const header = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--app-header-height')) || 0;
     if (top !== undefined) window.scrollBy(0, top - header);
     const heading = detailHeading.current?.querySelector<HTMLElement>('h2');
     if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
-  }, [phone, openScheduleId]);
+  }, [openScheduleId]);
 
   const formatTimestamp = (value?: string | null): string => {
     if (!value) {
@@ -521,6 +524,8 @@ const SchedulingPage: React.FC = () => {
                   {validNextRun.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </Typography>
                 <Typography variant="body2">{validNextRun.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</Typography>
+                {/* A time already past is a missed or late run, never an upcoming one. */}
+                {validNextRun.getTime() < Date.now() && <Typography variant="body2" sx={{ color: 'warning.dark', fontWeight: 600 }}>Overdue</Typography>}
               </>
               : <Typography sx={{ fontSize: 20, fontWeight: 600, lineHeight: '28px', mt: 0.5 }}>{schedule.next_run ? formatTimestamp(schedule.next_run) : 'Not scheduled'}</Typography>}
           <Typography variant="body2" color="text.secondary">Expected duration {formatDuration(schedule.estimated_duration)}</Typography>

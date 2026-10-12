@@ -104,8 +104,12 @@ const CameraPage: React.FC = () => {
   const sideBySide = useMediaQuery('(min-width:1200px)');
   // Phones open the controls in a bottom sheet from just under the picture instead of a disclosure
   // at the end of the page, which sat far from the image and partly behind the bottom page bar.
-  const phone = useMediaQuery('(max-width:599.95px)');
+  // A phone upright or on its side: rotating must not move the controls between the sheet and the page
+  // (that would remount them and drop an unsaved camera choice).
+  const phone = useMediaQuery('(max-width:599.95px), (max-height:499.95px) and (pointer: coarse)');
   const [settingsSheetOpen, setSettingsSheetOpen] = useState(false);
+  // Leaving Live view or the phone layout closes the sheet, so it never reopens by itself on return.
+  useEffect(() => { if (currentTab !== 0 || !phone) setSettingsSheetOpen(false); }, [currentTab, phone]);
   
   // Streaming state
   const [streamingStatus, setStreamingStatus] = useState<StreamingStatus | null>(null);

@@ -142,8 +142,9 @@ for (const reducedMotion of ['no-preference'] as const) test(`focused wells are 
 for (const viewport of [{ width: 3840, height: 2160 }, { width: 1280, height: 720 }, { width: 1024, height: 600 }, { width: 320, height: 720 }]) test(`joined workbench fits ${viewport.width}x${viewport.height}`, async ({ page }, info) => {
   await fixture(page); await page.setViewportSize(viewport); await page.goto('/labware'); await openRack(page);
   const grid = page.getByRole('group', { name: `${left[0]} tips`, exact: true });
-  // The phone dialog fits all twelve columns: tips narrow to at least 24px instead of scrolling sideways.
-  const phoneDialog = await page.getByRole('dialog').isVisible();
+  // Only on a phone does the rack dialog narrow tips (at least 24px) to fit all twelve columns; the same
+  // dialog on a tablet or narrow desktop window (e.g. 1024x600) keeps 44px targets.
+  const phoneDialog = viewport.width < 600 && await page.getByRole('dialog').isVisible();
   const first = grid.getByRole('button').first(); const box = await first.boundingBox(); expect(box!.width).toBeGreaterThanOrEqual(phoneDialog ? 23.9 : 43.9); expect(box!.height).toBeGreaterThanOrEqual(43.9);
   const dot = await first.locator('[data-tip-dot]').boundingBox(); expect(Math.abs(dot!.width - dot!.height)).toBeLessThan(0.1);
   const scrollBody = page.locator('[data-tip-editor-body]');
