@@ -115,11 +115,12 @@ storage, HxRun, camera; 12 columns), Now running (8) beside Needs attention (4;
 Now running takes 12 when nothing is held), Up next (6) beside Recent runs (6, both seven
 single-line rows) and Latest experiment as one full-width row. SQL Server left the strip in
 October 2026 at the owner's request; System status lists every database connection. Below
-600px the panels are `OverviewDeck` cards that the browser scrolls and snaps (no gesture code):
-Needs attention (while held), Now running, Instrument health, Up next, Recent runs, Latest
-experiment, with dots to jump. Only one layout is mounted, so no panel polls twice. When a hold
-card appears in front, the deck returns to it (the browser would keep the card it had snapped
-to). A 390×844 screen shows the most urgent card whole (`system-pages.spec.ts`). Each panel has its own error boundary and Retry, so one failed read never
+600px the panels are `OverviewDeck` cards that the browser scrolls and snaps (no gesture code),
+two panels per card in the order Needs attention (while held), Now running, Instrument health,
+Up next, Recent runs, Latest experiment, with dots to jump. Up next and Recent runs show 5 rows
+there so two panels fit a 390×844 card. Only one layout is mounted, so no panel polls twice. When
+a hold appears, the deck returns to the first card (the browser would keep the card it had snapped
+to). A 390×844 first screen shows the hold and the run whole (`system-pages.spec.ts`). Each panel has its own error boundary and Retry, so one failed read never
 blanks the page. Now running shows elapsed time against the schedule's estimate; past the
 estimate the bar stops claiming progress (see `runTiming`).
 
