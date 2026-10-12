@@ -1,3 +1,9 @@
+## 2026-10-12 Scheduling survives a method-library reply without a list
+
+- Before, a method-library reply without `data.methods` (seen from the e2e fixture server; any partial or proxied reply would do the same) left `methods` undefined, and `methods.filter` threw inside Methods. `PageLoadBoundary` then replaced the whole Scheduling page, every section included, with "This page could not load". Now the reply is checked: anything but a list is a failed read, so Methods shows "Unable to load method library." with Refresh library, keeps rows from an earlier good read, and the rest of Scheduling works.
+- Until a read has succeeded, the method count and folder list are hidden, so an unread library never looks like an empty one ("0 methods", "No imported folders").
+- Check: `MethodLibraryPanel.test.tsx` (a reply without a list, then a good read, then a reply with `methods: null`); it failed on main with the same TypeError. Browser: fixture server at 390 px as a local admin, Methods shows the error and the tabs and service strip stay usable. Full browser suite 127 passed.
+
 ## 2026-10-07 Plate data export 1.1.1: charts of plates without a propagation
 
 - The owner saw plate 970 (a round in progress, no propagation yet) export a time-course chart whose legend listed every reading by its hour and whose lines turned into vertical hatching. openpyxl wrote no `varyColors`, Excel treats a missing one as on, and a plate without a propagation has one series, which Excel then colours and lists per point. Every chart in `plate_report.py` now sets `varyColors` off (also the ranking chart's cutoff overlay).
