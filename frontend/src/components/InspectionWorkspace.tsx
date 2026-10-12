@@ -11,10 +11,9 @@ const phoneQuery = '(max-width: 599.95px)';
 /** True on phones, where the workspace flows with the page instead of keeping a measured height. */
 export const usePhoneWorkspace = () => useMediaQuery(phoneQuery, { noSsr: true });
 
-/** A bar pinned to the bottom of the screen while its list scrolls with the page (phones). */
+/** A bar pinned just above the phone page bar (which owns the safe area) while its list scrolls with the page. */
 export const pinnedBarSx = {
-  position: 'sticky', bottom: 0, zIndex: 3, bgcolor: 'background.paper', borderTop: 1, borderColor: 'divider',
-  pb: 'env(safe-area-inset-bottom)',
+  position: 'sticky', bottom: 'var(--app-bottom-bar-height, 0px)', zIndex: 3, bgcolor: 'background.paper', borderTop: 1, borderColor: 'divider',
 } as const;
 
 /**

@@ -191,7 +191,7 @@ function TableView({
           if (tableScroll.current) tableScroll.current.scrollTop = 0;
           // A phone pages from the bottom bar; show the new page from its first row.
           const top = rowsTop.current?.getBoundingClientRect().top;
-          const header = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--app-header-height")) || 52;
+          const header = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--app-header-height")) || 0;
           if (top !== undefined && top < header) window.scrollBy(0, top - header);
         }
         setUpdated(new Date().toLocaleTimeString());

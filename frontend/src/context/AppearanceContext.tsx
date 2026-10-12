@@ -3,7 +3,7 @@ import { CssBaseline, IconButton, Menu, MenuItem, ThemeProvider, Tooltip, useMed
 import ContrastIcon from '@mui/icons-material/Contrast';
 import { createAppTheme } from '../theme';
 
-type Appearance = 'system' | 'light' | 'dark';
+export type Appearance = 'system' | 'light' | 'dark';
 const storageKey = 'robotcontrol-appearance';
 const AppearanceContext = createContext<{ preference: Appearance; setPreference: (value: Appearance) => void }>({ preference: 'system', setPreference: () => {} });
 const readPreference = (): Appearance => {
@@ -32,8 +32,10 @@ export function AppearanceProvider({ children }: { children: React.ReactNode }) 
   </ThemeProvider></AppearanceContext.Provider>;
 }
 
+export const useAppearance = () => useContext(AppearanceContext);
+
 export function AppearanceControl() {
-  const { preference, setPreference } = useContext(AppearanceContext);
+  const { preference, setPreference } = useAppearance();
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   return <>
     <Tooltip title="Appearance"><IconButton aria-label="Appearance" aria-haspopup="menu" aria-expanded={!!anchor} onClick={event => setAnchor(event.currentTarget)}><ContrastIcon /></IconButton></Tooltip>

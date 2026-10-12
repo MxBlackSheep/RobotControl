@@ -4,16 +4,15 @@ import { Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
 // Optimized Material-UI imports for better tree-shaking
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
-import IconButton from '@mui/material/IconButton';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import Tooltip from '@mui/material/Tooltip';
-import MenuIcon from '@mui/icons-material/Menu';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { loadComponent } from './utils/BundleOptimizer';
 import LoadingSpinner from './components/LoadingSpinner';
 import PageLoadBoundary from './components/PageLoadBoundary';
 import AppSidebar from './components/AppSidebar';
+import PhoneBar from './components/PhoneBar';
 import RobotAttentionBanner from './components/RobotAttentionBanner';
 import { useSidebarLayout } from './components/navigation';
 import SkipLink from './components/SkipLink';
@@ -37,6 +36,7 @@ const SystemStatusPage = loadComponent(() => import('./pages/MonitoringPage'));
 const SchedulingPage = loadComponent(() => import('./pages/SchedulingPage'));
 const AboutPage = loadComponent(() => import('./pages/AboutPage'));
 const AdminPage = loadComponent(() => import('./pages/AdminPage'));
+const AccountPage = loadComponent(() => import('./pages/AccountPage'));
 
 function AccountMenu({ compact, onChangePassword }: { compact: boolean; onChangePassword: () => void }) {
   const { user, logout } = useAuth();
@@ -65,14 +65,13 @@ function AccountMenu({ compact, onChangePassword }: { compact: boolean; onChange
 
 function AppShell() {
   const { user } = useAuth();
-  const [mobileDrawerOpen, setMobileDrawerOpen] = React.useState(false);
   const [passwordDialogOpen, setPasswordDialogOpen] = React.useState(false);
   React.useEffect(() => { if (user?.must_reset) setPasswordDialogOpen(true); }, [user?.must_reset]);
   const { mobile: isMobile, expanded: sidebarExpanded, toggle: toggleSidebar } = useSidebarLayout();
   const robotStatus = useRobotStatus(user?.username ?? null);
   const { helpOpen: shortcutsHelpOpen, closeHelp: hideShortcutsHelp } = useKeyboardNavigation({ enabled: true });
   const { pathname } = useLocation();
-  // Pinned headings and bars (phone inspection lists) sit below this sticky header, whose banner can wrap.
+  // Pinned headings (phone inspection lists) sit below this sticky header, whose banner can wrap.
   const appHeader = React.useRef<HTMLElement>(null);
   React.useLayoutEffect(() => {
     const element = appHeader.current;
@@ -81,29 +80,26 @@ function AppShell() {
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
-  const railFooter = <Box sx={{ display: 'flex', flexDirection: isMobile || sidebarExpanded ? 'row' : 'column', alignItems: 'center', gap: 0.5, width: '100%', color: 'rail.text', '& .MuiIconButton-root': { color: 'rail.text' } }}>
-    <AccountMenu compact={!isMobile && !sidebarExpanded} onChangePassword={() => { setMobileDrawerOpen(false); setPasswordDialogOpen(true); }} />
+  const railFooter = <Box sx={{ display: 'flex', flexDirection: sidebarExpanded ? 'row' : 'column', alignItems: 'center', gap: 0.5, width: '100%', color: 'rail.text', '& .MuiIconButton-root': { color: 'rail.text' } }}>
+    <AccountMenu compact={!sidebarExpanded} onChangePassword={() => setPasswordDialogOpen(true)} />
     <AppearanceControl />
   </Box>;
 
   return (
     <RobotStatusContext.Provider value={robotStatus}><Box sx={{ minHeight: '100vh', bgcolor: 'background.default', display: 'flex' }}>
-      <AppSidebar user={user} mobile={isMobile} expanded={sidebarExpanded} open={mobileDrawerOpen} onClose={() => setMobileDrawerOpen(false)} onToggle={toggleSidebar} footer={railFooter} />
+      {!isMobile && <AppSidebar user={user} expanded={sidebarExpanded} onToggle={toggleSidebar} footer={railFooter} />}
       <Box sx={{ flex: 1, minWidth: 0 }}>
       <SkipLink />
       <MaintenanceDialog />
 
       <Box component="header" ref={appHeader} sx={{ position: 'sticky', top: 0, zIndex: theme => theme.zIndex.appBar }}>
-        {isMobile && <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minHeight: 52, pl: 0.5, pr: 2, bgcolor: 'rail.bg', color: 'rail.activeText' }}>
-          <IconButton aria-label="Open navigation" color="inherit" onClick={() => setMobileDrawerOpen(true)}><MenuIcon /></IconButton>
-        </Box>}
         <RobotAttentionBanner />
       </Box>
 
       <Box
         component="main"
         id="main-content"
-        sx={{ p: { xs: `${layout.pagePhone}px`, sm: `${layout.page}px` }, minWidth: 0 }}
+        sx={{ p: { xs: `${layout.pagePhone}px`, sm: `${layout.page}px` }, minWidth: 0, ...(isMobile && { pb: `calc(var(--app-bottom-bar-height, 0px) + ${layout.pagePhone}px)` }) }}
         tabIndex={-1} // Make focusable for skip link
       >
         <PageLoadBoundary key={pathname}>
@@ -127,12 +123,15 @@ function AppShell() {
               element={user?.role === 'admin' ? <AdminPage /> : <Navigate to="/" replace />}
             />
             <Route path="/about" element={<AboutPage />} />
+            <Route path="/account" element={<AccountPage />} />
             <Route path="/login" element={<Navigate to="/" replace />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>
         </PageLoadBoundary>
       </Box>
+
+      {isMobile && <PhoneBar />}
 
       <KeyboardShortcutsHelp
         open={shortcutsHelpOpen}
