@@ -9,7 +9,8 @@ import { routeDatabaseViewer } from '../database-fixture';
  * - dark mode text or chips below comfortable contrast; light-only colours left in dark;
  * - phone (390px, 375px) overflow, clipped labels or controls below 44px.
  * Sample data is fixed so before/after images are comparable; the clock is frozen at 14:30.
- * Phones use the iPhone heights (844, 667). VISUAL_SESSION=remote shows a tunnel user's view.
+ * Phones use the iPhone heights (844, 667) and, like the owner's phone, a remote (tunnel) session;
+ * desktops a local one. VISUAL_SESSION=remote or =local forces either for every width.
  * Some routes also save an opened item (a table, a log folder, a folder of recordings) as
  * `<route>-open`, with the owner's volumes: 32-row ActivePlateView, 2,000 log files.
  * The window never scrolls (only main does), so each image is one screen; `-end` shows the
@@ -24,11 +25,11 @@ const ahead = (minutes: number) => local(new Date(now.getTime() + minutes * 6000
 const list = (name: string, fallback: string[]) => (process.env[name] ? process.env[name]!.split(',') : fallback);
 
 const routes = list('VISUAL_ROUTES', ['/', '/scheduling', '/scheduling?section=history', '/scheduling?section=recovery', '/labware', '/camera',
-  '/camera?section=archive', '/database', '/database?section=procedures', '/database?section=retrieval', '/logfile', '/maintenance', '/system-status', '/admin']);
+  '/camera?section=archive', '/database', '/database?section=procedures', '/database?section=retrieval', '/logfile', '/maintenance', '/system-status', '/admin', '/more', '/account']);
 const widths = list('VISUAL_WIDTHS', ['1440', '1280', '390', '375']).map(Number);
 const modes = list('VISUAL_MODES', ['light', 'dark']);
-const localSession = process.env.VISUAL_SESSION !== 'remote';
-const heights: Record<number, number> = { 390: 844, 375: 667 };
+const localSession = (width: number) => process.env.VISUAL_SESSION ? process.env.VISUAL_SESSION !== 'remote' : width >= 900;
+const heights: Record<number, number> = { 390: 844, 375: 667, 320: 568 };
 const recordings = Array.from({ length: 40 }, (_, index) => ({ filename: `DailyTipWash_${String(index + 1).padStart(3, '0')}.mp4`,
   timestamp: '2026-09-30T13:00:00', size_bytes: 8.1e7 + index * 1e6, duration: 300 }));
 const opened: Record<string, (page: Page) => Promise<void>> = {
@@ -46,10 +47,10 @@ const opened: Record<string, (page: Page) => Promise<void>> = {
   },
 };
 
-async function sampleData(page: Page, mode: string) {
+async function sampleData(page: Page, mode: string, local: boolean) {
   await page.clock.install({ time: now });
   await page.addInitScript(value => { localStorage.setItem('access_token', 'viewer-admin'); localStorage.setItem('robotcontrol-appearance', value); }, mode);
-  await page.route('**/api/auth/me', route => route.fulfill({ json: { success: true, data: { user_id: 'viewer-admin', username: 'operator', role: 'admin', session_is_local: localSession, session: { is_local: localSession } } } }));
+  await page.route('**/api/auth/me', route => route.fulfill({ json: { success: true, data: { user_id: 'viewer-admin', username: 'operator', role: 'admin', session_is_local: local, session: { is_local: local } } } }));
   await routeDatabaseViewer(page);
   const manual = { active: true, storage_healthy: true, safety_revision: 4, resume_required: true,
     pending_recoveries: [{ schedule_id: 'feed2', experiment_name: 'Cell feeding · stack 2', triggered_at: ago(208), note: 'No log activity for 3 min.' }] };
@@ -112,7 +113,7 @@ async function sampleData(page: Page, mode: string) {
   await page.route('**/api/labware/tip-tracking', route => route.fulfill({ json: { data: {
     grid: { rows: 8, cols: 12, positions_per_rack: 96 }, auto_refresh_ms: 600000, status_order: statuses,
     status_colors: { clean: '#22C55E', empty: '#CBD2DB', dirty: '#EF4444', rinsed: '#3B82F6', washed: '#A855F7', reserved: '#F59E0B', unclear: '#6B7280' },
-    unknown_status: 'unclear', refreshed_at: ago(30), permissions: { role: 'admin', is_local_session: true, can_update: true },
+    unknown_status: 'unclear', refreshed_at: ago(30), permissions: { role: 'admin', is_local_session: local, can_update: local },
     families: [{ family_id: 'tips1000', display_name: '1000 µL tips', left_racks: left, right_racks: right, reset_map: {},
       tips: Object.fromEntries([...left, ...right].map((rack, r) => [rack, Object.fromEntries(Array.from({ length: 96 }, (_, i) => [String(i + 1), statuses[(Math.floor(i / 8) * 3 + r * 2) % 7]]))])) },
     { family_id: 'tips300', display_name: '300 µL tips', left_racks: left, right_racks: right, reset_map: {}, tips: {} }] } } }));
@@ -131,7 +132,7 @@ async function capture(page: Page, name: string) {
 for (const mode of modes) {
   for (const width of widths) {
     test(`${mode} ${width}`, async ({ page }) => {
-      await sampleData(page, mode);
+      await sampleData(page, mode, localSession(width));
       await page.setViewportSize({ width, height: heights[width] ?? 900 });
       const settle = async () => { await page.clock.runFor(1500); await page.waitForTimeout(300); };
       for (const route of routes) {

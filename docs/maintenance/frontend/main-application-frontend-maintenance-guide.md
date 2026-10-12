@@ -34,17 +34,21 @@ Scroll a view into place with `scrollIntoView`, not `window.scrollBy`.
 
 `AppSidebar` is the dark module rail from 900px: 224px expanded, 64px collapsed. It lists
 modules only; the account menu (Change password, About, Log out) and Appearance sit at its foot.
-Below 900px `PhoneBar` replaces it: the last row of the frame, with every permitted module (phone
-order: Overview, Scheduling, Camera, Labware, then the rest) and Account (`/account`, which holds
-Appearance, Change password, About and Log out), four equal pills per group (three below 360px).
-Swipe the pill row or tap the dots to change group; the bar opens on the current page's group.
-Off-screen groups are `inert`, so Tab and screen readers reach only visible pills; after a drag
-the click is cancelled, so a swipe never opens a page. A held run marks the Scheduling pill and,
-while its group is away, that group's dot (`robotAttention`, no extra polling). The bar is
-outside `main`, so content, focus and scroll-into-view stop above it without any offsets; a change
-in its height resizes `main`, which fitted views observe. Checks: `phone-navigation.spec.ts`.
-On phones a module with several sections shows the module as a label, the current section as the
-heading (a menu of sections) and one dot per section; `?section=` stays the only owner.
+Below 900px the phone is a monitor, not a smaller workstation: through the tunnel the server
+refuses robot and lab changes (`require_local_access`), so the phone offers places to look, not
+every module. `PhoneTabs` replaces the rail as the last row of the frame: four fixed tabs, Now (`/`),
+Runs (`/scheduling`, admin and user), Camera and More (`/more`), with the rail's icons. While a
+run is held the Now tab carries an amber dot (`robotAttention`, no extra polling). `MorePage`
+lists read-only places one level deep: Tip racks, Cytomat (admin and user), Run logs (Hamilton
+traces), Database tables, Reports (Data retrieval), System status and Account, then one line naming
+what stays on the workstation. `navigation.tsx` owns both lists (`phoneTabs`, `moreItems`); any
+page that is not a tab's own belongs to More (`phoneTabFor`). The tabs are outside `main`, so
+content, focus and scroll-into-view stop above them without offsets. Checks:
+`phone-navigation.spec.ts`. The phone page heading has no module label or dots: a tab's own page
+titles its current section with a menu of sections (`?section=` stays the only owner); a page
+opened from More is titled with the entry that was tapped (`moreItemFor`) under a "More" link
+back, without a section menu. On phones the robot status banner is a 32px strip, and on Now it
+leaves out the hold, which Now shows first; connection and stale-status warnings stay everywhere.
 Collapsed, the account button shows the initial, with the name and role as a tooltip and
 screen-reader text, so the signed-in user is always identifiable. Page titles name the
 module; the selected tab names the section.
@@ -125,12 +129,15 @@ storage, HxRun, camera; 12 columns), Now running (8) beside Needs attention (4;
 Now running takes 12 when nothing is held), Up next (6) beside Recent runs (6, both seven
 single-line rows) and Latest experiment as one full-width row. SQL Server left the strip in
 October 2026 at the owner's request; System status lists every database connection. Below
-600px the panels are `OverviewDeck` cards that the browser scrolls and snaps (no gesture code),
-two panels per card in the order Needs attention (while held), Now running, Instrument health,
-Up next, Recent runs, Latest experiment, with dots to jump. Up next and Recent runs show 5 rows
-there so two panels fit a 390×844 card. Only one layout is mounted, so no panel polls twice. When
-a hold appears, the deck returns to the first card (the browser would keep the card it had snapped
-to). A 390×844 first screen shows the hold and the run whole (`system-pages.spec.ts`). Each panel has its own error boundary and Retry, so one failed read never
+600px Overview is the phone's Now tab, one column in order of urgency: Needs attention (while
+held), Now running (no file path; "Finishes about 14:48 · 18 min left" while within the estimate),
+Up next (3 rows), Clean tips per tip size (admin and user; hidden if the deck has no "clean"
+state) and `InstrumentProblems`, which lists only states that need a look (a fault, an attention
+state or a stopped scheduler), each linking to System status, else "All systems OK" once every
+state is known. The header says how old the robot status is ("Updated 8 s ago"). Recent runs and
+Latest experiment are desktop panels; Runs holds the history. Only one layout is mounted, so no
+panel polls twice; the strip and the problem lines share `useInstrumentStates`. A 390×844 first
+screen shows the hold and the run whole (`system-pages.spec.ts`). Each panel has its own error boundary and Retry, so one failed read never
 blanks the page. Now running shows elapsed time against the schedule's estimate; past the
 estimate the bar stops claiming progress (see `runTiming`).
 

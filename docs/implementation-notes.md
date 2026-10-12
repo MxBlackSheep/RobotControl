@@ -1,3 +1,11 @@
+## 2026-10-12 Phones become a monitor: four tabs, Now and More
+
+- The owner found the phone still terrible. Three reviewers (operator, mobile designer, skeptic) agreed on the cause: the phone carried 9 modules and about 25 sections while, through the tunnel, the server refuses every robot and lab change. Our phone screenshots had been taken as a local session, so they showed controls the owner's phone never gets. The owner approved a demo of every page (`tasks/demo`, not committed).
+- Below 900px: four fixed tabs (Now, Runs, Camera, More) replace the paged pill bar; More lists seven read-only places and what stays on the workstation. Page headings lose the module label and section dots; More pages are titled with the tapped name under a link back. The banner is a 32px strip and leaves the hold out on Now.
+- Now (Overview below 600px): one column (hold, current run with its finish time, next 3 runs, clean tips per size, instrument problems only) instead of the card deck. Tip racks on a read-only phone drop the action row (it took a third of the screen); Col A and Col B stay side by side.
+- Screenshot review uses a remote session for phone widths; sample tip permissions follow the session.
+- Checks: `phone-navigation` rewritten for tabs and More; `system-pages` Overview phone steps rewritten for Now; full suite 132; desktop screenshots: 51 of 72 pixel-identical to main, the rest sub-pixel noise and live data. Next PR: What happened, the Runs agenda and read-only Camera.
+
 ## 2026-10-12 Fixed frame: only the content area scrolls
 
 - On a phone the whole document scrolled under a bar fixed to the screen. In iOS browsers a bounce or the toolbar collapsing could drag the page bar halfway up with empty space below it (owner's screenshot). The app is now a fixed frame on every size: header, the content area (`main`, the only thing that scrolls) and, on phones, the page bar as the frame's last row. The bar no longer publishes its height for padding and scroll offsets.

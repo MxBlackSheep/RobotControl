@@ -13,6 +13,7 @@ import { fontMono, layout, type StatusTone } from '../../theme';
 import { clockTime, dayTime } from '../../utils/displayTime';
 import { repeatLabel } from '../scheduling/ScheduleCollection';
 import { executionTone } from '../scheduling/executionStatus';
+import { labwareApi, type TipTrackingSnapshot } from '../../services/labwareApi';
 
 const PANEL_REFRESH_MS = 60000;
 /** Rows shown in the Overview lists (the approved mock's seven). */
@@ -116,8 +117,8 @@ const healthCell = { display: 'flex', flex: '1 1 0', px: { xs: 1.5, sm: `${layou
 
 type CameraHealth = { capture_state?: string; recording_state?: string; error?: string | null };
 
-/** One-line strip of instrument states across the page, like a console status bar. */
-export function InstrumentHealth({ status }: { status: RobotStatus | null }) {
+/** Instrument states shared by the desktop strip and the phone's fault lines; polls the camera. */
+function useInstrumentStates(status: RobotStatus | null) {
   // Undefined until the first read; null when the reply carried no health.
   const [camera, setCamera] = useState<CameraHealth | null | undefined>(undefined);
   const polling = useSerialPolling<CameraHealth | null>({
@@ -137,8 +138,14 @@ export function InstrumentHealth({ status }: { status: RobotStatus | null }) {
     ['HxRun', status?.hamiltonRunning === true ? ['Running', 'running'] : status?.hamiltonRunning === false ? ['Not running', 'neutral'] : unknown],
     ['Camera', cameraState],
   ];
+  return { cells, polling, read: camera !== undefined };
+}
+
+/** One-line strip of instrument states across the page, like a console status bar. */
+export function InstrumentHealth({ status }: { status: RobotStatus | null }) {
+  const { cells, polling, read } = useInstrumentStates(status);
   return <Box component="section" aria-label="Instrument health" sx={{ gridColumn: '1 / -1', order: { xs: -2, md: 0 }, minWidth: 0, bgcolor: 'background.paper', border: 1, borderColor: 'divider', borderRadius: `${layout.radius}px`, overflow: 'hidden' }}>
-    {polling.error && <ReadProblem error="Could not check the camera." stale={camera !== undefined} onRetry={() => void polling.refresh()} pending={polling.pending} />}
+    {polling.error && <ReadProblem error="Could not check the camera." stale={read} onRetry={() => void polling.refresh()} pending={polling.pending} />}
     {/* Cells wrap by their content, so a long state ("Needs attention") moves to the next line
         instead of being clipped. Each cell draws its right and bottom line; the -1px margins push
         the lines on the outer edge under the section's border. */}
@@ -185,5 +192,39 @@ export function RecentRuns({ canOpenScheduling, span, rows = LIST_ROWS }: { canO
         <Box component="span" sx={{ justifySelf: 'end' }}><StatusChip tone={tone} label={label} /></Box>
       </ListRow>;
     })}
+  </Panel>;
+}
+
+/**
+ * Phones: instrument states only when one needs a look (a fault, an attention state or a stopped
+ * scheduler), each linking to System status; otherwise one quiet line. Unknown is never "OK".
+ */
+export function InstrumentProblems({ status }: { status: RobotStatus | null }) {
+  const { cells, polling, read } = useInstrumentStates(status);
+  const problems = cells.filter(([name, [state, tone]]) => tone === 'fault' || tone === 'attention' || (name === 'Scheduler' && state === 'Stopped'));
+  const known = read && !polling.error && cells.every(([, [state]]) => state !== 'Unknown');
+  if (!problems.length) return known
+    ? <Typography role="status" variant="body2" sx={{ textAlign: 'center', color: theme => theme.palette.tone.completed.fg }}>All systems OK</Typography>
+    : null;
+  return <Panel title="Needs a look" inset={false}>
+    {problems.map(([name, [state, tone]]) => <ListRow key={name} component={Link} to="/system-status" columns="minmax(0, 1fr) auto"
+      sx={{ height: 48, fontSize: 15, color: 'text.primary', textDecoration: 'none' }}>
+      <span>{name}</span><StatusDot tone={tone} label={state} />
+    </ListRow>)}
+  </Panel>;
+}
+
+/** Clean tips per tip size (read-only); the racks are a tap away. Hidden if the deck has no "clean" state. */
+export function CleanTips() {
+  const [snapshot, setSnapshot] = useState<TipTrackingSnapshot | null>(null);
+  const polling = useSerialPolling<TipTrackingSnapshot>({ interval: PANEL_REFRESH_MS, request: labwareApi.getTipTrackingSnapshot, onSuccess: setSnapshot });
+  if (!snapshot || !snapshot.status_order?.includes('clean')) return null;
+  const counts = snapshot.families.map(family => [family.display_name, [...family.left_racks, ...family.right_racks]
+    .reduce((sum, rack) => sum + Object.values(family.tips?.[rack] ?? {}).filter(state => state === 'clean').length, 0)] as const);
+  return <Panel title="Clean tips" inset={false} actions={headerLink('/labware', 'Tip racks')}>
+    {polling.error && <ReadProblem error="Could not load tips." stale onRetry={() => void polling.refresh()} pending={polling.pending} />}
+    {counts.map(([name, count]) => <ListRow key={name} columns="minmax(0, 1fr) auto" sx={{ height: 44, fontSize: 15 }}>
+      <span>{name}</span><Box component="span" sx={{ fontFamily: fontMono, fontWeight: 600 }}>{count}</Box>
+    </ListRow>)}
   </Panel>;
 }

@@ -36,6 +36,12 @@ function timingText(t: RunTiming): [string, string | null] {
   return [start, detail];
 }
 
+/** Phones lead with when the run ends, while it is within the estimate. */
+function finishText(t: RunTiming): string | null {
+  if (!t.started || t.estimate === null || t.elapsed === null || t.overBy !== null) return null;
+  return `Finishes about ${clockTime(new Date(t.started.getTime() + t.estimate * 60000))} · ${t.estimate - t.elapsed} min left`;
+}
+
 function seconds(value: number) {
   const s = Math.max(0, Math.round(value));
   return s < 60 ? `${s} s` : `${Math.round(s / 60)} min`;
@@ -82,7 +88,7 @@ export default function NowRunning({ status, error, span }: { status: RobotStatu
       <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 3, minWidth: 0 }}>
         <Box sx={{ minWidth: 0, flex: 1 }}>
           <DetailTitle component="p">{job.experiment_name}</DetailTitle>
-          {job.experiment_path && <Typography sx={{ fontFamily: fontMono, fontSize: 12, lineHeight: '16px', color: 'text.secondary', overflowWrap: 'anywhere' }}>{job.experiment_path}</Typography>}
+          {job.experiment_path && <Typography sx={{ display: { xs: 'none', sm: 'block' }, fontFamily: fontMono, fontSize: 12, lineHeight: '16px', color: 'text.secondary', overflowWrap: 'anywhere' }}>{job.experiment_path}</Typography>}
         </Box>
         {timing.elapsed !== null && <Box sx={{ display: { xs: 'none', sm: 'flex' }, flexDirection: 'column', alignItems: 'flex-end', flexShrink: 0 }}>
           <Typography component="span" sx={{ fontFamily: fontMono, fontSize: 32, lineHeight: '32px', fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
@@ -96,7 +102,8 @@ export default function NowRunning({ status, error, span }: { status: RobotStatu
           ? <LinearProgress variant="determinate" value={timing.fraction * 100} aria-label="Elapsed time against the estimate" sx={{ height: 8, borderRadius: 1, bgcolor: 'surface.track' }} />
           : timing.overBy !== null && <LinearProgress variant="indeterminate" color="inherit" aria-label="Running past the estimate" sx={{ height: 8, borderRadius: 1, color: 'text.disabled', bgcolor: 'surface.track' }} />}
         <Stack direction={{ xs: 'column', sm: 'row' }} columnGap={2} rowGap={0.5} justifyContent="space-between" sx={{ mt: 1.5, fontSize: 13, color: 'text.secondary' }}>
-          <span>{timingStart}{timingDetail && <Box component="span" sx={{ display: timing.elapsed !== null ? { xs: 'inline', sm: 'none' } : 'inline' }}> · {timingDetail}</Box>}</span>
+          {finishText(timing) && <Box component="span" sx={{ display: { xs: 'inline', sm: 'none' }, color: 'text.primary', fontSize: 14 }}>{finishText(timing)}</Box>}
+          <Box component="span" sx={{ display: finishText(timing) ? { xs: 'none', sm: 'inline' } : 'inline' }}>{timingStart}{timingDetail && <Box component="span" sx={{ display: timing.elapsed !== null ? { xs: 'inline', sm: 'none' } : 'inline' }}> · {timingDetail}</Box>}</Box>
           <LogActivity job={job} heldFor={(now - status!.receivedAt) / 1000} />
         </Stack>
       </Box>

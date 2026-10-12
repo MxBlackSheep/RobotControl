@@ -1,10 +1,11 @@
 import React from 'react';
-import { Box, ButtonBase, IconButton, Menu, MenuItem, Stack, Tab, Tabs, Typography, type SxProps, type Theme } from '@mui/material';
+import { Box, ButtonBase, IconButton, Link as MuiLink, Menu, MenuItem, Stack, Tab, Tabs, Typography, type SxProps, type Theme } from '@mui/material';
+import ChevronLeft from '@mui/icons-material/ChevronLeft';
 import ExpandMore from '@mui/icons-material/ExpandMore';
 import InfoOutlined from '@mui/icons-material/InfoOutlined';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { allowedSections, moduleSectionUrl, useModuleSection, useSidebarLayout } from './navigation';
+import { allowedSections, moduleSectionUrl, moreItemFor, phoneTabFor, useModuleSection, useSidebarLayout } from './navigation';
 import { robotAttention, useRobotStatusContext } from '../hooks/useRobotStatus';
 import { layout, type StatusTone } from '../theme';
 
@@ -21,7 +22,7 @@ export function PageContent({ children, reading = false, variant = 'overview' }:
 
 /**
  * Title, the module's permitted sections as tabs (kept in `?section=`) and page actions, on one 40px row.
- * Below 900px a module with several sections shows the current section as a menu heading with section dots instead.
+ * Below 900px (the phone tabs) the heading is the current section, a menu on a tab's own page.
  */
 export function PageHeader({ title, actions }: { title: string; actions?: React.ReactNode }) {
   const { user } = useAuth();
@@ -43,51 +44,41 @@ export function PageHeader({ title, actions }: { title: string; actions?: React.
     onClick={() => setNoteOpen(open => !open)} onKeyDown={event => { if (event.key === 'Escape') setNoteOpen(false); }} sx={{ display: { xs: 'inline-flex', sm: 'none' }, ml: -2, color: 'text.secondary' }}>
     <InfoOutlined fontSize="small" />
   </IconButton>;
+  const recoveryBadge = (show: boolean) => show && attention && <Box component="span" aria-label="requires attention" sx={{ minWidth: 18, height: 18, px: 0.5, borderRadius: 9, bgcolor: 'attentionSurface.action', color: 'attentionSurface.actionText', fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{attention.kind === 'recovery' ? attention.count : '!'}</Box>;
   const actionRow = actions && <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap" sx={{ ml: { xs: 0, sm: 'auto' } }}>{actions}</Stack>;
   const note = localOnly.length > 0 && <Typography id={noteId} variant="body2" color="text.secondary" sx={{ mt: 1, display: { xs: noteOpen ? 'block' : 'none', sm: 'block' } }}>
     On the RobotControl computer only: {localOnly.map(section => section.label).join(', ')}.
   </Typography>;
 
-  if (tabbed && mobile) {
-    // Phones: the module name as a label, the current section as the heading (a menu of sections) and one dot per section.
-    const current = sections.find(section => section.index === selected) ?? sections[0];
-    return <Box component="header" sx={{ mb: `${layout.gutter}px` }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', minHeight: layout.header, columnGap: 3, rowGap: 1, flexWrap: 'wrap' }}>
-        <Box sx={{ minWidth: 0 }}>
-          <PanelLabel component="p">{title}</PanelLabel>
-          <Typography component="h1" variant="h1" sx={{ fontSize: 24 }}>
-            <ButtonBase aria-haspopup="menu" aria-expanded={Boolean(menuAnchor)} aria-controls={menuAnchor ? menuId : undefined}
-              onClick={event => setMenuAnchor(event.currentTarget)}
-              sx={{ font: 'inherit', color: 'inherit', textAlign: 'left', minHeight: 44, gap: 0.5, borderRadius: 1, maxWidth: '100%' }}>
-              <Box component="span" sx={{ overflowWrap: 'anywhere' }}>{current.label}</Box>
-              <ExpandMore aria-hidden sx={{ fontSize: 22, color: 'text.secondary', flexShrink: 0 }} />
-            </ButtonBase>
-          </Typography>
-          <Box component="nav" aria-label={`${title} sections`} sx={{ display: 'flex', flexBasis: '100%', ml: '-13px', maxWidth: `calc(100% + 13px)` }}>
-            {sections.map(section => {
-              const isCurrent = section.index === current.index;
-              const flagged = section.id === 'recovery' && attention;
-              return <Box key={section.id} component={Link} to={moduleSectionUrl(pathname, section.index)} aria-current={isCurrent ? 'page' : undefined}
-                aria-label={flagged ? `${section.label}, requires attention` : section.label}
-                sx={{ flex: '0 1 44px', minWidth: 0, height: 24, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: 1 }}>
-                <Box component="span" aria-hidden sx={{ height: 6, width: isCurrent ? 18 : 6, borderRadius: 3, transition: 'width 150ms ease',
-                  bgcolor: flagged ? 'attentionSurface.action' : isCurrent ? 'primary.main' : 'divider',
-                  '@media (prefers-reduced-motion: reduce)': { transition: 'none' } }} />
-              </Box>;
-            })}
-          </Box>
-          <Menu id={menuId} anchorEl={menuAnchor} open={Boolean(menuAnchor)} onClose={() => setMenuAnchor(null)}>
-            {sections.map(section => <MenuItem key={section.id} component={Link} to={moduleSectionUrl(pathname, section.index)}
-              selected={section.index === current.index} onClick={() => setMenuAnchor(null)} sx={{ minHeight: 44, gap: 1 }}>
-              {section.label}
-              {section.id === 'recovery' && attention && <Box component="span" aria-label="requires attention" sx={{ minWidth: 18, height: 18, px: 0.5, borderRadius: 9, bgcolor: 'attentionSurface.action', color: 'attentionSurface.actionText', fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{attention.kind === 'recovery' ? attention.count : '!'}</Box>}
-            </MenuItem>)}
-          </Menu>
-        </Box>
-        {infoButton}
+  if (mobile) {
+    // Phones: a tab's own page titles its current section, with a menu of sections; a page opened
+    // from More shows the name that was tapped and a way back. No module label, dots or local-only
+    // note: More lists what stays on the workstation.
+    const current = tabbed ? sections.find(section => section.index === selected) ?? sections[0] : undefined;
+    const fromMore = phoneTabFor(pathname) === 'more' && pathname !== '/more';
+    const heading = fromMore ? moreItemFor(pathname, selected === 0 ? undefined : current?.id)?.label ?? current?.label ?? title : current?.label ?? title;
+    return <Box component="header" sx={{ mb: 1.5 }}>
+      {fromMore && <MuiLink component={Link} to="/more" underline="none" sx={{ display: 'inline-flex', alignItems: 'center', minHeight: 32, ml: -0.75, fontWeight: 600, fontSize: 15 }}>
+        <ChevronLeft aria-hidden />More
+      </MuiLink>}
+      <Box sx={{ display: 'flex', alignItems: 'center', minHeight: layout.header, columnGap: 2, rowGap: 1, flexWrap: 'wrap' }}>
+        <Typography component="h1" variant="h1" sx={{ fontSize: 24, minWidth: 0 }}>
+          {current && !fromMore ? <ButtonBase aria-haspopup="menu" aria-expanded={Boolean(menuAnchor)} aria-controls={menuAnchor ? menuId : undefined}
+            onClick={event => setMenuAnchor(event.currentTarget)}
+            sx={{ font: 'inherit', color: 'inherit', textAlign: 'left', minHeight: 44, gap: 0.5, borderRadius: 1, maxWidth: '100%' }}>
+            <Box component="span" sx={{ overflowWrap: 'anywhere' }}>{heading}</Box>
+            {recoveryBadge(sections.some(section => section.id === 'recovery') && current.id !== 'recovery')}
+            <ExpandMore aria-hidden sx={{ fontSize: 22, color: 'text.secondary', flexShrink: 0 }} />
+          </ButtonBase> : heading}
+        </Typography>
+        {current && !fromMore && <Menu id={menuId} anchorEl={menuAnchor} open={Boolean(menuAnchor)} onClose={() => setMenuAnchor(null)}>
+          {sections.map(section => <MenuItem key={section.id} component={Link} to={moduleSectionUrl(pathname, section.index)}
+            selected={section.index === current.index} onClick={() => setMenuAnchor(null)} sx={{ minHeight: 44, gap: 1 }}>
+            {section.label}{recoveryBadge(section.id === 'recovery')}
+          </MenuItem>)}
+        </Menu>}
         {actionRow}
       </Box>
-      {note}
     </Box>;
   }
 
@@ -100,7 +91,7 @@ export function PageHeader({ title, actions }: { title: string; actions?: React.
         {sections.map(section => <Tab key={section.id} value={section.index} component={Link} to={moduleSectionUrl(pathname, section.index)}
           label={section.id === 'recovery' && attention
             ? <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>{section.label}
-                <Box component="span" aria-label="requires attention" sx={{ minWidth: 18, height: 18, px: 0.5, borderRadius: 9, bgcolor: 'attentionSurface.action', color: 'attentionSurface.actionText', fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{attention.kind === 'recovery' ? attention.count : '!'}</Box></Box>
+                {recoveryBadge(true)}</Box>
             : section.label} />)}
       </Tabs>}
       {/* On phones the actions wrap below the title and start at the page edge like everything else. */}
