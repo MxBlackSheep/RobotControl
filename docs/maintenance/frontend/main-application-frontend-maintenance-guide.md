@@ -19,20 +19,30 @@ every page shares.
   permissions. The sidebar and the section tabs in `PageHeader` both read it. App keeps its
   own route guards as well; backend permissions still apply.
 
+## Fixed frame
+
+The window never scrolls. `App.tsx` makes the shell exactly one screen tall (`100dvh`): the
+header (robot attention banner), then `main`, the only scroll area, then the phone page bar
+below 900px. Before, the document scrolled under a `position: fixed` bar, and on iOS a bounce
+or a collapsing browser toolbar could drag the bar up the screen with empty space below it.
+`:root` also sets `overscroll-behavior: none`. Views that fit the remaining height (inspection
+workspace, rack, camera) measure with `heightBelow` in `components/appShell.ts`, which works in
+`main`'s coordinates however far it is scrolled, and observe `main` with `observeScrollArea`.
+Scroll a view into place with `scrollIntoView`, not `window.scrollBy`.
+
 ## Navigation and sections
 
 `AppSidebar` is the dark module rail from 900px: 224px expanded, 64px collapsed. It lists
 modules only; the account menu (Change password, About, Log out) and Appearance sit at its foot.
-Below 900px `PhoneBar` replaces it: a bar fixed to the bottom with every permitted module (phone
+Below 900px `PhoneBar` replaces it: the last row of the frame, with every permitted module (phone
 order: Overview, Scheduling, Camera, Labware, then the rest) and Account (`/account`, which holds
 Appearance, Change password, About and Log out), four equal pills per group (three below 360px).
 Swipe the pill row or tap the dots to change group; the bar opens on the current page's group.
 Off-screen groups are `inert`, so Tab and screen readers reach only visible pills; after a drag
 the click is cancelled, so a swipe never opens a page. A held run marks the Scheduling pill and,
-while its group is away, that group's dot (`robotAttention`, no extra polling). The bar publishes
-`--app-bottom-bar-height`, the main element's bottom padding and `scroll-padding-bottom` (focus
-and scroll-into-view stop above it), and announces a height change as a window resize so views
-that fit the screen (text readers, rack, camera) re-measure. Checks: `phone-navigation.spec.ts`.
+while its group is away, that group's dot (`robotAttention`, no extra polling). The bar is
+outside `main`, so content, focus and scroll-into-view stop above it without any offsets; a change
+in its height resizes `main`, which fitted views observe. Checks: `phone-navigation.spec.ts`.
 On phones a module with several sections shows the module as a label, the current section as the
 heading (a menu of sections) and one dot per section; `?section=` stays the only owner.
 Collapsed, the account button shows the initial, with the name and role as a tooltip and
@@ -204,9 +214,10 @@ isolation; `system-pages.spec.ts` also covers the attention banner's failure cas
   console. Only the Overview page (`pages/Dashboard.tsx`) is imported eagerly.
 - **Wrong sidebar item or section tab:** check the section name and permission filters in
   `navigation.tsx` and the `section` query parameter.
-- **Phone page bar hides content or a control:** check `--app-bottom-bar-height` on `<html>`,
-  the main element's computed bottom padding and `scroll-padding-bottom`; views that size to the
-  screen must subtract the main element's bottom padding and listen for `resize`.
+- **Phone page bar hides content, or the page bounces as a whole:** something has made the
+  document taller than the screen. Check that the shell is one screen tall and `main` has
+  `overflow-y: auto`; a view that sizes itself must use `heightBelow`, not `innerHeight` and
+  `window.scrollY`.
 - **Banner stuck on "Robot status unavailable":** open the two status URLs above; the reply
   must carry `data.queue`, `data.manual_recovery` (may be null) and a boolean
   `data.is_running`.

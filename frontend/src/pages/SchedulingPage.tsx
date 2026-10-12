@@ -147,9 +147,7 @@ const SchedulingPage: React.FC = () => {
   phoneNow.current = phone;
   useLayoutEffect(() => {
     if (!phoneNow.current || !openScheduleId) return;
-    const top = workspaceTop.current?.getBoundingClientRect().top;
-    const header = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--app-header-height')) || 0;
-    if (top !== undefined) window.scrollBy(0, top - header);
+    workspaceTop.current?.scrollIntoView({ block: 'start' });
     const heading = detailHeading.current?.querySelector<HTMLElement>('h2');
     if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
   }, [openScheduleId]);

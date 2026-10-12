@@ -71,38 +71,29 @@ function AppShell() {
   const robotStatus = useRobotStatus(user?.username ?? null);
   const { helpOpen: shortcutsHelpOpen, closeHelp: hideShortcutsHelp } = useKeyboardNavigation({ enabled: true });
   const { pathname } = useLocation();
-  // Pinned headings (phone inspection lists) sit below this sticky header, whose banner can wrap.
-  const appHeader = React.useRef<HTMLElement>(null);
-  React.useLayoutEffect(() => {
-    const element = appHeader.current;
-    if (!element) return;
-    const observer = new ResizeObserver(() => document.documentElement.style.setProperty('--app-header-height', `${element.offsetHeight}px`));
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, []);
   const railFooter = <Box sx={{ display: 'flex', flexDirection: sidebarExpanded ? 'row' : 'column', alignItems: 'center', gap: 0.5, width: '100%', color: 'rail.text', '& .MuiIconButton-root': { color: 'rail.text' } }}>
     <AccountMenu compact={!sidebarExpanded} onChangePassword={() => setPasswordDialogOpen(true)} />
     <AppearanceControl />
   </Box>;
 
   return (
-    <RobotStatusContext.Provider value={robotStatus}><Box sx={{ minHeight: '100vh', bgcolor: 'background.default', display: 'flex' }}>
+    <RobotStatusContext.Provider value={robotStatus}><Box sx={{
+      // A fixed frame (see appShell.ts): only main scrolls, so iOS bounce or a collapsing browser
+      // toolbar cannot pull the header or page bar away from the screen edge.
+      height: '100vh', '@supports (height: 100dvh)': { height: '100dvh' }, overflow: 'hidden', bgcolor: 'background.default', display: 'flex' }}>
       {!isMobile && <AppSidebar user={user} expanded={sidebarExpanded} onToggle={toggleSidebar} footer={railFooter} />}
-      <Box sx={{ flex: 1, minWidth: 0 }}>
+      <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
       <SkipLink />
       <MaintenanceDialog />
 
-      <Box component="header" ref={appHeader} sx={{ position: 'sticky', top: 0, zIndex: theme => theme.zIndex.appBar }}>
+      <Box component="header" sx={{ flexShrink: 0, zIndex: theme => theme.zIndex.appBar }}>
         <RobotAttentionBanner />
       </Box>
 
       <Box
         component="main"
         id="main-content"
-        sx={{ px: { xs: `${layout.pagePhone}px`, sm: `${layout.page}px` }, pt: { xs: `${layout.pagePhone}px`, sm: `${layout.page}px` }, minWidth: 0,
-          // Responsive on both sides: a plain pb would lose to a responsive p. Phones also clear the bottom bar.
-          pb: isMobile ? { xs: `calc(var(--app-bottom-bar-height, 0px) + ${layout.pagePhone}px)`, sm: `calc(var(--app-bottom-bar-height, 0px) + ${layout.page}px)` }
-            : { xs: `${layout.pagePhone}px`, sm: `${layout.page}px` } }}
+        sx={{ p: { xs: `${layout.pagePhone}px`, sm: `${layout.page}px` }, flex: 1, minWidth: 0, minHeight: 0, overflowY: 'auto', overscrollBehaviorY: 'contain' }}
         tabIndex={-1} // Make focusable for skip link
       >
         <PageLoadBoundary key={pathname}>

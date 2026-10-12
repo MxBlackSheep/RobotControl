@@ -97,7 +97,7 @@ test('section dots and the title menu keep the section in the address', async ({
 
 test('the end of a page stays above the bar', async ({ page }) => {
   await page.goto('/system-status');
-  await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight));
+  await page.locator('main').evaluate(main => main.scrollTo(0, main.scrollHeight));
   const barTop = await pills(page).evaluate(nav => nav.getBoundingClientRect().top);
   const contentBottom = await page.locator('main').evaluate(main => {
     const last = main.lastElementChild?.lastElementChild ?? main;

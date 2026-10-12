@@ -1,3 +1,9 @@
+## 2026-10-12 Fixed frame: only the content area scrolls
+
+- On a phone the whole document scrolled under a bar fixed to the screen. In iOS browsers a bounce or the toolbar collapsing could drag the page bar halfway up with empty space below it (owner's screenshot). The app is now a fixed frame on every size: header, the content area (`main`, the only thing that scrolls) and, on phones, the page bar as the frame's last row. The bar no longer publishes its height for padding and scroll offsets.
+- Views that fit the screen (inspection workspace, rack, camera) measure in the content area's coordinates (`components/appShell.ts`); schedule opening and table paging scroll with `scrollIntoView`. The screenshot review saves each screen plus `-end` (the bottom of the content area) instead of a full-page image, which now equals one screen.
+- Checks: full browser suite; `phone-navigation` (end of a page above the bar) and `database` (paging bar rests on the page bar) now scroll `main`. Not reproducible in the test browser: the iOS bounce itself; confirm on the phone.
+
 ## 2026-10-12 Phones: camera settings sheet, whole rack, table row cards, schedule detail
 
 - Camera (under 600px): recording and camera controls open in a bottom sheet from a "Camera and recording" button right below the viewing controls (it shows the recording state), instead of a disclosure at the page end behind the page bar. One `CameraControls` stays mounted, so polling and the status line above the image never stop.
