@@ -568,7 +568,8 @@ const CameraPage: React.FC = () => {
           store={frameStore}
           hasFrame={hasFrame}
           connection={unsupported ? 'unavailable' : mySession?.websocket_state ?? 'idle'}
-          summary={sideBySide ? undefined : cameraSummary.text}
+          summary={cameraSummary.text}
+          inlineSummary={!sideBySide}
           sourceRevision={sourceRevision}
           error={unsupported || cameraSummary.error || liveError}
           controls={<>

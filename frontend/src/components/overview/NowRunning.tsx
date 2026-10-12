@@ -86,7 +86,7 @@ export default function NowRunning({ status, error, span }: { status: RobotStatu
         </Box>
         {timing.elapsed !== null && <Box sx={{ display: { xs: 'none', sm: 'flex' }, flexDirection: 'column', alignItems: 'flex-end', flexShrink: 0 }}>
           <Typography component="span" sx={{ fontFamily: fontMono, fontSize: 32, lineHeight: '32px', fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
-            {timing.elapsed}{timing.estimate !== null && <Box component="span" sx={{ fontSize: 14, color: 'text.secondary' }}> / ~{timing.estimate} min</Box>}
+            {timing.elapsed}<Box component="span" sx={{ fontSize: 14, color: 'text.secondary' }}>{timing.estimate !== null ? ` / ~${timing.estimate} min` : ' min'}</Box>
           </Typography>
           {timing.overBy !== null && <Typography variant="caption" color="text.secondary">{timing.overBy} min past the estimate</Typography>}
         </Box>}

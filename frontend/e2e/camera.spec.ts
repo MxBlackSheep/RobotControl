@@ -154,6 +154,7 @@ test('a dropped live view keeps the last image as stale, reconnects by itself an
   await expect.poll(async () => (await fixture(request)).sessions, { timeout: 10_000 }).toBeGreaterThan(sessions);
   // Connected again: the view-state chip only appears while connecting or dropped.
   await expect(page.getByText(/^My view: /)).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Stop my live view', exact: true })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('reconnected-stale.png'), fullPage: true });
   await request.post('/__e2e/camera', { data: { send_frames: true } });
   await expect(page.getByText('Live view receiving frames', { exact: true })).toBeVisible();

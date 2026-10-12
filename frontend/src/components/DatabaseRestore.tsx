@@ -475,6 +475,7 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
       return {
         filename: selectedBackup.filename,
         size: selectedBackup.file_size_formatted,
+        created: formatDate(selectedBackup.created_date),
         description: selectedBackup.description
       };
     }
@@ -483,6 +484,7 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
       return {
         filename: selectedBckPath.split('\\').pop() || selectedBckPath,
         size: 'Unknown',
+        created: undefined,
         description: undefined
       };
     }
@@ -744,6 +746,13 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
                         {currentSelection.size}
                       </Typography>
                     </Box>
+                    {/* The date is how a person tells backups of the same database apart before overwriting it. */}
+                    {currentSelection.created && (
+                      <Box display="flex" justifyContent="space-between">
+                        <Typography variant="body2" color="textSecondary">Created:</Typography>
+                        <Typography variant="body2">{currentSelection.created}</Typography>
+                      </Box>
+                    )}
                     {currentSelection.description && (
                       <>
                         <Divider sx={{ my: 1 }} />

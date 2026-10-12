@@ -37,8 +37,10 @@ interface CameraViewportProps {
   store: FrameStore;
   hasFrame: boolean;
   connection: string;
-  /** Camera and recording states, for layouts where the camera controls' own chips are collapsed. */
+  /** Camera and recording states. Always shown expanded (the controls are behind the dialog). */
   summary?: string;
+  /** Show the summary inline too; false where the camera controls' own chips sit beside the picture. */
+  inlineSummary?: boolean;
   sourceRevision: number;
   controls: React.ReactNode;
   error?: string | null;
@@ -56,6 +58,7 @@ export default function CameraViewport({
   hasFrame,
   connection,
   summary,
+  inlineSummary = true,
   sourceRevision,
   controls,
   error,
@@ -448,8 +451,8 @@ export default function CameraViewport({
             </Tooltip>
         </Stack>
         )}
-        {(summary || error || !compact) && <Box sx={{ px: 2, pt: 1.5, pb: 1.5 }}>
-        {summary && <Typography variant="body2" aria-live="polite" sx={{ mb: compact && !error ? 0 : 1 }}>
+        {((summary && (expanded || inlineSummary)) || error || !compact) && <Box sx={{ px: 2, pt: 1.5, pb: 1.5 }}>
+        {summary && (expanded || inlineSummary) && <Typography variant="body2" aria-live="polite" sx={{ mb: compact && !error ? 0 : 1 }}>
           {summary}
         </Typography>}
         {error && (
@@ -590,6 +593,8 @@ export default function CameraViewport({
       {!expanded && (
         <Paper
           variant="outlined"
+          component="section"
+          aria-label="Live camera"
           sx={{
             overflow: "hidden",
             ...(narrow && { mx: `-${layout.pagePhone}px`, borderLeft: 0, borderRight: 0, borderRadius: 0 }),

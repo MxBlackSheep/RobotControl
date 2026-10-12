@@ -112,7 +112,7 @@ estimate the bar stops claiming progress (see `runTiming`).
 Row columns follow each panel's own width (`@container`), not the window: with the collapsed
 rail at 900px the half-width lists are ~388px. Up next and Recent runs drop secondary columns
 (repeat, then duration and start) before the name falls below ~150px. Latest experiment is one
-row from 1000px of panel width; narrower, its ID and times wrap below the method name. Strip
+row from 1000px of panel width; narrower, its times wrap below the method name. Strip
 cells wrap by their own text, so a long state moves to the next line instead of being clipped.
 Below 600px the four cells form a 2×2 grid instead, label above state, so the strip takes two
 rows of 52px with no empty cell (System status is reached from the navigation, not the strip).

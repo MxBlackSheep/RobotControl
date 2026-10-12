@@ -63,6 +63,7 @@ export default function ReportConnections({ open, onClose }: { open: boolean; on
             <TextField size="small" label="ODBC driver" value={source.driver} disabled={busy} onChange={e => setSource(s => ({ ...s, driver: e.target.value }))} />
           </Stack></Box>
           <FormControlLabel label="Trust server certificate" control={<Checkbox disabled={busy} checked={source.trust_certificate} onChange={(_, v) => setSource(s => ({ ...s, trust_certificate: v }))} />} />
+          <Typography variant="caption" color="text.secondary">Skips certificate verification; remembered for this server.</Typography>
           <Button disabled={busy} variant="contained" sx={{ alignSelf: 'flex-start' }} onClick={save}>{busy ? 'Checking…' : mode === 'create' ? 'Review access' : 'Check and save'}</Button>
         </Stack>}
       </Box>

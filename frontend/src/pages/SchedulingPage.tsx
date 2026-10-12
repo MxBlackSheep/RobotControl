@@ -445,6 +445,8 @@ const SchedulingPage: React.FC = () => {
                       </Typography>
                     </Box>
                     <Stack spacing={0.5} alignItems="flex-end">
+                      {/* Inactive schedules still have a next_run, so they must not read as runs that will happen. */}
+                      {scheduleState(schedule).label !== 'Active' && <StatusChip {...scheduleState(schedule)} />}
                       {schedule.preparation_state && schedule.preparation_state !== 'ready' && <StatusChip {...stateChip[schedule.preparation_state]} />}
                     </Stack>
                   </Box>

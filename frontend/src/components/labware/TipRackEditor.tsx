@@ -176,7 +176,7 @@ export default function TipRackEditor({ rack, headingId, joined, rows, columns, 
         </Box>
       </Box>
       {/* One fixed line: the draft summary never adds a row, so neither diagram moves when edits start. */}
-      <Box sx={{ gridRow: 4, gridColumn: 1, display: 'flex', alignItems: 'center', gap: 2, minWidth: 0, px: 2, borderTop: 1, borderColor: 'surface.headLine', whiteSpace: 'nowrap' }}>
+      <Box data-tip-editor-footer sx={{ gridRow: 4, gridColumn: 1, display: 'flex', alignItems: 'center', gap: 2, minWidth: 0, px: 2, borderTop: 1, borderColor: 'surface.headLine', whiteSpace: 'nowrap' }}>
         <Typography role="status" variant="body2" sx={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{corners ? `${preview.size} tips selected` : canUpdate ? '' : `Tip ${position}: ${stateName(statusAt(position))}`}</Typography>
         <Button size="small" onClick={cancel} disabled={!corners} aria-hidden={!corners} tabIndex={corners ? 0 : -1} sx={{ visibility: corners ? 'visible' : 'hidden', flexShrink: 0 }}>Cancel selection</Button>
         {canUpdate && hasDrafts && <Typography aria-label="This rack after saving" title={`After saving: ${afterSaving}`}

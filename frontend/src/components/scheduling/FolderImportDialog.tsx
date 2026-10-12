@@ -107,7 +107,7 @@ export default function FolderImportDialog({ open, onClose, onImportComplete, on
           {stage > 0 && <>
             <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>Folder: {preview?.folder}</Typography>
             {stage === 1 && <>
-              {validRows.length > 0 && <Alert severity="info">{validRows.filter(row => row.action === 'new').length} new methods; {validRows.filter(row => row.action === 'update').length} existing</Alert>}
+              {validRows.length > 0 && <Alert severity="info">{validRows.filter(row => row.action === 'new').length} new methods, {validRows.filter(row => row.action === 'update').length} already imported.</Alert>}
               {rows.length === 0 && <Alert severity="info">No .med methods found. Go back and choose another folder.</Alert>}
               {rows.some(row => row.action === 'invalid') && <Alert severity="warning">Some methods cannot be imported. Their reasons appear below.</Alert>}
             </>}

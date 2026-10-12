@@ -33,9 +33,10 @@ per schedule. Back from details on a phone focuses the open row (`aria-current`)
 selected filter button, which is also `.Mui-selected`; `ScheduleList` remains the
 archived table. `scheduleState` (exported from `ScheduleCollection`) is the one mapping
 from a schedule to its label and tone: Recovery required is amber (needs action), Active
-green, Inactive and Archived grey. The list and detail panel use it through `StatusChip`;
-the calendar and the Archived list add no per-row state chip, since every entry there
-shares one state. Calendar groups derive from the current schedule array. Use the
+green, Inactive and Archived grey. The list and detail panel use it through `StatusChip`.
+The calendar shows the chip only for entries that are not plain Active (an inactive schedule
+still has a `next_run`, so it must not read as a run that will happen); the Archived list adds
+none, since every entry there is archived. Calendar groups derive from the current schedule array. Use the
 backend's `next_run`/`start_time`; never recalculate run times in the browser.
 
 ## Layout and sections
