@@ -73,7 +73,8 @@ export function NeedsAttention({ status, span }: { status: RobotStatus | null; s
   </Panel>;
 }
 
-export function UpNext({ canOpenScheduling, span }: { canOpenScheduling: boolean; span?: number }) {
+/** `rows`: phones show fewer so two panels fit one card; the full lists are a link away. */
+export function UpNext({ canOpenScheduling, span, rows = LIST_ROWS }: { canOpenScheduling: boolean; span?: number; rows?: number }) {
   const [schedules, setSchedules] = useState<ScheduledExperiment[] | null>(null);
   const polling = useSerialPolling<ScheduledExperiment[]>({
     interval: PANEL_REFRESH_MS,
@@ -87,7 +88,7 @@ export function UpNext({ canOpenScheduling, span }: { canOpenScheduling: boolean
   const upcoming = (schedules ?? [])
     .filter(schedule => schedule.is_active && !schedule.archived && schedule.next_run && !Number.isNaN(new Date(schedule.next_run).getTime()))
     .sort((a, b) => new Date(a.next_run!).getTime() - new Date(b.next_run!).getTime())
-    .slice(0, LIST_ROWS);
+    .slice(0, rows);
   return <Panel title="Up next" span={span} inset={false} fill sx={listPanel} actions={canOpenScheduling && headerLink('/scheduling', 'All schedules')}>
     {polling.error && <ReadProblem error="Could not load schedules." stale={!!schedules} onRetry={() => void polling.refresh()} pending={polling.pending} />}
     {schedules && !upcoming.length && <EmptyRow>No scheduled runs.</EmptyRow>}
@@ -154,7 +155,7 @@ export function InstrumentHealth({ status }: { status: RobotStatus | null }) {
 
 type Run = { id: string; name: string; started?: string | null; minutes: number | null; status: string };
 
-export function RecentRuns({ canOpenScheduling, span }: { canOpenScheduling: boolean; span?: number }) {
+export function RecentRuns({ canOpenScheduling, span, rows = LIST_ROWS }: { canOpenScheduling: boolean; span?: number; rows?: number }) {
   const [runs, setRuns] = useState<Run[] | null>(null);
   const polling = useSerialPolling<Run[]>({
     interval: PANEL_REFRESH_MS,
@@ -175,7 +176,7 @@ export function RecentRuns({ canOpenScheduling, span }: { canOpenScheduling: boo
   return <Panel title="Recent runs" span={span} inset={false} fill sx={listPanel} actions={canOpenScheduling && headerLink('/scheduling?section=history', 'History')}>
     {polling.error && <ReadProblem error="Could not load recent runs." stale={!!runs} onRetry={() => void polling.refresh()} pending={polling.pending} />}
     {runs && !runs.length && <EmptyRow>No runs yet.</EmptyRow>}
-    {(runs ?? []).map(run => {
+    {(runs ?? []).slice(0, rows).map(run => {
       const [label, tone] = executionTone(run.status);
       return <ListRow key={run.id} columns="minmax(0, 1fr) auto" sx={{ [recentStarted]: { gridTemplateColumns: 'minmax(0, 1fr) 128px 136px' }, [recentFull]: { gridTemplateColumns: 'minmax(0, 1fr) 128px 56px 136px' } }}>
         <Box component="span" sx={{ fontWeight: 500 }}>{run.name}</Box>

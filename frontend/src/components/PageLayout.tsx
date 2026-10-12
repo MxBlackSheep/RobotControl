@@ -1,9 +1,10 @@
 import React from 'react';
-import { Box, IconButton, Stack, Tab, Tabs, Typography, type SxProps, type Theme } from '@mui/material';
+import { Box, ButtonBase, IconButton, Menu, MenuItem, Stack, Tab, Tabs, Typography, type SxProps, type Theme } from '@mui/material';
+import ExpandMore from '@mui/icons-material/ExpandMore';
 import InfoOutlined from '@mui/icons-material/InfoOutlined';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { allowedSections, moduleSectionUrl, useModuleSection } from './navigation';
+import { allowedSections, moduleSectionUrl, useModuleSection, useSidebarLayout } from './navigation';
 import { robotAttention, useRobotStatusContext } from '../hooks/useRobotStatus';
 import { layout, type StatusTone } from '../theme';
 
@@ -18,7 +19,10 @@ export function PageContent({ children, reading = false, variant = 'overview' }:
   return <Box data-page-pattern={variant} sx={{ width: '100%', minWidth: 0, maxWidth: reading ? 1120 : 'none', containerType: 'inline-size', containerName: 'workspace' }}>{children}</Box>;
 }
 
-/** Title, the module's permitted sections as tabs (kept in `?section=`) and page actions, on one 40px row. */
+/**
+ * Title, the module's permitted sections as tabs (kept in `?section=`) and page actions, on one 40px row.
+ * Below 900px a module with several sections shows the current section as a menu heading with section dots instead.
+ */
 export function PageHeader({ title, actions }: { title: string; actions?: React.ReactNode }) {
   const { user } = useAuth();
   const { pathname } = useLocation();
@@ -32,13 +36,65 @@ export function PageHeader({ title, actions }: { title: string; actions?: React.
   // Phones keep the local-only note behind an info button so the page content starts higher.
   const [noteOpen, setNoteOpen] = React.useState(false);
   const noteId = React.useId();
+  const { mobile } = useSidebarLayout();
+  const [menuAnchor, setMenuAnchor] = React.useState<HTMLElement | null>(null);
+  const menuId = React.useId();
+  const infoButton = localOnly.length > 0 && <IconButton aria-label="Sections on the RobotControl computer only" aria-expanded={noteOpen} aria-controls={noteId}
+    onClick={() => setNoteOpen(open => !open)} onKeyDown={event => { if (event.key === 'Escape') setNoteOpen(false); }} sx={{ display: { xs: 'inline-flex', sm: 'none' }, ml: -2, color: 'text.secondary' }}>
+    <InfoOutlined fontSize="small" />
+  </IconButton>;
+  const actionRow = actions && <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap" sx={{ ml: { xs: 0, sm: 'auto' } }}>{actions}</Stack>;
+  const note = localOnly.length > 0 && <Typography id={noteId} variant="body2" color="text.secondary" sx={{ mt: 1, display: { xs: noteOpen ? 'block' : 'none', sm: 'block' } }}>
+    On the RobotControl computer only: {localOnly.map(section => section.label).join(', ')}.
+  </Typography>;
+
+  if (tabbed && mobile) {
+    // Phones: the module name as a label, the current section as the heading (a menu of sections) and one dot per section.
+    const current = sections.find(section => section.index === selected) ?? sections[0];
+    return <Box component="header" sx={{ mb: `${layout.gutter}px` }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', minHeight: layout.header, columnGap: 3, rowGap: 1, flexWrap: 'wrap' }}>
+        <Box sx={{ minWidth: 0 }}>
+          <PanelLabel component="p">{title}</PanelLabel>
+          <Typography component="h1" variant="h1" sx={{ fontSize: 24 }}>
+            <ButtonBase aria-haspopup="menu" aria-expanded={Boolean(menuAnchor)} aria-controls={menuAnchor ? menuId : undefined}
+              onClick={event => setMenuAnchor(event.currentTarget)}
+              sx={{ font: 'inherit', color: 'inherit', textAlign: 'left', minHeight: 44, gap: 0.5, borderRadius: 1, maxWidth: '100%' }}>
+              <Box component="span" sx={{ overflowWrap: 'anywhere' }}>{current.label}</Box>
+              <ExpandMore aria-hidden sx={{ fontSize: 22, color: 'text.secondary', flexShrink: 0 }} />
+            </ButtonBase>
+          </Typography>
+          <Box component="nav" aria-label={`${title} sections`} sx={{ display: 'flex', flexBasis: '100%', ml: '-13px', maxWidth: `calc(100% + 13px)` }}>
+            {sections.map(section => {
+              const isCurrent = section.index === current.index;
+              const flagged = section.id === 'recovery' && attention;
+              return <Box key={section.id} component={Link} to={moduleSectionUrl(pathname, section.index)} aria-current={isCurrent ? 'page' : undefined}
+                aria-label={flagged ? `${section.label}, requires attention` : section.label}
+                sx={{ flex: '0 1 44px', minWidth: 0, height: 24, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: 1 }}>
+                <Box component="span" aria-hidden sx={{ height: 6, width: isCurrent ? 18 : 6, borderRadius: 3, transition: 'width 150ms ease',
+                  bgcolor: flagged ? 'attentionSurface.action' : isCurrent ? 'primary.main' : 'divider',
+                  '@media (prefers-reduced-motion: reduce)': { transition: 'none' } }} />
+              </Box>;
+            })}
+          </Box>
+          <Menu id={menuId} anchorEl={menuAnchor} open={Boolean(menuAnchor)} onClose={() => setMenuAnchor(null)}>
+            {sections.map(section => <MenuItem key={section.id} component={Link} to={moduleSectionUrl(pathname, section.index)}
+              selected={section.index === current.index} onClick={() => setMenuAnchor(null)} sx={{ minHeight: 44, gap: 1 }}>
+              {section.label}
+              {section.id === 'recovery' && attention && <Box component="span" aria-label="requires attention" sx={{ minWidth: 18, height: 18, px: 0.5, borderRadius: 9, bgcolor: 'attentionSurface.action', color: 'attentionSurface.actionText', fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{attention.kind === 'recovery' ? attention.count : '!'}</Box>}
+            </MenuItem>)}
+          </Menu>
+        </Box>
+        {infoButton}
+        {actionRow}
+      </Box>
+      {note}
+    </Box>;
+  }
+
   return <Box component="header" sx={{ mb: `${layout.gutter}px` }}>
     <Box sx={{ display: 'flex', alignItems: 'center', minHeight: layout.header, columnGap: 3, rowGap: 1, flexWrap: 'wrap' }}>
       <Typography component="h1" variant="h1" sx={{ fontSize: { xs: 20, sm: 24 } }}>{title}</Typography>
-      {localOnly.length > 0 && <IconButton aria-label="Sections on the RobotControl computer only" aria-expanded={noteOpen} aria-controls={noteId}
-        onClick={() => setNoteOpen(open => !open)} onKeyDown={event => { if (event.key === 'Escape') setNoteOpen(false); }} sx={{ display: { xs: 'inline-flex', sm: 'none' }, ml: -2, color: 'text.secondary' }}>
-        <InfoOutlined fontSize="small" />
-      </IconButton>}
+      {infoButton}
       {tabbed && <Tabs value={sections.some(section => section.index === selected) ? selected : false} variant="scrollable" scrollButtons={false}
         aria-label={`${title} sections`} sx={{ alignSelf: 'stretch', minWidth: 0, flex: '1 1 auto', order: { xs: 3, md: 0 }, flexBasis: { xs: '100%', md: 'auto' } }}>
         {sections.map(section => <Tab key={section.id} value={section.index} component={Link} to={moduleSectionUrl(pathname, section.index)}
@@ -48,11 +104,9 @@ export function PageHeader({ title, actions }: { title: string; actions?: React.
             : section.label} />)}
       </Tabs>}
       {/* On phones the actions wrap below the title and start at the page edge like everything else. */}
-      {actions && <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap" sx={{ ml: { xs: 0, sm: 'auto' } }}>{actions}</Stack>}
+      {actionRow}
     </Box>
-    {localOnly.length > 0 && <Typography id={noteId} variant="body2" color="text.secondary" sx={{ mt: 1, display: { xs: noteOpen ? 'block' : 'none', sm: 'block' } }}>
-      On the RobotControl computer only: {localOnly.map(section => section.label).join(', ')}.
-    </Typography>}
+    {note}
   </Box>;
 }
 

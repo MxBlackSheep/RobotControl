@@ -7,21 +7,21 @@ import { robotAttention, useRobotStatusContext } from '../hooks/useRobotStatus';
 import { fontMono, layout } from '../theme';
 import { APP_VERSION } from '../version';
 
-/** Modules only; a module's sections are tabs in its page header. */
-export default function AppSidebar({ user, mobile, expanded, open, onClose, onToggle, footer }: {
-  user: NavigationUser; mobile: boolean; expanded: boolean; open: boolean; onClose: () => void; onToggle: () => void; footer: React.ReactNode;
+/** Modules only; a module's sections are tabs in its page header. Phones use PhoneBar instead. */
+export default function AppSidebar({ user, expanded, onToggle, footer }: {
+  user: NavigationUser; expanded: boolean; onToggle: () => void; footer: React.ReactNode;
 }) {
   const location = useLocation();
   const attention = robotAttention(useRobotStatusContext().status);
-  const wide = mobile || expanded;
-  const width = mobile ? 280 : wide ? layout.rail : layout.railCollapsed;
-  return <Drawer variant={mobile ? 'temporary' : 'permanent'} open={mobile ? open : true} onClose={onClose}
-    sx={{ width: mobile ? 0 : width, flexShrink: 0, '& .MuiDrawer-paper': { width, boxSizing: 'border-box', border: 0, bgcolor: 'rail.bg', color: 'rail.text' } }}>
+  const wide = expanded;
+  const width = wide ? layout.rail : layout.railCollapsed;
+  return <Drawer variant="permanent" open
+    sx={{ width, flexShrink: 0, '& .MuiDrawer-paper': { width, boxSizing: 'border-box', border: 0, bgcolor: 'rail.bg', color: 'rail.text' } }}>
     <Box component="nav" aria-label="Main navigation" sx={{ display: 'flex', flexDirection: 'column', height: '100%', py: 2, px: wide ? 1.5 : 1 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: wide ? 'space-between' : 'center', height: layout.header, pl: wide ? 1.5 : 0, mb: 2 }}>
         {wide && <Box><Typography sx={{ fontSize: 15, fontWeight: 600, lineHeight: '20px', color: 'rail.activeText' }}>RobotControl</Typography>
           <Typography sx={{ fontFamily: fontMono, fontSize: 11, lineHeight: '16px', color: 'rail.muted' }}>v{APP_VERSION}</Typography></Box>}
-        <IconButton aria-label={mobile ? 'Close navigation' : wide ? 'Collapse navigation' : 'Expand navigation'} onClick={mobile ? onClose : onToggle} sx={{ color: 'rail.text' }}>
+        <IconButton aria-label={wide ? 'Collapse navigation' : 'Expand navigation'} onClick={onToggle} sx={{ color: 'rail.text' }}>
           {wide ? <ChevronLeft /> : <ChevronRight />}
         </IconButton>
       </Box>
@@ -31,7 +31,7 @@ export default function AppSidebar({ user, mobile, expanded, open, onClose, onTo
           const badge = item.path === '/scheduling' && !!attention;
           return <Tooltip key={item.path} title={wide ? '' : item.label} placement="right">
             <ListItemButton component={Link} to={item.path} selected={selected} aria-label={badge ? `${item.label}, recovery requires attention` : item.label}
-              aria-current={selected ? 'page' : undefined} onClick={() => { if (mobile) onClose(); }}
+              aria-current={selected ? 'page' : undefined}
               sx={{ flex: '0 0 auto', minHeight: layout.row, px: 1.5, borderRadius: `${layout.radius}px`, color: selected ? 'rail.activeText' : 'rail.text', justifyContent: wide ? 'flex-start' : 'center',
                 '&.Mui-selected, &.Mui-selected:hover': { bgcolor: 'rail.activeBg' }, '&:hover': { bgcolor: 'rail.activeBg' } }}>
               <ListItemIcon sx={{ minWidth: wide ? 30 : 0, color: 'inherit', position: 'relative' }}>
