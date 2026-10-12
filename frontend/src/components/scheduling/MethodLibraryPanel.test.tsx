@@ -16,7 +16,7 @@ beforeEach(() => {
 });
 it('requires explicit selection and confirmation before archiving', async () => {
   const p = props(); render(<MethodLibraryPanel {...p} />);
-  fireEvent.click(screen.getByRole('button', { name: 'All methods' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'All methods' }));
   await screen.findByRole('button', { name: 'One' });
   expect(screen.queryByRole('button', { name: 'Two' })).toBeNull();
   fireEvent.click(screen.getByRole('checkbox', { name: 'Select C:\\Methods\\One.med' }));
@@ -29,7 +29,7 @@ it('requires explicit selection and confirmation before archiving', async () => 
 });
 it('filters archived entries separately from missing paths and shows schedule usage', async () => {
   render(<MethodLibraryPanel {...props()} />);
-  fireEvent.click(screen.getByRole('button', { name: 'All methods' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'All methods' }));
   fireEvent.click(await screen.findByRole('button', { name: 'One' }));
   expect(await screen.findByText('Original schedule — cleanup method')).toBeTruthy();
   expect(screen.getByText(/Busy \(queued, running or paused\)/)).toBeTruthy();
@@ -42,7 +42,7 @@ it('filters archived entries separately from missing paths and shows schedule us
 });
 it('preserves filter and existing rows after a refresh failure', async () => {
   render(<MethodLibraryPanel {...props()} />);
-  fireEvent.click(screen.getByRole('button', { name: 'All methods' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'All methods' }));
   await screen.findByRole('button', { name: 'One' });
   fireEvent.change(screen.getByLabelText('Search all methods'), { target: { value: 'One' } });
   vi.mocked(schedulingAPI.getMethodLibrary).mockRejectedValueOnce(new Error('Offline'));
@@ -56,7 +56,7 @@ it('keeps selections across pages and clears them when search changes', async ()
   const lots = Array.from({length: 1000}, (_, i) => ({...rows[0], method_id: String(i), method_name: `Method${i}`, file_path: `C:\Methods\Method${i}.med`}));
   vi.mocked(schedulingAPI.getMethodLibrary).mockResolvedValue({data: {success: true, data: {methods: lots}}} as any);
   render(<MethodLibraryPanel {...props()} />);
-  fireEvent.click(screen.getByRole('button', {name: 'All methods'}));
+  fireEvent.click(await screen.findByRole('button', {name: 'All methods'}));
   await screen.findByRole('button', {name: 'Method0'});
   fireEvent.click(screen.getByRole('checkbox', {name: 'Select this page'}));
   fireEvent.click(screen.getByRole('button', {name: 'Go to next page'}));
@@ -64,4 +64,19 @@ it('keeps selections across pages and clears them when search changes', async ()
   expect(screen.getByText(/50 selected/)).toBeTruthy();
   fireEvent.change(screen.getByLabelText('Search all methods'), {target: {value: 'Method0'}});
   expect(screen.getByText(/0 selected/)).toBeTruthy();
+});
+it('reports a reply without a method list instead of crashing, and keeps rows it already had', async () => {
+  vi.mocked(schedulingAPI.getMethodLibrary).mockResolvedValueOnce({ data: { success: true, data: {} } } as any);
+  const { rerender } = render(<MethodLibraryPanel {...props()} />);
+  expect((await screen.findByRole('alert')).textContent).toMatch(/Unable to load method library/);
+  // Never read: no count or folder list that would look like an empty library.
+  expect(screen.queryByText(/\d+ methods/)).toBeNull();
+  expect(screen.queryByRole('button', { name: 'All methods' })).toBeNull();
+  rerender(<MethodLibraryPanel {...props()} version={1} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'All methods' }));
+  await screen.findByRole('button', { name: 'One' });
+  vi.mocked(schedulingAPI.getMethodLibrary).mockResolvedValueOnce({ data: { success: true, data: { methods: null } } } as any);
+  rerender(<MethodLibraryPanel {...props()} version={2} />);
+  expect((await screen.findByRole('alert')).textContent).toMatch(/Unable to load method library/);
+  expect(screen.getByRole('button', { name: 'One' })).toBeTruthy();
 });

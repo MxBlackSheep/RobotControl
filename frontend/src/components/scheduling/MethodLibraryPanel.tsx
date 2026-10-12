@@ -17,6 +17,8 @@ export default function MethodLibraryPanel({ version, onChanged, onImport, onCre
 }) {
   const fullScreen = useMediaQuery(useTheme().breakpoints.down('md'));
   const [methods, setMethods] = useState<LibraryMethod[]>([]);
+  // False until a read succeeds: an unread library must not look like an empty one.
+  const [loaded, setLoaded] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
   const [status, setStatus] = useState('');
   const [archiveFilter, setArchiveFilter] = useState('current');
@@ -29,8 +31,10 @@ export default function MethodLibraryPanel({ version, onChanged, onImport, onCre
   const load = async () => {
     try {
       const response = await schedulingAPI.getMethodLibrary();
-      if (!response.data.success || !response.data.data) throw new Error('Unable to load method library.');
-      setMethods(response.data.data.methods);
+      // A reply without a list is a failed read: keep the rows on screen and report it, so the page never crashes.
+      const methods = response.data.success ? response.data.data?.methods : undefined;
+      if (!Array.isArray(methods)) throw new Error('Unable to load method library.');
+      setMethods(methods); setLoaded(true);
     } catch (err) { setError(methodError(err)); }
   };
   useEffect(() => { void load(); }, [version]);
@@ -89,6 +93,7 @@ export default function MethodLibraryPanel({ version, onChanged, onImport, onCre
     {!!error && <Alert severity="error" sx={{ whiteSpace: 'pre-line' }}>{error}</Alert>}
     {!!message && <Alert severity="success">{message}</Alert>}
     {busy && <LinearProgress aria-label="Updating method library" />}
+    {loaded && <>
     <Typography variant="caption">{visible.length} methods · {targets.length} selected. </Typography>
     <MethodExplorer items={visible} onViewChange={clearSelection}>{(pageItems, relativePath) => <>
     <TableContainer tabIndex={0} aria-label="Method records"><Table size="small" stickyHeader aria-label="Imported methods">
@@ -113,6 +118,7 @@ export default function MethodLibraryPanel({ version, onChanged, onImport, onCre
       </TableRow>)}</TableBody>
     </Table></TableContainer>
     </>}</MethodExplorer>
+    </>}
     <Dialog open={!!detail} onClose={() => setDetailId(null)} maxWidth="md" fullWidth fullScreen={fullScreen}>
       <DialogTitle>Method details and schedules</DialogTitle>
       <DialogContent dividers>{detail && <Stack spacing={1.5} sx={{ overflowWrap: 'anywhere' }}>
