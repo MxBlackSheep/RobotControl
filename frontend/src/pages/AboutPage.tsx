@@ -7,8 +7,6 @@ import CardContent from '@mui/material/CardContent';
 import Button from '@mui/material/Button';
 import Box from '@mui/material/Box';
 
-import { Public as PublicIcon } from '@mui/icons-material';
-
 const GITHUB_URL = 'https://github.com/MxBlackSheep/Shou_OrchestrationSoftware';
 
 const AboutPage: React.FC = () => {
@@ -35,17 +33,13 @@ const AboutPage: React.FC = () => {
             }}
           >
             <Box sx={{ maxWidth: 520 }}>
-              <Typography variant="h5" gutterBottom>
+              <Typography variant="h5">
                 Project Repository
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Latest sources and issue tracking are maintained on GitHub.
               </Typography>
             </Box>
             <Button
               variant="contained"
               color="primary"
-              startIcon={<PublicIcon />}
               href={GITHUB_URL}
               target="_blank"
               rel="noopener noreferrer"

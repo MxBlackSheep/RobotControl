@@ -19,7 +19,7 @@ export function PageContent({ children, reading = false, variant = 'overview' }:
 }
 
 /** Title, the module's permitted sections as tabs (kept in `?section=`) and page actions, on one 40px row. */
-export function PageHeader({ title, description, actions }: { title: string; description?: string; actions?: React.ReactNode }) {
+export function PageHeader({ title, actions }: { title: string; actions?: React.ReactNode }) {
   const { user } = useAuth();
   const { pathname } = useLocation();
   const sections = allowedSections(pathname, user);
@@ -50,7 +50,6 @@ export function PageHeader({ title, description, actions }: { title: string; des
       {/* On phones the actions wrap below the title and start at the page edge like everything else. */}
       {actions && <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap" sx={{ ml: { xs: 0, sm: 'auto' } }}>{actions}</Stack>}
     </Box>
-    {description && <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>{description}</Typography>}
     {localOnly.length > 0 && <Typography id={noteId} variant="body2" color="text.secondary" sx={{ mt: 1, display: { xs: noteOpen ? 'block' : 'none', sm: 'block' } }}>
       On the RobotControl computer only: {localOnly.map(section => section.label).join(', ')}.
     </Typography>}

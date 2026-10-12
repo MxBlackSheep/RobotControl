@@ -152,7 +152,9 @@ test('a dropped live view keeps the last image as stale, reconnects by itself an
   await expect(liveImage(page)).toBeVisible();
   expect(await cornerColours(page)).toEqual(['red', 'lime', 'yellow', 'magenta']);
   await expect.poll(async () => (await fixture(request)).sessions, { timeout: 10_000 }).toBeGreaterThan(sessions);
-  await expect(page.getByText('My view: connected', { exact: true })).toBeVisible();
+  // Connected again: the view-state chip only appears while connecting or dropped.
+  await expect(page.getByText(/^My view: /)).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Stop my live view', exact: true })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('reconnected-stale.png'), fullPage: true });
   await request.post('/__e2e/camera', { data: { send_frames: true } });
   await expect(page.getByText('Live view receiving frames', { exact: true })).toBeVisible();
@@ -317,7 +319,7 @@ test('collapsed controls keep polling and phone controls remain touchable', asyn
   let healthRequests = 0;
   page.on('request', req => { if (req.url().includes('/api/camera/control-status')) healthRequests++; });
   await openLiveView(page);
-  await expect(page.getByText('Camera: Connected · Recording: Recording', { exact: true })).toBeVisible();
+  await expect(page.getByText('Camera connected · Recording', { exact: true })).toBeVisible();
   const before = healthRequests;
   await expect.poll(() => healthRequests, { timeout: 8000 }).toBeGreaterThan(before);
   await page.getByRole('button', { name: 'Camera and recording settings', exact: true }).click();
@@ -349,7 +351,7 @@ test('an expired sign-in is renewed and live view still starts', async ({ page }
     return route.fallback();
   });
   await page.goto('/camera?section=live');
-  await expect(page.getByText(/^Camera: Connected/).first()).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Camera', exact: true }).getByText('Connected', { exact: true })).toBeVisible();
   expired = true;
   await expect.poll(() => rejected.length, { timeout: 15_000 }).toBeGreaterThan(0);
   await expect.poll(() => page.evaluate(() => localStorage.getItem('access_token'))).toBe('e2e-admin');

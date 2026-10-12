@@ -94,13 +94,10 @@ export default function ToolAuthoring({ draftId, onClose }: { draftId?: string; 
           {saved && <Button disabled={busy} onClick={() => work(() => download(`${base}/drafts/${saved.id}/source`,'source.zip'))}>Download source</Button>}
         </Stack>
         <input ref={upload} hidden type="file" multiple accept=".py,.json,.md,.txt" aria-label="Tool Python files" onChange={e => { addFiles(e.target.files); e.target.value=''; }} />
-        {!draft && <>
-          <Typography variant="body2" color="text.secondary">Start with an example. Keep its TOOL definition and adapt the Python.</Typography>
-          <Stack direction="row" gap={1} flexWrap="wrap">
-            <Button disabled={busy} onClick={() => work(() => download(`${base}/authoring/examples/report`,'report.py'))}>Report example</Button>
-            <Button disabled={busy} onClick={() => work(() => download(`${base}/authoring/examples/operation`,'operation.py'))}>Operation example</Button>
-          </Stack>
-        </>}
+        {!draft && <Stack direction="row" gap={1} flexWrap="wrap">
+          <Button disabled={busy} onClick={() => work(() => download(`${base}/authoring/examples/report`,'report.py'))}>Report example</Button>
+          <Button disabled={busy} onClick={() => work(() => download(`${base}/authoring/examples/operation`,'operation.py'))}>Operation example</Button>
+        </Stack>}
         {draft && <>
           <Typography variant="subtitle1">{draft.name}</Typography>
           <Typography variant="body2">{draft.kind === 'report' ? 'Report · Excel output' : 'Operation · changes database records'}</Typography>
@@ -116,8 +113,7 @@ export default function ToolAuthoring({ draftId, onClose }: { draftId?: string; 
           </Box>
           <Typography variant="h6">2. Connections</Typography>
           <SourceMappings aliases={draft.sources} sources={sources} mappings={draft.mappings} disabled={locked} onChange={mappings=>change({mappings})} />
-          {draft.kind === 'operation' && <TextField select label="Writing connection" size="small" value={draft.operation_source || ''} disabled={locked} onChange={e=>change({operation_source:e.target.value})}
-            helperText="Deletes, resets and other changes run here. Same database as the reading connection.">
+          {draft.kind === 'operation' && <TextField select label="Writing connection" size="small" value={draft.operation_source || ''} disabled={locked} onChange={e=>change({operation_source:e.target.value})}>
             {sources.filter(s=>s.access==='operation').map(s=><MenuItem key={s.id} value={s.id}>{s.name} · {s.database}</MenuItem>)}
           </TextField>}
           {!draft.sources.length && draft.kind==='report' && <Typography variant="body2">No database connection needed.</Typography>}
@@ -129,8 +125,7 @@ export default function ToolAuthoring({ draftId, onClose }: { draftId?: string; 
       </Stack></Paper>
       <Paper variant="outlined" sx={{p:2,minWidth:0}}><Stack spacing={2}>
         <Typography variant="h6">3. Try and enable</Typography>
-        {!draft ? <Typography color="text.secondary">The tool’s form will appear here.</Typography> : <>
-          <Typography variant="body2" color="text.secondary">Edit TOOL['inputs'] in your Python to change this form.</Typography>
+        {draft && <>
           {!checked && <Typography variant="body2" color="text.secondary">Check setup to try this form.</Typography>}
           <ReportInputs key={`${saved?.id}-${saved?.revision}`} fields={draft.inputs} values={values} disabled={locked || !checked}
             choiceBase={`${base}/drafts/${saved?.id}/choices`} onChange={(name,value)=>{setValues(changedInputs(draft.inputs,values,name,value));setJob(undefined);setPreview(undefined);setReviewed(false);}} />
@@ -145,7 +140,6 @@ export default function ToolAuthoring({ draftId, onClose }: { draftId?: string; 
           {job?.status==='ready' && <Stack spacing={1}><Typography sx={{overflowWrap:'anywhere'}}>{job.filename}</Typography><Button sx={{alignSelf:'flex-start'}} onClick={()=>work(()=>download(`${base}/reports/${job.id}/download`,job.filename))}>Download Excel</Button></Stack>}
           {preview && <Paper variant="outlined" sx={{p:2}}><Typography>{preview.summary}</Typography><Typography variant="body2" color="text.secondary">{preview.target}</Typography>
             <Box component="dl" sx={{display:'grid',gridTemplateColumns:'minmax(0,1fr) minmax(0,1fr)',gap:1,m:0,mt:1}}>{Object.entries(preview.details || {}).map(([key,value])=><React.Fragment key={key}><Box component="dt" sx={{overflowWrap:'anywhere'}}>{key}</Box><Box component="dd" sx={{m:0,overflowWrap:'anywhere'}}>{typeof value==='object'?JSON.stringify(value):String(value)}</Box></React.Fragment>)}</Box>
-            <Typography variant="caption">Preview only. Execution has not been requested.</Typography>
           </Paper>}
           {success && !enabled && <FormControlLabel control={<Checkbox checked={reviewed} disabled={locked} onChange={(_,v)=>setReviewed(v)} />} label={draft.kind==='report' ? 'I reviewed the Python and checked the output':'I reviewed the Python and expected effects'} />}
           <TextField label="What changed? (optional)" size="small" multiline maxRows={4} value={draft.change_note || ''} disabled={locked}

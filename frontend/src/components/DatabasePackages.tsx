@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, LinearProgress, TextField, Paper, Stack, Typography } from '@mui/material';
 import { api } from '../services/api';
 import { saveBlob } from './ReportInputs';
-import { Link } from 'react-router-dom';
 import ReportWizard from './ReportWizard';
 import ToolAuthoring from './ToolAuthoring';
 import ReportConnections, { AssignConnections, PackageBinding, Source } from './ReportConnections';
@@ -87,18 +86,13 @@ export default function DatabasePackages({ active }: { active: boolean }) {
   if (wizard !== undefined) return <ReportWizard draftId={wizard || undefined} onClose={finished} />;
   if (toolEditor !== undefined) return <ToolAuthoring draftId={toolEditor || undefined} onClose={finished} />;
   return <Stack spacing={2}>
-    <Stack direction="row" justifyContent="space-between" gap={2} alignItems="center" flexWrap="wrap">
-      <Typography component="h2" variant="h6">Manage packages</Typography>
-      <Stack direction="row" gap={1} flexWrap="wrap">
-        <Button component={Link} to="/database?section=settings">Database settings</Button>
-        <Button variant="outlined" disabled={busy} onClick={() => input.current?.click()}>Import package ZIP</Button>
-        <Button variant="contained" disabled={busy} onClick={() => setToolEditor('')}>Add tool</Button>
-      </Stack>
+    <Stack direction="row" gap={1} flexWrap="wrap">
+      <Button variant="outlined" disabled={busy} onClick={() => input.current?.click()}>Import package ZIP</Button>
+      <Button variant="contained" disabled={busy} onClick={() => setToolEditor('')}>Add tool</Button>
     </Stack>
     <input ref={input} hidden type="file" accept=".zip" onChange={event => {
       const selected = event.target.files?.[0]; event.target.value = ''; if (selected) void inspect(selected);
     }} />
-    <Typography color="text.secondary" variant="body2">Add a report or operation from reviewed Python, or import an existing package.</Typography>
     {error && !review && <Alert severity="error">{error}</Alert>}
     {notice && <Alert severity="success">{notice}</Alert>}
     {busy && <LinearProgress />}

@@ -32,19 +32,13 @@ import {
   Collapse
 } from '@mui/material';
 import StatusChip from './StatusChip';
-import { PanelHeader } from './PageLayout';
 import { fontMono } from '../theme';
 import useTheme from '@mui/material/styles/useTheme';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import {
-  Restore as RestoreIcon,
-  Upload as UploadIcon,
   Warning as WarningIcon,
-  Storage as StorageIcon,
-  Refresh as RefreshIcon,
   Folder as FolderIcon,
   InsertDriveFile as FileIcon,
-  Computer as ComputerIcon,
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon
 } from '@mui/icons-material';
@@ -167,12 +161,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({ open, onClose, onSelect }) 
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth fullScreen={fullScreen}>
-      <DialogTitle>
-        <Stack direction="row" alignItems="center" spacing={1}>
-          <ComputerIcon />
-          <Typography variant="h6">Browse for .bck Backup Files</Typography>
-        </Stack>
-      </DialogTitle>
+      <DialogTitle>Browse for .bck Backup Files</DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ pt: 1 }}>
           <TextField
@@ -180,7 +169,6 @@ const FileExplorer: React.FC<FileExplorerProps> = ({ open, onClose, onSelect }) 
             value={pathInput}
             onChange={(e) => setPathInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && void loadDirectory(pathInput)}
-            helperText="Press Enter or Go to open a directory"
             fullWidth
             size="small"
           />
@@ -189,7 +177,6 @@ const FileExplorer: React.FC<FileExplorerProps> = ({ open, onClose, onSelect }) 
             <Button size="small" onClick={() => void loadDirectory(pathInput)}>Go</Button>
             <Button
               size="small"
-              startIcon={<FolderIcon />}
               onClick={navigateToParent}
               disabled={/^[a-z]:\\$/i.test(currentPath)}
             >
@@ -197,7 +184,6 @@ const FileExplorer: React.FC<FileExplorerProps> = ({ open, onClose, onSelect }) 
             </Button>
             <Button
               size="small"
-              startIcon={<RefreshIcon />}
               onClick={() => loadDirectory(currentPath)}
               disabled={loading}
             >
@@ -238,26 +224,17 @@ const FileExplorer: React.FC<FileExplorerProps> = ({ open, onClose, onSelect }) 
                         <ListItemText
                           primary={item.name}
                           secondary={
-                            item.is_directory 
-                              ? 'Directory' 
+                            item.is_directory
+                              ? undefined
                               : `${item.size_formatted || ''} ${item.modified_date ? `•${item.modified_date}` : ''}`
                           }
                         />
-                        {item.name.toLowerCase().endsWith('.bck') && (
-                          <StatusChip tone="neutral" label="BCK" />
-                        )}
                       </ListItemButton>
                     </ListItem>
                   ))
                 )}
               </List>
             </Paper>
-          )}
-
-          {selectedFile && (
-            <Alert severity="info" sx={{ whiteSpace: 'pre-line', overflowWrap: 'anywhere' }}>
-              {`Selected: ${selectedFile.name}\nPath: ${selectedFile.path}\nSize: ${selectedFile.size_formatted || 'Unknown'}`}
-            </Alert>
           )}
         </Stack>
       </DialogContent>
@@ -280,7 +257,6 @@ const FileExplorer: React.FC<FileExplorerProps> = ({ open, onClose, onSelect }) 
           onClick={handleSelect}
           variant="contained"
           disabled={!selectedFile}
-          startIcon={<FileIcon />}
           sx={{ flex: { xs: '1 1 100%', sm: '0 0 auto' } }}
         >
           Select File
@@ -419,10 +395,6 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
     }
   };
 
-  const getFileType = (filename: string): 'bak' | 'bck' => {
-    return filename.toLowerCase().endsWith('.bck') ? 'bck' : 'bak';
-  };
-
   const handleTabChange = (_: React.SyntheticEvent, newValue: number) => {
     setActiveTab(newValue);
     // Reset selections when switching tabs
@@ -502,24 +474,18 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
     if (activeTab === 0 && selectedBackup) {
       return {
         filename: selectedBackup.filename,
-        type: getFileType(selectedBackup.filename),
         size: selectedBackup.file_size_formatted,
-        created: selectedBackup.created_date,
-        description: selectedBackup.description,
-        hasMetadata: true,
-        database: selectedBackup.database_name,
-        server: selectedBackup.sql_server
+        created: formatDate(selectedBackup.created_date),
+        description: selectedBackup.description
       };
     }
     
     if (activeTab === 1 && selectedBckPath) {
       return {
         filename: selectedBckPath.split('\\').pop() || selectedBckPath,
-        path: selectedBckPath,
-        type: 'bck' as const,
         size: 'Unknown',
-        created: 'Unknown',
-        hasMetadata: false
+        created: undefined,
+        description: undefined
       };
     }
     
@@ -580,9 +546,6 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
     <Card sx={{ maxWidth: 1120 }}>
       <CardContent>
         <Stack spacing={3}>
-          <PanelHeader title="Restore database" />
-
-
           {/* Tab Navigation */}
           <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
             <Tabs
@@ -593,26 +556,14 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
               scrollButtons="auto"
               allowScrollButtonsMobile
             >
-              <Tab 
-                icon={<StorageIcon />} 
-                label={isSmallScreen ? 'Managed (.bak)' : 'Managed Backups (.bak)'} 
-                iconPosition="start" 
-              />
-              <Tab 
-                icon={<ComputerIcon />} 
-                label={isSmallScreen ? 'Browse (.bck)' : 'Browse Files (.bck)'} 
-                iconPosition="start" 
-              />
+              <Tab label={isSmallScreen ? 'Managed (.bak)' : 'Managed Backups (.bak)'} />
+              <Tab label={isSmallScreen ? 'Browse (.bck)' : 'Browse Files (.bck)'} />
             </Tabs>
           </Box>
 
           {/* Tab 0: Managed .bak files */}
           {activeTab === 0 && (
             <Stack spacing={2}>
-              <Typography variant="body2" color="textSecondary">
-                Select from managed backup files with metadata and descriptions.
-              </Typography>
-
               <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ xs: 'stretch', sm: 'center' }} gap={1}>
                 <FormControl fullWidth size="small">
                   <InputLabel id="restore-backup-label">Select Backup File</InputLabel>
@@ -630,7 +581,6 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
                     {backupFiles.map((backup) => (
                       <MenuItem key={backup.filename} value={backup.filename}>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
-                          <StorageIcon fontSize="small" color="primary" />
                           <Box sx={{ flex: 1 }}>
                             <Typography variant="body2">
                               {backup.filename}
@@ -644,19 +594,16 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
                               </Typography>
                             )}
                           </Box>
-                          <Stack direction="row" spacing={0.5}>
-                            <StatusChip tone="neutral" label="BAK" />
-                            {!backup.is_valid && (
-                              <StatusChip tone="fault" label="Invalid" />
-                            )}
-                          </Stack>
+                          {!backup.is_valid && (
+                            <StatusChip tone="fault" label="Invalid" />
+                          )}
                         </Box>
                       </MenuItem>
                     ))}
                   </Select>
                 </FormControl>
                 <Button
-                  startIcon={loading ? <CircularProgress size={20} /> : <RefreshIcon />}
+                  startIcon={loading ? <CircularProgress size={20} /> : undefined}
                   onClick={loadBackupFiles}
                   disabled={loading || restoreProgress}
                   sx={{ flexShrink: 0, alignSelf: { xs: 'flex-start', sm: 'auto' } }}
@@ -705,7 +652,7 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
 
               {backupFiles.length === 0 && !loading && (
                 <Alert severity="info">
-                  No managed backup files found. Create backups using the backup manager or switch to browse mode for .bck files.
+                  No backup files.
                 </Alert>
               )}
             </Stack>
@@ -714,11 +661,6 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
           {/* Tab 1: File browser for .bck files */}
           {activeTab === 1 && (
             <Stack spacing={2}>
-              <Typography variant="body2" color="textSecondary">
-                Browse your file system to select .bck backup files generated automatically by the machine.
-                These files don't have metadata but can still be restored.
-              </Typography>
-
               <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: { xs: 'wrap', sm: 'nowrap' } }}>
                 <TextField
                   label="Selected .bck File"
@@ -732,7 +674,6 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
                 />
                 <Button
                   variant="contained"
-                  startIcon={<FolderIcon />}
                   onClick={() => setFileExplorerOpen(true)}
                 >
                   Browse
@@ -741,37 +682,10 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
             </Stack>
           )}
 
-          {/* Selection Summary */}
-          {currentSelection && (
-            <Box component="section" aria-label="Selected backup" sx={{ pt: 3, borderTop: 1, borderColor: 'divider' }}>
-              <Typography component="h3" variant="subtitle2" sx={{ mb: 2 }}>Selected backup</Typography>
-              <Box component="dl" sx={{ m: 0, display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: '140px minmax(0, 1fr)' }, columnGap: 2, rowGap: 1,
-                '& dt': { color: 'text.secondary' }, '& dd': { m: 0, overflowWrap: 'anywhere' } }}>
-                <Typography component="dt" variant="body2">File</Typography>
-                <Typography component="dd" variant="body2" sx={{ fontFamily: fontMono }}>{currentSelection.filename}</Typography>
-                {currentSelection.path && <>
-                  <Typography component="dt" variant="body2">Full path</Typography>
-                  <Typography component="dd" variant="body2" sx={{ fontFamily: fontMono }}>{currentSelection.path}</Typography>
-                </>}
-                <Typography component="dt" variant="body2">Type</Typography>
-                <Box component="dd"><StatusChip tone="neutral" label={`${currentSelection.type.toUpperCase()} ${currentSelection.hasMetadata ? '(with metadata)' : '(no metadata)'}`} /></Box>
-                <Typography component="dt" variant="body2">Size</Typography>
-                <Typography component="dd" variant="body2">{currentSelection.size}</Typography>
-                <Typography component="dt" variant="body2">Created</Typography>
-                <Typography component="dd" variant="body2">{currentSelection.created !== 'Unknown' ? formatDate(currentSelection.created) : 'Unknown'}</Typography>
-                {currentSelection.description && <>
-                  <Typography component="dt" variant="body2">Description</Typography>
-                  <Typography component="dd" variant="body2">{currentSelection.description}</Typography>
-                </>}
-              </Box>
-            </Box>
-          )}
-
           {/* Restore & pre-backup actions */}
           <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', pt: 3, borderTop: 1, borderColor: 'divider' }}>
             <Button
               variant="outlined"
-              startIcon={<UploadIcon />}
               onClick={handleOpenCreateDialog}
               disabled={loading || restoreProgress}
             >
@@ -780,7 +694,6 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
             <Button
               variant="contained"
               color="warning"
-              startIcon={<RestoreIcon />}
               onClick={() => setRestoreDialogOpen(true)}
               disabled={!currentSelection || loading || restoreProgress}
             >
@@ -828,15 +741,18 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
                       </Typography>
                     </Box>
                     <Box display="flex" justifyContent="space-between">
-                      <Typography variant="body2" color="textSecondary">Type:</Typography>
-                      <StatusChip tone="neutral" label={`${currentSelection.type.toUpperCase()} ${currentSelection.hasMetadata ? '(with metadata)' : '(machine generated)'}`} />
-                    </Box>
-                    <Box display="flex" justifyContent="space-between">
                       <Typography variant="body2" color="textSecondary">Size:</Typography>
                       <Typography variant="body2">
                         {currentSelection.size}
                       </Typography>
                     </Box>
+                    {/* The date is how a person tells backups of the same database apart before overwriting it. */}
+                    {currentSelection.created && (
+                      <Box display="flex" justifyContent="space-between">
+                        <Typography variant="body2" color="textSecondary">Created:</Typography>
+                        <Typography variant="body2">{currentSelection.created}</Typography>
+                      </Box>
+                    )}
                     {currentSelection.description && (
                       <>
                         <Divider sx={{ my: 1 }} />
@@ -929,7 +845,7 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
             variant="contained"
             color="warning"
             disabled={restoreProgress || !canProceed}
-            startIcon={restoreProgress ? <CircularProgress size={20} /> : <RestoreIcon />}
+            startIcon={restoreProgress ? <CircularProgress size={20} /> : undefined}
             sx={{ flex: { xs: '1 1 100%', sm: '0 0 auto' } }}
           >
             {restoreProgress ? 'Restoring...' : 'Restore Database'}
@@ -945,15 +861,9 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
         fullWidth
         fullScreen={isSmallScreen}
       >
-        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <StorageIcon color="primary" />
-          Create Managed Backup
-        </DialogTitle>
+        <DialogTitle>Create Managed Backup</DialogTitle>
         <DialogContent dividers sx={{ px: { xs: 2, sm: 3 } }}>
           <Stack spacing={2}>
-            <Typography variant="body2" color="textSecondary">
-              Capture a managed `.bak` file with JSON metadata before performing a restore. This gives you a rollback point if the restore introduces issues.
-            </Typography>
             {createDialogError && (
               <Alert severity="error">{createDialogError}</Alert>
             )}
@@ -988,7 +898,7 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
           <Button
             onClick={handleCreateBackup}
             variant="contained"
-            startIcon={creatingBackup ? <CircularProgress size={20} /> : <StorageIcon />}
+            startIcon={creatingBackup ? <CircularProgress size={20} /> : undefined}
             disabled={creatingBackup}
             sx={{ flex: { xs: '1 1 100%', sm: '0 0 auto' } }}
           >

@@ -26,10 +26,8 @@ import {
   Typography,
 } from '@mui/material';
 import {
-  Add as AddIcon,
   Delete as DeleteIcon,
   Edit as EditIcon,
-  Refresh as RefreshIcon,
 } from '@mui/icons-material';
 import { NotificationContact, NotificationContactPayload } from '../../types/scheduling';
 import StatusDialog, { StatusMessage } from '../StatusDialog';
@@ -245,7 +243,6 @@ const NotificationContactsPanel: React.FC<NotificationContactsPanelProps> = ({
       <Card sx={{ borderRadius: 2 }}>
         <CardHeader
           title="Notification Contacts"
-          subheader="Save recipient contacts here, then select them in each schedule's Email alert recipients field."
           action={
             <Stack direction="row" spacing={1} alignItems="center">
               <FormControlLabel
@@ -258,14 +255,14 @@ const NotificationContactsPanel: React.FC<NotificationContactsPanelProps> = ({
                 }
                 label="Show inactive"
               />
-              <Button startIcon={refreshing ? <CircularProgress size={16} /> : <RefreshIcon fontSize="small" />} onClick={() => handleRefresh(includeInactive)} disabled={refreshing}>Refresh</Button>
+              <Button startIcon={refreshing ? <CircularProgress size={16} /> : undefined} onClick={() => handleRefresh(includeInactive)} disabled={refreshing}>Refresh</Button>
             </Stack>
           }
         />
         <CardContent sx={{ pt: 0 }}>
           <Stack spacing={2.5}>
             <Box display="flex" justifyContent="flex-end">
-              <Button variant="contained" startIcon={<AddIcon />} onClick={handleOpenCreate}>
+              <Button variant="contained" onClick={handleOpenCreate}>
                 Add Contact
               </Button>
             </Box>
@@ -281,7 +278,7 @@ const NotificationContactsPanel: React.FC<NotificationContactsPanelProps> = ({
                 }}
               >
                 <Typography variant="body2" color="text.secondary">
-                  No contacts available. Add a contact, then select it on each schedule that should send alerts.
+                  No contacts.
                 </Typography>
               </Box>
             ) : (
@@ -370,9 +367,7 @@ const NotificationContactsPanel: React.FC<NotificationContactsPanelProps> = ({
           <Button
             onClick={handleSubmit}
             variant="contained"
-            startIcon={
-              saving ? <CircularProgress size={18} /> : editingContact ? <EditIcon /> : <AddIcon />
-            }
+            startIcon={saving ? <CircularProgress size={18} /> : undefined}
             disabled={saving}
           >
             {editingContact ? 'Save Changes' : 'Create Contact'}

@@ -141,14 +141,13 @@ export function InstrumentHealth({ status }: { status: RobotStatus | null }) {
     {/* Cells wrap by their content, so a long state ("Needs attention") moves to the next line
         instead of being clipped. Each cell draws its right and bottom line; the -1px margins push
         the lines on the outer edge under the section's border. */}
-    <Box sx={{ display: { xs: 'grid', sm: 'flex' }, gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', '@container workspace (max-width: 319px)': { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' },
+    {/* Phones: four states in a 2×2 grid, the same two rows as 3 + 1 without an empty cell. */}
+    <Box sx={{ display: { xs: 'grid', sm: 'flex' }, gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
       flexWrap: 'wrap', mr: '-1px', mb: '-1px' }}>
       {cells.map(([name, [state, tone]]) => <Box key={name} sx={{ ...healthCell, columnGap: 2 }}>
         <Typography component="span" variant="overline" sx={{ textTransform: 'uppercase', color: 'surface.label', whiteSpace: 'nowrap' }}>{name}</Typography>
         <Box sx={{ ml: { xs: 0, sm: 'auto' }, '& > span': { whiteSpace: { xs: 'normal', sm: 'nowrap' } } }}><StatusDot tone={tone} label={state} /></Box>
       </Box>)}
-      {/* The link fills the rest of the phone grid's last row (two of three, or both of two). */}
-      <Box sx={{ ...healthCell, gridColumn: 'span 2' }}>{headerLink('/system-status', 'System status')}</Box>
     </Box>
   </Box>;
 }

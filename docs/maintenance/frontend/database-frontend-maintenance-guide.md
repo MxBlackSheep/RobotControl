@@ -13,7 +13,8 @@ authoring steps are in [database_packages/README.md](../../../database_packages/
   selected table and definition; moving between sections keeps them.
 - `DatabaseTable.tsx` owns the selected table's query, row and cell inspection and exports;
   `databaseExport.ts` collects and formats export rows.
-- `StoredProcedures.tsx` loads definitions and shows SQL, Parameters and Details tabs;
+- `StoredProcedures.tsx` loads definitions and shows SQL and Parameters tabs, with
+  created and modified dates under the name;
   `InspectionTextViewer.tsx` provides the SQL reading controls.
 - `InspectionWorkspace.tsx` lays out catalogue and details; read
   [the shared workspace guide](inspection-workspace-maintenance-guide.md) before changing
@@ -96,7 +97,8 @@ below. Avoid viewport-percentage heights.
 - `query` is the requested state and `displayedQuery` belongs to the rows on screen. Row
   numbers, footer ranges, page size and exports use `displayedQuery`, so a failed request never
   relabels old rows. If the result shrinks below the requested page, the last page is requested.
-  Page jumps accept whole numbers in range.
+  The phone Page and rows dialog's page jump accepts whole numbers in range; desktop pages
+  with the pager alone, which also shows the row range and total.
 - Requests send `page`, `limit`, `search`, `order_by`, `sort_direction` and serialized
   `filters`; keep these names.
 - The numbered row button shows every column, including hidden ones; a cell button shows its
@@ -114,8 +116,8 @@ snapshot. NULL stays null in JSON and becomes an empty CSV field.
 
 ## Stored procedures and functions
 
-Name search and a type filter; selecting opens SQL. Parameters (type, length, direction) and
-Details have their own tabs. The toolbar has Find with previous/next, Copy, Expand and More
+Name search and a type filter; selecting opens SQL. Parameters (type, length, direction) have
+their own tab; created and modified dates sit under the name. The toolbar has Find with previous/next, Copy, Expand and More
 (wrap, Go to line); Top and Bottom reach either end. Wrap preference is stored separately from
 log viewers. Missing parameter arrays or SQL must not crash the page. Refresh keeps the selection
 by type and name, explains when it disappeared, keeps the previous definitions on failure, and
@@ -179,7 +181,7 @@ Build with `npm --prefix frontend run build`; commands and evidence folders are 
 
 - `database.spec.ts`: table navigation, row inspection, search, expansion and focus, SQL Find
   and tabs, read and clipboard failures, no write calls.
-- `inspection-pagination.spec.ts`: last page, page jump, failed-page labels, SQL Top, Bottom
+- `inspection-pagination.spec.ts`: First, Last, Next and the phone page jump, failed-page labels, SQL Top, Bottom
   and Go to line on a phone.
 - `database-workspace.spec.ts`: settings, viewer switching, account setup failure, dependent
   choices, operation choices, certificate trust.

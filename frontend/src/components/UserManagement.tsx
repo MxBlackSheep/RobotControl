@@ -20,7 +20,6 @@ import {
 import {
   Edit as EditIcon,
   Delete as DeleteIcon,
-  Refresh as RefreshIcon,
 } from '@mui/icons-material';
 import { adminAPI } from '../services/api';
 import StatusChip from './StatusChip';
@@ -254,9 +253,9 @@ const UserManagement: React.FC<UserManagementProps> = ({ onError, section }) => 
 
   return (
     <Stack spacing={`${layout.gutter}px`}>
-      <Panel title="User accounts" inset={false} sx={{ display: section === 1 ? 'none' : undefined, containerType: 'inline-size', containerName: 'users' }}
-        headerExtra={<Typography variant="caption" color="text.secondary">{users.length} {users.length === 1 ? 'account' : 'accounts'}</Typography>}
-        actions={<Button size="small" startIcon={<RefreshIcon />} onClick={loadUsers} disabled={userLoading}>Refresh</Button>}>
+      {/* The tab already names each section; the header band carries the count. */}
+      <Panel title={`${users.length} ${users.length === 1 ? 'account' : 'accounts'}`} label="User accounts" inset={false} sx={{ display: section === 1 ? 'none' : undefined, containerType: 'inline-size', containerName: 'users' }}
+        actions={<Button size="small" onClick={loadUsers} disabled={userLoading}>Refresh</Button>}>
           <Box sx={{ px: 2, py: 1.5, borderBottom: 1, borderColor: 'surface.rowLine' }}>
             <TextField size="small" label="Find a user" value={userQuery} onChange={event => setUserQuery(event.target.value)} sx={{ width: '100%', maxWidth: 320 }} />
           </Box>
@@ -309,8 +308,8 @@ const UserManagement: React.FC<UserManagementProps> = ({ onError, section }) => 
           )}
       </Panel>
 
-      <Panel title="Password reset requests" inset={false} sx={{ display: section === 0 ? 'none' : undefined }}
-        actions={<Button size="small" startIcon={<RefreshIcon />} onClick={loadPasswordResetRequests} disabled={requestsLoading}>Refresh</Button>}>
+      <Panel title={`${resetRequests.length} ${resetRequests.length === 1 ? 'request' : 'requests'}`} label="Password reset requests" inset={false} sx={{ display: section === 0 ? 'none' : undefined }}
+        actions={<Button size="small" onClick={loadPasswordResetRequests} disabled={requestsLoading}>Refresh</Button>}>
 
           {requestsLoading ? (
             <LinearProgress />
@@ -358,7 +357,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ onError, section }) => 
 
               {resetRequests.length === 0 && (
                 <ListItem sx={{ px: 2 }}>
-                  <ListItemText primary="No password reset requests at this time." primaryTypographyProps={{ variant: 'body2', color: 'text.secondary' }} />
+                  <ListItemText primary="No requests." primaryTypographyProps={{ variant: 'body2', color: 'text.secondary' }} />
                 </ListItem>
               )}
             </List>

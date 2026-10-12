@@ -161,10 +161,7 @@ export default function DatabasePage() {
           {selected ? (
             <DatabaseTable sourceId={sourceId} tableName={selected} active={section === 0} />
           ) : (
-            <EmptyPanel>
-              Choose a table to inspect its rows. Browsing does not change
-              database records.
-            </EmptyPanel>
+            <EmptyPanel>Choose a table to inspect its rows.</EmptyPanel>
           )}
         </InspectionWorkspace>
       </SectionPanel>

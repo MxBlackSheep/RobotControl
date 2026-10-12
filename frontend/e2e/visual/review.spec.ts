@@ -97,6 +97,12 @@ async function sampleData(page: Page, mode: string) {
     { username: 'admin', email: 'lab-admin@example.org', role: 'admin', created_at: '2026-01-10T09:00:00', last_login: ago(180) },
     { username: 'operator.day', email: 'day@example.org', role: 'user', created_at: '2026-02-01T09:00:00', last_login: ago(22 * 60) },
     { username: 'viewer', email: 'viewer@example.org', role: 'viewer', created_at: '2026-03-01T09:00:00', last_login: null }] }));
+  // Methods section (local sessions): without this the section has no library to show.
+  const method = (id: string, name: string, folder: string, schedules: number) => ({ method_id: id, method_name: name, file_path: `${folder}\\${name}.med`,
+    containing_folder: folder, archived: false, revision: 1, path_status: 'available', schedule_count: schedules, references: [] });
+  await page.route('**/api/scheduling/experiments/library', route => route.fulfill({ json: { success: true, data: { methods: [
+    method('wash', 'DailyTipWash', 'C:\\Methods\\Wash', 1), method('feed', 'CellFeedingStack', 'C:\\Methods\\CellCulture', 2),
+    method('qc', 'PlateReaderQC', 'C:\\Methods\\QC', 1), method('cal', 'PipetteCalibration', 'C:\\Methods\\QC', 1)] } } }));
   await page.route('**/api/maintenance/hxrun', route => route.fulfill({ json: { enabled: false, reason: '', updated_by: 'admin', updated_at: ago(28 * 60 + 30), permissions: { can_edit: true } } }));
   const statuses = ['clean', 'empty', 'dirty', 'rinsed', 'washed', 'reserved', 'unclear'];
   const left = ['VER_HT_0005', 'VER_HT_0001', 'VER_HT_0002', 'VER_HT_0006', 'VER_HT_0009'];

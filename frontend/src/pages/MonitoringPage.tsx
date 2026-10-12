@@ -3,7 +3,6 @@ import { Alert, Box, Button, LinearProgress, Typography, useMediaQuery, type The
 import StatusChip from '../components/StatusChip';
 import { fontMono, layout } from '../theme';
 import { dayTime } from '../utils/displayTime';
-import Refresh from '@mui/icons-material/Refresh';
 import { ListRow, PageContent, PageGrid, PageHeader, Panel } from '../components/PageLayout';
 import type { StatusTone } from '../theme';
 import useMonitoring, { type DatabaseConnection } from '../hooks/useMonitoring';
@@ -37,15 +36,18 @@ export default function MonitoringPage() {
   const connections = databases ? [databases.built_in, ...(databases.connections ?? [])].filter((x): x is DatabaseConnection => Boolean(x)) : [];
   const failing = connections.filter(connection => connection.state === 'failed').length;
   const allKnown = Boolean(databases?.built_in && databases.connections) && connections.every(connection => ['connected', 'failed'].includes(connection.state));
-  const database: [string, StatusTone] = !databases ? ['Unavailable', 'neutral']
+  // Only a problem or an unknown state earns a summary chip; all connected needs none beyond the rows.
+  const database: [string, StatusTone] | null = !databases ? ['Unavailable', 'neutral']
     : failing ? [`${failing} cannot connect`, error ? 'neutral' : 'fault']
-    : allKnown ? ['Connected', error ? 'neutral' : 'completed'] : ['Partly unknown', 'neutral'];
+    : allKnown ? null : ['Partly unknown', 'neutral'];
   const liveView: [string, StatusTone] = streamingStatus?.enabled === true ? ['Enabled', 'completed'] : streamingStatus?.enabled === false ? ['Disabled', 'neutral'] : ['Unavailable', 'neutral'];
   return <PageContent variant="overview">
     <PageHeader title="System status" actions={<>
-      <StatusChip tone={error ? 'attention' : 'neutral'} label={error ? monitoringData ? 'Stale data' : 'Unavailable' : isLoading ? 'Updating' : monitoringData ? 'Updated' : 'Unknown'} />
+      {/* A good reading needs no chip ("Last reading" says when) and a routine poll shows the
+          progress bar, so the header row only changes for a problem or before the first reading. */}
+      {(error || !monitoringData) && <StatusChip tone={error ? 'attention' : 'neutral'} label={error ? monitoringData ? 'Stale data' : 'Unavailable' : isLoading ? 'Updating' : 'Unknown'} />}
       {timestamp && <Typography variant="caption" color="text.secondary">Last reading {dayTime(timestamp)}</Typography>}
-      <Button variant="outlined" startIcon={<Refresh />} disabled={isLoading} onClick={() => void refreshData()}>Refresh</Button>
+      <Button variant="outlined" disabled={isLoading} onClick={() => void refreshData()}>Refresh</Button>
     </>} />
     {error && <Alert severity="warning" sx={{ mb: `${layout.gutter}px` }}>{error}{monitoringData ? ' · Last reading retained.' : ''}</Alert>}
     {isLoading && <LinearProgress aria-label="Updating monitoring" sx={{ mb: `${layout.gutter}px` }} />}
@@ -65,14 +67,14 @@ export default function MonitoringPage() {
         </Panel>;
       })}
       </Box>
-      <Panel title="Databases" span={8} inset={false} actions={<StatusChip tone={database[1]} label={database[0]} />}>
+      <Panel title="Databases" span={8} inset={false} actions={database && <StatusChip tone={database[1]} label={database[0]} />}>
         {!databases ? <Typography variant="body2" color="text.secondary" sx={{ p: `${layout.inset}px` }}>Connection checks are unavailable.</Typography>
           : <Box component="ul" sx={{ m: 0, p: 0, listStyle: 'none' }}>
             {connections.map(connection => <DatabaseRow key={connection.id} connection={connection} state={connectionState(connection)} />)}
             {databases.connections === null && <DatabaseRow connection={{ id: 'saved', name: 'Saved connections', access: '', uses: [], state: 'unknown',
               message: 'The saved connections could not be checked.' }} state={['Unknown', 'neutral']} />}
             {databases.connections?.length === 0 && <ListRow component="li" columns="minmax(0, 1fr)" sx={{ height: 'auto', minHeight: layout.row, py: 1, '& > *': { whiteSpace: 'normal' } }}>
-              <Typography variant="body2" color="text.secondary">No saved connections. Add them in Database → Database settings.</Typography></ListRow>}
+              <Typography variant="body2" color="text.secondary">No saved connections.</Typography></ListRow>}
           </Box>}
       </Panel>
       <ServiceCard span={4} title="Live view" state={liveView} rows={[['Sessions', sessionSummary]]} />

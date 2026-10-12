@@ -81,14 +81,11 @@ export default function FolderImportDialog({ open, onClose, onImportComplete, on
 
   return (
     <Dialog open={open} onClose={close} disableEscapeKeyDown={busy} fullWidth maxWidth="md" sx={{ '@media (max-width: 899px)': { '& .MuiDialog-paper': { m: 0, width: '100%', maxWidth: '100%', height: '100dvh', maxHeight: '100dvh', borderRadius: 0 } } }}
-      aria-labelledby="method-import-title" aria-describedby="method-import-description"
+      aria-labelledby="method-import-title"
       TransitionProps={{ onEntered: () => initialFocus.current?.querySelector<HTMLInputElement>('input:checked')?.focus({ preventScroll: true }) }}>
       <DialogTitle id="method-import-title">Import Hamilton methods</DialogTitle>
       <DialogContent dividers>
         <Stack spacing={2.5}>
-          <Typography id="method-import-description" variant="body2" color="text.secondary">
-            Add .med methods to the experiment list, then create schedules for them. Importing does not run a method or create a schedule.
-          </Typography>
           <Stepper activeStep={stage} alternativeLabel>
             {['Choose folder', 'Review methods', 'Import results'].map(label => <Step key={label}><StepLabel>{label}</StepLabel></Step>)}
           </Stepper>
@@ -104,14 +101,13 @@ export default function FolderImportDialog({ open, onClose, onImportComplete, on
             {source === 'browser' ? <HostMethodBrowser initialPath={folder || undefined} disabled={busy || !isLocalClient} onSelect={path => { void scan(path); }} /> :
               <TextField fullWidth required label="Folder path on RobotControl computer" value={folder} disabled={busy || !isLocalClient}
                 onChange={event => { setFolder(event.target.value); setError(null); }}
-                placeholder={'C:\\Program Files\\HAMILTON\\Methods'}
-                helperText={folder.trim() ? 'Regular subfolders are included; linked folders are not scanned.' : 'Enter the full folder path to enable Review methods.'} />}
+                placeholder={'C:\\Program Files\\HAMILTON\\Methods'} />}
 
           </>}
           {stage > 0 && <>
             <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>Folder: {preview?.folder}</Typography>
             {stage === 1 && <>
-              {validRows.length > 0 && <Alert severity="info">{validRows.filter(row => row.action === 'new').length} new methods; {validRows.filter(row => row.action === 'update').length} existing methods to update. Review full paths before importing.</Alert>}
+              {validRows.length > 0 && <Alert severity="info">{validRows.filter(row => row.action === 'new').length} new methods, {validRows.filter(row => row.action === 'update').length} already imported.</Alert>}
               {rows.length === 0 && <Alert severity="info">No .med methods found. Go back and choose another folder.</Alert>}
               {rows.some(row => row.action === 'invalid') && <Alert severity="warning">Some methods cannot be imported. Their reasons appear below.</Alert>}
             </>}

@@ -21,8 +21,9 @@ usage. Never infer service health from a low CPU reading. The CPU card's detail,
 **RobotControl N%**, is `robotcontrol_cpu_percent` (RobotControl's processes as a share of the
 machine); while it is null it reads "RobotControl —", never 0 %. Missing values display
 an em dash or Unavailable. A failed cycle retains the previous reading, marks it
-Stale data and displays the last reading time. The Refresh control is disabled
-while a read is pending.
+Stale data and displays the last reading time. A good reading shows only "Last reading"
+(no chip); a routine poll shows the progress bar, so the header row changes only for a problem
+or before the first reading. The Refresh control is disabled while a read is pending.
 
 The **Live view** card's Enabled/Disabled chip reports the service configuration.
 It does not claim that a camera is connected, a frame is fresh, or recording is
@@ -31,8 +32,9 @@ connection or a paused session; do not rename this to connected viewers. The
 **Databases** card lists every SQL Server connection RobotControl depends on: the built-in
 Hamilton connection (`DB_CONFIG_PRIMARY`; run records, labware, backup) and each saved
 workspace connection with its uses (viewer, packages, schedules' before-run steps). Each
-row has its own state and message; the header is Connected only when every connection is
-reported connected, a failure count when any fails, otherwise Partly unknown. An
+row has its own state and message; the header chip shows a failure count when any fails
+and Partly unknown when any state is unknown; when every connection is reported connected the
+rows say so and the header has no chip. An
 incomplete reply (`normalizeDatabases`) is Unavailable, never an empty healthy list. After
 a failed read both cards keep the last state in neutral colour beside Stale data.
 

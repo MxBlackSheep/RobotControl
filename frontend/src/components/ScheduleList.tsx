@@ -44,15 +44,7 @@ import useTheme from '@mui/material/styles/useTheme';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import {
   Info as InfoIcon,
-  Refresh as RefreshIcon,
-  Warning as WarningIcon,
-  PlayArrow as PlayIcon,
-  Pause as PauseIcon,
   Schedule as ScheduleIcon,
-  AccessTime as ClockIcon,
-  Science as ExperimentIcon,
-  Loop as IntervalIcon,
-  Archive as ArchiveIcon,
   Delete as DeleteIcon
 } from '@mui/icons-material';
 import LoadingSpinner from './LoadingSpinner';
@@ -219,12 +211,9 @@ const ScheduleDetailsDialog: React.FC<ScheduleDetailsDialogProps> = ({
                     <Typography variant="body2" color="textSecondary">
                       Schedule Type
                     </Typography>
-                    <Stack direction="row" alignItems="center" spacing={1}>
-                      <Typography variant="body1">
-                        {formatScheduleType(schedule.schedule_type, schedule.interval_hours)}
-                      </Typography>
-                      {schedule.schedule_type === 'interval' && <IntervalIcon fontSize="small" />}
-                    </Stack>
+                    <Typography variant="body1">
+                      {formatScheduleType(schedule.schedule_type, schedule.interval_hours)}
+                    </Typography>
                   </Grid>
                   <Grid item xs={6}>
                     <Typography variant="body2" color="textSecondary">
@@ -239,7 +228,6 @@ const ScheduleDetailsDialog: React.FC<ScheduleDetailsDialogProps> = ({
                       Status
                     </Typography>
                     <Chip
-                      icon={schedule.is_active ? <PlayIcon /> : <PauseIcon />}
                       label={schedule.is_active ? 'Active' : 'Inactive'}
                       color={schedule.is_active ? 'success' : 'default'}
                       size="small"
@@ -367,47 +355,6 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
     }
   };
 
-  const renderStatusIcon = (schedule: ScheduledExperiment) => {
-    if (schedule.recovery_required) {
-      return (
-        <Tooltip title="Manual recovery required">
-          <WarningIcon color="warning" fontSize="small" />
-        </Tooltip>
-      );
-    }
-
-    if (schedule.archived) {
-      return (
-        <Tooltip title="Schedule is archived">
-          <ArchiveIcon color="disabled" fontSize="small" />
-        </Tooltip>
-      );
-    }
-
-    if (!schedule.is_active) {
-      return (
-        <Tooltip title="Schedule is inactive">
-          <PauseIcon color="disabled" fontSize="small" />
-        </Tooltip>
-      );
-    }
-
-    const nextRun = getNextExecutionTime(schedule);
-    if (!nextRun) {
-      return (
-        <Tooltip title="No next execution scheduled">
-          <WarningIcon color="warning" fontSize="small" />
-        </Tooltip>
-      );
-    }
-
-    return (
-      <Tooltip title="Schedule is active">
-        <PlayIcon color="success" fontSize="small" />
-      </Tooltip>
-    );
-  };
-
   const renderScheduleTypeChip = (schedule: ScheduledExperiment) => {
     const getTypeColor = (type: string) => {
       switch (type) {
@@ -430,14 +377,6 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
         {schedule.recovery_required && (
           <StatusChip tone="attention" label="Recovery required" />
         )}
-        {schedule.archived && (
-          <Chip
-            label="Archived"
-            color="default"
-            size="small"
-            variant="outlined"
-          />
-        )}
       </Stack>
     );
   };
@@ -456,12 +395,9 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
         <Box sx={{ p: 2 }}>
           <Card variant="outlined">
             <CardContent>
-              <Stack alignItems="center" spacing={2}>
-                <ExperimentIcon color="disabled" sx={{ fontSize: 48 }} />
-          <Typography color="textSecondary">
-            {archivedView ? 'No archived schedules found' : 'No scheduled experiments found'}
-          </Typography>
-              </Stack>
+              <Typography color="textSecondary" align="center">
+                {archivedView ? 'No archived schedules found' : 'No scheduled experiments found'}
+              </Typography>
             </CardContent>
           </Card>
         </Box>
@@ -498,23 +434,17 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
                       flexWrap="wrap"
                       rowGap={1}
                     >
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        {renderStatusIcon(schedule)}
-                        <Typography
-                          variant="subtitle1"
-                          fontWeight={600}
-                          sx={{ wordBreak: 'break-word' }}
-                        >
-                          {schedule.experiment_name}
-                        </Typography>
-                      </Stack>
+                      <Typography
+                        variant="subtitle1"
+                        fontWeight={600}
+                        sx={{ wordBreak: 'break-word' }}
+                      >
+                        {schedule.experiment_name}
+                      </Typography>
                       {renderScheduleTypeChip(schedule)}
                     </Stack>
 
                     <Stack spacing={0.5}>
-                      <Typography variant="body2" color="textSecondary">
-                        Created by {schedule.created_by}
-                      </Typography>
                       <Typography variant="body2">
                         Est. duration: {formatDuration(schedule.estimated_duration)}
                       </Typography>
@@ -532,19 +462,15 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
                 <Divider />
             <Stack
               direction="row"
-              justifyContent="space-between"
+              justifyContent="flex-end"
               alignItems="center"
               sx={{ px: 2, py: 1, flexWrap: 'wrap', rowGap: 1 }}
             >
-              <Typography variant="caption" color="textSecondary">
-                ID: {schedule.schedule_id}
-              </Typography>
               <Stack direction="row" spacing={1}>
                 {archivedView && onDeleteSchedule && (
                   <Button
                     size="small"
                     color="error"
-                    startIcon={<DeleteIcon fontSize="small" />}
                     disabled={schedule.recovery_required}
                     onClick={(event) => handleDeleteClick(event, schedule)}
                   >
@@ -553,7 +479,6 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
                 )}
                 <Button
                   size="small"
-                  startIcon={<InfoIcon fontSize="small" />}
                   onClick={(event) => {
                     event.stopPropagation();
                     handleViewDetails(schedule);
@@ -638,7 +563,6 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
               variant="contained"
               color="error"
               onClick={() => onRefresh()}
-              startIcon={<RefreshIcon />}
             >
               Try again
             </Button>
@@ -660,15 +584,10 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
           borderColor: 'divider'
         }}
       >
-        <Typography variant="h6" gutterBottom>
-          {archivedView ? 'No archived schedules yet' : 'No scheduled experiments yet'}
-        </Typography>
         <Typography variant="body2" color="text.secondary" gutterBottom>
-          {archivedView
-            ? 'Archived schedules will appear here once you archive existing experiments.'
-            : 'Create a schedule to see it listed here.'}
+          {archivedView ? 'No archived schedules.' : 'No scheduled experiments.'}
         </Typography>
-        <Button variant="outlined" onClick={onRefresh} startIcon={<RefreshIcon />}>
+        <Button variant="outlined" onClick={onRefresh}>
           Refresh
         </Button>
       </Paper>
@@ -699,26 +618,12 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
             borderColor: 'divider'
           }}
         >
-          <Stack
-            direction="row"
-            justifyContent="space-between"
-            alignItems={isMobile ? 'flex-start' : 'center'}
-            spacing={isMobile ? 1 : 2}
-            flexWrap="wrap"
-            rowGap={1}
-          >
-            <Typography variant="h6" sx={{ fontSize: { xs: '1rem', sm: '1.1rem' } }}>
-              {archivedView ? 'Archived Schedules' : 'Scheduled Experiments'} ({schedules.length})
-            </Typography>
+          <Stack direction="row" justifyContent="flex-end">
             <Button
-              startIcon={<RefreshIcon />}
               onClick={onRefresh}
               variant="outlined"
               size="small"
-              sx={{
-                width: { xs: '100%', sm: 'auto' },
-                mt: { xs: 1, sm: 0 }
-              }}
+              sx={{ width: { xs: '100%', sm: 'auto' } }}
             >
               Refresh
             </Button>
@@ -742,12 +647,9 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
                 {sortedSchedules.length === 0 ? (
                   <TableRow>
                   <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
-                    <Stack alignItems="center" spacing={2}>
-                      <ExperimentIcon color="disabled" sx={{ fontSize: 48 }} />
-                      <Typography color="textSecondary">
-                        {archivedView ? 'No archived schedules found' : 'No scheduled experiments found'}
-                        </Typography>
-                      </Stack>
+                    <Typography color="textSecondary">
+                      {archivedView ? 'No archived schedules found' : 'No scheduled experiments found'}
+                    </Typography>
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -762,25 +664,17 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
                         sx={{ cursor: 'pointer' }}
                       >
                         <TableCell padding="checkbox">
-                          <Stack direction="row" alignItems="center" spacing={1}>
-                            <Radio
-                              checked={selectedSchedule?.schedule_id === schedule.schedule_id}
-                              onChange={() => handleRowClick(schedule)}
-                              size="small"
-                            />
-                            {renderStatusIcon(schedule)}
-                          </Stack>
+                          <Radio
+                            checked={selectedSchedule?.schedule_id === schedule.schedule_id}
+                            onChange={() => handleRowClick(schedule)}
+                            size="small"
+                          />
                         </TableCell>
                         
                         <TableCell>
-                          <Stack spacing={0.5}>
-                            <Typography variant="body2" sx={{ fontWeight: 'medium' }}>
-                              {schedule.experiment_name}
-                            </Typography>
-                            <Typography variant="caption" color="textSecondary">
-                              by {schedule.created_by}
-                            </Typography>
-                          </Stack>
+                          <Typography variant="body2" sx={{ fontWeight: 'medium' }}>
+                            {schedule.experiment_name}
+                          </Typography>
                         </TableCell>
                         
                         <TableCell>
@@ -788,12 +682,9 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
                         </TableCell>
                         
                         <TableCell>
-                          <Stack direction="row" alignItems="center" spacing={0.5}>
-                            <ClockIcon fontSize="small" color="disabled" />
-                            <Typography variant="body2">
-                              {formatDuration(schedule.estimated_duration)}
-                            </Typography>
-                          </Stack>
+                          <Typography variant="body2">
+                            {formatDuration(schedule.estimated_duration)}
+                          </Typography>
                         </TableCell>
                         
                         <TableCell>

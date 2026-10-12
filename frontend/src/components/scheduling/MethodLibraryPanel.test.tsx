@@ -63,7 +63,7 @@ it('keeps selections across pages and clears them when search changes', async ()
   fireEvent.click(screen.getByRole('checkbox', {name: 'Select this page'}));
   expect(screen.getByText(/50 selected/)).toBeTruthy();
   fireEvent.change(screen.getByLabelText('Search all methods'), {target: {value: 'Method0'}});
-  expect(screen.getByText(/0 selected/)).toBeTruthy();
+  expect(screen.queryByText(/\d+ selected/)).toBeNull();
 });
 it('reports a reply without a method list instead of crashing, and keeps rows it already had', async () => {
   vi.mocked(schedulingAPI.getMethodLibrary).mockResolvedValueOnce({ data: { success: true, data: {} } } as any);

@@ -23,7 +23,7 @@ export default function DatabaseSettings({ active }: { active: boolean }) {
   const work = async (fn: () => Promise<void>) => { setBusy(true); setError(''); try { await fn(); } catch(e) { setError(requestMessage(e)); } finally { setBusy(false); } };
   const uses = (id: string) => assignments.filter(a => a.operation_source === id || Object.values(a.mappings).includes(id)).map(a => a.name);
   return <Stack spacing={2}>
-    <Stack direction="row" justifyContent="space-between" flexWrap="wrap" gap={1}><Typography variant="h6">Database settings</Typography><Button disabled={busy} onClick={() => void work(() => load())}>Refresh</Button></Stack>
+    <Button sx={{alignSelf:'flex-start'}} disabled={busy} onClick={() => void work(() => load())}>Refresh</Button>
     {error && <Alert severity="error">{error}</Alert>}
     <Paper variant="outlined" sx={{p:2}}><Stack spacing={1}>
       <Stack direction="row" justifyContent="space-between" flexWrap="wrap"><Typography variant="h6">Connections</Typography><Button disabled={busy} onClick={() => setConnections(true)}>Manage connections</Button></Stack>

@@ -8,7 +8,6 @@ import IconButton from '@mui/material/IconButton';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import Tooltip from '@mui/material/Tooltip';
-import Typography from '@mui/material/Typography';
 import MenuIcon from '@mui/icons-material/Menu';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { loadComponent } from './utils/BundleOptimizer';
@@ -43,12 +42,10 @@ function AccountMenu({ compact, onChangePassword }: { compact: boolean; onChange
   const { user, logout } = useAuth();
   const [anchor, setAnchor] = React.useState<HTMLElement | null>(null);
   const roleLabel = user?.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : '';
-  const initial = (user?.username || '?').charAt(0).toUpperCase();
   return <>
     <Tooltip title={compact ? `${user?.username ?? ''} · ${roleLabel}` : ''} placement="right">
     <Button color="inherit" aria-label="Account menu" aria-haspopup="menu" aria-expanded={!!anchor} onClick={event => setAnchor(event.currentTarget)}
       sx={{ flex: compact ? '0 0 auto' : 1, minWidth: 44, minHeight: 44, px: compact ? 0.5 : 1, justifyContent: 'flex-start', gap: 1.25, color: 'inherit', fontWeight: 400, textAlign: 'left' }}>
-      <Box component="span" sx={{ width: 28, height: 28, borderRadius: 14, bgcolor: 'rail.activeBg', color: 'rail.activeText', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{initial}</Box>
       {/* The collapsed rail keeps the signed-in name for assistive technology; the tooltip shows it on hover. */}
       <Box component="span" sx={compact
         ? { position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap' }
@@ -99,7 +96,6 @@ function AppShell() {
       <Box component="header" ref={appHeader} sx={{ position: 'sticky', top: 0, zIndex: theme => theme.zIndex.appBar }}>
         {isMobile && <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minHeight: 52, pl: 0.5, pr: 2, bgcolor: 'rail.bg', color: 'rail.activeText' }}>
           <IconButton aria-label="Open navigation" color="inherit" onClick={() => setMobileDrawerOpen(true)}><MenuIcon /></IconButton>
-          <Typography component="span" sx={{ fontWeight: 600, fontSize: 16 }}>RobotControl</Typography>
         </Box>}
         <RobotAttentionBanner />
       </Box>

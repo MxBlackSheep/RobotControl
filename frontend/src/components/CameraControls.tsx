@@ -27,6 +27,15 @@ export const cameraStateLabels: Record<string, string> = {
   reconnecting: 'Reconnecting', error: 'Error', recording: 'Recording', starting: 'Starting', stopped: 'Stopped',
 };
 
+// The summary reads as a phrase and a chip under a titled panel gives only the state, so no
+// label repeats its own value ("Recording: Recording").
+const cameraPhrases: Record<string, string> = {
+  connected: 'Camera connected', disconnected: 'Camera disconnected', connecting: 'Camera connecting',
+  reconnecting: 'Camera reconnecting', no_frames: 'Camera sends no frames', error: 'Camera error',
+};
+const recordingPhrases: Record<string, string> = { recording: 'Recording', stopped: 'Not recording', starting: 'Recording starting', error: 'Recording error' };
+const recordingStates: Record<string, string> = { recording: 'On', stopped: 'Off', starting: 'Starting', error: 'Error' };
+
 export interface CameraSummary { text: string; error: string | null }
 
 // Two equal columns when there is room; one column on a narrow phone rather than overflowing labels.
@@ -109,9 +118,9 @@ export default function CameraControls({ admin, onSourceChange, collapsible = fa
   const recordingRequested = Boolean(health?.recording_requested);
   const selectionLocked = recordingRequested && Boolean(saved);
   const error = actionError || health?.operation?.error || health?.error || polling.error;
-  const summary = `Camera: ${cameraStateLabels[health?.capture_state ?? ''] ?? 'Checking'} · Recording: ${cameraStateLabels[health?.recording_state ?? ''] ?? 'Checking'}`;
+  const summary = `${cameraPhrases[health?.capture_state ?? ''] ?? 'Checking camera'} · ${recordingPhrases[health?.recording_state ?? ''] ?? 'Checking recording'}`;
   useEffect(() => { onSummaryChange?.({ text: summary, error: error || null }); }, [summary, error, onSummaryChange]);
-  const recordingChip = { label: cameraStateLabels[health?.recording_state ?? ''] ?? 'Checking',
+  const recordingChip = { label: recordingStates[health?.recording_state ?? ''] ?? 'Checking',
     tone: (health?.recording_state === 'recording' ? 'running' : health?.recording_state === 'error' ? 'fault' : 'neutral') as StatusTone };
   const cameraChip = { label: cameraStateLabels[health?.capture_state ?? ''] ?? 'Checking',
     tone: (health?.capture_state === 'connected' ? 'completed' : health?.capture_state === 'error' ? 'fault' : health?.capture_state === 'disconnected' ? 'attention' : 'neutral') as StatusTone };
@@ -135,7 +144,7 @@ export default function CameraControls({ admin, onSourceChange, collapsible = fa
         <TextField select fullWidth label="Selected camera" value={selection}
           disabled={!admin || pending || selectionLocked}
           onChange={event => { edited.current = true; setSelection(event.target.value); }}
-          helperText={selectionLocked ? 'Stop recording before changing cameras.' : 'Save your selection before connecting.'}>
+          helperText={selectionLocked ? 'Stop recording before changing cameras.' : undefined}>
           <MenuItem value="">Select a camera</MenuItem>
           {selection && !selectedExists && <MenuItem value={selection}>Saved camera — unavailable</MenuItem>}
           {devices.filter(device => device.device_identity).map(device =>

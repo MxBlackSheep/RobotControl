@@ -183,8 +183,9 @@ test('short desktop has one stage scroll and container resizing cancels only the
   const stage = page.locator('[data-tip-workspace]'); const body = page.locator('[data-tip-editor-body]');
   expect(await stage.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
   expect(await body.evaluate(element => element.scrollHeight <= element.clientHeight + 1)).toBe(true);
-  await page.getByRole('button', { name: 'Tip 96, clean', exact: true }).scrollIntoViewIfNeeded();
-  await expect(page.getByText('Choose a status to edit tips.', { exact: true })).toBeVisible();
+  // The editor's footer line (selection count, Cancel) is reachable within the one stage scroll.
+  await stage.evaluate(element => { element.scrollTop = element.scrollHeight; });
+  await expect(page.locator('[data-tip-editor-footer]')).toBeInViewport();
   await stage.evaluate(element => { element.scrollTop = 0; });
   await page.getByRole('group', { name: 'Set tips to', exact: true }).getByRole('button', { name: 'Dirty', exact: true }).click();
   await page.getByRole('button', { name: 'Tip 1, clean', exact: true }).click();

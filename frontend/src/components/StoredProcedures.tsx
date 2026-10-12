@@ -18,6 +18,7 @@ import {
 import { databaseAPI } from "../services/api";
 import InspectionWorkspace, { InspectionName } from "./InspectionWorkspace";
 import InspectionTextViewer from "./InspectionTextViewer";
+import { EmptyPanel } from "./PageLayout";
 import { fontMono } from "../theme";
 
 interface Parameter {
@@ -146,9 +147,6 @@ export default function StoredProcedures({
       }}
     >
       <Stack spacing={1} sx={{ p: 1.5 }}>
-        <Typography variant="h6" component="h2">
-          Procedures &amp; functions
-        </Typography>
         <TextField
           size="small"
           label="Find a procedure or function"
@@ -170,7 +168,7 @@ export default function StoredProcedures({
           disabled={loading}
           onClick={() => setRefresh((value) => value + 1)}
         >
-          Refresh definitions
+          Refresh
         </Button>
       </Stack>
       {loading && <LinearProgress aria-label="Loading definitions" />}
@@ -194,7 +192,7 @@ export default function StoredProcedures({
             <ListItemText
               primary={item.name}
               primaryTypographyProps={{ sx: { overflowWrap: "anywhere", fontFamily: fontMono, fontSize: 13 } }}
-              secondary={`${item.type === "PROCEDURE" ? "Procedure" : "Function"} · ${item.parameters.length} parameters`}
+              secondary={item.type === "PROCEDURE" ? "Procedure" : "Function"}
             />
           </ListItemButton>
         ))}
@@ -242,6 +240,9 @@ export default function StoredProcedures({
           >
             <Box sx={{ px: 1.5, pt: 1, minWidth: 0 }}>
               <InspectionName name={selected.name} variant="subtitle1" />
+              <Typography variant="caption" color="text.secondary" display="block">
+                Created {dateLabel(selected.created_date)} · Modified {dateLabel(selected.modified_date)}
+              </Typography>
             </Box>
             <Tabs
               value={tab}
@@ -260,11 +261,6 @@ export default function StoredProcedures({
                 label={`Parameters (${selected.parameters.length})`}
                 id="definition-parameters-tab"
                 aria-controls="definition-parameters-panel"
-              />
-              <Tab
-                label="Details"
-                id="definition-details-tab"
-                aria-controls="definition-details-panel"
               />
             </Tabs>
             <Box
@@ -323,26 +319,9 @@ export default function StoredProcedures({
                 <Typography>This definition has no parameters.</Typography>
               )}
             </Box>
-            <Box
-              role="tabpanel"
-              id="definition-details-panel"
-              aria-labelledby="definition-details-tab"
-              hidden={tab !== 2}
-              sx={{ flex: 1, minHeight: 0, overflow: "auto", p: 1.5 }}
-            >
-              <Typography>
-                Created: {dateLabel(selected.created_date)}
-              </Typography>
-              <Typography>
-                Modified: {dateLabel(selected.modified_date)}
-              </Typography>
-            </Box>
           </Paper>
         ) : (
-          <Alert severity="info">
-            Choose a procedure or function to inspect its SQL definition and
-            parameters.
-          </Alert>
+          <EmptyPanel>Select a procedure.</EmptyPanel>
         )}
       </InspectionWorkspace>
     </>

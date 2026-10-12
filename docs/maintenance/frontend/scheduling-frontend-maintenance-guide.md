@@ -33,8 +33,10 @@ per schedule. Back from details on a phone focuses the open row (`aria-current`)
 selected filter button, which is also `.Mui-selected`; `ScheduleList` remains the
 archived table. `scheduleState` (exported from `ScheduleCollection`) is the one mapping
 from a schedule to its label and tone: Recovery required is amber (needs action), Active
-green, Inactive and Archived grey. The list, detail panel and calendar all use it or the
-same tones through `StatusChip`. Calendar groups derive from the current schedule array. Use the
+green, Inactive and Archived grey. The list and detail panel use it through `StatusChip`.
+The calendar shows the chip only for entries that are not plain Active (an inactive schedule
+still has a `next_run`, so it must not read as a run that will happen); the Archived list adds
+none, since every entry there is archived. Calendar groups derive from the current schedule array. Use the
 backend's `next_run`/`start_time`; never recalculate run times in the browser.
 
 ## Layout and sections
@@ -49,9 +51,9 @@ its own Contacts/History/Email settings tabs. Visited sections stay mounted thro
 The list and runtime queue use a named CSS container query: two columns only when at
 least 1100px remains after navigation and gutters (not a viewport breakpoint). The
 service strip shows scheduler state, Refresh queue, Recovery required and a Queue
-details disclosure. The collection has a Schedules heading with Refresh schedules,
-then search, status filters and sort controls at a compact 16px inset. The two
-refresh labels describe their existing, separate request scopes. History, notification
+details disclosure. The collection has a Schedules heading with Refresh,
+then search, status filters and sort controls at a compact 16px inset. Refresh queue
+and the collection's Refresh keep separate request scopes. History, notification
 and method tables scroll inside their container; the Methods table uses page scrolling while its folder tree scrolls on its own. Opening or
 resizing any view never starts, resumes, archives or deletes a schedule.
 

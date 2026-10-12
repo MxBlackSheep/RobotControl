@@ -57,9 +57,6 @@ const MaintenanceDialog: React.FC = () => {
           <Alert severity="info">
             {reason ?? 'A database restore is currently running. Some actions are temporarily paused.'}
           </Alert>
-          <Typography variant="body2" color="textSecondary">
-            We will automatically resume background updates once the database is back online.
-          </Typography>
           <Typography variant="body2">
             Estimated remaining time: <strong>{formatRemaining(remainingMs)}</strong>
           </Typography>

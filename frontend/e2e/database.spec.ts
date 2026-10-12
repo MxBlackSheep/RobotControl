@@ -34,7 +34,7 @@ for (const size of [{ width: 390, height: 844 }, { width: 1920, height: 1080 }])
   test(`table and SQL inspection at ${size.width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize(size);
     const phone = size.width < 600;
-    const count = (total: number) => page.getByText(phone ? `1–${Math.min(total, 25)} of ${total}` : `${total} matching rows`, { exact: true });
+    const count = (total: number) => page.getByText(`1–${Math.min(total, 25)} of ${total}`, { exact: true });
     const expand = async () => {
       if (!phone) return page.getByRole('button', { name: 'Expand table' }).click();
       await page.getByRole('button', { name: 'More table options' }).click();
@@ -97,7 +97,7 @@ for (const size of [{ width: 390, height: 844 }, { width: 1920, height: 1080 }])
 test('failed refresh retains table data and SQL copy failure is explained', async ({ page }, testInfo) => {
   await page.goto('/database?section=tables');
   await page.getByRole('button', { name: /ViewerSamples Has data/ }).click();
-  await expect(page.getByText('57 matching rows')).toBeVisible();
+  await expect(page.getByText('1–25 of 57', { exact: true })).toBeVisible();
   // A plain read error, so the check is about retained rows rather than service outages.
   await page.route('**/api/database/tables/ViewerSamples?*', route => route.fulfill({ status: 500, json: { detail: 'Fixture read unavailable' } }));
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
@@ -198,7 +198,7 @@ test('restore messages stay inline instead of stacking dialogs', async ({ page }
   await page.route('**/api/admin/backup/list', route => route.fulfill({ json: { success: true, data: [] } }));
   await page.route('**/api/admin/backup/create', route => route.fulfill({ status: 500, json: { detail: 'Backup folder is not writable' } }));
   await page.goto('/database?section=restore');
-  await expect(page.getByRole('alert').filter({ hasText: 'No managed backup files found' })).toBeVisible();
+  await expect(page.getByRole('alert').filter({ hasText: 'No backup files.' })).toBeVisible();
   await expect(page.getByRole('dialog')).toHaveCount(0);
 
   await page.getByRole('button', { name: 'Create Managed Backup', exact: true }).click();

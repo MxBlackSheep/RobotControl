@@ -138,17 +138,9 @@ const LoginPage: React.FC = () => {
               <Box textAlign="center">
                 <Typography
                   variant="h4"
-                  gutterBottom
                   sx={{ fontSize: { xs: '1.5rem', sm: '2.125rem' } }}
                 >
                   {headerText}
-                </Typography>
-                <Typography
-                  variant="body2"
-                  color="textSecondary"
-                  sx={{ fontSize: { xs: '0.9rem', sm: '0.95rem' } }}
-                >
-                  Hamilton VENUS Robot Management Console
                 </Typography>
               </Box>
 
@@ -259,7 +251,6 @@ const LoginPage: React.FC = () => {
                     inputProps={{
                       'aria-label': 'Additional details for administrators',
                     }}
-                    helperText="Include context to help admins verify your request"
                     sx={{
                       '& .MuiInputBase-root': {
                         minHeight: { xs: 56, sm: 56 },
@@ -283,18 +274,6 @@ const LoginPage: React.FC = () => {
                   {loading ? 'Please wait…' : submitLabel}
                 </Button>
               </Box>
-
-              <Stack spacing={1} textAlign="center">
-                {mode === 'forgot' ? (
-                  <Typography variant="caption" color="textSecondary">
-                    Submit the form and our admins will follow up with next steps.
-                  </Typography>
-                ) : (
-                  <Typography variant="caption" color="textSecondary">
-                    Forgot your password? Submit a reset request or contact a lab admin.
-                  </Typography>
-                )}
-              </Stack>
 
               <Stack spacing={1} sx={{ mt: 1 }}>
                 {mode !== 'login' && (

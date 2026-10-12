@@ -25,11 +25,10 @@ export default function TipDeckOverview({ family, joined, rows, columns, selecte
   const dotSize = `max(5px, min(calc((100cqw - ${columns - 1}px) / ${columns} * 0.7), calc((100cqh - ${rows - 1}px) / ${rows} * 0.7)))`;
   // Query containment belongs on each miniature, never on this subgrid pane:
   // layout containment would make its header/body/footer resolve separately.
-  const rackCount = family.left_racks.length + family.right_racks.length;
   // Four rows shared with the rack editor through subgrid: header band, column labels, racks, legend.
   return <Box component="section" aria-label="Tip deck" sx={{ minWidth: 0, display: 'grid', gridColumn: 1, gridRow: '1 / 5', gridTemplateRows: 'subgrid',
     bgcolor: 'background.paper', border: 1, borderColor: 'divider', borderRadius: `${layout.radius}px`, overflow: 'hidden' }}>
-    <PanelHeader title="Deck" actions={<Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>Physical order · {rackCount} racks</Typography>} />
+    <PanelHeader title="Deck" />
     <Box sx={{ gridRow: 2, display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 1.5, alignItems: 'center', px: 2, borderBottom: 1, borderColor: 'surface.rowLine' }}>
       {['Col A', 'Col B'].map(label => <PanelLabel key={label} component="span">{label}</PanelLabel>)}
     </Box>

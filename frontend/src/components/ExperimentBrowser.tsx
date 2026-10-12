@@ -30,7 +30,6 @@ export default function ExperimentBrowser({ selected, onSelect, disabled, active
   }, [query, page, active, reportId, operationId]);
   return <Paper variant="outlined" sx={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
     <Box sx={{ p: 2 }}>
-      <Typography component="h2" variant="subtitle1" fontWeight={600} sx={{ mb: 1 }}>Experiments</Typography>
       <TextField fullWidth size="small" label="Search experiments" placeholder="ID, name or note" value={query}
         onChange={event => { setQuery(event.target.value); setPage(0); }} disabled={disabled} />
     </Box>

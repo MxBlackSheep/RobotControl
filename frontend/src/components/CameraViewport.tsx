@@ -37,7 +37,10 @@ interface CameraViewportProps {
   store: FrameStore;
   hasFrame: boolean;
   connection: string;
-  summary: string;
+  /** Camera and recording states. Always shown expanded (the controls are behind the dialog). */
+  summary?: string;
+  /** Show the summary inline too; false where the camera controls' own chips sit beside the picture. */
+  inlineSummary?: boolean;
   sourceRevision: number;
   controls: React.ReactNode;
   error?: string | null;
@@ -55,6 +58,7 @@ export default function CameraViewport({
   hasFrame,
   connection,
   summary,
+  inlineSummary = true,
   sourceRevision,
   controls,
   error,
@@ -343,6 +347,18 @@ export default function CameraViewport({
               <RestartAlt />
             </IconButton>
           </Tooltip>
+          {!expanded && (
+            <Tooltip title="Expand live view">
+              <IconButton
+                ref={expandRef}
+                aria-label="Expand live view"
+                onClick={() => setExpanded(true)}
+                sx={touchTarget}
+              >
+                <Fullscreen />
+              </IconButton>
+            </Tooltip>
+          )}
           {zoom > 1 && (
             <>
               <Tooltip title="Pan left">
@@ -410,7 +426,9 @@ export default function CameraViewport({
       }}
     >
       <Box ref={toolbarRef} sx={{ flexShrink: 0 }}>
-        {/* Header band as on every panel: label, then the expand/close action. */}
+        {/* Only the expanded dialog has a header band: its label names the dialog and holds Close.
+            Inline, Expand sits with the other view tools, so no row is spent on one icon. */}
+        {expanded && (
         <Stack
           direction="row"
           alignItems="center"
@@ -418,13 +436,9 @@ export default function CameraViewport({
           gap={1}
           sx={{ minHeight: layout.header, px: 2, bgcolor: "surface.head", borderBottom: 1, borderColor: "surface.headLine" }}
         >
-          <PanelLabel
-            component={expanded ? "h2" : "h3"}
-            id={expanded ? "camera-inspection-title" : undefined}
-          >
-            Live camera inspection
-          </PanelLabel>
-          {expanded ? (
+            <PanelLabel component="h2" id="camera-inspection-title">
+              Live camera inspection
+            </PanelLabel>
             <Tooltip title="Close expanded view">
               <IconButton
                 aria-label="Close expanded view"
@@ -435,31 +449,19 @@ export default function CameraViewport({
                 <Close />
               </IconButton>
             </Tooltip>
-          ) : (
-            <Tooltip title="Expand live view">
-              <IconButton
-                ref={expandRef}
-                aria-label="Expand live view"
-                onClick={() => setExpanded(true)}
-                size="small"
-                sx={touchTarget}
-              >
-                <Fullscreen />
-              </IconButton>
-            </Tooltip>
-          )}
         </Stack>
-        <Box sx={{ px: 2, pt: 1.5, pb: 1.5 }}>
-        <Typography variant="body2" aria-live="polite" sx={{ mb: compact && !error ? 0 : 1 }}>
+        )}
+        {((summary && (expanded || inlineSummary)) || error || !compact) && <Box sx={{ px: 2, pt: 1.5, pb: 1.5 }}>
+        {summary && (expanded || inlineSummary) && <Typography variant="body2" aria-live="polite" sx={{ mb: compact && !error ? 0 : 1 }}>
           {summary}
-        </Typography>
+        </Typography>}
         {error && (
           <Alert severity="warning" sx={{ mb: compact ? 0 : 1 }}>
             {error}
           </Alert>
         )}
         {!compact && controlRow}
-        </Box>
+        </Box>}
       </Box>
       <Box
         ref={setArea}
@@ -591,6 +593,8 @@ export default function CameraViewport({
       {!expanded && (
         <Paper
           variant="outlined"
+          component="section"
+          aria-label="Live camera"
           sx={{
             overflow: "hidden",
             ...(narrow && { mx: `-${layout.pagePhone}px`, borderLeft: 0, borderRight: 0, borderRadius: 0 }),
