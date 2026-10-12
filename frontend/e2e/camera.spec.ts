@@ -17,7 +17,7 @@ import { expect, test, type APIRequestContext, type Page } from '@playwright/tes
  *   size is not followed.
  * - A browser without WebCodecs H.264, or a plain-HTTP page, starts a session, shows a blank
  *   canvas or falls back to JPEG instead of its message (live view is H.264 only).
- * - Collapsing controls stops health polling or hides recording/errors.
+ * - Collapsing controls (or closing the phone settings sheet) stops health polling or hides recording/errors.
  * - Small screens overflow, touch controls shrink, or keyboard focus is lost. On an upright phone
  *   the picture is narrower than the screen, or the viewing controls sit above it (out of thumb
  *   reach) instead of below.
@@ -314,7 +314,7 @@ for (const [name, setup, message] of [
   });
 }
 
-test('collapsed controls keep polling and phone controls remain touchable', async ({ page }, testInfo) => {
+test('phone settings sheet: polling continues while closed, controls open from the button and stay touchable', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   let healthRequests = 0;
   page.on('request', req => { if (req.url().includes('/api/camera/control-status')) healthRequests++; });
@@ -322,10 +322,16 @@ test('collapsed controls keep polling and phone controls remain touchable', asyn
   await expect(page.getByText('Camera connected · Recording', { exact: true })).toBeVisible();
   const before = healthRequests;
   await expect.poll(() => healthRequests, { timeout: 8000 }).toBeGreaterThan(before);
-  await page.getByRole('button', { name: 'Camera and recording settings', exact: true }).click();
-  await expect(page.getByRole('combobox', { name: 'Selected camera' })).toBeVisible();
-  await page.getByRole('button', { name: 'Camera and recording settings', exact: true }).click();
+  // The sheet's button carries the recording state, and the controls live in the sheet.
+  const opener = page.getByRole('button', { name: /^Camera and recording/ });
+  await expect(opener).toContainText('On');
   await expect(page.getByRole('combobox', { name: 'Selected camera' })).not.toBeVisible();
+  await opener.click();
+  const sheet = page.getByRole('dialog', { name: 'Camera and recording' });
+  await expect(sheet.getByRole('combobox', { name: 'Selected camera' })).toBeVisible();
+  await sheet.getByRole('button', { name: 'Done', exact: true }).click();
+  await expect(sheet).toBeHidden();
+  await expect(opener).toBeFocused();
   const targets = await page.getByTestId('camera-toolbar').getByRole('button').evaluateAll(buttons => buttons.map(button => ({ label: button.getAttribute('aria-label') ?? button.textContent, height: button.getBoundingClientRect().height })));
   for (const target of targets) expect(target.height, target.label ?? 'camera control').toBeGreaterThanOrEqual(44);
   expect(await wholeFrame(page)).toEqual({ clipped: 0, width: 390 });

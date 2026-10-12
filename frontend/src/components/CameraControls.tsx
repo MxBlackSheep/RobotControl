@@ -36,7 +36,8 @@ const cameraPhrases: Record<string, string> = {
 const recordingPhrases: Record<string, string> = { recording: 'Recording', stopped: 'Not recording', starting: 'Recording starting', error: 'Recording error' };
 const recordingStates: Record<string, string> = { recording: 'On', stopped: 'Off', starting: 'Starting', error: 'Error' };
 
-export interface CameraSummary { text: string; error: string | null }
+/** `recording` is the Recording panel's own chip, so a phone's sheet trigger shows the same state. */
+export interface CameraSummary { text: string; error: string | null; recording: { label: string; tone: StatusTone } }
 
 // Two equal columns when there is room; one column on a narrow phone rather than overflowing labels.
 const buttonGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 1, '& .MuiButton-root': { px: 1, whiteSpace: 'nowrap' } } as const;
@@ -119,12 +120,14 @@ export default function CameraControls({ admin, onSourceChange, collapsible = fa
   const selectionLocked = recordingRequested && Boolean(saved);
   const error = actionError || health?.operation?.error || health?.error || polling.error;
   const summary = `${cameraPhrases[health?.capture_state ?? ''] ?? 'Checking camera'} · ${recordingPhrases[health?.recording_state ?? ''] ?? 'Checking recording'}`;
-  useEffect(() => { onSummaryChange?.({ text: summary, error: error || null }); }, [summary, error, onSummaryChange]);
   const recordingChip = { label: recordingStates[health?.recording_state ?? ''] ?? 'Checking',
     tone: (health?.recording_state === 'recording' ? 'running' : health?.recording_state === 'error' ? 'fault' : 'neutral') as StatusTone };
+  useEffect(() => {
+    onSummaryChange?.({ text: summary, error: error || null, recording: { label: recordingChip.label, tone: recordingChip.tone } });
+  }, [summary, error, recordingChip.label, recordingChip.tone, onSummaryChange]);
   const cameraChip = { label: cameraStateLabels[health?.capture_state ?? ''] ?? 'Checking',
     tone: (health?.capture_state === 'connected' ? 'completed' : health?.capture_state === 'error' ? 'fault' : health?.capture_state === 'disconnected' ? 'attention' : 'neutral') as StatusTone };
-  // Both groups are panels; beside the image they stand alone, below it on phones they collapse together.
+  // Both groups are panels; beside the image or in a phone's sheet they stand alone, below it on tablets they collapse together.
   const bodySx = { display: 'flex', flexDirection: 'column', gap: 1.5 } as const;
   return <Stack spacing={1} sx={{ my: collapsible ? `${layout.gutter}px` : 0 }}>
     {collapsible && <Button aria-expanded={detailsOpen} aria-controls="camera-settings-panel" onClick={() => setDetailsOpen(value => !value)} sx={{ alignSelf: 'flex-start' }}>Camera and recording settings</Button>}

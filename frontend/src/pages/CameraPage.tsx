@@ -4,7 +4,7 @@ import { createFrameStore } from '../components/LiveFrame';
 import { useAuth } from '../context/AuthContext';
 import { useModuleSection } from '../components/navigation';
 import SectionPanel from '../components/SectionPanel';
-import { PageContent, PageHeader } from '../components/PageLayout';
+import { DetailTitle, PageContent, PageHeader } from '../components/PageLayout';
 /**
  * Camera Management Page for RobotControl Simplified Architecture
  * 
@@ -15,7 +15,7 @@ import { PageContent, PageHeader } from '../components/PageLayout';
  */
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Box, Typography, Button, Paper, Stack, LinearProgress, CircularProgress, useMediaQuery } from '@mui/material';
+import { Box, Typography, Button, Paper, Stack, LinearProgress, CircularProgress, Drawer, useMediaQuery } from '@mui/material';
 import StatusChip from '../components/StatusChip';
 import StatusDialog from '../components/StatusDialog';
 import { isAxiosError } from 'axios';
@@ -102,6 +102,14 @@ const CameraPage: React.FC = () => {
   const [currentTab] = useModuleSection('/camera', user);
   // Wide screens put the controls beside the image; narrower ones keep them collapsible below it.
   const sideBySide = useMediaQuery('(min-width:1200px)');
+  // Phones open the controls in a bottom sheet from just under the picture instead of a disclosure
+  // at the end of the page, which sat far from the image and partly behind the bottom page bar.
+  // A phone upright or on its side: rotating must not move the controls between the sheet and the page
+  // (that would remount them and drop an unsaved camera choice).
+  const phone = useMediaQuery('(max-width:599.95px), (max-height:499.95px) and (pointer: coarse)');
+  const [settingsSheetOpen, setSettingsSheetOpen] = useState(false);
+  // Leaving Live view or the phone layout closes the sheet, so it never reopens by itself on return.
+  useEffect(() => { if (currentTab !== 0 || !phone) setSettingsSheetOpen(false); }, [currentTab, phone]);
   
   // Streaming state
   const [streamingStatus, setStreamingStatus] = useState<StreamingStatus | null>(null);
@@ -115,7 +123,7 @@ const CameraPage: React.FC = () => {
     frameStore.set(value);
     if (changedAvailability) setHasFrame(Boolean(value));
   }, [frameStore]);
-  const [cameraSummary, setCameraSummary] = useState<CameraSummary>({ text: 'Checking camera · Checking recording', error: null });
+  const [cameraSummary, setCameraSummary] = useState<CameraSummary>({ text: 'Checking camera · Checking recording', error: null, recording: { label: 'Checking', tone: 'neutral' } });
   const [sourceRevision, setSourceRevision] = useState(0);
   const handleSourceChange = useCallback(() => {
     setCurrentFrame(null);
@@ -506,6 +514,11 @@ const CameraPage: React.FC = () => {
   };
 
   const recentRecordings = <RecentRecordings folders={experimentFolders} loading={archiveLoading} error={archiveError} />;
+  // One instance owns camera polling and the viewer's summary; on a phone it lives in the sheet,
+  // which keeps it mounted while closed.
+  const cameraControls = <CameraControls active={currentTab === 0} admin={user?.role === 'admin'} collapsible={!sideBySide && !phone}
+    onSourceChange={handleSourceChange} onSummaryChange={setCameraSummary} />;
+  const closeSettingsSheet = () => setSettingsSheetOpen(false);
 
   return (
     <>
@@ -592,13 +605,33 @@ const CameraPage: React.FC = () => {
             </>}
           </>}
         />
+        {phone && <>
+          {/* The sheet's Modal returns focus to this button when it closes. */}
+          <Button fullWidth variant="outlined" aria-haspopup="dialog" onClick={() => setSettingsSheetOpen(true)}
+            sx={{ mt: `${layout.gutter}px`, minHeight: layout.touchRow, justifyContent: 'space-between', gap: 1 }}>
+            Camera and recording
+            <StatusChip tone={cameraSummary.recording.tone} label={cameraSummary.recording.label} />
+          </Button>
+          {/* Errors stay on the viewer's summary line too, so none is only inside a closed sheet. */}
+          <Drawer anchor="bottom" open={settingsSheetOpen && currentTab === 0} onClose={closeSettingsSheet} ModalProps={{ keepMounted: true }}
+            PaperProps={{ role: 'dialog', 'aria-modal': true, 'aria-labelledby': 'camera-settings-sheet-title',
+              sx: { borderTopLeftRadius: 16, borderTopRightRadius: 16, maxHeight: '85dvh', overflow: 'auto',
+                px: `${layout.pagePhone}px`, pb: `calc(${layout.pagePhone}px + env(safe-area-inset-bottom))` } }}>
+            <Box aria-hidden sx={{ width: 32, height: 4, borderRadius: 2, bgcolor: 'divider', mx: 'auto', mt: 1 }} />
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, py: 1 }}>
+              <DetailTitle><span id="camera-settings-sheet-title">Camera and recording</span></DetailTitle>
+              <Button onClick={closeSettingsSheet}>Done</Button>
+            </Box>
+            {cameraControls}
+          </Drawer>
+        </>}
         {/* Beside the image the column has room below the controls; narrower screens list them under the image. */}
         {!sideBySide && <Box sx={{ mt: `${layout.gutter}px` }}>{recentRecordings}</Box>}
         </Box>
-        <Stack spacing={`${layout.gutter}px`} sx={{ minWidth: 0 }}>
-        <CameraControls active={currentTab === 0} admin={user?.role === 'admin'} collapsible={!sideBySide} onSourceChange={handleSourceChange} onSummaryChange={setCameraSummary} />
+        {!phone && <Stack spacing={`${layout.gutter}px`} sx={{ minWidth: 0 }}>
+        {cameraControls}
         {sideBySide && recentRecordings}
-        </Stack>
+        </Stack>}
         </Box>
       </SectionPanel>
       </PageContent>
