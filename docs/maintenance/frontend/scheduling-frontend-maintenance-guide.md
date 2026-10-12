@@ -33,7 +33,14 @@ per schedule. On a phone (under 600px) opening a schedule scrolls its details to
 focuses the name; a Next run block shows the stored next run large (an inactive, archived or
 held schedule says it will not run and labels the stored time), and Edit / Archive / Delete sit
 in a bar pinned above the page bar (`pinnedBarSx`), with the same permission and disabled rules;
-remote users see the read-only line there. Back from details on a phone focuses the open row (`aria-current`), not the
+remote users see the read-only line there. A **remote** session on a phone does not get this page
+for Schedules and History: `SchedulingRoute` shows `PhoneRuns`, the read-only Runs tab with an
+Agenda/History switch kept in `?section=`. Agenda lists today and tomorrow: the running schedule
+first, active schedules, and held ones (fetched with `active_only=false`, because holding clears
+`is_active`), never inactive or archived ones; rows expand to their facts. History groups the
+last 50 executions by day; only problems get a chip, and a failed run expands to its error.
+The workstation's own browser keeps the full page at any width, so narrowing it never unmounts
+an open draft. Checks: `phone-runs.spec.ts`. Back from details on a phone focuses the open row (`aria-current`), not the
 selected filter button, which is also `.Mui-selected`; `ScheduleList` remains the
 archived table. `scheduleState` (exported from `ScheduleCollection`) is the one mapping
 from a schedule to its label and tone: Recovery required is amber (needs action), Active

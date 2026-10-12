@@ -5,7 +5,7 @@ import ExpandMore from '@mui/icons-material/ExpandMore';
 import InfoOutlined from '@mui/icons-material/InfoOutlined';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { allowedSections, moduleSectionUrl, moreItemFor, phoneTabFor, useModuleSection, useSidebarLayout } from './navigation';
+import { allowedSections, moduleSectionUrl, moreItemFor, phoneBack, useModuleSection, useSidebarLayout } from './navigation';
 import { robotAttention, useRobotStatusContext } from '../hooks/useRobotStatus';
 import { layout, type StatusTone } from '../theme';
 
@@ -24,7 +24,7 @@ export function PageContent({ children, reading = false, variant = 'overview' }:
  * Title, the module's permitted sections as tabs (kept in `?section=`) and page actions, on one 40px row.
  * Below 900px (the phone tabs) the heading is the current section, a menu on a tab's own page.
  */
-export function PageHeader({ title, actions }: { title: string; actions?: React.ReactNode }) {
+export function PageHeader({ title, actions, sectionMenu = true }: { title: string; actions?: React.ReactNode; sectionMenu?: boolean }) {
   const { user } = useAuth();
   const { pathname } = useLocation();
   const sections = allowedSections(pathname, user);
@@ -54,12 +54,14 @@ export function PageHeader({ title, actions }: { title: string; actions?: React.
     // Phones: a tab's own page titles its current section, with a menu of sections; a page opened
     // from More shows the name that was tapped and a way back. No module label, dots or local-only
     // note: More lists what stays on the workstation.
-    const current = tabbed ? sections.find(section => section.index === selected) ?? sections[0] : undefined;
-    const fromMore = phoneTabFor(pathname) === 'more' && pathname !== '/more';
+    // `sectionMenu={false}`: the page shows its own section control (Runs) under a plain title.
+    const current = tabbed && sectionMenu ? sections.find(section => section.index === selected) ?? sections[0] : undefined;
+    const back = phoneBack(pathname);
+    const fromMore = back?.to === '/more';
     const heading = fromMore ? moreItemFor(pathname, selected === 0 ? undefined : current?.id)?.label ?? current?.label ?? title : current?.label ?? title;
     return <Box component="header" sx={{ mb: 1.5 }}>
-      {fromMore && <MuiLink component={Link} to="/more" underline="none" sx={{ display: 'inline-flex', alignItems: 'center', minHeight: 32, ml: -0.75, fontWeight: 600, fontSize: 15 }}>
-        <ChevronLeft aria-hidden />More
+      {back && <MuiLink component={Link} to={back.to} underline="none" sx={{ display: 'inline-flex', alignItems: 'center', minHeight: 32, ml: -0.75, fontWeight: 600, fontSize: 15 }}>
+        <ChevronLeft aria-hidden />{back.label}
       </MuiLink>}
       <Box sx={{ display: 'flex', alignItems: 'center', minHeight: layout.header, columnGap: 2, rowGap: 1, flexWrap: 'wrap' }}>
         <Typography component="h1" variant="h1" sx={{ fontSize: 24, minWidth: 0 }}>

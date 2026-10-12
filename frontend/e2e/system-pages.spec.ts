@@ -96,7 +96,8 @@ test('robot status keeps a recovery visible on every page and never reads a fail
 
   await page.goto('/database');
   const recovery = banner.getByRole('link', { name: '1 run needs recovery' });
-  await expect(recovery).toHaveAttribute('href', '/scheduling?section=recovery');
+  // The fixture session is remote (the tunnel), where recovery is refused: the hold leads to What happened.
+  await expect(recovery).toHaveAttribute('href', '/held');
   await expect(page.getByRole('link', { name: 'Scheduling, recovery requires attention' })).toBeVisible();
   await page.screenshot({ path: info.outputPath('status-recovery.png'), animations: 'disabled' });
 
@@ -227,13 +228,74 @@ test('Overview shows elapsed time against the estimate and keeps other panels wh
       pending_recoveries: [{ schedule_id: 'feed2', experiment_name: 'Cell feeding · stack 2', note: 'No log activity for 3 min.' }] } } } }));
   await page.clock.fastForward(16000);
   const hold = page.getByRole('region', { name: 'Needs attention' });
-  await expect(hold.getByRole('link', { name: 'Review recovery' })).toBeInViewport({ ratio: 1 });
+  await expect(hold.getByRole('link', { name: 'What happened' })).toBeInViewport({ ratio: 1 });
   await expect(running.getByText('Daily tip wash', { exact: true })).toBeInViewport({ ratio: 1 });
   // Now already leads with the hold; other pages keep it in the strip.
   await expect(page.getByRole('region', { name: 'Robot status' })).toHaveCount(0);
   await page.screenshot({ path: info.outputPath('overview-phone-hold.png'), animations: 'disabled' });
   await page.getByRole('navigation', { name: 'Pages' }).getByRole('link', { name: 'Camera', exact: true }).click();
-  await expect(page.getByRole('region', { name: 'Robot status' }).getByRole('link', { name: '1 run needs recovery' })).toBeVisible();
+  // A phone strip names the held run (this reply has no hold time, so no "since").
+  await expect(page.getByRole('region', { name: 'Robot status' }).getByRole('link', { name: 'Cell feeding · stack 2 held', exact: true })).toBeVisible();
+});
+
+test('a remote phone gets what happened instead of a recovery dead end', async ({ page }) => {
+  const now = new Date('2026-09-30T14:30:00');
+  await page.clock.install({ time: now });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route('**/api/auth/me', route => route.fulfill({ json: { success: true, data: {
+    user_id: 'viewer-admin', username: 'operator', role: 'admin', session_is_local: false, session: { is_local: false } } } }));
+  await page.route('**/api/scheduling/status/queue', route => route.fulfill({ json: { success: true, data: {
+    queue: { queued_jobs: 0, running_job_details: [] }, hamilton: { is_running: false },
+    manual_recovery: { active: true, storage_healthy: true, safety_revision: 4, pending_recoveries: [{ schedule_id: 'feed2',
+      experiment_name: 'Cell feeding · stack 2', note: 'No log activity for 3 min.', triggered_at: new Date(now.getTime() - 208 * 60000).toISOString(), triggered_by: 'scheduler' }] } } } }));
+  await page.route('**/api/monitoring/databases', route => route.fulfill({ json: { success: true, data: {
+    built_in: { id: 'built-in', name: 'Built-in Hamilton connection', access: 'built-in', uses: [], state: 'connected' },
+    connections: [{ id: 'archive', name: 'Archive reader', access: 'read', uses: [], state: 'failed', message: 'Login timeout expired.' }], checked_at: now.toISOString() } } }));
+  await page.route('**/api/logfiles/browse?*', route => route.fulfill({ json: { success: true, data: { source: { id: 'hamilton_logfiles', label: 'Hamilton', path: 'C:\\Logs' },
+    current_path: '', relative_path: '', total_items: 1, items: [{ name: 'Cellfeeding_4f2a_Trace.trc', is_directory: false, modified_date: new Date(now.getTime() - 211 * 60000).toISOString() }] } } }));
+  let traceFails = true;
+  await page.route('**/api/logfiles/preview?*', route => traceFails
+    ? route.fulfill({ status: 500, json: { detail: 'Trace locked' } })
+    : route.fulfill({ json: { success: true, data: { source_id: 'hamilton_logfiles', display_name: 'Cellfeeding_4f2a_Trace.trc',
+      content: '10:58:41 Aspirate Plate 3\n10:59:31 Error Tip pick-up failed\n10:59:31 Waiting for user\n' } } }));
+
+  await page.goto('/');
+  // A failed connection is a problem line on Now; "All systems OK" needs every state known and fine.
+  const problems = page.getByRole('region', { name: 'Needs a look' });
+  await expect(problems).toContainText('Archive readerCannot connect');
+  await expect(page.getByText('All systems OK')).toHaveCount(0);
+  // Recovery is workstation work: the hold leads to the evidence, not to a page with nothing to do.
+  await page.getByRole('region', { name: 'Needs attention' }).getByRole('link', { name: 'What happened' }).click();
+  await expect(page).toHaveURL(/\/held$/);
+  await expect(page.locator('main h1')).toHaveText('What happened');
+  const held = page.getByRole('region', { name: 'Held run' });
+  await expect(held).toContainText('Cell feeding · stack 2');
+  await expect(held).toContainText('Held since 11:02 · 3 h ago');
+  await expect(held).toContainText('Marked by the scheduler');
+  await expect(page.getByText('Acknowledge and resume on the workstation, after checking the deck.')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Open recovery' })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Live camera' })).toHaveAttribute('href', '/camera');
+  // The trace is labelled as the newest one, never claimed as this run's; a failed read offers Retry.
+  const trace = page.getByRole('region', { name: 'Newest Hamilton trace' });
+  await expect(trace).toContainText('Could not read the newest trace.');
+  traceFails = false;
+  await trace.getByRole('button', { name: 'Retry' }).click();
+  await expect(trace).toContainText('Cellfeeding_4f2a_Trace.trc');
+  await expect(trace).toContainText('10:59:31 Error Tip pick-up failed');
+  await expect(page.getByRole('navigation', { name: 'Pages' }).getByRole('link', { name: /^Now/ })).toHaveAttribute('aria-current', 'page');
+  await page.screenshot({ path: test.info().outputPath('held-phone.png'), animations: 'disabled' });
+  // Elsewhere the strip names the held run and opens What happened.
+  await page.getByRole('main').getByRole('link', { name: 'Now', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Pages' }).getByRole('link', { name: 'Camera', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Robot status' }).getByRole('link', { name: 'Cell feeding · stack 2 held since 11:02' })).toHaveAttribute('href', '/held');
+  // The workstation's own browser can recover, so it goes straight to Recovery.
+  await page.unroute('**/api/auth/me');
+  await page.route('**/api/auth/me', route => route.fulfill({ json: { success: true, data: {
+    user_id: 'viewer-admin', username: 'operator', role: 'admin', session_is_local: true, session: { is_local: true } } } }));
+  await page.reload();
+  await expect(page.getByRole('region', { name: 'Robot status' }).getByRole('link', { name: 'Cell feeding · stack 2 held since 11:02' })).toHaveAttribute('href', '/scheduling?section=recovery');
+  await page.goto('/');
+  await expect(page.getByRole('region', { name: 'Needs attention' }).getByRole('link', { name: 'Review recovery' })).toHaveAttribute('href', '/scheduling?section=recovery');
 });
 
 test('System Status renews an expired sign-in', async ({ page }) => {
