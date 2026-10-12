@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { Box, Button, Link as MuiLink } from '@mui/material';
 import WarningAmber from '@mui/icons-material/WarningAmber';
 import CloudOff from '@mui/icons-material/CloudOff';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
+import { useSidebarLayout } from './navigation';
 import { robotAttention, ROBOT_STATUS_INTERVAL_MS, useRobotStatusContext } from '../hooks/useRobotStatus';
 import { layout } from '../theme';
 import { useConnectionState } from '../services/requestError';
@@ -23,18 +24,23 @@ export default function RobotAttentionBanner() {
   const connection = useConnectionState();
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 5000); return () => clearInterval(timer); }, []);
-  const attention = robotAttention(status);
+  // Phones: Now opens with the hold itself, so the strip there carries only connection problems.
+  const { mobile } = useSidebarLayout();
+  const { pathname } = useLocation();
+  const onNow = mobile && pathname === '/';
+  const attention = onNow ? null : robotAttention(status);
   const stale = !!status && (!!error || now - status.receivedAt > ROBOT_STATUS_INTERVAL_MS * 2 + 5000);
   const unavailable = !status && !!error;
   // Explains why data is stale; the latest request outcome (any screen) clears it.
   const connectionLost = !connection.online ? 'This device is offline' : connection.failing ? 'Connection to RobotControl lost · retrying' : null;
   if (!attention && !stale && !unavailable && !connectionLost) return null;
 
-  return <Box role="region" aria-label="Robot status" sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', columnGap: 2, minHeight: layout.touchRow, px: { xs: `${layout.pagePhone}px`, sm: `${layout.page}px` },
-    fontSize: 14, bgcolor: 'attentionSurface.head', color: 'attentionSurface.text', borderBottom: 1, borderColor: 'attentionSurface.line' }}>
+  // Phones: a thin strip (the tabs carry the hold too); the link keeps a 44px touch target.
+  return <Box role="region" aria-label="Robot status" sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', columnGap: 2, minHeight: mobile ? 32 : layout.touchRow, px: { xs: `${layout.pagePhone}px`, sm: `${layout.page}px` },
+    fontSize: mobile ? 13 : 14, bgcolor: 'attentionSurface.head', color: 'attentionSurface.text', borderBottom: 1, borderColor: 'attentionSurface.line' }}>
     {attention && <MuiLink component={Link} to="/scheduling?section=recovery" underline="hover" color="inherit" aria-label={attention.label}
       // 36px inside the 44px band (border included); the pseudo-element makes the touch target 44px.
-      sx={{ display: 'flex', alignItems: 'center', gap: 1, fontWeight: 600, minHeight: 36, position: 'relative', '&::after': { content: '""', position: 'absolute', inset: '-4px 0' } }}>
+      sx={{ display: 'flex', alignItems: 'center', gap: 1, fontWeight: 600, minHeight: mobile ? 28 : 36, position: 'relative', '&::after': { content: '""', position: 'absolute', inset: mobile ? '-8px 0' : '-4px 0' } }}>
       <WarningAmber fontSize="small" />{attention.label}
     </MuiLink>}
     <Box sx={{ flex: 1 }} />

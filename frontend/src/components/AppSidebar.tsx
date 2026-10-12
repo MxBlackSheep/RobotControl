@@ -7,7 +7,7 @@ import { robotAttention, useRobotStatusContext } from '../hooks/useRobotStatus';
 import { fontMono, layout } from '../theme';
 import { APP_VERSION } from '../version';
 
-/** Modules only; a module's sections are tabs in its page header. Phones use PhoneBar instead. */
+/** Modules only; a module's sections are tabs in its page header. Phones use PhoneTabs instead. */
 export default function AppSidebar({ user, expanded, onToggle, footer }: {
   user: NavigationUser; expanded: boolean; onToggle: () => void; footer: React.ReactNode;
 }) {

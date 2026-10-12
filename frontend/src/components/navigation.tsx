@@ -33,6 +33,31 @@ export const navigationItems = [
   { label: 'System status', path: '/system-status', icon: MonitorHeart }, { label: 'Admin', path: '/admin', icon: AdminPanelSettings, roles: ['admin'] },
 ];
 export const visibleNavigation = (user: NavigationUser) => navigationItems.filter(item => !item.roles || item.roles.includes(user?.role || ''));
+
+/*
+ * Phones (below 900px) are a monitor: through the tunnel the server refuses robot and lab changes,
+ * so the phone shows four fixed tabs and a More list of read-only places instead of every module.
+ */
+type PhoneLink = { label: string; to: string; roles?: string[] };
+const permitted = (user: NavigationUser) => (item: PhoneLink) => !item.roles || item.roles.includes(user?.role || '');
+export const phoneTabs: (PhoneLink & { id: 'now' | 'runs' | 'camera' | 'more' })[] = [
+  { id: 'now', label: 'Now', to: '/' }, { id: 'runs', label: 'Runs', to: '/scheduling', roles: ['admin', 'user'] },
+  { id: 'camera', label: 'Camera', to: '/camera' }, { id: 'more', label: 'More', to: '/more' },
+];
+export const visiblePhoneTabs = (user: NavigationUser) => phoneTabs.filter(permitted(user));
+/** The tab a path belongs to: every page that is not a tab's own is reached from More. */
+export const phoneTabFor = (path: string) => phoneTabs.find(tab => tab.to === path && tab.id !== 'more')?.id ?? 'more';
+export const moreItems: PhoneLink[] = [
+  { label: 'Tip racks', to: '/labware', roles: ['admin', 'user'] }, { label: 'Cytomat', to: '/labware?section=cytomat', roles: ['admin', 'user'] },
+  { label: 'Run logs', to: '/logfile?section=hamilton' }, { label: 'Database tables', to: '/database' },
+  { label: 'Reports', to: '/database?section=retrieval' }, { label: 'System status', to: '/system-status' }, { label: 'Account', to: '/account' },
+];
+export const visibleMoreItems = (user: NavigationUser) => moreItems.filter(permitted(user));
+/** The More entry for a page and section, so the page is titled with the name that was tapped. */
+export const moreItemFor = (path: string, sectionId: string | undefined) => moreItems.find(item => {
+  const [itemPath, query = ''] = item.to.split('?');
+  return itemPath === path && (new URLSearchParams(query).get('section') ?? undefined) === sectionId;
+});
 export function useModuleSection(path: string, user: NavigationUser) {
   const [params, setParams] = useSearchParams();
   const value = params.get('section');

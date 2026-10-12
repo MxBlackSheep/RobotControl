@@ -12,7 +12,7 @@ import { loadComponent } from './utils/BundleOptimizer';
 import LoadingSpinner from './components/LoadingSpinner';
 import PageLoadBoundary from './components/PageLoadBoundary';
 import AppSidebar from './components/AppSidebar';
-import PhoneBar from './components/PhoneBar';
+import PhoneTabs from './components/PhoneTabs';
 import RobotAttentionBanner from './components/RobotAttentionBanner';
 import { useSidebarLayout } from './components/navigation';
 import SkipLink from './components/SkipLink';
@@ -37,6 +37,7 @@ const SchedulingPage = loadComponent(() => import('./pages/SchedulingPage'));
 const AboutPage = loadComponent(() => import('./pages/AboutPage'));
 const AdminPage = loadComponent(() => import('./pages/AdminPage'));
 const AccountPage = loadComponent(() => import('./pages/AccountPage'));
+const MorePage = loadComponent(() => import('./pages/MorePage'));
 
 function AccountMenu({ compact, onChangePassword }: { compact: boolean; onChangePassword: () => void }) {
   const { user, logout } = useAuth();
@@ -118,6 +119,7 @@ function AppShell() {
             />
             <Route path="/about" element={<AboutPage />} />
             <Route path="/account" element={<AccountPage />} />
+            <Route path="/more" element={<MorePage />} />
             <Route path="/login" element={<Navigate to="/" replace />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
@@ -125,7 +127,7 @@ function AppShell() {
         </PageLoadBoundary>
       </Box>
 
-      {isMobile && <PhoneBar />}
+      {isMobile && <PhoneTabs />}
 
       <KeyboardShortcutsHelp
         open={shortcutsHelpOpen}

@@ -151,9 +151,10 @@ export default function TipTrackingPanel({ active = true }: { active?: boolean }
             {families.map(item => <MenuItem key={item.family_id} value={item.family_id}>{item.display_name}{Object.keys(pending[item.family_id] || {}).length ? ' · Unsaved' : ''}</MenuItem>)}
           </TextField>}
       {statusCaption}
-      {/* Phones: an even two-column grid of actions rather than ragged wrapping. */}
+      {/* Phones: an even two-column grid of actions rather than ragged wrapping. A phone that may not
+          save (the tunnel) has no actions: the deck refreshes itself and More names the workstation. */}
       <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap"
-        sx={{ ml: 'auto', width: { xs: '100%', sm: 'auto' }, display: { xs: 'grid', sm: 'flex' }, gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
+        sx={{ ml: 'auto', width: { xs: '100%', sm: 'auto' }, display: { xs: canUpdate ? 'grid' : 'none', sm: 'flex' }, gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
         <Button variant="outlined" onClick={() => void refresh()} disabled={busy || totalPending > 0 || gesture}>Refresh</Button>
         {canUpdate ? <>
           <Button variant="outlined" onClick={undo} disabled={busy || gesture || !(history[family.family_id]?.length)}>Undo</Button>
