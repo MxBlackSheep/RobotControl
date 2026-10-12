@@ -25,7 +25,7 @@ Below 900 pixels of **workspace width**, the catalogue and detail alternate. Thi
 Below 600 pixels of **browser** width (`usePhoneWorkspace()`, MUI's xs) the workspace has no height of its own: lists and tables scroll with the page, so there is one scroll and nothing inside the workspace scrolls vertically. The exception is a `boundedDetail` reader while it is shown. Back and the list/detail alternation are unchanged.
 
 - Anything pinned inside the flowing workspace uses `position: sticky`. Every ancestor up to the page must be `overflow: visible` or `clip`, never `hidden` or `auto`: those make a scroll container and the element sticks to it instead of the screen. `Panel` uses `clip` for this reason. Pinned headings sit below the sticky app header with `top: var(--app-header-height)`, which `App.tsx` keeps current (the recovery banner can wrap).
-- `pinnedBarSx` pins a bar to the bottom of the screen, above the iOS home indicator (`env(safe-area-inset-bottom)`; the value is 0 unless the page uses `viewport-fit=cover`, and Safari then keeps the page above the indicator itself).
+- `pinnedBarSx` pins a bar to the bottom of the screen, resting on the phone page bar (`bottom: var(--app-bottom-bar-height)`); the page bar owns the iOS home-indicator inset.
 - `LoadMoreBar` ("50 of 2,000 files", Load more) replaces paging in phone lists. Logs appends the next API page (same `page`/`limit` requests; files that shifted between pages are listed once, and Refresh or a folder change starts from page 1). The archive shows one more client page. Scheduling's list needs neither: it flows.
 - `InspectionName`: the open table's or definition's name on one line with an ellipsis; tapping shows it whole, and screen readers always get the full name.
 

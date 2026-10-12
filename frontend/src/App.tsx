@@ -99,7 +99,10 @@ function AppShell() {
       <Box
         component="main"
         id="main-content"
-        sx={{ p: { xs: `${layout.pagePhone}px`, sm: `${layout.page}px` }, minWidth: 0, ...(isMobile && { pb: `calc(var(--app-bottom-bar-height, 0px) + ${layout.pagePhone}px)` }) }}
+        sx={{ px: { xs: `${layout.pagePhone}px`, sm: `${layout.page}px` }, pt: { xs: `${layout.pagePhone}px`, sm: `${layout.page}px` }, minWidth: 0,
+          // Responsive on both sides: a plain pb would lose to a responsive p. Phones also clear the bottom bar.
+          pb: isMobile ? { xs: `calc(var(--app-bottom-bar-height, 0px) + ${layout.pagePhone}px)`, sm: `calc(var(--app-bottom-bar-height, 0px) + ${layout.page}px)` }
+            : { xs: `${layout.pagePhone}px`, sm: `${layout.page}px` } }}
         tabIndex={-1} // Make focusable for skip link
       >
         <PageLoadBoundary key={pathname}>

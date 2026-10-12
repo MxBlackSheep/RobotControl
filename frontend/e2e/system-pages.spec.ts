@@ -31,10 +31,11 @@ import { test, expect } from '@playwright/test';
 // - A running job without a known start or estimate shows NaN, "0 min" or a false bar.
 // - One panel's failed read (e.g. Recent runs) blanks the page instead of offering Retry.
 // - A failed robot status read shows "Nothing running" as if the robot were idle.
-// - The phone navigation button disappears with the status bar.
+// - The phone page bar (Pages) disappears with the status bar.
 // - The strip shows SQL Server again, or Overview polls system-health for nothing.
-// - On a 390x844 phone the strip, the hold (Review recovery) or the running job's name and bar
-//   fall below the first screen.
+// - On a 390x844 phone the first card is not the most urgent one fully visible (the hold's
+//   Review recovery when runs are held, else the running job's name and bar), or another card
+//   (the strip) is not one dot away.
 // Unrelated 503s (the backend has no "database restarting" 503; restore success is checked
 // in database-restore.spec.ts):
 // - A camera or scheduler 503 opens "Database Maintenance In Progress", blocks later
@@ -204,14 +205,16 @@ test('Overview shows elapsed time against the estimate and keeps other panels wh
   await page.screenshot({ path: info.outputPath('overview-past-estimate.png'), fullPage: true, animations: 'disabled' });
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBeTruthy();
-  // A phone's first screen answers "is something running, does anything need attention".
+  // A phone's first screen answers "is something running, does anything need attention": the deck
+  // opens on the run; the strip is the card one dot away.
   await page.evaluate(() => scrollTo(0, 0));
-  await expect(health).toBeInViewport({ ratio: 1 });
   await expect(running.getByText('Daily tip wash', { exact: true })).toBeInViewport({ ratio: 1 });
   await expect(running.getByRole('progressbar', { name: 'Running past the estimate' })).toBeInViewport({ ratio: 1 });
+  await page.getByRole('button', { name: 'Instrument health', exact: true }).click();
+  await expect(health).toBeInViewport({ ratio: 1 });
   await page.screenshot({ path: info.outputPath('overview-phone.png'), fullPage: true, animations: 'disabled' });
 
-  // With runs held the hold comes right after the strip, and the run is still on the first screen.
+  // With runs held the hold becomes the first card, shown even though the strip card was in view; the run is next.
   await page.route('**/api/scheduling/status/queue', route => route.fulfill({ json: { success: true, data: {
     queue: { queued_jobs: 1, running_job_details: [{ schedule_id: 'wash', experiment_name: 'Daily tip wash', estimated_duration: 60,
       monitoring: { state: 'monitoring', launched_at: new Date(now.getTime() - 42 * 60000).toISOString(), inactivity_seconds: 18, threshold_minutes: 3 } }] },
@@ -220,7 +223,7 @@ test('Overview shows elapsed time against the estimate and keeps other panels wh
   await page.clock.fastForward(16000);
   const hold = page.getByRole('region', { name: 'Needs attention' });
   await expect(hold.getByRole('link', { name: 'Review recovery' })).toBeInViewport({ ratio: 1 });
-  await expect(health).toBeInViewport({ ratio: 1 });
+  await page.getByRole('button', { name: 'Now running', exact: true }).click();
   await expect(running.getByText('Daily tip wash', { exact: true })).toBeInViewport({ ratio: 1 });
   await page.screenshot({ path: info.outputPath('overview-phone-hold.png'), animations: 'disabled' });
 });

@@ -72,9 +72,19 @@ export default function PhoneBar() {
     const element = bar.current;
     if (!element) return;
     const root = document.documentElement.style;
-    const observer = new ResizeObserver(() => root.setProperty('--app-bottom-bar-height', `${element.offsetHeight}px`));
+    // Views that fit themselves to the screen (text readers, rack, camera) subtract the main element's
+    // bottom padding, which includes this height, and re-measure on window resize. A CSS variable change
+    // resizes nothing they observe, so announce it as a resize.
+    const observer = new ResizeObserver(() => {
+      const value = `${element.offsetHeight}px`;
+      if (root.getPropertyValue('--app-bottom-bar-height') === value) return;
+      root.setProperty('--app-bottom-bar-height', value);
+      // Focus moves and scroll-into-view must stop above the bar, not behind it.
+      root.setProperty('scroll-padding-bottom', value);
+      window.dispatchEvent(new Event('resize'));
+    });
     observer.observe(element);
-    return () => { observer.disconnect(); root.setProperty('--app-bottom-bar-height', '0px'); };
+    return () => { observer.disconnect(); root.setProperty('--app-bottom-bar-height', '0px'); root.removeProperty('scroll-padding-bottom'); };
   }, []);
 
   const groupHasAttention = (index: number) => attention && groups[index].some(item => item.path === '/scheduling');
@@ -121,11 +131,11 @@ export default function PhoneBar() {
               return <ButtonBase key={item.path} component={Link} to={item.path} draggable={false}
                 aria-current={selected ? 'page' : undefined} aria-label={badge ? `${item.label}, recovery requires attention` : undefined}
                 sx={{
-                  position: 'relative', minHeight: 44, minWidth: 0, px: 1, borderRadius: '22px', fontSize: 13, fontWeight: 600, lineHeight: 1.15, textAlign: 'center',
+                  position: 'relative', minHeight: 44, minWidth: 0, px: 1, borderRadius: '22px', fontSize: 12, fontWeight: 600, lineHeight: 1.15, textAlign: 'center',
                   bgcolor: selected ? 'primary.main' : 'action.hover', color: selected ? 'primary.contrastText' : 'text.primary',
                 }}>
                 {/* Two-word labels ("System status") may take two lines; the dot sits on the corner so it never costs label width. */}
-                <Box component="span" sx={{ minWidth: 0, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{item.label}</Box>
+                <Box component="span" sx={{ minWidth: 0, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflowWrap: 'normal', wordBreak: 'normal' }}>{item.label}</Box>
                 {badge && <Box component="span" aria-hidden sx={{ position: 'absolute', top: 4, right: 6, width: 8, height: 8, borderRadius: 4, bgcolor: 'attentionSurface.action', boxShadow: theme => `0 0 0 2px ${theme.palette.background.paper}` }} />}
               </ButtonBase>;
             })}

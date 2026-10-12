@@ -162,8 +162,10 @@ for (const size of [{ width: 390, height: 844 }, { width: 375, height: 667 }]) {
     await expect.poll(async () => { const layout = await phoneTableLayout(page); return Math.abs(layout.stripTop - layout.header); }).toBeLessThan(1);
     const scrolled = await phoneTableLayout(page);
     expect(scrolled.rows).toBeGreaterThanOrEqual(6);
-    expect(scrolled.barBottom).toBeLessThanOrEqual(scrolled.viewport + 1);
-    expect(scrolled.barBottom).toBeGreaterThan(scrolled.viewport - 60);
+    // The paging bar rests on the page bar: never under it, no gap above it.
+    const pagesTop = await page.getByRole('navigation', { name: 'Pages' }).evaluate(nav => nav.getBoundingClientRect().top);
+    expect(scrolled.barBottom).toBeLessThanOrEqual(pagesTop + 1);
+    expect(scrolled.barBottom).toBeGreaterThan(pagesTop - 2);
 
     // Sideways: the Row column stays, headings follow their columns, the fade ends at the last column.
     const rows = page.getByLabel('dbo.ActivePlateView rows');

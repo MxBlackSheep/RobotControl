@@ -21,9 +21,20 @@ every page shares.
 
 ## Navigation and sections
 
-`AppSidebar` is the dark module rail: 224px expanded, 64px collapsed, an overlay drawer
-below 900px (opened from the menu button in the phone header). It lists modules
-only; the account menu (Change password, About, Log out) and Appearance sit at its foot.
+`AppSidebar` is the dark module rail from 900px: 224px expanded, 64px collapsed. It lists
+modules only; the account menu (Change password, About, Log out) and Appearance sit at its foot.
+Below 900px `PhoneBar` replaces it: a bar fixed to the bottom with every permitted module (phone
+order: Overview, Scheduling, Camera, Labware, then the rest) and Account (`/account`, which holds
+Appearance, Change password, About and Log out), four equal pills per group (three below 360px).
+Swipe the pill row or tap the dots to change group; the bar opens on the current page's group.
+Off-screen groups are `inert`, so Tab and screen readers reach only visible pills; after a drag
+the click is cancelled, so a swipe never opens a page. A held run marks the Scheduling pill and,
+while its group is away, that group's dot (`robotAttention`, no extra polling). The bar publishes
+`--app-bottom-bar-height`, the main element's bottom padding and `scroll-padding-bottom` (focus
+and scroll-into-view stop above it), and announces a height change as a window resize so views
+that fit the screen (text readers, rack, camera) re-measure. Checks: `phone-navigation.spec.ts`.
+On phones a module with several sections shows the module as a label, the current section as the
+heading (a menu of sections) and one dot per section; `?section=` stays the only owner.
 Collapsed, the account button shows the initial, with the name and role as a tooltip and
 screen-reader text, so the signed-in user is always identifiable. Page titles name the
 module; the selected tab names the section.
@@ -103,9 +114,12 @@ three-letter names). Execution statuses map to tones in
 storage, HxRun, camera; 12 columns), Now running (8) beside Needs attention (4;
 Now running takes 12 when nothing is held), Up next (6) beside Recent runs (6, both seven
 single-line rows) and Latest experiment as one full-width row. SQL Server left the strip in
-October 2026 at the owner's request; System status lists every database connection. On phones
-the strip and the hold come first, and a 390×844 screen shows the strip, the hold's Review
-recovery and the running job's name and bar without scrolling (`system-pages.spec.ts`). Each panel has its own error boundary and Retry, so one failed read never
+October 2026 at the owner's request; System status lists every database connection. Below
+600px the panels are `OverviewDeck` cards that the browser scrolls and snaps (no gesture code):
+Needs attention (while held), Now running, Instrument health, Up next, Recent runs, Latest
+experiment, with dots to jump. Only one layout is mounted, so no panel polls twice. When a hold
+card appears in front, the deck returns to it (the browser would keep the card it had snapped
+to). A 390×844 screen shows the most urgent card whole (`system-pages.spec.ts`). Each panel has its own error boundary and Retry, so one failed read never
 blanks the page. Now running shows elapsed time against the schedule's estimate; past the
 estimate the bar stops claiming progress (see `runTiming`).
 
@@ -120,8 +134,9 @@ rows of 52px with no empty cell (System status is reached from the navigation, n
 ## Page layout and screenshot review
 
 `PageContent` uses the full width on every screen (only `reading` keeps a 1120px measure),
-so page edges never move between modules. App owns the page padding, the phone header
-(52px, below 900px) and the sticky attention banner.
+so page edges never move between modules. App owns the page padding (each side set
+responsively: a plain `pb` would lose to a responsive `p`), the phone page bar and the sticky
+attention banner.
 
 Styling changes are verified by screenshot review, not the behaviour suite:
 `npx playwright test -c playwright.visual.config.ts` (from `frontend`) fills every screen
@@ -188,8 +203,9 @@ isolation; `system-pages.spec.ts` also covers the attention banner's failure cas
   console. Only the Overview page (`pages/Dashboard.tsx`) is imported eagerly.
 - **Wrong sidebar item or section tab:** check the section name and permission filters in
   `navigation.tsx` and the `section` query parameter.
-- **Mobile menu does not open:** the phone header's Open navigation button must update
-  `mobileDrawerOpen`, and `AppSidebar` needs `open`/`onClose`.
+- **Phone page bar hides content or a control:** check `--app-bottom-bar-height` on `<html>`,
+  the main element's computed bottom padding and `scroll-padding-bottom`; views that size to the
+  screen must subtract the main element's bottom padding and listen for `resize`.
 - **Banner stuck on "Robot status unavailable":** open the two status URLs above; the reply
   must carry `data.queue`, `data.manual_recovery` (may be null) and a boolean
   `data.is_running`.
