@@ -25,7 +25,7 @@ const ahead = (minutes: number) => local(new Date(now.getTime() + minutes * 6000
 const list = (name: string, fallback: string[]) => (process.env[name] ? process.env[name]!.split(',') : fallback);
 
 const routes = list('VISUAL_ROUTES', ['/', '/scheduling', '/scheduling?section=history', '/scheduling?section=recovery', '/labware', '/camera',
-  '/camera?section=archive', '/database', '/database?section=procedures', '/database?section=retrieval', '/logfile', '/maintenance', '/system-status', '/admin', '/more', '/account']);
+  '/camera?section=archive', '/database', '/database?section=procedures', '/database?section=retrieval', '/logfile', '/maintenance', '/system-status', '/admin', '/more', '/account', '/held']);
 const widths = list('VISUAL_WIDTHS', ['1440', '1280', '390', '375']).map(Number);
 const modes = list('VISUAL_MODES', ['light', 'dark']);
 const localSession = (width: number) => process.env.VISUAL_SESSION ? process.env.VISUAL_SESSION !== 'remote' : width >= 900;

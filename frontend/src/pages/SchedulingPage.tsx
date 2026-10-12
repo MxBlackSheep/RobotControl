@@ -49,6 +49,7 @@ import { preparationSummary, stateChip } from '../components/scheduling/Preparat
 import { fontMono, layout, StatusTone } from '../theme';
 import WarningAmber from '@mui/icons-material/WarningAmber';
 import InspectionWorkspace, { pinnedBarSx, usePhoneWorkspace } from '../components/InspectionWorkspace';
+import PhoneRuns from '../components/scheduling/PhoneRuns';
 import SectionPanel from '../components/SectionPanel';
 import RecoverySafetyPanel from '../components/scheduling/RecoverySafetyPanel';
 import ImprovedScheduleForm from '../components/scheduling/ImprovedScheduleForm';
@@ -848,4 +849,16 @@ const SchedulingPage: React.FC = () => {
   );
 };
 
-export default SchedulingPage;
+/**
+ * A remote session on a phone gets the Runs monitor for Schedules and History (the server refuses
+ * schedule changes through the tunnel); other sections, reached by link, keep the full page. The
+ * workstation's own browser is local, so narrowing its window never unmounts an open draft.
+ */
+function SchedulingRoute() {
+  const { user } = useAuth();
+  const phone = usePhoneWorkspace();
+  const [section] = useSchedulingSection(user);
+  return phone && !isLocalUser(user) && (section === 0 || section === 3) ? <PhoneRuns /> : <SchedulingPage />;
+}
+
+export default SchedulingRoute;

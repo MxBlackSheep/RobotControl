@@ -5,7 +5,7 @@ import { test, expect, type Page } from '@playwright/test';
 // - The tab of the current place is not marked; a page opened from More marks no tab or the wrong one.
 // - A held run is invisible from the tabs.
 // - A page opened from More has no way back, or is titled differently from the entry that was tapped.
-// - The title menu loses the section on reload, or offers a section the user may not open.
+// - Runs shows a section menu over its own Agenda/History switch (phone-runs.spec.ts covers the switch).
 // - The tabs cover the end of a page.
 
 const phone = { width: 390, height: 844 };
@@ -57,19 +57,12 @@ test('a held run marks the Now tab', async ({ page }) => {
   await expect(tabs(page).getByRole('link', { name: 'Now, 1 run needs recovery' })).toBeVisible();
 });
 
-test('the Runs title menu keeps the section in the address', async ({ page }) => {
+test('Runs is a plain title over its own Agenda and History switch', async ({ page }) => {
   await page.goto('/scheduling');
-  const heading = page.locator('main h1');
-  await expect(heading).toHaveText('Schedules');
+  await expect(page.locator('main h1')).toHaveText('Runs');
+  await expect(page.locator('main h1').getByRole('button')).toHaveCount(0);
   await expect(tabs(page).getByRole('link', { name: 'Runs', exact: true })).toHaveAttribute('aria-current', 'page');
-  await heading.getByRole('button').click();
-  // Remote session: local-only sections are not offered.
-  await expect(page.getByRole('menuitem', { name: 'Methods' })).toHaveCount(0);
-  await page.getByRole('menuitem', { name: 'History' }).click();
-  await expect(page).toHaveURL(/section=history/);
-  await expect(heading).toHaveText('History');
-  await page.reload();
-  await expect(heading).toHaveText('History');
+  await expect(page.getByRole('group', { name: 'Runs view' })).toBeVisible();
 });
 
 test('the end of a page stays above the tabs', async ({ page }) => {

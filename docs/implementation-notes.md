@@ -1,3 +1,9 @@
+## 2026-10-12 Phones: What happened, the Runs tab and database problems on Now
+
+- A remote session's Review recovery led to a page that only said recovery is on the workstation. The hold now leads remote sessions to What happened (`/held`): every hold with when and why, Live camera, the workstation note, and the newest Hamilton trace's tail. The server has no link from a hold to its trace or recording, so the trace is labelled as the newest one, not the run's. The workstation's browser still goes to Recovery.
+- The Runs tab (remote phones) is a read-only Agenda (today and tomorrow, running first, held runs kept although holding clears `is_active`) and History (last 50 runs by day, errors on tap), replacing the desktop schedule table. The phone strip names the held run and its time. Now lists database connections that cannot open.
+- Two older checks asserted that the remote fixture session was sent to `/scheduling?section=recovery` (the dead end); they now expect `/held`, and a local session is checked to still reach Recovery. Checks: new `phone-runs.spec.ts`, `system-pages` remote-hold case, full suite 136; desktop 1440 screenshots unchanged apart from sub-pixel noise and live data. Not done: recordings matched to runs (no stored link), a per-run log for history rows (no stored link).
+
 ## 2026-10-12 Phones become a monitor: four tabs, Now and More
 
 - The owner found the phone still terrible. Three reviewers (operator, mobile designer, skeptic) agreed on the cause: the phone carried 9 modules and about 25 sections while, through the tunnel, the server refuses every robot and lab change. Our phone screenshots had been taken as a local session, so they showed controls the owner's phone never gets. The owner approved a demo of every page (`tasks/demo`, not committed).

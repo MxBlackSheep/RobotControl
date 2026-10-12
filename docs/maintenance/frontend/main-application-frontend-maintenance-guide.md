@@ -47,8 +47,20 @@ content, focus and scroll-into-view stop above them without offsets. Checks:
 `phone-navigation.spec.ts`. The phone page heading has no module label or dots: a tab's own page
 titles its current section with a menu of sections (`?section=` stays the only owner); a page
 opened from More is titled with the entry that was tapped (`moreItemFor`) under a "More" link
-back, without a section menu. On phones the robot status banner is a 32px strip, and on Now it
-leaves out the hold, which Now shows first; connection and stale-status warnings stay everywhere.
+back, without a section menu; `phoneBack` decides the link (What happened, `/held`, belongs to
+Now). `PageHeader sectionMenu={false}` gives a plain title to a page with its own section control
+(Runs). On phones the robot status banner is a 32px strip naming the held run ("Cell feeding ·
+stack 2 held since 11:02", plus "· N more"); on Now and What happened it leaves out the hold,
+which they show first; connection and stale-status warnings stay everywhere.
+
+**Recovery is workstation work.** The server refuses recovery and resume to remote sessions
+(only the workstation's own browser is local), so the banner link and Needs attention send a
+remote session to What happened (`pages/HeldRunPage.tsx`) and a local one to Recovery. What
+happened lists every hold (name, held since, note, who marked it), Live camera, the workstation
+note (or Open recovery when local) and the newest Hamilton trace's last 20 lines. Nothing links a
+hold to its own trace or recording (the recovery record has no run id), so the trace is labelled
+as the newest one with its file name and time, never as the run's log; it is read only while a
+run is held. Checks: `system-pages.spec.ts` ("a remote phone gets what happened…").
 Collapsed, the account button shows the initial, with the name and role as a tooltip and
 screen-reader text, so the signed-in user is always identifiable. Page titles name the
 module; the selected tab names the section.

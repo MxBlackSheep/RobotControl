@@ -14,6 +14,9 @@ import { clockTime, dayTime } from '../../utils/displayTime';
 import { repeatLabel } from '../scheduling/ScheduleCollection';
 import { executionTone } from '../scheduling/executionStatus';
 import { labwareApi, type TipTrackingSnapshot } from '../../services/labwareApi';
+import { useAuth } from '../../context/AuthContext';
+import type { DatabaseConnection, DatabaseConnections } from '../../hooks/useMonitoring';
+import { isLocalUser } from '../navigation';
 
 const PANEL_REFRESH_MS = 60000;
 /** Rows shown in the Overview lists (the approved mock's seven). */
@@ -51,6 +54,8 @@ function EmptyRow({ children }: { children: React.ReactNode }) {
 /** Shown only while the scheduler is holding runs for an operator. */
 export function NeedsAttention({ status, span }: { status: RobotStatus | null; span?: number }) {
   const attention = robotAttention(status);
+  // Recovery is refused remotely (the tunnel), so a remote session gets the evidence instead.
+  const local = isLocalUser(useAuth().user);
   if (!attention || !status?.recovery) return null;
   const recovery = status.recovery;
   const first = recovery.pending_recoveries?.[0];
@@ -69,8 +74,8 @@ export function NeedsAttention({ status, span }: { status: RobotStatus | null; s
     <Typography variant="body2" color="text.secondary">{body}</Typography>
     {/* Desktop pins the action to the panel's foot beside Now running; a phone needs no spacer. */}
     <Box sx={{ flex: 1, minHeight: 8, display: { xs: 'none', md: 'block' } }} />
-    <Button variant="contained" component={Link} to="/scheduling?section=recovery"
-      sx={{ alignSelf: 'flex-start', bgcolor: 'attentionSurface.action', color: 'attentionSurface.actionText', '&:hover': { bgcolor: 'attentionSurface.action', filter: 'brightness(0.94)' } }}>Review recovery</Button>
+    <Button variant="contained" component={Link} to={local ? '/scheduling?section=recovery' : '/held'}
+      sx={{ alignSelf: 'flex-start', bgcolor: 'attentionSurface.action', color: 'attentionSurface.actionText', '&:hover': { bgcolor: 'attentionSurface.action', filter: 'brightness(0.94)' } }}>{local ? 'Review recovery' : 'What happened'}</Button>
   </Panel>;
 }
 
@@ -196,13 +201,25 @@ export function RecentRuns({ canOpenScheduling, span, rows = LIST_ROWS }: { canO
 }
 
 /**
- * Phones: instrument states only when one needs a look (a fault, an attention state or a stopped
- * scheduler), each linking to System status; otherwise one quiet line. Unknown is never "OK".
+ * Phones: instrument states and database connections only when one needs a look (a fault, an
+ * attention state, a stopped scheduler or a connection that cannot open), each linking to System
+ * status; otherwise one quiet line. Unknown is never "OK".
  */
 export function InstrumentProblems({ status }: { status: RobotStatus | null }) {
   const { cells, polling, read } = useInstrumentStates(status);
-  const problems = cells.filter(([name, [state, tone]]) => tone === 'fault' || tone === 'attention' || (name === 'Scheduler' && state === 'Stopped'));
-  const known = read && !polling.error && cells.every(([, [state]]) => state !== 'Unknown');
+  const [databases, setDatabases] = useState<DatabaseConnections | null>(null);
+  const databasePolling = useSerialPolling<DatabaseConnections>({
+    interval: PANEL_REFRESH_MS,
+    request: async () => (await api.get('/api/monitoring/databases')).data?.data,
+    onSuccess: setDatabases,
+  });
+  const connections = databases && [databases.built_in, ...(databases.connections ?? [])].filter((item): item is DatabaseConnection => !!item);
+  const problems = [
+    ...cells.filter(([name, [state, tone]]) => tone === 'fault' || tone === 'attention' || (name === 'Scheduler' && state === 'Stopped')),
+    ...(connections ?? []).filter(connection => connection.state === 'failed').map(connection => [connection.name, ['Cannot connect', 'fault']] as [string, [string, StatusTone]]),
+  ];
+  const known = read && !polling.error && cells.every(([, [state]]) => state !== 'Unknown')
+    && !databasePolling.error && !!databases?.connections && !!connections?.every(connection => connection.state === 'connected');
   if (!problems.length) return known
     ? <Typography role="status" variant="body2" sx={{ textAlign: 'center', color: theme => theme.palette.tone.completed.fg }}>All systems OK</Typography>
     : null;

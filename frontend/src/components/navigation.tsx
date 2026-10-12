@@ -45,8 +45,16 @@ export const phoneTabs: (PhoneLink & { id: 'now' | 'runs' | 'camera' | 'more' })
   { id: 'camera', label: 'Camera', to: '/camera' }, { id: 'more', label: 'More', to: '/more' },
 ];
 export const visiblePhoneTabs = (user: NavigationUser) => phoneTabs.filter(permitted(user));
+/** Pages a tab opens itself (What happened is Now's); anything else is reached from More. */
+const tabPages: Record<string, 'now'> = { '/held': 'now' };
 /** The tab a path belongs to: every page that is not a tab's own is reached from More. */
-export const phoneTabFor = (path: string) => phoneTabs.find(tab => tab.to === path && tab.id !== 'more')?.id ?? 'more';
+export const phoneTabFor = (path: string) => phoneTabs.find(tab => tab.to === path && tab.id !== 'more')?.id ?? tabPages[path] ?? 'more';
+/** Where a phone page's back link leads: the tab that opened it, or none for a tab's own page. */
+export const phoneBack = (path: string) => {
+  if (phoneTabs.some(tab => tab.to === path)) return null;
+  const tab = phoneTabs.find(item => item.id === phoneTabFor(path))!;
+  return { label: tab.label, to: tab.to };
+};
 export const moreItems: PhoneLink[] = [
   { label: 'Tip racks', to: '/labware', roles: ['admin', 'user'] }, { label: 'Cytomat', to: '/labware?section=cytomat', roles: ['admin', 'user'] },
   { label: 'Run logs', to: '/logfile?section=hamilton' }, { label: 'Database tables', to: '/database' },

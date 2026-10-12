@@ -38,6 +38,7 @@ const AboutPage = loadComponent(() => import('./pages/AboutPage'));
 const AdminPage = loadComponent(() => import('./pages/AdminPage'));
 const AccountPage = loadComponent(() => import('./pages/AccountPage'));
 const MorePage = loadComponent(() => import('./pages/MorePage'));
+const HeldRunPage = loadComponent(() => import('./pages/HeldRunPage'));
 
 function AccountMenu({ compact, onChangePassword }: { compact: boolean; onChangePassword: () => void }) {
   const { user, logout } = useAuth();
@@ -120,6 +121,7 @@ function AppShell() {
             <Route path="/about" element={<AboutPage />} />
             <Route path="/account" element={<AccountPage />} />
             <Route path="/more" element={<MorePage />} />
+            <Route path="/held" element={<HeldRunPage />} />
             <Route path="/login" element={<Navigate to="/" replace />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
