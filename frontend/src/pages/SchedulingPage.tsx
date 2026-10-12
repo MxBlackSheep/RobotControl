@@ -12,7 +12,7 @@ import { useSchedulingSection, isLocalUser } from '../components/navigation';
  * - Integration with main application navigation
  */
 
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useLayoutEffect, useMemo, useRef } from 'react';
 import {
   Box,
   Typography,
@@ -48,7 +48,7 @@ import StatusChip from '../components/StatusChip';
 import { preparationSummary, stateChip } from '../components/scheduling/PreparationStepField';
 import { fontMono, layout, StatusTone } from '../theme';
 import WarningAmber from '@mui/icons-material/WarningAmber';
-import InspectionWorkspace from '../components/InspectionWorkspace';
+import InspectionWorkspace, { pinnedBarSx, usePhoneWorkspace } from '../components/InspectionWorkspace';
 import SectionPanel from '../components/SectionPanel';
 import RecoverySafetyPanel from '../components/scheduling/RecoverySafetyPanel';
 import ImprovedScheduleForm from '../components/scheduling/ImprovedScheduleForm';
@@ -135,6 +135,21 @@ const SchedulingPage: React.FC = () => {
   const cardPadding = { xs: 2, md: 2 };
   const isLocalSession = isLocalUser(user);
   const isLocalClient = isLocalSession;
+  const phone = usePhoneWorkspace();
+  const workspaceTop = useRef<HTMLDivElement>(null);
+  const detailHeading = useRef<HTMLDivElement>(null);
+  const openScheduleId = detailOpen ? state.selectedSchedule?.schedule_id : undefined;
+
+  // Phones: an opened schedule starts at the top of the screen, not where the list was scrolled.
+  // Runs after InspectionWorkspace focuses its detail, so the heading takes focus.
+  useLayoutEffect(() => {
+    if (!phone || !openScheduleId) return;
+    const top = workspaceTop.current?.getBoundingClientRect().top;
+    const header = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--app-header-height')) || 0;
+    if (top !== undefined) window.scrollBy(0, top - header);
+    const heading = detailHeading.current?.querySelector<HTMLElement>('h2');
+    if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
+  }, [phone, openScheduleId]);
 
   const formatTimestamp = (value?: string | null): string => {
     if (!value) {
@@ -459,6 +474,75 @@ const SchedulingPage: React.FC = () => {
     );
   };
 
+  const renderScheduleDetail = (schedule: ScheduledExperiment) => {
+    const status = scheduleState(schedule);
+    const statusChip = <StatusChip {...status} />;
+    const facts = ([
+      ['Timing', repeatLabel(schedule)],
+      ...(phone ? [] : [['Next run', formatTimestamp(schedule.next_run)]]),
+      ['Duration', formatDuration(schedule.estimated_duration)],
+      ['Before this run', preparationSummary(schedule)],
+      ['Late-start action', `${schedule.timeout_config?.action === 'run_cleanup_and_terminate' ? 'Run cleanup and terminate' : 'Continue'}${schedule.timeout_config?.timeout_minutes ? ` after ${schedule.timeout_config.timeout_minutes} minutes` : ''}`],
+    ] as [string, string][]);
+    // Phones show the visible words; the accessible names stay the full action names.
+    const actionLabel = (full: string) => phone ? { 'aria-label': full, children: full.split(' ')[0] } : { children: full };
+    const archiveLabel = schedule.archived ? 'Restore schedule' : 'Archive schedule';
+    const scheduleActions = isLocalSession
+      ? <Stack direction="row" gap={1} flexWrap={phone ? 'nowrap' : 'wrap'} aria-label="Schedule actions" sx={phone ? { '& > *': { flex: '1 1 0', minHeight: 44 } } : undefined}>
+        <Button variant="contained" onClick={handleOpenEditForm} disabled={state.loading} {...actionLabel('Edit schedule')} />
+        <Button variant="outlined" disabled={state.loading || schedule.recovery_required}
+          onClick={() => void actions.archiveSchedule(schedule, !schedule.archived)} {...actionLabel(archiveLabel)} />
+        <Button variant="outlined" color="error" onClick={() => setDeleteDialogOpen(true)} disabled={state.loading || schedule.recovery_required} {...actionLabel('Delete schedule')} />
+      </Stack>
+      : <Typography variant="body2" color="text.secondary">Read only · Changes require the local workstation.</Typography>;
+    const nextRun = schedule.next_run ? new Date(schedule.next_run) : null;
+    const validNextRun = nextRun && !Number.isNaN(nextRun.getTime()) ? nextRun : null;
+    // Not Active (recovery, inactive, archived): a stored next_run is not a run that will happen.
+    const notRunning: Record<string, string> = { 'Recovery required': 'No run until recovery is resolved', Archived: 'No run while archived', Inactive: 'No run while inactive' };
+    return <Box data-testid="schedule-detail" sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+      <Panel title="Schedule" fill inset={false} sx={{ flex: 1 }} bodySx={{ overflow: phone ? 'visible' : 'auto' }} actions={phone ? undefined : statusChip}>
+        <Box ref={detailHeading} sx={{ p: 2, borderBottom: 1, borderColor: 'surface.rowLine' }}>
+          <Stack direction="row" gap={1} alignItems="flex-start" justifyContent="space-between">
+            <DetailTitle>{schedule.experiment_name}</DetailTitle>
+            {phone && <Box sx={{ flexShrink: 0, pt: 0.25 }}>{statusChip}</Box>}
+          </Stack>
+          <Typography sx={{ fontFamily: fontMono, fontSize: 12, lineHeight: '16px', color: 'text.secondary', overflowWrap: 'anywhere', mt: 0.5 }}>{schedule.experiment_path}</Typography>
+        </Box>
+        {phone && <Box component="section" aria-label="Next run" sx={{ p: 2, borderBottom: 1, borderColor: 'surface.rowLine' }}>
+          <PanelLabel component="p">Next run</PanelLabel>
+          {status.label !== 'Active'
+            ? <>
+              <Typography sx={{ fontSize: 20, fontWeight: 600, lineHeight: '28px', mt: 0.5 }}>{notRunning[status.label] ?? status.label}</Typography>
+              {schedule.next_run && <Typography variant="body2" color="text.secondary">Stored time: {formatTimestamp(schedule.next_run)}</Typography>}
+            </>
+            : validNextRun
+              ? <>
+                <Typography sx={{ fontFamily: fontMono, fontSize: 36, fontWeight: 500, lineHeight: '44px', mt: 0.5 }}>
+                  {validNextRun.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </Typography>
+                <Typography variant="body2">{validNextRun.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</Typography>
+              </>
+              : <Typography sx={{ fontSize: 20, fontWeight: 600, lineHeight: '28px', mt: 0.5 }}>{schedule.next_run ? formatTimestamp(schedule.next_run) : 'Not scheduled'}</Typography>}
+          <Typography variant="body2" color="text.secondary">Expected duration {formatDuration(schedule.estimated_duration)}</Typography>
+        </Box>}
+        {schedule.recovery_required && <Alert severity="warning" sx={{ m: 2 }} action={<Button color="inherit" onClick={() => setCurrentTab(1)}>Review recovery</Button>}>Recovery required</Alert>}
+        <Box component="dl" sx={{ m: 0 }}>
+          {facts.map(([name, value]) => <ListRow key={name} columns="136px minmax(0, 1fr)" sx={{ height: 'auto', minHeight: layout.row, py: 1, '& > *': { whiteSpace: 'normal', overflowWrap: 'anywhere' } }}>
+            <Typography component="dt" variant="body2" color="text.secondary">{name}</Typography><Typography component="dd" variant="body2" sx={{ m: 0 }}>{value}</Typography>
+          </ListRow>)}
+        </Box>
+        {!phone && <Stack spacing={1.5} sx={{ p: 2 }}>{scheduleActions}</Stack>}
+        {user?.role === 'admin' && <Box sx={{ p: 2, borderTop: phone ? 0 : 1, borderColor: 'surface.rowLine' }}>
+          <PanelLabel component="p">Latest notification</PanelLabel>
+          <Typography variant="body2" sx={{ mt: 0.5 }}>{latestNotificationForSelectedSchedule ? `${latestNotificationForSelectedSchedule.status} · ${formatTimestamp(latestNotificationForSelectedSchedule.triggered_at)}` : 'No notifications yet'}</Typography>
+          {latestNotificationForSelectedSchedule?.error_message && <Alert severity="error" sx={{ mt: 1 }}>{latestNotificationForSelectedSchedule.error_message}</Alert>}
+          <Button sx={{ mt: 1 }} onClick={openNotificationsTab}>Notification history</Button>
+        </Box>}
+        {phone && <Box sx={[{ px: 2, py: 1 }, pinnedBarSx]}>{scheduleActions}</Box>}
+      </Panel>
+    </Box>;
+  };
+
   return (
     <PageContent variant={currentTab === 5 && notificationsTab === 2 ? "task" : "inspection"}>
       <PageHeader title="Scheduling" actions={isLocalSession && <>
@@ -488,48 +572,14 @@ const SchedulingPage: React.FC = () => {
       <Box sx={{ minWidth: 0 }}>
         {/* Tab Panels */}
         <TabPanel value={currentTab} index={0}>
+          <Box ref={workspaceTop}>
           <InspectionWorkspace label="Schedule workspace" selectorLabel="Schedules" layout="table" detailOpen={detailOpen}
             onBack={() => setDetailOpen(false)} selector={<ScheduleCollection schedules={state.schedules}
               selected={state.selectedSchedule} onSelect={schedule => { actions.selectSchedule(schedule); setDetailOpen(true); }}
               onRefresh={() => void actions.loadSchedules(false)} loading={state.loading} error={state.error} />}>
-            {state.selectedSchedule ? <Box data-testid="schedule-detail" sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-              <Panel title="Schedule" fill inset={false} sx={{ flex: 1 }} bodySx={{ overflow: 'auto' }} actions={<StatusChip {...scheduleState(state.selectedSchedule)} />}>
-              <Box sx={{ p: 2, borderBottom: 1, borderColor: 'surface.rowLine' }}>
-                <DetailTitle>{state.selectedSchedule.experiment_name}</DetailTitle>
-                <Typography sx={{ fontFamily: fontMono, fontSize: 12, lineHeight: '16px', color: 'text.secondary', overflowWrap: 'anywhere', mt: 0.5 }}>{state.selectedSchedule.experiment_path}</Typography>
-              </Box>
-              {state.selectedSchedule.recovery_required && <Alert severity="warning" sx={{ m: 2 }} action={<Button color="inherit" onClick={() => setCurrentTab(1)}>Review recovery</Button>}>Recovery required</Alert>}
-              <Box component="dl" sx={{ m: 0 }}>
-                {([
-                  ['Timing', repeatLabel(state.selectedSchedule)],
-                  ['Next run', formatTimestamp(state.selectedSchedule.next_run)],
-                  ['Duration', formatDuration(state.selectedSchedule.estimated_duration)],
-                  ['Before this run', preparationSummary(state.selectedSchedule)],
-                  ['Late-start action', `${state.selectedSchedule.timeout_config?.action === 'run_cleanup_and_terminate' ? 'Run cleanup and terminate' : 'Continue'}${state.selectedSchedule.timeout_config?.timeout_minutes ? ` after ${state.selectedSchedule.timeout_config.timeout_minutes} minutes` : ''}`],
-                ] as [string, string][]).map(([name, value]) => <ListRow key={name} columns="136px minmax(0, 1fr)" sx={{ height: 'auto', minHeight: layout.row, py: 1, '& > *': { whiteSpace: 'normal', overflowWrap: 'anywhere' } }}>
-                  <Typography component="dt" variant="body2" color="text.secondary">{name}</Typography><Typography component="dd" variant="body2" sx={{ m: 0 }}>{value}</Typography>
-                </ListRow>)}
-              </Box>
-              <Stack spacing={1.5} sx={{ p: 2 }}>
-                {isLocalSession
-                  ? <Stack direction="row" gap={1} flexWrap="wrap" aria-label="Schedule actions">
-                    <Button variant="contained" onClick={handleOpenEditForm} disabled={state.loading}>Edit schedule</Button>
-                    <Button variant="outlined" disabled={state.loading || state.selectedSchedule.recovery_required}
-                      onClick={() => state.selectedSchedule && void actions.archiveSchedule(state.selectedSchedule, !state.selectedSchedule.archived)}>
-                      {state.selectedSchedule.archived ? 'Restore schedule' : 'Archive schedule'}</Button>
-                    <Button variant="outlined" color="error" onClick={() => setDeleteDialogOpen(true)} disabled={state.loading || state.selectedSchedule.recovery_required}>Delete schedule</Button>
-                  </Stack>
-                  : <Typography variant="body2" color="text.secondary">Read only · Changes require the local workstation.</Typography>}
-              </Stack>
-              {user?.role === 'admin' && <Box sx={{ p: 2, borderTop: 1, borderColor: 'surface.rowLine' }}>
-                <PanelLabel component="p">Latest notification</PanelLabel>
-                <Typography variant="body2" sx={{ mt: 0.5 }}>{latestNotificationForSelectedSchedule ? `${latestNotificationForSelectedSchedule.status} · ${formatTimestamp(latestNotificationForSelectedSchedule.triggered_at)}` : 'No notifications yet'}</Typography>
-                {latestNotificationForSelectedSchedule?.error_message && <Alert severity="error" sx={{ mt: 1 }}>{latestNotificationForSelectedSchedule.error_message}</Alert>}
-                <Button sx={{ mt: 1 }} onClick={openNotificationsTab}>Notification history</Button>
-              </Box>}
-              </Panel>
-            </Box> : <EmptyPanel>Select a schedule.</EmptyPanel>}
+            {state.selectedSchedule ? renderScheduleDetail(state.selectedSchedule) : <EmptyPanel>Select a schedule.</EmptyPanel>}
           </InspectionWorkspace>
+          </Box>
         </TabPanel>
 
         <TabPanel value={currentTab} index={1}>

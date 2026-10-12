@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Box, Button, Stack, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
-import { fontMono, layout } from '../../theme';
+import { fontMono, layout, touchMedia } from '../../theme';
 
 interface Props {
   rack: string;
@@ -109,7 +109,11 @@ export default function TipRackEditor({ rack, headingId, joined, rows, columns, 
   const hasDrafts = tips.some(pendingAt);
   const afterSaving = hasDrafts ? legend.map(status => [status, tips.filter(tip => statusAt(tip) === status).length] as const)
     .filter(([, count]) => count).map(([status, count]) => `${count} ${status}`).join(' · ') : '';
-  const dotSize = `max(14px, min(calc((100cqw - ${(columns - 1) * 4}px) / ${columns} * 0.32), calc((100cqh - ${(rows - 1) * 4}px) / ${rows} * 0.32)))`;
+  // The phone dialog (not joined) must show all twelve columns: 12 x 44px cannot fit at 320-390px,
+  // so tips narrow to the available width (24px WCAG 2.5.8 floor, about 25px at 320px with the
+  // dialog's 8px padding as the only side gutter) and keep 44px height. Joined geometry is unchanged.
+  const tipWidth = joined ? 44 : 24, tipGap = joined ? 4 : 0;
+  const dotSize = `max(14px, min(calc((100cqw - ${(columns - 1) * tipGap}px) / ${columns} * 0.32), calc((100cqh - ${(rows - 1) * tipGap}px) / ${rows} * 0.32)))`;
   const fontSize = `clamp(12px, min(calc(100cqw / ${columns} * 0.21), calc(100cqh / ${rows} * 0.21)), 22px)`;
 
   // Four rows shared with the deck through subgrid: 40px header band, status row, tips, fixed footer.
@@ -135,7 +139,7 @@ export default function TipRackEditor({ rack, headingId, joined, rows, columns, 
     </Box>
     {canUpdate && <Button size="small" disabled={!enabled || Boolean(corners)} onClick={() => apply(Array.from({ length: positions }, (_, index) => index + 1))}
       sx={{ gridRow: 1, gridColumn: 1, justifySelf: 'end', alignSelf: 'center', mr: 1, whiteSpace: 'nowrap' }}>Set entire rack</Button>}
-      <Box ref={viewport} data-tip-editor-body sx={{ gridRow: 3, gridColumn: 1, minWidth: 0, minHeight: rows * 44 + (rows - 1) * 4 + 24, height: '100%', px: 2, py: 1.5, boxSizing: 'border-box', overflowX: 'auto', overflowY: 'hidden' }}>
+      <Box ref={viewport} data-tip-editor-body sx={{ gridRow: 3, gridColumn: 1, minWidth: 0, minHeight: rows * 44 + (rows - 1) * tipGap + 24, height: '100%', px: joined ? 2 : 0, py: 1.5, boxSizing: 'border-box', overflowX: 'auto', overflowY: 'hidden' }}>
         <Box ref={grid} role="group" aria-label={`${rack} tips`} onPointerDown={event => {
           ignoreClick.current = false;
           if (!enabled || event.pointerType === 'touch' || event.button !== 0) return;
@@ -165,11 +169,11 @@ export default function TipRackEditor({ rack, headingId, joined, rows, columns, 
           // Native touch panning ends this pointer, not the previously chosen corner.
           if (event.pointerType !== 'touch' || press.current) cancel();
         }} onLostPointerCapture={() => { if (press.current) { ignoreClick.current = true; cancel(); } }}
-          sx={{ containerType: 'size', display: 'grid', gridTemplateColumns: `repeat(${columns}, minmax(44px, 1fr))`, gridTemplateRows: `repeat(${rows}, minmax(44px, 1fr))`, gap: 0.5, width: '100%', height: '100%', minWidth: columns * 44 + (columns - 1) * 4, minHeight: rows * 44 + (rows - 1) * 4, userSelect: 'none', touchAction: 'manipulation' }}>
+          sx={{ containerType: 'size', display: 'grid', gridTemplateColumns: `repeat(${columns}, minmax(${tipWidth}px, 1fr))`, gridTemplateRows: `repeat(${rows}, minmax(44px, 1fr))`, gap: `${tipGap}px`, width: '100%', height: '100%', minWidth: columns * tipWidth + (columns - 1) * tipGap, minHeight: rows * 44 + (rows - 1) * tipGap, userSelect: 'none', touchAction: 'manipulation' }}>
           {Array.from({ length: positions }, (_, index) => {
             const tip = index + 1, status = statusAt(tip), unsaved = pendingAt(tip);
             return <Button key={tip} disableRipple data-tip={tip} aria-label={`Tip ${tip}, ${status}`} aria-pressed={position === tip} tabIndex={position === tip ? 0 : -1} onClick={event => activate(tip, event)} onKeyDown={event => keyMove(event, tip)}
-              sx={{ gridColumn: Math.floor(index / rows) + 1, gridRow: index % rows + 1, minWidth: 44, minHeight: 44, p: 0.25, display: 'flex', flexDirection: 'column', gap: 0, color: 'text.primary', border: 2, borderColor: position === tip || preview.has(tip) ? 'primary.main' : unsaved ? 'warning.main' : 'transparent', borderStyle: unsaved ? 'dashed' : 'solid', bgcolor: preview.has(tip) ? 'action.selected' : 'transparent', transition: 'none', '&.Mui-focusVisible, &:focus-visible': { outline: '3px solid', outlineColor: 'primary.main', outlineOffset: -3 } }}>
+              sx={{ gridColumn: Math.floor(index / rows) + 1, gridRow: index % rows + 1, minWidth: tipWidth, [touchMedia]: { minWidth: tipWidth }, minHeight: 44, p: joined ? 0.25 : 0, display: 'flex', flexDirection: 'column', gap: 0, color: 'text.primary', border: 2, borderColor: position === tip || preview.has(tip) ? 'primary.main' : unsaved ? 'warning.main' : 'transparent', borderStyle: unsaved ? 'dashed' : 'solid', bgcolor: preview.has(tip) ? 'action.selected' : 'transparent', transition: 'none', '&.Mui-focusVisible, &:focus-visible': { outline: '3px solid', outlineColor: 'primary.main', outlineOffset: -3 } }}>
               <Box component="span" data-tip-dot aria-hidden="true" sx={{ width: dotSize, height: dotSize, flexShrink: 0, borderRadius: '50%', bgcolor: colors[status] || 'text.disabled', border: 1, borderColor: 'divider' }} /><Typography component="span" sx={{ fontSize, lineHeight: 1.2 }}>{tip}{unsaved ? '*' : ''}</Typography>
             </Button>;
           })}

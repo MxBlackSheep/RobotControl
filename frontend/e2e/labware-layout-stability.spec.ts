@@ -5,8 +5,9 @@ import { expect, Page, test } from '@playwright/test';
  *   40/60; when 60% cannot hold twelve 44px targets, keep the editor minimum and shrink
  *   the overview to 320px; below that, show the overview plus a focused-rack dialog.
  * - Five overview rows and eight editor rows share header, diagram and footer bounds.
- *   Pitches may differ, but targets stay at least 44px and dots stay circular (at least
- *   5px in miniatures). A short desktop has one stage scroll, no nested editor scroll.
+ *   Pitches may differ, but targets stay at least 44px (in the phone rack dialog 44px tall
+ *   and at least 24px wide, so all twelve columns fit without sideways scrolling) and dots
+ *   stay circular (at least 5px in miniatures). A short desktop has one stage scroll, no nested editor scroll.
  * - Measurement must not observe its own output: no ResizeObserver loop, no size change
  *   while scrolling, and a scrollbar near the breakpoint must not toggle modes. Hidden
  *   retained sections must not publish zero sizes. Sidebar, toolbar wrapping and zoom
@@ -141,10 +142,13 @@ for (const reducedMotion of ['no-preference'] as const) test(`focused wells are 
 for (const viewport of [{ width: 3840, height: 2160 }, { width: 1280, height: 720 }, { width: 1024, height: 600 }, { width: 320, height: 720 }]) test(`joined workbench fits ${viewport.width}x${viewport.height}`, async ({ page }, info) => {
   await fixture(page); await page.setViewportSize(viewport); await page.goto('/labware'); await openRack(page);
   const grid = page.getByRole('group', { name: `${left[0]} tips`, exact: true });
-  const first = grid.getByRole('button').first(); const box = await first.boundingBox(); expect(box!.width).toBeGreaterThanOrEqual(43.9); expect(box!.height).toBeGreaterThanOrEqual(43.9);
+  // The phone dialog fits all twelve columns: tips narrow to at least 24px instead of scrolling sideways.
+  const phoneDialog = await page.getByRole('dialog').isVisible();
+  const first = grid.getByRole('button').first(); const box = await first.boundingBox(); expect(box!.width).toBeGreaterThanOrEqual(phoneDialog ? 23.9 : 43.9); expect(box!.height).toBeGreaterThanOrEqual(43.9);
   const dot = await first.locator('[data-tip-dot]').boundingBox(); expect(Math.abs(dot!.width - dot!.height)).toBeLessThan(0.1);
   const scrollBody = page.locator('[data-tip-editor-body]');
   const clipping = await scrollBody.evaluate(element => ({ top: element.getBoundingClientRect().top + element.clientTop, visibleHeight: element.clientHeight, horizontal: element.scrollWidth > element.clientWidth }));
+  if (phoneDialog) expect(clipping.horizontal).toBe(false);
   if (clipping.horizontal) { const last = await grid.getByRole('button').last().boundingBox(); expect(last!.y + last!.height).toBeLessThanOrEqual(clipping.top + clipping.visibleHeight + 1); }
   if (!(await page.getByRole('dialog').isVisible())) {
     const deck = page.getByRole('region', { name: 'Tip deck' }); const deckBox = await deck.boundingBox();

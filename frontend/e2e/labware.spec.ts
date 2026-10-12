@@ -178,16 +178,13 @@ test('phone rectangle uses two corners and Back preserves paint and orientation'
   await expect(page.getByRole('button',{name:'Tip 10, dirty',exact:true})).toBeVisible();
   await info.attach('phone-two-corner-paint',{body:await page.screenshot({animations:'disabled'}),contentType:'image/png'});
 });
-test('phone selection survives native horizontal scrolling to a distant corner',async({page},info)=>{
+test('phone selection reaches the far column without scrolling',async({page},info)=>{
   const state=await fixtures(page);await page.setViewportSize({width:320,height:800});await page.goto('/labware');await page.getByRole('button',{name:'Open rack Rack A',exact:true}).tap();await chooseStatus(page);
-  const first=page.getByRole('button',{name:'Tip 1, clean',exact:true});await first.tap();
-  const grid=page.getByRole('group',{name:'Rack A tips',exact:true});const scrollArea=grid.locator('..');const area=await scrollArea.boundingBox();
-  const x=area!.x+area!.width-24,y=area!.y+100;
-  const touch=await page.context().newCDPSession(page);
-  await touch.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x,y}]});
-  for(let step=1;step<=8;step++)await touch.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:x-step*26,y}]});
-  await touch.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
-  await expect.poll(()=>scrollArea.evaluate(element=>element.scrollLeft)).toBeGreaterThan(100);
+  const grid=page.getByRole('group',{name:'Rack A tips',exact:true});const scrollArea=grid.locator('..');
+  // All twelve columns are on screen: nothing to scroll sideways, the far corner is in view.
+  expect(await scrollArea.evaluate(element=>element.scrollWidth<=element.clientWidth+1)).toBe(true);
+  await expect(page.getByRole('button',{name:'Tip 89, clean',exact:true})).toBeInViewport({ratio:1});
+  await page.getByRole('button',{name:'Tip 1, clean',exact:true}).tap();
   await expect(page.getByRole('button',{name:'Cancel selection',exact:true})).toBeVisible();
   await expect(page.getByRole('button',{name:/Save changes/})).toBeDisabled();
   await page.getByRole('button',{name:'Tip 89, clean',exact:true}).tap();
@@ -239,7 +236,9 @@ test(`rack sizing and bulk controls at ${viewport.width}x${viewport.height}`,asy
   await page.getByRole('button',{name:'Open rack VER_ST_0001',exact:true}).click();await chooseStatus(page);
   const grid=page.getByRole('group',{name:'VER_ST_0001 tips',exact:true});
   const cell=grid.getByRole('button').first();const last=grid.getByRole('button').last();
-  await expect(cell).toBeVisible();const dimensions=await cell.boundingBox();expect(dimensions!.width).toBeGreaterThanOrEqual(43.9);expect(dimensions!.height).toBeGreaterThanOrEqual(43.9);
+  await expect(cell).toBeVisible();const dimensions=await cell.boundingBox();expect(dimensions!.width).toBeGreaterThanOrEqual(viewport.width<600?23.9:43.9);expect(dimensions!.height).toBeGreaterThanOrEqual(43.9);
+  // Phones fit the whole rack (tips at least 24px wide) instead of scrolling sideways.
+  if(viewport.width<600)await expect(last).toBeInViewport({ratio:1});
   const dot=await cell.locator('[data-tip-dot]').boundingBox();expect(Math.abs(dot!.width-dot!.height)).toBeLessThan(0.1);
   const canvas=await grid.boundingBox();const card=await grid.locator('xpath=ancestor::*[@data-rack-editor]').boundingBox();
   if(viewport.width>=1280){expect(card!.width-canvas!.width).toBeLessThan(40);await last.scrollIntoViewIfNeeded();await expect(last).toBeVisible();}

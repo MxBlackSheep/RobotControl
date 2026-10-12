@@ -65,6 +65,9 @@ export const panelPadding = 2;
 /** Panel and column headings: 11px uppercase labels, as in the approved mock. */
 export const columnHeading = { fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', lineHeight: '16px', textTransform: 'uppercase', color: 'surface.label' } as const;
 
+/** Touch screens and narrow windows: controls get 44px minimums. A component that must go smaller sets its size inside this query. */
+export const touchMedia = '@media (pointer: coarse), (max-width: 600px)';
+
 export function createAppTheme(mode: PaletteMode) {
   const dark = mode === 'dark';
   const primary = dark ? '#6FA8F5' : '#1B5FC1';
@@ -73,7 +76,6 @@ export function createAppTheme(mode: PaletteMode) {
     ? { head: '#1C212A', headLine: '#2A313C', rowLine: '#222831', track: '#25324A', label: '#AEB6C3', control: '#3A4350' }
     : { head: '#F6F7F9', headLine: '#DDE1E6', rowLine: '#EEF0F3', track: '#DCE5F3', label: '#4A5260', control: '#C9D0D9' };
   const focus = { outline: '2px solid', outlineColor: primary, outlineOffset: 2 };
-  const touchMedia = '@media (pointer: coarse), (max-width: 600px)';
   const touch = { [touchMedia]: { minHeight: layout.touchRow, minWidth: layout.touchRow } };
   return createTheme({
     palette: {

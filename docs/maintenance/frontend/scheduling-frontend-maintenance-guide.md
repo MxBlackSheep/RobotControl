@@ -29,7 +29,11 @@ method library, notifications and history. Backend behavior is in
 sorts the loaded list. In `InspectionWorkspace`'s `layout="table"` it is the wide side and
 the details are a 400px panel; from 640px of its own width (a container query) it shows the
 table columns Experiment, Repeats, Next run, Last run and Status, otherwise one stacked row
-per schedule. Back from details on a phone focuses the open row (`aria-current`), not the
+per schedule. On a phone (under 600px) opening a schedule scrolls its details to the top and
+focuses the name; a Next run block shows the stored next run large (an inactive, archived or
+held schedule says it will not run and labels the stored time), and Edit / Archive / Delete sit
+in a bar pinned above the page bar (`pinnedBarSx`), with the same permission and disabled rules;
+remote users see the read-only line there. Back from details on a phone focuses the open row (`aria-current`), not the
 selected filter button, which is also `.Mui-selected`; `ScheduleList` remains the
 archived table. `scheduleState` (exported from `ScheduleCollection`) is the one mapping
 from a schedule to its label and tone: Recovery required is amber (needs action), Active

@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
   Box,
   Button,
+  ButtonBase,
   Checkbox,
   Dialog,
   DialogActions,
@@ -28,12 +29,11 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { alpha } from "@mui/material/styles";
 import SearchIcon from "@mui/icons-material/Search";
 import { databaseAPI } from "../services/api";
 import { InspectionName, pinnedBarSx, usePhoneWorkspace } from "./InspectionWorkspace";
 import { collectMatchingRows, formatExport } from "./databaseExport";
-import { fontMono } from "../theme";
+import { fontMono, layout } from "../theme";
 type Filter = { column: string; operator: string; value: string };
 type Query = {
   page: number;
@@ -126,15 +126,12 @@ function TableView({
     [copied, setCopied] = useState("");
   const tableScroll = useRef<HTMLDivElement>(null),
     expandButton = useRef<HTMLButtonElement>(null);
-  // Phones: rows scroll with the page; headings pin in a separate strip that follows sideways scroll.
+  // Phones: rows are cards that scroll with the page; the expanded table keeps the grid.
   const phone = usePhoneWorkspace();
   const flow = phone && !expanded;
   const [pageDialog, setPageDialog] = useState(false),
-    [widths, setWidths] = useState<number[]>([]),
-    [moreRight, setMoreRight] = useState(false);
-  const headingStrip = useRef<HTMLDivElement>(null),
-    sizingHead = useRef<HTMLTableSectionElement>(null),
-    rowsTop = useRef<HTMLDivElement>(null);
+    [sortDialog, setSortDialog] = useState(false);
+  const rowsTop = useRef<HTMLDivElement>(null);
   const scroll = useRef({ top: 0, left: 0 });
   const attachTable = useCallback((element: HTMLDivElement | null) => {
     tableScroll.current = element;
@@ -189,7 +186,7 @@ function TableView({
         if (query !== displayedQuery) {
           scroll.current.top = 0;
           if (tableScroll.current) tableScroll.current.scrollTop = 0;
-          // A phone pages from the bottom bar; show the new page from its first row.
+          // A phone pages from the bottom bar; show the new page from its first card.
           const top = rowsTop.current?.getBoundingClientRect().top;
           const header = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--app-header-height")) || 0;
           if (top !== undefined && top < header) window.scrollBy(0, top - header);
@@ -268,33 +265,14 @@ function TableView({
   const targetPage = Number(pageDraft);
   const validPage = Number.isInteger(targetPage) && targetPage >= 1 && targetPage <= pageCount;
   const rowNumber = (index: number) => displayedQuery.page * displayedQuery.limit + index + 1;
-  const followRows = () => {
-    const rows = tableScroll.current;
-    if (!rows) return;
-    if (headingStrip.current) headingStrip.current.scrollLeft = rows.scrollLeft;
-    setMoreRight(rows.scrollLeft + rows.clientWidth < rows.scrollWidth - 1);
+  const sortBy = (order: string, direction: Query["direction"]) =>
+    setQuery({ ...displayedQuery, page: 0, order, direction });
+  const inspect = (row: Record<string, any>, index: number) => {
+    setRecord({ row, number: rowNumber(index) });
+    setCopied("");
   };
-  const measureColumns = useCallback(() => {
-    const cells = sizingHead.current?.rows[0]?.cells;
-    if (cells) {
-      const next = Array.from(cells, (cell) => cell.getBoundingClientRect().width);
-      setWidths((previous) =>
-        previous.length === next.length && previous.every((width, index) => Math.abs(width - next[index]) < 0.5) ? previous : next);
-    }
-    followRows();
-  }, []);
-  const columnKey = columns.join("\n");
-  useLayoutEffect(() => {
-    if (!flow) return;
-    measureColumns();
-    const observer = new ResizeObserver(measureColumns);
-    if (sizingHead.current?.parentElement) observer.observe(sizingHead.current.parentElement);
-    if (tableScroll.current) observer.observe(tableScroll.current);
-    return () => observer.disconnect();
-  }, [flow, data, columnKey, wrap, measureColumns]);
-  const sortLabel = (column: string, focusable = true) => (
+  const sortLabel = (column: string) => (
     <TableSortLabel
-      tabIndex={focusable ? undefined : -1}
       active={displayedQuery.order === column}
       direction={displayedQuery.order === column ? displayedQuery.direction : "asc"}
       sx={{
@@ -303,15 +281,12 @@ function TableView({
         overflowWrap: "anywhere",
       }}
       onClick={() =>
-        setQuery({
-          ...displayedQuery,
-          page: 0,
-          order: column,
-          direction:
-            displayedQuery.order === column && displayedQuery.direction === "asc"
-              ? "desc"
-              : "asc",
-        })
+        sortBy(
+          column,
+          displayedQuery.order === column && displayedQuery.direction === "asc"
+            ? "desc"
+            : "asc",
+        )
       }
     >
       {column}
@@ -323,6 +298,21 @@ function TableView({
     zIndex: 3,
     bgcolor: "background.paper",
   } as const;
+  const emptyMessage = error
+    ? "Table unavailable."
+    : displayedQuery.search || displayedQuery.filters.length
+      ? "No rows match the applied search and filters."
+      : "This table is empty.";
+  // One value style for grid cells and phone cards, so NULL, empty and long values read the same.
+  const valueSx = (value: any) => ({
+    color: value == null ? "text.secondary" : "inherit",
+    fontFamily: fontMono,
+    fontSize: 13,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: wrap ? "pre-wrap" : "nowrap",
+    overflowWrap: wrap ? "anywhere" : "normal",
+  } as const);
   const bodyRows = (
     <TableBody>
       {data?.rows.map((row, index) => (
@@ -337,13 +327,7 @@ function TableView({
           >
             <Button
               aria-label={`Inspect row ${rowNumber(index)}`}
-              onClick={() => {
-                setRecord({
-                  row,
-                  number: rowNumber(index),
-                });
-                setCopied("");
-              }}
+              onClick={() => inspect(row, index)}
             >
               {rowNumber(index)}
             </Button>
@@ -361,20 +345,13 @@ function TableView({
                   display: "block",
                   border: 0,
                   bgcolor: "transparent",
-                  color:
-                    row[column] == null ? "text.secondary" : "inherit",
                   textAlign: "left",
                   font: "inherit",
-                  fontFamily: fontMono,
-                  fontSize: 13,
+                  ...valueSx(row[column]),
                   cursor: "pointer",
                   minHeight: 44,
                   minWidth: 80,
                   maxWidth: 260,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: wrap ? "pre-wrap" : "nowrap",
-                  overflowWrap: wrap ? "anywhere" : "normal",
                 }}
               >
                 {displayValue(row[column])}
@@ -385,13 +362,7 @@ function TableView({
       ))}
       {!loading && !data?.rows.length && (
         <TableRow>
-          <TableCell colSpan={columns.length + 1}>
-            {error
-              ? "Table unavailable."
-              : displayedQuery.search || displayedQuery.filters.length
-                ? "No rows match the applied search and filters."
-                : "This table is empty."}
-          </TableCell>
+          <TableCell colSpan={columns.length + 1}>{emptyMessage}</TableCell>
         </TableRow>
       )}
     </TableBody>
@@ -538,53 +509,46 @@ function TableView({
         </Table>
       </TableContainer>
   );
-  // The rows table keeps an invisible, zero-height copy of the headings so each column is at
-  // least as wide as its heading; the pinned strip copies those widths.
-  const hiddenHeading = { height: 0, py: 0, borderBottom: 0 } as const;
-  const flowingTable = (
-    <Box ref={rowsTop} sx={{ position: "relative", minWidth: 0 }}>
-      <Box ref={headingStrip} sx={{ position: "sticky", top: "var(--app-header-height, 52px)", zIndex: 2, overflow: "hidden", bgcolor: "surface.head", borderBottom: 1, borderColor: "surface.headLine" }}>
-        <Table size="small" sx={{ tableLayout: "fixed", width: widths.length ? widths.reduce((sum, width) => sum + width, 0) : "max-content" }}>
-          <colgroup>{widths.map((width, index) => <col key={index} style={{ width }} />)}</colgroup>
-          <TableHead>
-            <TableRow>
-              <TableCell sx={{ ...rowHeading, borderBottom: 0 }}>Row</TableCell>
-              {columns.map((column) => (
-                <TableCell key={column} sx={{ borderBottom: 0 }}
-                  sortDirection={displayedQuery.order === column ? displayedQuery.direction : false}>
-                  {sortLabel(column)}
-                </TableCell>
-              ))}
-            </TableRow>
-          </TableHead>
-        </Table>
-      </Box>
-      <TableContainer
-        ref={attachTable}
-        sx={{ overflowX: "auto", overflowY: "hidden" }}
-        tabIndex={0}
-        aria-label={`${tableName} rows`}
-        onScroll={() => {
-          if (tableScroll.current)
-            scroll.current = { top: 0, left: tableScroll.current.scrollLeft };
-          followRows();
-        }}
-      >
-        <Table size="small" sx={{ minWidth: "100%", width: "max-content" }}>
-          {/* inert: aria-hidden alone still exposes the copies' sort buttons to screen readers. */}
-          <TableHead ref={sizingHead} aria-hidden {...{ inert: "" }}>
-            <TableRow>
-              <TableCell sx={hiddenHeading}><Box sx={{ height: 0, overflow: "hidden" }}>Row</Box></TableCell>
-              {columns.map((column) => (
-                <TableCell key={column} sx={hiddenHeading}><Box sx={{ height: 0, overflow: "hidden" }}>{sortLabel(column, false)}</Box></TableCell>
-              ))}
-            </TableRow>
-          </TableHead>
-          {bodyRows}
-        </Table>
-      </TableContainer>
-      {moreRight && <Box aria-hidden sx={{ position: "absolute", top: 0, right: 0, bottom: 0, width: 32, zIndex: 2, pointerEvents: "none",
-        background: (theme) => `linear-gradient(to right, ${alpha(theme.palette.background.paper, 0)}, ${theme.palette.background.paper})` }} />}
+  // Phones: one card per row with its first four visible columns. The row button stretches over
+  // the card, so a tap anywhere opens the row inspector while the values stay readable as text.
+  const rowCards = (
+    <Box ref={rowsTop} role="list" aria-label={`${tableName} rows`} sx={{ display: "grid", gap: 1, px: 1.5, pb: 1.5, minWidth: 0 }}>
+      {data?.rows.map((row, index) => (
+        <Box
+          key={index}
+          role="listitem"
+          sx={{
+            position: "relative", minWidth: 0, p: 1.5, bgcolor: "background.paper",
+            border: 1, borderColor: "divider", borderRadius: `${layout.radius}px`,
+            "&:has(:focus-visible)": { outline: 2, outlineStyle: "solid", outlineColor: "primary.main", outlineOffset: -1 },
+            "@media (hover: hover)": { "&:hover": { bgcolor: "action.hover" } },
+          }}
+        >
+          <ButtonBase
+            aria-label={`Inspect row ${rowNumber(index)}`}
+            onClick={() => inspect(row, index)}
+            sx={{ typography: "caption", color: "text.secondary", "&::after": { content: '""', position: "absolute", inset: 0 } }}
+          >
+            Row {rowNumber(index)}
+          </ButtonBase>
+          {/* Label and value side by side keep a card about four lines tall, so several rows fit a screen. */}
+          <Box component="dl" sx={{ m: 0, mt: 0.5, display: "grid", rowGap: 0.5 }}>
+            {columns.slice(0, 4).map((column) => (
+              <Box key={column} sx={{ minWidth: 0, display: "grid", gridTemplateColumns: "minmax(0, 2fr) minmax(0, 3fr)", columnGap: 1.5, alignItems: "baseline" }}>
+                <Typography component="dt" variant="caption" color="text.secondary" sx={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={column}>
+                  {column}
+                </Typography>
+                <Box component="dd" sx={{ m: 0, ...valueSx(row[column]) }}>
+                  {displayValue(row[column])}
+                </Box>
+              </Box>
+            ))}
+          </Box>
+        </Box>
+      ))}
+      {!loading && !data?.rows.length && (
+        <Typography role="listitem" variant="body2" color="text.secondary" sx={{ py: 1 }}>{emptyMessage}</Typography>
+      )}
     </Box>
   );
   const view = (
@@ -617,7 +581,7 @@ function TableView({
       {loading && (
         <LinearProgress aria-label="Loading table" sx={{ flexShrink: 0 }} />
       )}
-      {flow ? flowingTable : scrollingTable}
+      {flow ? rowCards : scrollingTable}
       {phone ? (
         <Box sx={[{ flexShrink: 0, px: 1 }, pinnedBarSx]}>
           <TablePagination
@@ -700,6 +664,12 @@ function TableView({
           <MenuItem key="page" disabled={!data} onClick={() => { setMore(null); setPageDialog(true); }}>
             Page and rows
           </MenuItem>,
+          <MenuItem key="sort" disabled={!data} onClick={() => { setMore(null); setSortDialog(true); }}>
+            <ListItemText
+              primary="Sort by"
+              secondary={displayedQuery.order && `${displayedQuery.order}, ${displayedQuery.direction === "asc" ? "ascending" : "descending"}`}
+            />
+          </MenuItem>,
         ]}
         <MenuItem
           disabled={!data}
@@ -761,6 +731,40 @@ function TableView({
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setPageDialog(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog open={sortDialog} onClose={() => setSortDialog(false)} fullWidth maxWidth="xs">
+        <DialogTitle>Sort by</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2} sx={{ pt: 0.5 }}>
+            <TextField
+              select
+              size="small"
+              label="Column"
+              value={displayedQuery.order}
+              disabled={loading || !data}
+              onChange={(event) => sortBy(event.target.value, displayedQuery.direction)}
+            >
+              <MenuItem value="">Table order</MenuItem>
+              {(displayedQuery.order && !columns.includes(displayedQuery.order) ? [...columns, displayedQuery.order] : columns).map(
+                (column) => <MenuItem key={column} value={column}>{column}</MenuItem>,
+              )}
+            </TextField>
+            <TextField
+              select
+              size="small"
+              label="Direction"
+              value={displayedQuery.direction}
+              disabled={loading || !data || !displayedQuery.order}
+              onChange={(event) => sortBy(displayedQuery.order, event.target.value as Query["direction"])}
+            >
+              <MenuItem value="asc">Ascending</MenuItem>
+              <MenuItem value="desc">Descending</MenuItem>
+            </TextField>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSortDialog(false)}>Close</Button>
         </DialogActions>
       </Dialog>
       <Dialog

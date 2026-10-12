@@ -5,12 +5,13 @@ import { routeDatabaseViewer, viewerRows as rows } from './database-fixture';
  * - Narrow screens show the selected table or SQL, not the whole catalogue above it;
  *   Back keeps selection, search draft and scroll. Wide data scrolls locally, never the
  *   whole page. Reading and close controls stay reachable in short windows.
- * - Phones (under 600 px) scroll a table with the page, not in a box (the owner saw 1.5
- *   of 32 rows): at least 6 rows show at 390x844 and 375x667, nothing in the workspace
- *   scrolls vertically, headings stay pinned and aligned with their columns after a
- *   sideways swipe, the Row column stays put, the right-edge fade marks more columns, and
- *   the paging bar stays on screen and shows the next page from its first row. Search
- *   still applies on Enter and Expand stays reachable through More.
+ * - Phones (under 600 px) show a table's rows as cards that scroll with the page, not in a
+ *   box (the owner saw 1.5 of 32 rows): each card shows its own row's first four visible
+ *   columns side by side (at least 3 whole cards at 390x844), tapping a card opens that
+ *   row's inspector, Sort by in More orders the rows (the request carries column and
+ *   direction), nothing in the workspace scrolls vertically, the paging bar rests on the
+ *   page bar and shows the next page from its first card. Search still applies on Enter
+ *   and Expand stays reachable through More.
  * - Expand does not re-request data, clear filters or reset Find; Escape restores focus.
  * - The row inspector shows hidden columns and distinguishes NULL, empty and long values.
  *   Copy reports a clipboard failure instead of claiming success.
@@ -130,22 +131,19 @@ test('short narrow windows keep reading and close controls reachable', async ({ 
   await expect(page.getByRole('button', { name: 'Expand SQL' })).toBeVisible();
 });
 
-/** Rows between the pinned headings and the paging bar, and where those two sit on screen. */
-const phoneTableLayout = (page: Page) => page.evaluate(() => {
-  const heading = [...document.querySelectorAll('th')].find(cell => cell.textContent === 'OD' && !cell.closest('[aria-hidden="true"]'))!;
-  const strip = heading.closest('table')!.parentElement!.getBoundingClientRect();
+/** Whole cards between the top of the screen (below the header) and the paging bar, and the bar's bottom. */
+const phoneCardLayout = (page: Page) => page.evaluate(() => {
+  const header = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--app-header-height')) || 0;
   const bar = document.querySelector('.MuiTablePagination-root')!.parentElement!.getBoundingClientRect();
-  const rows = [...document.querySelectorAll('button[aria-label^="Inspect row"]')].map(button => button.closest('tr')!.getBoundingClientRect());
-  return {
-    rows: rows.filter(row => row.top >= strip.bottom - 1 && row.bottom <= bar.top + 1).length,
-    stripTop: strip.top, barBottom: bar.bottom, viewport: innerHeight,
-    header: parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--app-header-height')),
-  };
+  const cards = [...document.querySelectorAll('[role="listitem"]')].map(card => card.getBoundingClientRect());
+  return { cards: cards.filter(card => card.top >= header - 1 && card.bottom <= bar.top + 1).length, barBottom: bar.bottom };
 });
 
 for (const size of [{ width: 390, height: 844 }, { width: 375, height: 667 }]) {
-  test(`phone table scrolls with the page, keeps headings, Row column and paging at ${size.width}x${size.height}`, async ({ page }, testInfo) => {
+  test(`phone table shows row cards with the page, sorting and paging at ${size.width}x${size.height}`, async ({ page }, testInfo) => {
     await page.setViewportSize(size);
+    const requests: string[] = [];
+    page.on('request', request => { if (request.url().includes('/api/database/tables/dbo.ActivePlateView')) requests.push(request.url()); });
     await page.goto('/database?section=tables');
     await page.getByRole('button', { name: /dbo\.ActivePlateView/ }).click();
     await expect(page.getByText('1–25 of 32', { exact: true })).toBeVisible();
@@ -153,37 +151,45 @@ for (const size of [{ width: 390, height: 844 }, { width: 375, height: 667 }]) {
     // One scroll: nothing inside the workspace scrolls vertically.
     expect(await workspace.evaluate(root => [...root.querySelectorAll('*')].filter(element =>
       /auto|scroll/.test(getComputedStyle(element).overflowY) && element.scrollHeight > element.clientHeight + 1).length)).toBe(0);
-    // The pinned headings are the only ones screen readers and the keyboard reach.
-    await expect(page.getByRole('button', { name: 'OD', exact: true })).toHaveCount(1);
-    if (size.height >= 844) expect((await phoneTableLayout(page)).rows).toBeGreaterThanOrEqual(6);
-    await testInfo.attach(`phone-table-${size.width}-open`, { body: await page.screenshot(), contentType: 'image/png' });
+    const cards = page.getByRole('list', { name: 'dbo.ActivePlateView rows' }).getByRole('listitem');
+    await expect(cards).toHaveCount(25);
+    // Each card shows its own row: label and value of the first visible columns.
+    await expect(cards.first()).toContainText('Row 1');
+    await expect(cards.first()).toContainText('PlateID9850');
+    await expect(cards.nth(1)).toContainText('PlateID9851');
+    await testInfo.attach(`phone-cards-${size.width}-open`, { body: await page.screenshot(), contentType: 'image/png' });
 
     await page.mouse.wheel(0, 600);
-    await expect.poll(async () => { const layout = await phoneTableLayout(page); return Math.abs(layout.stripTop - layout.header); }).toBeLessThan(1);
-    const scrolled = await phoneTableLayout(page);
-    expect(scrolled.rows).toBeGreaterThanOrEqual(6);
+    await expect.poll(async () => (await phoneCardLayout(page)).cards).toBeGreaterThanOrEqual(size.height >= 844 ? 3 : 2);
     // The paging bar rests on the page bar: never under it, no gap above it.
     const pagesTop = await page.getByRole('navigation', { name: 'Pages' }).evaluate(nav => nav.getBoundingClientRect().top);
-    expect(scrolled.barBottom).toBeLessThanOrEqual(pagesTop + 1);
-    expect(scrolled.barBottom).toBeGreaterThan(pagesTop - 2);
+    const { barBottom } = await phoneCardLayout(page);
+    expect(barBottom).toBeLessThanOrEqual(pagesTop + 1);
+    expect(barBottom).toBeGreaterThan(pagesTop - 2);
 
-    // Sideways: the Row column stays, headings follow their columns, the fade ends at the last column.
-    const rows = page.getByLabel('dbo.ActivePlateView rows');
-    const fade = () => page.getByLabel('Database table workspace').evaluate(root =>
-      [...root.querySelectorAll('div')].filter(element => getComputedStyle(element).backgroundImage.includes('linear-gradient')).length);
-    expect(await fade()).toBe(1);
-    const rowButton = page.getByRole('button', { name: 'Inspect row 10', exact: true });
-    const before = (await rowButton.boundingBox())!.x;
-    await rows.evaluate(element => { element.scrollLeft = element.scrollWidth; });
-    await expect.poll(fade).toBe(0);
-    expect((await rowButton.boundingBox())!.x).toBeCloseTo(before, 0);
-    const odHeading = (await page.getByRole('columnheader', { name: 'OD', exact: true }).boundingBox())!;
-    const odCell = (await page.getByRole('button', { name: 'View OD, row 10', exact: true }).locator('xpath=..').boundingBox())!;
-    expect(Math.abs(odHeading.x - odCell.x)).toBeLessThan(1);
-    expect(Math.abs(odHeading.width - odCell.width)).toBeLessThan(1);
-    await testInfo.attach(`phone-table-${size.width}-scrolled`, { body: await page.screenshot(), contentType: 'image/png' });
+    // Tapping a card opens that row's inspector with every column.
+    await page.getByRole('button', { name: 'Inspect row 3', exact: true }).click();
+    const record = page.getByRole('dialog', { name: /Row 3/ });
+    await expect(record).toContainText('9852');
+    await expect(record).toContainText('OD');
+    await page.keyboard.press('Escape');
+    await expect(record).toBeHidden();
 
-    // Paging from the bottom bar shows the next page from its first row.
+    // Sort by replaces the column headings on phones and writes the same query.
+    await page.getByRole('button', { name: 'More table options' }).click();
+    await page.getByRole('menuitem', { name: /^Sort by/ }).click();
+    const sort = page.getByRole('dialog', { name: 'Sort by' });
+    await sort.getByRole('combobox', { name: 'Column' }).click();
+    await page.getByRole('option', { name: 'PlateID', exact: true }).click();
+    await sort.getByRole('combobox', { name: 'Direction' }).click();
+    await page.getByRole('option', { name: 'Descending', exact: true }).click();
+    // The cards behind the open dialog are hidden from assistive technology, so close it first.
+    await page.keyboard.press('Escape');
+    await expect(sort).toBeHidden();
+    await expect(cards.first()).toContainText('PlateID9881');
+    expect(requests.some(url => /order_by=PlateID/.test(url) && /sort_direction=desc/.test(url))).toBe(true);
+
+    // Paging from the bottom bar shows the next page from its first card.
     await page.getByRole('button', { name: 'Go to next page' }).click();
     await expect(page.getByText('26–32 of 32', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Inspect row 26', exact: true })).toBeInViewport();
