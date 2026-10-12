@@ -187,9 +187,9 @@ function TableView({
           scroll.current.top = 0;
           if (tableScroll.current) tableScroll.current.scrollTop = 0;
           // A phone pages from the bottom bar; show the new page from its first card.
-          const top = rowsTop.current?.getBoundingClientRect().top;
-          const header = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--app-header-height")) || 0;
-          if (top !== undefined && top < header) window.scrollBy(0, top - header);
+          const rows = rowsTop.current;
+          const areaTop = rows?.closest("main")?.getBoundingClientRect().top ?? 0;
+          if (rows && rows.getBoundingClientRect().top < areaTop) rows.scrollIntoView({ block: "start" });
         }
         setUpdated(new Date().toLocaleTimeString());
       })

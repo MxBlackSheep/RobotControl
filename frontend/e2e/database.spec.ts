@@ -131,9 +131,9 @@ test('short narrow windows keep reading and close controls reachable', async ({ 
   await expect(page.getByRole('button', { name: 'Expand SQL' })).toBeVisible();
 });
 
-/** Whole cards between the top of the screen (below the header) and the paging bar, and the bar's bottom. */
+/** Whole cards between the top of the scroll area and the paging bar, and the bar's bottom. */
 const phoneCardLayout = (page: Page) => page.evaluate(() => {
-  const header = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--app-header-height')) || 0;
+  const header = document.querySelector('main')!.getBoundingClientRect().top;
   const bar = document.querySelector('.MuiTablePagination-root')!.parentElement!.getBoundingClientRect();
   const cards = [...document.querySelectorAll('[role="listitem"]')].map(card => card.getBoundingClientRect());
   return { cards: cards.filter(card => card.top >= header - 1 && card.bottom <= bar.top + 1).length, barBottom: bar.bottom };

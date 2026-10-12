@@ -67,30 +67,10 @@ export default function PhoneBar() {
     else if (dx > 40) setGroup(Math.max(0, current - 1));
   };
 
-  const bar = React.useRef<HTMLElement>(null);
-  React.useLayoutEffect(() => {
-    const element = bar.current;
-    if (!element) return;
-    const root = document.documentElement.style;
-    // Views that fit themselves to the screen (text readers, rack, camera) subtract the main element's
-    // bottom padding, which includes this height, and re-measure on window resize. A CSS variable change
-    // resizes nothing they observe, so announce it as a resize.
-    const observer = new ResizeObserver(() => {
-      const value = `${element.offsetHeight}px`;
-      if (root.getPropertyValue('--app-bottom-bar-height') === value) return;
-      root.setProperty('--app-bottom-bar-height', value);
-      // Focus moves and scroll-into-view must stop above the bar, not behind it.
-      root.setProperty('scroll-padding-bottom', value);
-      window.dispatchEvent(new Event('resize'));
-    });
-    observer.observe(element);
-    return () => { observer.disconnect(); root.setProperty('--app-bottom-bar-height', '0px'); root.removeProperty('scroll-padding-bottom'); };
-  }, []);
-
   const groupHasAttention = (index: number) => attention && groups[index].some(item => item.path === '/scheduling');
 
-  return <Box component="nav" ref={bar} aria-label="Pages" sx={{
-    position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: theme => theme.zIndex.appBar,
+  return <Box component="nav" aria-label="Pages" sx={{
+    flexShrink: 0, zIndex: theme => theme.zIndex.appBar,
     bgcolor: 'background.paper', borderTop: 1, borderColor: 'divider', pb: 'env(safe-area-inset-bottom)',
   }}>
     {groups.length > 1 && <Box sx={{ display: 'flex', justifyContent: 'center' }}>

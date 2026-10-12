@@ -12,6 +12,8 @@ import { routeDatabaseViewer } from '../database-fixture';
  * Phones use the iPhone heights (844, 667). VISUAL_SESSION=remote shows a tunnel user's view.
  * Some routes also save an opened item (a table, a log folder, a folder of recordings) as
  * `<route>-open`, with the owner's volumes: 32-row ActivePlateView, 2,000 log files.
+ * The window never scrolls (only main does), so each image is one screen; `-end` shows the
+ * bottom of main when it holds more than a screen.
  */
 // Run from frontend/, like the configs' own paths.
 const output = path.resolve('../test-output/visual/latest');
@@ -116,6 +118,16 @@ async function sampleData(page: Page, mode: string) {
     { family_id: 'tips300', display_name: '300 µL tips', left_racks: left, right_racks: right, reset_map: {}, tips: {} }] } } }));
 }
 
+/** The screen, and the end of the scroll area when there is more below. */
+async function capture(page: Page, name: string) {
+  await page.screenshot({ path: `${name}.png` });
+  const main = page.locator('main');
+  if (!await main.evaluate(element => element.scrollHeight > element.clientHeight + 1)) return;
+  await main.evaluate(element => element.scrollTo(0, element.scrollHeight));
+  await page.screenshot({ path: `${name}-end.png` });
+  await main.evaluate(element => element.scrollTo(0, 0));
+}
+
 for (const mode of modes) {
   for (const width of widths) {
     test(`${mode} ${width}`, async ({ page }) => {
@@ -127,13 +139,11 @@ for (const mode of modes) {
         await page.goto(route);
         await page.locator('main h1').waitFor();
         await settle();
-        await page.screenshot({ path: `${name}.png`, fullPage: true });
+        await capture(page, name);
         if (!opened[route]) continue;
         await opened[route](page);
         await settle();
-        // The first screen is what an operator sees on opening; the full page shows the rest.
-        await page.screenshot({ path: `${name}-open.png` });
-        await page.screenshot({ path: `${name}-open-full.png`, fullPage: true });
+        await capture(page, `${name}-open`);
       }
     });
   }

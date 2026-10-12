@@ -4,6 +4,8 @@ import ChevronLeft from '@mui/icons-material/ChevronLeft';
 import ChevronRight from '@mui/icons-material/ChevronRight';
 import type { SystemStyleObject } from "@mui/system";
 import type { Theme } from "@mui/material/styles";
+import { heightBelow, observeScrollArea } from "./appShell";
+import { layout } from "../theme";
 
 /** Phones: under 600 px (MUI's xs). */
 const phoneQuery = '(max-width: 599.95px)';
@@ -11,9 +13,13 @@ const phoneQuery = '(max-width: 599.95px)';
 /** True on phones, where the workspace flows with the page instead of keeping a measured height. */
 export const usePhoneWorkspace = () => useMediaQuery(phoneQuery, { noSsr: true });
 
-/** A bar pinned just above the phone page bar (which owns the safe area) while its list scrolls with the page. */
+/**
+ * A bar pinned to the bottom of the scroll area, resting on the phone page bar, while its list
+ * scrolls with the page. Sticky stops at main's padding edge, so a negative offset of that padding
+ * closes the gap through which rows would show.
+ */
 export const pinnedBarSx = {
-  position: 'sticky', bottom: 'var(--app-bottom-bar-height, 0px)', zIndex: 3, bgcolor: 'background.paper', borderTop: 1, borderColor: 'divider',
+  position: 'sticky', bottom: { xs: -layout.pagePhone, sm: -layout.page }, zIndex: 3, bgcolor: 'background.paper', borderTop: 1, borderColor: 'divider',
 } as const;
 
 /**
@@ -100,26 +106,14 @@ export default function InspectionWorkspace({
     const measure = () => {
       const bounds = element.getBoundingClientRect();
       if (!bounds.width) return; // A visited, hidden section keeps its previous size.
-      const main = element.closest("main");
-      const bottomSpace = main
-        ? parseFloat(getComputedStyle(main).paddingBottom) || 0
-        : 0;
-      const viewportHeight =
-        window.visualViewport?.height ?? window.innerHeight;
-      setHeight(
-        Math.max(
-          320,
-          Math.floor(
-            viewportHeight - (bounds.top + window.scrollY) - bottomSpace,
-          ),
-        ),
-      );
+      setHeight(Math.max(320, Math.floor(heightBelow(element))));
       setNarrow(bounds.width < 900);
     };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(element);
     if (element.parentElement) observer.observe(element.parentElement);
+    observeScrollArea(element, observer);
     window.addEventListener("resize", measure);
     window.visualViewport?.addEventListener("resize", measure);
     return () => {

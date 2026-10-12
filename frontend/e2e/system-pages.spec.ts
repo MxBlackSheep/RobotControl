@@ -207,7 +207,7 @@ test('Overview shows elapsed time against the estimate and keeps other panels wh
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBeTruthy();
   // A phone's first screen answers "is something running, does anything need attention": the deck's
   // first card holds the run and the strip.
-  await page.evaluate(() => scrollTo(0, 0));
+  await page.locator('main').evaluate(main => main.scrollTo(0, 0));
   await expect(running.getByText('Daily tip wash', { exact: true })).toBeInViewport({ ratio: 1 });
   await expect(running.getByRole('progressbar', { name: 'Running past the estimate' })).toBeInViewport({ ratio: 1 });
   await expect(health).toBeInViewport({ ratio: 1 });

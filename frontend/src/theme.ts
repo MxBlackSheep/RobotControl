@@ -114,7 +114,8 @@ export function createAppTheme(mode: PaletteMode) {
     },
     components: {
       MuiCssBaseline: { styleOverrides: {
-        ':root': { colorScheme: mode },
+        // The page never scrolls (see appShell.ts); stop iOS bouncing the whole window.
+        ':root': { colorScheme: mode, overscrollBehavior: 'none' },
         body: { overflowWrap: 'break-word', fontSize: 14, lineHeight: '20px' },
         '*': { scrollbarColor: dark ? '#3A4350 #171B22' : '#A3ADBA #ECEEF1' },
         '*:focus-visible': focus,

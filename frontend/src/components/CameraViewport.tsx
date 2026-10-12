@@ -31,6 +31,7 @@ import {
 } from "@mui/icons-material";
 import { PanelLabel } from "./PageLayout";
 import { layout } from "../theme";
+import { heightBelow, observeScrollArea } from "./appShell";
 import LiveFrame, { FrameFreshness, type FrameStore } from "./LiveFrame";
 
 interface CameraViewportProps {
@@ -117,20 +118,12 @@ export default function CameraViewport({
     if (!area) return;
     const measure = () => {
       const bounds = area.getBoundingClientRect();
-      const viewportHeight =
-        window.visualViewport?.height ?? window.innerHeight;
       const main = area.closest("main");
-      const bottomPadding = main
-        ? parseFloat(getComputedStyle(main).paddingBottom) || 0
-        : 0;
       // A minimum lets short/zoomed windows scroll without making the image vanish.
-      const remaining =
-        viewportHeight - (bounds.top + window.scrollY) - bottomPadding - 40;
+      const remaining = heightBelow(area) - 40;
       // On a phone the controls above would leave the picture a sliver: it may fill one screen
-      // below the app's sticky header (the page scrolls to it), and its width usually decides.
-      const screen = main
-        ? viewportHeight - (main.getBoundingClientRect().top + window.scrollY) - 40
-        : 0;
+      // of the scroll area (the page scrolls to it), and its width usually decides.
+      const screen = main ? main.clientHeight - 40 : 0;
       const height = expanded
         ? bounds.height
         : Math.max(180, remaining, compact ? screen : 0);
@@ -145,6 +138,7 @@ export default function CameraViewport({
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(area);
+    observeScrollArea(area, observer);
     if (toolbarRef.current) observer.observe(toolbarRef.current);
     if (controlsRef.current) observer.observe(controlsRef.current);
     window.addEventListener("resize", measure);
