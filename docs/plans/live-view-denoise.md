@@ -27,7 +27,7 @@ when the picture is worst.
 `performance_probe.py --rtt R --kbps L --clip <clip> --level0 fps:kbit/s[:d]` now models a link of
 L kbit/s (frames cross one after another) with real frames. One viewer, 20 s each, owner clip
 085717 and the light-off model (#48's `darken`, gain ×8, of clip 123612). Latency is capture to
-shown in the simulated browser (no decode or display). Evidence: `tunnel_matrix.jsonl`.
+shown in the simulated browser (no decode or display).
 
 | scene, round trip | link kbit/s | 15/400 (before #48) | 15/600 (#48) | **15/400 + denoise** | 15/450 + denoise |
 | --- | --- | --- | --- | --- | --- |
@@ -64,7 +64,7 @@ gripper moves after frame 209), encoded at 15/600 (`round1`):
   encoding, the flicker a viewer sees (`live_view_quality_probe`). #48's detail measure ignores
   noise by design, which is why default `atadenoise` looked useless there.
 - **Frames held**: `atadenoise` outputs the middle of its window, so it holds back (s+1)/2 frames;
-  5 is its smallest window (`frames_held.py`). 3 frames is 200 ms at 15 fps, 400–600 ms at the
+  5 is its smallest window. 3 frames is 200 ms at 15 fps, 400–600 ms at the
   degraded 7.5 and 5 fps, which is why only level 0 uses it.
 - **Ghost**: on frames where the gripper moves, the share of the previous/next source frame left in
   the output (`live_view_quality_probe`, validated: `tmix` 2 frames reads 0.507). Encoder alone:
@@ -80,7 +80,7 @@ encoder's yuv420p planes (`format=yuv420p` first) with `-filter_threads 1`.
 
 ## Bitrate
 
-`live_view_quality_probe` (`clip_*.json`, crops `clip_*_crops.jpg`):
+`live_view_quality_probe`:
 
 | detail kept (still frames) / noise left / kbit/s sent | 15/600 (#48) | 15/400 | **15/400 + denoise** | 15/450 + denoise |
 | --- | --- | --- | --- | --- |
@@ -130,6 +130,4 @@ honours 15 would save capture work, but none is in use, and exposure gains were 
 - Degraded levels (7.5/300, 5/200) are unchanged and without denoise; they exist for CPU, not links.
 - Not measured on the N100: filter and chain CPU, the real tunnel's capacity, lights-off footage.
 
-Evidence (local): `test-output/live-view-denoise/` (probe JSON and crops, `tunnel_matrix.jsonl` and
-`.sh`, `frames_held.py/.txt`, `filter_cpu.sh/.txt`, `encoder_cpu_ab.py/.txt`, `chain_cpu_ab.sh/.txt`,
-`levels_on_off.py/.txt`). Tuning rounds are summarised above.
+Tuning rounds are summarised above.

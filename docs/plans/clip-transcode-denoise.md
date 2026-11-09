@@ -37,7 +37,7 @@ All variants keep 451 of 451 frames and send 1000–1007 kbit/s. Averaging two f
 - A wider window removes about 20 % more noise at the same ghost: the serial algorithm (`a=s`) stops
   at the first frame that differs, so moving pixels are not averaged further. Higher thresholds do
   ghost more. The window's cost in live view is delay ((s+1)/2 held frames); a stored clip has none.
-- In 2× crops (`clip_*_crops.jpg`, source | today | denoised) the gripper and arm keep single edges.
+- In 2× crops (source | today | denoised) the gripper and arm keep single edges.
   The pale patch on the gripper clip's moving frame (300, during a 50 % light change) is in today's
   output too: the encoder short of bits, not the filter.
 - Central review's measure on the owner clip: 6.63 stored, 5.19 re-converted without the filter,
@@ -78,6 +78,3 @@ neighbouring frame that differs by more than about 40 of 255 levels (threshold A
 differences summed outward exceed about 81 (threshold B, 0.32). A faint, brief change below those
 (a dim reflection, a small low-contrast object present for one frame) can be softened. If a clip must show what the sensor delivered, set `clip_denoise_filter` to `""`; clips
 recorded before then keep the denoise. The MJPEG recording itself is unchanged until conversion.
-
-Evidence (local): `test-output/clip-denoise/` (probe JSON and crops per variant, `final/`,
-`encode_cpu_ab.py/.txt`, `cpu-s5`, `cpu-s7`, `check_*.json`).

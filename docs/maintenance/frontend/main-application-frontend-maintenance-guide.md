@@ -105,7 +105,7 @@ starts or stops a live-view session.
 
 ## Design system A (instrument console)
 
-Approved mock: https://claude.ai/artifact/ApKjN7njdXXfQpZ1RDqRhx (column A). Light and dark
+Approved mock: column A. Light and dark
 share one structure; only the palette changes.
 
 **Tokens** (`theme.ts`): everything is a multiple of 4px. `layout` holds the sizes: page

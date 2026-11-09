@@ -55,7 +55,7 @@ Correction to item 6: `database_change_guard()` refuses while a run is active or
 
 - Ruff on the changed Python: about 50 unused imports and 3 unused variables (for example `api/scheduling.py:1397`, `api/system.py:168`), plus a duplicate `threading` import in `services/monitoring.py:384`. The SQL string-building warnings I checked are safe: they use identifiers from quoted or whitelisted sources and integer casts.
 - The audit log records the `X-Forwarded-For` value as the client IP. The access decision correctly uses the socket peer, but the logged IP can be spoofed. Log both.
-- Documentation sprawl: `implementation-notes.md` is 120 KB, there are four dated review documents, and `recovery/` holds about 30 evidence folders outside Git. Consider one changelog per release plus the maintenance guides.
+- Documentation sprawl: `implementation-notes.md` is 120 KB, there are four dated review documents, and about 30 local evidence folders remain outside Git. Consider one changelog per release plus the maintenance guides.
 
 ## What's good
 

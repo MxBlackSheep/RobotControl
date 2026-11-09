@@ -25,12 +25,9 @@ keyframe holds up the frames behind it. #51's probe reported average fps and del
   frame shown); `--keyframe-seconds`.
 
 Method: one viewer plus one re-joining every 2.3 s, 60 s per run, level 0 (15/400 + denoise), owner
-clip 085717 and the light-off model (#48's `darken` ×8 of clip 123612, `make_model8.py`). The link
+clip 085717 and the light-off model (#48's `darken` ×8 of clip 123612). The link
 model: frames cross one after another at the link rate, are shown half a round trip later and
 acknowledged a full round trip later. It does not model loss, TCP or Cloudflare's own buffering.
-Evidence: `test-output/live-view-keyframes/` (`gop_matrix.sh`, `gop_matrix.jsonl` and
-`gop_matrix_before_fix.jsonl`, `gop_matrix_table.md`, `plan_tables.md`, `startup_trace*.txt`,
-`log_line.txt`).
 
 ## Finding 1: each keyframe is a hitch on any link up to 1000 kbit/s
 

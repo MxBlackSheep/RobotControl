@@ -1,6 +1,6 @@
 # Frontend redesign — brief (30 September 2026)
 
-Approved design: [RobotControl Redesign Mock](https://claude.ai/artifact/BosxEuRcKRsc7YUxeWhDwo)
+Approved design: RobotControl Redesign Mock
 (20 artboards: nine modules on desktop and phone, plus the shared patterns sheet).
 All work lands on the branch `redesign/instrument-panel`, one commit per verified step.
 
@@ -57,7 +57,7 @@ recovery indicator the old sidebar already showed, now visible on every page.
 
 ## Review round (30 September 2026): mock gaps and estimates
 
-After the review (Codex and the owner's inspection), the owner asked for the remaining
+After the review and the owner's inspection, the owner asked for the remaining
 gaps with the mock to be closed in this branch. This supersedes part of the scope decision
 above: the Overview cards (Now running with estimate, Needs attention, Up next, Instrument
 health, Recent runs), Maintenance's Right now panel and remaining-time note, and the mock's

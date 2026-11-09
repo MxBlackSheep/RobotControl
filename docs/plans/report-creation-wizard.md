@@ -1,8 +1,7 @@
 # Report creation wizard — implementation brief
 
 2026-09-28. Implemented direction. SQL Server first, SQLite later. Verification
-commands are in `frontend/e2e/README.md`; release evidence is under
-`recovery/report-wizard-verification`.
+commands are in `frontend/e2e/README.md`.
 
 ## Configurable workspace follow-up (implemented 2026-09-28)
 

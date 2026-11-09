@@ -2,7 +2,7 @@
 
 Reviewed 26 September 2026. This is a code-backed proposal, not an implemented redesign.
 It covers the active routes and their nested sections, the supplied log screenshot,
-and independent reviews/cross-review by two frontend specialists. No production
+and independent reviews/cross-review by two reviewers. No production
 frontend or backend code changed during this review. Proposed dimensions and layout
 targets below still require browser validation with representative data.
 
