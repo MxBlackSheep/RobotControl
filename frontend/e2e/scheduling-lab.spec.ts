@@ -10,8 +10,11 @@ import { mkdirSync } from 'node:fs';
  *   still let an administrator resolve the review: saving sends an explicit step (none).
  * - The database step: a timing edit never sends it (the server keeps it); a non-admin sees it
  *   read-only; an administrator's change sends tool and inputs; a rejected save keeps them.
+ * - The Simulation switch: it opens with the saved mode, an edit sends the mode shown, and a
+ *   rejected save keeps it. A queued schedule shows why it is waiting.
  * Server-side preparation cases are in backend/e2e/scheduling_lab_check.py and
- * backend/e2e/preparation_step_check.py.
+ * backend/e2e/preparation_step_check.py; server-side mode cases are in
+ * backend/e2e/simulation_mode_check.py.
  */
 const evidence = '../test-output/scheduling-lab-verification';
 const oldTokens = ['ScheduledToRun', 'EvoYeastExperiment:42|set'];
@@ -198,5 +201,48 @@ for (const role of ['admin', 'user'] as const) {
     // A rejected save keeps the dialog and the edited step.
     await expect(editor).toBeVisible();
     await expect(note).toHaveValue('weekly');
+  });
+}
+
+for (const [saved, sent] of [['real', 'simulation'], ['simulation', 'real']] as const) {
+  test(`Simulation switch: a ${saved} schedule edited to ${sent}`, async ({ page }) => {
+    const reason = 'VENUS is in Simulation Mode; this schedule is real. Turn it off in VENUS: Settings > Simulation Mode.';
+    const schedule = { schedule_id: 'nightly', experiment_name: 'Nightly method', experiment_path: 'C:\\Methods\\nightly.med',
+      schedule_type: 'once', estimated_duration: 20, log_inactivity_threshold_minutes: 3, mode: saved, is_active: true, created_by: 'operator',
+      created_at: '2026-09-25T10:00:00', updated_at: '2026-09-25T10:00:00', prerequisites: [], notification_contacts: [], preparation: null };
+    const writes: any[] = [];
+    await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));
+    await page.route('**/api/auth/me', route => route.fulfill({ json: { success: true, data: {
+      user_id: 'operator', username: 'operator', role: 'admin', session: { is_local: true } } } }));
+    await page.route('**/api/database/tools/catalogue?kind=preparation', route => route.fulfill({ json: [] }));
+    await page.route('**/api/scheduling/**', async route => {
+      const path = new URL(route.request().url()).pathname;
+      if (route.request().method() !== 'GET') {
+        writes.push(route.request().postDataJSON());
+        return route.fulfill({ status: 409, json: { detail: 'Fixture keeps this draft open.' } });
+      }
+      let data: unknown = [];
+      if (path.endsWith('/list')) data = [schedule];
+      else if (path.endsWith('/status/scheduler')) data = { is_running: true };
+      else if (path.endsWith('/status/queue')) data = { queue: { running_jobs: 0, queued_jobs: 1,
+        queued_job_details: [{ schedule_id: 'nightly', experiment_name: 'Nightly method', waiting_reason: reason }] },
+        manual_recovery: { active: false, storage_healthy: true, pending_recoveries: [] } };
+      else if (path.endsWith('/experiments/available')) data = { experiments: [{ name: schedule.experiment_name, path: schedule.experiment_path }] };
+      else if (path.endsWith('/experiments/library')) data = { methods: [] };
+      return route.fulfill({ json: { success: true, data } });
+    });
+    await page.goto('/scheduling?section=schedules');
+    await page.getByRole('button', { name: 'Open Nightly method', exact: true }).click();
+    const detail = page.getByTestId('schedule-detail');
+    await expect(detail.getByText(`Waiting: ${reason}`)).toBeVisible();
+    await page.getByRole('button', { name: 'Edit schedule', exact: true }).click();
+    const editor = page.getByRole('dialog', { name: 'Edit schedule', exact: true });
+    const toggle = editor.getByLabel('Run in VENUS Simulation Mode');
+    await expect(toggle).toBeChecked({ checked: saved === 'simulation' });
+    await toggle.click();
+    await editor.getByRole('button', { name: 'Save schedule', exact: true }).click();
+    await expect.poll(() => writes.length).toBe(1);
+    expect(writes[0].mode).toBe(sent);
+    await expect(toggle).toBeChecked({ checked: sent === 'simulation' });
   });
 }

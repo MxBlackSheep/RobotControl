@@ -192,7 +192,7 @@ def test_acknowledgement_rejects_running_and_unknown_process(db):
     assert db.get_manual_recovery_state().active
 
 
-def test_launch_cannot_pass_recovery_or_failed_execution_write(db, monkeypatch):
+def test_launch_cannot_pass_recovery_or_failed_execution_write(db, monkeypatch, simulation_config):
     item = schedule(db); value = engine(db)
     execution = JobExecution(execution_id='run', schedule_id='a', status='pending')
     db.mark_recovery_atomic('a', 'Abort', 'tester')

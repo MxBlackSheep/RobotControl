@@ -71,6 +71,7 @@ export const normalizeSchedule = (raw: any): ScheduledExperiment => {
     start_time: raw?.start_time ?? null,
     estimated_duration: coerceNumber(raw?.estimated_duration, 0),
     log_inactivity_threshold_minutes: coerceNumber(raw?.log_inactivity_threshold_minutes, 3),
+    mode: coerceString(raw?.mode || 'real') as ScheduledExperiment['mode'],
     created_by: coerceString(raw?.created_by || 'system'),
     created_at: coerceString(raw?.created_at || ''),
     updated_at: coerceString(raw?.updated_at || raw?.created_at || ''),
@@ -335,6 +336,7 @@ const buildScheduleRequest = (data: CreateScheduleFormData): CreateScheduleReque
   start_time: serializeMaybeDate(data.start_time),
   estimated_duration: data.estimated_duration,
   log_inactivity_threshold_minutes: data.log_inactivity_threshold_minutes,
+  mode: data.mode,
   is_active: data.is_active,
   timeout_config: {
     timeout_minutes: data.timeout_minutes ?? null,

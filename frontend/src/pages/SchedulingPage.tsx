@@ -61,7 +61,7 @@ import MethodPathDialog from '../components/scheduling/MethodPathDialog';
 import { LibraryMethod } from '../types/scheduling';
 import ExecutionHistory from '../components/ExecutionHistory';
 import useScheduling from '../hooks/useScheduling';
-import { formatDuration, ScheduledExperiment, CreateScheduleFormData, UpdateScheduleRequest, SchedulingOperationStatus } from '../types/scheduling';
+import { formatDuration, ScheduledExperiment, ScheduleMode, CreateScheduleFormData, UpdateScheduleRequest, SchedulingOperationStatus } from '../types/scheduling';
 import StatusDialog from '../components/StatusDialog';
 import { DeleteConfirmationDialog } from '../components/ScheduleActions';
 
@@ -73,6 +73,7 @@ type ScheduleFormValues = Partial<{
   start_time: string | null;
   estimated_duration: number;
   log_inactivity_threshold_minutes: number;
+  mode: ScheduleMode;
   is_active: boolean;
   timeout_minutes: number | null;
   timeout_action: 'continue' | 'run_cleanup_and_terminate';
@@ -183,6 +184,7 @@ const SchedulingPage: React.FC = () => {
         start_time: data.start_time ? new Date(data.start_time).toISOString() : undefined,
         estimated_duration: Number(data.estimated_duration),
         log_inactivity_threshold_minutes: Number(data.log_inactivity_threshold_minutes ?? 3),
+        mode: data.mode,
         is_active: data.is_active ?? true,
         timeout_config: {
           timeout_minutes:
@@ -213,6 +215,7 @@ const SchedulingPage: React.FC = () => {
         start_time: data.start_time ? new Date(data.start_time) : null,
         estimated_duration: Number(data.estimated_duration),
         log_inactivity_threshold_minutes: Number(data.log_inactivity_threshold_minutes ?? 3),
+        mode: data.mode ?? 'real',
         is_active: data.is_active ?? true,
         timeout_minutes:
           data.timeout_minutes === null || data.timeout_minutes === undefined
@@ -273,6 +276,7 @@ const SchedulingPage: React.FC = () => {
       start_time: selected.start_time ? formatStartTimeForInput(selected.start_time) : null,
       estimated_duration: selected.estimated_duration,
       log_inactivity_threshold_minutes: selected.log_inactivity_threshold_minutes,
+      mode: selected.mode,
       is_active: selected.is_active,
       timeout_minutes: selected.timeout_config?.timeout_minutes ?? null,
       timeout_action: selected.timeout_config?.action ?? 'continue',
@@ -465,6 +469,7 @@ const SchedulingPage: React.FC = () => {
                       {/* Inactive schedules still have a next_run, so they must not read as runs that will happen. */}
                       {scheduleState(schedule).label !== 'Active' && <StatusChip {...scheduleState(schedule)} />}
                       {schedule.preparation_state && schedule.preparation_state !== 'ready' && <StatusChip {...stateChip[schedule.preparation_state]} />}
+                      {schedule.mode === 'simulation' && <StatusChip tone="neutral" label="Simulation" />}
                     </Stack>
                   </Box>
                 ))}
@@ -483,6 +488,7 @@ const SchedulingPage: React.FC = () => {
       ['Timing', repeatLabel(schedule)],
       ...(phone ? [] : [['Next run', formatTimestamp(schedule.next_run)]]),
       ['Duration', formatDuration(schedule.estimated_duration)],
+      ['Mode', schedule.mode === 'simulation' ? 'Simulation' : 'Real'],
       ['Before this run', preparationSummary(schedule)],
       ['Late-start action', `${schedule.timeout_config?.action === 'run_cleanup_and_terminate' ? 'Run cleanup and terminate' : 'Continue'}${schedule.timeout_config?.timeout_minutes ? ` after ${schedule.timeout_config.timeout_minutes} minutes` : ''}`],
     ] as [string, string][]);
@@ -501,6 +507,7 @@ const SchedulingPage: React.FC = () => {
     const validNextRun = nextRun && !Number.isNaN(nextRun.getTime()) ? nextRun : null;
     // Not Active (recovery, inactive, archived): a stored next_run is not a run that will happen.
     const notRunning: Record<string, string> = { 'Recovery required': 'No run until recovery is resolved', Archived: 'No run while archived', Inactive: 'No run while inactive' };
+    const waitingReason = state.queueStatus?.queued_job_details?.find(item => item.schedule_id === schedule.schedule_id)?.waiting_reason;
     return <Box data-testid="schedule-detail" sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
       <Panel title="Schedule" fill inset={false} sx={{ flex: 1 }} bodySx={{ overflow: phone ? 'visible' : 'auto' }} actions={phone ? undefined : statusChip}>
         <Box ref={detailHeading} sx={{ p: 2, borderBottom: 1, borderColor: 'surface.rowLine' }}>
@@ -530,6 +537,7 @@ const SchedulingPage: React.FC = () => {
           <Typography variant="body2" color="text.secondary">Expected duration {formatDuration(schedule.estimated_duration)}</Typography>
         </Box>}
         {schedule.recovery_required && <Alert severity="warning" sx={{ m: 2 }} action={<Button color="inherit" onClick={() => setCurrentTab(1)}>Review recovery</Button>}>Recovery required</Alert>}
+        {waitingReason && <Alert severity="warning" sx={{ m: 2 }}>Waiting: {waitingReason}</Alert>}
         <Box component="dl" sx={{ m: 0 }}>
           {facts.map(([name, value]) => <ListRow key={name} columns="136px minmax(0, 1fr)" sx={{ height: 'auto', minHeight: layout.row, py: 1, '& > *': { whiteSpace: 'normal', overflowWrap: 'anywhere' } }}>
             <Typography component="dt" variant="body2" color="text.secondary">{name}</Typography><Typography component="dd" variant="body2" sx={{ m: 0 }}>{value}</Typography>

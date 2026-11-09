@@ -5,8 +5,8 @@ test and recovery emails. Partial refusal or log-storage failure never resends m
 that was already accepted.
 
 Alert layout, read back from the bytes the mail sink received:
-- every schedule-alert trigger (log_inactive, monitoring_unavailable, long_running,
-  aborted, execution_failed, an unknown one) and both recovery emails arrive as a
+- every schedule-alert trigger (simulation_mode_mismatch, log_inactive, monitoring_unavailable,
+  long_running, aborted, execution_failed, an unknown one) and both recovery emails arrive as a
   text part plus an HTML part carrying the same facts in the same order, and the
   delivery record stores exactly the text part;
 - a hostile experiment name, note, path, error or unknown context value appears as
@@ -91,6 +91,8 @@ def alert_samples(now):
         return JobExecution('exec-7f3a', 'sched-chamfl', 'running', start_time=now - timedelta(minutes=started) if started else None,
                             end_time=now - timedelta(minutes=ended) if ended is not None else None, **fields)
     return [
+        ('simulation_mode_mismatch', 'simulation_mode_mismatch', schedule(), execution(started=None),
+            {'note': 'VENUS is in Simulation Mode; this schedule is real. Turn it off in VENUS: Settings > Simulation Mode.'}),
         ('log_inactive', 'log_inactive', schedule(), execution(), {**run, 'inactivity_minutes': 12.4, 'threshold_minutes': 10,
             'last_activity_at': (now - timedelta(minutes=12.4)).isoformat(), 'observed_at': now.isoformat(),
             'note': 'The run log has stopped updating; operator attention may be required.'}),

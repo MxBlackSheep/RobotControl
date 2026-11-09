@@ -134,6 +134,7 @@ class ScheduledExperiment:
     start_time: Optional[datetime] = None  # Next execution time
     estimated_duration: int = 60  # Duration in minutes
     log_inactivity_threshold_minutes: int = 3
+    mode: str = 'real'
     created_by: str = "system"
     is_active: bool = True
     archived: bool = False
@@ -154,6 +155,8 @@ class ScheduledExperiment:
     
     def __post_init__(self):
         """Initialize default values after creation"""
+        if self.mode not in ('real', 'simulation'):
+            raise ValueError('Mode must be real or simulation')
         if type(self.log_inactivity_threshold_minutes) is not int or self.log_inactivity_threshold_minutes <= 0:
             raise ValueError("Log inactivity threshold must be a positive whole number of minutes")
         if self.prerequisites is None:
@@ -179,6 +182,7 @@ class ScheduledExperiment:
             "start_time": self.start_time.isoformat() if self.start_time else None,
             "estimated_duration": self.estimated_duration,
             "log_inactivity_threshold_minutes": self.log_inactivity_threshold_minutes,
+            "mode": self.mode,
             "created_by": self.created_by,
             "is_active": self.is_active,
             "archived": self.archived,
@@ -237,6 +241,7 @@ class ScheduledExperiment:
             start_time=start_time,
             estimated_duration=data.get("estimated_duration", 60),
             log_inactivity_threshold_minutes=data.get("log_inactivity_threshold_minutes", 3),
+            mode=data.get('mode', 'real'),
             created_by=data.get("created_by", "system"),
             is_active=data.get("is_active", True),
             archived=data.get("archived", False),

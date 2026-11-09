@@ -34,6 +34,7 @@ export interface LegacyPreparation {
 
 /** Derived on read: ready, or the package/connection changed (needs_review), or it is gone. */
 export type PreparationState = 'ready' | 'needs_review' | 'missing' | 'invalid' | 'unknown';
+export type ScheduleMode = 'real' | 'simulation';
 
 export interface ScheduledExperiment {
   schedule_id: string;
@@ -44,6 +45,7 @@ export interface ScheduledExperiment {
   start_time?: string | null; // ISO format
   estimated_duration: number; // minutes
   log_inactivity_threshold_minutes: number;
+  mode: ScheduleMode;
   created_by: string;
   created_at: string; // ISO format
   updated_at: string; // ISO format
@@ -305,6 +307,7 @@ export interface CreateScheduleRequest {
   start_time?: string; // ISO format
   estimated_duration: number;
   log_inactivity_threshold_minutes?: number;
+  mode?: ScheduleMode;
   is_active?: boolean;
   timeout_config?: {
     timeout_minutes?: number | null;
@@ -324,6 +327,7 @@ export interface UpdateScheduleRequest {
   start_time?: string; // ISO format
   estimated_duration?: number;
   log_inactivity_threshold_minutes?: number;
+  mode?: ScheduleMode;
   is_active?: boolean;
   timeout_config?: {
     timeout_minutes?: number | null;
@@ -403,6 +407,7 @@ export interface CreateScheduleFormData {
   start_time?: Date | null;
   estimated_duration: number;
   log_inactivity_threshold_minutes: number;
+  mode: ScheduleMode;
   is_active: boolean;
   timeout_minutes?: number | null;
   timeout_action: 'continue' | 'run_cleanup_and_terminate';

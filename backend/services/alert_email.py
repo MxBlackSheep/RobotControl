@@ -247,6 +247,12 @@ def _execution_failed(f: _Facts) -> Tuple[str, str, set]:
             "and the run trace.", set())
 
 
+def _simulation_mode_mismatch(f: _Facts) -> Tuple[str, str, set]:
+    return ('waiting for Simulation Mode',
+            f'The run for {f.experiment} is waiting for VENUS Simulation Mode to match the schedule. '
+            'It will start when the setting is corrected.', set())
+
+
 @dataclass(frozen=True)
 class _Trigger:
     tone: str
@@ -256,6 +262,7 @@ class _Trigger:
 
 
 TRIGGERS: Dict[str, _Trigger] = {
+    "simulation_mode_mismatch": _Trigger("warning", "Waiting for Simulation Mode", _simulation_mode_mismatch, "Reason"),
     "log_inactive": _Trigger("warning", "Run log silent", _log_inactive),
     "monitoring_unavailable": _Trigger("warning", "Run not monitored", _monitoring_unavailable, "Reason"),
     "long_running": _Trigger("warning", "Running longer than expected", _long_running),

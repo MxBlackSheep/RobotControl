@@ -36,6 +36,9 @@ from backend.services.scheduling.process_monitor import get_hamilton_process_mon
 from backend.services.notifications import get_notification_service
 from backend.services.scheduling.run_log_monitor import RunLogMonitor
 from backend.services.hxrun_maintenance import get_hxrun_maintenance_service
+from backend.services.scheduling.simulation_mode import (
+    is_simulation_reason, simulation_block_reason,
+)
 
 from backend.utils.datetime import ensure_local_naive
 
@@ -634,6 +637,9 @@ class SchedulerEngine:
                 current = self.db_manager.get_schedule_by_id(execution.schedule_id)
                 if not current or not current.is_active or current.archived or current.recovery_required:
                     raise SafetyConflict('The schedule is no longer eligible to run')
+                reason = self._simulation_block_reason(current)
+                if reason:
+                    raise SafetyConflict(reason)
                 execution.status = 'running'
                 execution.start_time = execution.start_time or datetime.now()
                 if not self.db_manager.store_job_execution(execution):
@@ -722,9 +728,13 @@ class SchedulerEngine:
         if self.process_monitor.is_hamilton_running():
             return "Hamilton HxRun.exe is currently busy"
 
-        return None
+        return self._simulation_block_reason(schedule)
 
-    def _wait_until_dispatch_ready(self, schedule_id: str) -> Optional[ScheduledExperiment]:
+    def _simulation_block_reason(self, schedule: ScheduledExperiment) -> Optional[str]:
+        from backend.services.scheduling.experiment_executor import ExecutionConfig
+        return simulation_block_reason(schedule.mode, ExecutionConfig().hxrun_path)
+
+    def _wait_until_dispatch_ready(self, schedule_id: str, execution: Optional[JobExecution] = None) -> Optional[ScheduledExperiment]:
         """Block worker dispatch until all runtime gates are clear."""
         last_reason: Optional[str] = None
         wait_seconds = max(1.0, min(self.config.check_interval_seconds, 5.0))
@@ -754,6 +764,12 @@ class SchedulerEngine:
             if reason != last_reason:
                 logger.info("Queue wait for %s: %s", schedule.experiment_name, reason)
                 last_reason = reason
+                if execution and is_simulation_reason(reason):
+                    try:
+                        self._notify_execution_event(schedule, execution, 'simulation_mode_mismatch', {'note': reason})
+                    except Exception:
+                        # Notification storage/contact lookup failures must not release the gate or kill the worker.
+                        logger.exception('Simulation Mode wait notification failed')
             self._set_queue_waiting_reason(schedule_id, reason)
             time.sleep(wait_seconds)
 
@@ -784,7 +800,7 @@ class SchedulerEngine:
                         self._queued_backlog.discard(schedule_id)
                         continue
 
-                ready_schedule = self._wait_until_dispatch_ready(schedule_id)
+                ready_schedule = self._wait_until_dispatch_ready(schedule_id, execution)
                 if ready_schedule is None:
                     wait_reason = self._get_queue_waiting_reason(schedule_id)
                     if wait_reason and wait_reason != "Scheduler stopping":
