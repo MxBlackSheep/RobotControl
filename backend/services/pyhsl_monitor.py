@@ -13,6 +13,8 @@ from backend.utils.datetime import parse_iso_datetime_to_local
 logger = logging.getLogger(__name__)
 TERMINAL_STATUSES = {'completed', 'failed', 'stopped', 'outcome_unknown', 'reconciliation_required'}
 FAILED_STATUSES = {'failed', 'outcome_unknown', 'reconciliation_required'}
+REVIEW_READ_SECONDS = 120
+REVIEW_READ_TIMEOUT = 30
 RUN_FIELDS = ('run_id', 'protocol', 'status', 'mode', 'completed_count', 'error', 'origin', 'created_at')
 
 
@@ -22,6 +24,8 @@ class PyHslMonitor:
         self.email = email
         self._reading = self._unavailable('unknown', 'Run Control has not been checked')
         self._checked = None
+        self._review_rows = None
+        self._review_read = None
         self._stop = threading.Event()
         self._thread = None
 
@@ -38,10 +42,21 @@ class PyHslMonitor:
             result['reviews']['known'] = False
         return result
 
+    def _reviews(self, runs):
+        """Run Control parses every journal for this list, so read it when a run changes or every two minutes."""
+        rows = sorted((str(row.get('run_id')), str(row.get('status'))) for row in runs) if isinstance(runs, list) else None
+        now = time.monotonic()
+        if (self._review_rows != rows or self._review_read is None or now - self._review_read[0] > REVIEW_READ_SECONDS
+                or self._review_read[1].get('active')):
+            self._review_rows = None
+            self._review_read = (now, self.client.get('/reconciliation', timeout=REVIEW_READ_TIMEOUT))
+            self._review_rows = rows
+        return self._review_read[1]
+
     def poll(self):
         try:
             runs = self.client.get('/runs')['sessions']
-            reviews = self.client.get('/reconciliation')
+            reviews = self._reviews(runs)
             if not isinstance(runs, list) or not isinstance(reviews['cases'], list):
                 raise ValueError
             # Parse dates once; invalid rows must not produce a healthy reading or alerts.
@@ -80,13 +95,13 @@ class PyHslMonitor:
         manager = get_scheduling_database_manager()
         if manager.notification_log_exists(run['run_id'], trigger):
             return
-        if self.email is None:
-            self.email = EmailNotificationService()
-        recipients = self.email.get_manual_recovery_recipients()
+        # Built per alert: saved recipient and mail settings take effect without a restart.
+        email = self.email or EmailNotificationService()
+        recipients = email.get_manual_recovery_recipients()
         if not recipients:
             return
         alert = pyhsl_alert_email(run=run, trigger=trigger)
-        send_recorded(self.email, alert.subject, alert.text(), html=alert.html(), to=recipients,
+        send_recorded(email, alert.subject, alert.text(), html=alert.html(), to=recipients,
                       event_type=trigger, execution_id=run['run_id'])
 
     def start(self):

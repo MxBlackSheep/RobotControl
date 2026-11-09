@@ -14,7 +14,9 @@ Each request rereads discovery, verifies the health response's instance ID, then
 reads the machine token. Use only that token; never access or use the bootstrap
 value. HTTP is restricted to `127.0.0.1` or `localhost`, with connections pinned
 to IPv4 loopback and no proxy or redirect handling. Reads time out after two
-seconds. The future runner can use `post`, whose default timeout is 60 seconds;
+seconds, and the review list after 30, because Run Control parses every journal for
+it. The monitor reads that list only when a run row changes or every two minutes. A
+timeout reads as `unknown`, not as closed. The future runner can use `post`, whose default timeout is 60 seconds;
 it must account for an uncertain outcome if a write times out.
 
 `state` describes Run Control, not a run: `running` means it answered. `run` is the
@@ -34,9 +36,4 @@ including pending or unsuccessful delivery, suppresses automatic resending.
 This avoids duplicate mail after an uncertain send. Inspect the notification log
 for delivery failures. With no recipients configured, no record is created.
 
-Verification: `backend/e2e/pyhsl_client_check.py` covers discovery, credentials,
-staleness, status handling and restart deduplication with disposable files, a real
-HTTP socket and SQLite. `notification_delivery_check.py` covers both new emails
-through local SMTP, including their text and HTML. These checks and the existing
-notification tests passed using the existing Python environment; dependency sync
-was unavailable. No real PyHSL instance, Hamilton data or instrument was exercised.
+Failure cases are listed in the header of `backend/e2e/pyhsl_client_check.py`.

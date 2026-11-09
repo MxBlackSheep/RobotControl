@@ -377,6 +377,8 @@ def pyhsl_alert_email(*, run: Dict[str, Any], trigger: str) -> AlertEmail:
     summary = ('A person must record the Run review in Run Control.' if review else
                'The PyHSL run ended with the status shown below. Check the run in Run Control.')
     rows = [('Status', _one_line(run['status']))]
+    if run.get('mode'):
+        rows.append(('Mode', _one_line(run['mode'])))
     if run.get('error'):
         rows.append(('Error', _one_line(run['error'])))
     return AlertEmail('warning' if review else 'error', fact.capitalize(),

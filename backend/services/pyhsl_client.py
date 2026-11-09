@@ -60,6 +60,9 @@ class PyHslClient:
             if response.status != 200:
                 raise PyHslError(f'Run Control returned HTTP {response.status}')
             return json.loads(raw)
+        except TimeoutError:
+            # It may be running and busy, so this is not the same as closed.
+            raise PyHslError('Run Control did not answer in time') from None
         except (OSError, http.client.HTTPException):
             raise PyHslUnavailable('Run Control is unreachable') from None
         except (ValueError, UnicodeError):
@@ -96,9 +99,9 @@ class PyHslClient:
             raise PyHslError('Run Control machine token is invalid')
         return url, token
 
-    def get(self, path):
+    def get(self, path, *, timeout=None):
         url, token = self._discover()
-        return self._request(url, path, token=token)
+        return self._request(url, path, token=token, timeout=timeout)
 
     def post(self, path, data, *, timeout=60):
         """Reserved for the future runner; this monitor never calls it."""

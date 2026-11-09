@@ -6,10 +6,7 @@
 - Recent failed runs and required Run reviews notify recovery recipients through
   the existing email format and notification log, deduplicated across restarts.
   No run controls, scheduler gates or PyHSL writes were added.
-- Disposable HTTP/SQLite and SMTP checks and existing notification tests passed.
-  Dependency sync was blocked; checks used the existing Python environment.
-  Real PyHSL and Hamilton were not exercised. See
-  [the maintenance guide](maintenance/backend/pyhsl-client-guide.md).
+- See [the maintenance guide](maintenance/backend/pyhsl-client-guide.md).
 
 ## 2026-11-09 Version 0.1.6
 
