@@ -1322,7 +1322,8 @@ class SchedulerEngine:
                 trigger=event_type,
                 context=context,
                 **({"trace_path": Path(observation.trace_path) if observation.trace_path else None,
-                    "exact_trace": True} if observation else {}),
+                    "exact_trace": True} if observation else
+                   {"exact_trace": True} if event_type == "simulation_mode_mismatch" else {}),
             )
             status = "sent" if result.sent else "partial" if result.delivery_status == "partial" else "error"
             self.db_manager.update_notification_log(

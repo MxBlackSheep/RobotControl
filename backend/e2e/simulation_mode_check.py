@@ -1,7 +1,7 @@
 """Disposable SQLite + HTTP + worker + HxRun-boundary check; no Hamilton reads or launches.
 
 Run: uv run --locked python backend/e2e/simulation_mode_check.py
-Failure cases (brief numbering):
+Failure cases:
 1. Real/global on waits with reason, one email, no HxRun/preparation or running execution.
 2. Real/global off/instrument on waits with the instrument reason.
 3. Simulation/both off waits without HxRun.
@@ -16,6 +16,7 @@ Failure cases (brief numbering):
 10. Raising or impossible email delivery cannot stop the wait or worker.
 11. Deactivation/removal while waiting follows existing cancellation handling.
 12. Status/queue reads remain responsive during blocked cfg reads (no scheduler locks).
+13. Waiting alerts attach no trace even when another run's trace exists.
 Also: cleanup inherits mode, missing HxRun fails normally through the engine gate,
 and simulation preparation still runs with its existing inputs.
 """
@@ -82,6 +83,7 @@ def run():
     from backend.models import JobExecution, NotificationContact, ScheduledExperiment, TimeoutConfig
     from backend.services.auth import get_current_user
     from backend.services.alert_email import schedule_alert_email
+    from backend.services.notifications import SchedulingNotificationService
     from backend.services.scheduling import experiment_executor as ex, scheduler_engine as se
     from backend.services.scheduling.database_manager import SchedulingDatabaseManager
     from backend.services.scheduling.simulation_mode import read_simulation_mode
@@ -134,11 +136,24 @@ def run():
             stack.enter_context(patch.object(se, 'get_hxrun_maintenance_service', return_value=SimpleNamespace(
                 get_state=lambda **_: storage.get_hxrun_maintenance_state())))
             sent = []
+            delivered = []
+            notification = SchedulingNotificationService.__new__(SchedulingNotificationService)
+            notification._hamilton_log_dir = root / 'Logs'
+            notification._hamilton_log_dir.mkdir()
+            unrelated_trace = notification._hamilton_log_dir / 'unrelated-run.trc'
+            unrelated_trace.write_text('Trace from another run')
+            notification._rolling_clips_dir = root / 'rolling_clips'
+            def deliver(*args, **kwargs):
+                delivered.append(kwargs)
+                return True
+            notification.email = SimpleNamespace(send=deliver)
             mail_raises = False
             def send(*args, **kwargs):
                 sent.append(kwargs)
                 if mail_raises:
                     raise RuntimeError('Fixture mail unavailable')
+                if kwargs['trigger'] == 'simulation_mode_mismatch':
+                    return notification.schedule_alert(*args, **kwargs)
                 return SimpleNamespace(sent=True, delivery_status='sent', error=None, recipients=['fixture@example.invalid'],
                                        attachments=[], subject='Fixture alert', body=kwargs['context'].get('note', ''), attachment_notes=[])
             stack.enter_context(patch.object(se, 'get_notification_service', return_value=SimpleNamespace(schedule_alert=send)))
@@ -268,6 +283,7 @@ def run():
             sample_config(root, 1, 0)
             waiting = schedule()
             execution = JobExecution('', waiting.schedule_id, 'pending')
+            assert notification._locate_trc_file(waiting, execution) == unrelated_trace
             engine._queued_backlog.add(waiting.schedule_id)
             engine._job_queue.put((waiting, execution))
             engine._running = True
@@ -278,6 +294,8 @@ def run():
                 eventually(lambda: len(sent) == 1, 'No wait notification')
                 assert execution.status == 'pending' and not prepared and not launched
                 assert storage.notification_log_exists(execution.execution_id, 'simulation_mode_mismatch')
+                eventually(lambda: len(delivered) == 1, 'Waiting alert was not delivered')
+                assert not delivered[0]['attachments'], 'Waiting alert attached another run trace'
                 with storage._get_connection() as conn:
                     assert not conn.execute('SELECT 1 FROM JobExecutions WHERE execution_id=?', (execution.execution_id,)).fetchone()
                 time.sleep(1.1)
@@ -293,6 +311,7 @@ def run():
                 with storage._get_connection() as conn:
                     assert conn.execute('SELECT status FROM JobExecutions WHERE execution_id=?', (execution.execution_id,)).fetchone()[0] == 'completed'
                 report['checks'].append('1,6: pending wait, one email before execution persistence, no preparation/launch until correction; same run completes')
+                report['checks'].append('13: waiting alert delivered without an unrelated existing trace')
 
                 for mode, contacts, raising, remove in (('real', True, True, False), ('simulation', False, False, False), ('real', True, False, True)):
                     sample_config(root, 0 if mode == 'simulation' else 1, 0)
