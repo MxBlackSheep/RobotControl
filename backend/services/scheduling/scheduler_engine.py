@@ -123,6 +123,7 @@ class SchedulerEngine:
         from backend.services.scheduling.pyhsl_runner import PyHslRunner
         self.pyhsl_runner = PyHslRunner(self)
         self._owned_execution_ids: Set[str] = set()
+        self._pyhsl_unavailable_since: Dict[str, float] = {}
         
         logger.info("Scheduler engine initialized")
     
@@ -796,14 +797,19 @@ class SchedulerEngine:
         logger.info("Scheduler job worker loop started")
         while self._running or not self._job_queue.empty():
             if self._running:
-                unfinished = self.pyhsl_runner.unfinished()
-                if unfinished:
+                try:
+                    unfinished = self.pyhsl_runner.unfinished()
                     for execution in unfinished:
                         schedule = self.db_manager.get_schedule_by_id(execution.schedule_id)
                         if schedule is not None:
                             with self._jobs_lock:
                                 self._running_jobs.add(schedule.schedule_id)
                             self.pyhsl_runner.execute(schedule, execution)
+                except Exception:
+                    # A locked database must not end the only worker; the next pass retries.
+                    logger.exception('Could not resume unfinished PyHSL executions')
+                    unfinished = True
+                if unfinished:
                     self._stop_event.wait(1)
                     continue
             try:
@@ -829,13 +835,15 @@ class SchedulerEngine:
                 with self._schedules_lock:
                     current = self._active_schedules.get(schedule_id)
                 if self._running and current and current.is_active and current.runner == 'pyhsl':
-                    from backend.services.scheduling.pyhsl_runner import dispatch_reason, UNAVAILABLE_REASON
-                    reason = dispatch_reason()
+                    from backend.services.scheduling.pyhsl_runner import UNAVAILABLE_REASON
+                    # Every gate, not only PyHSL's: a PyHSL job never waits in place, so it never holds
+                    # back the jobs behind it.
+                    reason = self._resolve_dispatch_block_reason(current)
                     if reason:
                         self._set_queue_waiting_reason(schedule_id, reason)
-                        with self._jobs_lock:
-                            queued_at = self._queue_runtime[schedule_id].queued_at
-                        if reason == UNAVAILABLE_REASON and (datetime.now() - queued_at).total_seconds() >= 180:
+                        since = self._pyhsl_unavailable_since.setdefault(schedule_id, time.monotonic()) \
+                            if reason == UNAVAILABLE_REASON else self._pyhsl_unavailable_since.pop(schedule_id, None)
+                        if reason == UNAVAILABLE_REASON and time.monotonic() - since >= 180:
                             try:
                                 self._notify_execution_event(experiment, execution, 'pyhsl_unavailable', {'note': reason})
                             except Exception:
@@ -843,6 +851,7 @@ class SchedulerEngine:
                         self._job_queue.put(item)
                         self._stop_event.wait(1)
                         continue
+                    self._pyhsl_unavailable_since.pop(schedule_id, None)
                 ready_schedule = self._wait_until_dispatch_ready(schedule_id, execution)
                 if ready_schedule is None:
                     wait_reason = self._get_queue_waiting_reason(schedule_id)

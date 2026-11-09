@@ -497,8 +497,9 @@ def gates_and_following():
         assert finished(f, venus_id).status == 'completed'
         assert len(f.launched) == 1 and not f.server.posts
         assert f.prepared == [venus_id]
-        with f.engine._jobs_lock:
-            f.engine._queue_runtime[s.schedule_id].queued_at -= timedelta(seconds=181)
+        # The 180 seconds count from when Run Control went away, not from when the job was queued.
+        until(lambda: s.schedule_id in f.engine._pyhsl_unavailable_since)
+        f.engine._pyhsl_unavailable_since[s.schedule_id] -= 181
         until(lambda: any(x[0] == 'pyhsl_unavailable' for x in f.sent), timeout=3)
         time.sleep(1.1)
         assert [x[0] for x in f.sent].count('pyhsl_unavailable') == 1

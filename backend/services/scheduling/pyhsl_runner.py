@@ -191,7 +191,7 @@ class PyHslRunner:
         if time.monotonic() - since >= self.unavailable_seconds:
             try:
                 self.engine._notify_execution_event(schedule, execution, 'monitoring_unavailable',
-                    {'note': 'Cannot read PyHSL Run Control; the execution is still being followed'})
+                    {'note': 'Cannot reach PyHSL Run Control; RobotControl keeps trying'})
             except Exception:
                 logger.exception('PyHSL monitoring notification failed')
         return since
