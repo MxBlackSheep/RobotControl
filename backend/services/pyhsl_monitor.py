@@ -67,6 +67,8 @@ class PyHslMonitor:
         reading['checked_at'] = datetime.now().astimezone().isoformat()
         self._reading, self._checked = reading, time.monotonic()
         for created, row in dated:
+            if row.get('origin') == 'machine':
+                continue
             if not timedelta(0) <= datetime.now() - created <= timedelta(hours=24):
                 continue
             if row['status'] in FAILED_STATUSES:

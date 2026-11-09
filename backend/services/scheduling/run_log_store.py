@@ -30,7 +30,7 @@ class RunLogStore:
     def unfinished_executions(self):
         with self.database._get_connection() as conn:
             return [JobExecution.from_dict(dict(row)) for row in conn.execute(
-                "SELECT * FROM JobExecutions WHERE status = 'running'"
+                "SELECT * FROM JobExecutions WHERE status = 'running' AND pyhsl IS NULL"
             )]
 
     def save(self, data: Dict[str, Any], alert: Optional[Dict[str, Any]] = None):

@@ -6,7 +6,8 @@ that was already accepted.
 
 Alert layout, read back from the bytes the mail sink received:
 - every schedule-alert trigger (simulation_mode_mismatch, log_inactive, monitoring_unavailable,
-  long_running, aborted, execution_failed, an unknown one), pyhsl_run_failed,
+  long_running, aborted, execution_failed, pyhsl_unavailable, pyhsl_review_required,
+  an unknown one), pyhsl_run_failed,
   pyhsl_review_required and both recovery emails arrive as a
   text part plus an HTML part carrying the same facts in the same order, and the
   delivery record stores exactly the text part;
@@ -92,6 +93,10 @@ def alert_samples(now):
         return JobExecution('exec-7f3a', 'sched-chamfl', 'running', start_time=now - timedelta(minutes=started) if started else None,
                             end_time=now - timedelta(minutes=ended) if ended is not None else None, **fields)
     return [
+        ('pyhsl_unavailable', 'pyhsl_unavailable', schedule(), execution(started=None),
+            {'note': 'PyHSL Run Control is not running'}),
+        ('scheduled_pyhsl_review', 'pyhsl_review_required', schedule(), execution(),
+            {'note': 'Save the Run review in Run Control'}),
         ('simulation_mode_mismatch', 'simulation_mode_mismatch', schedule(), execution(started=None),
             {'note': 'VENUS is in Simulation Mode; this schedule is real. Turn it off in VENUS: Settings > Simulation Mode.'}),
         ('log_inactive', 'log_inactive', schedule(), execution(), {**run, 'inactivity_minutes': 12.4, 'threshold_minutes': 10,
@@ -300,7 +305,7 @@ def run(baseline=False, render=None):
                 engine.get_notification_contact=lambda _: contact
                 engine.run_log_monitor=SimpleNamespace(snapshot=lambda _: None)
                 engine._notification_service=SimpleNamespace(schedule_alert=lambda *args, **kw: ScheduleAlertResult(True,'Automatic','Fixture',['accepted@example.com']))
-                execution=SimpleNamespace(execution_id='fixture-execution')
+                execution=SimpleNamespace(execution_id='fixture-execution', pyhsl=None)
                 for _ in range(2):
                     engine._dispatch_execution_notification(schedule, execution, event_type='automatic_fixture', context={}, contact_ids={'contact'})
                 rows=[row for row in db.get_notification_logs() if row.event_type=='automatic_fixture']

@@ -1,3 +1,17 @@
+## 2026-11-09 Scheduled PyHSL Simulation runs
+
+- Schedules can validate, start and follow an unattended PyHSL protocol through
+  Run Control. Simulation retains its database preparation step. VENUS keeps its
+  executor, Simulation Mode gate and run-log monitoring.
+- Durable requests and results support restart adoption and bounded resending
+  without repeating preparation or a known refusal. Uncertain outcomes hold the
+  queue; acknowledgement waits for a readable, inactive Run Control and any
+  required Run review. Machine-run alerts belong to the scheduler.
+- Disposable HTTP/SQLite worker checks, including a slow Start and interrupted
+  finalization, and the requested scheduling, client, SMTP and API regressions
+  pass. No real instrument or SQL Server was used. No run controls were added.
+  See [the scheduling guide](maintenance/backend/scheduling-maintenance-guide.md#pyhsl-schedules).
+
 ## 2026-11-09 Read-only PyHSL status and alerts
 
 - Added machine-token discovery, an independent poller and a signed-in cached

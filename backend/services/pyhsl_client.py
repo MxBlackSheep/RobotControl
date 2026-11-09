@@ -101,6 +101,6 @@ class PyHslClient:
         return self._request(url, path, token=token)
 
     def post(self, path, data, *, timeout=60):
-        """Reserved for the future runner; this monitor never calls it."""
+        """Validate or start through the machine API; the monitor only reads."""
         url, token = self._discover()
         return self._request(url, path, token=token, method='POST', data=data, timeout=timeout)

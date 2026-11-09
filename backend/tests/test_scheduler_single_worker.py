@@ -135,6 +135,7 @@ def test_scheduler_uses_single_worker_queue(monkeypatch, simulation_config):
     monkeypatch.setattr(executor_module, "ExperimentExecutor", FakeExecutor)
 
     engine = SchedulerEngine(SchedulerConfig(enable_notifications=False, startup_delay_seconds=0, check_interval_seconds=1))
+    monkeypatch.setattr(engine.pyhsl_runner, 'unfinished', lambda: [])
     engine.db_manager.schedules = engine._active_schedules
     current_time = datetime.now()
 
@@ -197,6 +198,7 @@ def test_busy_hamilton_keeps_job_queued_until_available(monkeypatch, simulation_
     monkeypatch.setattr(executor_module, "ExperimentExecutor", FakeExecutor)
 
     engine = SchedulerEngine(SchedulerConfig(enable_notifications=False, startup_delay_seconds=0, check_interval_seconds=1))
+    monkeypatch.setattr(engine.pyhsl_runner, 'unfinished', lambda: [])
     engine.db_manager.schedules = engine._active_schedules
     now = datetime.now()
     schedule = ScheduledExperiment(

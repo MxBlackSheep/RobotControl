@@ -33,7 +33,8 @@ class StubNotifications:
 
 class StubDBManager:
     def __init__(self, schedule: ScheduledExperiment, abort_note: Optional[str] = None):
-        self.sqlite_db = SimpleNamespace(validate_recovery_resolution=lambda *args: None)
+        self.sqlite_db = SimpleNamespace(validate_recovery_resolution=lambda *args: None,
+                                        get_execution_history=lambda *args, **kwargs: [])
         self.schedule = schedule
         self.abort_note = abort_note or "Hamilton reported last run as Aborted"
         self.manual_state = ManualRecoveryState()
