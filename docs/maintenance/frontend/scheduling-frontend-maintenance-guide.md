@@ -88,6 +88,9 @@ operator to cancel, refresh and reopen. Create and update each reload the list o
 - **Log inactivity threshold (minutes)** defaults to 3, takes a positive whole number, is
   separate from estimated duration and the late-start cleanup timeout, and applies from the
   next launch. Omitted update values keep the saved setting; copies must keep it.
+- **Run in VENUS Simulation Mode** sets the schedule's `mode` (`simulation` when on, `real`
+  when off, the default). The form sends the mode it shows. The schedule table, Calendar and
+  phone run details mark simulation schedules. Checks: `scheduling-lab.spec.ts`.
 - **Email alert recipients** warns when no active contact is selected.
 - **Before this run** holds the schedule's one database step (`PreparationStepField`): a local
   administrator picks an installed preparation tool, such as Select EvoYeast experiment, and
@@ -111,7 +114,8 @@ Hamilton status and log condition are separate: SQL status 1 is Running and 2 is
 monitoring continues. Running jobs show **Waiting for run/log**, **Monitoring**, **Log
 inactive**, **Monitoring unavailable** or **Run ended; finalizing**, with threshold, trace
 file, last activity and reason from the queue's optional `monitoring` object; payloads
-without it still render. `queued_job_details[].waiting_reason` explains blocked jobs.
+without it still render. `queued_job_details[].waiting_reason` explains blocked jobs, in
+Queue details and in the selected schedule's detail.
 
 `RecoverySafetyPanel` lists every pending incident, including missing and archived
 schedules. Acknowledgement needs the displayed safety revision and a robot-ready

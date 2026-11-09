@@ -121,7 +121,7 @@ class FakeExecutor:
                 FakeExecutor.active_count -= 1
 
 
-def test_scheduler_uses_single_worker_queue(monkeypatch):
+def test_scheduler_uses_single_worker_queue(monkeypatch, simulation_config):
     FakeExecutor.call_order = []
     FakeExecutor.active_count = 0
     FakeExecutor.max_active = 0
@@ -181,7 +181,7 @@ def test_scheduler_uses_single_worker_queue(monkeypatch):
     assert not engine._queued_backlog
 
 
-def test_busy_hamilton_keeps_job_queued_until_available(monkeypatch):
+def test_busy_hamilton_keeps_job_queued_until_available(monkeypatch, simulation_config):
     FakeExecutor.call_order = []
     FakeExecutor.active_count = 0
     FakeExecutor.max_active = 0
@@ -242,7 +242,7 @@ def test_busy_hamilton_keeps_job_queued_until_available(monkeypatch):
     assert schedule.schedule_id not in engine._running_jobs
 
 
-def test_timeout_cleanup_action_disables_schedule(monkeypatch):
+def test_timeout_cleanup_action_disables_schedule(monkeypatch, simulation_config):
     FakeExecutor.call_order = []
     monkeypatch.setattr(scheduler_engine, "get_scheduling_database_manager", lambda: StubDBManager())
     monkeypatch.setattr(scheduler_engine, "get_hamilton_process_monitor", lambda: StubMonitor())

@@ -53,6 +53,12 @@ router = APIRouter(prefix="/api/scheduling", tags=["scheduling"], route_class=Sa
 EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
+def _schedule_mode(value: Any) -> str:
+    if value not in ('real', 'simulation'):
+        raise HTTPException(status_code=400, detail='Mode must be real or simulation')
+    return value
+
+
 def _log_inactivity_threshold(value: Any) -> int:
     if type(value) is not int or value <= 0:
         raise HTTPException(status_code=400, detail="Log inactivity threshold must be a positive whole number of minutes")
@@ -891,6 +897,7 @@ def create_schedule(
             start_time=start_time,
             estimated_duration=schedule_data.get("estimated_duration", 60),
             log_inactivity_threshold_minutes=_log_inactivity_threshold(schedule_data.get("log_inactivity_threshold_minutes", 3)),
+            mode=_schedule_mode(schedule_data.get('mode', 'real')),
             created_by=current_user.get("username", "unknown"),
             is_active=schedule_data.get("is_active", True),
             timeout_config=timeout_config,
@@ -1160,6 +1167,8 @@ def update_schedule(
             updated_schedule.estimated_duration = update_data["estimated_duration"]
         if "log_inactivity_threshold_minutes" in update_data:
             updated_schedule.log_inactivity_threshold_minutes = _log_inactivity_threshold(update_data["log_inactivity_threshold_minutes"])
+        if 'mode' in update_data:
+            updated_schedule.mode = _schedule_mode(update_data['mode'])
         if "is_active" in update_data:
             updated_schedule.is_active = update_data["is_active"]
         if update_data.get("prerequisites", base_schedule.prerequisites) != base_schedule.prerequisites:

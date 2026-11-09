@@ -20,7 +20,7 @@ import MethodPicker from './MethodPicker';
 import { useAuth } from '../../context/AuthContext';
 import { isLocalUser } from '../navigation';
 import PreparationStepField from './PreparationStepField';
-import type { LegacyPreparation, PinnedPreparation, PreparationState, PreparationStep } from '../../types/scheduling';
+import type { LegacyPreparation, PinnedPreparation, PreparationState, PreparationStep, ScheduleMode } from '../../types/scheduling';
 import { StatusMessage } from '../StatusDialog';
 import {
   Dialog,
@@ -72,6 +72,7 @@ interface ScheduleFormData {
   start_time: string | null;
   estimated_duration: number;
   log_inactivity_threshold_minutes: number;
+  mode: ScheduleMode;
   /** Undefined until the administrator changes the database step; then sent (null removes it). */
   preparation?: PreparationStep | null;
   notification_contacts: string[];
@@ -120,6 +121,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
     start_time: null,
     estimated_duration: 55,
     log_inactivity_threshold_minutes: 3,
+    mode: 'real',
     notification_contacts: initialData?.notification_contacts ?? [],
     is_active: true,
     timeout_minutes: null,
@@ -284,6 +286,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
       start_time: null,
       estimated_duration: 55,
     log_inactivity_threshold_minutes: 3,
+      mode: 'real',
       notification_contacts: [],
       is_active: true,
       timeout_minutes: null,
@@ -696,6 +699,19 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                       />
                     }
                     label="Schedule is active"
+                  />
+                </Grid>
+                <Grid item xs={12}>
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={formData.mode === 'simulation'}
+                        onChange={(event) =>
+                          setFormData((prev) => ({ ...prev, mode: event.target.checked ? 'simulation' : 'real' }))
+                        }
+                      />
+                    }
+                    label="Run in VENUS Simulation Mode"
                   />
                 </Grid>
               </Grid>

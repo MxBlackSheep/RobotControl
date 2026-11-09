@@ -294,6 +294,7 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                 existing_columns = {col['name'] for col in cursor.execute("PRAGMA table_info(ScheduledExperiments)")}
                 column_alterations = [
                     ('log_inactivity_threshold_minutes', "ALTER TABLE ScheduledExperiments ADD COLUMN log_inactivity_threshold_minutes INTEGER NOT NULL DEFAULT 3"),
+                    ('mode', "ALTER TABLE ScheduledExperiments ADD COLUMN mode TEXT NOT NULL DEFAULT 'real'"),
                     ('recovery_required', "ALTER TABLE ScheduledExperiments ADD COLUMN recovery_required INTEGER NOT NULL DEFAULT 0"),
                     ('recovery_note', "ALTER TABLE ScheduledExperiments ADD COLUMN recovery_note TEXT"),
                     ('recovery_marked_at', "ALTER TABLE ScheduledExperiments ADD COLUMN recovery_marked_at TEXT"),
@@ -412,8 +413,8 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                         timeout_cleanup_experiment_name, timeout_cleanup_experiment_path, prerequisites,
                         recovery_required, recovery_note, recovery_marked_at, recovery_marked_by,
                         recovery_resolved_at, recovery_resolved_by, created_at, updated_at,
-                        log_inactivity_threshold_minutes, preparation
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        log_inactivity_threshold_minutes, preparation, mode
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     schedule.schedule_id,
                     schedule.experiment_name,
@@ -440,6 +441,7 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                     self._serialize_timestamp(schedule.updated_at),
                     schedule.log_inactivity_threshold_minutes,
                     json.dumps(schedule.preparation) if schedule.preparation else None,
+                    schedule.mode,
                 ))
                 self._replace_schedule_contacts(conn, schedule.schedule_id, schedule.notification_contacts or [])
                 conn.commit()
@@ -581,6 +583,7 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                     "start_time = ?",
                     "estimated_duration = ?",
                     "log_inactivity_threshold_minutes = ?",
+                    "mode = ?",
                     "is_active = CASE WHEN recovery_required = 1 OR archived = 1 THEN 0 ELSE ? END",
                     "archived = ?",
                     "timeout_minutes = ?",
@@ -598,6 +601,7 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                     self._serialize_timestamp(schedule.start_time),
                     schedule.estimated_duration,
                     schedule.log_inactivity_threshold_minutes,
+                    schedule.mode,
                     1 if schedule.is_active else 0,
                     1 if getattr(schedule, "archived", False) else 0,
                     schedule.timeout_config.timeout_minutes if schedule.timeout_config else None,
@@ -1549,6 +1553,7 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                 start_time=start_time,
                 estimated_duration=row["estimated_duration"],
                 log_inactivity_threshold_minutes=row["log_inactivity_threshold_minutes"],
+                mode=row['mode'],
                 created_by=row["created_by"],
                 is_active=bool(row["is_active"]),
                 archived=bool(row["archived"]) if "archived" in row_keys else False,

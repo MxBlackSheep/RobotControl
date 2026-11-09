@@ -22,6 +22,8 @@ All paths are under `backend/services/scheduling/` unless stated.
   step; `legacy_preparation.py` reads the retired adapter's tokens on older schedules.
 - `process_monitor.py`: detects HxRun with `psutil`, falling back to
   `tasklist /FO CSV /NH` (five-second timeout).
+- `simulation_mode.py`: reads only the two Hamilton binary cfg simulation settings and
+  supplies dispatch and launch reasons, using the folder from `ExecutionConfig.hxrun_path`.
 - `run_log_monitor.py`: `HamiltonRunReader` matches the Hamilton run in SQL; `RunLogMonitor`
   observes the trace file and delivers monitoring email. `run_log_store.py` owns the
   transactional observation and alert writes.
@@ -63,7 +65,8 @@ Remote sessions are read-only; the backend enforces this.
    - manual recovery is active, or acknowledged but waiting for **Resume queued jobs**;
    - this schedule requires recovery;
    - a previous execution is still observed (unfinished or not reconciled);
-   - HxRun is running, or process detection failed.
+   - HxRun is running, or process detection failed;
+   - VENUS Simulation Mode differs from the schedule's `mode`, or cannot be read.
 
    A schedule removed or deactivated while waiting cancels its execution with that reason.
 4. **Timeout action.** Timeout is measured from the scheduled start at actual launch, so queue
@@ -91,6 +94,22 @@ Remote sessions are read-only; the backend enforces this.
 or Resume is pending, a run is owned or observed, or HxRun is present or undetectable. Package
 operations and laboratory settings take it; backup restore does not.
 
+## VENUS Simulation Mode and launch coverage
+
+Read `Config/HxServices.cfg`, section `HxServicesGeneralSettings,default`, key `SimulationOn`.
+If it is 0, read `Config/ML_STAR.cfg`, section `CommandEdit,default`, key `SimulateMode`.
+Either 1 means simulation; both 0 means real. The reader accepts binary versions 2 and 3.
+Unknown blocks both modes. Scheduled jobs wait when cfg files are missing.
+
+Dispatch reads these settings last, outside scheduler locks. Notification is attempted when
+its reason changes; the execution/event log deduplicates delivery. Failed delivery does not
+stop the wait. Correcting the setting releases the queued run on the next poll.
+
+The scheduler checks again before preparation and at the final `launch_guard`, including
+for timeout cleanup, which inherits the schedule's mode and skips preparation. A final
+refusal raises `SafetyConflict` and follows the existing failed-execution path; preparation
+may already have committed. Launches outside RobotControl do not pass these checks.
+
 ## Schedules and edits
 
 - `schedule_type` is `once`, `interval`, or the aliases `hourly`, `daily`, `weekly` (default
@@ -100,6 +119,10 @@ operations and laboratory settings take it; backup restore does not.
 - Create rejects a `start_time` in the past; update allows any value. Times are not rounded.
 - `log_inactivity_threshold_minutes` is a positive whole number, default 3. An update that
   omits it keeps the saved value; each launch captures the value, so edits apply to the next run.
+- `mode` is exactly `real` or `simulation`. `POST /api/scheduling/create` defaults an omitted
+  value to `real`; `PUT /api/scheduling/{schedule_id}` preserves an omitted value and still
+  requires `expected_updated_at` (or `If-Unmodified-Since`). Invalid values return 400.
+  Detail/list responses include `mode`; migrated schedules are `real`.
 - Timestamps use the helpers in `backend/utils/datetime.py` (`utc_now_as_local_naive`) and
   `_serialize_timestamp`; never store bare `datetime.utcnow()` values.
 - User edits send `expected_updated_at`. The version is compared exactly (including
@@ -119,6 +142,9 @@ The native scheduling SQLite database (`data/robotcontrol_scheduling.db`) remain
 schedules, the queue, history and recovery. `HamiltonRunReader` still owns Hamilton run
 matching through the native connection. Preparation has one mechanism: the schedule's
 database package step. The Database viewer choice has no effect on scheduling.
+
+Simulation schedules still run their saved database step with the same inputs and transaction
+behaviour. Mode is not passed to the step; database writes are not simulated.
 
 **Database package step.** A schedule may carry one `preparation` (a database package tool of
 kind `preparation`), stored as JSON on `ScheduledExperiments.preparation` with the package file

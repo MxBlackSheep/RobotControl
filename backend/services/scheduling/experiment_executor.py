@@ -153,6 +153,7 @@ class ExperimentExecutor:
                         interval_hours=None,
                         estimated_duration=experiment.estimated_duration,
                         log_inactivity_threshold_minutes=experiment.log_inactivity_threshold_minutes,
+                        mode=experiment.mode,
                         created_by=execution.schedule_id or "scheduler",
                         is_active=True,
                         timeout_config=None,

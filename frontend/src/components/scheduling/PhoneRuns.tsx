@@ -106,6 +106,7 @@ function Agenda() {
   const details = (schedule: ScheduledExperiment) => {
     const items: [string, React.ReactNode][] = [['Repeats', repeatLabel(schedule)], ['Method', methodName(schedule.experiment_path)]];
     if (schedule.estimated_duration > 0) items.push(['About', `${schedule.estimated_duration} min`]);
+    if (schedule.mode === 'simulation') items.push(['Mode', 'Simulation']);
     if (schedule.last_run) items.push(['Last run', dayTime(schedule.last_run)]);
     if (schedule.recovery_required && schedule.recovery_note) items.push(['Held', schedule.recovery_note]);
     return <Facts items={items} note="Edit on the workstation." />;

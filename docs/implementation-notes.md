@@ -1,3 +1,17 @@
+## 2026-11-09 Scheduled runs check VENUS Simulation Mode
+
+- Schedules store `mode` (`real` or `simulation`); omitted create values and migrated rows
+  are real, omitted edits preserve the saved value, and other values are refused.
+- The worker waits with a shown reason when Hamilton's binary cfg settings disagree with
+  the schedule or cannot be read. A single execution alert records the delivery attempt;
+  correcting the setting releases the queued run. A final launch check also covers timeout
+  cleanup.
+- The schedule form has a Simulation switch; the schedule table marks those schedules, and a
+  queued schedule's detail shows why it is waiting.
+- A refusal at the final launch check follows the existing failed-execution path and can
+  occur after the database step committed. Simulation schedules still run their saved
+  database steps with no mode passed to the package; database writes are not simulated.
+
 ## 2026-10-12 Phones: What happened, the Runs tab and database problems on Now
 
 - A remote session's Review recovery led to a page that only said recovery is on the workstation. The hold now leads remote sessions to What happened (`/held`): every hold with when and why, Live camera, the workstation note, and the newest Hamilton trace's tail. The server has no link from a hold to its trace or recording, so the trace is labelled as the newest one, not the run's. The workstation's browser still goes to Recovery.

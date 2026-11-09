@@ -71,6 +71,7 @@ def run(evidence=ROOT/'test-output/database-verification'):
         engine._owned_execution_ids = set()
         safety = SimpleNamespace(storage_healthy=True, active=False, resume_required=False)
         engine._refresh_manual_recovery_state = lambda **kw: safety
+        engine._simulation_block_reason = lambda _: None
         engine.process_monitor = SimpleNamespace(get_hamilton_processes=lambda: ['fixture'] if database.busy else [])
         engine.run_log_monitor = SimpleNamespace(snapshots=lambda: [])
         engine.db_manager = SimpleNamespace(get_hxrun_maintenance_state=lambda: SimpleNamespace(enabled=False),
