@@ -82,9 +82,13 @@ Remote sessions are read-only; the backend enforces this.
 7. **Wait and classify.** Exit code 0 is success unless the run log (or the SQL abort lookup)
    reports Aborted or Error. HxRun is never killed for runtime or log inactivity.
 8. **Finalize** (`_finalize_execution`, also used by restart reconciliation). Reloads the
-   schedule so edits made during the run are kept; a completed once-schedule or a terminating
-   timeout deactivates it, a completed interval schedule gets its next start (now plus the
-   interval, to the minute). Execution and schedule are committed together.
+   schedule so edits made during the run are kept. A completed or failed occurrence
+   deactivates a schedule without an interval. A schedule with an interval keeps an already
+   future start time or advances to now plus the interval, to the minute. A terminating
+   timeout deactivates the schedule. Cancellation remains owned by recovery. Execution and
+   schedule are committed together under the schedule lock. Completed, failed and terminating
+   outcomes refresh the edit token, so forms opened before the outcome must reload before
+   saving; recovery cancellation keeps its token for acknowledgement.
 9. **Failures** (`_handle_failed_execution`). An abort (Hamilton Aborted/Error, return code 64,
    manual abort) sends an `aborted` alert and requires manual recovery for that schedule. Other
    failures send `execution_failed`. Finally `RunLogMonitor.finish` closes the observation and
@@ -106,9 +110,10 @@ its reason changes; the execution/event log deduplicates delivery. Failed delive
 stop the wait. Correcting the setting releases the queued run on the next poll.
 
 The scheduler checks again before preparation and at the final `launch_guard`, including
-for timeout cleanup, which inherits the schedule's mode and skips preparation. A final
-refusal raises `SafetyConflict` and follows the existing failed-execution path; preparation
-may already have committed. Launches outside RobotControl do not pass these checks.
+for timeout cleanup, which inherits the schedule's mode and skips preparation. A refusal
+at either launch guard fails the run and uses up the occurrence. The first guard prevents
+preparation; at the final guard, preparation may already have committed. Launches outside
+RobotControl do not pass these checks.
 
 ## Schedules and edits
 
@@ -117,6 +122,9 @@ may already have committed. Launches outside RobotControl do not pass these chec
   `preparation` holds the pinned database step; `prerequisites` only keeps the retired
   adapter's tokens until an administrator reviews them.
 - Create rejects a `start_time` in the past; update allows any value. Times are not rounded.
+- To retry a failed run, use Edit schedule, turn the schedule on and set the start time
+  if needed. A past start time makes it due on the next scheduler loop, subject to the
+  safety gates. An interval schedule otherwise waits for its next start time.
 - `log_inactivity_threshold_minutes` is a positive whole number, default 3. An update that
   omits it keeps the saved value; each launch captures the value, so edits apply to the next run.
 - `mode` is exactly `real` or `simulation`. `POST /api/scheduling/create` defaults an omitted

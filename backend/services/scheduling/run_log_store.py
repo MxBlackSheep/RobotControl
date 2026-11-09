@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 
 from backend.models import JobExecution, ScheduledExperiment
+from backend.utils.datetime import utc_now_as_local_naive
 
 MONITOR_EVENTS = ("log_inactive", "monitoring_unavailable")
 
@@ -76,7 +77,7 @@ class RunLogStore:
             conn.commit()
             return count == 1
 
-    def finalize(self, execution: JobExecution, schedule: ScheduledExperiment) -> bool:
+    def finalize(self, execution: JobExecution, schedule: ScheduledExperiment, *, touch_updated_at=False) -> bool:
         """Commit execution outcome and schedule advancement exactly once."""
         with self.database._get_connection() as conn:
             count = 0
@@ -93,10 +94,13 @@ class RunLogStore:
             if not count:
                 return False
             # Do not overwrite settings or contacts edited while the method was running.
-            conn.execute("UPDATE ScheduledExperiments SET is_active = CASE WHEN is_active = 0 OR recovery_required = 1 OR archived = 1 THEN 0 ELSE ? END, start_time = ? WHERE schedule_id = ? AND updated_at = ?",
+            updated_at = utc_now_as_local_naive() if touch_updated_at else schedule.updated_at
+            conn.execute("UPDATE ScheduledExperiments SET is_active = CASE WHEN is_active = 0 OR recovery_required = 1 OR archived = 1 THEN 0 ELSE ? END, start_time = ?, updated_at = ? WHERE schedule_id = ? AND updated_at = ?",
                          (int(schedule.is_active), schedule.start_time.isoformat() if schedule.start_time else None,
-                          schedule.schedule_id, self.database._serialize_timestamp(schedule.updated_at)))
+                          self.database._serialize_timestamp(updated_at), schedule.schedule_id,
+                          self.database._serialize_timestamp(schedule.updated_at)))
             conn.commit()
+            schedule.updated_at = updated_at
             return True
 
     def execution(self, execution_id):
