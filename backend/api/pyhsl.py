@@ -67,7 +67,10 @@ def get_journal(run_id: str, after: int = Query(0, ge=0), limit: int = Query(100
         events = []
         for event in page['events']:
             details = event.get('details') or {}
-            text = details.get('summary') or details.get('message') or details.get('reason')
+            text = details.get('summary') or details.get('message')
+            if not text and details.get('reason'):
+                # VENUS shutdown records share one reason; their status tells them apart.
+                text = ' '.join(str(part).replace('_', ' ') for part in (details.get('status'), details.get('reason')) if part)
             events.append({**{key: event.get(key) for key in ('revision', 'at', 'event')},
                            'text': text[:300] if isinstance(text, str) else None})
         return dict(events=events, next=page['next'])
