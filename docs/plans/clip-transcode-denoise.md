@@ -37,7 +37,7 @@ All variants keep 451 of 451 frames and send 1000–1007 kbit/s. Averaging two f
 - A wider window removes about 20 % more noise at the same ghost: the serial algorithm (`a=s`) stops
   at the first frame that differs, so moving pixels are not averaged further. Higher thresholds do
   ghost more. The window's cost in live view is delay ((s+1)/2 held frames); a stored clip has none.
-- In 2× crops (`clip_*_crops.jpg`, source | today | denoised) the gripper and arm keep single edges.
+- In 2× crops (source | today | denoised) the gripper and arm keep single edges.
   The pale patch on the gripper clip's moving frame (300, during a 50 % light change) is in today's
   output too: the encoder short of bits, not the filter.
 - Central review's measure on the owner clip: 6.63 stored, 5.19 re-converted without the filter,
@@ -52,14 +52,14 @@ All variants keep 451 of 451 frames and send 1000–1007 kbit/s. Averaging two f
   (`clip_transcode_check --clips`); probe clips +0.0–0.7 %. Constant bitrate: the bits go to scene
   detail instead of noise (detail kept 95–97 → 99.5–100 %). Synthetic check clips (independent
   noise every frame) shrink a lot (7.5 → 2.9 MB) because the encoder has nothing left to spend on.
-- CPU, conversion only, ffmpeg's own user+system time (`encode_cpu_ab.py`, 8 real clips, median of
+- CPU, conversion only, ffmpeg's own user+system time (8 real clips, median of
   3 alternating rounds): 1.59 CPU-s per clip without, 1.88 with s=7, 1.92 with s=5; per clip
   +0.31 s median (−0.30 to +0.91), **about +20 %**, ≈0.5 % of one core over the minute. s=7 and s=5
   do not differ measurably. Roughly +0.5 s per clip on an N100 if it is ≈1.7× slower per thread
   (estimate).
 - `clip_transcode_probe.ps1 -Profiles product-1000,product-1000-denoise` (new profile, 8 clips,
   three runs, machine 48–65 % busy): **peak per clip median 1.6 → 2.4 cores** (1.4–1.9 → 1.8–2.5,
-  one 250 ms window at 3.1) for an encode of 0.7–1.2 s instead of 0.8–1.8 s (`cpu-peak/results.csv`).
+  one 250 ms window at 3.1) for an encode of 0.7–1.2 s instead of 0.8–1.8 s.
   The filter now does real work in the filter-graph thread beside the decoder and encoder threads,
   so the ceiling is about 3 cores. Scale, format and denoise already share that one thread
   (`-filter_threads 1`), so there is no free restructuring; pinning to one core cost +50 % CPU-s in
@@ -78,6 +78,3 @@ neighbouring frame that differs by more than about 40 of 255 levels (threshold A
 differences summed outward exceed about 81 (threshold B, 0.32). A faint, brief change below those
 (a dim reflection, a small low-contrast object present for one frame) can be softened. If a clip must show what the sensor delivered, set `clip_denoise_filter` to `""`; clips
 recorded before then keep the denoise. The MJPEG recording itself is unchanged until conversion.
-
-Evidence (local): `test-output/clip-denoise/` (probe JSON and crops per variant, `final/`,
-`encode_cpu_ab.py/.txt`, `cpu-s5`, `cpu-s7`, `check_*.json`).

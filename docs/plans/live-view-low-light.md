@@ -97,7 +97,7 @@ So with the light off a remote viewer may need ≈0.85 Mbit/s instead of ≈0.55
 a keyframe each second sets a floor.
 
 **CPU** (% of one core):
-- Sustained 60 s emulation (`test-output/live-view-quality/cpu_pipeline.py`), medians of 5 pairs:
+- Sustained 60 s emulation, medians of 5 pairs:
 
   | | helper stand-in | main | ffmpeg | total |
   | --- | --- | --- | --- | --- |
@@ -117,7 +117,7 @@ a keyframe each second sets a floor.
 
 Pacing (`_submit_frame`, ¼-interval tolerance) is unchanged. The camera supervisor notices new frames
 on a ≈31 ms poll. A simulation of that arrival pattern kept 15.00 of 15 fps (gaps 61–97 ms), and 7.5
-and 5 fps from 15 at their rates (`test-output/live-view-quality/pacing_sim.py`).
+and 5 fps from 15 at their rates.
 
 ## Decision
 
@@ -179,10 +179,6 @@ If a lights-off clip ever turns up, `live_view_quality_probe` is ready to score 
 `uv run --locked python -m backend.scripts.live_view_quality_probe --clip <clip> --still <a:b> --moving <n>`.
 An `.mp4` rolling clip has already been through the 1000 kbit/s transcode (some noise removed), so it
 is close to, not identical to, the camera's output.
-
-Evidence (local): `test-output/live-view-quality/`: crop sheets, `option-matrix*.json` (real footage),
-`model-option-matrix.json`, `cpu_runs_all.txt`, `performance_probe_ab_20s.txt`, `levels_after.txt`,
-`slow_clip_warning_check.txt`.
 
 Not part of this change: the cyan tint is the camera's white balance (lit footage has it too); a
 manual white balance or sharpness setting in the camera driver may help, but needs the camera.

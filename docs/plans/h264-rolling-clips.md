@@ -108,7 +108,7 @@ lock the experiment archive holds while it copies, so an archive never sees a cl
 
 ## Product review (2026-10-01)
 
-The product-specialist review agreed with option (a) at 1000 kbit/s: clips exist to judge gripper
+The product review agreed with option (a) at 1000 kbit/s: clips exist to judge gripper
 and plate positions after a failure, and 600 kbit/s would save only ≈0.35 GB more across 120 clips.
 No new UI: a failed conversion leaves the MJPEG (no evidence lost), so `clip_storage` in the camera
 status plus logs is enough. Adopted from the review: archives wait for their window's conversion

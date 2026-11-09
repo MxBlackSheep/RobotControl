@@ -15,7 +15,7 @@ or unintended operations, lost/corrupt/incomplete data, a broken critical workfl
 or a regression at a demonstrated timing or layout boundary. Identify the concrete
 failure and why another retained check cannot catch it. Do not keep checks solely for
 wording, routine presentation, implementation details or recoverable read-only browsing.
-Verify those changes in the running app and keep the evidence in the PR.
+Verify those changes in the running app and state the result in the PR.
 
 Consolidate overlapping cases and redundant sizes. Keep a known breakpoint/short-height
 boundary when it changes whether critical controls are usable. Do not set a quota per
@@ -197,5 +197,5 @@ uv run --locked python frontend/e2e/status-stall-probe.py
 Open the printed URL, then: Hold next health response → Refresh → Allow new
 requests. Within about 20 seconds the page must show "Request timed out" with
 Refresh enabled and the status chip showing "Stale data"; Refresh then reconnects. Release stalled response last.
-Evidence: `test-output/status-stall-evidence.json`. For remote-path timing, run
+It writes `test-output/status-stall-evidence.json`. For remote-path timing, run
 `backend/scripts/network_probe.py` on both computers (see its header).

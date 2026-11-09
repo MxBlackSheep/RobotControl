@@ -31,6 +31,6 @@ The running previous application was left in place. The candidate contains no te
 
 ## Candidate and rollback
 
-Use `dist/RobotControl-camera-recovery/RobotControl.exe` together with its `_internal` directory. The existing `dist/RobotControl` and `dist/RobotControl-optimized` packages are preserved.
+A packaged candidate was built. The existing `dist/RobotControl` and `dist/RobotControl-optimized` packages are preserved.
 
 For deployment, stop the old application, back up its data directory, then replace application files while keeping that data. Do not run both packages against the same runtime data. To roll back, restore the previous application files with the preserved data. No SQLite migration is introduced.

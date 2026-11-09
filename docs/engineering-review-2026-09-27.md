@@ -17,7 +17,7 @@ browser harness. It is not a full correctness or security audit.
 | Build instructions are too broad. | The former root guidance required Windows build/compile after changes without distinguishing documentation, local edits and releases. | Build changed frontend code before verification; embed/package when delivering a candidate or checking deployment behavior. No executable build for documentation/test-only edits. |
 | Routine instructions encourage excessive verification. | The old browser README led with the full suite and repeated release histories. The main-page guide prescribed a full screen/theme/zoom matrix for future pages; the Maintenance guide requested all browser tests. | Select tests by changed behavior and affected consumers. Keep broad runs available for shared changes and release acceptance. |
 | Evidence handling adds avoidable work. | Playwright retained traces and screenshots for every successful test. Prior iterations copied complete report folders. | Default to failure-trace retention, opt into full traces when needed. Keep existing visual screenshots and release evidence. This reduces retained data; it does not eliminate trace capture cost during a run. |
-| Current rules are not reproducible across checkouts. | `.gitignore` excluded the existing root `AGENTS.md`; Git did not track it. | Track the project rules. Keep the machine-wide Codex instructions unchanged; this repository now spells out proportional E2E scope. |
+| Current rules are not reproducible across checkouts. | `.gitignore` excluded the existing root project guidance; Git did not track it. | Track the project rules. Keep the machine-wide instructions unchanged; this repository now spells out proportional E2E scope. |
 | Documentation mixes current operation with history. | The browser README contains successive Spatial/Rack/Quiet/Full-workspace revisions, while several scenario documents overlap. | Make the run guide current and add a small documentation index. Existing scenario/history files remain referenced; avoid a mass move that breaks useful links. |
 | “Simplicity” is not defined operationally. | Former guidance said “make code easy-to-understand” but provided no choice criteria. | Require an observable user outcome, real constraints and a reason for each extra abstraction/state owner. Preserve safety and data guarantees. |
 | Communication is too process-heavy. | Recent updates often counted test progress and described implementation mechanisms before their practical effect. | Explain the result and a specific usage case first. Report decisions/blockers instead of routine execution. A passing test total is supporting evidence, not the headline. |
@@ -50,7 +50,7 @@ first Labware run also caught real geometry faults: keep that useful coverage.
 
 No runtime behavior, safety gate, API or test case was removed in this review.
 The existing frontend/backend module folders remain appropriate. The earlier
-frontend specialists have no active work and are not part of the default workflow.
+frontend review workflow is no longer active or part of the default workflow.
 
 ## Practical difference
 
@@ -61,7 +61,7 @@ frontend specialists have no active work and are not part of the default workflo
 | “Change when a scheduled robot run resumes.” | Establish the safety/recovery rules first; exercise the affected scheduler boundary and relevant real deployment behavior. |
 | “Clarify the maintenance guide.” | Review the text, links and diff. No browser suite or Windows candidate. |
 
-Guidance is centralized in [AGENTS.md](../AGENTS.md). Commands live in the
+Guidance is centralized in the project rules. Commands live in the
 [browser run guide](../frontend/e2e/README.md). Changes to guidance/configuration
 are checked by reviewing links/diffs and loading Playwright's case list; the
 previous release report is preserved, and no new application build is needed.
