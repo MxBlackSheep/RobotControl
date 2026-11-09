@@ -10,7 +10,7 @@ import time
 from urllib.parse import quote
 
 from backend.models import JobExecution
-from backend.services.pyhsl_client import PyHslError, PyHslUnavailable
+from backend.services.pyhsl_client import PyHslError, PyHslUnavailable, PyHslTimeout, PyHslRefusal
 from backend.services.pyhsl_monitor import TERMINAL_STATUSES
 from backend.services.scheduling.pre_execution import PreExecutionPipeline
 from backend.services.sqlite_safety import SafetyConflict, StorageUnavailable
@@ -102,7 +102,7 @@ class PyHslRunner:
         history = self.engine.db_manager.sqlite_db.get_execution_history(schedule_id, limit=1)
         run_id = (history[0].get('pyhsl') or {}).get('run_id') if history else None
         try:
-            reading = self.client.get('/reconciliation')
+            reading = self.client.get('/reconciliation', timeout=30)
         except PyHslError:
             raise SafetyConflict('Cannot read PyHSL Run Control; acknowledgement is unavailable') from None
         if isinstance(reading, dict) and reading.get('active') is True:
@@ -144,7 +144,12 @@ class PyHslRunner:
                         'Protocol revision changed in Run Control; save the schedule again', 'execution_failed', hold=True)
                 if schedule.mode not in PYHSL_ALLOWED_MODES:
                     raise PyHslError('PyHSL schedules require Simulation mode')
-                PreExecutionPipeline(engine.db_manager).prepare(schedule, execution.execution_id)
+                try:
+                    PreExecutionPipeline(engine.db_manager).prepare(schedule, execution.execution_id)
+                except SafetyConflict:
+                    raise
+                except Exception as exc:
+                    return self._finish(schedule, execution, 'failed', str(exc), 'execution_failed', hold=False)
                 execution.pyhsl = dict(request=dict(protocol_id=schedule.protocol_id, parameters=schedule.parameters,
                     mode=schedule.mode, protocol_revision=schedule.protocol_revision, request_id=execution.execution_id),
                     run_id=None, attempted_at=datetime.now().isoformat())
@@ -201,7 +206,7 @@ class PyHslRunner:
                 receipt['run_id'] = run['run_id']
                 self._save(execution)
                 return True
-            except PyHslUnavailable:
+            except (PyHslUnavailable, PyHslTimeout):
                 unavailable = self._unavailable(schedule, execution, unavailable)
             if self._wait():
                 break
@@ -215,12 +220,16 @@ class PyHslRunner:
             review = None
             try:
                 if terminal is None:
-                    run = self.client.get('/runs/' + quote(run_id, safe=''))
+                    try:
+                        run = self.client.get('/runs/' + quote(run_id, safe=''))
+                    except PyHslRefusal:
+                        return self._finish(schedule, execution, 'failed',
+                            'PyHSL run is unavailable; check Run Control', 'aborted', hold=True)
                     if run.get('status') in TERMINAL_STATUSES:
                         terminal = run
                         terminal_since = time.monotonic()
                 if terminal is not None:
-                    review = review_state(self.client.get('/reconciliation'), run_id)
+                    review = review_state(self.client.get('/reconciliation', timeout=30), run_id)
                 unavailable = None
             except (PyHslError, KeyError, TypeError, AttributeError):
                 unavailable = self._unavailable(schedule, execution, unavailable)

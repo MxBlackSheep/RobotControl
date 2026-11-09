@@ -16,6 +16,8 @@ Failure cases (Run Control reply shapes recorded in Simulation, 9 November 2026)
    holds; no second preparation, including a crash before the request was saved.
    A saved refusal survives interrupted finalization without resending the POST.
 10. Changed instance_id is rediscovered; outcome_unknown holds the queue.
+    An archived/unknown run fails, holds and alerts aborted instead of following forever.
+    Preparation failure reports execution_failed immediately without a recovery hold.
 11. Unknown status keeps following, never success; silence never means finished.
 12. VENUS keeps its Simulation Mode gate; old SQLite rows migrate as venus.
 13. Save refuses disallowed modes, cleanup, unimported or closed Run Control;
@@ -23,6 +25,11 @@ Failure cases (Run Control reply shapes recorded in Simulation, 9 November 2026)
 14. Maintenance and database writes refuse while PyHSL is active.
 15. Token absent from logs, execution rows, replies and emails; machine runs do
     not generate the monitor's independent alerts.
+16. Remote signed-in reads expose only allowed run/journal fields; invalid IDs and
+    unknown roles make no request. Reports are sandboxed and bounded. Closed,
+    refused and timed-out reads return 503, 404 and 504; review failure stays unknown.
+17. A timed-out Start resends the identical request without repeating preparation;
+    reconciliation reads use 30 seconds and a monitor timeout stays unknown.
 
 Only the Run Control service, database package, process and email boundaries are
 fixtures. No installed PyHSL, Hamilton, SQL Server or instrument is accessed.
@@ -46,7 +53,7 @@ from fastapi.testclient import TestClient
 
 from backend.e2e.failed_occurrence_check import Fixture
 from backend.models import JobExecution
-from backend.services.pyhsl_client import PyHslClient
+from backend.services.pyhsl_client import PyHslClient, PyHslTimeout
 from backend.services.pyhsl_monitor import PyHslMonitor
 from backend.services.scheduling import scheduler_engine as se
 from backend.services.sqlite_safety import SafetyConflict
@@ -60,7 +67,7 @@ class RunControl(BaseHTTPRequestHandler):
         pass
 
     def reply(self, code, body):
-        data = json.dumps(body).encode()
+        data = body if isinstance(body, bytes) else json.dumps(body).encode()
         self.send_response(code)
         self.send_header('Content-Length', str(len(data)))
         self.end_headers()
@@ -83,7 +90,14 @@ class RunControl(BaseHTTPRequestHandler):
                 error=v['error'], completed_count=0) for k, v in s.runs.items()]})
         if self.path == '/api/v1/reconciliation':
             return self.reply(200, s.reviews)
+        if '/journal?' in self.path:
+            s.journal_path = self.path
+            return self.reply(200, s.journal)
+        if self.path.endswith('/report'):
+            return self.reply(200, s.report)
         run_id = self.path.removeprefix('/api/v1/runs/')
+        if run_id not in s.runs or s.run_refused:
+            return self.reply(409, {'error': 'Run unavailable ' + TOKEN})
         return self.reply(200, s.runs[run_id])
 
     def do_POST(self):
@@ -112,6 +126,9 @@ class RunControl(BaseHTTPRequestHandler):
             s.lose_reply = False
             self.connection.shutdown(socket.SHUT_RDWR)
             return
+        if s.timeout_reply:
+            s.timeout_reply = False
+            time.sleep(.2)
         self.reply(200, s.runs[run_id])
 
 
@@ -136,6 +153,10 @@ def fixture():
         server.runs, server.posts = {}, []
         server.reviews = dict(cases=[], blocked=False, active=False)
         server.delay, server.lose_reply, server.unreachable = 0, False, False
+        server.timeout_reply = server.run_refused = False
+        server.report = b'<html><script>alert(1)</script>FIXTURE-MACHINE-TOKEN</html>'
+        server.journal = dict(events=[dict(revision=1, at='now', event='device_intent',
+            details=dict(summary='Move ' + TOKEN, path='private'), state={'deck': 'private'})], next=1)
         server.entered = Event()
         thread = Thread(target=server.serve_forever, daemon=True)
         thread.start()
@@ -272,6 +293,99 @@ def slow_and_lost():
 def finished_after_slow(f, eid):
     until(lambda: f.engine.run_log_monitor.store.execution(eid).status == 'completed', timeout=25)
     return finished(f, eid)
+
+
+def runner_failures():
+    with fixture() as f:
+        s = schedule(f)
+        f.server.timeout_reply = True
+        post = f.client.post
+        def short_start(path, data, **kwargs):
+            return post(path, data, timeout=.05 if path == '/runs' else 60)
+        with patch.object(f.client, 'post', side_effect=short_start), patch.object(f.client, 'get', wraps=f.client.get) as get:
+            assert finished(f, dispatch(f, s)).status == 'completed'
+            assert len(f.server.posts) == 2 and f.server.posts[0] == f.server.posts[1]
+            assert len(f.prepared) == len(f.server.runs) == 1
+            f.engine.pyhsl_runner.acknowledge(s.schedule_id)
+            assert all(c.kwargs.get('timeout') == 30 for c in get.call_args_list if c.args[0] == '/reconciliation')
+        with patch.object(f.client, 'get', side_effect=PyHslTimeout('Run Control did not answer in time')):
+            f.monitor.poll()
+            assert f.monitor.status()['state'] == 'unknown'
+    with fixture() as f:
+        s = schedule(f)
+        f.server.run_refused = True
+        e = finished(f, dispatch(f, s))
+        assert e.status == 'failed' and f.sent[0][0] == 'aborted'
+        assert f.storage.get_schedule_by_id(s.schedule_id).recovery_required
+    for error, hold in ((RuntimeError('Preparation failed'), False), (SafetyConflict('Safety changed'), True)):
+        with fixture() as f:
+            s = schedule(f)
+            with patch('backend.services.scheduling.pyhsl_runner.PreExecutionPipeline.prepare', side_effect=error):
+                e = finished(f, dispatch(f, s))
+            assert e.status == 'failed' and e.error_message == str(error)
+            assert f.sent[0][0] == 'execution_failed' and not f.server.posts
+            assert f.storage.get_schedule_by_id(s.schedule_id).recovery_required == hold
+
+
+def relay_reads():
+    from backend.api import pyhsl as api
+    from backend.services.auth import get_current_user
+    with fixture() as f:
+        run_id = 'a' * 32
+        f.server.runs[run_id] = dict(run_id=run_id, protocol='fixture', status='running',
+            mode={'mode': 'simulation', 'source': 'private'}, configuration=dict(origin='machine',
+                protocol={'revision': 'revision-one'}, path='private'), deck='private',
+            current=dict(operation_id='op', operation='initialize', status='dispatched', positions={'deck': 'private'}),
+            prompt=dict(message='Continue?', choices=['yes'], answered=False))
+        app = FastAPI()
+        app.include_router(api.router)
+        with patch.object(api, 'PyHslClient', return_value=f.client), TestClient(app, client=('198.51.100.5', 50000)) as http:
+            url = f'/api/pyhsl/runs/{run_id}'
+            for role in ('admin', 'user'):
+                app.dependency_overrides[get_current_user] = lambda: {'role': role}
+                response = http.get(url)
+                assert response.status_code == 200, response.text
+                run = response.json()
+                assert set(run) == {'run_id', 'protocol', 'status', 'host_status', 'mode', 'completed_count',
+                    'error', 'origin', 'created_at', 'updated_at', 'current', 'prompt', 'protocol_revision', 'requires_review'}
+                assert run['origin'] == 'machine' and run['protocol_revision'] == 'revision-one'
+                assert run['mode'] == 'simulation' and run['requires_review'] is False
+                assert run['prompt'] == {'waiting': True, 'text': 'Continue?'}
+                assert set(run['current']) == {'operation_id', 'operation', 'status'}
+                assert 'private' not in response.text
+            page = http.get(url + '/journal?after=3&limit=999').json()
+            assert page == dict(events=[dict(revision=1, at='now', event='device_intent', text='Move [redacted]')], next=1)
+            assert f.server.journal_path.endswith('?after=3&limit=200')
+            report = http.get(url + '/report')
+            assert report.status_code == 200 and report.headers['content-security-policy'] == 'sandbox'
+            assert report.headers['content-type'].startswith('text/html') and TOKEN not in report.text
+            with patch.object(api, 'REPORT_MAX_BYTES', 10):
+                response = http.get(url + '/report')
+                assert response.status_code == 502 and 'too large' in response.text
+            with patch.object(f.client, '_discover', side_effect=AssertionError('Unexpected request')):
+                for suffix in ('', '/journal', '/report'):
+                    for bad in ('bad', 'A' * 32, 'a' * 31, 'a' * 33):
+                        assert http.get('/api/pyhsl/runs/' + bad + suffix).status_code == 400
+                    app.dependency_overrides[get_current_user] = lambda: {'role': 'unknown'}
+                    assert http.get(url + suffix).status_code == 403
+                    app.dependency_overrides[get_current_user] = lambda: {'role': 'user'}
+            f.server.reviews['active'] = True
+            assert http.get(url).json()['requires_review'] is None
+            get = f.client.get
+            def review_timeout(path, **kwargs):
+                if path == '/reconciliation':
+                    raise PyHslTimeout('Run Control did not answer in time')
+                return get(path, **kwargs)
+            with patch.object(f.client, 'get', side_effect=review_timeout):
+                assert http.get(url).json()['requires_review'] is None
+            f.server.run_refused = True
+            response = http.get(url)
+            assert response.status_code == 404 and TOKEN not in response.text
+            with patch.object(f.client, '_discover', side_effect=PyHslTimeout('Run Control did not answer in time')):
+                assert http.get(url).status_code == 504
+            f.app_dir.joinpath('instance.json').unlink()
+            for suffix in ('', '/journal', '/report'):
+                assert http.get(url + suffix).status_code == 503
 
 
 def revision_and_acknowledge():
@@ -486,7 +600,7 @@ def run():
     handler = logging.StreamHandler(logs)
     logging.getLogger().addHandler(handler)
     try:
-        for check in (outcomes, slow_and_lost, revision_and_acknowledge, gates_and_following, restarts, saves_and_guards):
+        for check in (outcomes, slow_and_lost, runner_failures, relay_reads, revision_and_acknowledge, gates_and_following, restarts, saves_and_guards):
             check()
             print(f'PASS {check.__name__}', flush=True)
         assert TOKEN not in logs.getvalue()

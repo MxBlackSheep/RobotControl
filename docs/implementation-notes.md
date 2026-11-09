@@ -7,9 +7,11 @@
   without repeating preparation or a known refusal. Uncertain outcomes hold the
   queue; acknowledgement waits for a readable, inactive Run Control and any
   required Run review. Machine-run alerts belong to the scheduler.
-- Disposable HTTP/SQLite worker checks, including a slow Start and interrupted
-  finalization, and the requested scheduling, client, SMTP and API regressions
-  pass. No real instrument or SQL Server was used. No run controls were added.
+- Start timeouts resend the saved request. Missing runs hold for recovery;
+  preparation failures report immediately without a hold. Read-only run, journal
+  and sandboxed report routes support the Run page without exposing the full state.
+- Failure cases are listed in `backend/e2e/pyhsl_runner_check.py` and
+  `backend/e2e/pyhsl_client_check.py` headers.
   See [the scheduling guide](maintenance/backend/scheduling-maintenance-guide.md#pyhsl-schedules).
 
 ## 2026-11-09 Read-only PyHSL status and alerts

@@ -7,6 +7,8 @@ import { useModuleSection } from '../navigation';
 import { schedulingService, schedulingAPI } from '../../services/schedulingApi';
 import { useSerialPolling } from '../../hooks/useSerialPolling';
 import { useRobotStatusContext } from '../../hooks/useRobotStatus';
+import { pyhslRunId } from '../../hooks/usePyHslStatus';
+import { Link } from 'react-router-dom';
 import type { ScheduledExperiment } from '../../types/scheduling';
 import { fontMono, layout } from '../../theme';
 import { clockTime, dayTime } from '../../utils/displayTime';
@@ -142,7 +144,7 @@ function Agenda() {
   </Stack>;
 }
 
-type Run = { id: string; name: string; started?: string | null; minutes: number | null; status: string; error: string | null };
+type Run = { id: string; name: string; started?: string | null; minutes: number | null; status: string; pyhslRun: string | null; error: string | null };
 
 function History() {
   const [runs, setRuns] = useState<Run[] | null>(null);
@@ -159,6 +161,7 @@ function History() {
         minutes: typeof record.duration_minutes === 'number' ? record.duration_minutes
           : typeof record.calculated_duration_minutes === 'number' ? Math.round(record.calculated_duration_minutes) : null,
         status: String(record.status ?? ''),
+        pyhslRun: pyhslRunId(record),
         error: record.error_message ? String(record.error_message) : null,
       }));
     },
@@ -184,7 +187,10 @@ function History() {
         const time = validTime(run.started);
         return <RunRow key={run.id} id={run.id} columns="52px minmax(0, 1fr) auto" open={open === run.id}
           onToggle={() => setOpen(current => (current === run.id ? null : run.id))}
-          details={run.error && <Typography variant="body2" sx={{ overflowWrap: 'anywhere', whiteSpace: 'pre-wrap' }}>{run.error}</Typography>}>
+          details={(run.error || run.pyhslRun) && <Stack spacing={1} alignItems="flex-start">
+            {run.error && <Typography variant="body2" sx={{ overflowWrap: 'anywhere', whiteSpace: 'pre-wrap' }}>{run.error}</Typography>}
+            {run.pyhslRun && <Button variant="outlined" component={Link} to={`/pyhsl?run=${run.pyhslRun}`}>Open run</Button>}
+          </Stack>}>
           <Box component="span" sx={mono}>{time === null ? '—' : clockTime(new Date(time))}</Box>
           {name(run.name)}
           {/* Only problems get colour: a completed run shows its length instead of a chip. */}

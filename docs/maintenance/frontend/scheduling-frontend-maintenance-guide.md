@@ -205,3 +205,11 @@ the backend guide.
 - **Edit returns 409:** someone else saved first; reopen after refresh.
 - **Archived list empty:** `loadArchivedSchedules` runs when the section first opens
   (`archivedInitialized` prevents repeats).
+
+## PyHSL schedules and the Run page
+
+`ImprovedScheduleForm` chooses the runner. For a PyHSL protocol, `PyHslProtocolField` checks the ID through
+`POST /api/pyhsl/validate`, because the machine token cannot list protocols, and draws the parameter fields from the reply. The
+mode is locked to Simulation. `/pyhsl?run=<id>` (`PyHslRunPage`) polls the backend's filtered run and journal routes every five seconds and has no
+controls. A failed read keeps the last reading and says since when. The report opens in an iframe with an empty `sandbox`. Failure cases are in
+`frontend/e2e/pyhsl.spec.ts`.

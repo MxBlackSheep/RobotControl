@@ -118,11 +118,7 @@ contacts and recovery fields. Queue rows expose `runner`, `protocol_id` and
 `run_id` and any saved `result`; the Run page can combine these with cached
 `GET /api/pyhsl/status`. The token is never stored in a receipt or returned.
 
-`backend/e2e/pyhsl_runner_check.py` covers the fifteen failure cases against a
-real HTTP socket, SQLite and worker, including a twenty-second Start and restart
-recovery. The requested client, occurrence, Simulation Mode, timing, SMTP and
-scheduler/API regression checks pass. Hardware, SQL Server and browser checks
-remain outside this backend check.
+Failure cases are listed in the header of `backend/e2e/pyhsl_runner_check.py`.
 
 ## VENUS execution lifecycle
 

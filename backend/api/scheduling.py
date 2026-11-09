@@ -1217,8 +1217,11 @@ def update_schedule(
 
         runner_data = {**updated_schedule.to_dict(),
                        **{key: update_data[key] for key in ('runner', 'protocol_id', 'parameters') if key in update_data}}
-        for name, value in _runner_fields(runner_data, updated_schedule.timeout_config).items():
-            setattr(updated_schedule, name, value)
+        unchanged = all(runner_data[key] == getattr(base_schedule, key) for key in ('runner', 'protocol_id', 'parameters', 'mode'))
+        # Turning a schedule off or editing a stopped one must not need Run Control open.
+        if updated_schedule.is_active or not unchanged or runner_data['runner'] == 'venus':
+            for name, value in _runner_fields(runner_data, updated_schedule.timeout_config).items():
+                setattr(updated_schedule, name, value)
 
         updated_schedule.updated_at = utc_now_as_local_naive()
 

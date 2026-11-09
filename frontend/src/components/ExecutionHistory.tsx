@@ -1,3 +1,6 @@
+import { Link as MuiLink } from '@mui/material';
+import { Link as RouterLink } from 'react-router-dom';
+import { pyhslRunId } from '../hooks/usePyHslStatus';
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Box,
@@ -43,6 +46,7 @@ interface ExecutionHistoryProps {
 
 interface ExecutionRecord {
   execution_id: string;
+  pyhslRun?: string | null;
   schedule_id: string;
   experiment_name: string;
   experiment_name_snapshot?: string | null;
@@ -89,6 +93,7 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
           (typeof record.experiment_name === 'string' && record.experiment_name.trim()) || null;
         const execution: ExecutionRecord = {
           execution_id: record.execution_id,
+          pyhslRun: pyhslRunId(record),
           schedule_id: record.schedule_id,
           experiment_name: snapshotName || responseName || 'Archived Schedule',
           experiment_name_snapshot: snapshotName,
@@ -429,7 +434,9 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
                   <TableRow hover>
                     <TableCell>
                       <Typography variant="body2" fontWeight="medium">
-                        {execution.experiment_name}
+                        {execution.pyhslRun
+                          ? <MuiLink component={RouterLink} to={`/pyhsl?run=${execution.pyhslRun}`} underline="hover" color="inherit">{execution.experiment_name}</MuiLink>
+                          : execution.experiment_name}
                       </Typography>
                       {execution.archived_at && (
                         <Chip

@@ -14,6 +14,10 @@ class PyHslUnavailable(PyHslError):
     """Run Control is absent or its instance could not be verified."""
 
 
+class PyHslTimeout(PyHslError):
+    """Run Control may still be processing the request."""
+
+
 class PyHslRefusal(PyHslError):
     """Run Control refused the request (HTTP 409)."""
 
@@ -37,7 +41,8 @@ class PyHslClient:
         self.data_dir = data_dir
         self.timeout = timeout
 
-    def _request(self, url, path, *, token='', method='GET', data=None, timeout=None):
+    def _request(self, url, path, *, token='', method='GET', data=None, timeout=None,
+                 max_bytes=None):
         connection = http.client.HTTPConnection('127.0.0.1', url.port or 80,
                                                 timeout=timeout or self.timeout)
         try:
@@ -48,7 +53,10 @@ class PyHslClient:
             connection.request(method, '/api/v1' + path, body, headers)
             response = connection.getresponse()
             # Replace the token before decoding or exposing any server text.
-            raw = response.read().decode('utf-8')
+            raw = response.read(max_bytes + 1) if max_bytes is not None else response.read()
+            if max_bytes is not None and len(raw) > max_bytes:
+                raise PyHslError('Run Control report is too large')
+            raw = raw.decode('utf-8')
             if token:
                 raw = raw.replace(token, '[redacted]')
             if response.status == 409:
@@ -59,10 +67,10 @@ class PyHslClient:
                 raise PyHslRefusal(str(reason))
             if response.status != 200:
                 raise PyHslError(f'Run Control returned HTTP {response.status}')
-            return json.loads(raw)
+            return raw if max_bytes is not None else json.loads(raw)
         except TimeoutError:
             # It may be running and busy, so this is not the same as closed.
-            raise PyHslError('Run Control did not answer in time') from None
+            raise PyHslTimeout('Run Control did not answer in time') from None
         except (OSError, http.client.HTTPException):
             raise PyHslUnavailable('Run Control is unreachable') from None
         except (ValueError, UnicodeError):
@@ -107,3 +115,8 @@ class PyHslClient:
         """Validate or start through the machine API; the monitor only reads."""
         url, token = self._discover()
         return self._request(url, path, token=token, method='POST', data=data, timeout=timeout)
+
+    def get_report(self, run_id, *, max_bytes):
+        """Read bounded HTML through the same discovery and token handling."""
+        url, token = self._discover()
+        return self._request(url, f'/runs/{run_id}/report', token=token, max_bytes=max_bytes)
