@@ -279,9 +279,9 @@ class SchedulingDatabaseManager:
     # Notification logs
     # ------------------------------------------------------------------
 
-    def finalize_job_execution(self, execution: JobExecution, schedule: ScheduledExperiment) -> bool:
+    def finalize_job_execution(self, execution: JobExecution, schedule: ScheduledExperiment, *, touch_updated_at=False) -> bool:
         from backend.services.scheduling.run_log_store import RunLogStore
-        return RunLogStore(self.sqlite_db).finalize(execution, schedule)
+        return RunLogStore(self.sqlite_db).finalize(execution, schedule, touch_updated_at=touch_updated_at)
 
     def create_notification_log(self, entry: NotificationLogEntry) -> Optional[NotificationLogEntry]:
         """Create a notification log entry."""

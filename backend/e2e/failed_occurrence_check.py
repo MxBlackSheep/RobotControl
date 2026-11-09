@@ -15,6 +15,9 @@ Failure cases:
    failure retains the observation and storage safety hold.
 10. Edit schedule can reactivate a consumed once occurrence; in-flight edits survive.
 11. Interval without interval_hours turns off with no repeat.
+12. Ended occurrences reject stale edits; fresh/list tokens and in-flight edits work.
+13. Finalization serializes a concurrent edit; restart cannot repeat the occurrence.
+14. Keyword abort emails describe the next run; noted aborts describe recovery only.
 
 Uses real SQLite, preparation receipts, notifications and run observations. Only the
 database package boundary, SQL run reader, process monitor and Popen are fixtures.
@@ -30,6 +33,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+from threading import Event, Thread
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -113,9 +117,25 @@ class Fixture:
             return SimpleNamespace(pid=123, returncode=self.returncode, communicate=communicate)
         stack.enter_context(patch.object(ex.subprocess, 'Popen', side_effect=popen))
         self.engine = self.new_engine()
+        from backend.api import scheduling as api
+        self.api = api
+        stack.enter_context(patch.object(api, 'get_services', return_value=(self.engine, self.manager, None)))
+        stack.enter_context(patch.object(api, 'log_action'))
         self.contact = self.storage.create_notification_contact(NotificationContact(
             '', 'Fixture', 'fixture@example.invalid'))
         self.engine._notification_contacts[self.contact.contact_id] = self.contact
+
+    def save(self, draft):
+        from fastapi import HTTPException
+        try:
+            self.api.update_schedule(draft.schedule_id, dict(
+                experiment_name='Edited', is_active=draft.is_active,
+                start_time=draft.start_time.isoformat(), expected_updated_at=draft.updated_at.isoformat()),
+                current_user={'username': 'fixture', 'role': 'user'},
+                connection=SimpleNamespace(client_ip='127.0.0.1'), if_unmodified_since=None)
+            return 200
+        except HTTPException as exc:
+            return exc.status_code
 
     def new_engine(self):
         engine = se.SchedulerEngine()
@@ -180,7 +200,7 @@ class Fixture:
         assert stored.is_active == bool(interval) and not stored.recovery_required
         if interval:
             assert stored.start_time > self.now
-        if trigger == 'execution_failed':
+        if trigger in ('execution_failed', 'aborted'):
             for _, context, alert in self.sent:
                 if interval:
                     assert context['next_run_time'] == stored.start_time.isoformat()
@@ -267,10 +287,16 @@ def run():
         pending = JobExecution('', value.schedule_id, 'pending', start_time=f.now)
         assert f.manager.store_job_execution(pending)
         f.engine.run_log_monitor.prepare(stored, pending, f.method)
-        f.engine._close_recovered_observations(value.schedule_id, 'fixture')
+        resolved = f.engine._clear_manual_recovery(value.schedule_id, 'Robot checked', 'fixture',
+            state.safety_revision, expected_updated_at=stored.updated_at.isoformat())
+        assert not resolved.recovery_required
         assert f.engine.run_log_monitor.store.execution(pending.execution_id).status == 'cancelled'
         after = f.storage.get_schedule_by_id(value.schedule_id)
-        assert after.recovery_required and not after.is_active and after.start_time == stored.start_time
+        assert not after.recovery_required and not after.is_active and after.start_time == stored.start_time
+        alert = f.sent[0][2]
+        assert 'scheduling is paused' in alert.text()
+        assert not any(label == 'Next run' for label, _ in alert.rows)
+        assert 'schedule_active' not in f.sent[0][1]
 
     for guard in ('first', 'final'):
         for reason in ('HxRun', 'Simulation Mode'):
@@ -381,6 +407,69 @@ def run():
         value = f.schedule('interval')
         f.loops()
         f.assert_consumed(value)
+
+    for kind, result in (('once', 1), ('interval', 1), ('once', 0)):
+        @case(f'12 stale and fresh Save {kind} exit {result}')
+        def stale(f, schedule_type=kind, returncode=result):
+            value = f.schedule(schedule_type, interval_hours=6 if schedule_type == 'interval' else None)
+            draft = f.storage.get_schedule_by_id(value.schedule_id)
+            f.returncode = returncode
+            f.loops()
+            assert f.save(draft) == 409, 'Stale form was accepted'
+            stored = f.assert_consumed(value, status='completed' if returncode == 0 else 'failed',
+                                       emails=int(returncode != 0))
+            assert stored.updated_at != draft.updated_at
+            assert f.engine._active_schedules[value.schedule_id].updated_at == stored.updated_at
+            listed = f.api.list_schedules(active_only=schedule_type == 'interval', archived_only=False,
+                                         current_user={'role': 'user'})['data']
+            assert listed[0]['updated_at'] == stored.updated_at.isoformat()
+            assert f.save(stored) == 200
+
+    @case('12 API Save before run ends preserves edit')
+    def during(f):
+        value = f.schedule()
+        draft = f.storage.get_schedule_by_id(value.schedule_id)
+        def edit():
+            assert f.save(draft) == 200
+        f.during_run = edit
+        f.loops()
+        assert f.assert_consumed(value).experiment_name == 'Edited'
+
+    @case('13 concurrent edit waits for finalization')
+    def concurrent(f):
+        value = f.schedule()
+        draft = f.storage.get_schedule_by_id(value.schedule_id)
+        attempted, finished = Event(), Event()
+        results = []
+        def edit():
+            attempted.set()
+            results.append(f.save(draft))
+            finished.set()
+        worker = Thread(target=edit)
+        original = f.manager.finalize_job_execution
+        def finalize(*args, **kwargs):
+            worker.start()
+            assert attempted.wait(5)
+            assert not finished.wait(0.2), 'Edit committed during finalization'
+            return original(*args, **kwargs)
+        try:
+            with patch.object(f.manager, 'finalize_job_execution', side_effect=finalize):
+                f.loops(1)
+        finally:
+            worker.join(5)
+        assert results == [409], results
+        stored = f.assert_consumed(value)
+        assert f.engine._active_schedules[value.schedule_id].to_dict() == stored.to_dict()
+        restarted = f.new_engine()
+        restarted._load_schedules_from_database()
+        assert not restarted._find_due_jobs(f.now)
+
+    @case('14 keyword abort interval Next run')
+    def keyword_interval(f):
+        value = f.schedule('interval', interval_hours=6)
+        f.stderr = 'abort requested'
+        f.loops()
+        f.assert_consumed(value, trigger='aborted')
 
     logging.basicConfig(level=logging.CRITICAL)
     for name, function in cases:

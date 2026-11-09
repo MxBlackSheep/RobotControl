@@ -968,20 +968,22 @@ class SchedulerEngine:
     def _finalize_execution(self, experiment, execution, terminate_schedule=False):
         if execution.start_time and execution.end_time:
             execution.duration_minutes = int((execution.end_time - execution.start_time).total_seconds() / 60)
-        # Keep user edits made while the method was running.
-        schedule = self.db_manager.get_schedule_by_id(experiment.schedule_id) or experiment
-        if terminate_schedule:
-            schedule.is_active = False
-        elif execution.status in {"completed", "failed"}:
-            if self._resolve_interval_hours(schedule):
-                schedule.start_time = self._calculate_next_execution_time(schedule)
-            else:
+        # Serialize the reload and commit with edits, preserving changes made during the run.
+        with self._schedules_lock:
+            schedule = self.db_manager.get_schedule_by_id(experiment.schedule_id) or experiment
+            if terminate_schedule:
                 schedule.is_active = False
-        committed = self.db_manager.finalize_job_execution(execution, schedule)
+            elif execution.status in {"completed", "failed"}:
+                if self._resolve_interval_hours(schedule):
+                    schedule.start_time = self._calculate_next_execution_time(schedule)
+                else:
+                    schedule.is_active = False
+            committed = self.db_manager.finalize_job_execution(
+                execution, schedule,
+                touch_updated_at=terminate_schedule or execution.status in {"completed", "failed"})
+            if committed and schedule.schedule_id in self._active_schedules:
+                self._active_schedules[schedule.schedule_id] = schedule
         if committed:
-            with self._schedules_lock:
-                if schedule.schedule_id in self._active_schedules:
-                    self._active_schedules[schedule.schedule_id] = schedule
             self._emit_event("job_completed" if execution.status == "completed" else "job_failed",
                              schedule.schedule_id, schedule.experiment_name,
                              "Job completed successfully" if execution.status == "completed" else "Job execution failed")
@@ -1019,6 +1021,10 @@ class SchedulerEngine:
             }
             if note:
                 context["note"] = note
+            else:
+                context["schedule_active"] = experiment.is_active
+                if experiment.is_active and self._resolve_interval_hours(experiment):
+                    context["next_run_time"] = experiment.start_time.isoformat()
             if execution.start_time and execution.end_time:
                 context["runtime_minutes"] = round(
                     (execution.end_time - execution.start_time).total_seconds() / 60, 1

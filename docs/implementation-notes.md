@@ -8,6 +8,8 @@
   and cancellation retain their safety holds.
 - Failure emails say when an interval schedule will next run or that someone must turn the
   schedule back on. To retry, use Edit schedule, turn it on and set the start time if needed.
+- Completed, failed and terminating outcomes refresh the edit token, so an older Edit form
+  cannot restart the occurrence. Recovery cancellation keeps its token for acknowledgement.
 - Duplicate finalization changes nothing. A SQLite write failure keeps the observation and
   the storage safety hold.
 

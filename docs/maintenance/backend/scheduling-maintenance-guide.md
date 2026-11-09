@@ -86,7 +86,9 @@ Remote sessions are read-only; the backend enforces this.
    deactivates a schedule without an interval. A schedule with an interval keeps an already
    future start time or advances to now plus the interval, to the minute. A terminating
    timeout deactivates the schedule. Cancellation remains owned by recovery. Execution and
-   schedule are committed together.
+   schedule are committed together under the schedule lock. Completed, failed and terminating
+   outcomes refresh the edit token, so forms opened before the outcome must reload before
+   saving; recovery cancellation keeps its token for acknowledgement.
 9. **Failures** (`_handle_failed_execution`). An abort (Hamilton Aborted/Error, return code 64,
    manual abort) sends an `aborted` alert and requires manual recovery for that schedule. Other
    failures send `execution_failed`. Finally `RunLogMonitor.finish` closes the observation and
