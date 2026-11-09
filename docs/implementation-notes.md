@@ -6,6 +6,8 @@
   the schedule or cannot be read. A single execution alert records the delivery attempt;
   correcting the setting releases the queued run. A final launch check also covers timeout
   cleanup.
+- The schedule form has a Simulation switch; the schedule table marks those schedules, and a
+  queued schedule's detail shows why it is waiting.
 - A refusal at the final launch check follows the existing failed-execution path and can
   occur after the database step committed. Simulation schedules still run their saved
   database steps with no mode passed to the package; database writes are not simulated.
