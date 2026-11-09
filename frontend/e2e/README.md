@@ -197,5 +197,5 @@ uv run --locked python frontend/e2e/status-stall-probe.py
 Open the printed URL, then: Hold next health response → Refresh → Allow new
 requests. Within about 20 seconds the page must show "Request timed out" with
 Refresh enabled and the status chip showing "Stale data"; Refresh then reconnects. Release stalled response last.
-For remote-path timing, run
+It writes `test-output/status-stall-evidence.json`. For remote-path timing, run
 `backend/scripts/network_probe.py` on both computers (see its header).

@@ -52,14 +52,14 @@ All variants keep 451 of 451 frames and send 1000–1007 kbit/s. Averaging two f
   (`clip_transcode_check --clips`); probe clips +0.0–0.7 %. Constant bitrate: the bits go to scene
   detail instead of noise (detail kept 95–97 → 99.5–100 %). Synthetic check clips (independent
   noise every frame) shrink a lot (7.5 → 2.9 MB) because the encoder has nothing left to spend on.
-- CPU, conversion only, ffmpeg's own user+system time (`encode_cpu_ab.py`, 8 real clips, median of
+- CPU, conversion only, ffmpeg's own user+system time (8 real clips, median of
   3 alternating rounds): 1.59 CPU-s per clip without, 1.88 with s=7, 1.92 with s=5; per clip
   +0.31 s median (−0.30 to +0.91), **about +20 %**, ≈0.5 % of one core over the minute. s=7 and s=5
   do not differ measurably. Roughly +0.5 s per clip on an N100 if it is ≈1.7× slower per thread
   (estimate).
 - `clip_transcode_probe.ps1 -Profiles product-1000,product-1000-denoise` (new profile, 8 clips,
   three runs, machine 48–65 % busy): **peak per clip median 1.6 → 2.4 cores** (1.4–1.9 → 1.8–2.5,
-  one 250 ms window at 3.1) for an encode of 0.7–1.2 s instead of 0.8–1.8 s (`cpu-peak/results.csv`).
+  one 250 ms window at 3.1) for an encode of 0.7–1.2 s instead of 0.8–1.8 s.
   The filter now does real work in the filter-graph thread beside the decoder and encoder threads,
   so the ceiling is about 3 cores. Scale, format and denoise already share that one thread
   (`-filter_threads 1`), so there is no free restructuring; pinning to one core cost +50 % CPU-s in

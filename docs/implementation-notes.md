@@ -196,7 +196,7 @@
 - Before, the schedule's "Before this run" step showed **Experiment** plus **Reset Hamilton tables**, **Tables to reset** and **Reset tables before selecting the experiment**. #40 had copied the retired adapter's `ResetHamiltonTables` token support, which no form in use offered; the original UI was one experiment dropdown saving `ScheduledToRun` + `EvoYeastExperiment:<id>|set`. Now the package has one required input, `experiment_id`: it clears `ScheduledToRun` on every experiment and sets it on the chosen one (same lock, missing/duplicate refusal and rowcount check). A step without an experiment is refused on save (400 "Experiment is required").
 - Old tokens: `ScheduledToRun` + one selection still prefills `{experiment_id}`. Any `ResetHamiltonTables` token now gives no prefill and the message "the Hamilton table reset (…) is no longer part of the EvoYeast step", so an administrator decides; the tokens are kept until then and the run is refused before any write.
 - Schedules saved with 1.0.0 read Needs review after the update (package hash changed) until an administrator saves them again; importing 1.0.1 is refused while an active schedule uses 1.0.0.
-- Checks: `scheduling_lab_check` (reset cases replaced by: required experiment, 1.0.0 inputs refused, `ResetHamiltonTables` token → Needs review without a prefill and resolved by an administrator's save), `preparation_step_check`, `bundled_tools_check`; `scheduling-lab.spec.ts` fixtures.
+- Checks: `scheduling_lab_check` (reset cases replaced by: required experiment, 1.0.0 inputs refused, `ResetHamiltonTables` token → Needs review without a prefill and resolved by an administrator's save), `preparation_step_check`, `bundled_tools_check`; `scheduling-lab.spec.ts` fixtures. Screenshots of Before this run in light/dark at 1440 and 390 px.
 
 ## 2026-10-02 Starter packages at 1.0.0, release notes in the package, clearer connections
 
@@ -229,7 +229,7 @@
 - Before, "Before this run" had two mechanisms: a built-in EvoYeast/batch adapter (radio and experiment list, tokens in `prerequisites`, its own connection chosen under Database settings → Schedule preparation) and the database step from the entry below. Now there is one: the starter package `database_packages/evoyeast-experiment` ("Select EvoYeast experiment") runs the adapter's SQL as an ordinary preparation step (lock the target, refuse a missing or duplicated ID, clear every flag, set one; optional `dbo.ResetHamiltonTables` with the method name and table list, in the saved order). `lab_integration.py`, `lab_settings.py`, the batch-SQLite example, `GET /api/scheduling/lab/preparation`, the `scheduling-settings` routes, the radio and the settings card are removed; the receipt and no-repeat moved to `pre_execution.py`.
 - Existing schedules keep their tokens. The owner chose "prefill and needs review": `legacy_preparation.py` derives on every read a Needs review state with the tokens and, where they fit the package, a prefilled step. The run is refused before any write until a local administrator saves the schedule, which clears the tokens; batch, unknown and ambiguous tokens are not guessed. Nothing is rewritten at startup. Clients can no longer send tokens. An administrator's form always sends an explicit step for such a schedule (the prefill, else its saved step, else none), so schedules without a prefill can be resolved too. The owner chose admin-only experiment selection, and to import the package on the existing VM instead of seeding it: each release now ships `starter-packages\<id>.zip` for every starter package beside `RobotControl.exe` (`database_packages/README.md`).
 - Found while verifying: (1) the old Schedule preparation settings refused edits to the connection scheduling used; a database step pinned only the connection id, so editing that connection to another database kept armed schedules Ready. Steps now pin server and database too; a change, or a step saved before this, reads Needs review until saved again. (2) A SQL error raised by a step (e.g. the procedure's RAISERROR) reached the receipt as "Cannot use connection …" because `ReportSources.open` relabels driver errors in its block; the receipt now keeps the step's own error. (3) A lookup input set before its control mounted (a saved or prefilled step) showed blank; it now shows its label.
-- Checks: `scheduling_lab_check` rewritten for the package and retired tokens (two disposable logins: reader and writer; `ResetLog` records the flag at reset time to prove order), `preparation_step_check` (+ connection edited to another database), `database_workspace_check`, `database_tools_check` (starter set is now three), `bundled_tools_check`, `report_wizard_check`, `tool_authoring_check`; `scheduling-lab.spec.ts` (5), `database-workspace.spec.ts` settings and remote-admin cases, scheduling component tests (33). `packaged_scheduling_lab_smoke.py` tested only the removed adapter and is deleted.
+- Checks: `scheduling_lab_check` rewritten for the package and retired tokens (two disposable logins: reader and writer; `ResetLog` records the flag at reset time to prove order), `preparation_step_check` (+ connection edited to another database), `database_workspace_check`, `database_tools_check` (starter set is now three), `bundled_tools_check`, `report_wizard_check`, `tool_authoring_check`; `scheduling-lab.spec.ts` (5), `database-workspace.spec.ts` settings and remote-admin cases, scheduling component tests (33). `packaged_scheduling_lab_smoke.py` tested only the removed adapter and is deleted. Screenshots of the old selection.
 - Not verified: the lab's real `ResetHamiltonTables` and a deployed method on the VM.
 
 ## 2026-10-01 Camera live view is H.264
@@ -252,9 +252,9 @@
 
 ## 2026-10-01 Packaged database check uses a real report connection
 
-- `packaged_database_smoke` stopped with 409 "Connection setup needed" before generating culture history (seen on the `camera-live-view-b7027e0` and `database-preparation-fa8d0c4` candidates). Its uploaded fixture package swapped the server's database and report sources in module-level code. That ran only while installation imported packages, which ended in 10bf346, and reports now run in a spawned process that the swap could not reach. The product was right; the check was stale.
+- `packaged_database_smoke` stopped with 409 "Connection setup needed" before generating culture history (seen on the packaged candidates built from b7027e0 and fa8d0c4). Its uploaded fixture package swapped the server's database and report sources in module-level code. That ran only while installation imported packages, which ended in 10bf346, and reports now run in a spawned process that the swap could not reach. The product was right; the check was stale.
 - The check now saves a read-only connection to a disposable `.\HAMILTON` copy of the `DatabaseFixture` rows and assigns it to each package through the administrator routes. The fixture package proves activation by running its report. The default run therefore needs local SQL Server, like `--wizard`. The check also runs when started by file path.
-- Checks used a packaged candidate built from cbc6771.
+- Checks: default, report-package and wizard runs on a packaged candidate built from cbc6771.
 
 ## 2026-10-01 A database step before a scheduled run
 
@@ -322,7 +322,7 @@
 
 ## 2026-10-01 Design system A: one system for every screen
 
-- Approved direction A ("instrument console"), light and dark. Tokens on a 4px unit and the primitives `PageGrid`, `Panel`, `ListRow`, `StatusDot` in `PageLayout.tsx`; every screen moved onto them (`a3db127`, `4faf47e`, `0d45d4b`). Overview, Maintenance and Labware follow the mock exactly.
+- Approved direction A ("instrument console", from a mock), light and dark. Tokens on a 4px unit and the primitives `PageGrid`, `Panel`, `ListRow`, `StatusDot` in `PageLayout.tsx`; every screen moved onto them (`a3db127`, `4faf47e`, `0d45d4b`). Overview, Maintenance and Labware follow the mock exactly.
 - Labware: the After saving summary sat on an extra footer line, so the first edit made the shared row taller and moved both diagrams (reported by the owner). The footer is now one fixed line.
 - Checks changed because they described the old layout: Labware geometry expects the 12px gutter between the two panels; the Overview strip label is "SQL Server"; Maintenance rows are found by name instead of MUI's Stack class (`35c6067`); the packaged Cytomat gap allows the 24px page padding (`de8f49a`). The Maintenance Reason panel's region is "Maintenance details", so it no longer shares the field's name.
 - Verification is tiered: styling by screenshot review (`playwright.visual.config.ts`), the full suite and packaged checks once at hand-over: 51 component tests, 109 browser checks, packaged smoke and walkthrough passed on a packaged candidate. Not exercised: hardware, SQL Server, camera.
@@ -351,7 +351,7 @@
 
 - Maintenance's Right now panel reports Scheduled runs as Held while maintenance or recovery is active. Unavailable or pending maintenance reads and failed robot reads show Unknown; a stopped scheduler shows Stopped. Refresh preserves the operator's reason draft.
 - New run observations save the launch time with a UTC offset. The queue API qualifies older server-local launch times before returning them, so Overview and Maintenance agree across browser time zones. Missing or invalid starts remain unknown. Old timestamps in the repeated autumn hour cannot identify their original offset, and assume the original server timezone.
-- Hardware, SQL Server and packaged execution were not exercised.
+- Verification and review were done. Hardware, SQL Server and packaged execution were not exercised.
 
 ## 2026-09-30 Redesign step 8: review findings, Overview from the mock, remaining gaps
 
@@ -416,9 +416,9 @@
 
 - #16: a sign-in storage error (for example SQLite `database is locked`) now answers 503 from `/me`, protected routes and `/api/auth/refresh`, so the browser keeps its tokens; bad, expired, wrong-type and revoked tokens still answer 401. Request timeouts keep the Axios error and say "Request timed out" instead of blaming the database. The 503 maintenance-overlay part landed in #15. Check: `backend/e2e/auth_storage_check.py` (3 of 13 cases failed before the fix).
 - #17: Scheduling queue and scheduler status reads each own an inline error that clears on their next success; a failed poll no longer opens the "Server Error" dialog, and a schedule reload no longer hides it. Recovery state is ordered by the server's `safety_revision` (review follow-up: request order had discarded a delayed answer carrying a newer revision); unhealthy storage is always shown. Checks: `frontend/e2e/operations.spec.ts` (status error, older/newer revisions in both response orders, and unhealthy storage). A second review found that later requests still bypassed the revision check; they now obey it too. Request order only breaks revision ties; reopening Scheduling resets history after a deliberate store restore.
-- #18: the dashboard "Latest Experiment" card keeps its refresh timer after an error and clears the error on the next success, so it recovers without a manual Refresh. Verified with a temporary fake-clock browser run (failed on the old build, passed after).
-- #19: Camera and System Status requests use the shared client, so an expired sign-in is renewed instead of failing with 401 forever; recording downloads renew once on 401. Camera errors have one owner each, so a recordings load no longer clears a live-view error (which then no longer appears as an archive dialog), a failed live-view status read shows "unavailable" with Retry, and a proxy HTML error shows "Camera operation failed (502)". Monitoring keeps an unknown start time as `null`. Checks: one case each in `camera.spec.ts` and `system-pages.spec.ts` (both failed before the fix); the other items were verified with a temporary browser run.
-- #20: a table whose data check fails is listed as "Could not check" (`has_data: null`) instead of "Empty", and `]` in a table name is escaped. The unused `DatabaseService.execute_stored_procedure` (unescaped `EXEC [name]`; its routes already answer 410) and its two unit tests are removed.
+- #18: the dashboard "Latest Experiment" card keeps its refresh timer after an error and clears the error on the next success, so it recovers without a manual Refresh. Verified with a temporary fake-clock browser run (failed on the old build, passed after), with screenshots.
+- #19: Camera and System Status requests use the shared client, so an expired sign-in is renewed instead of failing with 401 forever; recording downloads renew once on 401. Camera errors have one owner each, so a recordings load no longer clears a live-view error (which then no longer appears as an archive dialog), a failed live-view status read shows "unavailable" with Retry, and a proxy HTML error shows "Camera operation failed (502)". Monitoring keeps an unknown start time as `null`. Checks: one case each in `camera.spec.ts` and `system-pages.spec.ts` (both failed before the fix); the other items were verified with a temporary browser run, with screenshots.
+- #20: a table whose data check fails is listed as "Could not check" (`has_data: null`) instead of "Empty", and `]` in a table name is escaped. The unused `DatabaseService.execute_stored_procedure` (unescaped `EXEC [name]`; its routes already answer 410) and its two unit tests are removed. Checked with a screenshot.
 
 ## 2026-09-30 Keep essential coverage while trimming test duplication
 
@@ -426,12 +426,12 @@
 - Browser cases decrease from 132 to 97. Restore is consolidated from 13 cases to 3: failure feedback/retry, a slow restore with completion warnings, and backup selection under stale replies/new drafts. The real SQL check cannot cover browser timeouts or selection races. Layout matrices retain phone/desktop/4K plus the short 1024px labware boundary; focus animation is checked once using the normal motion setting.
 - Five component-test files remain deleted. Of the two others, only four checks remain: bounded complete exports/cancellation and explicit robot/cleanup-method confirmation/cancellation. Recording checks decrease from 37 to 9, retaining disabled startup, cancellation, failed camera start and complete start/stop behavior. The camera fixture now reaches the intended failed-start path, and startup cleanup runs while dependencies are still mocked.
 - The shortcut check now waits for the authenticated page and uses an available camera-status fixture so a maintenance modal does not intercept its keys. Review caught an Edge `ERR_NO_BUFFER_SPACE` failure loading React; the isolated retry passes without changing application code. Original failure traces are preserved.
-- Verification is focused on the changed checks; no application code, dependency or build inputs changed.
+- Verification is focused on the changed checks; no application code, dependency or build inputs changed. A prior full run and fresh focused runs were recorded separately.
 
 ## 2026-09-29 Preserve the next directory path while browsing
 
 - A completed directory request no longer replaces a different path typed while it was pending. The loaded directory still uses the server's resolved path; Enter/Go submits the retained draft.
-- Added the reproduced failure and subsequent navigation to `frontend/e2e/database-restore.spec.ts`.
+- Added the reproduced failure and subsequent navigation to `frontend/e2e/database-restore.spec.ts`. Final branch verification and merge review were done; the original failing probe was kept.
 
 ## 2026-09-29 Repair restore browsing and retain sign-in during outages
 
@@ -493,7 +493,7 @@
 
 - Replace Python now replaces the defining script even when renamed, preserving helpers. Supporting uploads reject a second tool definition. Input guidance points to `TOOL['inputs']`; installed rows use Excel report/Database operation labels and one Edit action. Global ZIP import remains the alternate update path.
 - Publishing returns to the installed list with a versioned success message and retires its draft. Atomic publication receipts prevent duplicate updates after lost responses. Optional notes persist in unfinished drafts; History records version, timestamp, publisher, note and file changes for Python and ZIP publications, without claiming source rollback or reconstructing old history.
-- Focused real SQL/HTTP and desktop/phone checks cover replacement, failed updates, restart persistence, completed-draft removal and lost-response retry. No new unit tests; unrelated working edits preserved.
+- Focused real SQL/HTTP and desktop/phone checks cover replacement, failed updates, restart persistence, completed-draft removal and lost-response retry. No new unit tests; unrelated working edits preserved. Candidate results were recorded.
 
 ## 2026-09-28 Existing database tools as single Python files
 
@@ -505,7 +505,7 @@
 - Manage packages now has one Add tool workflow: upload prepared Python, choose connections, try, then enable. A small `TOOL` definition produces the form; imports identify bundled libraries, and RobotControl builds versions/manifests/ZIPs. Authors still adapt their calculations; Python is trusted code, not sandboxed.
 - Reports generate downloadable Excel; operation trials call only preview under launch protection and rollback, with no execution token. Enabling checks the current draft, trial result, connection revision and explicit review. Existing Operations confirmation and execution remain separate.
 - Edit report/operation preserves identity and supporting files, supports complete file replacement, and keeps the installed version until publication. Old drafts and package ZIPs remain supported. Activation journals recover interrupted connection assignment.
-- Focused real SQL/HTTP and desktop/phone browser checks, workbook evidence and repeat commands. Relocated Windows candidate results were recorded. No new unit tests.
+- Focused real SQL/HTTP and desktop/phone browser checks ran, with workbook evidence. Relocated Windows candidate results were recorded. No new unit tests.
 
 ## 2026-09-28 Simpler database setup and installed report editing
 
@@ -532,32 +532,32 @@
 
 - Replaced the generic SQL setup error with specific name-conflict, sign-in, authority, database and driver guidance. Unknown failures retain stage/numeric diagnostics without exposing SQL or passwords; existing logins remain untouched.
 - Clarified new-login versus administrator identity and the manual SQL versus Create account paths. Failed setup retains connection fields while clearing administrator credentials.
-- Focused disposable SQL/HTTP and desktop/phone browser checks passed. Fixed owned SQL fixture cleanup for pooled sessions; retained the original cleanup failure. The original VM failure's cause remains unconfirmed.
+- Focused disposable SQL/HTTP and desktop/phone browser checks passed. Fixed owned SQL fixture cleanup for pooled sessions; retained the original cleanup failure. The original VM failure's cause remains unconfirmed. Windows candidate verification was recorded.
 
 ## 2026-09-28 Scheduling laboratory integrations
 
 - Kept native scheduler SQLite and Hamilton run monitoring separate from laboratory preparation. EvoYeast remains the default; existing schedule tokens and unrelated preparation steps survive editing. A reviewed built-in SQLite batch example demonstrates another schema, with per-installation configuration and concise Experiment/Batch controls.
 - Added captured installation/execution identities and original schedule-to-database bindings. Missing records, unavailable databases and unsupported preparation now block launch; transaction-owned flag changes roll back. Duplicate execution IDs are not prepared again after restart. Changed targets cannot redirect old schedules or unfinished work.
 - Verified disposable SQL Server preparation/rollback, HTTP choices, restart/target protection, separate SQLite batch preparation and desktop/phone editor workflows. Existing safety/executor checks passed; 12 other selected legacy checks fail identically against the prior commit (documented in the maintenance guide). Replaced obsolete placeholder pipeline unit checks with focused integration coverage; no new unit tests.
-- The local schedule store was empty: reference behavior comes from existing code/form, not a captured live run. A supervised deployed-method comparison is still required before hardware use. Setup/examples: `backend/services/scheduling/examples/README.md`.
+- The local schedule store was empty: reference behavior comes from existing code/form, not a captured live run. A supervised deployed-method comparison is still required before hardware use. Setup/examples: `backend/services/scheduling/examples/README.md`. Windows candidate verification was recorded.
 
 ## 2026-09-28 Configurable Database workspace and simpler report creation
 
 - Added named SQL Server connections for table/procedure viewers and explicit writable targets for operations. Schema-qualified browsing supports other labs without requiring RobotControl tables. Operation reviews capture the connection/version and reject changes; native scheduler, labware, monitoring and Restore connections remain separate. Existing operations need a target assignment once.
 - Database connections now offers reviewed creation of a new read-only account or existing-account setup. One-off SQL authority is discarded; new credentials are encrypted locally. Existing logins are never altered and failed setup rolls back/cleans up its new identity.
 - Create report starts with Upload Python or a no-database example. Ordinary/nested imports are detected without execution; package bookkeeping is under Details and compatible scripts skip the starter. Python calculations remain author-owned. SQL Server is supported; external SQLite remains deferred.
-- Focused SQL/HTTP checks, legacy scheduler/deletion/workbook checks and desktop/phone browser workflows passed. The reviewer accepted the screenshots. No new unit tests. Current author instructions are in `database_packages/README.md`.
+- Focused SQL/HTTP checks, legacy scheduler/deletion/workbook checks and desktop/phone browser workflows passed. The reviewer accepted the screenshots. No new unit tests. Current author instructions are in `database_packages/README.md`. Windows candidate verification was recorded.
 
 ## 2026-09-28 Saved report wizard and read-only SQL sources
 
 - Added Create report with saved private drafts, original/handler separation, starter download and edited-handler upload, trial Excel, package export and reviewed installation. Python calculations remain author-owned; multiple reports use the existing chooser. Desktop/phone screenshots and draft/result handling were reviewed.
 - Report connections use dedicated SQL Server accounts, encrypted local credentials and package source aliases. Effective permissions are checked on connection, including cross-database grants; no writer fallback. Existing reports need a primary source assignment. Added typed dates and searchable dependent database choices with server-side membership checks. Operations and Culture history calculations remain unchanged.
-- Focused browser/HTTP workflows, real SQL Server 2008 read/write-denial checks, legacy workbook parity and operation safety checks passed. No new unit tests. See `database_packages/README.md` for the shorter wizard-first authoring guide.
+- Focused browser/HTTP workflows, real SQL Server 2008 read/write-denial checks, legacy workbook parity and operation safety checks passed. No new unit tests. See `database_packages/README.md` for the shorter wizard-first authoring guide. Windows candidate verification was recorded.
 
 ## 2026-09-28 Restore Culture history reference behavior (1.0.2)
 
 - Removed the 1.0.1 missing-well rejection, which incorrectly changed Data.py's sorting/first-N culture selection. Explicit SQL NULL-to-string conversion preserves the original legacy pandas behavior under bundled pandas 3; no culture-ID pattern is special-cased.
-- Compared complete workbook values/formatting with the original script for an extra culture 98500000 on plate 985 and selected/ancestral missing wells. HTTP checks and upload/run in the existing relocated executable passed. No frontend/executable rebuild or new unit tests. Actual VM data remain unexamined.
+- Compared complete workbook values/formatting with the original script for an extra culture 98500000 on plate 985 and selected/ancestral missing wells. HTTP checks and upload/run in the existing relocated executable passed. No frontend/executable rebuild or new unit tests. Actual VM data remain unexamined. Packaged as culture-history-1.0.2.zip.
 - Replaced the mixed authoring/reference README with one four-step example and exact prompt answers; moved interface/limits to `database_packages/CONTRACT.md`. The revised guide was reviewed. Installation is unchanged.
 
 ## 2026-09-28 Database authoring, reviewed updates and task workspace
@@ -565,7 +565,7 @@
 - Added a product review workflow for new/unclear features. Package authors keep ownership of Python; the scaffold preserves the original script, generates an adapter/agent brief and builds a versioned ZIP without executing it. See `database_packages/README.md`.
 - Package installation now offers non-executing inspection, explicit Update and installed/incoming versions. Reviewed hashes protect against intervening changes. Operations/retrieval use a full-width experiment/task workspace with retained phone Back state.
 - Culture history 1.0.1 handles missing well labels under pandas 3 without dropping selected cultures; ambiguous subset selection identifies the plate/cultures instead of guessing. Deliver its ZIP separately because executable upgrades do not replace installed packages.
-- Focused authoring/HTTP checks and desktop/phone browser workflows passed; screenshots were reviewed. Initial browser failure was a wrong test locator, retained with its trace. No new unit tests. Actual experiment 333 and SQL Server/ODBC remain VM checks.
+- Focused authoring/HTTP checks and desktop/phone browser workflows passed; screenshots were reviewed. Initial browser failure was a wrong test locator, retained with its trace. No new unit tests. Actual experiment 333 and SQL Server/ODBC remain VM checks. Candidate identity and packaged outcome were recorded.
 
 ## 2026-09-27 — Portable database packages and delivery logs
 
@@ -597,7 +597,7 @@
 
 - Prepared three isolated interactive concepts for Tip tracking and Cytomat: Quiet workbench, Rack tray and Deck first. Two reviewers reviewed the alternatives and investigated reported flashing. Production integration and packaging wait for the user's visual choice.
 - Browser recordings confirm a 12px background-refresh layout jump, disabled-control flicker/focus loss and MUI's repeating focus ripple. A synthetic 503 also opens the global maintenance overlay; this is not established as the user's incident. Complete blanking was not reproduced across 1,078 frames at the normal refresh cadence.
-- No production frontend or backend files changed.
+- Preview captures, browser checks and flashing traces were retained locally. No production frontend or backend files changed.
 
 ## 2026-09-26 Responsive tip selection and Cytomat shelves
 
@@ -620,7 +620,7 @@
 - Added table First/Last/page jumps with correct retained-data labels after failures; SQL Top/Bottom/line navigation; focused rack/Cytomat editors with keyboard/touch access, protected pending saves and recoverable malformed-data errors.
 - Scheduling now uses a retained list/detail workspace, compact queue/recovery controls and protected phone editor drafts. Camera archives use responsive bounded lists; live frame/session behavior is preserved. Two reviewers cross-reviewed both scopes.
 - Maintenance treats unknown/failed state explicitly and preserves edited reasons. System Status has one polling owner and distinguishes service availability from resource use. Local storage repair has its own Admin section. Product copy stays concise; maintenance guides describe extension rules for future tabs.
-- Verification: all 50 browser E2E checks passed; frontend build, resource embedding and the separate Windows PyInstaller candidate completed. Relocated executable checks passed, including embedded dark/phone viewers, real log root, archive checksum and reader cleanup. Native browser zoom could not be completed because computer-use app access timed out; real phone keyboard and VM hardware checks remain in the delivery checklist.
+- Verification: all 50 browser E2E checks passed; frontend build, resource embedding and the separate Windows PyInstaller candidate completed. Relocated executable checks passed, including embedded dark/phone viewers, real log root, archive checksum and reader cleanup. Native browser zoom could not be completed because desktop-control access timed out; real phone keyboard and VM hardware checks remain in the delivery checklist.
 
 ## 2026-09-26 Whole-application UI review
 
@@ -653,7 +653,7 @@
 - Added missing-schedule acknowledgement and a separate persisted Resume action. Local operators must confirm robot readiness; stale revisions and unknown HxRun state block changes. Storage failures pause dispatch and retain monitoring.
 - Enabled SQLite foreign keys, replaced execution REPLACE writes with upsert, preserved orphan notification metadata, and added reviewed administrator health/repair with verified retained backups for scheduling/authentication databases.
 - Validation: 191 backend tests and 80 frontend tests passed. Frontend embedding and Windows PyInstaller compilation passed. The final executable passed isolated clean/legacy SQLite smoke checks, reviewed repair, missing-schedule acknowledgement, restart persistence and explicit Resume, with automation disabled and no robot methods launched.
-- Built into `dist/sqlite-safety-release/RobotControl` using the new optional `--output-dir`, preserving the existing executable folder and its runtime databases.
+- A packaged candidate was built using the new optional `--output-dir`, preserving the existing executable folder and its runtime databases.
 - See `docs/maintenance/backend/sqlite-safety-maintenance-guide.md` for APIs, locking, reviewed repairs and offline restore. Tests use isolated databases and mocked robot execution.
 
 # RobotControl Development Log (Chronological)
@@ -677,7 +677,7 @@ Camera capture and MJPEG writing now run in one spawned helper. The parent owns 
 
 - Streaming wakes on coalesced frame notifications, shares current-frame JPEG variants in two bounded encoding workers, and gives each viewer one latest-frame slot and an independent delivery task. Slow/disconnected viewers cannot backlog native work or block other viewers. Existing recording/quality settings and resource guard remain intact.
 - Camera images use a shared current-frame store for inline/fullscreen rendering; the containing page no longer rerenders per frame. Pending session creation is aborted on unmount, socket handlers are detached on cleanup, and per-frame console logging is removed. Video attachment preparation now releases captures and partial outputs on failure. Diagnostics also sample event-loop task counts.
-- Final automated validation: 278 backend tests and 69 frontend tests pass; production frontend build, embedding and isolated Windows PyInstaller packaging pass. Package smoke test verified all 22 JavaScript assets, authenticated sampled health, and two diagnostic samples. Candidate: `dist/RobotControl-optimized/RobotControl.exe` with `_internal`; runtime data and previous packages are preserved.
+- Final automated validation: 278 backend tests and 69 frontend tests pass; production frontend build, embedding and isolated Windows PyInstaller packaging pass. Package smoke test verified all 22 JavaScript assets, authenticated sampled health, and two diagnostic samples. A packaged candidate was built. Runtime data and previous packages are preserved.
 - Browser checks used an isolated synthetic fixture: a schedule draft/dropdown survived multiple polling cycles; 1,000 methods remained paged at 25; inline/fullscreen video and a separate status view remained usable, including narrow layouts and background streaming. These are not real remote-network/camera endurance results.
 - Three ten-second probe trials per scenario against `d228f51` reduce repeated buffer reads about 61–67% with comparable delivered frames. Two-viewer CPU improves, but one-viewer CPU increases slightly with worker overhead; see `docs/performance-report.md` and raw measurements. N100 real-camera, 24-hour and ten-day acceptance remain pending; no long-term memory-leak resolution is claimed.
 
@@ -712,7 +712,7 @@ Camera capture and MJPEG writing now run in one spawned helper. The parent owns 
 - Added per-source sidebar navigation, 50-entry paging (25/100 options), filename search across each directory/ZIP before pagination, metadata filters and deterministic sorting. Existing API callers retain the 200-entry default. Root/extension/local-session restrictions remain enforced, including direct archive requests.
 - Replaced the bulky browser with a file panel and text reader: separate file/preview refresh, Latest/Beginning, preview-only Find, wrap, details/copy path, full-screen expansion and a narrow-screen Back/Reading tools flow. Successful folder/preview snapshots survive errors with stale explanations; superseded requests cannot replace newer content. Follow latest is opt-in, plain-file-only, waits for each request, stops when hidden/on error, and respects reading position.
 - Browser validation covered 390/1280/1920 widths, source selection and Find retention, Escape/focus restoration, all new sidebar sections, a Cytomat draft retained across sections then discarded, and no streaming session started by Camera navigation. The packaged UI reached entries 201–250 of 1,816 logs. Tested 640×360 as the layout equivalent of 200% at 1280×720; native browser zoom remains an operator check.
-- Validation: 65 focused frontend tests and 266 backend tests pass. Windows frontend build, resource embedding and isolated PyInstaller packaging succeed. SQL search and paged log reads were checked through the package. Candidate: `dist/RobotControl-browsing/RobotControl.exe` with `_internal`. Runtime data and earlier packages are preserved; disposable validation files and package-generated test data are removed after checks.
+- Validation: 65 focused frontend tests and 266 backend tests pass. Windows frontend build, resource embedding and isolated PyInstaller packaging succeed. SQL search and paged log reads were checked through the package. A packaged candidate was built. Runtime data and earlier packages are preserved; disposable validation files and package-generated test data are removed after checks.
 
 ---
 
@@ -738,7 +738,7 @@ Camera capture and MJPEG writing now run in one spawned helper. The parent owns 
 - Added shared page content/headers, one compact account/breadcrumb bar, fluid operational widths and bounded settings/readable content. Scheduling now has heading actions and a service strip; list/runtime columns follow actual available width. At 1280×720, normal operational content begins around 190px. Removed duplicate page navigation rows and the duplicate system-monitoring title.
 - Browser integration polished folder breadcrumbs, common-root relative paths, method-table scrolling and sidebar expansion labels. Create/cleanup pickers preserve drafts and restore focus; a dropdown remained open with its draft and scroll through two polling cycles. Reviewed narrow and desktop layouts with 1,000 disposable imported methods. In-app browser zoom shortcuts are unavailable; checked the equivalent 640×360 layout for 200% zoom, with native zoom still requiring an operator check.
 - Validation: 50 focused frontend tests and the full 260-test backend suite pass. Windows frontend build, resource embedding and isolated PyInstaller packaging pass. Packaged UI checks covered the 1,000-method library, page-only selection across two pages, search clearing selection, refresh retention and opening the saved method folder. Embedded JavaScript matches the final build.
-- Candidate: `dist/RobotControl-layout/RobotControl.exe` with `_internal`. Removed disposable package data and validation fixtures; preserved the running installation and earlier candidates. No API, SQLite, scheduling/execution or live runtime-data changes.
+- A packaged candidate was built. Removed disposable package data and validation fixtures; preserved the running installation and earlier candidates. No API, SQLite, scheduling/execution or live runtime-data changes.
 
 ---
 
@@ -761,7 +761,7 @@ Camera capture and MJPEG writing now run in one spawned helper. The parent owns 
 - Added manual/host-browser path correction with validated preview, separate primary/cleanup references, unchecked selection and disabled busy/archived schedules. Save revalidates the file, catalogue revision and selected schedule versions; catalogue and selected paths commit in one SQLite transaction. Scheduler locks coordinate enqueue/dispatch and cache refresh. Ordinary edit/archive writes cannot overwrite a concurrent correction; version checks no longer accept changes within a one-second tolerance.
 - Unselected paths, labels, timing, contacts, archive state, import provenance, execution history and monitoring records stay intact. Canonical path collisions and stale previews fail without partial changes. Conflict messages preserve the draft and require a fresh review.
 - Validation: 260 backend tests and 31 focused frontend tests pass, including rollback, enqueue/edit/archive races and paused monitoring preservation. Browser checks confirmed direct host-folder preview, archive/restore, cleanup-only correction, keyboard focus restoration and desktop/narrow layouts. Frontend build, resource embedding and Windows PyInstaller packaging pass. The isolated packaged app passed host browsing/import, archived reimport/restore, cleanup-only correction, stale-edit rejection, path checks and local-only access with its scheduler stopped.
-- Candidate: `dist/RobotControl-method-library/RobotControl.exe` with its `_internal` directory. Validation data was removed; existing `dist/RobotControl`, `dist/RobotControl-setup` and runtime data were preserved. No Hamilton method was executed or email sent during validation.
+- A packaged candidate was built. Validation data was removed; existing `dist/RobotControl`, `dist/RobotControl-setup` and runtime data were preserved. No Hamilton method was executed or email sent during validation.
 
 ---
 
@@ -784,7 +784,7 @@ Camera capture and MJPEG writing now run in one spawned helper. The parent owns 
 - Replaced the import dialog with Choose folder → Review methods → Import results. Both browser and manual modes require an absolute host folder; selection sends paths only. Valid New/Update rows are selected by default, invalid rows explain failures, and searchable results report actual Added/Updated/Failed outcomes. Creating a schedule remains an explicit next action.
 - Added a local-only, read-only preview endpoint and shared host filesystem validation for both import routes. Imports revalidate containment, metadata and case-insensitive `.med` files, preserve valid absolute-path callers, and reject unresolved relative requests. Canonical paths identify methods; old records are never automatically repaired or deleted. Database outcomes account for per-file failures and transaction rollback.
 - Validation: all 235 backend tests and 25 focused frontend tests pass; TypeScript/Vite build, resource embedding and Windows PyInstaller packaging pass. Canonical-path regressions cover older path spellings without replacing record IDs and ambiguous legacy duplicates without automatic repair. Browser checks covered draft/focus/scroll stability across polling, keyboard/dropdown behavior, import preview/results/schedule handoff, and SMTP/import at 390px and 1280px widths. The isolated packaged app passed embedded UI/authentication, preview, Added/Updated results and local-access checks using disposable metadata files, never executable Hamilton methods.
-- Candidate build: `dist/RobotControl-setup/RobotControl.exe` with its `_internal` directory. Existing `dist/RobotControl` and runtime data were preserved; the candidate contains no validation data. Operator simulator checks remain: pause/resume alerts, restart during an already-alerted pause without duplicates, and silence after completion. No real email was sent or Hamilton run launched during validation.
+- A packaged candidate was built. Existing `dist/RobotControl` and runtime data were preserved; the candidate contains no validation data. Operator simulator checks remain: pause/resume alerts, restart during an already-alerted pause without duplicates, and silence after completion. No real email was sent or Hamilton run launched during validation.
 
 ---
 

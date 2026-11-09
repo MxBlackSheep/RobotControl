@@ -105,7 +105,7 @@ starts or stops a live-view session.
 
 ## Design system A (instrument console)
 
-Approved mock: column A. Light and dark
+This follows column A of the approved mock. Light and dark
 share one structure; only the palette changes.
 
 **Tokens** (`theme.ts`): everything is a multiple of 4px. `layout` holds the sizes: page

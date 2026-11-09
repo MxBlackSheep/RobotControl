@@ -50,7 +50,7 @@ rate, not loss or Cloudflare's own buffering.
 ## Denoise: which filter
 
 The bundled LGPL ffmpeg has no `hqdn3d`. Candidates on the owner clip and the gripper clip (123612,
-gripper moves after frame 209), encoded at 15/600 (`round1`):
+gripper moves after frame 209), encoded at 15/600:
 
 | filter | noise left | detail kept | frames held | CPU |
 | --- | --- | --- | --- | --- |
@@ -106,13 +106,13 @@ detail than #48. If the delay matters more than the picture, `denoise_filter: ""
 
 ## CPU (development PC)
 
-- Filter alone (`filter_cpu.txt`, 9 paired runs of 1800 frames): median +0.36 ms per frame
+- Filter alone (9 paired runs of 1800 frames): median +0.36 ms per frame
   (−0.1 to 0.9), ≈0.5 % of one core at 15 fps here; roughly 1 % of an N100 core if it is ≈1.7×
   slower per thread (estimate).
-- Live chain with one viewer, real frames, camera at 30 fps (`chain_cpu_ab.txt`, 3 alternations of
+- Live chain with one viewer, real frames, camera at 30 fps (3 alternations of
   30 s, main + ffmpeg, % of one core): 15/600 1.51–1.98 (median 1.77), 15/400 + denoise 1.19–1.41
   (median 1.30). Encoding fewer bits pays for the filter.
-- Encoder-only A/B (`encoder_cpu_ab.txt`) ranged too widely on this VM to separate (15/400 alone
+- Encoder-only A/B ranged too widely on this VM to separate (15/400 alone
   0.59–1.99 ms per frame).
 
 ## Camera request: back to 30 fps

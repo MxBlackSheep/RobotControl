@@ -61,7 +61,7 @@ frontend review workflow is no longer active or part of the default workflow.
 | “Change when a scheduled robot run resumes.” | Establish the safety/recovery rules first; exercise the affected scheduler boundary and relevant real deployment behavior. |
 | “Clarify the maintenance guide.” | Review the text, links and diff. No browser suite or Windows candidate. |
 
-Commands live in the
+Guidance is centralized in the project rules. Commands live in the
 [browser run guide](../frontend/e2e/README.md). Changes to guidance/configuration
 are checked by reviewing links/diffs and loading Playwright's case list; the
 previous release report is preserved, and no new application build is needed.

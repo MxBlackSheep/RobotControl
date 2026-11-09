@@ -73,7 +73,7 @@ No GOP setting removes the hitches, so `keyframe_seconds` stays 1. The setting l
 
 ## Finding 2: a far viewer's first picture froze for a whole GOP (fixed)
 
-`startup_trace_rtt0.3_600k.txt`: the first keyframe after the encoder starts is **29.7 kB** (rate
+A startup trace (0.3 s round trip, 600 kbit/s): the first keyframe after the encoder starts is **29.7 kB** (rate
 control has no history; 11.9–13.2 kB afterwards). On 600 kbit/s 0.3 s away it crosses in about
 400 ms, so the first acknowledgement returns at 706 ms. Until then the window is its 2-frame floor,
 the next frames wait, and at 657 ms the oldest was over the 0.5 s limit: the viewer skipped to the
@@ -86,7 +86,7 @@ frames instead of 0.5 s and 8 (`FIRST_ACK_WAIT_SECONDS`, `FIRST_ACK_WAITING`). B
 knows nothing about the link, so "slower than the stream" cannot be judged. Afterwards the rules
 are unchanged; an unacknowledging viewer still gets 2 frames and is ended after 15 s. Cost: at the
 start, frames may wait up to 0.5 s longer before a skip, then go out together when the
-acknowledgement arrives (`startup_trace_rtt0.3_600k_after.txt`: waited up to 529 ms, no skip).
+acknowledgement arrives (trace after the fix: waited up to 529 ms, no skip).
 
 Before → after, the runs where skips changed (fps shown; skips, longest freeze ms):
 
@@ -100,7 +100,7 @@ Before → after, the runs where skips changed (fps shown; skips, longest freeze
 | light-off | 0.3 | 1000 | 1 / 2 / 3 | 14.7 / 14.5 / 14.2; 1 late (639 / 1643 / 2614) | 14.9–15.0; none |
 | light-off | 0.3 | 500 | 2 / 3 | 14.1 / 14.2; 2 / 1 late (1284 / 2276) | 14.7 / 14.5; 1 late (552 / 1626) |
 
-Full list: `plan_tables.md`. "Replaced" (a keyframe arrived while frames still waited) costs at
+"Replaced" (a keyframe arrived while frames still waited) costs at
 most the frames before that keyframe.
 
 ## Window and skip rule in steady state

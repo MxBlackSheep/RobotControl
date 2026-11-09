@@ -219,7 +219,7 @@ only plans the calendar.
   has not changed; a start in the repeated autumn hour cannot recover its original offset.
   Check HTTP serialization and SQLite restart with
   `uv run --locked python backend/e2e/run_timing_check.py`; its exported queue payloads are
-  browser fixtures.
+  browser fixtures, written to `test-output/timezone-review-fix/queue-payloads.json`.
 - Older runs without a launch association show monitoring unavailable. Resolve an orphan with
   manual recovery (verify or stop HxRun, mark recovery, acknowledge). Acknowledgement closes an
   unowned execution only when HxRun detection confirms no process; detection failure keeps it
@@ -298,7 +298,7 @@ their saved paths.
 - Laboratory preparation: `.venv/Scripts/python.exe -X utf8 -m backend.e2e.scheduling_lab_check`
   (EvoYeast package and retired-token schedules) and `backend.e2e.preparation_step_check`
   (any step) use UUID-named disposable SQL Server databases, with a recorder in place of
-  process launch; the browser side is `frontend/e2e/scheduling-lab.spec.ts`. Failure cases are in each file's header.
+  process launch; the browser side is `frontend/e2e/scheduling-lab.spec.ts`. `scheduling_lab_check` writes to `test-output/scheduling-lab-verification`. Failure cases are in each file's header.
 - Email records and alert layout: `backend.e2e.notification_delivery_check` (commands in
   [frontend/e2e/README.md](../../../frontend/e2e/README.md)). Add `--render <folder>` to write
   every sample alert as `.eml`, `.html` and `.txt` for review in a browser or mail client.
