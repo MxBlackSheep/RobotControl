@@ -67,7 +67,8 @@ export default function NowRunning({ status, error, span }: { status: RobotStatu
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 15000); return () => clearInterval(timer); }, []);
   const job = status?.running[0];
-  const timing = job ? runTiming(job.monitoring?.launched_at, job.estimated_duration, now) : null;
+  // A PyHSL run has no VENUS log observation, so its timing is on its Run page.
+  const timing = job && job.runner !== 'pyhsl' ? runTiming(job.monitoring?.launched_at, job.estimated_duration, now) : null;
   const [timingStart, timingDetail] = timing ? timingText(timing) : [null, null];
   const stateChip = status && (job ? <StatusChip tone="running" label="Running" />
     : <StatusChip tone="neutral" label={status.schedulerRunning ? 'Idle' : 'Scheduler stopped'} />);
@@ -82,6 +83,11 @@ export default function NowRunning({ status, error, span }: { status: RobotStatu
     {status && !job && <Box>
       <DetailTitle component="p">Nothing running</DetailTitle>
       {status.queued > 0 && <Typography variant="body2" color="text.secondary">{status.queued} waiting in the queue.</Typography>}
+    </Box>}
+
+    {job && !timing && <Box>
+      <DetailTitle component="p">{job.experiment_name}</DetailTitle>
+      {job.protocol_id && <Typography sx={{ fontFamily: fontMono, fontSize: 12, lineHeight: '16px', color: 'text.secondary', overflowWrap: 'anywhere' }}>{job.protocol_id}</Typography>}
     </Box>}
 
     {job && timing && <>

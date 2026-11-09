@@ -655,13 +655,14 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                   </Grid>
                 )}
 
-                <Grid item xs={12} md={6}>
+                {/* The VENUS run log only: a PyHSL run is followed through Run Control. */}
+                {!pyhsl && <Grid item xs={12} md={6}>
                   <TextField fullWidth type="number" label="Log inactivity threshold (minutes)"
                     value={formData.log_inactivity_threshold_minutes}
                     onChange={(event) => setFormData({ ...formData, log_inactivity_threshold_minutes: Number(event.target.value) })}
                     inputProps={{ min: 1, step: 1 }}
                   />
-                </Grid>
+                </Grid>}
                 <Grid item xs={12} md={6}>
                   <Autocomplete
                     multiple

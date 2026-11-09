@@ -10,7 +10,9 @@ const label = (text: string) => text.charAt(0).toUpperCase() + text.slice(1).rep
 /** Shown only while Run Control has something to report: an active run, a review or an unknown state. */
 export default function PyHslPanel({ status, span, canOpen }: { status: PyHslStatus | null; span?: number; canOpen?: boolean }) {
   if (!status) return null;
-  const { run, reviews, state } = status;
+  const { reviews, state } = status;
+  // A scheduled run is already in Now running; this panel is for runs a person started.
+  const run = status.run?.origin === 'machine' ? null : status.run;
   if (!run && !reviews.blocked && state !== 'unknown') return null;
   return <Panel title="PyHSL" span={span} tone={reviews.blocked ? 'attention' : undefined}
     headerExtra={run ? <StatusChip tone="running" label={label(run.status)} />
