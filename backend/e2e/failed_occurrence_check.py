@@ -25,7 +25,7 @@ Exit-zero outcome cases:
 3. Complete: success without waiting.
 4. Aborted (raw 64): failed with manual recovery.
 5. Late Complete during re-checks: success without failure email.
-6. SQL unreachable or Running: unknown failure with manual recovery.
+6. SQL unreachable, Running or a failed observation save: unknown failure with manual recovery.
 
 Uses real SQLite, preparation receipts, notifications and run observations. Only the
 database package boundary, SQL run reader, process monitor and Popen are fixtures.
@@ -517,7 +517,7 @@ def run():
             f.loops()
             assert len(f.launched) == 1
 
-    for state in ('Complete', 'Aborted', 'late Complete', 'SQL unreachable', 'Running'):
+    for state in ('Complete', 'Aborted', 'late Complete', 'SQL unreachable', 'Running', 'observation save fails'):
         @case(f'outcome {dict(Complete=3, Aborted=4).get(state, 5 if state == "late Complete" else 6)} {state}')
         def outcome(f, state=state):
             f.returncode = 0
@@ -525,6 +525,10 @@ def run():
             f.sql_reason = 'SQL unreachable' if state == 'SQL unreachable' else f.sql_reason
             if state == 'late Complete':
                 f.after_wait = lambda: setattr(f, 'sql_state', 'Complete')
+            if state == 'observation save fails':
+                def locked(_):
+                    raise RuntimeError('database is locked')
+                f.engine.run_log_monitor.check = locked
             value = f.schedule()
             f.loops()
             if state in {'Complete', 'late Complete'}:
@@ -540,7 +544,7 @@ def run():
                 assert f.sent[0][0] == ('aborted' if state == 'Aborted' else 'execution_failed')
                 if state != 'Aborted':
                     assert history[0]['error_message'] == 'HxRun ended but Hamilton did not report the run as complete.'
-                    assert f.waits == [2] * 15
+                    assert f.waits == ([] if state == 'observation save fails' else [2] * 15)
                 else:
                     assert not f.waits
 

@@ -180,12 +180,17 @@ class ExperimentExecutor:
             if result.success:
                 state = None
                 if self.run_log_monitor:
-                    state = self.run_log_monitor.check(execution.execution_id)
-                    for _ in range(15):
-                        if state and state.run_state in TERMINAL_STATES:
-                            break
-                        time.sleep(2)
+                    try:
                         state = self.run_log_monitor.check(execution.execution_id)
+                        for _ in range(15):
+                            if state and state.run_state in TERMINAL_STATES:
+                                break
+                            time.sleep(2)
+                            state = self.run_log_monitor.check(execution.execution_id)
+                    except Exception:
+                        # The run has ended, so a failed read leaves its outcome unconfirmed.
+                        logger.exception("Could not confirm the outcome of %s", experiment.experiment_name)
+                        state = None
                 if not state or state.run_state != "Complete":
                     result.success = False
                     if state and state.run_state in {"Aborted", "Error"}:
