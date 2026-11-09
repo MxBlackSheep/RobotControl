@@ -970,10 +970,13 @@ class SchedulerEngine:
             execution.duration_minutes = int((execution.end_time - execution.start_time).total_seconds() / 60)
         # Keep user edits made while the method was running.
         schedule = self.db_manager.get_schedule_by_id(experiment.schedule_id) or experiment
-        if terminate_schedule or (execution.status == "completed" and schedule.schedule_type == "once"):
+        if terminate_schedule:
             schedule.is_active = False
-        elif execution.status == "completed" and self._resolve_interval_hours(schedule):
-            schedule.start_time = self._calculate_next_execution_time(schedule)
+        elif execution.status in {"completed", "failed"}:
+            if self._resolve_interval_hours(schedule):
+                schedule.start_time = self._calculate_next_execution_time(schedule)
+            else:
+                schedule.is_active = False
         committed = self.db_manager.finalize_job_execution(execution, schedule)
         if committed:
             with self._schedules_lock:
@@ -1028,6 +1031,9 @@ class SchedulerEngine:
 
         # Non-abort failure (e.g., launch or execution error): notify contacts.
         context = {"error_message": execution.error_message or "Unknown error"}
+        context["schedule_active"] = experiment.is_active
+        if experiment.is_active and self._resolve_interval_hours(experiment):
+            context["next_run_time"] = experiment.start_time.isoformat()
         self._notify_execution_event(experiment, execution, "execution_failed", context)
 
     def _update_interval_schedules(self, current_time: datetime):

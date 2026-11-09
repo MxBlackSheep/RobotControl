@@ -242,9 +242,11 @@ def _aborted(f: _Facts) -> Tuple[str, str, set]:
 
 
 def _execution_failed(f: _Facts) -> Tuple[str, str, set]:
+    next_run = (" It will not run again until someone turns the schedule back on."
+                if f.context.get("schedule_active") is False else "")
     return ("run failed",
             f"The run for {f.experiment} failed with the error shown below. Check the robot{f.clip} "
-            "and the run trace.", set())
+            f"and the run trace.{next_run}", {"schedule_active"})
 
 
 def _simulation_mode_mismatch(f: _Facts) -> Tuple[str, str, set]:
@@ -289,6 +291,7 @@ _RUN_KEYS = (
     ("threshold_minutes", "Alert after", "minutes"),
     ("failure_count", "Failures", "text"),
     ("error_message", "Error", "text"),
+    ("next_run_time", "Next run", "moment"),
     ("note", None, "text"),
 )
 _TROUBLESHOOTING_KEYS = (
@@ -336,7 +339,7 @@ def schedule_alert_email(
             continue
         value = context[key]
         if style == "moment":
-            add(label, moment(value, now, ago=key != "observed_at"))
+            add(label, moment(value, now, ago=key not in {"observed_at", "next_run_time"}))
         elif style == "minutes" and whole_minutes(value) is not None:
             shown = duration(whole_minutes(value))
             add(label, f"about {shown}" if key == "expected_minutes" else shown)
@@ -352,7 +355,7 @@ def schedule_alert_email(
         troubleshooting.append(("Execution ID", str(execution_id)))
     if "raw_run_state" in context:
         troubleshooting.append(("Hamilton SQL state", _one_line(context["raw_run_state"])))
-    known = {key for key, _, _ in _RUN_KEYS} | {key for key, _ in _TROUBLESHOOTING_KEYS} | {"raw_run_state"}
+    known = {key for key, _, _ in _RUN_KEYS} | {key for key, _ in _TROUBLESHOOTING_KEYS} | {"raw_run_state"} | used
     if whole_minutes(context.get("runtime_minutes")) is not None:
         known.add("runtime_minutes")
     troubleshooting.extend((key, _one_line(value)) for key, value in context.items() if key not in known)

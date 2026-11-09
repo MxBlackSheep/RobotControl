@@ -1,3 +1,16 @@
+## 2026-11-09 Failed runs use up their scheduled occurrence
+
+- A completed or failed occurrence turns off a schedule without an interval. An interval
+  schedule advances to its next start time, keeping any future time already set. Edits made
+  during the run are preserved, and restart reconciliation saves the same outcome.
+- A refusal at either launch guard uses up the occurrence. The first guard prevents the
+  database step; the final guard can refuse after that step has committed. Manual recovery
+  and cancellation retain their safety holds.
+- Failure emails say when an interval schedule will next run or that someone must turn the
+  schedule back on. To retry, use Edit schedule, turn it on and set the start time if needed.
+- Duplicate finalization changes nothing. A SQLite write failure keeps the observation and
+  the storage safety hold.
+
 ## 2026-11-09 Scheduled runs check VENUS Simulation Mode
 
 - Schedules store `mode` (`real` or `simulation`); omitted create values and migrated rows
