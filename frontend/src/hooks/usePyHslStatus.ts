@@ -32,5 +32,6 @@ export function pyhslState(status: PyHslStatus | null): [string, StatusTone] {
   if (status?.reviews.blocked) return ['Review needed', 'attention'];
   if (!status || status.state === 'unknown') return ['Unknown', 'neutral'];
   if (status.state === 'not_running') return ['Not running', 'neutral'];
-  return status.run ? ['Running', 'running'] : ['Idle', 'completed'];
+  if (status.run) return ['Running', 'running'];
+  return status.reviews.known ? ['Idle', 'completed'] : ['Unknown', 'neutral'];
 }

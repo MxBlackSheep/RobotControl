@@ -1,10 +1,9 @@
 import { Stack, Typography } from '@mui/material';
 import StatusChip from '../StatusChip';
 import { DetailTitle, Panel } from '../PageLayout';
-import { fontMono, type StatusTone } from '../../theme';
+import { fontMono } from '../../theme';
 import type { PyHslStatus } from '../../hooks/usePyHslStatus';
 
-const FAILED = ['failed', 'outcome_unknown', 'reconciliation_required'];
 const label = (text: string) => text.charAt(0).toUpperCase() + text.slice(1).replace(/_/g, ' ');
 
 /** Shown only while Run Control has something to report: an active run, a review or an unknown state. */
@@ -12,9 +11,8 @@ export default function PyHslPanel({ status, span }: { status: PyHslStatus | nul
   if (!status) return null;
   const { run, reviews, state } = status;
   if (!run && !reviews.blocked && state !== 'unknown') return null;
-  const tone: StatusTone = run && FAILED.includes(run.status) ? 'fault' : 'running';
   return <Panel title="PyHSL" span={span} tone={reviews.blocked ? 'attention' : undefined}
-    headerExtra={run ? <StatusChip tone={tone} label={label(run.status)} />
+    headerExtra={run ? <StatusChip tone="running" label={label(run.status)} />
       : reviews.blocked ? <StatusChip tone="attention" label="Review needed" />
       : <StatusChip tone="neutral" label="Unknown" />}
     bodySx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>

@@ -15,8 +15,11 @@ Each request rereads discovery, verifies the health response's instance ID, then
 reads the machine token. Use only that token; never access or use the bootstrap
 value. HTTP is restricted to `127.0.0.1` or `localhost`, with connections pinned
 to IPv4 loopback and no proxy or redirect handling. Reads time out after two
-seconds. Start uses a 60-second POST timeout. A lost reply resends the identical
-request with the execution ID as `request_id`; Run Control deduplicates it.
+seconds, and the review list after 30, because Run Control parses every journal for
+it. The monitor reads that list only when a run row changes or every two minutes. A
+timeout reads as `unknown`, not as closed. Start uses a 60-second POST timeout. A lost
+reply resends the identical request with the execution ID as `request_id`; Run Control
+deduplicates it.
 
 `state` describes Run Control, not a run: `running` means it answered. `run` is the
 newest row without a terminal status, shown with its raw status, so an unfamiliar
@@ -48,9 +51,5 @@ Saving a PyHSL schedule always validates again. The only allowed mode is in
 [the scheduling guide](scheduling-maintenance-guide.md#pyhsl-schedules) for the
 receipt, gates, review policy and restart behavior.
 
-Verification uses disposable discovery files, real HTTP sockets and SQLite.
-`backend/e2e/pyhsl_client_check.py` covers discovery, credentials, staleness and
-monitor alerts; `pyhsl_runner_check.py` covers scheduled execution and recovery.
-`notification_delivery_check.py` checks text and HTML delivery through local SMTP.
-The checks and the requested scheduler, API and notification regressions pass.
-No real PyHSL instance, Hamilton data or instrument was exercised.
+Failure cases are listed in the headers of `backend/e2e/pyhsl_client_check.py` and
+`backend/e2e/pyhsl_runner_check.py`.

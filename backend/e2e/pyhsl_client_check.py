@@ -5,13 +5,14 @@ Failure cases:
 2. Instance mismatch: unavailable, no token sent.
 3. Non-loopback URL: refused, no token sent (including redirects).
 4. Token/bootstrap never appear in logs, exceptions, replies or emails.
-5. Hung Run Control: cached HTTP status responds immediately; stale at 60 seconds.
+5. Hung Run Control: cached HTTP status responds immediately; reads unknown, not closed; stale at 60 seconds.
 6. Failed run: one email across polls and restart with the same SQLite database.
 7. Review required: one email, blocked; active reconciliation is cached, not clear.
 8. Completed/stopped without review: no email.
 9. Unknown status: raw, non-terminal, no success or email.
 10. Runs older than 24 hours: no email.
 11. HTTP 401: unknown with a reason.
+12. The review list, which makes Run Control parse every journal, is read only when a run row changes.
 
 Run with PYTHONPATH set to the checkout. No installed PyHSL or Hamilton is used.
 """
@@ -108,7 +109,8 @@ def run():
                 return dict(run_id=run_id, protocol='Fixture', status=status, mode='simulation',
                             completed_count=0, error=None, origin='manual',
                             created_at=(datetime.now() - timedelta(days=days)).isoformat())
-            with patch('backend.services.scheduling.get_scheduling_database_manager', return_value=db):
+            with (patch('backend.services.scheduling.get_scheduling_database_manager', return_value=db),
+                  patch('backend.services.pyhsl_monitor.REVIEW_READ_SECONDS', -1)):
                 monitor.poll()
                 assert monitor.status()['state'] == 'not_running'
                 app_dir.mkdir(parents=True)
@@ -201,9 +203,20 @@ def run():
                         stale = http.get('/api/pyhsl/status').json()
                     assert stale['state'] != 'running' and not stale['reviews']['known']
                 polling.join(2)
-                assert not polling.is_alive() and monitor.status()['state'] == 'not_running'
+                assert not polling.is_alive() and monitor.status()['state'] == 'unknown'
                 server.release.set()
                 server.entered.clear()
+                with patch('backend.services.pyhsl_monitor.REVIEW_READ_SECONDS', 120):
+                    reads = lambda: sum(path.endswith('/reconciliation') for path, _ in server.requests)
+                    server.runs = [row('completed', run_id='settled')]
+                    server.reviews = {'cases': [], 'blocked': False, 'active': False}
+                    monitor.poll()
+                    before = reads()
+                    monitor.poll(); monitor.poll()
+                    assert reads() == before
+                    server.runs = [row('failed', run_id='settled')]
+                    monitor.poll()
+                    assert reads() == before + 1
                 monitor.start()
                 assert server.entered.wait(2)
                 monitor.stop()
