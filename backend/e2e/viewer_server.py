@@ -137,6 +137,12 @@ async def set_camera(request: Request):
     return camera
 
 
+@app.get('/api/pyhsl/status')
+def pyhsl_status():
+    return dict(state='not_running', reason='Run Control discovery is unavailable', checked_at=None, run=None,
+                reviews=dict(known=False, blocked=False, run_ids=[]))
+
+
 @app.get('/api/camera/control-status')
 def camera_status():
     return dict(data=dict(cameras=[dict(id=0,name='Fixture camera',device_identity='fixture-camera')],

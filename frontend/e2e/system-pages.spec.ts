@@ -26,6 +26,8 @@ import { test, expect } from '@playwright/test';
 //   safety revision must win); a reply without recovery state clears the other's.
 // - An acknowledged recovery whose queued jobs still wait for Resume shows as all clear.
 // Overview:
+// - A failed PyHSL status read keeps showing PyHSL as running or idle instead of Unknown.
+// - A PyHSL run that needs a review is not shown as needing one.
 // - A run past the user's estimate shows a bar stuck at 100 % or reads the estimate as a
 //   promised end; the bar must stop claiming progress and say how far past the estimate it is.
 // - A running job without a known start or estimate shows NaN, "0 min" or a false bar.
@@ -236,6 +238,30 @@ test('Overview shows elapsed time against the estimate and keeps other panels wh
   await page.getByRole('navigation', { name: 'Pages' }).getByRole('link', { name: 'Camera', exact: true }).click();
   // A phone strip names the held run (this reply has no hold time, so no "since").
   await expect(page.getByRole('region', { name: 'Robot status' }).getByRole('link', { name: 'Cell feeding · stack 2 held', exact: true })).toBeVisible();
+});
+
+test('Overview reports a PyHSL run and review, and never reads a failed status as healthy', async ({ page }) => {
+  const reading = { state: 'running', reason: '', checked_at: '2026-11-09T15:37:00+00:00',
+    run: { run_id: 'r1', protocol: 'pyhsl_test_automation', status: 'running', mode: 'simulation', completed_count: 4, error: null, origin: 'machine', created_at: '2026-11-09T15:36:00+00:00' },
+    reviews: { known: false, blocked: false, run_ids: [] as string[] } };
+  let reply: Record<string, unknown> = reading;
+  await page.route('**/api/pyhsl/status', route => reply.fails
+    ? route.fulfill({ status: 503, json: { detail: 'Unavailable' } })
+    : route.fulfill({ json: reply }));
+  await page.goto('/');
+  const health = page.getByRole('region', { name: 'Instrument health' });
+  const panel = page.getByRole('region', { name: 'PyHSL' });
+  await expect(health).toContainText('PyHSLRunning');
+  await expect(panel).toContainText('pyhsl_test_automation');
+  await expect(panel).toContainText('Simulation');
+  reply = { ...reading, run: null, reviews: { known: true, blocked: true, run_ids: ['r1'] } };
+  await page.reload();
+  await expect(health).toContainText('PyHSLReview needed');
+  await expect(panel).toContainText('Record the Run review in Run Control');
+  reply = { fails: true };
+  await page.reload();
+  await expect(health).toContainText('PyHSLUnknown');
+  await expect(panel).toHaveCount(0);
 });
 
 test('a remote phone gets what happened instead of a recovery dead end', async ({ page }) => {

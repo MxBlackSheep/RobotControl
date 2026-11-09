@@ -8,6 +8,7 @@ import { api } from '../../services/api';
 import { schedulingService, schedulingAPI } from '../../services/schedulingApi';
 import { useSerialPolling } from '../../hooks/useSerialPolling';
 import { robotAttention, type RobotStatus } from '../../hooks/useRobotStatus';
+import { pyhslState, type PyHslStatus } from '../../hooks/usePyHslStatus';
 import type { ScheduledExperiment } from '../../types/scheduling';
 import { fontMono, layout, type StatusTone } from '../../theme';
 import { clockTime, dayTime } from '../../utils/displayTime';
@@ -123,7 +124,7 @@ const healthCell = { display: 'flex', flex: '1 1 0', px: { xs: 1.5, sm: `${layou
 type CameraHealth = { capture_state?: string; recording_state?: string; error?: string | null };
 
 /** Instrument states shared by the desktop strip and the phone's fault lines; polls the camera. */
-function useInstrumentStates(status: RobotStatus | null) {
+function useInstrumentStates(status: RobotStatus | null, pyhsl: PyHslStatus | null) {
   // Undefined until the first read; null when the reply carried no health.
   const [camera, setCamera] = useState<CameraHealth | null | undefined>(undefined);
   const polling = useSerialPolling<CameraHealth | null>({
@@ -142,13 +143,14 @@ function useInstrumentStates(status: RobotStatus | null) {
     ['Storage', !status?.recovery ? unknown : status.recovery.storage_healthy ? ['Healthy', 'completed'] : ['Needs attention', 'attention']],
     ['HxRun', status?.hamiltonRunning === true ? ['Running', 'running'] : status?.hamiltonRunning === false ? ['Not running', 'neutral'] : unknown],
     ['Camera', cameraState],
+    ['PyHSL', pyhslState(pyhsl)],
   ];
   return { cells, polling, read: camera !== undefined };
 }
 
 /** One-line strip of instrument states across the page, like a console status bar. */
-export function InstrumentHealth({ status }: { status: RobotStatus | null }) {
-  const { cells, polling, read } = useInstrumentStates(status);
+export function InstrumentHealth({ status, pyhsl }: { status: RobotStatus | null; pyhsl: PyHslStatus | null }) {
+  const { cells, polling, read } = useInstrumentStates(status, pyhsl);
   return <Box component="section" aria-label="Instrument health" sx={{ gridColumn: '1 / -1', order: { xs: -2, md: 0 }, minWidth: 0, bgcolor: 'background.paper', border: 1, borderColor: 'divider', borderRadius: `${layout.radius}px`, overflow: 'hidden' }}>
     {polling.error && <ReadProblem error="Could not check the camera." stale={read} onRetry={() => void polling.refresh()} pending={polling.pending} />}
     {/* Cells wrap by their content, so a long state ("Needs attention") moves to the next line
@@ -205,8 +207,8 @@ export function RecentRuns({ canOpenScheduling, span, rows = LIST_ROWS }: { canO
  * attention state, a stopped scheduler or a connection that cannot open), each linking to System
  * status; otherwise one quiet line. Unknown is never "OK".
  */
-export function InstrumentProblems({ status }: { status: RobotStatus | null }) {
-  const { cells, polling, read } = useInstrumentStates(status);
+export function InstrumentProblems({ status, pyhsl }: { status: RobotStatus | null; pyhsl: PyHslStatus | null }) {
+  const { cells, polling, read } = useInstrumentStates(status, pyhsl);
   const [databases, setDatabases] = useState<DatabaseConnections | null>(null);
   const databasePolling = useSerialPolling<DatabaseConnections>({
     interval: PANEL_REFRESH_MS,

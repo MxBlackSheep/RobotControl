@@ -3,6 +3,8 @@ import React, { Component, ErrorInfo, ReactNode, memo, useEffect, useState } fro
 import { Alert, Box, Stack, Typography, useMediaQuery, type Theme } from '@mui/material';
 import ExperimentStatus from '../components/ExperimentStatus';
 import NowRunning from '../components/overview/NowRunning';
+import PyHslPanel from '../components/overview/PyHslPanel';
+import { usePyHslStatus } from '../hooks/usePyHslStatus';
 import { CleanTips, InstrumentHealth, InstrumentProblems, NeedsAttention, RecentRuns, UpNext } from '../components/overview/OverviewPanels';
 import { robotAttention, useRobotStatusContext } from '../hooks/useRobotStatus';
 import { useAuth } from '../context/AuthContext';
@@ -49,6 +51,7 @@ function UpdatedAgo({ at }: { at: number }) {
 const Dashboard: React.FC = memo(() => {
   const { status, error } = useRobotStatusContext();
   const { user } = useAuth();
+  const pyhsl = usePyHslStatus();
   const phone = useMediaQuery((theme: Theme) => theme.breakpoints.down('sm'), { noSsr: true });
   const attention = !!robotAttention(status);
   const canOpenScheduling = ['admin', 'user'].includes(user?.role || '');
@@ -62,16 +65,18 @@ const Dashboard: React.FC = memo(() => {
     <Stack spacing={`${layout.gutter}px`}>
       {hold}
       {running}
+      <PanelErrorBoundary name="PyHSL"><PyHslPanel status={pyhsl} /></PanelErrorBoundary>
       <PanelErrorBoundary name="Up next"><UpNext canOpenScheduling={canOpenScheduling} rows={PHONE_UP_NEXT} /></PanelErrorBoundary>
       {canOpenScheduling && <PanelErrorBoundary name="Clean tips"><CleanTips /></PanelErrorBoundary>}
-      <PanelErrorBoundary name="Instrument health"><InstrumentProblems status={status} /></PanelErrorBoundary>
+      <PanelErrorBoundary name="Instrument health"><InstrumentProblems status={status} pyhsl={pyhsl} /></PanelErrorBoundary>
     </Stack>
   </PageContent>;
   return <PageContent>
     <PageHeader title="Overview" actions={updated} />
     <PageGrid>
-      <PanelErrorBoundary name="Instrument health"><InstrumentHealth status={status} /></PanelErrorBoundary>
+      <PanelErrorBoundary name="Instrument health"><InstrumentHealth status={status} pyhsl={pyhsl} /></PanelErrorBoundary>
       {running}{hold}
+      <PanelErrorBoundary name="PyHSL"><PyHslPanel status={pyhsl} /></PanelErrorBoundary>
       <PanelErrorBoundary name="Up next" span={6}><UpNext canOpenScheduling={canOpenScheduling} span={6} /></PanelErrorBoundary>
       <PanelErrorBoundary name="Recent runs" span={6}><RecentRuns canOpenScheduling={canOpenScheduling} span={6} /></PanelErrorBoundary>
       <PanelErrorBoundary name="Latest experiment"><ExperimentStatus /></PanelErrorBoundary>

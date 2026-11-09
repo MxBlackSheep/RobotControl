@@ -1,0 +1,118 @@
+"""One independent poller owns Run Control reads and run alert dispatch."""
+import copy
+import logging
+import threading
+import time
+from datetime import datetime, timedelta
+
+from backend.services.alert_email import pyhsl_alert_email
+from backend.services.notification_delivery import send_recorded
+from backend.services.pyhsl_client import PyHslClient, PyHslError, PyHslUnavailable
+from backend.utils.datetime import parse_iso_datetime_to_local
+
+logger = logging.getLogger(__name__)
+TERMINAL_STATUSES = {'completed', 'failed', 'stopped', 'outcome_unknown', 'reconciliation_required'}
+FAILED_STATUSES = {'failed', 'outcome_unknown', 'reconciliation_required'}
+RUN_FIELDS = ('run_id', 'protocol', 'status', 'mode', 'completed_count', 'error', 'origin', 'created_at')
+
+
+class PyHslMonitor:
+    def __init__(self, client=None, *, email=None):
+        self.client = client or PyHslClient()
+        self.email = email
+        self._reading = self._unavailable('unknown', 'Run Control has not been checked')
+        self._checked = None
+        self._stop = threading.Event()
+        self._thread = None
+
+    @staticmethod
+    def _unavailable(state, reason):
+        return dict(state=state, reason=reason, checked_at=None, run=None,
+                    reviews=dict(known=False, blocked=False, run_ids=[]))
+
+    def status(self):
+        reading, checked = self._reading, self._checked
+        result = copy.deepcopy(reading)
+        if checked is not None and time.monotonic() - checked > 60:
+            result.update(state='unknown', reason='Run Control reading is stale', run=None)
+            result['reviews']['known'] = False
+        return result
+
+    def poll(self):
+        try:
+            runs = self.client.get('/runs')['sessions']
+            reviews = self.client.get('/reconciliation')
+            if not isinstance(runs, list) or not isinstance(reviews['cases'], list):
+                raise ValueError
+            # Parse dates once; invalid rows must not produce a healthy reading or alerts.
+            dated = [(parse_iso_datetime_to_local(row['created_at']), row) for row in runs]
+            if any(date is None for date, _ in dated):
+                raise ValueError
+            active = sorted(((date, row) for date, row in dated if row['status'] not in TERMINAL_STATUSES),
+                            key=lambda item: item[0], reverse=True)
+            run = {key: active[0][1].get(key) for key in RUN_FIELDS} if active else None
+            review_ids = [case['run_id'] for case in reviews['cases'] if case['requires_review']]
+            cached = reviews['active']
+            if type(cached) is not bool or type(reviews['blocked']) is not bool:
+                raise ValueError
+            reason = 'Run review summary is cached while Run Control is active' if cached else ''
+            reading = dict(state='running', reason=reason, run=run,
+                           reviews=dict(known=not cached, blocked=reviews['blocked'] or bool(review_ids), run_ids=review_ids))
+        except PyHslError as exc:
+            reading = self._unavailable('not_running' if isinstance(exc, PyHslUnavailable) else 'unknown', str(exc))
+            dated = []
+        except (KeyError, TypeError, ValueError, AttributeError):
+            reading = self._unavailable('unknown', 'Run Control returned an invalid reading')
+            dated = []
+        reading['checked_at'] = datetime.now().astimezone().isoformat()
+        self._reading, self._checked = reading, time.monotonic()
+        for created, row in dated:
+            if not timedelta(0) <= datetime.now() - created <= timedelta(hours=24):
+                continue
+            if row['status'] in FAILED_STATUSES:
+                self._alert(row, 'pyhsl_run_failed')
+            if row['run_id'] in reading['reviews']['run_ids']:
+                self._alert(row, 'pyhsl_review_required')
+
+    def _alert(self, run, trigger):
+        from backend.services.scheduling import get_scheduling_database_manager
+        from backend.services.notifications import EmailNotificationService
+        manager = get_scheduling_database_manager()
+        if manager.notification_log_exists(run['run_id'], trigger):
+            return
+        if self.email is None:
+            self.email = EmailNotificationService()
+        recipients = self.email.get_manual_recovery_recipients()
+        if not recipients:
+            return
+        alert = pyhsl_alert_email(run=run, trigger=trigger)
+        send_recorded(self.email, alert.subject, alert.text(), html=alert.html(), to=recipients,
+                      event_type=trigger, execution_id=run['run_id'])
+
+    def start(self):
+        if self._thread and self._thread.is_alive():
+            return
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._loop, name='pyhsl-monitor', daemon=True)
+        self._thread.start()
+
+    def _loop(self):
+        while not self._stop.is_set():
+            try:
+                self.poll()
+            except Exception:
+                # Do not expose credentials or upstream payloads through exception text.
+                logger.warning('PyHSL monitoring or notification delivery failed')
+            self._stop.wait(15)
+
+    def stop(self):
+        self._stop.set()
+        if self._thread:
+            self._thread.join(timeout=10)
+
+
+_monitor = PyHslMonitor()
+
+
+def get_pyhsl_monitor():
+    return _monitor

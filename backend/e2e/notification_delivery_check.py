@@ -6,7 +6,8 @@ that was already accepted.
 
 Alert layout, read back from the bytes the mail sink received:
 - every schedule-alert trigger (simulation_mode_mismatch, log_inactive, monitoring_unavailable,
-  long_running, aborted, execution_failed, an unknown one) and both recovery emails arrive as a
+  long_running, aborted, execution_failed, an unknown one), pyhsl_run_failed,
+  pyhsl_review_required and both recovery emails arrive as a
   text part plus an HTML part carrying the same facts in the same order, and the
   delivery record stores exactly the text part;
 - a hostile experiment name, note, path, error or unknown context value appears as
@@ -199,6 +200,15 @@ def run_layout_checks(smtp, email_service, db, render):
             flagged, note=f'Hamilton reported run {guid} as Aborted', actor='scheduler'), stored('manual_recovery_required'))
         deliver('manual_recovery_cleared', lambda: recovery.manual_recovery_cleared(
             flagged, note='Deck cleared and used tips removed.', actor='andy'), stored('manual_recovery_cleared'))
+        from backend.services.alert_email import pyhsl_alert_email
+        from backend.services.notification_delivery import send_recorded
+        for trigger in ('pyhsl_run_failed', 'pyhsl_review_required'):
+            alert = pyhsl_alert_email(run={'run_id': 'pyhsl-fixture', 'protocol': HOSTILE,
+                                           'status': 'failed', 'error': HOSTILE}, trigger=trigger)
+            deliver(trigger, lambda: send_recorded(email_service(), alert.subject, alert.text(),
+                    html=alert.html(), to=['accepted@example.com'], event_type=trigger,
+                    execution_id='pyhsl-fixture'),
+                    lambda: db.get_notification_logs(event_type=trigger)[0].message)
 
 
 def run(baseline=False, render=None):

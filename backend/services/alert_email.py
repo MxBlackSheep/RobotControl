@@ -368,8 +368,22 @@ def schedule_alert_email(
 
 
 # ----------------------------------------------------------------------
-# Manual recovery
+# PyHSL and manual recovery
 # ----------------------------------------------------------------------
+
+def pyhsl_alert_email(*, run: Dict[str, Any], trigger: str) -> AlertEmail:
+    review = trigger == 'pyhsl_review_required'
+    fact = 'Run review required' if review else 'run failed'
+    summary = ('A person must record the Run review in Run Control.' if review else
+               'The PyHSL run ended with the status shown below. Check the run in Run Control.')
+    rows = [('Status', _one_line(run['status']))]
+    if run.get('error'):
+        rows.append(('Error', _one_line(run['error'])))
+    return AlertEmail('warning' if review else 'error', fact.capitalize(),
+                      _one_line(run['protocol']), fact, summary, rows=rows,
+                      troubleshooting=[('Run ID', run['run_id'])],
+                      footer='You are receiving this message because you are listed for RobotControl recovery alerts.')
+
 
 def manual_recovery_email(*, required: bool, experiment: str, schedule_id: str, actor: str,
                           at: Any, note: Optional[str], now: datetime) -> AlertEmail:
