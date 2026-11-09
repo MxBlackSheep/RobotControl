@@ -442,7 +442,6 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
                         {schedule.experiment_name}
                       </Typography>
                       {renderScheduleTypeChip(schedule)}
-                      {schedule.mode === 'simulation' && <StatusChip tone="neutral" label="Simulation" />}
                     </Stack>
 
                     <Stack spacing={0.5}>
@@ -677,12 +676,9 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
                             {schedule.experiment_name}
                           </Typography>
                         </TableCell>
-
+                        
                         <TableCell>
-                          <Stack direction="row" gap={0.5} flexWrap="wrap">
-                            {renderScheduleTypeChip(schedule)}
-                            {schedule.mode === 'simulation' && <StatusChip tone="neutral" label="Simulation" />}
-                          </Stack>
+                          {renderScheduleTypeChip(schedule)}
                         </TableCell>
                         
                         <TableCell>

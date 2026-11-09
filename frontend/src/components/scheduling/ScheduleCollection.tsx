@@ -81,7 +81,10 @@ export default function ScheduleCollection({ schedules, selected, onSelect, onRe
             <Typography sx={{ ...muted, display: 'none', [table]: { display: 'block' } }}>{repeatLabel(schedule)}</Typography>
             <Typography sx={{ ...muted, display: 'none', [table]: { display: 'block' }, fontFamily: fontMono, fontSize: 12, color: 'text.primary' }}>{schedule.next_run ? dayTime(schedule.next_run) : '—'}</Typography>
             <Typography sx={{ ...muted, display: 'none', [table]: { display: 'block' }, fontFamily: fontMono, fontSize: 12 }}>{schedule.last_run ? dayTime(schedule.last_run) : '—'}</Typography>
-            <Box sx={{ gridRow: { xs: 1 }, gridColumn: { xs: 2 }, [table]: { gridRow: 'auto', gridColumn: 'auto' } }}><StatusChip tone={state.tone} label={state.label} /></Box>
+            <Stack direction="row" flexWrap="wrap" gap={0.5} sx={{ gridRow: { xs: 1 }, gridColumn: { xs: 2 }, [table]: { gridRow: 'auto', gridColumn: 'auto' } }}>
+              <StatusChip tone={state.tone} label={state.label} />
+              {schedule.mode === 'simulation' && <StatusChip tone="neutral" label="Simulation" />}
+            </Stack>
           </ListItemButton>;
         })}
         {!visible.length && !loading && <Typography variant="body2" sx={{ p: 2, color: 'text.secondary' }}>No schedules found.</Typography>}
