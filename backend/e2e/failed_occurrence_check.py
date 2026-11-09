@@ -19,6 +19,14 @@ Failure cases:
 13. Finalization serializes a concurrent edit; restart cannot repeat the occurrence.
 14. Keyword abort emails describe the next run; noted aborts describe recovery only.
 
+Exit-zero outcome cases:
+1. No SQL row, once: failed, one dispatch/email, schedule off, manual recovery.
+2. No SQL row, interval: failed, manual recovery, no rerun until acknowledged.
+3. Complete: success without waiting.
+4. Aborted (raw 64): failed with manual recovery.
+5. Late Complete during re-checks: success without failure email.
+6. SQL unreachable, Running or a failed observation save: unknown failure with manual recovery.
+
 Uses real SQLite, preparation receipts, notifications and run observations. Only the
 database package boundary, SQL run reader, process monitor and Popen are fixtures.
 Slow runs advance a controlled scheduler clock rather than sleeping or running VENUS.
@@ -64,6 +72,14 @@ class Fixture:
         self.manager = SchedulingDatabaseManager.__new__(SchedulingDatabaseManager)
         self.manager.sqlite_db = self.storage
         self.manager.main_db_service = None
+        self.sql_state = None
+        self.sql_reason = "Waiting for the exact SQL run"
+        self.waits = []
+        self.after_wait = lambda: None
+        def sleep(seconds):
+            self.waits.append(seconds)
+            self.after_wait()
+        stack.enter_context(patch.object(ex, 'time', SimpleNamespace(time=ex.time.time, sleep=sleep)))
         self.note = None
         self.manager.should_block_due_to_abort = lambda _: self.note
         executable = sample_config(root)
@@ -142,8 +158,15 @@ class Fixture:
         # The SQL association boundary is faked; observations and receipts are real SQLite.
         engine.run_log_monitor = RunLogMonitor(self.manager, directory=self.root,
             reader=SimpleNamespace(boundary=lambda _: (self.now.isoformat(), ''),
-                find=lambda _: (_ for _ in ()).throw(LookupError('No real SQL reader'))))
+                find=self.find))
         return engine
+
+    def find(self, state):
+        if self.sql_state is None:
+            raise LookupError(self.sql_reason)
+        return dict(guid='a' * 32, state=self.sql_state,
+                    raw_state={'Complete': '128', 'Aborted': '64'}.get(self.sql_state, '1'),
+                    end_time=self.now.isoformat() if self.sql_state in {'Complete', 'Aborted'} else None)
 
     def send(self, schedule, execution, *, trigger, context, **kwargs):
         alert = schedule_alert_email(trigger=trigger, experiment=schedule.experiment_name,
@@ -320,6 +343,7 @@ def run():
         @case(f'7 success {kind}')
         def success(f, schedule_type=kind):
             f.returncode = 0
+            f.sql_state = 'Complete'
             value = f.schedule(schedule_type, interval_hours=6 if schedule_type == 'interval' else None)
             f.loops()
             f.assert_consumed(value, status='completed', emails=0)
@@ -414,6 +438,7 @@ def run():
             value = f.schedule(schedule_type, interval_hours=6 if schedule_type == 'interval' else None)
             draft = f.storage.get_schedule_by_id(value.schedule_id)
             f.returncode = returncode
+            f.sql_state = 'Complete' if returncode == 0 else None
             f.loops()
             assert f.save(draft) == 409, 'Stale form was accepted'
             stored = f.assert_consumed(value, status='completed' if returncode == 0 else 'failed',
@@ -470,6 +495,58 @@ def run():
         f.stderr = 'abort requested'
         f.loops()
         f.assert_consumed(value, trigger='aborted')
+
+    for kind in ('once', 'interval'):
+        @case(f'outcome {1 if kind == "once" else 2} no row {kind}')
+        def no_row(f, kind=kind):
+            f.returncode = 0
+            value = f.schedule(kind, interval_hours=6 if kind == 'interval' else None)
+            f.loops()
+            stored = f.storage.get_schedule_by_id(value.schedule_id)
+            history = f.storage.get_execution_history(value.schedule_id)
+            assert len(history) == 1 and history[0]['status'] == 'failed'
+            assert stored.recovery_required and not stored.is_active
+            assert len(f.recovery) == len(f.sent) == len(f.launched) == 1
+            assert f.manager.get_manual_recovery_state().active
+            assert history[0]['error_message'] == 'HxRun ended but Hamilton did not report the run as complete.'
+            assert f.waits == [2] * 15
+            assert f.sent[0][0] == 'execution_failed'
+            assert 'aborted' not in f.sent[0][2].text().lower()
+            assert history[0]['error_message'] in f.sent[0][2].text()
+            f.now += timedelta(hours=7)
+            f.loops()
+            assert len(f.launched) == 1
+
+    for state in ('Complete', 'Aborted', 'late Complete', 'SQL unreachable', 'Running', 'observation save fails'):
+        @case(f'outcome {dict(Complete=3, Aborted=4).get(state, 5 if state == "late Complete" else 6)} {state}')
+        def outcome(f, state=state):
+            f.returncode = 0
+            f.sql_state = state if state in {'Complete', 'Aborted', 'Running'} else None
+            f.sql_reason = 'SQL unreachable' if state == 'SQL unreachable' else f.sql_reason
+            if state == 'late Complete':
+                f.after_wait = lambda: setattr(f, 'sql_state', 'Complete')
+            if state == 'observation save fails':
+                def locked(_):
+                    raise RuntimeError('database is locked')
+                f.engine.run_log_monitor.check = locked
+            value = f.schedule()
+            f.loops()
+            if state in {'Complete', 'late Complete'}:
+                f.assert_consumed(value, status='completed', emails=0)
+                assert f.waits == ([] if state == 'Complete' else [2])
+            else:
+                stored = f.storage.get_schedule_by_id(value.schedule_id)
+                history = f.storage.get_execution_history(value.schedule_id)
+                assert len(history) == 1 and history[0]['status'] == 'failed'
+                assert stored.recovery_required and not stored.is_active
+                assert len(f.recovery) == len(f.sent) == len(f.launched) == 1
+                assert f.manager.get_manual_recovery_state().active
+                assert f.sent[0][0] == ('aborted' if state == 'Aborted' else 'execution_failed')
+                if state != 'Aborted':
+                    assert history[0]['error_message'] == 'HxRun ended but Hamilton did not report the run as complete.'
+                    assert f.waits == ([] if state == 'observation save fails' else [2] * 15)
+                else:
+                    assert not f.waits
 
     logging.basicConfig(level=logging.CRITICAL)
     for name, function in cases:

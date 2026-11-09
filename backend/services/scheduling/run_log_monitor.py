@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 UNAVAILABLE_SECONDS = 180
 RETRY_SECONDS = 60
 TERMINAL_STATES = {"Complete", "Aborted", "Error"}
+NOT_REPORTED_COMPLETE = "HxRun ended but Hamilton did not report the run as complete."
 
 
 def hamilton_log_directory() -> Path:

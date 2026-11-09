@@ -107,6 +107,7 @@ def run():
                     launched.append(execution.execution_id)
                     return ExecutionResult(True, 0, '', '', 0, 'fixture-command')
                 executor._execute_hamilton_command = command
+                executor.run_log_monitor = SimpleNamespace(check=lambda _: SimpleNamespace(run_state='Complete'))
                 with patch('backend.services.scheduling.experiment_executor.get_experiment_discovery_service',
                            return_value=SimpleNamespace(db=SimpleNamespace(update_method_usage=lambda _: None))):
                     ok = executor.execute_experiment(schedule, execution)

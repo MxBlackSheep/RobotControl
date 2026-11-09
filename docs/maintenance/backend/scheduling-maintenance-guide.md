@@ -79,8 +79,11 @@ Remote sessions are read-only; the backend enforces this.
    rechecks that the schedule is still active, unarchived and not flagged, writes the
    `running` row and calls `Popen`. If that write fails, launch is blocked and a safety fault
    is recorded. The locks cover only this check, the write and `Popen`, never the run.
-7. **Wait and classify.** Exit code 0 is success unless the run log (or the SQL abort lookup)
-   reports Aborted or Error. HxRun is never killed for runtime or log inactivity.
+7. **Wait and classify.** Exit code 0 is success only when Hamilton reports Complete.
+   The executor re-checks up to 15 times, two seconds apart outside monitor locks, stopping
+   at Complete, Aborted or Error. Any other result fails with manual recovery, including
+   a missing row or unavailable SQL. Every HxRun exit code is logged.
+   HxRun is never killed for runtime or log inactivity.
 8. **Finalize** (`_finalize_execution`, also used by restart reconciliation). Reloads the
    schedule so edits made during the run are kept. A completed or failed occurrence
    deactivates a schedule without an interval. A schedule with an interval keeps an already
@@ -91,8 +94,9 @@ Remote sessions are read-only; the backend enforces this.
    saving; recovery cancellation keeps its token for acknowledgement.
 9. **Failures** (`_handle_failed_execution`). An abort (Hamilton Aborted/Error, return code 64,
    manual abort) sends an `aborted` alert and requires manual recovery for that schedule. Other
-   failures send `execution_failed`. Finally `RunLogMonitor.finish` closes the observation and
-   cancels unsent monitoring alerts.
+   failures send `execution_failed`; an exit-zero result without Complete also requires
+   manual recovery and deactivates the schedule. Finally `RunLogMonitor.finish` closes the
+   observation and cancels unsent monitoring alerts.
 
 `database_change_guard` uses the same locks and refuses while storage is unhealthy, recovery
 or Resume is pending, a run is owned or observed, or HxRun is present or undetectable. Package

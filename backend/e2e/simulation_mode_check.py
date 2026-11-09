@@ -160,7 +160,7 @@ def run():
             engine = se.SchedulerEngine(se.SchedulerConfig(check_interval_seconds=1))
             # Keep this check out of Hamilton SQL and trace folders while exercising real persistence.
             engine.run_log_monitor = SimpleNamespace(snapshots=lambda: [], snapshot=lambda _: None,
-                prepare=lambda *args: None, launched=lambda *args: None, check=lambda _: None,
+                prepare=lambda *args: None, launched=lambda *args: None, check=lambda _: SimpleNamespace(run_state='Complete'),
                 process_finished=lambda _: None, finish=lambda _: None)
             contact = storage.create_notification_contact(NotificationContact('', 'Fixture', 'fixture@example.invalid'))
             engine._notification_contacts[contact.contact_id] = contact
@@ -232,6 +232,7 @@ def run():
                     item = JobExecution('', value.schedule_id, 'pending')
                     executor = ex.ExperimentExecutor(config)
                     executor.launch_guard = engine.launch_guard
+                    executor.run_log_monitor = engine.run_log_monitor
                     if allowed:
                         assert executor.execute_experiment(value, item)
                         assert len(launched) == before + 1
