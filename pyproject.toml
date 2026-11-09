@@ -1,6 +1,6 @@
 [project]
 name = "robotcontrol"
-version = "0.1.5"
+version = "0.1.6"
 description = "Unified Hamilton robot control, camera automation, and scheduling"
 readme = "README.md"
 license = "MIT"

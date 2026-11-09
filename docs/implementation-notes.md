@@ -1,3 +1,11 @@
+## 2026-11-09 Version 0.1.6
+
+- Contains the Simulation Mode check before each VENUS launch, failed occurrences being used
+  up, and Success only when Hamilton reports Complete (the three entries below).
+- Tested on real HxRun on the development PC, with no robot attached: the wait and release on
+  the real settings files, the late-start action, a real abort, a no-connection failure and a
+  Simulation run reaching Complete. A real email and the lab PC's settings files were not tested.
+
 ## 2026-11-09 Success requires Hamilton to report Complete
 
 - After HxRun exits with code zero, a run succeeds only when Hamilton reports Complete.
