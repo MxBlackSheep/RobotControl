@@ -8,7 +8,7 @@
   queue; acknowledgement waits for a readable, inactive Run Control and any
   required Run review. Machine-run alerts belong to the scheduler.
 - Start timeouts resend the saved request. Missing runs hold for recovery;
-  preparation failures report immediately without a hold. Read-only run, journal
+  preparation failures report immediately with a recovery hold. Read-only run, journal
   and sandboxed report routes support the Run page without exposing the full state.
 - Failure cases are listed in `backend/e2e/pyhsl_runner_check.py` and
   `backend/e2e/pyhsl_client_check.py` headers.

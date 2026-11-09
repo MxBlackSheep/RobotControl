@@ -61,6 +61,7 @@ import MethodPathDialog from '../components/scheduling/MethodPathDialog';
 import { LibraryMethod } from '../types/scheduling';
 import ExecutionHistory from '../components/ExecutionHistory';
 import useScheduling from '../hooks/useScheduling';
+import { scheduleTarget } from '../components/scheduling/ScheduleCollection';
 import { formatDuration, ScheduledExperiment, ScheduleMode, ScheduleRunner, CreateScheduleFormData, UpdateScheduleRequest, SchedulingOperationStatus } from '../types/scheduling';
 import StatusDialog from '../components/StatusDialog';
 import { DeleteConfirmationDialog } from '../components/ScheduleActions';
@@ -182,7 +183,8 @@ const SchedulingPage: React.FC = () => {
       const updatePayload: UpdateScheduleRequest = {
         experiment_name: data.experiment_name,
         experiment_path: data.experiment_path,
-        ...(data.runner === 'pyhsl' ? { runner: 'pyhsl' as const, protocol_id: data.protocol_id, parameters: data.parameters } : {}),
+        runner: data.runner ?? 'venus',
+        ...(data.runner === 'pyhsl' ? { protocol_id: data.protocol_id, parameters: data.parameters } : {}),
         schedule_type: data.schedule_type,
         interval_hours: data.schedule_type === 'interval' ? Number(data.interval_hours) : undefined,
         start_time: data.start_time ? new Date(data.start_time).toISOString() : undefined,
@@ -524,7 +526,7 @@ const SchedulingPage: React.FC = () => {
             <DetailTitle>{schedule.experiment_name}</DetailTitle>
             {phone && <Box sx={{ flexShrink: 0, pt: 0.25 }}>{statusChip}</Box>}
           </Stack>
-          <Typography sx={{ fontFamily: fontMono, fontSize: 12, lineHeight: '16px', color: 'text.secondary', overflowWrap: 'anywhere', mt: 0.5 }}>{schedule.experiment_path}</Typography>
+          <Typography sx={{ fontFamily: fontMono, fontSize: 12, lineHeight: '16px', color: 'text.secondary', overflowWrap: 'anywhere', mt: 0.5 }}>{scheduleTarget(schedule)}</Typography>
         </Box>
         {phone && <Box component="section" aria-label="Next run" sx={{ p: 2, borderBottom: 1, borderColor: 'surface.rowLine' }}>
           <PanelLabel component="p">Next run</PanelLabel>

@@ -12,6 +12,10 @@ export function scheduleState(schedule: ScheduledExperiment): { label: string; t
   return schedule.is_active ? { label: 'Active', tone: 'completed' } : { label: 'Inactive', tone: 'neutral' };
 }
 
+/** What a schedule runs: a method path, or a PyHSL protocol ID. */
+export const scheduleTarget = (schedule: Pick<ScheduledExperiment, 'runner' | 'protocol_id' | 'experiment_path'>) =>
+  schedule.runner === 'pyhsl' ? schedule.protocol_id ?? '' : schedule.experiment_path;
+
 export const repeatLabel = (schedule: ScheduledExperiment) => schedule.schedule_type === 'interval' && schedule.interval_hours
   ? `Every ${schedule.interval_hours} h` : schedule.schedule_type.charAt(0).toUpperCase() + schedule.schedule_type.slice(1);
 
@@ -36,7 +40,7 @@ export default function ScheduleCollection({ schedules, selected, onSelect, onRe
   const [sort, setSort] = useState('next');
   const [filter, setFilter] = useState<Filter>('all');
   const searched = useMemo(() => schedules.filter(schedule =>
-    `${schedule.experiment_name} ${schedule.experiment_path}`.toLowerCase().includes(query.toLowerCase())), [schedules, query]);
+    `${schedule.experiment_name} ${scheduleTarget(schedule)}`.toLowerCase().includes(query.toLowerCase())), [schedules, query]);
   const visible = useMemo(() => searched.filter(filters.find(item => item.value === filter)!.match)
     .sort((a, b) => sort === 'name' ? a.experiment_name.localeCompare(b.experiment_name)
       : (a.next_run || '9999').localeCompare(b.next_run || '9999')), [searched, filter, sort]);
@@ -73,7 +77,7 @@ export default function ScheduleCollection({ schedules, selected, onSelect, onRe
               columnGap: 2, rowGap: 0.25, alignItems: 'center', minHeight: 56, borderBottom: 1, borderColor: 'surface.rowLine', py: 1, px: 2 }}>
             <Box sx={{ minWidth: 0 }}>
               <Typography sx={{ fontSize: 13, lineHeight: '20px', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{schedule.experiment_name}</Typography>
-              <Typography sx={{ fontFamily: fontMono, fontSize: 12, lineHeight: '16px', color: 'text.secondary', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{schedule.experiment_path}</Typography>
+              <Typography sx={{ fontFamily: fontMono, fontSize: 12, lineHeight: '16px', color: 'text.secondary', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{scheduleTarget(schedule)}</Typography>
               <Typography sx={{ ...muted, mt: 0.5, [table]: { display: 'none' } }}>
                 {schedule.next_run ? `Next ${dayTime(schedule.next_run)}` : 'No next run'} · {repeatLabel(schedule)}
               </Typography>

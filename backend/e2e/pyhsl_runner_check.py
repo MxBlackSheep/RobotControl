@@ -9,7 +9,8 @@ Failure cases (Run Control reply shapes recorded in Simulation, 9 November 2026)
 3. Lost reply: identical resend, one run and one database preparation.
 4. Every status/review/refusal outcome; error wording cannot classify an abort.
 5. Acknowledge refuses review, active or unreadable reconciliation, then succeeds.
-6. Unavailable waits and alerts once at 180 seconds; active/review/unknown gates.
+6. Unavailable waits and alerts once at 180 seconds from queuing; VENUS proceeds,
+   then PyHSL starts when Run Control returns; active/review/unknown gates.
 7. Changed revision holds before preparation or POST.
 8. Restart with run_id follows once, no legacy observation or duplicate email.
 9. Restart without run_id adopts a match, resends within five minutes, otherwise
@@ -17,7 +18,7 @@ Failure cases (Run Control reply shapes recorded in Simulation, 9 November 2026)
    A saved refusal survives interrupted finalization without resending the POST.
 10. Changed instance_id is rediscovered; outcome_unknown holds the queue.
     An archived/unknown run fails, holds and alerts aborted instead of following forever.
-    Preparation failure reports execution_failed immediately without a recovery hold.
+    Preparation failure reports execution_failed immediately with a recovery hold.
 11. Unknown status keeps following, never success; silence never means finished.
 12. VENUS keeps its Simulation Mode gate; old SQLite rows migrate as venus.
 13. Save refuses disallowed modes, cleanup, unimported or closed Run Control;
@@ -27,9 +28,11 @@ Failure cases (Run Control reply shapes recorded in Simulation, 9 November 2026)
     not generate the monitor's independent alerts.
 16. Remote signed-in reads expose only allowed run/journal fields; invalid IDs and
     unknown roles make no request. Reports are sandboxed and bounded. Closed,
-    refused and timed-out reads return 503, 404 and 504; review failure stays unknown.
+    refused and timed-out reads return 503, 404 and 504; cached review state is used without a reconciliation request.
 17. A timed-out Start resends the identical request without repeating preparation;
     reconciliation reads use 30 seconds and a monitor timeout stays unknown.
+18. Fresh Start expires after five minutes, adopting a match or holding even offline.
+19. Validate losing Run Control waits without preparation or Start, then recovers or holds.
 
 Only the Run Control service, database package, process and email boundaries are
 fixtures. No installed PyHSL, Hamilton, SQL Server or instrument is accessed.
@@ -53,7 +56,7 @@ from fastapi.testclient import TestClient
 
 from backend.e2e.failed_occurrence_check import Fixture
 from backend.models import JobExecution
-from backend.services.pyhsl_client import PyHslClient, PyHslTimeout
+from backend.services.pyhsl_client import PyHslClient, PyHslTimeout, PyHslUnavailable
 from backend.services.pyhsl_monitor import PyHslMonitor
 from backend.services.scheduling import scheduler_engine as se
 from backend.services.sqlite_safety import SafetyConflict
@@ -142,7 +145,7 @@ def until(predicate, timeout=5):
 
 
 @contextmanager
-def fixture():
+def fixture(*, allow_venus=False):
     with tempfile.TemporaryDirectory() as folder, ExitStack() as stack:
         root = Path(folder)
         f = Fixture(root, stack)
@@ -172,9 +175,10 @@ def fixture():
         monitor = PyHslMonitor(client)
         stack.enter_context(patch('backend.services.pyhsl_monitor.get_pyhsl_monitor', return_value=monitor))
         stack.enter_context(patch('backend.services.pyhsl_client.PyHslClient', return_value=client))
-        # Explicitly fail if the VENUS path is used, even though Fixture fakes it.
-        stack.enter_context(patch('backend.services.scheduling.experiment_executor.ExperimentExecutor.execute_experiment',
-                                  side_effect=AssertionError('VENUS must not run')))
+        # Fixture always replaces Popen; most checks should not reach VENUS at all.
+        if not allow_venus:
+            stack.enter_context(patch('backend.services.scheduling.experiment_executor.ExperimentExecutor.execute_experiment',
+                                      side_effect=AssertionError('VENUS must not run')))
         stack.enter_context(patch.object(monitor, '_alert', side_effect=AssertionError('Machine alert duplicated')))
         f.engine.pyhsl_runner.client = client
         f.server, f.client, f.monitor, f.discover, f.app_dir = server, client, monitor, discover, app_dir
@@ -317,14 +321,65 @@ def runner_failures():
         e = finished(f, dispatch(f, s))
         assert e.status == 'failed' and f.sent[0][0] == 'aborted'
         assert f.storage.get_schedule_by_id(s.schedule_id).recovery_required
-    for error, hold in ((RuntimeError('Preparation failed'), False), (SafetyConflict('Safety changed'), True)):
+    for error in (RuntimeError('Preparation failed'), SafetyConflict('Safety changed')):
         with fixture() as f:
             s = schedule(f)
             with patch('backend.services.scheduling.pyhsl_runner.PreExecutionPipeline.prepare', side_effect=error):
                 e = finished(f, dispatch(f, s))
             assert e.status == 'failed' and e.error_message == str(error)
             assert f.sent[0][0] == 'execution_failed' and not f.server.posts
-            assert f.storage.get_schedule_by_id(s.schedule_id).recovery_required == hold
+            assert f.storage.get_schedule_by_id(s.schedule_id).recovery_required
+            assert f.sent[0][1]['schedule_active'] is False
+
+
+def bounded_waits():
+    from backend.services.scheduling import pyhsl_runner as runner
+    for recover in (True, False):
+        with fixture() as f:
+            s = schedule(f)
+            elapsed = [0]
+            post = f.client.post
+            def validate(path, data, **kwargs):
+                if path == '/validate' and (not recover or elapsed[0] == 0):
+                    assert not f.prepared and not f.server.posts
+                    raise PyHslUnavailable('Run Control closed after monitor poll')
+                return post(path, data, **kwargs)
+            def wait():
+                elapsed[0] += 100
+                return False
+            with patch.object(runner, 'time', SimpleNamespace(monotonic=lambda: elapsed[0])), \
+                    patch.object(f.engine.pyhsl_runner, '_wait', side_effect=wait), \
+                    patch.object(f.client, 'post', side_effect=validate):
+                e = finished(f, dispatch(f, s))
+            assert e.status == ('completed' if recover else 'failed')
+            assert len(f.prepared) == len(f.server.posts) == int(recover)
+            assert f.storage.get_schedule_by_id(s.schedule_id).recovery_required == (not recover)
+            assert [x[0] for x in f.sent].count('monitoring_unavailable') == int(not recover)
+    for available, match in ((False, False), (True, False), (True, True)):
+        with fixture() as f:
+            s = schedule(f)
+            elapsed = [0]
+            class Clock(datetime):
+                @classmethod
+                def now(cls):
+                    return datetime.now() + timedelta(seconds=elapsed[0])
+            post = f.client.post
+            def start(path, data, **kwargs):
+                if path == '/runs':
+                    if match:
+                        post(path, data, **kwargs)
+                    elapsed[0] = 301
+                    f.server.unreachable = not available
+                    raise PyHslUnavailable('Lost start reply')
+                return post(path, data, **kwargs)
+            with patch.object(runner, 'datetime', Clock), patch.object(f.client, 'post', side_effect=start) as calls:
+                e = finished(f, dispatch(f, s))
+            assert len([c for c in calls.call_args_list if c.args[0] == '/runs']) == 1
+            assert len(f.prepared) == 1
+            assert e.status == ('completed' if match else 'failed')
+            assert f.storage.get_schedule_by_id(s.schedule_id).recovery_required == (not match)
+            if not match:
+                assert e.error_message.startswith('PyHSL start could not be confirmed;')
 
 
 def relay_reads():
@@ -332,18 +387,20 @@ def relay_reads():
     from backend.services.auth import get_current_user
     with fixture() as f:
         run_id = 'a' * 32
-        f.server.runs[run_id] = dict(run_id=run_id, protocol='fixture', status='running',
+        f.server.runs[run_id] = dict(run_id=run_id, protocol='fixture', status='running', created_at=datetime.now().isoformat(), error=None,
             mode={'mode': 'simulation', 'source': 'private'}, configuration=dict(origin='machine',
                 protocol={'revision': 'revision-one'}, path='private'), deck='private',
             current=dict(operation_id='op', operation='initialize', status='dispatched', positions={'deck': 'private'}),
             prompt=dict(message='Continue?', choices=['yes'], answered=False))
         app = FastAPI()
         app.include_router(api.router)
-        with patch.object(api, 'PyHslClient', return_value=f.client), TestClient(app, client=('198.51.100.5', 50000)) as http:
+        with patch.object(api, 'PyHslClient', return_value=f.client), patch.object(api, 'get_pyhsl_monitor', return_value=f.monitor), TestClient(app, client=('198.51.100.5', 50000)) as http:
             url = f'/api/pyhsl/runs/{run_id}'
             for role in ('admin', 'user'):
                 app.dependency_overrides[get_current_user] = lambda: {'role': role}
-                response = http.get(url)
+                with patch.object(f.client, 'get', wraps=f.client.get) as get:
+                    response = http.get(url)
+                    assert [c.args[0] for c in get.call_args_list] == [f'/runs/{run_id}']
                 assert response.status_code == 200, response.text
                 run = response.json()
                 assert set(run) == {'run_id', 'protocol', 'status', 'host_status', 'mode', 'completed_count',
@@ -353,6 +410,8 @@ def relay_reads():
                 assert run['prompt'] == {'waiting': True, 'text': 'Continue?'}
                 assert set(run['current']) == {'operation_id', 'operation', 'status'}
                 assert 'private' not in response.text
+            with patch.object(f.monitor, 'status', return_value={'reviews': {'known': True, 'run_ids': [run_id]}}):
+                assert http.get(url).json()['requires_review'] is True
             page = http.get(url + '/journal?after=3&limit=999').json()
             assert page == dict(events=[dict(revision=1, at='now', event='device_intent', text='Move [redacted]')], next=1)
             assert f.server.journal_path.endswith('?after=3&limit=200')
@@ -370,6 +429,7 @@ def relay_reads():
                     assert http.get(url + suffix).status_code == 403
                     app.dependency_overrides[get_current_user] = lambda: {'role': 'user'}
             f.server.reviews['active'] = True
+            f.monitor.poll()
             assert http.get(url).json()['requires_review'] is None
             get = f.client.get
             def review_timeout(path, **kwargs):
@@ -377,6 +437,7 @@ def relay_reads():
                     raise PyHslTimeout('Run Control did not answer in time')
                 return get(path, **kwargs)
             with patch.object(f.client, 'get', side_effect=review_timeout):
+                f.monitor.poll()
                 assert http.get(url).json()['requires_review'] is None
             f.server.run_refused = True
             response = http.get(url)
@@ -417,7 +478,7 @@ def revision_and_acknowledge():
 
 
 def gates_and_following():
-    with fixture() as f:
+    with fixture(allow_venus=True) as f:
         s = schedule(f)
         for reading, expected in (
             (dict(state='not_running', run=None, reviews={}), 'PyHSL Run Control is not running'),
@@ -430,11 +491,16 @@ def gates_and_following():
         f.monitor.poll()
         eid = dispatch(f, s)
         until(lambda: f.engine._get_queue_waiting_reason(s.schedule_id) == 'PyHSL Run Control is not running')
-        # Advance the waiting clock, not a second scheduler or fake HTTP response.
-        with patch.object(se, 'time', SimpleNamespace(time=time.time, sleep=time.sleep,
-                monotonic=lambda: time.monotonic() + 181)):
-            until(lambda: any(x[0] == 'pyhsl_unavailable' for x in f.sent), timeout=3)
-            time.sleep(1.1)
+        venus = f.schedule(mode='real')
+        f.returncode, f.stderr, f.sql_state = 0, '', 'Complete'
+        venus_id = dispatch(f, venus)
+        assert finished(f, venus_id).status == 'completed'
+        assert len(f.launched) == 1 and not f.server.posts
+        assert f.prepared == [venus_id]
+        with f.engine._jobs_lock:
+            f.engine._queue_runtime[s.schedule_id].queued_at -= timedelta(seconds=181)
+        until(lambda: any(x[0] == 'pyhsl_unavailable' for x in f.sent), timeout=3)
+        time.sleep(1.1)
         assert [x[0] for x in f.sent].count('pyhsl_unavailable') == 1
         f.discover()
         f.monitor.poll()
@@ -499,7 +565,7 @@ def restarts():
             assert result.status == ('completed' if age == 0 and not match else 'failed')
             assert f.storage.get_schedule_by_id(s.schedule_id).recovery_required == (not match and age != 0)
             sent = len(f.sent)
-            f.engine._resume_pyhsl_executions()
+            time.sleep(1.1)
             assert len(f.sent) == sent and f.engine._job_queue.empty()
     with fixture() as f:
         s = schedule(f)
@@ -508,7 +574,7 @@ def restarts():
             eid = dispatch(f, s)
             until(lambda: bool(f.server.posts) and not f.engine._owned_execution_ids)
         assert f.engine.run_log_monitor.store.execution(eid).status == 'running'
-        f.engine._resume_pyhsl_executions()
+        time.sleep(1.1)
         assert finished(f, eid).status == 'failed'
         assert len(f.server.posts) == len(f.prepared) == 1
         assert f.storage.get_schedule_by_id(s.schedule_id).recovery_required
@@ -564,16 +630,17 @@ def saves_and_guards():
                 raise AssertionError('Unavailable/unimported save accepted')
             except HTTPException as exc:
                 assert exc.status_code == 400 and TOKEN not in exc.detail
-        reading = dict(state='running', run={'run_id': 'external'}, reviews=dict(known=False))
-        with patch.object(f.monitor, 'status', return_value=reading):
-            service = HxRunMaintenanceService.__new__(HxRunMaintenanceService)
-            for action in (lambda: service.set_state(enabled=True, reason='fixture', actor='fixture'),
-                           lambda: f.engine.database_change_guard().__enter__()):
-                try:
-                    action()
-                    raise AssertionError('Active PyHSL run not protected')
-                except SafetyConflict:
-                    pass
+        for reading in (dict(state='running', run={'run_id': 'external'}, reviews=dict(known=False)),
+                        dict(state='unknown', run=None, reviews=dict(known=False))):
+            with patch.object(f.monitor, 'status', return_value=reading):
+                service = HxRunMaintenanceService.__new__(HxRunMaintenanceService)
+                for action in (lambda: service.set_state(enabled=True, reason='fixture', actor='fixture'),
+                               lambda: f.engine.database_change_guard().__enter__()):
+                    try:
+                        action()
+                        raise AssertionError('Active PyHSL run not protected')
+                    except SafetyConflict:
+                        pass
         venus = f.schedule(mode='real')
         assert venus.runner == 'venus'
         assert f.engine._simulation_block_reason(venus) is None
@@ -600,7 +667,7 @@ def run():
     handler = logging.StreamHandler(logs)
     logging.getLogger().addHandler(handler)
     try:
-        for check in (outcomes, slow_and_lost, runner_failures, relay_reads, revision_and_acknowledge, gates_and_following, restarts, saves_and_guards):
+        for check in (outcomes, slow_and_lost, runner_failures, bounded_waits, relay_reads, revision_and_acknowledge, gates_and_following, restarts, saves_and_guards):
             check()
             print(f'PASS {check.__name__}', flush=True)
         assert TOKEN not in logs.getvalue()

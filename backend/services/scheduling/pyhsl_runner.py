@@ -54,8 +54,11 @@ def dispatch_reason():
 def require_no_active_run():
     from backend.services.pyhsl_monitor import get_pyhsl_monitor
     reading = get_pyhsl_monitor().status()
-    if reading['run'] or (reading['state'] == 'running' and not reading['reviews']['known']):
-        raise SafetyConflict('A PyHSL run is active')
+    if reading['state'] == 'not_running':
+        return
+    if reading['state'] == 'running' and reading['reviews']['known'] and not reading['run']:
+        return
+    raise SafetyConflict('A PyHSL run is active' if reading['run'] else 'PyHSL Run Control state is unknown')
 
 
 def review_state(reading, run_id):
@@ -137,8 +140,24 @@ class PyHslRunner:
                 execution.pyhsl = {}
                 with engine.launch_guard(schedule, execution):
                     pass
-                validated = self.client.post('/validate', dict(protocol_id=schedule.protocol_id,
-                    parameters=schedule.parameters, mode=schedule.mode))
+                unavailable = None
+                while engine._running:
+                    try:
+                        validated = self.client.post('/validate', dict(protocol_id=schedule.protocol_id,
+                            parameters=schedule.parameters, mode=schedule.mode))
+                        break
+                    except (PyHslUnavailable, PyHslTimeout):
+                        unavailable = self._unavailable(schedule, execution, unavailable)
+                        if time.monotonic() - unavailable >= 300:
+                            return self._finish(schedule, execution, 'failed',
+                                'PyHSL validation unavailable; check Run Control', 'execution_failed', hold=True)
+                        if self._wait():
+                            return
+                else:
+                    return
+                if unavailable is not None:
+                    with engine.launch_guard(schedule, execution):
+                        pass
                 if validated['protocol']['revision'] != schedule.protocol_revision:
                     return self._finish(schedule, execution, 'failed',
                         'Protocol revision changed in Run Control; save the schedule again', 'execution_failed', hold=True)
@@ -149,7 +168,7 @@ class PyHslRunner:
                 except SafetyConflict:
                     raise
                 except Exception as exc:
-                    return self._finish(schedule, execution, 'failed', str(exc), 'execution_failed', hold=False)
+                    return self._finish(schedule, execution, 'failed', str(exc), 'execution_failed', hold=True)
                 execution.pyhsl = dict(request=dict(protocol_id=schedule.protocol_id, parameters=schedule.parameters,
                     mode=schedule.mode, protocol_revision=schedule.protocol_revision, request_id=execution.execution_id),
                     run_id=None, attempted_at=datetime.now().isoformat())
@@ -181,8 +200,10 @@ class PyHslRunner:
         receipt = execution.pyhsl
         unavailable = None
         while self.engine._running:
+            attempted = parse_iso_datetime_to_local(receipt.get('attempted_at'))
+            expired = attempted is None or not timedelta(0) <= datetime.now() - attempted <= timedelta(minutes=5)
             try:
-                if resumed:
+                if resumed or expired:
                     # Read first even after the resend window: an existing run must
                     # still be adopted. Do not use the current schedule's definition.
                     rows = self.client.get('/runs')['sessions']
@@ -194,11 +215,8 @@ class PyHslRunner:
                             receipt['run_id'] = row['run_id']
                             self._save(execution)
                             return True
-                    attempted = parse_iso_datetime_to_local(receipt.get('attempted_at'))
-                    if attempted is None or not timedelta(0) <= datetime.now() - attempted <= timedelta(minutes=5):
-                        self._finish(schedule, execution, 'failed',
-                            'PyHSL start could not be confirmed; the saved attempt is too old to resend', 'aborted', hold=True)
-                        return False
+                if attempted is None or not timedelta(0) <= datetime.now() - attempted <= timedelta(minutes=5):
+                    break
                 run = self.client.post('/runs', receipt['request'], timeout=60)
                 if not isinstance(run, dict) or not isinstance(run.get('run_id'), str) or not run['run_id']:
                     self._finish(schedule, execution, 'failed', 'PyHSL start returned no run ID', 'aborted', hold=True)
@@ -207,9 +225,14 @@ class PyHslRunner:
                 self._save(execution)
                 return True
             except (PyHslUnavailable, PyHslTimeout):
+                if expired:
+                    break
                 unavailable = self._unavailable(schedule, execution, unavailable)
             if self._wait():
-                break
+                return False
+        if self.engine._running:
+            self._finish(schedule, execution, 'failed',
+                'PyHSL start could not be confirmed; the saved attempt is too old to resend', 'aborted', hold=True)
         return False
 
     def _follow(self, schedule, execution):

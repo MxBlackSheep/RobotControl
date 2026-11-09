@@ -58,7 +58,8 @@ stores `runner: "pyhsl"`, `protocol_id`, JSON `parameters`, `protocol_revision`
 and the existing `mode`. `experiment_path` is the display-only value
 `pyhsl:<protocol_id>`; it never reaches the VENUS executor or method resolver.
 Create and update accept these fields. Omitted update fields are retained, but
-every PyHSL save validates again and stores the returned revision. Simulation is
+a PyHSL save validates again and stores the returned revision unless the schedule
+stays off with its protocol, parameters and mode unchanged. Simulation is
 the sole member of `PYHSL_ALLOWED_MODES`; cleanup late-start actions are refused.
 The local admin/user Validate route and its definitions are described in
 [the client guide](pyhsl-client-guide.md).
@@ -66,14 +67,17 @@ The local admin/user Validate route and its definitions are described in
 The single worker keeps the existing storage, recovery, maintenance and HxRun
 gates. PyHSL uses the monitor's cached reading outside scheduler locks to wait
 for Run Control, an active run, a Run review or an unknown reading. Absence sends
-one `pyhsl_unavailable` execution alert after 180 seconds. The VENUS Simulation
-Mode gate is bypassed because PyHSL manages that setting itself. An unfinished
+one `pyhsl_unavailable` execution alert after 180 seconds from queuing. A PyHSL
+job waiting on its own gate moves to the queue tail, allowing VENUS jobs through.
+The VENUS Simulation Mode gate is bypassed because PyHSL manages that setting itself. An unfinished
 PyHSL execution blocks every new dispatch. Enabling HxRun maintenance or entering
-`database_change_guard` also refuses an active PyHSL run.
+`database_change_guard` also refuses an active PyHSL run or unknown Run Control state.
 
 `launch_guard` persists the running execution and releases its locks. The runner
 validates the saved revision before running **Before this run**, including in
-Simulation. A changed revision holds the schedule without preparation or Start.
+Simulation. If Validate loses Run Control, it waits up to five minutes before
+holding; no preparation or Start occurs during that wait. A changed revision
+holds the schedule without preparation or Start.
 The execution's JSON `pyhsl` field stores `request`, `run_id` and `attempted_at`.
 The request is saved before POST; `run_id` is saved as soon as it is known. Start
 uses the execution ID as `request_id` and a 60-second HTTP timeout. No scheduler
@@ -103,12 +107,13 @@ refuses active runs, unreadable state or that run's required review. After the
 review is saved in Run Control, normal acknowledgement and explicit Resume apply.
 
 On restart, PyHSL executions are excluded from legacy run-log observations. The
-scheduler loop restores them to the single worker ahead of fresh dispatch. A
+worker finishes them at the top of its loop before taking another queue item. A
 saved result finishes locally; a saved run ID resumes following. Without an ID,
 the runner reads machine runs and their `configuration.request_id`, adopting a
 match. Only a readable list with no match permits resending the saved request,
-within five minutes of `attempted_at`; older attempts fail and hold. An absent
-request also fails and holds. Recovery never repeats preparation or fresh-start
+within five minutes of `attempted_at`. This bound also applies to fresh starts:
+older attempts read for a match, then fail and hold if no run can be confirmed.
+An absent request also fails and holds. Recovery never repeats preparation or fresh-start
 gates. Every client request rediscovers Run Control, including after its instance
 ID changes.
 

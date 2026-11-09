@@ -12,7 +12,7 @@ import { Link } from 'react-router-dom';
 import type { ScheduledExperiment } from '../../types/scheduling';
 import { fontMono, layout } from '../../theme';
 import { clockTime, dayTime } from '../../utils/displayTime';
-import { repeatLabel } from './ScheduleCollection';
+import { repeatLabel, scheduleTarget } from './ScheduleCollection';
 import { executionTone } from './executionStatus';
 
 /*
@@ -106,7 +106,7 @@ function Agenda() {
   const toggle = (id: string) => setOpen(current => (current === id ? null : id));
 
   const details = (schedule: ScheduledExperiment) => {
-    const items: [string, React.ReactNode][] = [['Repeats', repeatLabel(schedule)], ['Method', methodName(schedule.experiment_path)]];
+    const items: [string, React.ReactNode][] = [['Repeats', repeatLabel(schedule)], schedule.runner === 'pyhsl' ? ['Protocol', scheduleTarget(schedule)] : ['Method', methodName(schedule.experiment_path)]];
     if (schedule.estimated_duration > 0) items.push(['About', `${schedule.estimated_duration} min`]);
     if (schedule.mode === 'simulation') items.push(['Mode', 'Simulation']);
     if (schedule.last_run) items.push(['Last run', dayTime(schedule.last_run)]);

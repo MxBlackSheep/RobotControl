@@ -41,7 +41,9 @@ function Fact({ name, value }: { name: string; value: string }) {
 export default function PyHslRunPage() {
   const [params] = useSearchParams();
   const status = usePyHslStatus();
-  const runId = params.get('run') || status?.run?.run_id || null;
+  const latest = useRef<string | null>(null);
+  if (status?.run) latest.current = status.run.run_id;
+  const runId = params.get('run') || latest.current;
   const [run, setRun] = useState<Run | null>(null);
   const [steps, setSteps] = useState<Step[]>([]);
   const [readAt, setReadAt] = useState<Date | null>(null);
@@ -54,7 +56,7 @@ export default function PyHslRunPage() {
   const polling = useSerialPolling<{ run: Run; events: Step[]; next: number }>({
     enabled: !!runId,
     identity: runId,
-    interval: 5000,
+    interval: run && ENDED.includes(run.status) ? 30000 : 5000,
     request: async signal => {
       const [state, journal] = await Promise.all([
         api.get(`/api/pyhsl/runs/${runId}`, { signal }),
@@ -81,7 +83,7 @@ export default function PyHslRunPage() {
 
   if (!runId) return <PageContent>
     <PageHeader title="PyHSL run" />
-    <EmptyPanel title="Run">No run is active.</EmptyPanel>
+    <EmptyPanel title="Run">{status?.state === 'running' ? 'No run is active.' : status?.state === 'not_running' ? 'Run Control is not running.' : 'Run Control state unknown.'}</EmptyPanel>
   </PageContent>;
 
   const ended = !!run && ENDED.includes(run.status);

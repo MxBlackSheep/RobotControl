@@ -8,7 +8,7 @@ from backend.api.dependencies import require_local_access
 from backend.services.auth import get_current_user
 from backend.services.pyhsl_monitor import get_pyhsl_monitor
 from backend.services.pyhsl_client import PyHslClient, PyHslError, PyHslUnavailable, PyHslRefusal, PyHslTimeout
-from backend.services.scheduling.pyhsl_runner import review_state, validate_protocol
+from backend.services.scheduling.pyhsl_runner import validate_protocol
 
 router = APIRouter(prefix='/api/pyhsl', tags=['pyhsl'])
 REPORT_MAX_BYTES = 5 * 1024 * 1024
@@ -54,10 +54,8 @@ def get_run(run_id: str, client=Depends(run_client)):
         prompt = run.get('prompt') or {}
         result['prompt'] = dict(waiting=bool(prompt) and not (prompt.get('answered') or prompt.get('cancelled')),
                                 text=prompt.get('message'))
-        try:
-            result['requires_review'] = review_state(client.get('/reconciliation', timeout=30), run_id)
-        except PyHslError:
-            result['requires_review'] = None
+        reviews = get_pyhsl_monitor().status()['reviews']
+        result['requires_review'] = run_id in reviews['run_ids'] if reviews['known'] else None
         return result
 
 

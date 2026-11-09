@@ -9,6 +9,7 @@
  * - Responsive design with loading states
  */
 
+import { scheduleTarget } from './scheduling/ScheduleCollection';
 import React, { useState, useMemo, useLayoutEffect, useRef } from 'react';
 import {
   Box,
@@ -122,7 +123,7 @@ const ScheduleDetailsDialog: React.FC<ScheduleDetailsDialogProps> = ({
                       Experiment Path
                     </Typography>
                     <Typography variant="body1" sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
-                      {schedule.experiment_path}
+                      {scheduleTarget(schedule)}
                     </Typography>
                   </Grid>
                 </Grid>

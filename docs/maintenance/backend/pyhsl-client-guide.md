@@ -53,8 +53,8 @@ reads return 503, 404 and 504; other upstream errors return 502.
 
 The run response keeps `run_id`, `protocol`, `status`, `host_status`, `mode`,
 `completed_count`, `error`, `origin`, `created_at`, `updated_at`, `current`,
-`prompt` and `protocol_revision`, plus `requires_review` (null while reconciliation
-is active or unreadable). The recorded state has all but `origin` and
+`prompt` and `protocol_revision`, plus `requires_review` from the monitor's cached
+review state (null when unknown). Run polling does not request reconciliation. The recorded state has all but `origin` and
 `protocol_revision` at the top level: those come from `configuration.origin` and
 `configuration.protocol.revision`. Mode is reduced to its `mode` value; current
 keeps only `operation_id`, `operation` and `status`. Prompt exposes `waiting` and
@@ -66,7 +66,8 @@ details' summary, message or reason. Deck, state and other detail objects are om
 HTML reports are limited to 5 MiB during the upstream read (502 if exceeded) and
 served with `Content-Security-Policy: sandbox` to disable scripts and isolate origin.
 
-Saving a PyHSL schedule always validates again. The only allowed mode is in
+Saving a PyHSL schedule validates again unless it stays off with its protocol,
+parameters and mode unchanged. The only allowed mode is in
 `PYHSL_ALLOWED_MODES`, currently `simulation`. See
 [the scheduling guide](scheduling-maintenance-guide.md#pyhsl-schedules) for the
 receipt, gates, review policy and restart behavior.
