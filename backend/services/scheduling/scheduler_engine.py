@@ -34,7 +34,7 @@ from backend.models import (
 from backend.services.scheduling.database_manager import get_scheduling_database_manager
 from backend.services.scheduling.process_monitor import get_hamilton_process_monitor
 from backend.services.notifications import get_notification_service
-from backend.services.scheduling.run_log_monitor import RunLogMonitor
+from backend.services.scheduling.run_log_monitor import NOT_REPORTED_COMPLETE, RunLogMonitor
 from backend.services.hxrun_maintenance import get_hxrun_maintenance_service
 from backend.services.scheduling.simulation_mode import (
     is_simulation_reason, simulation_block_reason,
@@ -1008,6 +1008,9 @@ class SchedulerEngine:
         except Exception as exc:
             logger.debug("Abort state lookup failed for %s: %s", experiment.experiment_name, exc)
         message = (execution.error_message or "").lower()
+        unknown = execution.error_message == NOT_REPORTED_COMPLETE
+        if unknown:
+            note = execution.error_message
         if not note:
             if ("return code 64" in message or
                 "hamilton reported last run" in message or
@@ -1029,7 +1032,7 @@ class SchedulerEngine:
                 context["runtime_minutes"] = round(
                     (execution.end_time - execution.start_time).total_seconds() / 60, 1
                 )
-            self._notify_execution_event(experiment, execution, "aborted", context)
+            self._notify_execution_event(experiment, execution, "execution_failed" if unknown else "aborted", context)
 
             if note:
                 self._apply_manual_recovery(experiment, note, actor="scheduler")

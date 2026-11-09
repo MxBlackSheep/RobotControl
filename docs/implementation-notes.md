@@ -1,3 +1,12 @@
+## 2026-11-09 Success requires Hamilton to report Complete
+
+- After HxRun exits with code zero, a run succeeds only when Hamilton reports Complete.
+  Bounded re-checks allow a late SQL update; terminal states need no further wait.
+- Any other outcome fails and requires manual recovery, including a missing SQL row.
+  Unconfirmed outcomes use one failure message and a Run failed email, without claiming
+  the run was aborted. Existing Aborted and Error notes are preserved.
+- HxRun exit codes are logged for diagnosis.
+
 ## 2026-11-09 Failed runs use up their scheduled occurrence
 
 - A completed or failed occurrence turns off a schedule without an interval. An interval

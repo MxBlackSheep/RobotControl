@@ -26,6 +26,7 @@ from backend.models import ScheduledExperiment, JobExecution
 from backend.services.scheduling.database_manager import get_scheduling_database_manager
 from backend.services.scheduling.experiment_discovery import get_experiment_discovery_service
 from backend.services.scheduling.pre_execution import PreExecutionPipeline
+from backend.services.scheduling.run_log_monitor import NOT_REPORTED_COMPLETE, TERMINAL_STATES
 
 logger = logging.getLogger(__name__)
 
@@ -177,16 +178,20 @@ class ExperimentExecutor:
             result = self._execute_hamilton_command(run_target, execution)
 
             if result.success:
+                state = None
                 if self.run_log_monitor:
                     state = self.run_log_monitor.check(execution.execution_id)
-                    abort_note = (f"Hamilton reported run {state.run_guid} as {state.run_state}"
-                                  if state and state.run_state in {"Aborted", "Error"} else None)
-                else:
-                    abort_note = self.db_manager.should_block_due_to_abort(experiment)
-                if abort_note:
-                    logger.warning("Hamilton reported last run as aborted for %s: %s", experiment.experiment_name, abort_note)
+                    for _ in range(15):
+                        if state and state.run_state in TERMINAL_STATES:
+                            break
+                        time.sleep(2)
+                        state = self.run_log_monitor.check(execution.execution_id)
+                if not state or state.run_state != "Complete":
                     result.success = False
-                    result.error_message = abort_note
+                    if state and state.run_state in {"Aborted", "Error"}:
+                        result.error_message = f"Hamilton reported run {state.run_guid} as {state.run_state}"
+                    else:
+                        result.error_message = NOT_REPORTED_COMPLETE
 
             execution.hamilton_command = result.command_executed
 
@@ -346,6 +351,7 @@ class ExperimentExecutor:
                 # Log inactivity alerts are advisory; runtime never kills HxRun.
                 stdout, stderr = process.communicate()
                 return_code = process.returncode
+                logger.info("HxRun exited with return code %s", return_code)
                 
             finally:
                 # Remove from active executions

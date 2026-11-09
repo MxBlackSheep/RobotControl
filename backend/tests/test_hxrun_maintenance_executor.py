@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 from backend.models import JobExecution, ScheduledExperiment, TimeoutConfig
 import backend.services.scheduling.experiment_executor as executor_module
@@ -87,6 +88,7 @@ def test_executor_uses_timeout_cleanup_target_and_skips_pre_run(monkeypatch):
     monkeypatch.setattr(executor_module.ExperimentExecutor, "_execute_hamilton_command", _fake_execute)
 
     executor = executor_module.ExperimentExecutor()
+    executor.run_log_monitor = SimpleNamespace(check=lambda _: SimpleNamespace(run_state="Complete"))
     schedule = _make_schedule(
         TimeoutConfig(
             timeout_minutes=5,
