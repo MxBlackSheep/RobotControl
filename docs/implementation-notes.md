@@ -1,3 +1,13 @@
+## 2026-11-09 Read-only PyHSL status and alerts
+
+- Added machine-token discovery, an independent poller and a signed-in cached
+  status endpoint. Unreachable, stale and unfamiliar states never imply success;
+  active reconciliation is reported as cached.
+- Recent failed runs and required Run reviews notify recovery recipients through
+  the existing email format and notification log, deduplicated across restarts.
+  No run controls, scheduler gates or PyHSL writes were added.
+- See [the maintenance guide](maintenance/backend/pyhsl-client-guide.md).
+
 ## 2026-11-09 Version 0.1.6
 
 - Contains the Simulation Mode check before each VENUS launch, failed occurrences being used

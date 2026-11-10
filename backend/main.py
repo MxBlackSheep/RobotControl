@@ -68,6 +68,8 @@ from backend.api.database import router as database_router
 from backend.api.auth import router as auth_router
 from backend.api.admin import router as admin_router
 from backend.api.monitoring import router as monitoring_router
+from backend.api.pyhsl import router as pyhsl_router
+from backend.services.pyhsl_monitor import get_pyhsl_monitor
 from backend.api.experiments import router as experiments_router
 from backend.api.backup import router as backup_router
 from backend.api.camera import router as camera_router
@@ -383,11 +385,13 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("Failed to start HxRun maintenance enforcer: %s", exc)
 
+    get_pyhsl_monitor().start()
     logger.info("RobotControl Backend startup complete - all services ready for lazy loading!")
     try:
         yield
     finally:
         logger.info("Shutting down RobotControl Backend...")
+        await asyncio.to_thread(get_pyhsl_monitor().stop)
         if getattr(app.state, "log_readers", None) is not None:
             await asyncio.to_thread(app.state.log_readers.close)
         await asyncio.to_thread(health_sampler.stop)
@@ -547,6 +551,7 @@ def graceful_shutdown(signum=None, frame=None):
 
 # Include API routers
 app.include_router(auth_router)
+app.include_router(pyhsl_router)
 app.include_router(database_router)
 from backend.api.database_tools import router as database_tools_router
 app.include_router(database_tools_router)

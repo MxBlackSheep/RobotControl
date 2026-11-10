@@ -6,10 +6,10 @@ from backend.models import NotificationLogEntry
 logger = logging.getLogger(__name__)
 
 
-def send_recorded(email, subject, body, *, event_type, schedule_id=None, actor=None, **options):
+def send_recorded(email, subject, body, *, event_type, schedule_id=None, execution_id=None, actor=None, **options):
     from backend.services.scheduling import get_scheduling_database_manager
     manager = get_scheduling_database_manager()
-    entry = NotificationLogEntry('', schedule_id, None, event_type, 'pending',
+    entry = NotificationLogEntry('', schedule_id, execution_id, event_type, 'pending',
         recipients=options.get('to') or [], subject=subject, message=body, metadata={'actor': actor})
     email.delivery_log_warning = None
     if not manager.create_notification_log(entry):
