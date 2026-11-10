@@ -1,7 +1,9 @@
 """Scheduled machine runs. Run Control owns execution; RobotControl only follows.
 
 The JSON receipt distinguishes these runs from legacy VENUS observations. It is
-written before POST, and recovery never re-enters preparation or launch gates.
+written before POST, and recovery never repeats preparation. A resend after a
+failed Start or a restart first reads Run Control's runs and adopts a match. If
+there is no match, it rechecks the launch guard before POST, as every Start does.
 """
 from datetime import datetime, timedelta
 import json
@@ -212,6 +214,8 @@ class PyHslRunner:
                             return True
                 if attempted is None or not timedelta(0) <= datetime.now() - attempted <= timedelta(minutes=5):
                     break
+                with self.engine.launch_guard(schedule, execution):
+                    pass
                 run = self.client.post('/runs', receipt['request'], timeout=60)
                 if not isinstance(run, dict) or not isinstance(run.get('run_id'), str) or not run['run_id']:
                     self._finish(schedule, execution, 'failed', 'PyHSL start returned no run ID', 'aborted', hold=True)
@@ -220,6 +224,7 @@ class PyHslRunner:
                 self._save(execution)
                 return True
             except (PyHslUnavailable, PyHslTimeout):
+                resumed = True
                 if expired:
                     break
                 unavailable = self._unavailable(schedule, execution, unavailable)

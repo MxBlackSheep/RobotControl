@@ -17,9 +17,13 @@ value. HTTP is restricted to `127.0.0.1` or `localhost`, with connections pinned
 to IPv4 loopback and no proxy or redirect handling. Reads time out after two
 seconds, and the review list after 30, because Run Control parses every journal for
 it. The monitor reads that list only when a run row changes or every two minutes. A
-timeout reads as `unknown`, not as closed. Start uses a 60-second POST timeout. A lost
-reply resends the identical request with the execution ID as `request_id`; Run Control
-deduplicates it.
+timeout reads as `unknown`, not as closed. Start uses a 60-second POST timeout.
+Before a resend after a failed Start or a restart, RobotControl reads Run Control's
+runs and adopts a match. If there is no match, it rechecks the launch guard before
+POST and resends the saved request with the execution ID as `request_id`; Run
+Control deduplicates it. The guard runs before every Start POST, including after
+preparation, and releases its locks before HTTP. A refused send fails the
+occurrence with a recovery hold and failure alert.
 
 `state` describes Run Control, not a run: `running` means it answered. `run` is the
 newest row without a terminal status, shown with its raw status, so an unfamiliar

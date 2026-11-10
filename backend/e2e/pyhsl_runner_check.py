@@ -6,7 +6,7 @@ Run with PYTHONPATH set to the worktree:
 Failure cases (Run Control reply shapes recorded in Simulation, 9 November 2026):
 1. Completed: once off, interval advances; request_id is execution ID, mode sent.
 2. A real 20-second POST leaves edits and status reads responsive.
-3. Lost reply: identical resend, one run and one database preparation.
+3. Lost reply: adopt the run without another POST or database preparation.
 4. Every status/review/refusal outcome; error wording cannot classify an abort.
 5. Acknowledge refuses review, active or unreadable reconciliation, then succeeds.
 6. Unavailable waits and alerts once at 180 seconds from queuing; VENUS proceeds,
@@ -31,13 +31,21 @@ Failure cases (Run Control reply shapes recorded in Simulation, 9 November 2026)
     without a token after instance verification, served as text/plain with nosniff,
     and bounded (502 on overflow). Reports remain sandboxed and bounded. Closed,
     refused and timed-out reads return 503, 404 and 504; no reconciliation is read.
-17. A timed-out Start resends the identical request without repeating preparation;
+17. A timed-out Start adopts the run without another POST or preparation;
     reconciliation reads use 30 seconds and a monitor timeout stays unknown.
 18. Fresh Start expires after five minutes, adopting a match or holding even offline.
 19. Validate losing Run Control waits without preparation or Start, then recovers or holds.
 20. Catalog reads Run Control's `protocols` list and leaves out problem and unattended=false entries; closed gives 503 with its reason.
 21. Test PyHSL saves and reloads, dispatch sends test; VENUS refuses test with 400.
 22. ManagedHost paths identify PyHSL with/without a cached protocol; other paths are VENUS.
+23. Start never reaches Run Control: maintenance during the outage blocks the
+    resend, fails and holds with the existing alert, leaving maintenance on.
+    A lost reply with a created run adopts, records run_id and follows despite
+    maintenance or busy HxRun, without another POST or refusal.
+24. Restart with maintenance adopts and follows a matching run; no match fails
+    with a hold and alert without sending Start.
+25. Maintenance during database preparation blocks the first Start with a hold
+    and alert; the occurrence is consumed and maintenance stays on.
 
 Only the Run Control service, database package, process and email boundaries are
 fixtures. No installed PyHSL, Hamilton, SQL Server or instrument is accessed.
@@ -300,8 +308,9 @@ def slow_and_lost():
     with fixture() as f:
         s = schedule(f)
         f.server.lose_reply = True
-        finished(f, dispatch(f, s))
-        assert len(f.server.posts) == 2 and f.server.posts[0] == f.server.posts[1]
+        e = finished(f, dispatch(f, s))
+        assert e.status == 'completed' and e.pyhsl['run_id'] == 'fixture-run'
+        assert len(f.server.posts) == 1
         assert len(f.server.runs) == len(f.prepared) == 1
 
 
@@ -318,8 +327,9 @@ def runner_failures():
         def short_start(path, data, **kwargs):
             return post(path, data, timeout=.05 if path == '/runs' else 60)
         with patch.object(f.client, 'post', side_effect=short_start), patch.object(f.client, 'get', wraps=f.client.get) as get:
-            assert finished(f, dispatch(f, s)).status == 'completed'
-            assert len(f.server.posts) == 2 and f.server.posts[0] == f.server.posts[1]
+            e = finished(f, dispatch(f, s))
+            assert e.status == 'completed' and e.pyhsl['run_id'] == 'fixture-run'
+            assert len(f.server.posts) == 1
             assert len(f.prepared) == len(f.server.runs) == 1
             f.engine.pyhsl_runner.acknowledge(s.schedule_id)
             assert all(c.kwargs.get('timeout') == 30 for c in get.call_args_list if c.args[0] == '/reconciliation')
@@ -341,6 +351,76 @@ def runner_failures():
             assert f.sent[0][0] == 'execution_failed' and not f.server.posts
             assert f.storage.get_schedule_by_id(s.schedule_id).recovery_required
             assert f.sent[0][1]['schedule_active'] is False
+
+
+def maintenance_before_start():
+    for during_preparation in (False, True):
+        with fixture() as f:
+            s = schedule(f)
+            def enable_maintenance():
+                f.storage.set_hxrun_maintenance_state(True, 'Fixture maintenance', 'fixture')
+            if during_preparation:
+                f.after_prepare = enable_maintenance
+            post = f.client.post
+            waits = []
+            def start(path, data, **kwargs):
+                if path == '/runs' and (not waits or f.server.unreachable):
+                    raise PyHslUnavailable('Start never reached Run Control')
+                return post(path, data, **kwargs)
+            def wait():
+                waits.append(True)
+                if len(waits) == 1:
+                    f.server.unreachable = True
+                else:
+                    enable_maintenance()
+                    f.server.unreachable = False
+                return False
+            with patch.object(f.client, 'post', side_effect=start) as calls, \
+                    patch.object(f.engine.pyhsl_runner, '_wait', side_effect=wait):
+                e = finished(f, dispatch(f, s))
+            assert not f.server.posts and not f.server.runs
+            assert len([c for c in calls.call_args_list if c.args[0] == '/runs']) == int(not during_preparation)
+            assert len(waits) == (0 if during_preparation else 2)
+            assert f.prepared == [e.execution_id]
+            assert e.status == 'failed' and e.error_message == 'HxRun maintenance is enabled'
+            saved = f.storage.get_schedule_by_id(s.schedule_id)
+            assert saved.recovery_required and not saved.is_active
+            assert [x[0] for x in f.sent] == ['execution_failed']
+            assert f.sent[0][1]['schedule_active'] is False
+            assert f.storage.get_hxrun_maintenance_state().enabled
+
+    for maintenance in (True, False):
+        with fixture() as f:
+            s = schedule(f)
+            f.server.lose_reply = True
+            f.server.outcome = 'running'
+            waits = []
+            def wait():
+                waits.append(True)
+                if len(waits) == 1:
+                    f.server.unreachable = True
+                elif len(waits) == 2:
+                    if maintenance:
+                        f.storage.set_hxrun_maintenance_state(True, 'Fixture maintenance', 'fixture')
+                    else:
+                        f.busy = True
+                    f.server.unreachable = False
+                else:
+                    e = f.engine.run_log_monitor.store.execution(
+                        f.server.runs['fixture-run']['configuration']['request_id'])
+                    assert e.status == 'running' and e.pyhsl['run_id'] == 'fixture-run'
+                    f.server.runs['fixture-run']['status'] = 'completed'
+                return False
+            with patch.object(f.engine.pyhsl_runner, '_wait', side_effect=wait):
+                eid = dispatch(f, s)
+                e = finished(f, eid)
+            assert len(waits) == 3
+            assert len(f.server.posts) == len(f.server.runs) == 1
+            assert f.prepared == [eid]
+            assert e.status == 'completed' and e.pyhsl['run_id'] == 'fixture-run'
+            assert not f.storage.get_schedule_by_id(s.schedule_id).recovery_required
+            assert not f.sent
+            assert f.storage.get_hxrun_maintenance_state().enabled == maintenance
 
 
 def bounded_waits():
@@ -537,8 +617,10 @@ def gates_and_following():
 
 
 def restarts():
-    for saved_id, match, age in ((True, True, 600), (False, True, 600),
-                                (False, False, 0), (False, False, 600), (False, False, None)):
+    for saved_id, match, age, maintenance in (
+            (True, True, 600, False), (False, True, 600, False),
+            (False, False, 0, False), (False, False, 600, False), (False, False, None, False),
+            (False, True, 0, True), (False, False, 0, True)):
         with fixture() as f:
             s = schedule(f)
             e = JobExecution('', s.schedule_id, 'running', start_time=datetime.now() - timedelta(minutes=10))
@@ -562,6 +644,8 @@ def restarts():
             f.engine.pyhsl_runner.poll_seconds = .02
             f.engine._notification_contacts[f.contact.contact_id] = f.contact
             f.engine._load_schedules_from_database()
+            if maintenance:
+                f.storage.set_hxrun_maintenance_state(True, 'Fixture maintenance', 'fixture')
             assert f.engine.run_log_monitor.restore() == []
             assert f.engine._resolve_dispatch_block_reason(s)
             f.engine._running = True
@@ -573,9 +657,18 @@ def restarts():
             f.engine._scheduler_thread.start()
             result = finished(f, e.execution_id)
             assert f.prepared == [e.execution_id]
-            assert len(f.server.posts) == (1 if age == 0 and not match else 0)
-            assert result.status == ('completed' if age == 0 and not match else 'failed')
-            assert f.storage.get_schedule_by_id(s.schedule_id).recovery_required == (not match and age != 0)
+            assert len(f.server.posts) == (1 if age == 0 and not match and not maintenance else 0)
+            assert result.status == ('completed' if age == 0 and not match and not maintenance else 'failed')
+            assert f.storage.get_schedule_by_id(s.schedule_id).recovery_required == (not match and (age != 0 or maintenance))
+            if maintenance:
+                assert f.storage.get_hxrun_maintenance_state().enabled
+                assert [x[0] for x in f.sent] == ['execution_failed']
+                if match:
+                    assert result.pyhsl['run_id'] == 'fixture-run'
+                    assert result.error_message == 'stopped by user'
+                else:
+                    assert result.error_message == 'HxRun maintenance is enabled'
+                    assert not f.storage.get_schedule_by_id(s.schedule_id).is_active
             sent = len(f.sent)
             time.sleep(1.1)
             assert len(f.sent) == sent and f.engine._job_queue.empty()
@@ -730,7 +823,7 @@ def run():
     handler = logging.StreamHandler(logs)
     logging.getLogger().addHandler(handler)
     try:
-        for check in (catalog_and_experiments, outcomes, slow_and_lost, runner_failures, bounded_waits, relay_reads, revision_and_acknowledge, gates_and_following, restarts, saves_and_guards):
+        for check in (catalog_and_experiments, outcomes, slow_and_lost, runner_failures, maintenance_before_start, bounded_waits, relay_reads, revision_and_acknowledge, gates_and_following, restarts, saves_and_guards):
             check()
             print(f'PASS {check.__name__}', flush=True)
         assert TOKEN not in logs.getvalue()
