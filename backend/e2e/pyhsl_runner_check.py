@@ -26,13 +26,18 @@ Failure cases (Run Control reply shapes recorded in Simulation, 9 November 2026)
 14. Maintenance and database writes refuse while PyHSL is active.
 15. Token absent from logs, execution rows, replies and emails; machine runs do
     not generate the monitor's independent alerts.
-16. Remote signed-in reads expose only allowed run/journal fields; invalid IDs and
-    unknown roles make no request. Reports are sandboxed and bounded. Closed,
-    refused and timed-out reads return 503, 404 and 504; cached review state is used without a reconciliation request.
+16. Remote admin/user reads preserve deck and run bodies; journal route is gone.
+    Invalid IDs, viewers and unknown roles make no request. Monitor script is read
+    without a token after instance verification, served as text/plain with nosniff,
+    and bounded (502 on overflow). Reports remain sandboxed and bounded. Closed,
+    refused and timed-out reads return 503, 404 and 504; no reconciliation is read.
 17. A timed-out Start resends the identical request without repeating preparation;
     reconciliation reads use 30 seconds and a monitor timeout stays unknown.
 18. Fresh Start expires after five minutes, adopting a match or holding even offline.
 19. Validate losing Run Control waits without preparation or Start, then recovers or holds.
+20. Catalog reads Run Control's `protocols` list and leaves out problem and unattended=false entries; closed gives 503 with its reason.
+21. Test PyHSL saves and reloads, dispatch sends test; VENUS refuses test with 400.
+22. ManagedHost paths identify PyHSL with/without a cached protocol; other paths are VENUS.
 
 Only the Run Control service, database package, process and email boundaries are
 fixtures. No installed PyHSL, Hamilton, SQL Server or instrument is accessed.
@@ -40,6 +45,7 @@ fixtures. No installed PyHSL, Hamilton, SQL Server or instrument is accessed.
 from contextlib import contextmanager, ExitStack
 from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import asyncio
 import io
 import json
 import logging
@@ -83,19 +89,23 @@ class RunControl(BaseHTTPRequestHandler):
         s = self.server
         if self.path == '/api/v1/health':
             return self.reply(200, {'instance_id': s.instance_id})
-        assert self.headers['Authorization'] == 'Bearer ' + TOKEN
         if s.unreachable:
             self.connection.shutdown(socket.SHUT_RDWR)
             return
+        if self.path == '/monitor.js':
+            assert self.headers.get('Authorization') is None
+            return self.reply(200, s.monitor_script)
+        assert self.headers['Authorization'] == 'Bearer ' + TOKEN
+        if self.path == '/api/v1/deck':
+            return self.reply(200, s.deck)
+        if self.path == '/api/v1/catalog':
+            return self.reply(200, {'protocols': s.catalog, 'modes': ['simulation', 'test', 'real'], 'venus_simulator_mode': 1})
         if self.path == '/api/v1/runs':
-            return self.reply(200, {'sessions': [dict(run_id=k, protocol='fixture',
+            return self.reply(200, {'sessions': [dict(run_id=k, session_id=v.get('session_id'), protocol='fixture',
                 created_at=v['created_at'], status=v['status'], origin='machine', mode='simulation',
                 error=v['error'], completed_count=0) for k, v in s.runs.items()]})
         if self.path == '/api/v1/reconciliation':
             return self.reply(200, s.reviews)
-        if '/journal?' in self.path:
-            s.journal_path = self.path
-            return self.reply(200, s.journal)
         if self.path.endswith('/report'):
             return self.reply(200, s.report)
         run_id = self.path.removeprefix('/api/v1/runs/')
@@ -154,12 +164,13 @@ def fixture(*, allow_venus=False):
         server.validate_code = server.start_code = 200
         server.error, server.outcome = 'abort; stopped by user ' + TOKEN, 'completed'
         server.runs, server.posts = {}, []
+        server.catalog = []
         server.reviews = dict(cases=[], blocked=False, active=False)
         server.delay, server.lose_reply, server.unreachable = 0, False, False
         server.timeout_reply = server.run_refused = False
         server.report = b'<html><script>alert(1)</script>FIXTURE-MACHINE-TOKEN</html>'
-        server.journal = dict(events=[dict(revision=1, at='now', event='device_intent',
-            details=dict(summary='Move ' + TOKEN, path='private'), state={'deck': 'private'})], next=1)
+        server.monitor_script = b'window.PyHSLMonitor = {mount() {}};'
+        server.deck = dict(slots=[dict(id='fixture', position=[1, 2, 3])], extra={'preserved': True})
         server.entered = Event()
         thread = Thread(target=server.serve_forever, daemon=True)
         thread.start()
@@ -402,19 +413,24 @@ def relay_reads():
                     response = http.get(url)
                     assert [c.args[0] for c in get.call_args_list] == [f'/runs/{run_id}']
                 assert response.status_code == 200, response.text
-                run = response.json()
-                assert set(run) == {'run_id', 'protocol', 'status', 'host_status', 'mode', 'completed_count',
-                    'error', 'origin', 'created_at', 'updated_at', 'current', 'prompt', 'protocol_revision', 'requires_review'}
-                assert run['origin'] == 'machine' and run['protocol_revision'] == 'revision-one'
-                assert run['mode'] == 'simulation' and run['requires_review'] is False
-                assert run['prompt'] == {'waiting': True, 'text': 'Continue?'}
-                assert set(run['current']) == {'operation_id', 'operation', 'status'}
-                assert 'private' not in response.text
-            with patch.object(f.monitor, 'status', return_value={'reviews': {'known': True, 'run_ids': [run_id]}}):
-                assert http.get(url).json()['requires_review'] is True
-            page = http.get(url + '/journal?after=3&limit=999').json()
-            assert page == dict(events=[dict(revision=1, at='now', event='device_intent', text='Move [redacted]')], next=1)
-            assert f.server.journal_path.endswith('?after=3&limit=200')
+                assert response.json() == f.server.runs[run_id]
+                deck = http.get('/api/pyhsl/deck')
+                assert deck.status_code == 200 and deck.json() == f.server.deck
+                script = http.get('/api/pyhsl/monitor.js')
+                assert script.status_code == 200 and script.content == f.server.monitor_script
+                assert script.headers['content-type'] == 'text/plain; charset=utf-8'
+                assert script.headers['x-content-type-options'] == 'nosniff'
+            urls = (url, url + '/report', '/api/pyhsl/deck', '/api/pyhsl/monitor.js')
+            with patch.object(f.client, '_discover', side_effect=AssertionError('Unexpected request')):
+                assert http.get(url + '/journal').status_code == 404
+            with patch.object(api, 'MONITOR_MAX_BYTES', len(f.server.monitor_script)):
+                assert http.get('/api/pyhsl/monitor.js').status_code == 200
+            with patch.object(api, 'MONITOR_MAX_BYTES', len(f.server.monitor_script) - 1):
+                response = http.get('/api/pyhsl/monitor.js')
+                assert response.status_code == 502 and 'too large' in response.text
+            f.server.instance_id = 'different-instance'
+            assert http.get('/api/pyhsl/monitor.js').status_code == 503
+            f.server.instance_id = 'instance-one'
             report = http.get(url + '/report')
             assert report.status_code == 200 and report.headers['content-security-policy'] == 'sandbox'
             assert report.headers['content-type'].startswith('text/html') and TOKEN not in report.text
@@ -422,31 +438,26 @@ def relay_reads():
                 response = http.get(url + '/report')
                 assert response.status_code == 502 and 'too large' in response.text
             with patch.object(f.client, '_discover', side_effect=AssertionError('Unexpected request')):
-                for suffix in ('', '/journal', '/report'):
+                for suffix in ('', '/report'):
                     for bad in ('bad', 'A' * 32, 'a' * 31, 'a' * 33):
                         assert http.get('/api/pyhsl/runs/' + bad + suffix).status_code == 400
-                    app.dependency_overrides[get_current_user] = lambda: {'role': 'unknown'}
-                    assert http.get(url + suffix).status_code == 403
-                    app.dependency_overrides[get_current_user] = lambda: {'role': 'user'}
-            f.server.reviews['active'] = True
-            f.monitor.poll()
-            assert http.get(url).json()['requires_review'] is None
-            get = f.client.get
-            def review_timeout(path, **kwargs):
-                if path == '/reconciliation':
-                    raise PyHslTimeout('Run Control did not answer in time')
-                return get(path, **kwargs)
-            with patch.object(f.client, 'get', side_effect=review_timeout):
-                f.monitor.poll()
-                assert http.get(url).json()['requires_review'] is None
+                for role in ('viewer', 'unknown'):
+                    app.dependency_overrides[get_current_user] = lambda: {'role': role}
+                    for path in urls:
+                        assert http.get(path).status_code == 403
+            app.dependency_overrides[get_current_user] = lambda: {'role': 'user'}
             f.server.run_refused = True
             response = http.get(url)
             assert response.status_code == 404 and TOKEN not in response.text
             with patch.object(f.client, '_discover', side_effect=PyHslTimeout('Run Control did not answer in time')):
-                assert http.get(url).status_code == 504
+                for path in urls:
+                    assert http.get(path).status_code == 504
+            f.server.unreachable = True
+            for path in urls:
+                assert http.get(path).status_code == 503
             f.app_dir.joinpath('instance.json').unlink()
-            for suffix in ('', '/journal', '/report'):
-                assert http.get(url + suffix).status_code == 503
+            for path in urls:
+                assert http.get(path).status_code == 503
 
 
 def revision_and_acknowledge():
@@ -599,7 +610,16 @@ def saves_and_guards():
             assert created.status_code == 200, created.text
             saved = f.storage.get_schedule_by_id(created.json()['data']['schedule_id'])
             assert saved.experiment_path == 'pyhsl:fixture' and saved.protocol_revision == 'revision-one'
-            assert http.post('/api/scheduling/create', json={**draft, 'mode': 'real'}).status_code == 400
+            for mode in ('real', 'test'):
+                created = http.post('/api/scheduling/create', json={**draft, 'mode': mode})
+                assert created.status_code == 200, created.text
+                saved = f.storage.get_schedule_by_id(created.json()['data']['schedule_id'])
+                assert saved.mode == saved.to_dict()['mode'] == mode
+                if mode == 'test':
+                    assert finished(f, dispatch(f, saved)).status == 'completed'
+                    assert f.server.posts[-1]['mode'] == 'test'
+            assert http.post('/api/scheduling/create', json={**draft, 'runner': 'venus',
+                'experiment_path': str(f.method), 'mode': 'test'}).status_code == 400
             assert http.post('/api/pyhsl/validate', json=draft,
                 headers={'x-forwarded-for': '198.51.100.5'}).status_code == 403
             app.dependency_overrides[get_current_user] = lambda: {'role': 'viewer'}
@@ -615,7 +635,10 @@ def saves_and_guards():
         saved = f.storage.get_schedule_by_id(s.schedule_id)
         assert saved.protocol_id == s.protocol_id and saved.parameters == s.parameters
         assert saved.protocol_revision == 'revision-two' and saved.runner == 'pyhsl'
-        for change in ({'mode': 'real'}, {'mode': 'test'}, {'timeout_config': {'action': 'run_cleanup_and_terminate',
+        update(mode='real')
+        update(mode='test')
+        assert f.storage.get_schedule_by_id(s.schedule_id).mode == 'test'
+        for change in ({'mode': 'invalid'}, {'runner': 'venus', 'experiment_path': str(f.method)}, {'timeout_config': {'action': 'run_cleanup_and_terminate',
                         'cleanup_experiment_name': 'Fixture', 'cleanup_experiment_path': str(f.method)}}):
             try:
                 update(**change)
@@ -663,12 +686,62 @@ def saves_and_guards():
         assert migrated.runner == 'venus' and migrated.parameters == {} and migrated.mode == 'simulation'
 
 
+def catalog_and_experiments():
+    from backend.api import pyhsl as api, experiments, monitoring
+    from backend.services.auth import get_current_user
+    from backend.services.experiment_monitor import ExperimentMonitor
+    from backend.services.monitoring import MonitoringService
+    with fixture() as f:
+        entry = dict(id='fixture', name='Fixture', revision='revision-one',
+                     modes=['simulation', 'test', 'real'], unattended=True, category='Fixtures', description='Fixture')
+        f.server.catalog = [entry, {**entry, 'unattended': False},
+                            {**entry, 'problem': 'Unreadable', 'revision': None}]
+        app = FastAPI()
+        app.include_router(api.router)
+        app.dependency_overrides[get_current_user] = lambda: {'role': 'user'}
+        with patch.object(api, 'PyHslClient', return_value=f.client), TestClient(app, client=('127.0.0.1', 50000)) as http:
+            assert http.get('/api/pyhsl/protocols').json() == [{k: v for k, v in entry.items() if k not in ('unattended', 'category')}]
+            assert http.get('/api/pyhsl/protocols', headers={'x-forwarded-for': '198.51.100.5'}).status_code == 403
+            app.dependency_overrides[get_current_user] = lambda: {'role': 'viewer'}
+            assert http.get('/api/pyhsl/protocols').status_code == 403
+            app.dependency_overrides[get_current_user] = lambda: {'role': 'admin'}
+            with patch.object(f.client, 'get', side_effect=PyHslTimeout('Run Control did not answer in time')):
+                assert http.get('/api/pyhsl/protocols').status_code == 504
+            f.server.unreachable = True
+            response = http.get('/api/pyhsl/protocols')
+            assert response.status_code == 503 and response.json()['detail'] == 'Run Control is unreachable'
+            f.server.unreachable = False
+        session_id = 'ab' * 16
+        f.server.runs['fixture-run'] = dict(session_id=session_id, created_at=datetime.now().isoformat(), status='completed', error=None)
+        f.monitor.poll()
+        for path, expected in (
+            (rf'C:\data\sessions\{session_id}\host\ManagedHost.hsl', dict(runner='pyhsl', protocol='fixture')),
+            (f'C:/data/SESSIONS/{session_id.upper()}/HOST/MANAGEDHOST.HSL', dict(runner='pyhsl', protocol='fixture')),
+            ('C:/data/sessions/' + 'c' * 32 + '/host/ManagedHost.hsl', dict(runner='pyhsl')),
+            ('C:/methods/normal.hsl', dict(runner='venus')),
+            ('C:/data/sessions/invalid/host/ManagedHost.hsl', dict(runner='venus'))):
+            monitor = ExperimentMonitor()
+            current = monitor._create_experiment_state(dict(run_guid='fixture', method_name=path, run_state=128))
+            db = SimpleNamespace(execute_query=lambda _: {'rows': [{'MethodName': path}]})
+            with patch.object(f.client, 'get', side_effect=AssertionError('Identity must use cached runs')), \
+                    patch.object(experiments, 'get_database_service', return_value=db), \
+                    patch.object(monitoring, 'get_experiment_monitor', return_value=SimpleNamespace(get_current_experiment=lambda: current)), \
+                    patch('backend.services.monitoring.get_experiment_monitor', return_value=SimpleNamespace(get_current_experiment=lambda: current)):
+                latest = json.loads(asyncio.run(experiments.get_latest_experiment({})).body)['data']
+                monitored = json.loads(asyncio.run(monitoring.get_current_experiments({})).body)['data']['experiments'][0]
+                service = MonitoringService.__new__(MonitoringService)
+                service.last_experiment_data = []
+                service._update_experiment_data()
+                for result in (latest, monitored, service.last_experiment_data[0]):
+                    assert {k: result[k] for k in ('runner', 'protocol') if k in result} == expected
+
+
 def run():
     logs = io.StringIO()
     handler = logging.StreamHandler(logs)
     logging.getLogger().addHandler(handler)
     try:
-        for check in (outcomes, slow_and_lost, runner_failures, bounded_waits, relay_reads, revision_and_acknowledge, gates_and_following, restarts, saves_and_guards):
+        for check in (catalog_and_experiments, outcomes, slow_and_lost, runner_failures, bounded_waits, relay_reads, revision_and_acknowledge, gates_and_following, restarts, saves_and_guards):
             check()
             print(f'PASS {check.__name__}', flush=True)
         assert TOKEN not in logs.getvalue()

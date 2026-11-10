@@ -34,8 +34,11 @@ export interface LegacyPreparation {
 
 /** Derived on read: ready, or the package/connection changed (needs_review), or it is gone. */
 export type PreparationState = 'ready' | 'needs_review' | 'missing' | 'invalid' | 'unknown';
-export type ScheduleMode = 'real' | 'simulation';
+export type ScheduleMode = 'real' | 'simulation' | 'test';
+/** Test exists only for PyHSL protocols that list it. */
+export const SCHEDULE_MODE_LABELS: Record<ScheduleMode, string> = { simulation: 'Simulation', test: 'Test', real: 'Real' };
 export type ScheduleRunner = 'venus' | 'pyhsl';
+export const RUNNER_LABELS: Record<ScheduleRunner, string> = { venus: 'VENUS', pyhsl: 'PyHSL' };
 
 export interface ScheduledExperiment {
   schedule_id: string;

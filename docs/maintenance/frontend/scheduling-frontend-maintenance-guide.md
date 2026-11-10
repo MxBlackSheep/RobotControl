@@ -208,8 +208,17 @@ the backend guide.
 
 ## PyHSL schedules and the Run page
 
-`ImprovedScheduleForm` chooses the runner. For a PyHSL protocol, `PyHslProtocolField` checks the ID through
-`POST /api/pyhsl/validate`, because the machine token cannot list protocols, and draws the parameter fields from the reply. The
-mode is locked to Simulation. `/pyhsl?run=<id>` (`PyHslRunPage`) polls the backend's filtered run and journal routes every five seconds and has no
-controls. A failed read keeps the last reading and says since when. The report opens in an iframe with an empty `sandbox`. Failure cases are in
-`frontend/e2e/pyhsl.spec.ts`.
+`ImprovedScheduleForm` chooses the runner. For a PyHSL protocol, `PyHslProtocolField` searches
+`GET /api/pyhsl/protocols` by name or ID, sorted by name, and offers only the modes the chosen protocol allows
+(Simulation first when allowed). Choosing a protocol or a mode runs `POST /api/pyhsl/validate`, whose reply draws the
+parameter fields; a schedule saves only after a protocol PyHSL accepted. A VENUS schedule keeps its Simulation Mode switch.
+
+`/pyhsl?run=<id>` (`PyHslRunPage`) shows PyHSL's Monitoring API view (PyHSL's `docs/api/notes.md`, "Monitoring API"):
+Run Control's Run page without controls. `PyHslMonitor` inlines `/api/pyhsl/monitor.js` into an iframe with
+`sandbox="allow-scripts"` and no same origin, so PyHSL's code cannot reach RobotControl's sign-in tokens, and posts
+`{deck, state, theme}` with the two bodies as received. The page polls `/api/pyhsl/runs/{id}` every five seconds (30 once
+ended) and reads `/api/pyhsl/deck` (about 2 MB) once per run, again only after a failed read; PyHSL keeps the deck fixed
+while a run is in progress. The view fills the window below the title (`useLabwareWorkspace`) and scrolls its own panels.
+RobotControl adds only the title, "Run Control not reachable since HH:MM" (the last reading stays), "Run view not shown:
+<reason>" in the view's place, and Show report for an ended run; the report opens in a dialog in an iframe with an empty
+`sandbox`. Failure cases are in `frontend/e2e/pyhsl.spec.ts`.

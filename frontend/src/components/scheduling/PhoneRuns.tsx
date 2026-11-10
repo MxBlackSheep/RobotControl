@@ -9,7 +9,7 @@ import { useSerialPolling } from '../../hooks/useSerialPolling';
 import { useRobotStatusContext } from '../../hooks/useRobotStatus';
 import { pyhslRunId } from '../../hooks/usePyHslStatus';
 import { Link } from 'react-router-dom';
-import type { ScheduledExperiment } from '../../types/scheduling';
+import { SCHEDULE_MODE_LABELS, type ScheduledExperiment } from '../../types/scheduling';
 import { fontMono, layout } from '../../theme';
 import { clockTime, dayTime } from '../../utils/displayTime';
 import { repeatLabel, scheduleTarget } from './ScheduleCollection';
@@ -108,7 +108,7 @@ function Agenda() {
   const details = (schedule: ScheduledExperiment) => {
     const items: [string, React.ReactNode][] = [['Repeats', repeatLabel(schedule)], schedule.runner === 'pyhsl' ? ['Protocol', scheduleTarget(schedule)] : ['Method', methodName(schedule.experiment_path)]];
     if (schedule.estimated_duration > 0) items.push(['About', `${schedule.estimated_duration} min`]);
-    if (schedule.mode === 'simulation') items.push(['Mode', 'Simulation']);
+    if (schedule.mode !== 'real') items.push(['Mode', SCHEDULE_MODE_LABELS[schedule.mode]]);
     if (schedule.last_run) items.push(['Last run', dayTime(schedule.last_run)]);
     if (schedule.recovery_required && schedule.recovery_note) items.push(['Held', schedule.recovery_note]);
     return <Facts items={items} note="Edit on the workstation." />;

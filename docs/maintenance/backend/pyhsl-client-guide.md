@@ -4,7 +4,7 @@
 the background poll every 15 seconds. The app starts and stops that worker.
 `GET /api/pyhsl/status` is available remotely to every signed-in role and reads
 only its stored result. It never waits for Run Control or takes a scheduler lock.
-Scheduled Simulation runs use `scheduling/pyhsl_runner.py`. No Stop, Pause or
+Scheduled runs use `scheduling/pyhsl_runner.py`. No Stop, Pause or
 Resume route is called, and RobotControl never opens Run Control itself.
 
 Set `ROBOTCONTROL_PYHSL_DATA_DIR` to the PyHSL data folder. Otherwise discovery
@@ -44,31 +44,47 @@ for delivery failures. With no recipients configured, no record is created.
 `protocol_id`, `parameters` and `mode`, and returns Run Control's Validate payload,
 including `protocol.parameters` and `protocol.revision`. Refusals return HTTP 400
 with the service's text; absence returns a short unavailable reason. The machine
-token cannot use person routes such as the catalogue.
+token can read `/deck` through the Monitoring API; person controls remain unavailable.
 
-Remote admin and user sessions can read `/api/pyhsl/runs/{run_id}`, its `/journal`
-and `/report`. IDs must be 32 lowercase hex characters, matching PyHSL's
-`controller.py` import of `archive.RUN_FOLDER`. Unavailable, refused and timed-out
-reads return 503, 404 and 504; other upstream errors return 502.
+`GET /api/pyhsl/protocols` has the same access as Validate. It relays the
+`protocols` list of Run Control's `/catalog` (PyHSL's `docs/api/notes.md` states the
+contract) and keeps only protocols with `unattended` true and no `problem` (unreadable
+or to be imported again; its revision is null), each with `id`, `name`, `revision`,
+`modes` and `description`. Archived protocols are not in
+the catalogue.
 
-The run response keeps `run_id`, `protocol`, `status`, `host_status`, `mode`,
-`completed_count`, `error`, `origin`, `created_at`, `updated_at`, `current`,
-`prompt` and `protocol_revision`, plus `requires_review` from the monitor's cached
-review state (null when unknown). Run polling does not request reconciliation. The recorded state has all but `origin` and
-`protocol_revision` at the top level: those come from `configuration.origin` and
-`configuration.protocol.revision`. Mode is reduced to its `mode` value; current
-keeps only `operation_id`, `operation` and `status`. Prompt exposes `waiting` and
-`text` from its message, without response controls.
+Hamilton's run table names a PyHSL run's method
+`<data>\sessions\<session_id>\host\ManagedHost.hsl`. `experiment_runner()` in
+`pyhsl_monitor.py` turns that into `runner: 'pyhsl'` plus the protocol ID from the
+monitor's last `/runs` read with that `session_id`, or no protocol when none
+matches; any other method is `runner: 'venus'`. The path layout is not a PyHSL
+contract; if it changes, Overview falls back to showing the method file name.
 
-Journal pages keep `events` and `next`, with at most 200 requested events. Each
-event keeps `revision`, `at`, `event` and `text`, taking up to 300 characters from
-details' summary, message or reason. Deck, state and other detail objects are omitted.
+Remote admin and user sessions can read `/api/pyhsl/deck`,
+`/api/pyhsl/monitor.js`, `/api/pyhsl/runs/{run_id}` and its `/report`. Run IDs must
+be 32 lowercase hex characters, matching PyHSL's `controller.py` import of
+`archive.RUN_FOLDER`. Unavailable, refused and timed-out reads return 503, 404
+and 504; other upstream errors return 502.
+
+Deck and run responses relay the complete upstream JSON bodies unchanged, subject
+to the client's machine-token redaction, for PyHSL's Monitoring API view on the Run
+page; no field is filtered or derived. Run polling does not request reconciliation.
+
+The monitor script is read from Run Control's `/monitor.js`, outside `/api/v1`,
+after the same discovery and instance verification, without sending the machine
+token. It is limited to 5 MiB during the upstream read (502 if exceeded) and served
+as `text/plain; charset=utf-8` with `X-Content-Type-Options: nosniff`. The page
+inlines it into a sandboxed frame; it cannot be loaded as a script in RobotControl's
+origin. The default two-second read timeout also applies to deck and script reads.
+
 HTML reports are limited to 5 MiB during the upstream read (502 if exceeded) and
 served with `Content-Security-Policy: sandbox` to disable scripts and isolate origin.
 
 Saving a PyHSL schedule validates again unless it stays off with its protocol,
-parameters and mode unchanged. The only allowed mode is in
-`PYHSL_ALLOWED_MODES`, currently `simulation`. See
+parameters and mode unchanged. A PyHSL schedule's mode is `simulation`, `test` or
+`real` (a VENUS schedule's is `real` or `simulation`); Validate, on save and at
+dispatch, decides which of them the protocol allows, and PyHSL sets VENUS's
+Simulation Mode to match before HxRun starts. See
 [the scheduling guide](scheduling-maintenance-guide.md#pyhsl-schedules) for the
 receipt, gates, review policy and restart behavior.
 

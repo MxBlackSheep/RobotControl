@@ -9,10 +9,14 @@ import StatusChip from './StatusChip';
 import { ListRow, Panel } from './PageLayout';
 import { clockTime, dayTime } from '../utils/displayTime';
 import { layout, StatusTone } from '../theme';
+import { RUNNER_LABELS, type ScheduleRunner } from '../types/scheduling';
 
 interface ExperimentData {
   run_guid: string;
   method_name: string;
+  runner?: ScheduleRunner;
+  /** PyHSL protocol id, when Run Control's run list names the session. */
+  protocol?: string | null;
   start_time: string | null;
   end_time: string | null;
   run_state: number;
@@ -76,7 +80,9 @@ const ExperimentStatus: React.FC<{ refreshInterval?: number }> = memo(({ refresh
   const experiment = latest?.experiment;
   const state = experiment ? getRunStateDisplay(experiment.run_state) : null;
 
-  const methodName = experiment ? experiment.method_name?.split('\\').pop()?.replace('.hsl', '') || 'Unknown Method' : '';
+  const runner: ScheduleRunner = experiment?.runner === 'pyhsl' ? 'pyhsl' : 'venus';
+  const methodName = !experiment ? '' : runner === 'pyhsl' ? experiment.protocol || 'PyHSL protocol'
+    : experiment.method_name?.split('\\').pop()?.replace('.hsl', '') || 'Unknown Method';
   const facts: [string, string][] = experiment ? [
     ['Started', formatTimestamp(experiment.start_time)],
     ...(experiment.end_time ? [['Ended', formatTimestamp(experiment.end_time)] as [string, string]] : []),
@@ -98,7 +104,10 @@ const ExperimentStatus: React.FC<{ refreshInterval?: number }> = memo(({ refresh
     {experiment && <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gridTemplateRows: `${layout.row}px auto`, columnGap: `${layout.gutter}px`,
       alignItems: 'center', px: `${layout.inset}px`, fontSize: 13, '& > *, & > * > *': { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
       [wideRow]: { gridTemplateColumns: 'minmax(0, 1fr) auto auto', gridTemplateRows: `${layout.row}px` } }}>
-      <Box component="span" sx={{ fontWeight: 600 }}>{methodName}</Box>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <Box component="span" sx={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis' }}>{methodName}</Box>
+        <StatusChip tone="neutral" label={RUNNER_LABELS[runner]} />
+      </Box>
       <Box sx={{ gridColumn: '1 / -1', display: 'flex', flexWrap: 'wrap', columnGap: `${layout.inset}px`, rowGap: 0.5, lineHeight: '20px', pb: 1.5,
         [wideRow]: { gridColumn: 2, gridRow: 1, display: 'grid', gridTemplateColumns: `repeat(${facts.length}, 160px)`, columnGap: `${layout.gutter}px`, pb: 0 } }}>
         {facts.map(([label, value]) => <Box key={label} component="span">

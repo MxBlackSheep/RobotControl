@@ -20,14 +20,21 @@ export type RequestErrorKind =
 
 const CONNECTION_KINDS = new Set<RequestErrorKind>(['offline', 'unreachable', 'timeout', 'proxy']);
 
+/** A text request (a report, PyHSL's script) receives RobotControl's JSON error as text; a proxy page stays text. */
+function responseBody(error: any): any {
+  const data = error?.response?.data;
+  if (typeof data !== 'string') return data;
+  try { return JSON.parse(data); } catch { return data; }
+}
+
 /** RobotControl answers with FastAPI `{detail}` or ResponseFormatter `{error: {message}}`. */
 export function isAppResponse(error: any): boolean {
-  const data = error?.response?.data;
+  const data = responseBody(error);
   return !!data && typeof data === 'object' && ('detail' in data || 'error' in data || 'success' in data);
 }
 
 export function appErrorMessage(error: any): string | undefined {
-  const data = error?.response?.data;
+  const data = responseBody(error);
   if (!isAppResponse(error)) return undefined;
   if (typeof data.detail === 'string') return data.detail;
   if (typeof data.error?.message === 'string') return data.error.message;

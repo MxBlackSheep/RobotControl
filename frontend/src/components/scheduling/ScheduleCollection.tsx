@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Alert, Box, Button, LinearProgress, List, ListItemButton, Stack, TextField, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
-import { ScheduledExperiment } from '../../types/scheduling';
+import { SCHEDULE_MODE_LABELS, ScheduledExperiment } from '../../types/scheduling';
 import StatusChip from '../StatusChip';
 import { Panel } from '../PageLayout';
 import { columnHeading, fontMono, layout, StatusTone } from '../../theme';
@@ -87,7 +87,7 @@ export default function ScheduleCollection({ schedules, selected, onSelect, onRe
             <Typography sx={{ ...muted, display: 'none', [table]: { display: 'block' }, fontFamily: fontMono, fontSize: 12 }}>{schedule.last_run ? dayTime(schedule.last_run) : '—'}</Typography>
             <Stack direction="row" flexWrap="wrap" gap={0.5} sx={{ gridRow: { xs: 1 }, gridColumn: { xs: 2 }, [table]: { gridRow: 'auto', gridColumn: 'auto' } }}>
               <StatusChip tone={state.tone} label={state.label} />
-              {schedule.mode === 'simulation' && <StatusChip tone="neutral" label="Simulation" />}
+              {schedule.mode !== 'real' && <StatusChip tone="neutral" label={SCHEDULE_MODE_LABELS[schedule.mode]} />}
             </Stack>
           </ListItemButton>;
         })}
