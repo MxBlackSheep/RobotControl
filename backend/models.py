@@ -7,6 +7,7 @@ from typing import Optional, Any, Dict, List
 from dataclasses import dataclass, field
 from datetime import datetime
 import uuid
+import json
 
 from backend.utils.datetime import (
     parse_iso_datetime_to_local,
@@ -152,9 +153,17 @@ class ScheduledExperiment:
     recovery_resolved_by: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    runner: str = 'venus'
+    protocol_id: Optional[str] = None
+    parameters: Dict[str, Any] = None
+    protocol_revision: Optional[str] = None
     
     def __post_init__(self):
         """Initialize default values after creation"""
+        if self.runner not in ('venus', 'pyhsl'):
+            raise ValueError('Runner must be venus or pyhsl')
+        if self.parameters is None:
+            self.parameters = {}
         if self.mode not in ('real', 'simulation'):
             raise ValueError('Mode must be real or simulation')
         if type(self.log_inactivity_threshold_minutes) is not int or self.log_inactivity_threshold_minutes <= 0:
@@ -183,6 +192,10 @@ class ScheduledExperiment:
             "estimated_duration": self.estimated_duration,
             "log_inactivity_threshold_minutes": self.log_inactivity_threshold_minutes,
             "mode": self.mode,
+            "runner": self.runner,
+            "protocol_id": self.protocol_id,
+            "parameters": self.parameters,
+            "protocol_revision": self.protocol_revision,
             "created_by": self.created_by,
             "is_active": self.is_active,
             "archived": self.archived,
@@ -242,6 +255,10 @@ class ScheduledExperiment:
             estimated_duration=data.get("estimated_duration", 60),
             log_inactivity_threshold_minutes=data.get("log_inactivity_threshold_minutes", 3),
             mode=data.get('mode', 'real'),
+            runner=data.get('runner', 'venus'),
+            protocol_id=data.get('protocol_id'),
+            parameters=data.get('parameters', {}),
+            protocol_revision=data.get('protocol_revision'),
             created_by=data.get("created_by", "system"),
             is_active=data.get("is_active", True),
             archived=data.get("archived", False),
@@ -514,6 +531,7 @@ class JobExecution:
     error_message: Optional[str] = None
     hamilton_command: Optional[str] = None
     created_at: Optional[datetime] = None
+    pyhsl: Optional[Dict[str, Any]] = None
     
     def __post_init__(self):
         """Initialize default values after creation"""
@@ -533,6 +551,7 @@ class JobExecution:
             "retry_count": self.retry_count,
             "error_message": self.error_message,
             "hamilton_command": self.hamilton_command,
+            "pyhsl": self.pyhsl,
             "created_at": self.created_at.isoformat() if self.created_at else None
         }
     
@@ -549,6 +568,7 @@ class JobExecution:
             retry_count=data.get("retry_count", 0),
             error_message=data.get("error_message"),
             hamilton_command=data.get("hamilton_command"),
+            pyhsl=json.loads(data['pyhsl']) if isinstance(data.get('pyhsl'), str) else data.get('pyhsl'),
             created_at=parse_iso_datetime_to_local(data.get("created_at"))
         )
 

@@ -20,7 +20,8 @@ import MethodPicker from './MethodPicker';
 import { useAuth } from '../../context/AuthContext';
 import { isLocalUser } from '../navigation';
 import PreparationStepField from './PreparationStepField';
-import type { LegacyPreparation, PinnedPreparation, PreparationState, PreparationStep, ScheduleMode } from '../../types/scheduling';
+import PyHslProtocolField, { type CheckedProtocol } from './PyHslProtocolField';
+import type { LegacyPreparation, PinnedPreparation, PreparationState, PreparationStep, ScheduleMode, ScheduleRunner } from '../../types/scheduling';
 import { StatusMessage } from '../StatusDialog';
 import {
   Dialog,
@@ -45,7 +46,9 @@ import {
   IconButton,
   Switch,
   Autocomplete,
-  Checkbox
+  Checkbox,
+  ToggleButton,
+  ToggleButtonGroup
 } from '@mui/material';
 import {
   Refresh as RefreshIcon,
@@ -73,6 +76,9 @@ interface ScheduleFormData {
   estimated_duration: number;
   log_inactivity_threshold_minutes: number;
   mode: ScheduleMode;
+  runner?: ScheduleRunner;
+  protocol_id?: string;
+  parameters?: Record<string, unknown>;
   /** Undefined until the administrator changes the database step; then sent (null removes it). */
   preparation?: PreparationStep | null;
   notification_contacts: string[];
@@ -111,6 +117,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
   legacyPreparation = null,
 }) => {
   const { user } = useAuth();
+  const [protocolChecked, setProtocolChecked] = useState(false);
   const canEditPreparation = user?.role === 'admin' && isLocalUser(user);
   // Form state
   const [formData, setFormData] = useState<ScheduleFormData>({
@@ -334,6 +341,15 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
     loadExperiments();
   }, [open, initialData, loadExperiments, canEditPreparation, legacyPreparation, savedPreparation]);
 
+  const pyhsl = formData.runner === 'pyhsl';
+  const chooseRunner = (runner: ScheduleRunner) => setFormData(prev => runner === 'pyhsl'
+    ? { ...prev, runner, mode: 'simulation', experiment_path: '', experiment_name: '', timeout_action: 'continue', timeout_cleanup_experiment_name: null, timeout_cleanup_experiment_path: null }
+    : { ...prev, runner, mode: 'real', experiment_name: '', protocol_id: undefined, parameters: undefined });
+  const handleProtocolChange = (protocol_id: string, parameters: Record<string, unknown>, checked: CheckedProtocol | null) => {
+    setProtocolChecked(!!checked);
+    setFormData(prev => ({ ...prev, protocol_id, parameters, experiment_name: checked?.name ?? prev.experiment_name }));
+  };
+
   const handleExperimentSelect = (experimentPath: string) => {
     const selectedExperiment = experiments.find(exp => exp.path === experimentPath);
     
@@ -358,8 +374,8 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
   const validateForm = (): boolean => {
     const newErrors: string[] = [];
 
-    if (!formData.experiment_path) {
-      newErrors.push('Please select an experiment');
+    if (pyhsl ? !protocolChecked : !formData.experiment_path) {
+      newErrors.push(pyhsl ? 'Check the protocol first' : 'Please select an experiment');
     }
 
     if (!formData.experiment_name) {
@@ -458,7 +474,13 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
             </Box>
             <Box>
               <Stack spacing={2}>
-                <Box display="flex" alignItems="center" gap={1}>
+                <ToggleButtonGroup exclusive size="small" color="primary" aria-label="Runner" value={formData.runner ?? 'venus'} disabled={loading}
+                  onChange={(_, runner: ScheduleRunner | null) => { if (runner) chooseRunner(runner); }}>
+                  <ToggleButton value="venus">VENUS method</ToggleButton>
+                  <ToggleButton value="pyhsl">PyHSL protocol</ToggleButton>
+                </ToggleButtonGroup>
+                {pyhsl && <PyHslProtocolField protocolId={formData.protocol_id ?? ''} parameters={formData.parameters ?? {}} disabled={loading} onChange={handleProtocolChange} />}
+                {!pyhsl && <><Box display="flex" alignItems="center" gap={1}>
                   <Box ref={experimentControlRef} sx={{ flex: 1 }}><MethodPicker methods={experiments} value={formData.experiment_path} label="Choose method" onChange={handleExperimentSelect} disabled={loading || scanning} /></Box>
                   <Tooltip title="Refresh method library">
                     <IconButton 
@@ -473,6 +495,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                 {formData.experiment_path && <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>{formData.experiment_name} · {formData.experiment_path}</Typography>}
                 {!loading && !!formData.experiment_path && !experiments.some(exp => exp.path === formData.experiment_path) &&
                   <Alert severity="warning">This saved path is not in the current available method library. It may be archived or unavailable. Your selection is preserved; review it in Methods before changing it.</Alert>}
+                </>}
 
                 <TextField
                   label="Estimated duration (minutes)"
@@ -616,9 +639,9 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                       label="Timeout Action"
                     >
                       <MenuItem value="continue">Do Nothing and Continue Execution</MenuItem>
-                      <MenuItem value="run_cleanup_and_terminate">
+                      {!pyhsl && <MenuItem value="run_cleanup_and_terminate">
                         Run Cleanup Method Instead and Stop Future Runs
-                      </MenuItem>
+                      </MenuItem>}
                     </Select>
                   </FormControl>
                 </Grid>
@@ -632,13 +655,14 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                   </Grid>
                 )}
 
-                <Grid item xs={12} md={6}>
+                {/* The VENUS run log only: a PyHSL run is followed through Run Control. */}
+                {!pyhsl && <Grid item xs={12} md={6}>
                   <TextField fullWidth type="number" label="Log inactivity threshold (minutes)"
                     value={formData.log_inactivity_threshold_minutes}
                     onChange={(event) => setFormData({ ...formData, log_inactivity_threshold_minutes: Number(event.target.value) })}
                     inputProps={{ min: 1, step: 1 }}
                   />
-                </Grid>
+                </Grid>}
                 <Grid item xs={12} md={6}>
                   <Autocomplete
                     multiple
@@ -706,12 +730,13 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                     control={
                       <Switch
                         checked={formData.mode === 'simulation'}
+                        disabled={pyhsl}
                         onChange={(event) =>
                           setFormData((prev) => ({ ...prev, mode: event.target.checked ? 'simulation' : 'real' }))
                         }
                       />
                     }
-                    label="Run in VENUS Simulation Mode"
+                    label={pyhsl ? 'Simulation' : 'Run in VENUS Simulation Mode'}
                   />
                 </Grid>
               </Grid>

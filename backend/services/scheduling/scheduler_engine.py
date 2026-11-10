@@ -120,7 +120,10 @@ class SchedulerEngine:
         self._contacts_lock = threading.RLock()
         self._notification_contacts: Dict[str, NotificationContact] = {}
         self.run_log_monitor = RunLogMonitor(self.db_manager)
+        from backend.services.scheduling.pyhsl_runner import PyHslRunner
+        self.pyhsl_runner = PyHslRunner(self)
         self._owned_execution_ids: Set[str] = set()
+        self._pyhsl_unavailable_since: Dict[str, float] = {}
         
         logger.info("Scheduler engine initialized")
     
@@ -447,6 +450,8 @@ class SchedulerEngine:
                     "schedule_id": schedule_id,
                     "experiment_name": schedule.experiment_name if schedule else schedule_id,
                     "experiment_path": schedule.experiment_path if schedule else None,
+                    "runner": schedule.runner if schedule else None,
+                    "protocol_id": schedule.protocol_id if schedule else None,
                     # The user's estimate in minutes; the UI treats it as a hint, never an end time.
                     "estimated_duration": schedule.estimated_duration if schedule else None,
                     "priority": "NORMAL",
@@ -609,11 +614,13 @@ class SchedulerEngine:
     @contextmanager
     def database_change_guard(self):
         """Serialize a short database transaction with the final scheduler launch check."""
+        from backend.services.scheduling.pyhsl_runner import require_no_active_run
+        require_no_active_run()
         with self._schedules_lock, self._jobs_lock:
             state = self._refresh_manual_recovery_state(force=True)
             if not state.storage_healthy:
                 raise StorageUnavailable('Scheduler safety state unavailable')
-            if state.active or state.resume_required or self._owned_execution_ids or self.run_log_monitor.snapshots():
+            if state.active or state.resume_required or self._owned_execution_ids or self.run_log_monitor.snapshots() or self.pyhsl_runner.unfinished():
                 raise SafetyConflict('Finish the run and resolve recovery before changing the database.')
             self._require_robot_absent()
             yield
@@ -658,6 +665,10 @@ class SchedulerEngine:
         return self._apply_manual_recovery(schedule, note, actor, expected_updated_at)
 
     def resolve_manual_recovery(self, schedule_id, note, actor, expected_revision, expected_updated_at=None):
+        schedule = self.db_manager.get_schedule_by_id(schedule_id)
+        history = self.db_manager.sqlite_db.get_execution_history(schedule_id, limit=1)
+        if (schedule and schedule.runner == 'pyhsl') or (history and history[0].get('pyhsl') is not None):
+            self.pyhsl_runner.acknowledge(schedule_id)
         return self._clear_manual_recovery(schedule_id, note, actor, expected_revision, expected_updated_at)
 
     def get_manual_recovery_state(self) -> ManualRecoveryState:
@@ -722,15 +733,20 @@ class SchedulerEngine:
         if schedule.recovery_required:
             return "Schedule requires manual recovery before next run"
 
-        if self.run_log_monitor.snapshots():
+        if self.run_log_monitor.snapshots() or self.pyhsl_runner.unfinished():
             return "Waiting for the previous scheduled execution to finish or be reconciled"
 
         if self.process_monitor.is_hamilton_running():
             return "Hamilton HxRun.exe is currently busy"
 
+        if schedule.runner == 'pyhsl':
+            from backend.services.scheduling.pyhsl_runner import dispatch_reason
+            return dispatch_reason()
         return self._simulation_block_reason(schedule)
 
     def _simulation_block_reason(self, schedule: ScheduledExperiment) -> Optional[str]:
+        if schedule.runner == 'pyhsl':
+            return None
         from backend.services.scheduling.experiment_executor import ExecutionConfig
         return simulation_block_reason(schedule.mode, ExecutionConfig().hxrun_path)
 
@@ -780,6 +796,22 @@ class SchedulerEngine:
         """Single-worker queue consumer for scheduled jobs."""
         logger.info("Scheduler job worker loop started")
         while self._running or not self._job_queue.empty():
+            if self._running:
+                try:
+                    unfinished = self.pyhsl_runner.unfinished()
+                    for execution in unfinished:
+                        schedule = self.db_manager.get_schedule_by_id(execution.schedule_id)
+                        if schedule is not None:
+                            with self._jobs_lock:
+                                self._running_jobs.add(schedule.schedule_id)
+                            self.pyhsl_runner.execute(schedule, execution)
+                except Exception:
+                    # A locked database must not end the only worker; the next pass retries.
+                    logger.exception('Could not resume unfinished PyHSL executions')
+                    unfinished = True
+                if unfinished:
+                    self._stop_event.wait(1)
+                    continue
             try:
                 item = self._job_queue.get(timeout=1.0)
             except Empty:
@@ -800,6 +832,26 @@ class SchedulerEngine:
                         self._queued_backlog.discard(schedule_id)
                         continue
 
+                with self._schedules_lock:
+                    current = self._active_schedules.get(schedule_id)
+                if self._running and current and current.is_active and current.runner == 'pyhsl':
+                    from backend.services.scheduling.pyhsl_runner import UNAVAILABLE_REASON
+                    # Every gate, not only PyHSL's: a PyHSL job never waits in place, so it never holds
+                    # back the jobs behind it.
+                    reason = self._resolve_dispatch_block_reason(current)
+                    if reason:
+                        self._set_queue_waiting_reason(schedule_id, reason)
+                        since = self._pyhsl_unavailable_since.setdefault(schedule_id, time.monotonic()) \
+                            if reason == UNAVAILABLE_REASON else self._pyhsl_unavailable_since.pop(schedule_id, None)
+                        if reason == UNAVAILABLE_REASON and time.monotonic() - since >= 180:
+                            try:
+                                self._notify_execution_event(experiment, execution, 'pyhsl_unavailable', {'note': reason})
+                            except Exception:
+                                logger.exception('PyHSL wait notification failed')
+                        self._job_queue.put(item)
+                        self._stop_event.wait(1)
+                        continue
+                    self._pyhsl_unavailable_since.pop(schedule_id, None)
                 ready_schedule = self._wait_until_dispatch_ready(schedule_id, execution)
                 if ready_schedule is None:
                     wait_reason = self._get_queue_waiting_reason(schedule_id)
@@ -935,6 +987,9 @@ class SchedulerEngine:
 
     def _execute_job(self, experiment: ScheduledExperiment, execution: JobExecution):
         """Run one method and share completion handling with restart reconciliation."""
+        if experiment.runner == 'pyhsl':
+            self.pyhsl_runner.execute(experiment, execution)
+            return
         timeout_context = {}
         with self._jobs_lock:
             self._owned_execution_ids.add(execution.execution_id)
@@ -987,7 +1042,7 @@ class SchedulerEngine:
             self._emit_event("job_completed" if execution.status == "completed" else "job_failed",
                              schedule.schedule_id, schedule.experiment_name,
                              "Job completed successfully" if execution.status == "completed" else "Job execution failed")
-        if execution.status == "failed":
+        if execution.status == "failed" and execution.pyhsl is None:
             self._handle_failed_execution(schedule, execution)
         self.run_log_monitor.finish(execution.execution_id)
         with self._jobs_lock:
@@ -1338,7 +1393,7 @@ class SchedulerEngine:
                 context=context,
                 **({"trace_path": Path(observation.trace_path) if observation.trace_path else None,
                     "exact_trace": True} if observation else
-                   {"exact_trace": True} if event_type == "simulation_mode_mismatch" else {}),
+                   {"exact_trace": True} if event_type == "simulation_mode_mismatch" or execution.pyhsl is not None or experiment.runner == 'pyhsl' else {}),
             )
             status = "sent" if result.sent else "partial" if result.delivery_status == "partial" else "error"
             self.db_manager.update_notification_log(

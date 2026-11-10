@@ -67,7 +67,8 @@ export default function NowRunning({ status, error, span }: { status: RobotStatu
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 15000); return () => clearInterval(timer); }, []);
   const job = status?.running[0];
-  const timing = job ? runTiming(job.monitoring?.launched_at, job.estimated_duration, now) : null;
+  // A PyHSL run has no VENUS log observation, so its timing is on its Run page.
+  const timing = job && job.runner !== 'pyhsl' ? runTiming(job.monitoring?.launched_at, job.estimated_duration, now) : null;
   const [timingStart, timingDetail] = timing ? timingText(timing) : [null, null];
   const stateChip = status && (job ? <StatusChip tone="running" label="Running" />
     : <StatusChip tone="neutral" label={status.schedulerRunning ? 'Idle' : 'Scheduler stopped'} />);
@@ -84,11 +85,16 @@ export default function NowRunning({ status, error, span }: { status: RobotStatu
       {status.queued > 0 && <Typography variant="body2" color="text.secondary">{status.queued} waiting in the queue.</Typography>}
     </Box>}
 
+    {job && !timing && <Box>
+      <DetailTitle component="p">{job.experiment_name}</DetailTitle>
+      {job.protocol_id && <Typography sx={{ fontFamily: fontMono, fontSize: 12, lineHeight: '16px', color: 'text.secondary', overflowWrap: 'anywhere' }}>{job.protocol_id}</Typography>}
+    </Box>}
+
     {job && timing && <>
       <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 3, minWidth: 0 }}>
         <Box sx={{ minWidth: 0, flex: 1 }}>
           <DetailTitle component="p">{job.experiment_name}</DetailTitle>
-          {job.experiment_path && <Typography sx={{ display: { xs: 'none', sm: 'block' }, fontFamily: fontMono, fontSize: 12, lineHeight: '16px', color: 'text.secondary', overflowWrap: 'anywhere' }}>{job.experiment_path}</Typography>}
+          {job.experiment_path && job.runner !== 'pyhsl' && <Typography sx={{ display: { xs: 'none', sm: 'block' }, fontFamily: fontMono, fontSize: 12, lineHeight: '16px', color: 'text.secondary', overflowWrap: 'anywhere' }}>{job.experiment_path}</Typography>}
         </Box>
         {timing.elapsed !== null && <Box sx={{ display: { xs: 'none', sm: 'flex' }, flexDirection: 'column', alignItems: 'flex-end', flexShrink: 0 }}>
           <Typography component="span" sx={{ fontFamily: fontMono, fontSize: 32, lineHeight: '32px', fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
@@ -110,7 +116,9 @@ export default function NowRunning({ status, error, span }: { status: RobotStatu
     </>}
 
     {job && <Stack direction="row" gap={1} flexWrap="wrap">
-      <Button variant="outlined" component={Link} to="/logfile?section=hamilton">View run log</Button>
+      {job.runner === 'pyhsl'
+        ? <Button variant="outlined" component={Link} to="/pyhsl">Open run</Button>
+        : <Button variant="outlined" component={Link} to="/logfile?section=hamilton">View run log</Button>}
     </Stack>}
   </Panel>;
 }

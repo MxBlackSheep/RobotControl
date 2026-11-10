@@ -61,7 +61,8 @@ import MethodPathDialog from '../components/scheduling/MethodPathDialog';
 import { LibraryMethod } from '../types/scheduling';
 import ExecutionHistory from '../components/ExecutionHistory';
 import useScheduling from '../hooks/useScheduling';
-import { formatDuration, ScheduledExperiment, ScheduleMode, CreateScheduleFormData, UpdateScheduleRequest, SchedulingOperationStatus } from '../types/scheduling';
+import { scheduleTarget } from '../components/scheduling/ScheduleCollection';
+import { formatDuration, ScheduledExperiment, ScheduleMode, ScheduleRunner, CreateScheduleFormData, UpdateScheduleRequest, SchedulingOperationStatus } from '../types/scheduling';
 import StatusDialog from '../components/StatusDialog';
 import { DeleteConfirmationDialog } from '../components/ScheduleActions';
 
@@ -74,6 +75,9 @@ type ScheduleFormValues = Partial<{
   estimated_duration: number;
   log_inactivity_threshold_minutes: number;
   mode: ScheduleMode;
+  runner?: ScheduleRunner;
+  protocol_id?: string;
+  parameters?: Record<string, unknown>;
   is_active: boolean;
   timeout_minutes: number | null;
   timeout_action: 'continue' | 'run_cleanup_and_terminate';
@@ -179,6 +183,8 @@ const SchedulingPage: React.FC = () => {
       const updatePayload: UpdateScheduleRequest = {
         experiment_name: data.experiment_name,
         experiment_path: data.experiment_path,
+        runner: data.runner ?? 'venus',
+        ...(data.runner === 'pyhsl' ? { protocol_id: data.protocol_id, parameters: data.parameters } : {}),
         schedule_type: data.schedule_type,
         interval_hours: data.schedule_type === 'interval' ? Number(data.interval_hours) : undefined,
         start_time: data.start_time ? new Date(data.start_time).toISOString() : undefined,
@@ -210,6 +216,7 @@ const SchedulingPage: React.FC = () => {
       const createPayload: CreateScheduleFormData = {
         experiment_name: data.experiment_name,
         experiment_path: data.experiment_path,
+        ...(data.runner === 'pyhsl' ? { runner: 'pyhsl' as const, protocol_id: data.protocol_id, parameters: data.parameters } : {}),
         schedule_type: data.schedule_type,
         interval_hours: data.schedule_type === 'interval' ? Number(data.interval_hours) : undefined,
         start_time: data.start_time ? new Date(data.start_time) : null,
@@ -277,6 +284,9 @@ const SchedulingPage: React.FC = () => {
       estimated_duration: selected.estimated_duration,
       log_inactivity_threshold_minutes: selected.log_inactivity_threshold_minutes,
       mode: selected.mode,
+      runner: selected.runner,
+      protocol_id: selected.protocol_id ?? undefined,
+      parameters: selected.parameters,
       is_active: selected.is_active,
       timeout_minutes: selected.timeout_config?.timeout_minutes ?? null,
       timeout_action: selected.timeout_config?.action ?? 'continue',
@@ -488,6 +498,7 @@ const SchedulingPage: React.FC = () => {
       ['Timing', repeatLabel(schedule)],
       ...(phone ? [] : [['Next run', formatTimestamp(schedule.next_run)]]),
       ['Duration', formatDuration(schedule.estimated_duration)],
+      ...(schedule.runner === 'pyhsl' ? [['Protocol', schedule.protocol_id ?? '']] : []),
       ['Mode', schedule.mode === 'simulation' ? 'Simulation' : 'Real'],
       ['Before this run', preparationSummary(schedule)],
       ['Late-start action', `${schedule.timeout_config?.action === 'run_cleanup_and_terminate' ? 'Run cleanup and terminate' : 'Continue'}${schedule.timeout_config?.timeout_minutes ? ` after ${schedule.timeout_config.timeout_minutes} minutes` : ''}`],
@@ -515,7 +526,7 @@ const SchedulingPage: React.FC = () => {
             <DetailTitle>{schedule.experiment_name}</DetailTitle>
             {phone && <Box sx={{ flexShrink: 0, pt: 0.25 }}>{statusChip}</Box>}
           </Stack>
-          <Typography sx={{ fontFamily: fontMono, fontSize: 12, lineHeight: '16px', color: 'text.secondary', overflowWrap: 'anywhere', mt: 0.5 }}>{schedule.experiment_path}</Typography>
+          <Typography sx={{ fontFamily: fontMono, fontSize: 12, lineHeight: '16px', color: 'text.secondary', overflowWrap: 'anywhere', mt: 0.5 }}>{scheduleTarget(schedule)}</Typography>
         </Box>
         {phone && <Box component="section" aria-label="Next run" sx={{ p: 2, borderBottom: 1, borderColor: 'surface.rowLine' }}>
           <PanelLabel component="p">Next run</PanelLabel>

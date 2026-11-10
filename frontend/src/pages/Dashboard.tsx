@@ -65,7 +65,7 @@ const Dashboard: React.FC = memo(() => {
     <Stack spacing={`${layout.gutter}px`}>
       {hold}
       {running}
-      <PanelErrorBoundary name="PyHSL"><PyHslPanel status={pyhsl} /></PanelErrorBoundary>
+      <PanelErrorBoundary name="PyHSL"><PyHslPanel status={pyhsl} canOpen={canOpenScheduling} /></PanelErrorBoundary>
       <PanelErrorBoundary name="Up next"><UpNext canOpenScheduling={canOpenScheduling} rows={PHONE_UP_NEXT} /></PanelErrorBoundary>
       {canOpenScheduling && <PanelErrorBoundary name="Clean tips"><CleanTips /></PanelErrorBoundary>}
       <PanelErrorBoundary name="Instrument health"><InstrumentProblems status={status} pyhsl={pyhsl} /></PanelErrorBoundary>
@@ -76,7 +76,7 @@ const Dashboard: React.FC = memo(() => {
     <PageGrid>
       <PanelErrorBoundary name="Instrument health"><InstrumentHealth status={status} pyhsl={pyhsl} /></PanelErrorBoundary>
       {running}{hold}
-      <PanelErrorBoundary name="PyHSL"><PyHslPanel status={pyhsl} /></PanelErrorBoundary>
+      <PanelErrorBoundary name="PyHSL"><PyHslPanel status={pyhsl} canOpen={canOpenScheduling} /></PanelErrorBoundary>
       <PanelErrorBoundary name="Up next" span={6}><UpNext canOpenScheduling={canOpenScheduling} span={6} /></PanelErrorBoundary>
       <PanelErrorBoundary name="Recent runs" span={6}><RecentRuns canOpenScheduling={canOpenScheduling} span={6} /></PanelErrorBoundary>
       <PanelErrorBoundary name="Latest experiment"><ExperimentStatus /></PanelErrorBoundary>

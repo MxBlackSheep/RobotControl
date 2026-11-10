@@ -46,7 +46,7 @@ export const phoneTabs: (PhoneLink & { id: 'now' | 'runs' | 'camera' | 'more' })
 ];
 export const visiblePhoneTabs = (user: NavigationUser) => phoneTabs.filter(permitted(user));
 /** Pages a tab opens itself (What happened is Now's); anything else is reached from More. */
-const tabPages: Record<string, 'now'> = { '/held': 'now' };
+const tabPages: Record<string, 'now'> = { '/held': 'now', '/pyhsl': 'now' };
 /** The tab a path belongs to: every page that is not a tab's own is reached from More. */
 export const phoneTabFor = (path: string) => phoneTabs.find(tab => tab.to === path && tab.id !== 'more')?.id ?? tabPages[path] ?? 'more';
 /** Where a phone page's back link leads: the tab that opened it, or none for a tab's own page. */

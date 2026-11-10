@@ -293,6 +293,10 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
 
                 existing_columns = {col['name'] for col in cursor.execute("PRAGMA table_info(ScheduledExperiments)")}
                 column_alterations = [
+                    ('runner', "ALTER TABLE ScheduledExperiments ADD COLUMN runner TEXT NOT NULL DEFAULT 'venus'"),
+                    ('protocol_id', 'ALTER TABLE ScheduledExperiments ADD COLUMN protocol_id TEXT'),
+                    ('parameters', "ALTER TABLE ScheduledExperiments ADD COLUMN parameters TEXT NOT NULL DEFAULT '{}'"),
+                    ('protocol_revision', 'ALTER TABLE ScheduledExperiments ADD COLUMN protocol_revision TEXT'),
                     ('log_inactivity_threshold_minutes', "ALTER TABLE ScheduledExperiments ADD COLUMN log_inactivity_threshold_minutes INTEGER NOT NULL DEFAULT 3"),
                     ('mode', "ALTER TABLE ScheduledExperiments ADD COLUMN mode TEXT NOT NULL DEFAULT 'real'"),
                     ('recovery_required', "ALTER TABLE ScheduledExperiments ADD COLUMN recovery_required INTEGER NOT NULL DEFAULT 0"),
@@ -317,6 +321,9 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                             raise StorageUnavailable(f"Unable to migrate scheduling column {column_name}") from alter_exc
 
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_scheduled_recovery_required ON ScheduledExperiments(recovery_required)")
+                for table in ('JobExecutions', 'JobExecutionsArchive'):
+                    if 'pyhsl' not in {col['name'] for col in cursor.execute(f'PRAGMA table_info({table})')}:
+                        cursor.execute(f'ALTER TABLE {table} ADD COLUMN pyhsl TEXT')
 
                 scheduler_state_columns = {col["name"] for col in cursor.execute("PRAGMA table_info(SchedulerState)")}
                 scheduler_state_alterations = [
@@ -413,8 +420,9 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                         timeout_cleanup_experiment_name, timeout_cleanup_experiment_path, prerequisites,
                         recovery_required, recovery_note, recovery_marked_at, recovery_marked_by,
                         recovery_resolved_at, recovery_resolved_by, created_at, updated_at,
-                        log_inactivity_threshold_minutes, preparation, mode
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        log_inactivity_threshold_minutes, preparation, mode,
+                        runner, protocol_id, parameters, protocol_revision
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     schedule.schedule_id,
                     schedule.experiment_name,
@@ -442,6 +450,7 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                     schedule.log_inactivity_threshold_minutes,
                     json.dumps(schedule.preparation) if schedule.preparation else None,
                     schedule.mode,
+                    schedule.runner, schedule.protocol_id, json.dumps(schedule.parameters), schedule.protocol_revision,
                 ))
                 self._replace_schedule_contacts(conn, schedule.schedule_id, schedule.notification_contacts or [])
                 conn.commit()
@@ -584,6 +593,7 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                     "estimated_duration = ?",
                     "log_inactivity_threshold_minutes = ?",
                     "mode = ?",
+                    "runner = ?", "protocol_id = ?", "parameters = ?", "protocol_revision = ?",
                     "is_active = CASE WHEN recovery_required = 1 OR archived = 1 THEN 0 ELSE ? END",
                     "archived = ?",
                     "timeout_minutes = ?",
@@ -602,6 +612,7 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                     schedule.estimated_duration,
                     schedule.log_inactivity_threshold_minutes,
                     schedule.mode,
+                    schedule.runner, schedule.protocol_id, json.dumps(schedule.parameters), schedule.protocol_revision,
                     1 if schedule.is_active else 0,
                     1 if getattr(schedule, "archived", False) else 0,
                     schedule.timeout_config.timeout_minutes if schedule.timeout_config else None,
@@ -1073,6 +1084,7 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                 retry_count,
                 error_message,
                 hamilton_command,
+                pyhsl,
                 created_at,
                 archived_at
             )
@@ -1088,6 +1100,7 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                 je.retry_count,
                 je.error_message,
                 je.hamilton_command,
+                je.pyhsl,
                 je.created_at,
                 CURRENT_TIMESTAMP
             FROM JobExecutions je
@@ -1202,20 +1215,21 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                 if self._safety_fault or self._integrity_error or conn.execute('PRAGMA foreign_key_check').fetchone():
                     raise StorageUnavailable('Scheduler safety state unavailable; execution was not started')
             values = (execution.status, self._serialize_timestamp(execution.start_time), self._serialize_timestamp(execution.end_time),
-                      execution.duration_minutes, execution.retry_count, execution.error_message, execution.hamilton_command)
+                      execution.duration_minutes, execution.retry_count, execution.error_message, execution.hamilton_command,
+                      json.dumps(execution.pyhsl) if execution.pyhsl is not None else None)
             if not schedule_exists:
                 if execution.status in ('pending', 'queued', 'running'):
                     raise SafetyConflict('Cannot start an execution for a deleted schedule')
                 count = conn.execute("""UPDATE JobExecutionsArchive SET status = ?, start_time = ?, end_time = ?,
-                    duration_minutes = ?, retry_count = ?, error_message = ?, hamilton_command = ?
+                    duration_minutes = ?, retry_count = ?, error_message = ?, hamilton_command = ?, pyhsl = ?
                     WHERE execution_id = ? AND status IN ('pending', 'queued', 'running')""", (*values, execution.execution_id)).rowcount
                 conn.commit()
                 return bool(count) or conn.execute('SELECT 1 FROM JobExecutionsArchive WHERE execution_id = ?', (execution.execution_id,)).fetchone() is not None
             conn.execute("""INSERT INTO JobExecutions (execution_id, schedule_id, status, start_time, end_time,
-                duration_minutes, retry_count, error_message, hamilton_command) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                duration_minutes, retry_count, error_message, hamilton_command, pyhsl) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(execution_id) DO UPDATE SET status = excluded.status, start_time = excluded.start_time,
                 end_time = excluded.end_time, duration_minutes = excluded.duration_minutes, retry_count = excluded.retry_count,
-                error_message = excluded.error_message, hamilton_command = excluded.hamilton_command
+                error_message = excluded.error_message, hamilton_command = excluded.hamilton_command, pyhsl = excluded.pyhsl
                 WHERE JobExecutions.status IN ('pending', 'queued', 'running')""", (execution.execution_id, execution.schedule_id, *values))
             conn.commit()
             return True
@@ -1554,6 +1568,8 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                 estimated_duration=row["estimated_duration"],
                 log_inactivity_threshold_minutes=row["log_inactivity_threshold_minutes"],
                 mode=row['mode'],
+                runner=row['runner'], protocol_id=row['protocol_id'],
+                parameters=json.loads(row['parameters']), protocol_revision=row['protocol_revision'],
                 created_by=row["created_by"],
                 is_active=bool(row["is_active"]),
                 archived=bool(row["archived"]) if "archived" in row_keys else False,
@@ -1643,6 +1659,7 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                         je.retry_count,
                         je.error_message,
                         je.hamilton_command,
+                        je.pyhsl,
                         je.created_at,
                         se.experiment_name AS experiment_name,
                         se.experiment_path AS experiment_path,
@@ -1672,6 +1689,7 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                         retry_count,
                         error_message,
                         hamilton_command,
+                        pyhsl,
                         created_at,
                         experiment_name_snapshot AS experiment_name,
                         experiment_path_snapshot AS experiment_path,
@@ -1726,6 +1744,7 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                     executions = executions[:limit]
 
                 for execution in executions:
+                    execution['pyhsl'] = json.loads(execution['pyhsl']) if execution['pyhsl'] is not None else None
                     if execution.get("start_time") and execution.get("end_time"):
                         try:
                             start = parse_iso_datetime_to_local(execution["start_time"])

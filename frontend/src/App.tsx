@@ -39,6 +39,7 @@ const AdminPage = loadComponent(() => import('./pages/AdminPage'));
 const AccountPage = loadComponent(() => import('./pages/AccountPage'));
 const MorePage = loadComponent(() => import('./pages/MorePage'));
 const HeldRunPage = loadComponent(() => import('./pages/HeldRunPage'));
+const PyHslRunPage = loadComponent(() => import('./pages/PyHslRunPage'));
 
 function AccountMenu({ compact, onChangePassword }: { compact: boolean; onChangePassword: () => void }) {
   const { user, logout } = useAuth();
@@ -122,6 +123,9 @@ function AppShell() {
             <Route path="/account" element={<AccountPage />} />
             <Route path="/more" element={<MorePage />} />
             <Route path="/held" element={<HeldRunPage />} />
+            {(['admin', 'user'].includes(user?.role || '')) && (
+              <Route path="/pyhsl" element={<PyHslRunPage />} />
+            )}
             <Route path="/login" element={<Navigate to="/" replace />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

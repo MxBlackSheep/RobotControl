@@ -59,6 +59,21 @@ def _schedule_mode(value: Any) -> str:
     return value
 
 
+def _runner_fields(data, timeout_config):
+    runner = data.get('runner', 'venus')
+    if runner not in ('venus', 'pyhsl'):
+        raise HTTPException(status_code=400, detail='Runner must be venus or pyhsl')
+    if runner == 'venus':
+        return dict(runner=runner, protocol_id=None, parameters={}, protocol_revision=None,
+                    experiment_path=data['experiment_path'])
+    if timeout_config.action != 'continue':
+        raise HTTPException(status_code=400, detail='PyHSL schedules cannot run a cleanup method')
+    from backend.api.pyhsl import validate_request
+    validated = validate_request(data)
+    return dict(runner=runner, protocol_id=data['protocol_id'], parameters=data.get('parameters', {}),
+                protocol_revision=validated['protocol']['revision'], experiment_path='pyhsl:' + data['protocol_id'])
+
+
 def _log_inactivity_threshold(value: Any) -> int:
     if type(value) is not int or value <= 0:
         raise HTTPException(status_code=400, detail="Log inactivity threshold must be a positive whole number of minutes")
@@ -855,6 +870,8 @@ def create_schedule(
         
         # Validate required fields
         required_fields = ["experiment_name", "experiment_path", "schedule_type", "estimated_duration"]
+        if schedule_data.get('runner') == 'pyhsl':
+            required_fields.remove('experiment_path')
         for field in required_fields:
             if field not in schedule_data:
                 logger.error(f"Missing required field: {field}. Received data: {schedule_data}")
@@ -881,6 +898,9 @@ def create_schedule(
                 )
 
         timeout_config = _normalize_timeout_config(schedule_data.get("timeout_config"))
+        runner_fields = _runner_fields(schedule_data, timeout_config)
+        if runner_fields['runner'] == 'venus':
+            runner_fields['experiment_path'] = str(resolve_experiment_path(runner_fields['experiment_path']))
         
         normalized_type, normalized_interval_hours = _normalize_schedule_request(
             schedule_data["schedule_type"],
@@ -891,7 +911,7 @@ def create_schedule(
         experiment = ScheduledExperiment(
             schedule_id="",  # Will be auto-generated
             experiment_name=schedule_data["experiment_name"],
-            experiment_path=str(resolve_experiment_path(schedule_data["experiment_path"])),
+            **runner_fields,
             schedule_type=normalized_type,
             interval_hours=normalized_interval_hours,
             start_time=start_time,
@@ -1149,10 +1169,12 @@ def update_schedule(
 
         # Work on a fresh copy so we don't mutate cached instances prematurely
         updated_schedule = ScheduledExperiment.from_dict(base_schedule.to_dict())
+        if base_schedule.runner == 'pyhsl' and update_data.get('runner') == 'venus' and not update_data.get('experiment_path'):
+            raise HTTPException(status_code=400, detail='Choose a VENUS method')
 
         if "experiment_name" in update_data:
             updated_schedule.experiment_name = update_data["experiment_name"]
-        if "experiment_path" in update_data:
+        if "experiment_path" in update_data and update_data.get('runner', updated_schedule.runner) == 'venus':
             updated_schedule.experiment_path = str(resolve_experiment_path(update_data["experiment_path"]))
         if "schedule_type" in update_data:
             updated_schedule.schedule_type = update_data["schedule_type"]
@@ -1192,6 +1214,14 @@ def update_schedule(
         )
         updated_schedule.schedule_type = normalized_type
         updated_schedule.interval_hours = normalized_interval_hours
+
+        runner_data = {**updated_schedule.to_dict(),
+                       **{key: update_data[key] for key in ('runner', 'protocol_id', 'parameters') if key in update_data}}
+        unchanged = all(runner_data[key] == getattr(base_schedule, key) for key in ('runner', 'protocol_id', 'parameters', 'mode'))
+        # Turning a schedule off or editing a stopped one must not need Run Control open.
+        if updated_schedule.is_active or not unchanged or runner_data['runner'] == 'venus':
+            for name, value in _runner_fields(runner_data, updated_schedule.timeout_config).items():
+                setattr(updated_schedule, name, value)
 
         updated_schedule.updated_at = utc_now_as_local_naive()
 

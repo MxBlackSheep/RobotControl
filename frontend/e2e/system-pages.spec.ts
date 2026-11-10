@@ -242,7 +242,7 @@ test('Overview shows elapsed time against the estimate and keeps other panels wh
 
 test('Overview reports a PyHSL run and review, and never reads a failed status as healthy', async ({ page }) => {
   const reading = { state: 'running', reason: '', checked_at: '2026-11-09T15:37:00+00:00',
-    run: { run_id: 'r1', protocol: 'pyhsl_test_automation', status: 'running', mode: 'simulation', completed_count: 4, error: null, origin: 'machine', created_at: '2026-11-09T15:36:00+00:00' },
+    run: { run_id: 'r1', protocol: 'pyhsl_test_automation', status: 'running', mode: 'simulation', completed_count: 4, error: null, origin: 'person', created_at: '2026-11-09T15:36:00+00:00' },
     reviews: { known: false, blocked: false, run_ids: [] as string[] } };
   let reply: Record<string, unknown> = reading;
   await page.route('**/api/pyhsl/status', route => reply.fails
@@ -254,6 +254,11 @@ test('Overview reports a PyHSL run and review, and never reads a failed status a
   await expect(health).toContainText('PyHSLRunning');
   await expect(panel).toContainText('pyhsl_test_automation');
   await expect(panel).toContainText('Simulation');
+  // A scheduled run is shown in Now running, not twice.
+  reply = { ...reading, run: { ...reading.run, origin: 'machine' } };
+  await page.reload();
+  await expect(health).toContainText('PyHSLRunning');
+  await expect(panel).toHaveCount(0);
   reply = { ...reading, run: null, reviews: { known: true, blocked: true, run_ids: ['r1'] } };
   await page.reload();
   await expect(health).toContainText('PyHSLReview needed');

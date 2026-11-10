@@ -27,6 +27,16 @@ export function usePyHslStatus() {
   return polling.error ? null : status;
 }
 
+/** The PyHSL run of an execution history row, when it has one. */
+export function pyhslRunId(record: { pyhsl?: unknown }): string | null {
+  let receipt = record.pyhsl;
+  if (typeof receipt === 'string') {
+    try { receipt = JSON.parse(receipt); } catch { return null; }
+  }
+  const id = (receipt as { run_id?: unknown } | null | undefined)?.run_id;
+  return typeof id === 'string' ? id : null;
+}
+
 /** Run Control's state for the instrument strip. Unknown is never healthy. */
 export function pyhslState(status: PyHslStatus | null): [string, StatusTone] {
   if (status?.reviews.blocked) return ['Review needed', 'attention'];

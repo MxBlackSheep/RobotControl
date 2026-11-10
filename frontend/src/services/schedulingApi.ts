@@ -72,6 +72,9 @@ export const normalizeSchedule = (raw: any): ScheduledExperiment => {
     estimated_duration: coerceNumber(raw?.estimated_duration, 0),
     log_inactivity_threshold_minutes: coerceNumber(raw?.log_inactivity_threshold_minutes, 3),
     mode: coerceString(raw?.mode || 'real') as ScheduledExperiment['mode'],
+    runner: raw?.runner === 'pyhsl' ? 'pyhsl' : 'venus',
+    protocol_id: raw?.protocol_id ?? null,
+    parameters: raw?.parameters ?? {},
     created_by: coerceString(raw?.created_by || 'system'),
     created_at: coerceString(raw?.created_at || ''),
     updated_at: coerceString(raw?.updated_at || raw?.created_at || ''),
@@ -331,6 +334,7 @@ export const schedulingAPI = {
 const buildScheduleRequest = (data: CreateScheduleFormData): CreateScheduleRequest => ({
   experiment_name: data.experiment_name,
   experiment_path: data.experiment_path,
+  ...(data.runner === 'pyhsl' ? { runner: 'pyhsl', protocol_id: data.protocol_id, parameters: data.parameters } : {}),
   schedule_type: data.schedule_type,
   interval_hours: data.schedule_type === 'interval' ? data.interval_hours : undefined,
   start_time: serializeMaybeDate(data.start_time),

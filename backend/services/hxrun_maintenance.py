@@ -112,6 +112,9 @@ class HxRunMaintenanceService:
         actor: str,
     ) -> HxRunMaintenanceState:
         """Persist and cache maintenance mode updates."""
+        if enabled:
+            from backend.services.scheduling.pyhsl_runner import require_no_active_run
+            require_no_active_run()
         next_state = self.db_manager.set_hxrun_maintenance_state(enabled, reason, actor)
         with self._state_lock:
             self._cached_state = next_state

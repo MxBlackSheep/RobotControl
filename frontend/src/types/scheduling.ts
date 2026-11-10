@@ -35,6 +35,7 @@ export interface LegacyPreparation {
 /** Derived on read: ready, or the package/connection changed (needs_review), or it is gone. */
 export type PreparationState = 'ready' | 'needs_review' | 'missing' | 'invalid' | 'unknown';
 export type ScheduleMode = 'real' | 'simulation';
+export type ScheduleRunner = 'venus' | 'pyhsl';
 
 export interface ScheduledExperiment {
   schedule_id: string;
@@ -46,6 +47,9 @@ export interface ScheduledExperiment {
   estimated_duration: number; // minutes
   log_inactivity_threshold_minutes: number;
   mode: ScheduleMode;
+  runner: ScheduleRunner;
+  protocol_id?: string | null;
+  parameters?: Record<string, unknown>;
   created_by: string;
   created_at: string; // ISO format
   updated_at: string; // ISO format
@@ -262,6 +266,8 @@ export interface RunningJobDetail {
   schedule_id: string;
   experiment_name: string;
   experiment_path?: string | null;
+  runner?: ScheduleRunner | null;
+  protocol_id?: string | null;
   estimated_duration?: number | null; // minutes, entered by the user
   priority: string;
   queued_time: string; // ISO format
@@ -308,6 +314,9 @@ export interface CreateScheduleRequest {
   estimated_duration: number;
   log_inactivity_threshold_minutes?: number;
   mode?: ScheduleMode;
+  runner?: ScheduleRunner;
+  protocol_id?: string;
+  parameters?: Record<string, unknown>;
   is_active?: boolean;
   timeout_config?: {
     timeout_minutes?: number | null;
@@ -328,6 +337,9 @@ export interface UpdateScheduleRequest {
   estimated_duration?: number;
   log_inactivity_threshold_minutes?: number;
   mode?: ScheduleMode;
+  runner?: ScheduleRunner;
+  protocol_id?: string;
+  parameters?: Record<string, unknown>;
   is_active?: boolean;
   timeout_config?: {
     timeout_minutes?: number | null;
@@ -408,6 +420,9 @@ export interface CreateScheduleFormData {
   estimated_duration: number;
   log_inactivity_threshold_minutes: number;
   mode: ScheduleMode;
+  runner?: ScheduleRunner;
+  protocol_id?: string;
+  parameters?: Record<string, unknown>;
   is_active: boolean;
   timeout_minutes?: number | null;
   timeout_action: 'continue' | 'run_cleanup_and_terminate';

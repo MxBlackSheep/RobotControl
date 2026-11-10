@@ -267,6 +267,12 @@ class _Trigger:
 
 
 TRIGGERS: Dict[str, _Trigger] = {
+    'pyhsl_unavailable': _Trigger('warning', 'Run waiting: PyHSL Run Control', lambda f: (
+        'waiting for Run Control', f'The run for {f.experiment} has not started. Open PyHSL Run Control; '
+        'the schedule will start when it is ready.', set()), 'Reason'),
+    'pyhsl_review_required': _Trigger('warning', 'PyHSL Run review required', lambda f: (
+        'Run review required', f'The run for {f.experiment} needs a Run review in PyHSL Run Control. '
+        'Save the review there before acknowledging recovery in RobotControl.', set()), 'Reason'),
     "simulation_mode_mismatch": _Trigger("warning", "Run waiting: Simulation Mode check", _simulation_mode_mismatch, "Reason"),
     "log_inactive": _Trigger("warning", "Run log silent", _log_inactive),
     "monitoring_unavailable": _Trigger("warning", "Run not monitored", _monitoring_unavailable, "Reason"),
