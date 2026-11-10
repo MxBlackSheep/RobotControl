@@ -19,7 +19,10 @@ seconds, and the review list after 30, because Run Control parses every journal 
 it. The monitor reads that list only when a run row changes or every two minutes. A
 timeout reads as `unknown`, not as closed. Start uses a 60-second POST timeout. A lost
 reply resends the identical request with the execution ID as `request_id`; Run Control
-deduplicates it.
+deduplicates it. Scheduled runs recheck the scheduler's launch guard immediately
+before every Start POST, including after preparation and on resends, releasing
+its locks before HTTP. Restart recovery adopts an existing run before that guard;
+a refused send fails the occurrence with a recovery hold and failure alert.
 
 `state` describes Run Control, not a run: `running` means it answered. `run` is the
 newest row without a terminal status, shown with its raw status, so an unfamiliar

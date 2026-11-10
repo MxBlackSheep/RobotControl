@@ -1,3 +1,11 @@
+## 2026-11-10 PyHSL Start safety checks
+
+- Scheduled PyHSL runs recheck launch safety immediately before every Start send,
+  including after database preparation, during retries and after a restart.
+  A refusal consumes the occurrence with a recovery hold and failure alert.
+  Existing runs are still adopted and followed before the guard, and scheduler
+  locks are released before the HTTP request.
+
 ## 2026-11-10 PyHSL protocol list, run modes and live Run view
 
 - The schedule form lists the protocols Run Control can run unattended, searchable by

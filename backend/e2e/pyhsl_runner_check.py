@@ -38,6 +38,12 @@ Failure cases (Run Control reply shapes recorded in Simulation, 9 November 2026)
 20. Catalog reads Run Control's `protocols` list and leaves out problem and unattended=false entries; closed gives 503 with its reason.
 21. Test PyHSL saves and reloads, dispatch sends test; VENUS refuses test with 400.
 22. ManagedHost paths identify PyHSL with/without a cached protocol; other paths are VENUS.
+23. Maintenance after a lost Start reply and outage blocks the resend, fails and
+    holds with the existing alert, leaving maintenance on.
+24. Restart with maintenance adopts and follows a matching run; no match fails
+    with a hold and alert without sending Start.
+25. Maintenance during database preparation blocks the first Start with a hold
+    and alert; the occurrence is consumed and maintenance stays on.
 
 Only the Run Control service, database package, process and email boundaries are
 fixtures. No installed PyHSL, Hamilton, SQL Server or instrument is accessed.
@@ -343,6 +349,44 @@ def runner_failures():
             assert f.sent[0][1]['schedule_active'] is False
 
 
+def maintenance_before_start():
+    for during_preparation in (False, True):
+        with fixture() as f:
+            s = schedule(f)
+            def enable_maintenance():
+                f.storage.set_hxrun_maintenance_state(True, 'Fixture maintenance', 'fixture')
+            if during_preparation:
+                f.after_prepare = enable_maintenance
+            else:
+                f.server.lose_reply = True
+            post = f.client.post
+            waits = []
+            def start(path, data, **kwargs):
+                if path == '/runs' and f.server.unreachable:
+                    raise PyHslUnavailable('Fixture outage after lost reply')
+                return post(path, data, **kwargs)
+            def wait():
+                waits.append(True)
+                if len(waits) == 1:
+                    f.server.unreachable = True
+                else:
+                    enable_maintenance()
+                    f.server.unreachable = False
+                return False
+            with patch.object(f.client, 'post', side_effect=start), \
+                    patch.object(f.engine.pyhsl_runner, '_wait', side_effect=wait):
+                e = finished(f, dispatch(f, s))
+            assert len(f.server.posts) == int(not during_preparation)
+            assert len(waits) == (0 if during_preparation else 2)
+            assert f.prepared == [e.execution_id]
+            assert e.status == 'failed' and e.error_message == 'HxRun maintenance is enabled'
+            saved = f.storage.get_schedule_by_id(s.schedule_id)
+            assert saved.recovery_required and not saved.is_active
+            assert [x[0] for x in f.sent] == ['execution_failed']
+            assert f.sent[0][1]['schedule_active'] is False
+            assert f.storage.get_hxrun_maintenance_state().enabled
+
+
 def bounded_waits():
     from backend.services.scheduling import pyhsl_runner as runner
     for recover in (True, False):
@@ -537,8 +581,10 @@ def gates_and_following():
 
 
 def restarts():
-    for saved_id, match, age in ((True, True, 600), (False, True, 600),
-                                (False, False, 0), (False, False, 600), (False, False, None)):
+    for saved_id, match, age, maintenance in (
+            (True, True, 600, False), (False, True, 600, False),
+            (False, False, 0, False), (False, False, 600, False), (False, False, None, False),
+            (False, True, 0, True), (False, False, 0, True)):
         with fixture() as f:
             s = schedule(f)
             e = JobExecution('', s.schedule_id, 'running', start_time=datetime.now() - timedelta(minutes=10))
@@ -562,6 +608,8 @@ def restarts():
             f.engine.pyhsl_runner.poll_seconds = .02
             f.engine._notification_contacts[f.contact.contact_id] = f.contact
             f.engine._load_schedules_from_database()
+            if maintenance:
+                f.storage.set_hxrun_maintenance_state(True, 'Fixture maintenance', 'fixture')
             assert f.engine.run_log_monitor.restore() == []
             assert f.engine._resolve_dispatch_block_reason(s)
             f.engine._running = True
@@ -573,9 +621,18 @@ def restarts():
             f.engine._scheduler_thread.start()
             result = finished(f, e.execution_id)
             assert f.prepared == [e.execution_id]
-            assert len(f.server.posts) == (1 if age == 0 and not match else 0)
-            assert result.status == ('completed' if age == 0 and not match else 'failed')
-            assert f.storage.get_schedule_by_id(s.schedule_id).recovery_required == (not match and age != 0)
+            assert len(f.server.posts) == (1 if age == 0 and not match and not maintenance else 0)
+            assert result.status == ('completed' if age == 0 and not match and not maintenance else 'failed')
+            assert f.storage.get_schedule_by_id(s.schedule_id).recovery_required == (not match and (age != 0 or maintenance))
+            if maintenance:
+                assert f.storage.get_hxrun_maintenance_state().enabled
+                assert [x[0] for x in f.sent] == ['execution_failed']
+                if match:
+                    assert result.pyhsl['run_id'] == 'fixture-run'
+                    assert result.error_message == 'stopped by user'
+                else:
+                    assert result.error_message == 'HxRun maintenance is enabled'
+                    assert not f.storage.get_schedule_by_id(s.schedule_id).is_active
             sent = len(f.sent)
             time.sleep(1.1)
             assert len(f.sent) == sent and f.engine._job_queue.empty()
@@ -730,7 +787,7 @@ def run():
     handler = logging.StreamHandler(logs)
     logging.getLogger().addHandler(handler)
     try:
-        for check in (catalog_and_experiments, outcomes, slow_and_lost, runner_failures, bounded_waits, relay_reads, revision_and_acknowledge, gates_and_following, restarts, saves_and_guards):
+        for check in (catalog_and_experiments, outcomes, slow_and_lost, runner_failures, maintenance_before_start, bounded_waits, relay_reads, revision_and_acknowledge, gates_and_following, restarts, saves_and_guards):
             check()
             print(f'PASS {check.__name__}', flush=True)
         assert TOKEN not in logs.getvalue()
