@@ -687,10 +687,8 @@ def saves_and_guards():
 
 
 def catalog_and_experiments():
-    from backend.api import pyhsl as api, experiments, monitoring
+    from backend.api import pyhsl as api, experiments
     from backend.services.auth import get_current_user
-    from backend.services.experiment_monitor import ExperimentMonitor
-    from backend.services.monitoring import MonitoringService
     with fixture() as f:
         entry = dict(id='fixture', name='Fixture', revision='revision-one',
                      modes=['simulation', 'test', 'real'], unattended=True, category='Fixtures', description='Fixture')
@@ -720,20 +718,11 @@ def catalog_and_experiments():
             ('C:/data/sessions/' + 'c' * 32 + '/host/ManagedHost.hsl', dict(runner='pyhsl')),
             ('C:/methods/normal.hsl', dict(runner='venus')),
             ('C:/data/sessions/invalid/host/ManagedHost.hsl', dict(runner='venus'))):
-            monitor = ExperimentMonitor()
-            current = monitor._create_experiment_state(dict(run_guid='fixture', method_name=path, run_state=128))
             db = SimpleNamespace(execute_query=lambda _: {'rows': [{'MethodName': path}]})
             with patch.object(f.client, 'get', side_effect=AssertionError('Identity must use cached runs')), \
-                    patch.object(experiments, 'get_database_service', return_value=db), \
-                    patch.object(monitoring, 'get_experiment_monitor', return_value=SimpleNamespace(get_current_experiment=lambda: current)), \
-                    patch('backend.services.monitoring.get_experiment_monitor', return_value=SimpleNamespace(get_current_experiment=lambda: current)):
+                    patch.object(experiments, 'get_database_service', return_value=db):
                 latest = json.loads(asyncio.run(experiments.get_latest_experiment({})).body)['data']
-                monitored = json.loads(asyncio.run(monitoring.get_current_experiments({})).body)['data']['experiments'][0]
-                service = MonitoringService.__new__(MonitoringService)
-                service.last_experiment_data = []
-                service._update_experiment_data()
-                for result in (latest, monitored, service.last_experiment_data[0]):
-                    assert {k: result[k] for k in ('runner', 'protocol') if k in result} == expected
+                assert {k: latest[k] for k in ('runner', 'protocol') if k in latest} == expected
 
 
 def run():

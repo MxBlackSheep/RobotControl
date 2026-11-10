@@ -8,11 +8,15 @@ import { expect, test, type Page } from '@playwright/test';
  * Run page (PyHSL's Monitoring API view; every visible behaviour, owner's rule for this page)
  * - The view runs with RobotControl's origin (it could reach the sign-in tokens), or gets the bodies changed.
  * - The view does not follow light or dark, or does not redraw with a new reading.
- * - The 1.87 MB deck is read on every refresh, or not read again for another run or after a failed read.
- * - An unreachable Run Control loses the last reading or reads as healthy.
+ * - The 1.87 MB deck is read on every refresh or while the run read fails, or not read again for another run
+ *   (also when the active run changes without a reload) or after a failed read.
+ * - An unreachable Run Control loses the last reading or reads as healthy; its warning makes the page scroll.
+ * - Without a run, the page does not say whether no run is active, Run Control is closed or its state is unknown.
+ * - Before the first reading the view space is empty instead of "Loading".
  * - A failed script or deck read leaves an empty space instead of "Run view not shown: <reason>", or the view
  *   does not return without a reload once Run Control answers again.
- * - An ended run has no Show report, or PyHSL's report runs script inside RobotControl's page.
+ * - An ended run has no Show report, a failed report hides its reason, or PyHSL's report runs script inside
+ *   RobotControl's page.
  * PyHSL's own drawing is checked in PyHSL; here a stub with the same global shows what it receives.
  * Server-side cases are in backend/e2e/pyhsl_runner_check.py and pyhsl_client_check.py.
  */
@@ -120,8 +124,12 @@ async function runControl(page: Page) {
     states: { [runId]: { run_id: runId, status: 'waiting_for_next', revision: 1 }, [otherRun]: { run_id: otherRun, status: 'running', revision: 9 } } as Record<string, object | null>,
     deckReads: 0,
     scriptReads: 0,
-    report: '<h1>Fixture report</h1><script>parent.document.title = "escaped"</script>',
+    report: '<h1>Fixture report</h1><script>parent.document.title = "escaped"</script>' as string | null,
+    // Run Control as RobotControl's monitor last read it; the page follows its active run without ?run=.
+    status: { state: 'running', reason: null, run: { run_id: runId, status: 'waiting_for_next' } as object | null,
+      reviews: { known: true, blocked: false, run_ids: [] } } as Record<string, unknown>,
   };
+  await page.route('**/api/pyhsl/status', route => route.fulfill({ json: { ...fake.status, checked_at: new Date().toISOString() } }));
   await page.route('**/api/pyhsl/monitor.js', route => {
     fake.scriptReads += 1;
     return fake.script ? route.fulfill({ contentType: 'text/plain', body: fake.script })
@@ -137,11 +145,15 @@ async function runControl(page: Page) {
     const state = fake.states[id];
     return state ? route.fulfill({ json: state }) : route.fulfill({ status: 503, json: { detail: 'Run Control is unreachable' } });
   });
-  await page.route('**/api/pyhsl/runs/*/report', route => route.fulfill({ contentType: 'text/html', body: fake.report }));
+  await page.route('**/api/pyhsl/runs/*/report', route => fake.report
+    ? route.fulfill({ contentType: 'text/html', body: fake.report })
+    : route.fulfill({ status: 502, json: { detail: 'Run Control report is too large' } }));
   return fake;
 }
 
 const view = (page: Page) => page.frameLocator('iframe[title="Run view"]');
+/** The app scrolls only inside `main`; the Run page must fit it. */
+const pageScrolls = (page: Page) => page.locator('main').evaluate(main => main.scrollHeight > main.clientHeight);
 
 test('the Run page shows PyHSL\'s view in a sealed frame with the bodies unchanged, and follows the theme', async ({ page }) => {
   await signIn(page);
@@ -212,4 +224,49 @@ test('an ended run offers Show report, and the report runs no script', async ({ 
   await expect(dialog.frameLocator('iframe[title="PyHSL report"]').getByRole('heading', { name: 'Fixture report' })).toBeVisible();
   await expect(dialog.locator('iframe[title="PyHSL report"]')).toHaveAttribute('sandbox', '');
   await expect(page).not.toHaveTitle('escaped');
+});
+
+test('without a run the page says why, and before the first reading the view says Loading', async ({ page }) => {
+  await signIn(page);
+  const fake = await runControl(page);
+  for (const [state, text] of [['running', 'No run is active.'], ['not_running', 'Run Control is not running.'], ['unknown', 'Run Control state unknown.']]) {
+    fake.status = { ...fake.status, state, run: null };
+    await page.goto('/pyhsl');
+    await expect(page.getByText(text, { exact: true })).toBeVisible();
+  }
+
+  fake.states[runId] = null;
+  await page.goto(`/pyhsl?run=${runId}`);
+  await expect(page.getByText('Loading', { exact: true })).toBeVisible();
+  await expect(page.getByText('Run Control not reachable.', { exact: true })).toBeVisible();
+  expect(fake.deckReads).toBe(0);
+  expect(await pageScrolls(page)).toBe(false);
+});
+
+test('the page follows the active run in place, reads its deck, and a warning never makes it scroll', async ({ page }) => {
+  await signIn(page);
+  const fake = await runControl(page);
+  await page.goto('/pyhsl');
+  await expect(view(page).getByText(/Stub view · waiting_for_next ·/)).toBeVisible();
+  expect(await pageScrolls(page)).toBe(false);
+
+  // The next scheduled run starts; the status is read every 15 s and the page changes run without a reload.
+  fake.status = { ...fake.status, run: { run_id: otherRun, status: 'running' } };
+  await expect(view(page).getByText(/Stub view · running ·/)).toBeVisible({ timeout: 25000 });
+  expect(fake.deckReads).toBe(2);
+
+  fake.states[otherRun] = null;
+  await expect(page.getByText(/Run Control not reachable since \d\d:\d\d/)).toBeVisible({ timeout: 15000 });
+  await expect.poll(() => pageScrolls(page)).toBe(false);
+});
+
+test('a report that cannot be read says why', async ({ page }) => {
+  await signIn(page);
+  const fake = await runControl(page);
+  fake.states[runId] = { run_id: runId, status: 'failed', revision: 12 };
+  fake.report = null;
+  await page.goto(`/pyhsl?run=${runId}`);
+  await page.getByRole('button', { name: 'Show report', exact: true }).click();
+  await expect(page.getByText('Run Control report is too large')).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Report' })).toHaveCount(0);
 });

@@ -183,7 +183,8 @@ export function RecentRuns({ canOpenScheduling, span, rows = LIST_ROWS }: { canO
         minutes: typeof record.duration_minutes === 'number' ? record.duration_minutes
           : typeof record.calculated_duration_minutes === 'number' ? Math.round(record.calculated_duration_minutes) : null,
         status: String(record.status ?? ''),
-        runner: record.pyhsl != null ? 'pyhsl' : 'venus',
+        // The receipt exists only once Run Control has the run; a waiting PyHSL run is known by its schedule path.
+        runner: record.pyhsl != null || String(record.experiment_path ?? '').startsWith('pyhsl:') ? 'pyhsl' : 'venus',
         pyhslRun: pyhslRunId(record),
       }));
     },

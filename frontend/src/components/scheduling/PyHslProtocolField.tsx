@@ -46,16 +46,21 @@ export default function PyHslProtocolField({ protocolId, parameters, mode, disab
     }
   }, []);
 
+  const latestCheck = useRef(0);
   const check = useCallback(async (listed: Listed, runMode: ScheduleMode) => {
     const { parameters: values, onChange: changed } = current.current;
+    const mine = ++latestCheck.current;
     setError(null);
     try {
       const { data } = await api.post('/api/pyhsl/validate', { protocol_id: listed.id, parameters: values, mode: runMode });
+      // Validate can take up to a minute; only the reply for the latest choice may change the form.
+      if (mine !== latestCheck.current) return;
       const definitions: Record<string, Definition> = data.protocol?.parameters ?? {};
       const result = { id: listed.id, name: data.protocol?.name || listed.name, modes: listed.modes, parameters: definitions };
       setChecked(result);
       changed(listed.id, data.parameters ?? visibleValues(definitions, values), result);
     } catch (err: any) {
+      if (mine !== latestCheck.current) return;
       setChecked(null);
       setError(err?.response?.data?.detail || 'Could not check the protocol');
       changed(listed.id, values, null);
@@ -79,9 +84,11 @@ export default function PyHslProtocolField({ protocolId, parameters, mode, disab
 
   const setValue = (name: string, value: unknown) => onChange(protocolId, visibleValues(checked?.parameters ?? {}, { ...parameters, [name]: value }), checked);
   if (listError) return <Alert severity="error" sx={{ overflowWrap: 'anywhere' }}
-    action={<Button color="inherit" size="small" onClick={() => void load()}>Retry</Button>}>{listError}</Alert>;
+    action={<Button color="inherit" size="small" onClick={() => void load()}>Retry</Button>}>{protocolId ? `${protocolId}: ${listError}` : listError}</Alert>;
 
   return <Stack spacing={2}>
+    {protocols && protocolId && !selected && <Alert severity="warning" sx={{ overflowWrap: 'anywhere' }}>
+      {protocolId} is not in Run Control's list of protocols it can run unattended.</Alert>}
     <Autocomplete options={options} value={selected} loading={!protocols} disabled={disabled}
       getOptionLabel={protocol => protocol.name || protocol.id}
       isOptionEqualToValue={(option, value) => option.id === value.id}

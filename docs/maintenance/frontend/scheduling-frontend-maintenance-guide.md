@@ -214,11 +214,14 @@ the backend guide.
 parameter fields; a schedule saves only after a protocol PyHSL accepted. A VENUS schedule keeps its Simulation Mode switch.
 
 `/pyhsl?run=<id>` (`PyHslRunPage`) shows PyHSL's Monitoring API view (PyHSL's `docs/api/notes.md`, "Monitoring API"):
-Run Control's Run page without controls. `PyHslMonitor` inlines `/api/pyhsl/monitor.js` into an iframe with
-`sandbox="allow-scripts"` and no same origin, so PyHSL's code cannot reach RobotControl's sign-in tokens, and posts
-`{deck, state, theme}` with the two bodies as received. The page polls `/api/pyhsl/runs/{id}` every five seconds (30 once
-ended) and reads `/api/pyhsl/deck` (about 2 MB) once per run, again only after a failed read; PyHSL keeps the deck fixed
-while a run is in progress. The view fills the window below the title (`useLabwareWorkspace`) and scrolls its own panels.
-RobotControl adds only the title, "Run Control not reachable since HH:MM" (the last reading stays), "Run view not shown:
-<reason>" in the view's place, and Show report for an ended run; the report opens in a dialog in an iframe with an empty
-`sandbox`. Failure cases are in `frontend/e2e/pyhsl.spec.ts`.
+Run Control's Run page without controls. `PyHslMonitor` loads an iframe with `sandbox="allow-scripts"` and no same
+origin, so PyHSL's code cannot reach RobotControl's sign-in tokens. When the frame says "ready" (again after it was
+replaced), it receives `/api/pyhsl/monitor.js` by message and runs it as a script element, then `{deck, state, theme}`
+with the two bodies as received. The page polls `/api/pyhsl/runs/{id}` every five seconds (30 once ended). After a
+successful run read it reads `/api/pyhsl/deck` (about 2 MB) once for that run ID, again only after a failed read;
+PyHSL keeps the deck fixed while a run is in progress. Without `?run=` the page follows the active run from
+`usePyHslStatus`. The view fills the window below the title (`useLabwareWorkspace`; the warning lines sit in an
+always-present box so the fit is measured again) and scrolls its own panels. RobotControl adds only the title,
+"Run Control not reachable since HH:MM" (the last reading stays), "Loading" or "Run view not shown: <reason>" in the
+view's place, and Show report for an ended run; the report opens in a dialog in an iframe with an empty `sandbox`.
+Failure cases are in `frontend/e2e/pyhsl.spec.ts`.

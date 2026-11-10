@@ -17,7 +17,6 @@ import time
 
 # Import project services
 from backend.services.database import get_database_service
-from backend.services.pyhsl_monitor import experiment_runner
 from backend.services.experiment_monitor import get_experiment_monitor
 from backend.constants import HAMILTON_STATE_MAPPING
 
@@ -93,7 +92,6 @@ class MonitoringService:
                 experiment_data = [{
                     "ExperimentID": current_experiment.run_guid,
                     "MethodName": current_experiment.method_name,
-                    **experiment_runner(current_experiment.method_name),
                     "StartTime": current_experiment.start_time.isoformat() if current_experiment.start_time else None,
                     "EndTime": current_experiment.end_time.isoformat() if current_experiment.end_time else None,
                     "Status": display_state,

@@ -12,7 +12,6 @@ import time
 from backend.services.auth import get_current_user
 from backend.services.monitoring import get_monitoring_service
 from backend.services.database import get_database_service
-from backend.services.pyhsl_monitor import experiment_runner
 from backend.services.experiment_monitor import get_experiment_monitor
 from backend.constants import HAMILTON_STATE_MAPPING
 
@@ -90,7 +89,6 @@ async def get_current_experiments(current_user: dict = Depends(get_current_user)
             experiments = [{
                 "ExperimentID": current_experiment.run_guid,
                 "MethodName": current_experiment.method_name,
-                **experiment_runner(current_experiment.method_name),
                 "PlateID": "N/A",  # Not available in experiment monitor
                 "StartTime": current_experiment.start_time.isoformat() if current_experiment.start_time else None,
                 "EndTime": current_experiment.end_time.isoformat() if current_experiment.end_time else None,
