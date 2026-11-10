@@ -3,9 +3,8 @@
 - Scheduled PyHSL runs recheck launch safety immediately before every Start send,
   including after preparation and on resends. Before a resend after a failed
   Start or a restart, RobotControl reads Run Control's runs and adopts a match.
-  If there is no match, it rechecks the launch guard before POST and releases
-  scheduler locks before the HTTP request. A refusal consumes the occurrence
-  with a recovery hold and failure alert.
+  The guard releases scheduler locks before the HTTP request. A refusal
+  consumes the occurrence with a recovery hold and failure alert.
 
 ## 2026-11-10 PyHSL protocol list, run modes and live Run view
 

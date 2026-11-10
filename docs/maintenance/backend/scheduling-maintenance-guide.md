@@ -83,12 +83,12 @@ The request is saved before POST; `run_id` is saved as soon as it is known. Star
 uses the execution ID as `request_id` and a 60-second HTTP timeout. No scheduler
 lock spans an HTTP call, preparation or polling. Before a resend after a failed
 Start or a restart, RobotControl reads Run Control's runs and adopts a match.
-If there is no match, it rechecks the launch guard before POST and resends the
-saved request. It does not create a new occurrence or repeat preparation.
-Immediately before every Start POST, including after preparation and on resends,
-`launch_guard` rechecks recovery/Resume holds, HxRun maintenance, HxRun processes
-and schedule eligibility, then releases its locks. A refusal fails and consumes
-the occurrence with a recovery hold and the existing failure alert.
+If there is no match, it resends the saved request without creating a new
+occurrence or repeating preparation. Immediately before every Start POST,
+including after preparation and on resends, `launch_guard` rechecks
+recovery/Resume holds, HxRun maintenance, HxRun processes and schedule
+eligibility, then releases its locks. A refusal fails and consumes the
+occurrence with a recovery hold and the existing failure alert.
 
 The runner reads the run every five seconds. Unfamiliar statuses keep running;
 silence never ends a run. Unreachable monitoring sends `monitoring_unavailable`
