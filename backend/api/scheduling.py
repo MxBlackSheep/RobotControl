@@ -53,9 +53,10 @@ router = APIRouter(prefix="/api/scheduling", tags=["scheduling"], route_class=Sa
 EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
-def _schedule_mode(value: Any) -> str:
-    if value not in ('real', 'simulation'):
-        raise HTTPException(status_code=400, detail='Mode must be real or simulation')
+def _schedule_mode(value: Any, runner: str = 'venus') -> str:
+    modes = ('real', 'simulation', 'test') if runner == 'pyhsl' else ('real', 'simulation')
+    if value not in modes:
+        raise HTTPException(status_code=400, detail='Mode must be ' + ' or '.join(modes))
     return value
 
 
@@ -63,6 +64,7 @@ def _runner_fields(data, timeout_config):
     runner = data.get('runner', 'venus')
     if runner not in ('venus', 'pyhsl'):
         raise HTTPException(status_code=400, detail='Runner must be venus or pyhsl')
+    _schedule_mode(data.get('mode', 'real'), runner)
     if runner == 'venus':
         return dict(runner=runner, protocol_id=None, parameters={}, protocol_revision=None,
                     experiment_path=data['experiment_path'])
@@ -917,7 +919,7 @@ def create_schedule(
             start_time=start_time,
             estimated_duration=schedule_data.get("estimated_duration", 60),
             log_inactivity_threshold_minutes=_log_inactivity_threshold(schedule_data.get("log_inactivity_threshold_minutes", 3)),
-            mode=_schedule_mode(schedule_data.get('mode', 'real')),
+            mode=schedule_data.get('mode', 'real'),
             created_by=current_user.get("username", "unknown"),
             is_active=schedule_data.get("is_active", True),
             timeout_config=timeout_config,
@@ -1190,7 +1192,7 @@ def update_schedule(
         if "log_inactivity_threshold_minutes" in update_data:
             updated_schedule.log_inactivity_threshold_minutes = _log_inactivity_threshold(update_data["log_inactivity_threshold_minutes"])
         if 'mode' in update_data:
-            updated_schedule.mode = _schedule_mode(update_data['mode'])
+            updated_schedule.mode = _schedule_mode(update_data['mode'], update_data.get('runner', updated_schedule.runner))
         if "is_active" in update_data:
             updated_schedule.is_active = update_data["is_active"]
         if update_data.get("prerequisites", base_schedule.prerequisites) != base_schedule.prerequisites:

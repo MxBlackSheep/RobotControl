@@ -1,3 +1,20 @@
+## 2026-11-10 PyHSL protocol list, run modes and live Run view
+
+- The schedule form lists the protocols Run Control can run unattended, searchable by
+  name or ID, and offers only the modes each protocol allows (Simulation, Test, Real).
+  PyHSL's Validate decides the mode on save and at dispatch; RobotControl's own
+  Simulation-only limit is gone. VENUS schedules stay Real or Simulation.
+- Overview labels runs PyHSL or VENUS, and Latest experiment names the PyHSL
+  protocol instead of ManagedHost.
+- The Run page shows PyHSL's Monitoring API view (Run Control's Run page without
+  controls) in a frame that cannot reach RobotControl's sign-in. The run and deck
+  bodies are relayed unchanged; the deck is read once per run. The journal relay
+  and the filtered run reply are removed.
+- A failed text read (PyHSL's script, a report) no longer reads as RobotControl's
+  connection being lost.
+- Failure cases are in `frontend/e2e/pyhsl.spec.ts` and
+  `backend/e2e/pyhsl_runner_check.py`.
+
 ## 2026-11-09 Scheduled PyHSL Simulation runs
 
 - Schedules can validate, start and follow an unattended PyHSL protocol through

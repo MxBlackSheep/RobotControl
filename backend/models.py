@@ -164,8 +164,9 @@ class ScheduledExperiment:
             raise ValueError('Runner must be venus or pyhsl')
         if self.parameters is None:
             self.parameters = {}
-        if self.mode not in ('real', 'simulation'):
-            raise ValueError('Mode must be real or simulation')
+        modes = ('real', 'simulation', 'test') if self.runner == 'pyhsl' else ('real', 'simulation')
+        if self.mode not in modes:
+            raise ValueError('Mode must be ' + ' or '.join(modes))
         if type(self.log_inactivity_threshold_minutes) is not int or self.log_inactivity_threshold_minutes <= 0:
             raise ValueError("Log inactivity threshold must be a positive whole number of minutes")
         if self.prerequisites is None:

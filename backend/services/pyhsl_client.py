@@ -50,12 +50,12 @@ class PyHslClient:
             body = json.dumps(data) if data is not None else None
             if body is not None:
                 headers['Content-Type'] = 'application/json'
-            connection.request(method, '/api/v1' + path, body, headers)
+            connection.request(method, path, body, headers)
             response = connection.getresponse()
             # Replace the token before decoding or exposing any server text.
             raw = response.read(max_bytes + 1) if max_bytes is not None else response.read()
             if max_bytes is not None and len(raw) > max_bytes:
-                raise PyHslError('Run Control report is too large')
+                raise PyHslError('Run Control response is too large')
             raw = raw.decode('utf-8')
             if token:
                 raw = raw.replace(token, '[redacted]')
@@ -94,7 +94,7 @@ class PyHslClient:
             raise PyHslUnavailable('Run Control discovery is unavailable') from None
         except (ValueError, KeyError, TypeError):
             raise PyHslError('Run Control discovery is invalid') from None
-        health = self._request(url, '/health')
+        health = self._request(url, '/api/v1/health')
         if not isinstance(health, dict) or health.get('instance_id') != instance_id:
             raise PyHslUnavailable('Run Control instance does not match discovery')
         try:
@@ -109,14 +109,19 @@ class PyHslClient:
 
     def get(self, path, *, timeout=None):
         url, token = self._discover()
-        return self._request(url, path, token=token, timeout=timeout)
+        return self._request(url, '/api/v1' + path, token=token, timeout=timeout)
 
     def post(self, path, data, *, timeout=60):
         """Validate or start through the machine API; the monitor only reads."""
         url, token = self._discover()
-        return self._request(url, path, token=token, method='POST', data=data, timeout=timeout)
+        return self._request(url, '/api/v1' + path, token=token, method='POST', data=data, timeout=timeout)
 
     def get_report(self, run_id, *, max_bytes):
         """Read bounded HTML through the same discovery and token handling."""
         url, token = self._discover()
-        return self._request(url, f'/runs/{run_id}/report', token=token, max_bytes=max_bytes)
+        return self._request(url, f'/api/v1/runs/{run_id}/report', token=token, max_bytes=max_bytes)
+
+    def get_monitor_script(self, *, max_bytes):
+        """Read the public script after verifying the discovered instance."""
+        url, _ = self._discover()
+        return self._request(url, '/monitor.js', max_bytes=max_bytes)

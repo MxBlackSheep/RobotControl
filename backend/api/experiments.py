@@ -6,6 +6,7 @@ Provides access to experiment data from Hamilton Vector database
 
 from fastapi import APIRouter, Depends
 from backend.services.database import get_database_service
+from backend.services.pyhsl_monitor import experiment_runner
 from backend.services.auth import get_current_user
 import logging
 import time
@@ -51,6 +52,7 @@ async def get_latest_experiment(current_user: dict = Depends(get_current_user)):
             experiment_data = {
                 "run_guid": row.get("RunGUID"),
                 "method_name": row.get("MethodName"),
+                **experiment_runner(row.get("MethodName")),
                 "start_time": row.get("StartTime"),  # Already converted to ISO string by execute_query
                 "end_time": row.get("EndTime"),
                 "run_state": row.get("RunState")

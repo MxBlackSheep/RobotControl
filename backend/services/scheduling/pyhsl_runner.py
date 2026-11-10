@@ -17,14 +17,11 @@ from backend.services.sqlite_safety import SafetyConflict, StorageUnavailable
 from backend.utils.datetime import parse_iso_datetime_to_local
 
 logger = logging.getLogger(__name__)
-PYHSL_ALLOWED_MODES = frozenset({'simulation'})
 UNAVAILABLE_REASON = 'PyHSL Run Control is not running'
 
 
 def validate_protocol(protocol_id, parameters, mode):
     from backend.services.pyhsl_client import PyHslClient
-    if mode not in PYHSL_ALLOWED_MODES:
-        raise PyHslError('PyHSL schedules require Simulation mode')
     if not isinstance(protocol_id, str) or not protocol_id.strip():
         raise PyHslError('Choose a PyHSL protocol')
     if not isinstance(parameters, dict):
@@ -161,8 +158,6 @@ class PyHslRunner:
                 if validated['protocol']['revision'] != schedule.protocol_revision:
                     return self._finish(schedule, execution, 'failed',
                         'Protocol revision changed in Run Control; save the schedule again', 'execution_failed', hold=True)
-                if schedule.mode not in PYHSL_ALLOWED_MODES:
-                    raise PyHslError('PyHSL schedules require Simulation mode')
                 try:
                     PreExecutionPipeline(engine.db_manager).prepare(schedule, execution.execution_id)
                 except SafetyConflict:

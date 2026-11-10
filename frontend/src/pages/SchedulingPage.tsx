@@ -62,7 +62,7 @@ import { LibraryMethod } from '../types/scheduling';
 import ExecutionHistory from '../components/ExecutionHistory';
 import useScheduling from '../hooks/useScheduling';
 import { scheduleTarget } from '../components/scheduling/ScheduleCollection';
-import { formatDuration, ScheduledExperiment, ScheduleMode, ScheduleRunner, CreateScheduleFormData, UpdateScheduleRequest, SchedulingOperationStatus } from '../types/scheduling';
+import { formatDuration, SCHEDULE_MODE_LABELS, ScheduledExperiment, ScheduleMode, ScheduleRunner, CreateScheduleFormData, UpdateScheduleRequest, SchedulingOperationStatus } from '../types/scheduling';
 import StatusDialog from '../components/StatusDialog';
 import { DeleteConfirmationDialog } from '../components/ScheduleActions';
 
@@ -479,7 +479,7 @@ const SchedulingPage: React.FC = () => {
                       {/* Inactive schedules still have a next_run, so they must not read as runs that will happen. */}
                       {scheduleState(schedule).label !== 'Active' && <StatusChip {...scheduleState(schedule)} />}
                       {schedule.preparation_state && schedule.preparation_state !== 'ready' && <StatusChip {...stateChip[schedule.preparation_state]} />}
-                      {schedule.mode === 'simulation' && <StatusChip tone="neutral" label="Simulation" />}
+                      {schedule.mode !== 'real' && <StatusChip tone="neutral" label={SCHEDULE_MODE_LABELS[schedule.mode]} />}
                     </Stack>
                   </Box>
                 ))}
@@ -499,7 +499,7 @@ const SchedulingPage: React.FC = () => {
       ...(phone ? [] : [['Next run', formatTimestamp(schedule.next_run)]]),
       ['Duration', formatDuration(schedule.estimated_duration)],
       ...(schedule.runner === 'pyhsl' ? [['Protocol', schedule.protocol_id ?? '']] : []),
-      ['Mode', schedule.mode === 'simulation' ? 'Simulation' : 'Real'],
+      ['Mode', SCHEDULE_MODE_LABELS[schedule.mode]],
       ['Before this run', preparationSummary(schedule)],
       ['Late-start action', `${schedule.timeout_config?.action === 'run_cleanup_and_terminate' ? 'Run cleanup and terminate' : 'Continue'}${schedule.timeout_config?.timeout_minutes ? ` after ${schedule.timeout_config.timeout_minutes} minutes` : ''}`],
     ] as [string, string][]);

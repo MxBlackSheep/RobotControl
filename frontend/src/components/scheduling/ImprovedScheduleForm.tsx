@@ -375,7 +375,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
     const newErrors: string[] = [];
 
     if (pyhsl ? !protocolChecked : !formData.experiment_path) {
-      newErrors.push(pyhsl ? 'Check the protocol first' : 'Please select an experiment');
+      newErrors.push(pyhsl ? 'Choose a protocol' : 'Please select an experiment');
     }
 
     if (!formData.experiment_name) {
@@ -479,7 +479,8 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                   <ToggleButton value="venus">VENUS method</ToggleButton>
                   <ToggleButton value="pyhsl">PyHSL protocol</ToggleButton>
                 </ToggleButtonGroup>
-                {pyhsl && <PyHslProtocolField protocolId={formData.protocol_id ?? ''} parameters={formData.parameters ?? {}} disabled={loading} onChange={handleProtocolChange} />}
+                {pyhsl && <PyHslProtocolField protocolId={formData.protocol_id ?? ''} parameters={formData.parameters ?? {}} mode={formData.mode} disabled={loading} onChange={handleProtocolChange}
+                  onModeChange={mode => setFormData(prev => ({ ...prev, mode }))} />}
                 {!pyhsl && <><Box display="flex" alignItems="center" gap={1}>
                   <Box ref={experimentControlRef} sx={{ flex: 1 }}><MethodPicker methods={experiments} value={formData.experiment_path} label="Choose method" onChange={handleExperimentSelect} disabled={loading || scanning} /></Box>
                   <Tooltip title="Refresh method library">
@@ -725,20 +726,19 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                     label="Schedule is active"
                   />
                 </Grid>
-                <Grid item xs={12}>
+                {!pyhsl && <Grid item xs={12}>
                   <FormControlLabel
                     control={
                       <Switch
                         checked={formData.mode === 'simulation'}
-                        disabled={pyhsl}
                         onChange={(event) =>
                           setFormData((prev) => ({ ...prev, mode: event.target.checked ? 'simulation' : 'real' }))
                         }
                       />
                     }
-                    label={pyhsl ? 'Simulation' : 'Run in VENUS Simulation Mode'}
+                    label="Run in VENUS Simulation Mode"
                   />
-                </Grid>
+                </Grid>}
               </Grid>
             </Box>
           </Box>

@@ -9,7 +9,7 @@ import { schedulingService, schedulingAPI } from '../../services/schedulingApi';
 import { useSerialPolling } from '../../hooks/useSerialPolling';
 import { robotAttention, type RobotStatus } from '../../hooks/useRobotStatus';
 import { pyhslRunId, pyhslState, type PyHslStatus } from '../../hooks/usePyHslStatus';
-import type { ScheduledExperiment } from '../../types/scheduling';
+import { RUNNER_LABELS, type ScheduledExperiment, type ScheduleRunner } from '../../types/scheduling';
 import { fontMono, layout, type StatusTone } from '../../theme';
 import { clockTime, dayTime } from '../../utils/displayTime';
 import { repeatLabel } from '../scheduling/ScheduleCollection';
@@ -167,7 +167,7 @@ export function InstrumentHealth({ status, pyhsl }: { status: RobotStatus | null
   </Box>;
 }
 
-type Run = { id: string; name: string; started?: string | null; minutes: number | null; status: string; pyhslRun: string | null };
+type Run = { id: string; name: string; started?: string | null; minutes: number | null; status: string; runner: ScheduleRunner; pyhslRun: string | null };
 
 export function RecentRuns({ canOpenScheduling, span, rows = LIST_ROWS }: { canOpenScheduling: boolean; span?: number; rows?: number }) {
   const [runs, setRuns] = useState<Run[] | null>(null);
@@ -183,6 +183,8 @@ export function RecentRuns({ canOpenScheduling, span, rows = LIST_ROWS }: { canO
         minutes: typeof record.duration_minutes === 'number' ? record.duration_minutes
           : typeof record.calculated_duration_minutes === 'number' ? Math.round(record.calculated_duration_minutes) : null,
         status: String(record.status ?? ''),
+        // The receipt exists only once Run Control has the run; a waiting PyHSL run is known by its schedule path.
+        runner: record.pyhsl != null || String(record.experiment_path ?? '').startsWith('pyhsl:') ? 'pyhsl' : 'venus',
         pyhslRun: pyhslRunId(record),
       }));
     },
@@ -194,7 +196,10 @@ export function RecentRuns({ canOpenScheduling, span, rows = LIST_ROWS }: { canO
     {(runs ?? []).slice(0, rows).map(run => {
       const [label, tone] = executionTone(run.status);
       return <ListRow key={run.id} columns="minmax(0, 1fr) auto" sx={{ [recentStarted]: { gridTemplateColumns: 'minmax(0, 1fr) 128px 136px' }, [recentFull]: { gridTemplateColumns: 'minmax(0, 1fr) 128px 56px 136px' } }}>
-        <Box component="span" sx={{ fontWeight: 500 }}>{run.pyhslRun ? <MuiLink component={Link} to={`/pyhsl?run=${run.pyhslRun}`} underline="hover" color="inherit">{run.name}</MuiLink> : run.name}</Box>
+        <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
+          <Box component="span" sx={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{run.pyhslRun ? <MuiLink component={Link} to={`/pyhsl?run=${run.pyhslRun}`} underline="hover" color="inherit">{run.name}</MuiLink> : run.name}</Box>
+          <StatusChip tone="neutral" label={RUNNER_LABELS[run.runner]} />
+        </Box>
         <Box component="span" sx={{ ...mono, ...shownFrom(recentStarted) }}>{run.started ? dayTime(run.started) : '—'}</Box>
         <Box component="span" sx={{ ...mono, ...shownFrom(recentFull), textAlign: 'right' }}>{run.minutes !== null ? `${run.minutes} min` : '—'}</Box>
         <Box component="span" sx={{ justifySelf: 'end' }}><StatusChip tone={tone} label={label} /></Box>

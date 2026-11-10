@@ -20,7 +20,7 @@ All paths are under `backend/services/scheduling/` unless stated.
   laboratory preparation, launches `HxRun.exe "<method>" -t` once and waits for it to exit.
   `pre_execution.py` writes the preparation receipt and runs the schedule's database package
   step; `legacy_preparation.py` reads the retired adapter's tokens on older schedules.
-- `pyhsl_runner.py`: validates, starts and follows scheduled PyHSL Simulation runs;
+- `pyhsl_runner.py`: validates, starts and follows scheduled PyHSL runs;
   owns their durable request/result receipts and restart recovery.
 - `process_monitor.py`: detects HxRun with `psutil`, falling back to
   `tasklist /FO CSV /NH` (five-second timeout).

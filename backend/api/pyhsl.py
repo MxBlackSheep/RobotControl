@@ -1,9 +1,9 @@
-"""Run Control status, filtered read relays and local protocol validation."""
+"""Run Control status, read relays and local protocol validation."""
 from contextlib import contextmanager
 import re
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import HTMLResponse, PlainTextResponse
 from backend.api.dependencies import require_local_access
 from backend.services.auth import get_current_user
 from backend.services.pyhsl_monitor import get_pyhsl_monitor
@@ -12,15 +12,21 @@ from backend.services.scheduling.pyhsl_runner import validate_protocol
 
 router = APIRouter(prefix='/api/pyhsl', tags=['pyhsl'])
 REPORT_MAX_BYTES = 5 * 1024 * 1024
+MONITOR_MAX_BYTES = 5 * 1024 * 1024
 
 
-def run_client(run_id: str, current_user: dict = Depends(get_current_user)):
+def reader(current_user: dict = Depends(get_current_user)):
+    """Admin and user sessions, remote included, may read what Run Control's Run page shows."""
     if current_user.get('role') not in ('admin', 'user'):
         raise HTTPException(status_code=403, detail='Insufficient permissions')
+    return PyHslClient()
+
+
+def run_client(run_id: str, client=Depends(reader)):
     # PyHSL controller uses archive.RUN_FOLDER, including lowercase only.
     if not re.fullmatch('[0-9a-f]{32}', run_id):
         raise HTTPException(status_code=400, detail='Invalid PyHSL run ID')
-    return PyHslClient()
+    return client
 
 
 @contextmanager
@@ -37,43 +43,23 @@ def relay_errors():
         raise HTTPException(status_code=502, detail=str(exc)[:300]) from None
 
 
+@router.get('/monitor.js')
+def get_monitor_script(client=Depends(reader)):
+    with relay_errors():
+        return PlainTextResponse(client.get_monitor_script(max_bytes=MONITOR_MAX_BYTES),
+                                 headers={'X-Content-Type-Options': 'nosniff'})
+
+
+@router.get('/deck')
+def get_deck(client=Depends(reader)):
+    with relay_errors():
+        return client.get('/deck')
+
+
 @router.get('/runs/{run_id}')
 def get_run(run_id: str, client=Depends(run_client)):
     with relay_errors():
-        run = client.get(f'/runs/{run_id}')
-        result = {key: run.get(key) for key in ('run_id', 'protocol', 'status', 'host_status',
-            'mode', 'completed_count', 'error', 'origin', 'created_at', 'updated_at', 'protocol_revision')}
-        configuration = run.get('configuration') or {}
-        result['origin'] = run.get('origin') or configuration.get('origin')
-        result['protocol_revision'] = run.get('protocol_revision') or (configuration.get('protocol') or {}).get('revision')
-        if isinstance(result['mode'], dict):
-            result['mode'] = result['mode'].get('mode')
-        current = run.get('current')
-        result['current'] = ({key: current.get(key) for key in ('operation_id', 'operation', 'status')}
-                             if current else None)
-        prompt = run.get('prompt') or {}
-        result['prompt'] = dict(waiting=bool(prompt) and not (prompt.get('answered') or prompt.get('cancelled')),
-                                text=prompt.get('message'))
-        reviews = get_pyhsl_monitor().status()['reviews']
-        result['requires_review'] = run_id in reviews['run_ids'] if reviews['known'] else None
-        return result
-
-
-@router.get('/runs/{run_id}/journal')
-def get_journal(run_id: str, after: int = Query(0, ge=0), limit: int = Query(100, ge=1),
-                client=Depends(run_client)):
-    with relay_errors():
-        page = client.get(f'/runs/{run_id}/journal?after={after}&limit={min(limit, 200)}')
-        events = []
-        for event in page['events']:
-            details = event.get('details') or {}
-            text = details.get('summary') or details.get('message')
-            if not text and details.get('reason'):
-                # VENUS shutdown records share one reason; their status tells them apart.
-                text = ' '.join(str(part).replace('_', ' ') for part in (details.get('status'), details.get('reason')) if part)
-            events.append({**{key: event.get(key) for key in ('revision', 'at', 'event')},
-                           'text': text[:300] if isinstance(text, str) else None})
-        return dict(events=events, next=page['next'])
+        return client.get(f'/runs/{run_id}')
 
 
 @router.get('/runs/{run_id}/report')
@@ -95,6 +81,17 @@ def validate_request(data):
         raise HTTPException(status_code=400, detail='PyHSL Run Control is not running') from None
     except PyHslError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
+
+
+@router.get('/protocols')
+def get_protocols(current_user: dict = Depends(get_current_user), connection=Depends(require_local_access)):
+    if current_user.get('role') not in ('admin', 'user'):
+        raise HTTPException(status_code=403, detail='Insufficient permissions')
+    with relay_errors():
+        # An entry with "problem" cannot be read or must be imported again; its revision is null.
+        return [{key: entry.get(key) for key in ('id', 'name', 'revision', 'modes', 'description')}
+                for entry in PyHslClient().get('/catalog')['protocols']
+                if entry.get('unattended') is True and 'problem' not in entry]
 
 
 @router.post('/validate')

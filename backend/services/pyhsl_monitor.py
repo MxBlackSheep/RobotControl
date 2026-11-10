@@ -1,6 +1,7 @@
 """One independent poller owns Run Control reads and run alert dispatch."""
 import copy
 import logging
+import re
 import threading
 import time
 from datetime import datetime, timedelta
@@ -24,6 +25,7 @@ class PyHslMonitor:
         self.email = email
         self._reading = self._unavailable('unknown', 'Run Control has not been checked')
         self._checked = None
+        self._protocols = {}
         self._review_rows = None
         self._review_read = None
         self._stop = threading.Event()
@@ -42,6 +44,9 @@ class PyHslMonitor:
             result['reviews']['known'] = False
         return result
 
+    def protocol_for_session(self, session_id):
+        return self._protocols.get(session_id.lower())
+
     def _reviews(self, runs):
         """Run Control parses every journal for this list, so read it when a run changes or every two minutes."""
         rows = sorted((str(row.get('run_id')), str(row.get('status'))) for row in runs) if isinstance(runs, list) else None
@@ -56,6 +61,9 @@ class PyHslMonitor:
     def poll(self):
         try:
             runs = self.client.get('/runs')['sessions']
+            if isinstance(runs, list):
+                self._protocols = {row['session_id'].lower(): row['protocol'] for row in runs
+                                   if row.get('session_id') and row.get('protocol')}
             reviews = self._reviews(runs)
             if not isinstance(runs, list) or not isinstance(reviews['cases'], list):
                 raise ValueError
@@ -133,3 +141,16 @@ _monitor = PyHslMonitor()
 
 def get_pyhsl_monitor():
     return _monitor
+
+
+def experiment_runner(method_name):
+    """Identify ManagedHost methods using the monitor's last runs read, without I/O."""
+    match = re.search(r'[\\/]sessions[\\/]([0-9a-f]{32})[\\/]host[\\/]ManagedHost\.hsl$',
+                      method_name or '', re.IGNORECASE)
+    if not match:
+        return {'runner': 'venus'}
+    result = {'runner': 'pyhsl'}
+    protocol = get_pyhsl_monitor().protocol_for_session(match.group(1))
+    if protocol is not None:
+        result['protocol'] = protocol
+    return result

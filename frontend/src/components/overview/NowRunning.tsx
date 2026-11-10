@@ -6,7 +6,7 @@ import { DetailTitle, Panel } from '../PageLayout';
 import { fontMono } from '../../theme';
 import { clockTime } from '../../utils/displayTime';
 import type { RobotStatus } from '../../hooks/useRobotStatus';
-import type { RunningJobDetail } from '../../types/scheduling';
+import { RUNNER_LABELS, type RunningJobDetail } from '../../types/scheduling';
 
 export type RunTiming = { started: Date | null; elapsed: number | null; estimate: number | null; fraction: number | null; overBy: number | null };
 
@@ -86,14 +86,14 @@ export default function NowRunning({ status, error, span }: { status: RobotStatu
     </Box>}
 
     {job && !timing && <Box>
-      <DetailTitle component="p">{job.experiment_name}</DetailTitle>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}><DetailTitle component="p">{job.experiment_name}</DetailTitle><StatusChip tone="neutral" label={RUNNER_LABELS[job.runner === 'pyhsl' ? 'pyhsl' : 'venus']} /></Box>
       {job.protocol_id && <Typography sx={{ fontFamily: fontMono, fontSize: 12, lineHeight: '16px', color: 'text.secondary', overflowWrap: 'anywhere' }}>{job.protocol_id}</Typography>}
     </Box>}
 
     {job && timing && <>
       <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 3, minWidth: 0 }}>
         <Box sx={{ minWidth: 0, flex: 1 }}>
-          <DetailTitle component="p">{job.experiment_name}</DetailTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}><DetailTitle component="p">{job.experiment_name}</DetailTitle><StatusChip tone="neutral" label={RUNNER_LABELS[job.runner === 'pyhsl' ? 'pyhsl' : 'venus']} /></Box>
           {job.experiment_path && job.runner !== 'pyhsl' && <Typography sx={{ display: { xs: 'none', sm: 'block' }, fontFamily: fontMono, fontSize: 12, lineHeight: '16px', color: 'text.secondary', overflowWrap: 'anywhere' }}>{job.experiment_path}</Typography>}
         </Box>
         {timing.elapsed !== null && <Box sx={{ display: { xs: 'none', sm: 'flex' }, flexDirection: 'column', alignItems: 'flex-end', flexShrink: 0 }}>
