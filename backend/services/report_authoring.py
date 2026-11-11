@@ -227,8 +227,14 @@ class ReportAuthoring:
     def _read(path):
         """(record, None) for a checked file, else (what reads, reason). Never rewrites the file."""
         try:
-            data = json.loads(path.read_text('utf-8'))
-        except (UnicodeDecodeError, ValueError):
+            text = path.read_text('utf-8')
+        except UnicodeDecodeError:
+            return {}, 'the file is not readable JSON'
+        except OSError:  # held by another program, or not a file
+            return {}, 'the file cannot be read'
+        try:
+            data = json.loads(text)
+        except ValueError:
             return {}, 'the file is not readable JSON'
         try:
             return check_draft(data), None
@@ -245,14 +251,25 @@ class ReportAuthoring:
             raise PackageError('Draft not found', 404)
         return data, reason
 
+    @staticmethod
+    def _openable(data, owner):
+        """A draft under review opens in Edit only for its stored owner and only when the file holds a draft object."""
+        return isinstance(data.get('draft'), dict) and data.get('owner') == owner
+
     def get(self, key, owner, review=False):
-        """review=True opens a draft under review for Edit when its file holds a draft object; acting paths never pass it."""
+        """review=True opens a draft under review for Edit; acting paths never pass it. The file is untouched until saved."""
         with self.lock:
             data, reason = self._owned(key, owner)
-            if reason and not (review and isinstance(data.get('draft'), dict)):
+            if reason and not (review and self._openable(data, owner)):
                 raise PackageError(f'Needs review: {reason}')
             record = {k: v for k, v in data.items() if k != 'owner'}
-            return {**record, 'review_reason': reason} if review else record
+            if not review:
+                return record
+            if reason:
+                # Offer only what the current model accepts, so the save can succeed.
+                record['draft'] = {k: v for k, v in record['draft'].items() if k in ReportDraft.model_fields}
+                record['revision'] = record.get('revision') if type(record.get('revision')) is int else 0
+            return {**record, 'review_reason': reason}
 
     def list(self, owner):
         with self.lock:
@@ -265,7 +282,7 @@ class ReportAuthoring:
                     draft = d.get('draft') if isinstance(d.get('draft'), dict) else None
                     entries.append(dict(id=path.stem, name=(draft or {}).get('name') or path.stem, revision=d.get('revision'),
                                         code_defined=bool((draft or {}).get('definition_file')), review_reason=reason,
-                                        openable=draft is not None))
+                                        openable=self._openable(d, owner)))
                 elif not self.service.catalogue.published_draft(d['id'], owner):
                     entries.append(dict(id=d['id'], name=d['draft']['name'], revision=d['revision'],
                                         code_defined=bool(d['draft'].get('definition_file')), review_reason=None, openable=True))

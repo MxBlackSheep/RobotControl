@@ -328,10 +328,13 @@ class SchedulingNotificationService:
         return self._collect_contact_emails(schedule)
 
     def _collect_contact_emails(self, schedule: ScheduledExperiment) -> List[str]:
+        # The manager returns checked contacts only, so a contact under review gets no mail.
+        from backend.services.scheduling import get_scheduling_database_manager
+        manager = get_scheduling_database_manager()
         emails: List[str] = []
         seen = set()
         for contact_id in schedule.notification_contacts or []:
-            contact = self.get_notification_contact(contact_id)
+            contact = manager.get_notification_contact(contact_id)
             if contact and contact.is_active and contact.email_address:
                 email = contact.email_address.strip()
                 if email and email not in seen:

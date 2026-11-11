@@ -11,7 +11,8 @@ List times must use the runtime next run and newest finished
 execution, with no next run for review/inactive/archived rows; queue reports engine state. Activation, archive, launch and path corrections refuse them.
 Contacts: a stored contact that fails the route check hides the others or the list, gets
 mail (alone or with checked contacts), drops from a schedule's contacts, or cannot be
-edited back or deleted; an alert whose every recipient is under review leaves no record.
+edited back or deleted; an alert whose every recipient is under review leaves no record; a
+row whose timestamp does not parse cuts off the contacts after it.
 Email settings: a stored row that fails the settings check reads as unconfigured (defaults),
 hides its values or reason, returns the password, still sends (test or alert), or stays
 under review after a valid save; a database that never had settings reads as under review;
@@ -28,7 +29,10 @@ Report drafts: one unreadable draft file hides the others or fails the list; a t
 or a draft the model refuses is missing from the list, tries, checks or installs, or cannot
 be deleted; a truncated file opens or is rewritten (its bytes change before Delete); a readable
 draft under review cannot be opened or its save leaves the review; another owner sees a readable
-draft; a draft whose owner is null is hidden or cannot be deleted.
+draft; a draft whose owner is null is hidden, opens or cannot be deleted; another administrator
+opens or saves a draft under review; a draft with a field the model no longer has, or a
+revision that is not a number, opens but can never be saved; a file that cannot be read fails
+the whole list.
 """
 from contextlib import closing, contextmanager
 import hashlib
@@ -558,6 +562,17 @@ def contact_review_checks(root):
         assert reply.status_code == 200, reply.text
         reply = client.get('/api/scheduling/contacts', params={'include_inactive': True})
         assert {row['contact_id']: row['review_reason'] for row in reply.json()['data']} == {'unaddressed': None, 'checked': None}
+    # A timestamp that does not parse is a review of that row only; the contacts after it still read.
+    with patch.object(module, 'get_data_path', return_value=root):
+        timed = module.SQLiteSchedulingDatabase('contact-times.db')
+    for key in ('a-first', 'b-untimed', 'c-last'):
+        assert timed.create_notification_contact(NotificationContact(key, key, f'{key}@example.test'))
+    with timed._get_connection() as conn:
+        conn.execute("UPDATE NotificationContacts SET created_at='not a time' WHERE contact_id='b-untimed'")
+        conn.commit()
+    listed = {c.contact_id: c.review_reason for c in timed.get_notification_contacts(include_inactive=True, include_review=True)}
+    assert list(listed) == ['a-first', 'b-untimed', 'c-last'] and listed['b-untimed'] and not listed['c-last'], listed
+    assert [c.contact_id for c in timed.get_notification_contacts(include_inactive=True)] == ['a-first', 'c-last']
     print('PASS: contact review listing, checked-only mail, review-only alert record, repair and delete')
 
 
@@ -653,8 +668,8 @@ def user_review_checks(root):
         try:
             with patch.object(module, 'get_auth_database', return_value=fresh):
                 module.AuthService()
-        except ValueError:
-            pass
+        except ValueError as exc:
+            assert 'ROBOTCONTROL_ADMIN_EMAIL' in str(exc), str(exc)
         else:
             raise AssertionError('A bootstrap administrator that fails the user check must not be written')
         assert fresh.list_users() == []
@@ -721,15 +736,18 @@ def draft_review_checks(root):
 
     service = DatabaseTools(root / 'tools', Path(__file__).resolve().parents[2] / 'database_packages', guard=nullcontext)
     authoring = service.authoring
-    good, truncated, nameless, ownerless = (authoring.save(ReportDraft(name=name), 'admin')['id']
-                                            for name in ('Good', 'Truncated', 'Nameless', 'Ownerless'))
+    good, truncated, nameless, ownerless, retired, unnumbered = (authoring.save(ReportDraft(name=name), 'admin')['id']
+        for name in ('Good', 'Truncated', 'Nameless', 'Ownerless', 'Retired field', 'Unnumbered'))
     path = authoring._path(truncated)
     path.write_bytes(path.read_bytes()[:40])
     kept = digest(path)
-    for key, field, value in ((nameless, 'name', ''), (ownerless, 'owner', None)):
+    for key, change in ((nameless, lambda r: r['draft'].update(name='')), (ownerless, lambda r: r.update(owner=None)),
+                        (retired, lambda r: r['draft'].update(retired_field=1)), (unnumbered, lambda r: r.update(revision='two'))):
         record = json.loads(authoring._path(key).read_text('utf-8'))
-        (record['draft'] if field == 'name' else record)[field] = value
+        change(record)
         authoring._path(key).write_text(json.dumps(record), 'utf-8')
+    locked = authoring.root / ('d' * 32 + '.json')
+    locked.mkdir()  # reading a directory raises OSError, like a file another program holds
     app = FastAPI()
     app.include_router(api.router)
     user = {'username': 'admin', 'role': 'admin'}
@@ -739,9 +757,21 @@ def draft_review_checks(root):
         reply = client.get('/api/database/tools/drafts')
         assert reply.status_code == 200, reply.text
         listed = {entry['id']: entry for entry in reply.json()}
-        assert set(listed) == {good, truncated, nameless, ownerless}, reply.text
+        assert set(listed) == {good, truncated, nameless, ownerless, retired, unnumbered, locked.stem}, reply.text
         assert listed[good]['review_reason'] is None and all(listed[key]['review_reason'] for key in (truncated, nameless, ownerless)), reply.text
-        assert listed[nameless]['openable'] and not listed[truncated]['openable'], reply.text
+        assert listed[locked.stem]['review_reason'] == 'the file cannot be read', listed[locked.stem]
+        locked.rmdir()
+        assert listed[nameless]['openable'] and not listed[truncated]['openable'] and not listed[ownerless]['openable'], reply.text
+        # A key the model no longer has, or a revision that is not a number, still opens and saves.
+        for key in (retired, unnumbered):
+            opened = client.get(f'/api/database/tools/drafts/{key}').json()
+            reply = client.put(f'/api/database/tools/drafts/{key}', json={'draft': opened['draft'], 'revision': opened['revision']})
+            assert reply.status_code == 200, (key, reply.text)
+            assert client.get(f'/api/database/tools/drafts/{key}').json()['review_reason'] is None
+            assert client.delete(f'/api/database/tools/drafts/{key}').status_code == 200
+        # Only its owner opens a draft under review; one without a readable owner offers Delete only.
+        reply = client.get(f'/api/database/tools/drafts/{ownerless}')
+        assert reply.status_code == 400 and 'Needs review' in reply.json()['detail'], reply.text
         assert client.get(f'/api/database/tools/drafts/{good}').status_code == 200
         for key in (truncated, nameless):
             for method, suffix, body in (('post', '/try', {'inputs': {}}), ('post', '/check', None),
@@ -764,6 +794,10 @@ def draft_review_checks(root):
         assert listed[nameless]['review_reason'] is None and listed[nameless]['name'] == 'Repaired', listed[nameless]
         user['username'] = 'other'
         assert sorted(entry['id'] for entry in client.get('/api/database/tools/drafts').json()) == sorted([truncated, ownerless])
+        reply = client.get(f'/api/database/tools/drafts/{ownerless}')
+        assert reply.status_code == 400 and 'Needs review' in reply.json()['detail'], reply.text
+        reply = client.put(f'/api/database/tools/drafts/{ownerless}', json={'draft': {'name': 'Taken'}, 'revision': 1})
+        assert reply.status_code == 400 and 'Needs review' in reply.json()['detail'], reply.text
         assert client.delete(f'/api/database/tools/drafts/{ownerless}').status_code == 200
         user['username'] = 'admin'
         for key in (truncated, nameless):

@@ -2,7 +2,8 @@
 
 Failure cases: pending, sent and error records appear over HTTP, including manual,
 test and recovery emails. Partial refusal or log-storage failure never resends mail
-that was already accepted.
+that was already accepted. With no manual-recovery recipients, recovery mail fails or reaches a
+contact under review instead of the schedule's checked contacts.
 
 Alert layout, read back from the bytes the mail sink received:
 - every schedule-alert trigger (simulation_mode_mismatch, log_inactive, monitoring_unavailable,
@@ -277,6 +278,26 @@ def run(baseline=False, render=None):
                 for event in ['manual_recovery_required','manual_recovery_cleared']:
                     assert any(row.event_type==event and row.status=='sent' for row in db.get_notification_logs())
                 results.append('Recovery notifications recorded: passed')
+                # With no manual-recovery recipients, the real service mails the schedule's checked contacts only.
+                from backend.services.scheduling.database_manager import SchedulingDatabaseManager
+                checked_manager = SchedulingDatabaseManager.__new__(SchedulingDatabaseManager)
+                checked_manager.sqlite_db = db
+                for key in ('checked', 'review'):
+                    assert db.create_notification_contact(NotificationContact(key, key.title(), f'{key}@example.com'))
+                with db._get_connection() as conn:
+                    conn.execute("UPDATE NotificationContacts SET display_name='' WHERE contact_id='review'")
+                    conn.commit()
+                contacted = ScheduledExperiment('contacted', 'Contacted', 'contacted.med', 'once', notification_contacts=['checked', 'review'])
+                recovery = SchedulingNotificationService.__new__(SchedulingNotificationService)
+                recovery.email = email()
+                with patch('backend.services.scheduling.get_scheduling_database_manager', return_value=checked_manager):
+                    recovery.manual_recovery_required(contacted, note='Fixture', actor='fixture')
+                    recovery.manual_recovery_cleared(contacted, note='Fixture', actor='fixture')
+                for event in ['manual_recovery_required', 'manual_recovery_cleared']:
+                    row = next(row for row in db.get_notification_logs(event_type=event)
+                               if (row.metadata or {}).get('original_schedule_id') == 'contacted' or row.schedule_id == 'contacted')
+                    assert row.status == 'sent' and row.recipients == ['checked@example.com'], (event, row)
+                results.append('Recovery mail with no recovery recipients reaches checked contacts only: passed')
                 for subject in ['RobotControl SMTP test message', 'Manual']:
                     message = next(m for m in (message_parts(raw)[0] for raw in smtp.raw) if m['Subject'] == subject)
                     assert message.get_content_type() == 'text/plain' and not message.is_multipart(), subject

@@ -116,7 +116,10 @@ class AuthService:
         if not self.db.get_user_by_username(DEFAULT_ADMIN_USERNAME):
             admin = {"username": DEFAULT_ADMIN_USERNAME, "email": DEFAULT_ADMIN_EMAIL,
                      "password_hash": self.get_password_hash(DEFAULT_ADMIN_PASSWORD)}
-            check_user(admin)
+            try:
+                check_user(admin)
+            except ValueError:
+                raise ValueError('ROBOTCONTROL_ADMIN_EMAIL has no "@"') from None
             self.db.ensure_admin(**admin)
 
         # Cache configuration values locally for quick access

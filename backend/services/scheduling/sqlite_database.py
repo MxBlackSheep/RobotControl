@@ -790,7 +790,11 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                         contacts.append(check_contact(fields))
                     except ValueError as exc:
                         if include_review:
-                            contacts.append(NotificationContact.from_dict({**fields, "review_reason": str(exc)}))
+                            review = {**fields, "review_reason": str(exc)}
+                            try:
+                                contacts.append(NotificationContact.from_dict(review))
+                            except ValueError:  # its timestamps do not parse; list it without them
+                                contacts.append(NotificationContact.from_dict({**review, "created_at": None, "updated_at": None}))
         except Exception as exc:
             logger.error(f"Failed to load notification contacts: {exc}")
         return contacts

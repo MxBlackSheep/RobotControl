@@ -14,6 +14,7 @@ import { mkdirSync } from 'node:fs';
  *   rejected save keeps it. A queued schedule shows why it is waiting.
  * - A contact under review reads as Active or hides its reason; Edit opens without its stored
  *   values; a successful save keeps the chip, a refused save drops the draft or the chip.
+ *   In the schedule form it counts as an alert recipient (no warning) or hides its review.
  * Server-side review cases are in backend/e2e/stored_data_check.py; preparation cases in
  * backend/e2e/scheduling_lab_check.py and backend/e2e/preparation_step_check.py; mode cases in
  * backend/e2e/simulation_mode_check.py.
@@ -241,3 +242,16 @@ for (const accepted of [true, false]) {
     await expect(row).toContainText('Needs review');
   });
 }
+test('a contact under review is not an alert recipient in the schedule form', async ({ page }) => {
+  const schedule = stored({ schedule_id: 'alerted', experiment_name: 'Alerted method', experiment_path: 'C:\\Methods\\alerted.med',
+    notification_contacts: ['night'] });
+  await page.route('**/api/database/tools/catalogue?kind=preparation', route => route.fulfill({ json: [] }));
+  await scheduling(page, { list: () => [schedule], contacts: () => [reviewContact] });
+  await page.goto('/scheduling?section=schedules');
+  await page.getByRole('button', { name: 'Open Alerted method', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit schedule', exact: true }).click();
+  const editor = page.getByRole('dialog', { name: 'Edit schedule', exact: true });
+  await expect(editor.getByText('Log monitoring will continue, but no alert emails will be sent.')).toBeVisible();
+  await editor.getByRole('combobox', { name: 'Email alert recipients' }).click();
+  await expect(page.getByRole('option', { name: /Night shift/ })).toContainText('Needs review');
+});
