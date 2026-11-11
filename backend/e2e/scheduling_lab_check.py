@@ -48,7 +48,7 @@ OLD_RESET = ['ResetHamiltonTables:Runtime', 'ScheduledToRun', 'EvoYeastExperimen
 
 
 def run():
-    from backend.e2e.report_wizard_check import sql_fixture
+    from backend.e2e.sql_server_fixture import sql_fixture
     from backend.api import scheduling as api
     from backend.models import JobExecution, ScheduledExperiment
     from backend.services.auth import get_current_user

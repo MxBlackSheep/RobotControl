@@ -229,8 +229,9 @@ disposable database before attaching it to real runs.
 
 ## Existing projects and drafts
 
-Older report drafts resume in their original wizard. Existing ZIPs and the
-command-line builder remain supported. For an existing source folder:
+A draft saved by the old report wizard is listed under review with Remove draft only;
+add that tool again with Add tool. Existing ZIPs and the command-line builder remain
+supported. For an existing source folder:
 
 ```powershell
 uv run --locked python build_scripts/database_package.py build C:/Scripts/MyPackage --version 1.0.1

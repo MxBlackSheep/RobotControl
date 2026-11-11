@@ -1,8 +1,8 @@
 """Disposable SQL Server + SQLite + HTTP/executor check of a schedule's database preparation step.
 
 Run: .venv/Scripts/python.exe -m backend.e2e.preparation_step_check
-Uses the report-wizard SQL fixture (disposable login and databases on .\\HAMILTON) and a fixture
-package whose `mode` input makes prepare() succeed, raise, hang or crash. No robot launch: the
+Uses the SQL Server fixture in sql_server_fixture.py (disposable login and databases on
+.\\HAMILTON) and a fixture package whose `mode` input makes prepare() succeed, raise, hang or crash. No robot launch: the
 executor's Hamilton command is replaced, and no application data is used.
 
 Failure cases:
@@ -73,7 +73,7 @@ def package(version):
 
 
 def run():
-    from backend.e2e.report_wizard_check import sql_fixture
+    from backend.e2e.sql_server_fixture import sql_fixture
     from backend.api import scheduling as api
     from backend.models import JobExecution, ScheduledExperiment
     from backend.services.auth import get_current_user

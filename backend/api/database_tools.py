@@ -11,7 +11,7 @@ from backend.services.auth import get_current_user
 from backend.services.database_tools import get_database_tools
 from backend.services.database_packages import MAX_UPLOAD, PackageError
 from backend.utils.audit import log_action
-from backend.services.report_authoring import ReportDraft, inspect_python
+from backend.services.report_authoring import ReportDraft
 from backend.services.report_sources import ReportSource, lookup_rows
 from backend.services.database_access import ProvisionAuthority
 from backend.services.sqlite_safety import SafetyConflict, StorageUnavailable
@@ -206,11 +206,6 @@ class DraftSave(BaseModel):
     revision: int = Field(default=0, ge=0)
 
 
-class PythonUpload(BaseModel):
-    model_config = ConfigDict(extra='forbid')
-    source: str = Field(max_length=1024*1024)
-
-
 class ToolUpload(BaseModel):
     model_config = ConfigDict(extra='forbid')
     files: dict[str, str] = Field(max_length=99)
@@ -237,8 +232,6 @@ def authoring_example(kind: Literal['report', 'operation'], user=Depends(local_a
 def tool_source(key: str, user=Depends(local_admin), service=Depends(get_database_tools)):
     from backend.services.tool_definition import source_archive
     draft = service.authoring.draft(key, owner(user))
-    if not draft.definition_file:
-        raise PackageError('Use the editing files for this older draft.')
     if len(draft.files) == 1:
         return Response(draft.files[draft.definition_file], media_type='text/x-python',
                         headers={'Content-Disposition': f'attachment; filename="{draft.definition_file}"'})
@@ -248,27 +241,12 @@ def tool_source(key: str, user=Depends(local_admin), service=Depends(get_databas
 
 @router.post('/authoring/{kind}/{tool_id}/edit')
 def edit_defined_tool(kind: Literal['report', 'operation'], tool_id: str, user=Depends(local_admin), service=Depends(get_database_tools)):
-    return service.authoring.edit_installed(tool_id, owner(user), kind, code_defined=True)
-
-
-@router.post('/authoring/inspect-python')
-def inspect_script(payload: PythonUpload, user=Depends(local_admin)):
-    return inspect_python(payload.source)
+    return service.authoring.edit_installed(tool_id, owner(user), kind)
 
 
 @router.get('/drafts')
 def drafts(user=Depends(local_admin), service=Depends(get_database_tools)):
     return service.authoring.list(owner(user))
-
-
-@router.post('/reports/{tool_id}/edit')
-def edit_report(tool_id: str, user=Depends(local_admin), service=Depends(get_database_tools)):
-    return service.authoring.edit_installed(tool_id, owner(user))
-
-
-@router.post('/drafts')
-def new_draft(payload: DraftSave, user=Depends(local_admin), service=Depends(get_database_tools)):
-    return service.authoring.save(payload.draft, owner(user))
 
 
 @router.get('/drafts/{key}')
@@ -285,12 +263,6 @@ def save_draft(key: str, payload: DraftSave, user=Depends(local_admin), service=
 def delete_draft(key: str, user=Depends(local_admin), service=Depends(get_database_tools)):
     service.authoring.remove(key, owner(user))
     return {'message': 'Draft removed.'}
-
-
-@router.get('/drafts/{key}/handler')
-def starter(key: str, user=Depends(local_admin), service=Depends(get_database_tools)):
-    return Response(service.authoring.starter(key, owner(user)), media_type='text/x-python',
-                    headers={'Content-Disposition': 'attachment; filename="handler.py"'})
 
 
 @router.get('/drafts/{key}/package')
@@ -329,7 +301,7 @@ def try_draft(key: str, payload: DraftTrial, user=Depends(local_admin), service=
     with service.guard() if operation else nullcontext():
         with service.authoring.lock, service.lock, service.catalogue.lock, service.sources.lock:
             saved = service.authoring.get(key, owner(user))
-            if saved['draft'].get('definition_file') and payload.revision != saved['revision']:
+            if payload.revision != saved['revision']:
                 raise PackageError('Draft changed. Reload it before trying.', 409)
             service.authoring.clear_trial(key, owner(user))
             draft = service.authoring.trial(key, owner(user))
@@ -388,12 +360,6 @@ def export_package(package_id: str, user=Depends(local_admin), service=Depends(g
 @router.get('/packages/{package_id}/history')
 def package_history(package_id: str, user=Depends(local_admin), service=Depends(get_database_tools)):
     return service.catalogue.history(package_id)
-
-
-@router.get('/drafts/{key}/editing-files')
-def editing_files(key: str, user=Depends(local_admin), service=Depends(get_database_tools)):
-    return Response(service.authoring.editing_files(key, owner(user)), media_type='application/zip',
-                    headers={'Content-Disposition': 'attachment; filename="report-editing-files.zip"'})
 
 
 @router.post('/packages')

@@ -11,48 +11,8 @@ from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
-from backend.services.database_packages import Manifest, PackageCatalogue, PackageError, changelog_with_note, inspect_archive, SUPPORTED_LIBRARIES
+from backend.services.database_packages import Manifest, PackageCatalogue, PackageError, changelog_with_note, inspect_archive
 from backend.utils.filesystem import replace_file
-
-
-def inspect_python(source):
-    """Inspect source only, including imports inside functions. Never import it."""
-    try:
-        tree = ast.parse(source)
-    except SyntaxError as exc:
-        raise PackageError(f'Python syntax error on line {exc.lineno}: {exc.msg}') from None
-    imports = set()
-    undetermined = set()
-    adaptation = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            imports.update(x.name.split('.')[0] for x in node.names)
-        elif isinstance(node, ast.ImportFrom):
-            if node.level:
-                undetermined.add('Local module imports need their supporting files.')
-            else:
-                imports.add((node.module or '').split('.')[0])
-        elif isinstance(node, ast.Call):
-            name = ast.unparse(node.func)
-            if name.endswith(('import_module', '__import__', 'exec', 'eval')):
-                undetermined.add('Dynamic code or imports need manual review.')
-            if name.endswith('.connect'):
-                adaptation.add('Replace direct database connections with the selected report connections.')
-            if name.endswith(('ExcelWriter', 'to_excel')):
-                for kw in node.keywords:
-                    if kw.arg == 'engine' and isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str):
-                        imports.add(kw.value.value)
-        elif isinstance(node, ast.Attribute) and node.attr == 'argv':
-            adaptation.add('Replace command-line arguments with report inputs.')
-    run = next((n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'run'), None)
-    compatible = bool(run and [a.arg for a in run.args.posonlyargs + run.args.args] == ['context', 'inputs']
-                      and all(x is not None for x in run.args.kw_defaults))
-    # A matching signature is a starting point, not proof of correct calculations.
-    if not compatible:
-        adaptation.add('Add run(context, inputs), write Excel in context.output_dir and return its filename.')
-    return dict(available=sorted(imports & SUPPORTED_LIBRARIES),
-                unavailable=sorted(imports - SUPPORTED_LIBRARIES - sys.stdlib_module_names - {'__future__'}),
-                undetermined=sorted(undetermined), compatible=compatible, adaptation=sorted(adaptation))
 
 
 class ReportDraft(BaseModel):
@@ -93,15 +53,13 @@ class ReportDraft(BaseModel):
             self.inputs = [x.model_dump() for x in tool.inputs]
             self.libraries = manifest.libraries
             self.handler = self.files[filename]
-        elif self.kind != 'report':
-            raise PackageError('Add operations from Python containing a TOOL definition.')
         return self
 
 
 DRAFT_SETTING_NAMES = {
     'name': 'name', 'package_id': 'package ID', 'version': 'version number', 'libraries': 'library list',
     'original': 'original Python', 'handler': 'report Python', 'sources': 'connection list',
-    'mappings': 'connection choices', 'inputs': 'input list', 'step': 'wizard step', 'tool_id': 'tool ID',
+    'mappings': 'connection choices', 'inputs': 'input list', 'step': 'step', 'tool_id': 'tool ID',
     'entrypoint': 'starting function', 'kind': 'tool type', 'preview': 'preview setting',
     'confirmation_field': 'confirmation input', 'definition_file': 'defining Python file', 'files': 'file list',
     'operation_source': 'writing connection', 'change_note': 'change note',
@@ -127,6 +85,9 @@ def _plain_draft_error(error):
     return f"The draft's {setting} is not valid"
 
 
+OLD_WIZARD_DRAFT = 'This draft was made with the old report wizard, which has been removed'
+
+
 def check_draft(record):
     """Return a stored draft record or raise ValueError with a plain reason; reads only the record."""
     if not isinstance(record, dict):
@@ -136,6 +97,8 @@ def check_draft(record):
             raise ValueError(missing)
     if type(record.get('revision')) is not int:
         raise ValueError('The draft has no saved revision number')
+    if isinstance(record.get('draft'), dict) and not record['draft'].get('definition_file'):
+        raise ValueError(OLD_WIZARD_DRAFT)
     try:
         ReportDraft.model_validate(record.get('draft'))
     except ValidationError as exc:
@@ -167,10 +130,9 @@ class ReportAuthoring:
             if self.get(key, owner)['revision'] != payload.revision:
                 raise PackageError('Draft changed. Review it again.', 409)
             draft = self.draft(key, owner)
-            if draft.definition_file:
-                if not payload.reviewed:
-                    raise PackageError('Review the trial result before enabling this tool.', 409)
-                self.require_trial(key, owner)
+            if not payload.reviewed:
+                raise PackageError('Review the trial result before enabling this tool.', 409)
+            self.require_trial(key, owner)
             baseline = self.check_base(key, owner)
             note = payload.change_note if payload.change_note is not None else draft.change_note
             content = self.archive(draft, key, owner, note=note)
@@ -185,8 +147,7 @@ class ReportAuthoring:
             operation_source = draft.operation_source
             if any(t.kind == 'operation' for t in manifest.tools):
                 operation_source = operation_source or service.sources.state['operation_bindings'].get(draft.package_id)
-                if draft.definition_file:
-                    service.sources.get(operation_source, 'operation')
+                service.sources.get(operation_source, 'operation')
             # Save connection assignments first under both locks; restore on failure.
             # The package index remains the single activation point. No reader can
             # observe a half-enabled tool in this process.
@@ -281,8 +242,9 @@ class ReportAuthoring:
 
     @staticmethod
     def _openable(data, owner):
-        """A draft under review opens in Edit only for its stored owner and only when the file holds a draft object."""
-        return isinstance(data.get('draft'), dict) and data.get('owner') == owner
+        """A draft under review opens in Edit only for its stored owner and only when the file holds a draft
+        object with its defining Python file; an old wizard draft has none and offers Delete only."""
+        return isinstance(data.get('draft'), dict) and bool(data['draft'].get('definition_file')) and data.get('owner') == owner
 
     def get(self, key, owner, review=False):
         """review=True opens a draft under review for Edit; acting paths never pass it. The file is untouched until saved."""
@@ -309,11 +271,9 @@ class ReportAuthoring:
                 if reason:
                     draft = d.get('draft') if isinstance(d.get('draft'), dict) else None
                     entries.append(dict(id=path.stem, name=(draft or {}).get('name') or path.stem, revision=d.get('revision'),
-                                        code_defined=bool((draft or {}).get('definition_file')), review_reason=reason,
-                                        openable=self._openable(d, owner)))
+                                        review_reason=reason, openable=self._openable(d, owner)))
                 elif not self.service.catalogue.published_draft(d['id'], owner):
-                    entries.append(dict(id=d['id'], name=d['draft']['name'], revision=d['revision'],
-                                        code_defined=bool(d['draft'].get('definition_file')), review_reason=None, openable=True))
+                    entries.append(dict(id=d['id'], name=d['draft']['name'], revision=d['revision'], review_reason=None, openable=True))
             return entries
 
     def save(self, draft, owner, key=None, revision=0):
@@ -325,19 +285,17 @@ class ReportAuthoring:
                 current = self.get(key, owner, review=True)
                 if current.get('revision') != revision:
                     raise PackageError('This draft changed in another tab. Reopen it before saving.', 409)
-                if current['draft'].get('definition_file') and not draft.definition_file:
+                if not draft.definition_file:
                     raise PackageError('Keep this tool definition with its Python.')
             else:
                 if len(list(self.root.glob('*.json'))) >= 100:
                     raise PackageError('The 100-draft limit is reached. Remove an unused draft.', 409)
                 key = uuid.uuid4().hex
-            for name in ('original', 'handler'):
-                source = getattr(draft, name)
-                if source:
-                    try:
-                        ast.parse(source)
-                    except SyntaxError as exc:
-                        raise PackageError(f'{name}: Python syntax error on line {exc.lineno}: {exc.msg}') from exc
+            if draft.handler:
+                try:
+                    ast.parse(draft.handler)
+                except SyntaxError as exc:
+                    raise PackageError(f'handler: Python syntax error on line {exc.lineno}: {exc.msg}') from exc
             record = dict(id=key, owner=owner, revision=revision+1, draft=draft.model_dump())
             if revision and current.get('verification') and (
                     {k:v for k,v in current['draft'].items() if k != 'change_note'} ==
@@ -404,7 +362,7 @@ class ReportAuthoring:
             self._path(key).unlink()
             self._path(key).with_suffix('.zip').unlink(missing_ok=True)
 
-    def edit_installed(self, tool_id, owner, kind='report', code_defined=False):
+    def edit_installed(self, tool_id, owner, kind='report'):
         with self.lock, self.service.catalogue.lock, self.service.sources.lock:
             package_id, entry, tool = self.service.catalogue.resolve(tool_id, kind)
             if not tool.entrypoint.endswith(':run'):
@@ -412,7 +370,7 @@ class ReportAuthoring:
             content, _ = self.service.catalogue.export(package_id)
             manifest, files = inspect_archive(content)
             major, minor, patch = map(int, manifest.version.split('.'))
-            if code_defined and tool.preview and tool.preview != tool.entrypoint.replace(':run', ':preview'):
+            if tool.preview and tool.preview != tool.entrypoint.replace(':run', ':preview'):
                 raise PackageError('This operation has custom preview wiring. Download its package to edit it.')
             draft = ReportDraft(name=tool.name, package_id=package_id, tool_id=tool.id, entrypoint=tool.entrypoint,
                 version=f'{major}.{minor}.{patch+1}', libraries=manifest.libraries,
@@ -421,15 +379,14 @@ class ReportAuthoring:
                 mappings=self.service.sources.bindings(package_id), inputs=[x.model_dump() for x in tool.inputs], step=2,
                 kind=kind, preview=tool.preview, confirmation_field=tool.confirmation_field,
                 operation_source=self.service.sources.state['operation_bindings'].get(package_id))
-            if code_defined:
-                from backend.services.tool_definition import with_definition
-                draft.definition_file = tool.entrypoint.split(':')[0]+'.py'
-                draft.files = {name:value.decode('utf-8-sig') for name,value in files.items() if name != 'manifest.json'}
-                tree = ast.parse(draft.handler)
-                has_definition = any(isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == 'TOOL' for t in n.targets)
-                                     or isinstance(n, ast.AnnAssign) and isinstance(n.target, ast.Name) and n.target.id == 'TOOL' for n in tree.body)
-                if not has_definition:
-                    draft.files[draft.definition_file] = with_definition(draft.handler, tool)
+            from backend.services.tool_definition import with_definition
+            draft.definition_file = tool.entrypoint.split(':')[0]+'.py'
+            draft.files = {name:value.decode('utf-8-sig') for name,value in files.items() if name != 'manifest.json'}
+            tree = ast.parse(draft.handler)
+            has_definition = any(isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == 'TOOL' for t in n.targets)
+                                 or isinstance(n, ast.AnnAssign) and isinstance(n.target, ast.Name) and n.target.id == 'TOOL' for n in tree.body)
+            if not has_definition:
+                draft.files[draft.definition_file] = with_definition(draft.handler, tool)
             record = self.save(draft, owner)
             record['owner'] = owner
             record['base'] = dict(sha256=entry['sha256'], package_id=package_id, tool_id=tool.id, entrypoint=tool.entrypoint,
@@ -442,7 +399,7 @@ class ReportAuthoring:
     def check_base(self, key, owner):
         record = self.get(key, owner)
         base = record.get('base')
-        if not base and record['draft'].get('definition_file') and record['draft']['package_id'] in self.service.catalogue.index:
+        if not base and record['draft']['package_id'] in self.service.catalogue.index:
             raise PackageError('A tool with this identity was installed after this draft was created. Start an edit from the installed tool.', 409)
         if base:
             entry = self.service.catalogue.index.get(base['package_id'])
@@ -453,19 +410,6 @@ class ReportAuthoring:
 
     def draft(self, key, owner):
         return ReportDraft.model_validate(self.get(key, owner)['draft'])
-
-    def starter(self, key, owner):
-        draft = self.draft(key, owner)
-        draft.manifest()
-        details = json.dumps({'inputs': draft.inputs, 'source_aliases': draft.sources}, indent=2)
-        return ('# Adapt your original calculations; do not copy connection credentials.\n'
-                '# Replace ADAPT_BEFORE_BUILD once the report is implemented.\n'
-                + '\n'.join('# ' + line for line in details.splitlines()) + '\n\n'
-                'def run(context, inputs):\n'
-                '    # context.connections["primary"] supplies an approved connection.\n'
-                '    # Read inputs by name, e.g. inputs["plate_id"].\n'
-                '    # Write Excel under context.output_dir; return its filename.\n'
-                '    raise NotImplementedError("ADAPT_BEFORE_BUILD")\n')
 
     def archive(self, draft, key=None, owner=None, trial=False, note=None):
         """The package ZIP for a draft. `note` is given only when publishing: it becomes the
@@ -490,20 +434,17 @@ class ReportAuthoring:
             manifest.tools = [next(t for t in manifest.tools if t.id == (draft.tool_id or draft.package_id))]
             manifest.tools[0].id = manifest.id
         retained = files
-        if draft.definition_file:
-            files = {name:text.encode('utf-8') for name,text in draft.files.items()}
+        files = {name:text.encode('utf-8') for name,text in draft.files.items()}
         if note is not None:
             # Replace all files may omit CHANGELOG.md; the published version keeps its history.
             if not any(name.lower() == 'changelog.md' for name in files):
                 files = {**files, **{name:value for name,value in retained.items() if name.lower() == 'changelog.md'}}
             files = changelog_with_note(files, manifest.name, manifest.version, note)
-        if not draft.handler or 'ADAPT_BEFORE_BUILD' in draft.handler:
-            raise PackageError('Upload the completed handler.py before trying or installing this report.')
         tree = ast.parse(draft.handler)
         for node in ast.walk(tree):
             names = [x.name for x in node.names] if isinstance(node, ast.Import) else [node.module or ''] if isinstance(node, ast.ImportFrom) else []
             for name in names:
-                if isinstance(node, ast.ImportFrom) and node.level and draft.definition_file:
+                if isinstance(node, ast.ImportFrom) and node.level:
                     continue
                 top = name.split('.')[0]
                 if top not in sys.stdlib_module_names and top not in manifest.libraries and top+'.py' not in files:
@@ -517,22 +458,6 @@ class ReportAuthoring:
         content = output.getvalue()
         inspect_archive(content)
         return content
-
-    def editing_files(self, key, owner):
-        draft = self.draft(key, owner)
-        output = io.BytesIO()
-        with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
-            archive.writestr('original.py', draft.original)
-            archive.writestr('handler.py', draft.handler or self.starter(key, owner))
-            archive.writestr('inputs.json', json.dumps({'inputs': draft.inputs, 'sources': draft.sources}, indent=2))
-            archive.writestr('EDITING.md', '# Adapt this report\n\n'
-                'Keep the original calculation and selection rules. Edit handler.py yourself or with a coding agent.\n'
-                'Provide run(context, inputs). Use context.connections[name] for the configured database; '
-                'input names and connection names are in inputs.json. Use parameterized queries.\n'
-                'Write Excel under context.output_dir and return its filename. Do not include connection passwords.\n'
-                'Upload the adapted script in RobotControl, try it with known data, and check the downloaded workbook '
-                'before installing. This editing ZIP is not an installable package.\n')
-        return output.getvalue()
 
     def trial(self, key, owner):
         draft = self.draft(key, owner)

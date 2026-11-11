@@ -32,7 +32,8 @@ draft under review cannot be opened or its save leaves the review; another owner
 draft; a draft whose owner is null is hidden, opens or cannot be deleted; another administrator
 opens or saves a draft under review; a draft with a field the model no longer has, or a
 revision that is not a number, opens but can never be saved; a file that cannot be read fails
-the whole list.
+the whole list. A draft from the removed report wizard (no defining Python file) is missing from
+the list or hides its reason, opens, saves, tries, checks or installs, or changes before Delete.
 """
 from contextlib import closing, contextmanager
 import hashlib
@@ -747,11 +748,20 @@ def draft_review_checks(root):
 
     service = DatabaseTools(root / 'tools', Path(__file__).resolve().parents[2] / 'database_packages', guard=nullcontext)
     authoring = service.authoring
-    good, truncated, nameless, ownerless, retired, unnumbered = (authoring.save(ReportDraft(name=name), 'admin')['id']
+    def tool(name):
+        source = f"TOOL = {{'name': {name!r}, 'kind': 'report', 'connections': []}}\ndef run(context, inputs):\n    pass\n"
+        return authoring.import_files({'tool.py': source}, 'admin')['id']
+    good, truncated, nameless, ownerless, retired, unnumbered = (tool(name)
         for name in ('Good', 'Truncated', 'Nameless', 'Ownerless', 'Retired field', 'Unnumbered'))
     path = authoring._path(truncated)
     path.write_bytes(path.read_bytes()[:40])
     kept = digest(path)
+    # As the removed wizard saved it: the full draft model with no defining Python file.
+    wizard = 'e' * 32
+    wizard_path = authoring._path(wizard)
+    wizard_path.write_text(json.dumps(dict(id=wizard, owner='admin', revision=2, draft=ReportDraft(
+        name='Old wizard report', handler='def run(context, inputs):\n    pass\n', step=2).model_dump())), 'utf-8')
+    wizard_kept = digest(wizard_path)
     for key, change in ((nameless, lambda r: r['draft'].update(name='')), (ownerless, lambda r: r.update(owner=None)),
                         (retired, lambda r: r['draft'].update(retired_field=1)), (unnumbered, lambda r: r.update(revision='two'))):
         record = json.loads(authoring._path(key).read_text('utf-8'))
@@ -768,7 +778,9 @@ def draft_review_checks(root):
         reply = client.get('/api/database/tools/drafts')
         assert reply.status_code == 200, reply.text
         listed = {entry['id']: entry for entry in reply.json()}
-        assert set(listed) == {good, truncated, nameless, ownerless, retired, unnumbered, locked.stem}, reply.text
+        assert set(listed) == {good, truncated, nameless, ownerless, retired, unnumbered, wizard, locked.stem}, reply.text
+        assert listed[wizard]['review_reason'] == 'This draft was made with the old report wizard, which has been removed', listed[wizard]
+        assert not listed[wizard]['openable'] and listed[wizard]['name'] == 'Old wizard report', listed[wizard]
         assert listed[good]['review_reason'] is None and all(listed[key]['review_reason'] for key in (truncated, nameless, ownerless)), reply.text
         assert listed[locked.stem]['review_reason'] == 'The draft file cannot be opened; another program may be using it', listed[locked.stem]
         assert {key: listed[key]['review_reason'] for key in (truncated, nameless, ownerless, retired, unnumbered)} == {
@@ -787,7 +799,12 @@ def draft_review_checks(root):
         reply = client.get(f'/api/database/tools/drafts/{ownerless}')
         assert reply.status_code == 400 and 'Needs review' in reply.json()['detail'], reply.text
         assert client.get(f'/api/database/tools/drafts/{good}').status_code == 200
-        for key in (truncated, nameless):
+        # An old wizard draft offers Delete only; the code-defined draft beside it still opens.
+        reply = client.get(f'/api/database/tools/drafts/{wizard}')
+        assert reply.status_code == 400 and 'Needs review' in reply.json()['detail'], reply.text
+        reply = client.put(f'/api/database/tools/drafts/{wizard}', json={'draft': {'name': 'Taken'}, 'revision': 2})
+        assert reply.status_code == 400 and 'Needs review' in reply.json()['detail'], reply.text
+        for key in (truncated, nameless, wizard):
             for method, suffix, body in (('post', '/try', {'inputs': {}}), ('post', '/check', None),
                                          ('post', '/install', {'expected_current': '', 'revision': 1})):
                 reply = client.request(method.upper(), f'/api/database/tools/drafts/{key}{suffix}', json=body)
@@ -797,15 +814,16 @@ def draft_review_checks(root):
         assert reply.status_code == 400 and 'Needs review' in reply.json()['detail'], reply.text
         reply = client.put(f'/api/database/tools/drafts/{truncated}', json={'draft': {'name': 'Repaired'}, 'revision': 1})
         assert reply.status_code == 400 and 'Needs review' in reply.json()['detail'], reply.text
-        assert digest(path) == kept
+        assert digest(path) == kept and digest(wizard_path) == wizard_kept
         # A readable draft under review opens in Edit; saving it through the check clears the review.
         reply = client.get(f'/api/database/tools/drafts/{nameless}')
         assert reply.status_code == 200 and reply.json()['review_reason'], reply.text
         opened = reply.json()
-        reply = client.put(f'/api/database/tools/drafts/{nameless}', json={'draft': {**opened['draft'], 'name': 'Repaired'}, 'revision': opened['revision']})
+        # Its missing name is the refused field, so the save supplies the name its Python defines.
+        reply = client.put(f'/api/database/tools/drafts/{nameless}', json={'draft': {**opened['draft'], 'name': 'Nameless'}, 'revision': opened['revision']})
         assert reply.status_code == 200, reply.text
         listed = {entry['id']: entry for entry in client.get('/api/database/tools/drafts').json()}
-        assert listed[nameless]['review_reason'] is None and listed[nameless]['name'] == 'Repaired', listed[nameless]
+        assert listed[nameless]['review_reason'] is None and listed[nameless]['name'] == 'Nameless', listed[nameless]
         user['username'] = 'other'
         assert sorted(entry['id'] for entry in client.get('/api/database/tools/drafts').json()) == sorted([truncated, ownerless])
         reply = client.get(f'/api/database/tools/drafts/{ownerless}')
@@ -814,11 +832,12 @@ def draft_review_checks(root):
         assert reply.status_code == 400 and 'Needs review' in reply.json()['detail'], reply.text
         assert client.delete(f'/api/database/tools/drafts/{ownerless}').status_code == 200
         user['username'] = 'admin'
-        for key in (truncated, nameless):
+        assert digest(wizard_path) == wizard_kept
+        for key in (truncated, nameless, wizard):
             assert client.delete(f'/api/database/tools/drafts/{key}').status_code == 200
         assert [entry['id'] for entry in client.get('/api/database/tools/drafts').json()] == [good]
-        assert not path.exists()
-    print('PASS: draft review entries listed beside a good draft; a readable one opens and its save clears it; try/check/install refused; unreadable bytes kept; ownerless listed for all; deleted')
+        assert not path.exists() and not wizard_path.exists()
+    print('PASS: draft review entries listed beside a good draft; a readable one opens and its save clears it; try/check/install refused; unreadable and old wizard bytes kept; ownerless listed for all; deleted')
 
 
 def run():

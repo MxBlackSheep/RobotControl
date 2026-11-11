@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, LinearProgress, TextField, Paper, Stack, Typography } from '@mui/material';
 import { api } from '../services/api';
 import { saveBlob, toolsBase } from './ReportInputs';
-import ReportWizard from './ReportWizard';
 import ToolAuthoring from './ToolAuthoring';
 import StatusChip from './StatusChip';
 import ReviewReason from './ReviewReason';
@@ -29,9 +28,8 @@ export default function DatabasePackages({ active }: { active: boolean }) {
   const [changeNote, setChangeNote] = useState('');
   const [history, setHistory] = useState<{name:string;changes:Change[]}>();
   const [remove, setRemove] = useState<Package>();
-  const [wizard, setWizard] = useState<string>();
   const [toolEditor, setToolEditor] = useState<string>();
-  const [drafts, setDrafts] = useState<{ id: string; name: string; code_defined?: boolean; review_reason?: string | null; openable?: boolean }[]>([]);
+  const [drafts, setDrafts] = useState<{ id: string; name: string; review_reason?: string | null; openable?: boolean }[]>([]);
   const [removeDraft, setRemoveDraft] = useState<{ id: string; name: string }>();
   const [connectionsOpen, setConnectionsOpen] = useState(false);
   const [sources, setSources] = useState<Source[]>([]);
@@ -84,8 +82,7 @@ export default function DatabasePackages({ active }: { active: boolean }) {
   const unchanged = review?.sha256 === review?.current_sha256;
   const downgrade = !!review?.current_version && older(review.package.version, review.current_version);
   const action = !review?.current_version ? 'Install package' : downgrade ? 'Install older version' : review.current_version === review.package.version ? 'Replace version' : 'Update package';
-  const finished = (notice?:string) => {setWizard(undefined);setToolEditor(undefined);setError('');if(notice)setNotice(notice);void load().catch(e=>setError(message(e)));};
-  if (wizard !== undefined) return <ReportWizard draftId={wizard || undefined} onClose={finished} />;
+  const finished = (notice?:string) => {setToolEditor(undefined);setError('');if(notice)setNotice(notice);void load().catch(e=>setError(message(e)));};
   if (toolEditor !== undefined) return <ToolAuthoring draftId={toolEditor || undefined} onClose={finished} />;
   return <Stack spacing={2}>
     <Stack direction="row" gap={1} flexWrap="wrap">
@@ -102,7 +99,7 @@ export default function DatabasePackages({ active }: { active: boolean }) {
       {drafts.map(d => <Stack key={d.id} direction="row" alignItems="center" gap={1}><Box sx={{ flex: 1, minWidth: 0 }}><Typography>{d.name}</Typography>
         {d.review_reason && <ReviewReason reason={d.review_reason} />}</Box>
         {d.review_reason && <StatusChip tone="attention" label="Needs review" />}
-        {d.openable && <Button onClick={() => d.code_defined ? setToolEditor(d.id) : setWizard(d.id)}>Resume</Button>}
+        {d.openable && <Button onClick={() => setToolEditor(d.id)}>Resume</Button>}
         <Button color="error" onClick={() => setRemoveDraft(d)}>Remove draft</Button></Stack>)}
     </Paper>}
     {!packages.length && !busy && <Typography>No packages installed.</Typography>}

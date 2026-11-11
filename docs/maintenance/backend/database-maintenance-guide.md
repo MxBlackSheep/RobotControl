@@ -34,7 +34,7 @@ versions, bundled tool details and authoring steps are owned by
 - `services/database_tools.py`: `DatabaseTools` (`get_database_tools()`) owns operation
   preview and execution, report jobs and connection snapshots. `report_worker.py` runs one
   report in its own process.
-- `services/report_authoring.py`: owner-only drafts, Python inspection and the activation
+- `services/report_authoring.py`: owner-only drafts, package assembly and the activation
   journal, under `data/database-tools/report-drafts`. `tool_definition.py` reads `TOOL`.
 - `api/database_tools.py`: every `/api/database/tools` route.
 - `build_scripts/database_package.py`: `create` and `build` for authors; neither runs package code.
@@ -208,18 +208,15 @@ catalogue → connections; publication takes catalogue then connections.
 
 ### Drafts and publication
 
-- `report_authoring.inspect_python` parses the syntax tree only. It finds imports (including
-  nested ones), Excel engines, compatible entry points and common adaptations; dynamic imports
-  and local modules need manual review. It never runs Python or certifies calculations.
 - `POST /authoring/import` creates or replaces a code-defined draft; `mode` is `python` (one
   defining file, replaced even when renamed), `supporting` (helpers; another `TOOL` is
   rejected) or `all` (complete source set, the default). `POST /authoring/{kind}/{id}/edit`
-  opens an installed tool; `POST /reports/{id}/edit` keeps the older ZIP-editing path.
+  opens an installed tool as a code-defined draft. Every draft is code-defined: it has a
+  `definition_file` (the Python holding `TOOL`).
 - `/drafts/{key}/check` checks files and connections without importing Python. `/try` runs a
   report through the worker, or an operation preview under the guard with rollback and no
   execution token. Trial code is still trusted code.
-- `/drafts/{key}/install` requires the saved revision; code-defined drafts also need a successful
-  trial and `reviewed`. The installed base and mappings must be unchanged and every declared
+- `/drafts/{key}/install` requires the saved revision, a successful trial and `reviewed`. The installed base and mappings must be unchanged and every declared
   alias mapped. It holds the authoring, job, catalogue and connection locks in that order.
   Before assigning connections it writes `report-drafts/activation.pending` (previous mappings
   and the new archive hash, no passwords); startup restores the previous mappings if that hash
@@ -235,12 +232,12 @@ catalogue → connections; publication takes catalogue then connections.
   clears it. A file that does not read ("The draft file is damaged" or, when it cannot be
   opened, "The draft file cannot be opened; another program may be using it") offers Delete only and is never rewritten, so its bytes stay until
   then. A file without a readable owner (missing or null) is listed for every administrator,
-  who can delete it but not open it.
+  who can delete it but not open it. A draft left by the removed report wizard (a draft object
+  without `definition_file`) reads "This draft was made with the old report wizard, which has
+  been removed" and also offers Delete only; its file stays as it is until then.
 - A publication receipt in the history hides the completed draft. Repeating the same request
   returns the installed result without another history event; if the package has changed
   since, it returns 409.
-- `/drafts/{key}/editing-files` downloads the original Python, handler, inputs and editing
-  instructions. It is not an installable package and downloading runs nothing.
 - Drafts, `installed.json` and `report-sources.json` are written to a `.tmp` file and swapped in
   with `utils/filesystem.replace_file`. It uses a POSIX-semantics rename because `os.replace`
   fails with WinError 5 while antivirus or an indexer briefly has the file open.
@@ -255,8 +252,9 @@ failure cases in its header:
 - `backend.e2e.database_tools_check`: operations, receipts, scheduler guard, workbook parity.
 - `backend.e2e.database_workspace_check`: viewer, account creation and rollback, operation
   connection revisions.
-- `backend.e2e.report_wizard_check`, `tool_authoring_check`, `bundled_tools_check`: real SQL
-  permissions, authoring, publication and bundled tool updates.
+- `backend.e2e.tool_authoring_check`, `bundled_tools_check`: real SQL permissions, lookup
+  order, authoring, publication and bundled tool updates. They and the other SQL checks take
+  their disposable databases from `backend/e2e/sql_server_fixture.py`.
 - `backend.e2e.packaged_database_smoke`: the same boundary in a relocated executable.
 - `backend.e2e.draft_replace_check [--stress N]`: draft writes while another program has the
   file open; no SQL Server.

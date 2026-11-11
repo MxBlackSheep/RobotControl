@@ -27,7 +27,7 @@ import os
 import openpyxl
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.testclient import TestClient
-from backend.e2e.report_wizard_check import sql_fixture, ROOT, BASE
+from backend.e2e.sql_server_fixture import sql_fixture, ROOT, BASE
 from backend.api.database_tools import router
 from backend.api.database import router as viewer_router
 from backend.services.auth import get_current_user
@@ -193,24 +193,12 @@ def run():
                     p=preview(1); assert execute(p,1)['status']=='succeeded'; assert execute(p,1)['status']=='succeeded'
                     assert admin.execute('SELECT id FROM dbo.Projects').fetchone()[0]==2
                     result['checks'].append('Writer cannot be used by viewers/reports; changed configuration blocks confirmation; rollback and duplicate execution protected')
-                    script="import pandas\ndef helper():\n    from openpyxl.styles import Font\n    import missing_library\n    __import__('math')\nraise RuntimeError('MUST NOT EXECUTE')\n"
-                    scan=call('POST',BASE+'/authoring/inspect-python',{'source':script})
-                    assert scan['available']==['openpyxl','pandas'] and scan['unavailable']==['missing_library'] and scan['undetermined'] and not scan['compatible']
-                    call('POST',BASE+'/authoring/inspect-python',{'source':'def ('},400)
-                    example="from openpyxl import Workbook\ndef run(context, inputs):\n    b=Workbook(); b.active.append([inputs['label'],42]); b.save(context.output_dir/'example.xlsx'); return 'example.xlsx'\n"
-                    assert call('POST',BASE+'/authoring/inspect-python',{'source':example})['compatible']
-                    draft=dict(name='Example',package_id='example',sources=[],mappings={},handler=example,original=example,inputs=[dict(name='label',label='Sample name',type='text')])
-                    saved=call('POST',BASE+'/drafts',{'draft':draft})
-                    editing=call('GET',BASE+'/drafts/'+saved['id']+'/editing-files')
-                    with zipfile.ZipFile(io.BytesIO(editing)) as archive:
-                        assert set(archive.namelist()) == {'original.py','handler.py','inputs.json','EDITING.md'}
-                        assert archive.read('original.py').decode() == example
-                        assert json.loads(archive.read('inputs.json'))['inputs'][0]['name'] == 'label'
-                    client.headers['authorization']='other-admin'
-                    call('GET',BASE+'/drafts/'+saved['id']+'/editing-files',status=404)
-                    client.headers['authorization']='admin'
-                    result['checks'].append('Editing download retains original, handler and input contract; another author cannot download it')
-                    job=call('POST',BASE+'/drafts/'+saved['id']+'/try',dict(inputs={'label':'Demo'}))
+                    def tool(source, name='example.py'):
+                        return call('POST',BASE+'/authoring/import',dict(files={name:source}))
+                    def trial(saved, inputs):
+                        return call('POST',BASE+'/drafts/'+saved['id']+'/try',dict(inputs=inputs,revision=saved['revision']))
+                    example="from openpyxl import Workbook\nTOOL={'name':'Example','kind':'report','connections':[],'inputs':{'label':{'label':'Sample name'}}}\ndef run(context, inputs):\n    b=Workbook(); b.active.append([inputs['label'],42]); b.save(context.output_dir/'example.xlsx'); return 'example.xlsx'\n"
+                    job=trial(tool(example),{'label':'Demo'})
                     deadline=time.monotonic()+30
                     while job['status'] in {'pending','running'}:
                         assert time.monotonic()<deadline
@@ -219,7 +207,7 @@ def run():
                     content=call('GET',BASE+'/reports/'+job['id']+'/download')
                     assert list(openpyxl.load_workbook(io.BytesIO(content)).active.values)==[('Demo',42)]
                     (EVIDENCE/'example.xlsx').write_bytes(content)
-                    result['checks'].append('Nested/unavailable/dynamic imports detected without running upload; no-database draft generates correct workbook')
+                    result['checks'].append('A tool without a database connection generates the correct workbook')
                     # Reopen an installed report while preserving sibling tools/assets.
                     package=io.BytesIO()
                     manifest=dict(contract_version=2,id='editable',name='Lab exports',version='2.1.4',libraries=['openpyxl'],tools=[
@@ -233,9 +221,10 @@ def run():
                         z.writestr('other.py',"def run(context, inputs):\n    raise ValueError('Other report unchanged')\n");z.writestr('README.md','Keep this supporting file')
                     assert client.post(BASE+'/packages',files={'file':('edit.zip',package.getvalue())}).status_code==200
                     call('PUT',BASE+'/packages/editable/sources',dict(mappings={'primary':'lab-a'}))
-                    edited=call('POST',BASE+'/reports/editable-report/edit',{})
+                    edited=call('POST',BASE+'/authoring/report/editable-report/edit',{})
                     assert edited['draft']['version']=='2.1.5' and edited['draft']['tool_id']=='editable-report'
-                    assert edited['draft']['handler']==export_script and edited['draft']['mappings']=={'primary':'lab-a'}
+                    # The installed handler gains its TOOL definition below the unchanged code.
+                    assert edited['draft']['handler'].startswith(export_script.rstrip()+'\n\nTOOL = ') and edited['draft']['mappings']=={'primary':'lab-a'}
                     key=edited['id']
                     options=call('POST',BASE+'/drafts/'+key+'/choices/plate',dict(inputs={'project':1}))
                     assert {x['value'] for x in options['options']}=={11,12}
@@ -245,14 +234,14 @@ def run():
                             assert time.monotonic()<deadline,job
                             time.sleep(.1);job=call('GET',BASE+'/reports/'+job['id'])
                         return job
-                    bad=wait_report(call('POST',BASE+'/drafts/'+key+'/try',dict(inputs={'project':2,'plate':11})))
+                    bad=wait_report(trial(edited,{'project':2,'plate':11}))
                     assert bad['status']=='error' and 'no longer available' in bad['error'],bad
-                    good=wait_report(call('POST',BASE+'/drafts/'+key+'/try',dict(inputs={'project':1,'plate':11})))
+                    good=wait_report(trial(edited,{'project':1,'plate':11}))
                     assert good['status']=='ready',good
                     assert list(openpyxl.load_workbook(io.BytesIO(call('GET',BASE+'/reports/'+good['id']+'/download'))).active.values)==[(1,11)]
-                    stale=call('POST',BASE+'/reports/editable-report/edit',{})
+                    stale=call('POST',BASE+'/authoring/report/editable-report/edit',{})
                     reviewed=call('GET',BASE+'/drafts/'+key+'/review')
-                    call('POST',BASE+'/drafts/'+key+'/install',dict(revision=edited['revision'],expected_current=reviewed['current_sha256']))
+                    call('POST',BASE+'/drafts/'+key+'/install',dict(revision=edited['revision'],expected_current=reviewed['current_sha256'],reviewed=True))
                     exported=call('GET',BASE+'/packages/editable/export')
                     with zipfile.ZipFile(io.BytesIO(exported)) as z:
                         m=json.loads(z.read('manifest.json'))
@@ -263,15 +252,14 @@ def run():
                     call('DELETE',BASE+'/drafts/'+stale['id'])
                     assert call('GET',BASE+'/packages/editable/export')==exported
                     result['checks'].append('Installed report edit retains IDs, siblings, code, assets and mappings; suggests patch version; dependent choices and forged selection checked in child; Excel correct; stale base denied; discard keeps installation')
-                    crash=dict(name='Crash fixture',package_id='crash-fixture',sources=[],inputs=[],handler="import os\ndef run(context, inputs):\n    os._exit(17)\n")
-                    crashing=call('POST',BASE+'/drafts',dict(draft=crash))
-                    failed=wait_report(call('POST',BASE+'/drafts/'+crashing['id']+'/try',dict(inputs={})))
+                    crash="import os\nTOOL={'name':'Crash fixture','kind':'report','connections':[]}\ndef run(context, inputs):\n    os._exit(17)\n"
+                    failed=wait_report(trial(tool(crash),{}))
                     assert failed['status']=='error' and 'stopped unexpectedly' in failed['error'],failed
                     import backend.services.database_tools as execution
                     execution.REPORT_TIMEOUT_SECONDS=1
                     try:
-                        hanging=call('POST',BASE+'/drafts',dict(draft={**crash,'package_id':'hang-fixture','handler':'import time\ndef run(context, inputs):\n    time.sleep(30)\n'}))
-                        expired=wait_report(call('POST',BASE+'/drafts/'+hanging['id']+'/try',dict(inputs={})))
+                        hang="import time\nTOOL={'name':'Hang fixture','kind':'report','connections':[]}\ndef run(context, inputs):\n    time.sleep(30)\n"
+                        expired=wait_report(trial(tool(hang),{}))
                         assert expired['status']=='error' and 'limit' in expired['error'],expired
                     finally:
                         execution.REPORT_TIMEOUT_SECONDS=300
