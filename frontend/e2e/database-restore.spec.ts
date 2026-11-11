@@ -11,6 +11,8 @@ import { mkdirSync } from 'node:fs';
  * - One click sends the restore request more than once, or sends the wrong body.
  * - A response beyond the shared 10 s timeout must keep the confirmation busy and
  *   eventually display completion; the SQL check cannot detect a browser timeout.
+ * - After "Got it" the browser still sends its own requests during the restore pause; the
+ *   pause outlives a /health answer or ends before it or 60 s; a later restore shows no dialog.
  * - A dropped connection during restore reads "Restore Failed" (the restore may have run)
  *   or is retried automatically.
  * - Stale listings must not change the backup being selected; navigating clears old
@@ -90,6 +92,57 @@ test('slow successful restore stays pending, then shows warnings and maintenance
   expect(sent).toEqual([{ filename: bak.filename }]);
 });
 
+test('the restore pause holds requests until the server answers, and each restore shows it again', async ({ page }) => {
+  await page.clock.install();
+  let healthy = false;
+  const created: any[] = [];
+  await page.route('**/health', route => healthy ? route.fulfill({ json: { status: 'healthy' } }) : route.fulfill({ status: 503, json: {} }));
+  await page.route('**/api/admin/backup/create', route => {
+    created.push(route.request().postDataJSON());
+    return route.fulfill({ json: { success: true, message: 'Backup created', data: {} } });
+  });
+  await openRestore(page, { success: true, message: 'Database restored successfully', data: { warnings: [] } });
+  const restore = async () => {
+    await page.getByRole('main').getByRole('combobox').click();
+    await page.getByRole('option', { name: bak.filename, exact: false }).click();
+    await confirmRestore(page);
+    await page.getByRole('dialog', { name: 'Restore Completed' }).getByRole('button', { name: 'Close' }).click();
+  };
+  const pause = page.getByText('Database Maintenance In Progress');
+  const createBackup = async () => {
+    await page.getByRole('button', { name: 'Create Managed Backup' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Create Managed Backup' });
+    await dialog.getByLabel('Backup Description').fill('After restore');
+    await dialog.getByRole('button', { name: 'Create Backup' }).click();
+    return dialog;
+  };
+
+  await restore();
+  await expect(pause).toBeVisible();
+  await expect(page.getByText('Estimated remaining time')).toBeVisible();
+  await page.getByRole('button', { name: 'Got it' }).click();
+  await expect(pause).toHaveCount(0);
+  // Dismissing the dialog does not end the pause: the browser still refuses its own requests.
+  const dialog = await createBackup();
+  await expect(dialog).toContainText('Database maintenance in progress');
+  expect(created).toEqual([]);
+
+  // The pause ends when the server answers its health probe.
+  healthy = true;
+  await page.clock.runFor(5000);
+  await dialog.getByRole('button', { name: 'Create Backup' }).click();
+  await expect.poll(() => created.length).toBe(1);
+  await page.getByRole('dialog', { name: 'Backup Created' }).getByRole('button', { name: 'Close' }).click();
+
+  // A later restore opens the dialog again, and without an answer the pause ends after 60 s.
+  healthy = false;
+  await restore();
+  await expect(pause).toBeVisible();
+  await page.clock.runFor(61_000);
+  await expect(pause).toHaveCount(0);
+  await createBackup();
+  await expect.poll(() => created.length).toBe(2);
+});
 
 test('a dropped connection during restore reports an unknown outcome and never retries', async ({ page }) => {
   const sent = await openRestore(page, { success: true });

@@ -9,8 +9,8 @@ Failure cases (Run Control reply shapes recorded in Simulation, 9 November 2026)
 3. Lost reply: adopt the run without another POST or database preparation.
 4. Every status/review/refusal outcome; error wording cannot classify an abort.
 5. Acknowledge refuses review, active or unreadable reconciliation, then succeeds.
-6. Unavailable waits and alerts once at 180 seconds from queuing; VENUS proceeds,
-   then PyHSL starts when Run Control returns; active/review/unknown gates.
+6. Unavailable waits in place and alerts once at 180 seconds; VENUS behind it waits
+   until PyHSL finishes. Active/review/unknown gates and a locked store keep the worker alive.
 7. Changed revision holds before preparation or POST.
 8. Restart with run_id follows once, no legacy observation or duplicate email.
 9. Restart without run_id adopts a match, resends within five minutes, otherwise
@@ -46,6 +46,8 @@ Failure cases (Run Control reply shapes recorded in Simulation, 9 November 2026)
     with a hold and alert without sending Start.
 25. Maintenance during database preparation blocks the first Start with a hold
     and alert; the occurrence is consumed and maintenance stays on.
+26. A failed receipt save keeps running ownership; resume finishes the same interval
+    occurrence with one Start and preparation, without queuing another occurrence.
 
 Only the Run Control service, database package, process and email boundaries are
 fixtures. No installed PyHSL, Hamilton, SQL Server or instrument is accessed.
@@ -585,10 +587,15 @@ def gates_and_following():
         venus = f.schedule(mode='real')
         f.returncode, f.stderr, f.sql_state = 0, '', 'Complete'
         venus_id = dispatch(f, venus)
-        assert finished(f, venus_id).status == 'completed'
-        assert len(f.launched) == 1 and not f.server.posts
-        assert f.prepared == [venus_id]
+        time.sleep(1.1)
+        assert not f.launched and not f.server.posts and not f.prepared
+        assert f.engine.run_log_monitor.store.execution(venus_id).status == 'pending'
         # The 180 seconds count from when Run Control went away, not from when the job was queued.
+        until(lambda: s.schedule_id in f.engine._pyhsl_unavailable_since)
+        import sqlite3
+        with patch.object(f.engine.pyhsl_runner, 'unfinished', side_effect=sqlite3.OperationalError('fixture locked')):
+            until(lambda: f.engine._get_queue_waiting_reason(s.schedule_id) == 'Scheduler safety state unavailable')
+            assert f.worker.is_alive()
         until(lambda: s.schedule_id in f.engine._pyhsl_unavailable_since)
         f.engine._pyhsl_unavailable_since[s.schedule_id] -= 181
         until(lambda: any(x[0] == 'pyhsl_unavailable' for x in f.sent), timeout=3)
@@ -597,6 +604,8 @@ def gates_and_following():
         f.discover()
         f.monitor.poll()
         assert finished(f, eid).status == 'completed'
+        assert finished(f, venus_id).status == 'completed'
+        assert len(f.launched) == 1 and f.prepared == [eid, venus_id]
     with fixture() as f:
         s = schedule(f)
         f.server.outcome = 'future_status'
@@ -774,6 +783,8 @@ def saves_and_guards():
                 conn.execute(f'ALTER TABLE ScheduledExperiments DROP COLUMN {name}')
             for table in ('JobExecutions', 'JobExecutionsArchive'):
                 conn.execute(f'ALTER TABLE {table} DROP COLUMN pyhsl')
+            # The fixture represents a pre-upgrade store, including its version.
+            conn.execute('DELETE FROM SchemaMigrations WHERE version > 1')
             conn.commit()
         migrated = SQLiteSchedulingDatabase(str(f.root / 'old.db')).get_schedule_by_id(venus.schedule_id)
         assert migrated.runner == 'venus' and migrated.parameters == {} and migrated.mode == 'simulation'
@@ -818,12 +829,47 @@ def catalog_and_experiments():
                 assert {k: latest[k] for k in ('runner', 'protocol') if k in latest} == expected
 
 
+def interrupted_receipt():
+    from backend.services.sqlite_safety import StorageUnavailable
+    with fixture() as f:
+        s = schedule(f, 'interval', interval_hours=6)
+        failed, release = Event(), Event()
+        save = f.engine.pyhsl_runner._save
+        execute = f.engine._execute_job
+        interrupted = False
+        def fail_result(execution):
+            nonlocal interrupted
+            if execution.pyhsl.get('result') and not interrupted:
+                interrupted = True
+                raise StorageUnavailable('Fixture receipt save failure')
+            return save(execution)
+        def pause_after_failure(*args):
+            execute(*args)
+            if interrupted and not release.is_set():
+                failed.set()
+                assert release.wait(5), 'Check did not release the resume pass'
+        with patch.object(f.engine.pyhsl_runner, '_save', side_effect=fail_result), \
+                patch.object(f.engine, '_execute_job', side_effect=pause_after_failure):
+            eid = dispatch(f, s)
+            try:
+                assert failed.wait(5)
+                assert f.engine.run_log_monitor.store.execution(eid).status == 'running'
+                assert s.schedule_id in f.engine._running_jobs, 'Unfinished PyHSL occurrence lost running ownership'
+                assert not f.engine._find_due_jobs(f.now), 'Unfinished PyHSL occurrence became due again'
+            finally:
+                release.set()
+            assert finished(f, eid).status == 'completed'
+        assert len(f.server.posts) == len(f.prepared) == 1
+        assert len(f.storage.get_execution_history(s.schedule_id)) == 1
+        assert not f.engine._find_due_jobs(f.now) and f.engine._job_queue.empty()
+
+
 def run():
     logs = io.StringIO()
     handler = logging.StreamHandler(logs)
     logging.getLogger().addHandler(handler)
     try:
-        for check in (catalog_and_experiments, outcomes, slow_and_lost, runner_failures, maintenance_before_start, bounded_waits, relay_reads, revision_and_acknowledge, gates_and_following, restarts, saves_and_guards):
+        for check in (interrupted_receipt, catalog_and_experiments, outcomes, slow_and_lost, runner_failures, maintenance_before_start, bounded_waits, relay_reads, revision_and_acknowledge, gates_and_following, restarts, saves_and_guards):
             check()
             print(f'PASS {check.__name__}', flush=True)
         assert TOKEN not in logs.getvalue()

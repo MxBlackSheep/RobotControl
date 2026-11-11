@@ -47,7 +47,6 @@ import { api } from '../services/api';
 import { classifyRequestError, isConnectionProblem, requestErrorMessage } from '../services/requestError';
 import { activateMaintenance, clearMaintenance } from '@/utils/MaintenanceManager';
 import StatusDialog, { StatusMessage } from './StatusDialog';
-import { useAuthContext } from '../context/AuthContext';
 
 interface BackupFile {
   filename: string;
@@ -266,27 +265,8 @@ const FileExplorer: React.FC<FileExplorerProps> = ({ open, onClose, onSelect }) 
   );
 };
 
+/** Mounted only for an admin or a local session (DatabasePage); the server decides each request. */
 const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
-  const { user } = useAuthContext();
-  const isLocalSession = React.useMemo(() => {
-    if (typeof user?.session_is_local === 'boolean') {
-      return user.session_is_local;
-    }
-    if (typeof window !== 'undefined') {
-      const hostname = window.location.hostname.toLowerCase();
-      return (
-        hostname === 'localhost' ||
-        hostname === '127.0.0.1' ||
-        hostname === '::1' ||
-        hostname === '0.0.0.0'
-      );
-    }
-    return false;
-  }, [user?.session_is_local]);
-  const hasBackupAccess = Boolean(
-    user && (user.role === 'admin' || isLocalSession)
-  );
-
   const [activeTab, setActiveTab] = useState(0); // 0 = .bak files, 1 = .bck browser
   const [backupFiles, setBackupFiles] = useState<BackupFile[]>([]);
   const [selectedBackup, setSelectedBackup] = useState<BackupFile | null>(null);
@@ -346,27 +326,14 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
   };
 
   useEffect(() => {
-    if (!hasBackupAccess) {
-      setLoading(false);
-      setBackupFiles([]);
-      setSelectedBackup(null);
-      return;
-    }
     loadBackupFiles();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasBackupAccess]);
-
-  useEffect(() => {
     return () => {
       clearMaintenancePoll();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadBackupFiles = async (): Promise<BackupFile[]> => {
-    if (!hasBackupAccess) {
-      setLoading(false);
-      return [];
-    }
     setLoading(true);
     try {
       const response = await api.get('/api/admin/backup/list');
@@ -415,10 +382,6 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
   const hasSelection = (activeTab === 0 && selectedBackup) || (activeTab === 1 && selectedBckPath);
 
   const handleRestoreBackup = async () => {
-    if (!hasBackupAccess) {
-      setStatus({ title: 'Access Restricted', message: 'Only administrators or trusted lab machines can restore backups.', severity: 'warning', autoCloseMs: 5000 });
-      return;
-    }
     if (!canProceed || !hasSelection) return;
     
     const restoreRequest = activeTab === 0 && selectedBackup 
@@ -440,7 +403,7 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
         return;
       }
 
-      activateMaintenance(60000, 'Database restore is finishing.');
+      activateMaintenance(60000);
       startMaintenanceRecoveryWatcher();
       const warnings: string[] = response.data?.data?.warnings || [];
       setStatus({
@@ -501,10 +464,6 @@ const DatabaseRestore: React.FC<DatabaseRestoreProps> = ({ onError }) => {
   };
 
   const handleCreateBackup = async () => {
-    if (!hasBackupAccess) {
-      setStatus({ title: 'Access Restricted', message: 'Only administrators or trusted lab machines can create or manage backups.', severity: 'warning', autoCloseMs: 5000 });
-      return;
-    }
     if (!createDescription.trim()) {
       setCreateDialogError('Please provide a brief description for the backup.');
       return;

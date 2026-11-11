@@ -92,7 +92,7 @@ class ScheduledExperiment:
     schedule_id: str
     experiment_name: str
     experiment_path: str
-    schedule_type: str  # 'interval', 'once', 'cron'
+    schedule_type: str  # 'interval', 'once', 'daily', 'weekly'
     interval_hours: Optional[int] = None  # 6, 8, 24 for interval schedules
     start_time: Optional[datetime] = None  # Next execution time
     estimated_duration: int = 60  # Duration in minutes

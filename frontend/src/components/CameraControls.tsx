@@ -3,7 +3,7 @@ import { layout, type StatusTone } from '../theme';
 import { Panel } from './PageLayout';
 import { useEffect, useRef, useState } from 'react';
 import { isAxiosError } from 'axios';
-import { Alert, Box, Button, Collapse, MenuItem, Stack, TextField, Typography } from '@mui/material';
+import { Box, Button, MenuItem, Stack, TextField, Typography } from '@mui/material';
 import { api } from '@/services/api';
 import { useAuth } from '@/context/AuthContext';
 import { useSerialPolling } from '@/hooks/useSerialPolling';
@@ -42,10 +42,9 @@ export interface CameraSummary { text: string; error: string | null; recording: 
 // Two equal columns when there is room; one column on a narrow phone rather than overflowing labels.
 const buttonGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 1, '& .MuiButton-root': { px: 1, whiteSpace: 'nowrap' } } as const;
 
-export default function CameraControls({ admin, onSourceChange, collapsible = false, active = true, onSummaryChange }: {
-  admin: boolean; onSourceChange: () => void; collapsible?: boolean; active?: boolean; onSummaryChange?: (summary: CameraSummary) => void;
+export default function CameraControls({ admin, onSourceChange, active = true, onSummaryChange }: {
+  admin: boolean; onSourceChange: () => void; active?: boolean; onSummaryChange: (summary: CameraSummary) => void;
 }) {
-  const [detailsOpen, setDetailsOpen] = useState(false);
   const [status, setStatus] = useState<CameraStatus>();
   const [selection, setSelection] = useState('');
   const edited = useRef(false);
@@ -123,52 +122,47 @@ export default function CameraControls({ admin, onSourceChange, collapsible = fa
   const recordingChip = { label: recordingStates[health?.recording_state ?? ''] ?? 'Checking',
     tone: (health?.recording_state === 'recording' ? 'running' : health?.recording_state === 'error' ? 'fault' : 'neutral') as StatusTone };
   useEffect(() => {
-    onSummaryChange?.({ text: summary, error: error || null, recording: { label: recordingChip.label, tone: recordingChip.tone } });
+    onSummaryChange({ text: summary, error: error || null, recording: { label: recordingChip.label, tone: recordingChip.tone } });
   }, [summary, error, recordingChip.label, recordingChip.tone, onSummaryChange]);
   const cameraChip = { label: cameraStateLabels[health?.capture_state ?? ''] ?? 'Checking',
     tone: (health?.capture_state === 'connected' ? 'completed' : health?.capture_state === 'error' ? 'fault' : health?.capture_state === 'disconnected' ? 'attention' : 'neutral') as StatusTone };
-  // Both groups are panels; beside the image or in a phone's sheet they stand alone, below it on tablets they collapse together.
+  // Connect and Reconnect are one backend action; the button names what it will do now.
+  const connected = health?.capture_state === 'connected';
+  // Both groups are panels: beside the image, under it, or in a phone's sheet. A viewer sees the chips and a disabled list.
   const bodySx = { display: 'flex', flexDirection: 'column', gap: 1.5 } as const;
-  return <Stack spacing={1} sx={{ my: collapsible ? `${layout.gutter}px` : 0 }}>
-    {collapsible && <Button aria-expanded={detailsOpen} aria-controls="camera-settings-panel" onClick={() => setDetailsOpen(value => !value)} sx={{ alignSelf: 'flex-start' }}>Camera and recording settings</Button>}
-    {!onSummaryChange && <Typography aria-live="polite">{summary}</Typography>}
-    {!onSummaryChange && error && <Alert severity="warning">{error}</Alert>}
-    <Collapse in={!collapsible || detailsOpen} unmountOnExit={false}>
-    <Stack id="camera-settings-panel" spacing={`${layout.gutter}px`}>
-      <Panel title="Recording" actions={<StatusChip tone={recordingChip.tone} label={recordingChip.label} />} bodySx={bodySx}>
-        {admin ? <Box sx={buttonGrid}>
-          <Button variant="outlined" disabled={pending || !saved || changed || health?.recording_state === 'recording'}
-            onClick={() => void act('recording/start')}>Start recording</Button>
-          <Button variant="outlined" disabled={pending || !recordingRequested} onClick={() => void act('recording/stop')}>Stop recording</Button>
-        </Box> : <Typography variant="body2" color="text.secondary">An administrator can start or stop recording.</Typography>}
-      </Panel>
-      <Panel title="Camera" actions={<StatusChip tone={cameraChip.tone} label={cameraChip.label} />} bodySx={bodySx}>
-        <Typography variant="body2" color="text.secondary">Camera changes affect recording and every live viewer.</Typography>
-        <TextField select fullWidth label="Selected camera" value={selection}
-          disabled={!admin || pending || selectionLocked}
-          onChange={event => { edited.current = true; setSelection(event.target.value); }}
-          helperText={selectionLocked ? 'Stop recording before changing cameras.' : undefined}>
-          <MenuItem value="">Select a camera</MenuItem>
-          {selection && !selectedExists && <MenuItem value={selection}>Saved camera — unavailable</MenuItem>}
-          {devices.filter(device => device.device_identity).map(device =>
-            <MenuItem key={device.device_identity!} value={device.device_identity!}>
-              {device.name} · Device {device.id + 1}
-            </MenuItem>)}
-        </TextField>
-        {admin ? <Box sx={buttonGrid}>
+  return <Stack spacing={`${layout.gutter}px`}>
+    <Panel title="Recording" actions={<StatusChip tone={recordingChip.tone} label={recordingChip.label} />} inset={admin} bodySx={bodySx}>
+      {admin && <Box sx={buttonGrid}>
+        <Button variant="outlined" disabled={pending || !saved || changed || health?.recording_state === 'recording'}
+          onClick={() => void act('recording/start')}>Start recording</Button>
+        <Button variant="outlined" disabled={pending || !recordingRequested} onClick={() => void act('recording/stop')}>Stop recording</Button>
+      </Box>}
+    </Panel>
+    <Panel title="Camera" actions={<StatusChip tone={cameraChip.tone} label={cameraChip.label} />} bodySx={bodySx}>
+      <TextField select fullWidth label="Selected camera" value={selection}
+        disabled={!admin || pending || selectionLocked}
+        onChange={event => { edited.current = true; setSelection(event.target.value); }}
+        helperText={selectionLocked ? 'Stop recording before changing cameras.' : undefined}>
+        <MenuItem value="">Select a camera</MenuItem>
+        {selection && !selectedExists && <MenuItem value={selection}>Saved camera — unavailable</MenuItem>}
+        {devices.filter(device => device.device_identity).map(device =>
+          <MenuItem key={device.device_identity!} value={device.device_identity!}>
+            {device.name} · Device {device.id + 1}
+          </MenuItem>)}
+      </TextField>
+      {admin && <>
+        <Box sx={buttonGrid}>
           <Button variant="outlined" disabled={pending} onClick={() => void act('devices/refresh')}>Refresh cameras</Button>
           <Button variant="outlined" disabled={pending || selectionLocked || !selection || !changed || !selectedExists}
             onClick={() => void act('selection', 'PATCH', { device_identity: selection })}>Save selection</Button>
-          <Button variant="contained" disabled={pending || !saved || changed || health?.capture_state === 'connected'}
-            onClick={() => void act('connect')}>Connect</Button>
-          <Button variant="outlined" disabled={pending || !saved || changed} onClick={() => void act('reconnect')}>Reconnect camera</Button>
-        </Box> : <Typography variant="body2">An administrator can select, connect or reconnect the camera.</Typography>}
-        <Typography variant="caption" color="text.secondary">
+        </Box>
+        <Button variant={connected ? 'outlined' : 'contained'} disabled={pending || !saved || changed}
+          onClick={() => void act(connected ? 'reconnect' : 'connect')}>{connected ? 'Reconnect camera' : 'Connect'}</Button>
+        {connected && <Typography variant="caption" color="text.secondary">
           Reconnect briefly interrupts all viewers and may leave the current clip incomplete.
-        </Typography>
-      </Panel>
-      {pending && <Typography role="status">Camera operation in progress…</Typography>}
-    </Stack>
-    </Collapse>
+        </Typography>}
+      </>}
+    </Panel>
+    {pending && <Typography role="status">Camera operation in progress…</Typography>}
   </Stack>;
 }

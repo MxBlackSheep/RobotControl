@@ -19,27 +19,29 @@ afterEach(() => { api.get.mockReset(); api.request.mockReset(); vi.useRealTimers
 
 it('keeps device controls admin-only and separates capture from recording', async () => {
   api.get.mockImplementation(statusResponse);
-  render(<CameraControls admin={false} onSourceChange={() => {}} />);
-  await screen.findByText('Camera connected · Recording');
+  render(<CameraControls admin={false} onSourceChange={() => {}} onSummaryChange={() => {}} />);
+  await screen.findByText('Connected');
+  expect(screen.getByText('On')).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Reconnect camera' })).toBeNull();
-  expect(screen.getByText(/administrator can select/)).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Start recording' })).toBeNull();
 });
 
 it('preserves selection after an operation error and explains recording locks', async () => {
   api.get.mockImplementation(statusResponse);
   api.request.mockRejectedValue({ isAxiosError: true, response: { status: 409, data: { detail: 'A camera operation is already in progress' } } });
-  render(<CameraControls admin onSourceChange={() => {}} />);
-  await screen.findByText('Camera connected · Recording');
+  const onSummaryChange = vi.fn();
+  render(<CameraControls admin onSourceChange={() => {}} onSummaryChange={onSummaryChange} />);
+  await screen.findByText('Connected');
   expect(screen.getByText('Stop recording before changing cameras.')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Reconnect camera' }));
-  await screen.findByText('A camera operation is already in progress');
+  await waitFor(() => expect(onSummaryChange).toHaveBeenLastCalledWith(expect.objectContaining({ error: 'A camera operation is already in progress' })));
   expect(screen.getByRole('combobox').textContent).toContain('Robot camera');
 });
 
 it('refreshes twice without moving keyboard focus', async () => {
   vi.useFakeTimers();
   const fetcher = api.get.mockImplementation(statusResponse);
-  render(<CameraControls admin onSourceChange={() => {}} />);
+  render(<CameraControls admin onSourceChange={() => {}} onSummaryChange={() => {}} />);
   await act(async () => { await vi.advanceTimersByTimeAsync(0); });
   const reconnect = screen.getByRole('button', { name: 'Reconnect camera' });
   reconnect.focus();
@@ -52,8 +54,8 @@ it('cancels an in-flight control request when leaving the page', async () => {
   let signal: AbortSignal | undefined;
   api.get.mockImplementation(statusResponse);
   api.request.mockImplementation(config => { signal = config.signal; return new Promise(() => {}); });
-  const view = render(<CameraControls admin onSourceChange={() => {}} />);
-  await screen.findByText('Camera connected · Recording');
+  const view = render(<CameraControls admin onSourceChange={() => {}} onSummaryChange={() => {}} />);
+  await screen.findByText('Connected');
   fireEvent.click(screen.getByRole('button', { name: 'Reconnect camera' }));
   expect(signal?.aborted).toBe(false);
   view.unmount();

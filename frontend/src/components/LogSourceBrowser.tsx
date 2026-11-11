@@ -33,6 +33,7 @@ import InspectionWorkspace, { LoadMoreBar, usePhoneWorkspace } from "./Inspectio
 import { EmptyPanel, Panel } from "./PageLayout";
 import LogReader, { LogSelection } from "./LogReader";
 import { fontMono } from "../theme";
+import { requestErrorMessage } from "../services/requestError";
 type Location = { folder: string; archive: string; entry: string };
 const root: Location = { folder: "", archive: "", entry: "" };
 const defaults: BrowseOptions = {
@@ -49,10 +50,7 @@ const join = (path: string, name: string) =>
 const same = (a: Location, b: Location) =>
   a.folder === b.folder && a.archive === b.archive && a.entry === b.entry;
 const itemKey = (item: LogFileListItem) => item.entry_path || item.path || item.name;
-const message = (error: any) =>
-  error.response?.data?.error?.message ||
-  error.message ||
-  "Unable to browse logs";
+const message = (error: unknown) => requestErrorMessage(error, "Unable to browse logs");
 export default function LogSourceBrowser({
   source,
   active,

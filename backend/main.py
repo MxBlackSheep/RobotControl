@@ -19,44 +19,14 @@ import uvicorn
 from datetime import datetime
 import os
 import sys
-import signal
-import atexit
 import argparse
 from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Optional
 import threading
-
-# Patch bcrypt metadata to remain compatible with passlib when using bcrypt>=4
-
-def _patch_bcrypt_metadata() -> None:
-    patch_logger = logging.getLogger(__name__)
-    try:
-        import bcrypt  # type: ignore
-    except Exception as exc:
-        patch_logger.debug("bcrypt not available; skipping metadata patch: %s", exc)
-        return
-
-    about = getattr(bcrypt, "__about__", None)
-    if about and getattr(about, "__version__", None):
-        return
-
-    version = getattr(bcrypt, "__version__", None)
-    if not version:
-        patch_logger.debug("bcrypt version metadata unavailable; skipping patch")
-        return
-
-    class _About:
-        __version__ = version
-
-    try:
-        bcrypt.__about__ = _About()  # type: ignore[attr-defined]
-        patch_logger.info("Patched bcrypt metadata for passlib compatibility (version %s)", version)
-    except Exception as exc:
-        patch_logger.warning("Unable to patch bcrypt metadata: %s", exc)
-
-
-_patch_bcrypt_metadata()
+import hashlib
+import mimetypes
+import inspect
 
 # Add project root to path
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -65,6 +35,7 @@ sys.path.insert(0, project_root)
 # Import our simplified API routers
 from backend.version import __version__
 from backend.api.database import router as database_router
+from backend.api.database_tools import router as database_tools_router
 from backend.api.auth import router as auth_router
 from backend.api.admin import router as admin_router
 from backend.api.monitoring import router as monitoring_router
@@ -83,23 +54,11 @@ from backend.api.logfiles import router as logfiles_router
 # Import services for initialization
 from backend.services.hxrun_maintenance import get_hxrun_maintenance_service
 
-# Import embedded resource manager
-# Only use embedded mode when running as compiled executable
-import sys
-is_compiled = getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS')
+from backend.services.embedded_resources import get_resource_manager
+from backend.utils.data_paths import get_path_manager, is_compiled_mode
+from backend.api.response_formatter import ResponseFormatter
 
-try:
-    from backend.services.embedded_resources import get_resource_manager
-    EMBEDDED_MODE = is_compiled  # Only use embedded resources in compiled mode
-except ImportError:
-    EMBEDDED_MODE = False
-
-if not EMBEDDED_MODE:
-    logger = logging.getLogger(__name__)
-    logger.info("Running in development mode - serving from filesystem")
-
-# Configure the application logs
-from backend.utils.data_paths import DataPathManager
+EMBEDDED_MODE = is_compiled_mode()
 
 from backend.utils.logging_setup import setup_logging
 
@@ -126,7 +85,7 @@ def _env_scheduler_autostart_delay(name: str, default: int) -> Optional[int]:
     except ValueError:
         return default
 
-data_paths = DataPathManager()
+data_paths = get_path_manager()
 logs_dir = data_paths.logs_path
 
 log_level_name = os.getenv("ROBOTCONTROL_LOG_LEVEL", "INFO").upper()
@@ -161,9 +120,9 @@ backend_loggers = [
 ]
 
 verbosity_overrides = {
-    "backend.services.automatic_recording": logging.WARNING,
+    "backend.services.automatic_recording": logging.INFO,
     "backend.services.camera": logging.WARNING,
-    "backend.services.storage_manager": logging.WARNING,
+    "backend.services.storage_manager": logging.INFO,
     "backend.services.experiment_monitor": logging.WARNING,
     "backend.services.shared_frame_buffer": logging.WARNING,
     "backend.services": logging.INFO,
@@ -183,7 +142,6 @@ _SCHEDULER_AUTOSTART_DELAY_SECONDS: Optional[int] = _env_scheduler_autostart_del
     "ROBOTCONTROL_SCHEDULER_AUTOSTART_DELAY_SECONDS",
     60,
 )
-_scheduler_autostart_task: Optional[asyncio.Task] = None
 
 
 def configure_uvicorn_logging(handlers=logging_handlers) -> None:
@@ -211,7 +169,6 @@ configure_uvicorn_logging()
 
 async def _auto_start_scheduler_after_delay(delay_seconds: int) -> None:
     """Auto-start the scheduler service after an optional delay."""
-    global _scheduler_autostart_task
     try:
         await asyncio.sleep(max(0, delay_seconds))
         from backend.services.scheduling import get_scheduler_engine
@@ -234,8 +191,6 @@ async def _auto_start_scheduler_after_delay(delay_seconds: int) -> None:
         raise
     except Exception as exc:
         logger.error("Scheduler auto-start task encountered an error: %s", exc)
-    finally:
-        _scheduler_autostart_task = None
 
 # Get logger for this module
 logger = logging.getLogger(__name__)
@@ -243,143 +198,83 @@ logger = logging.getLogger(__name__)
 # Lifespan context manager for startup/shutdown
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Manage application startup and shutdown sequences."""
-    logger.info("Starting RobotControl %s; data folder=%s", __version__, data_paths.base_path)
+    """Start services once and finish every stop step, including after a failed start."""
     from backend.services.log_readers import LogReaderManager
-    try:
-        app.state.log_readers = await asyncio.to_thread(LogReaderManager, app.state.log_reader_cache)
-    except OSError as exc:
-        # Keep other modules usable; opening a reader will retry and explain the disk error.
-        logger.warning("Log reading cache unavailable: %s", exc)
-    from backend.services.database_tools import get_database_tools
-    try:
-        await asyncio.to_thread(get_database_tools)
-    except Exception as exc:
-        logger.error("Database packages unavailable: %s", exc)
+    from backend.services.database_tools import get_database_tools, close_database_tools
     from backend.services.health_sampler import health_sampler
-    health_sampler.start()
+    from backend.services.automatic_recording import get_automatic_recording_service
+    from backend.services.live_streaming import get_live_streaming_service
+    from backend.services.scheduling import get_scheduler_engine
+    from backend.services.camera import get_camera_service
 
+    scheduler_task = None
     diagnostics = None
-    if _env_flag("ROBOTCONTROL_RESOURCE_DIAGNOSTICS"):
-        from backend.services.resource_diagnostics import ResourceDiagnostics
-        diagnostics = ResourceDiagnostics(Path(logs_dir) / "diagnostics", loop=asyncio.get_running_loop())
+    app.state.shutdown_complete.clear()
+    try:
+        logger.info("Starting RobotControl %s; data folder=%s", __version__, data_paths.base_path)
         try:
-            diagnostics.start()
+            app.state.log_readers = await asyncio.to_thread(LogReaderManager, app.state.log_reader_cache)
+        except OSError as exc:
+            logger.warning("Log reading cache unavailable: %s", exc)
+        try:
+            await asyncio.to_thread(get_database_tools)
         except Exception as exc:
-            logger.warning("Resource diagnostics unavailable: %s", exc)
-
-    
-    global _scheduler_autostart_task
-    if _SCHEDULER_AUTOSTART_DELAY_SECONDS is not None:
-        try:
-            loop = asyncio.get_running_loop()
-            if _scheduler_autostart_task and not _scheduler_autostart_task.done():
-                _scheduler_autostart_task.cancel()
-            _scheduler_autostart_task = loop.create_task(
-                _auto_start_scheduler_after_delay(_SCHEDULER_AUTOSTART_DELAY_SECONDS)
-            )
-            logger.info(
-                "Scheduler auto-start scheduled to run in %s seconds",
-                _SCHEDULER_AUTOSTART_DELAY_SECONDS,
-            )
-        except RuntimeError as exc:
-            logger.warning("Unable to schedule scheduler auto-start task: %s", exc)
-    else:
-        logger.info("Scheduler auto-start disabled by configuration")
-    
-
-    try:
-        from backend.services.automatic_recording import get_automatic_recording_service
-        auto_recording_service = get_automatic_recording_service()
-        if auto_recording_service.is_enabled():
-            started = auto_recording_service.start_automatic_recording()
-            if not started:
-                status = auto_recording_service.get_automation_status()
-                logger.debug("AutoRecording | event=startup_request_ignored | state=%s", status.state.value)
+            logger.error("Database packages unavailable: %s", exc)
+        health_sampler.start()
+        if _env_flag("ROBOTCONTROL_RESOURCE_DIAGNOSTICS"):
+            from backend.services.resource_diagnostics import ResourceDiagnostics
+            diagnostics = ResourceDiagnostics(Path(logs_dir) / "diagnostics", loop=asyncio.get_running_loop())
+            try:
+                diagnostics.start()
+            except Exception as exc:
+                logger.warning("Resource diagnostics unavailable: %s", exc)
+        if _SCHEDULER_AUTOSTART_DELAY_SECONDS is not None:
+            scheduler_task = asyncio.create_task(_auto_start_scheduler_after_delay(_SCHEDULER_AUTOSTART_DELAY_SECONDS))
+            logger.info("Scheduler auto-start scheduled to run in %s seconds", _SCHEDULER_AUTOSTART_DELAY_SECONDS)
         else:
-            logger.info("AutoRecording | event=start_skipped | reason=disabled")
-    except Exception as exc:
-        logger.warning("AutoRecording | event=start_failed | error=%s", exc)
-
-    try:
-        hxrun_maintenance_service = get_hxrun_maintenance_service()
-        hxrun_maintenance_service.start()
-        logger.info("HxRun maintenance enforcer initialized")
-    except Exception as exc:
-        logger.warning("Failed to start HxRun maintenance enforcer: %s", exc)
-
-    get_pyhsl_monitor().start()
-    try:
+            logger.info("Scheduler auto-start disabled by configuration")
+        try:
+            get_automatic_recording_service().start_automatic_recording()
+        except Exception as exc:
+            logger.warning("AutoRecording | event=start_failed | error=%s", exc)
+        try:
+            get_hxrun_maintenance_service().start()
+            logger.info("HxRun maintenance enforcer initialized")
+        except Exception as exc:
+            logger.warning("Failed to start HxRun maintenance enforcer: %s", exc)
+        get_pyhsl_monitor().start()
         yield
     finally:
-        logger.info("Shutting down RobotControl Backend...")
-        await asyncio.to_thread(get_pyhsl_monitor().stop)
-        if getattr(app.state, "log_readers", None) is not None:
-            await asyncio.to_thread(app.state.log_readers.close)
-        await asyncio.to_thread(health_sampler.stop)
-        from backend.services.database_tools import close_database_tools
-        await asyncio.to_thread(close_database_tools)
-        if diagnostics:
-            await asyncio.to_thread(diagnostics.stop)
-        
-        if _scheduler_autostart_task:
-            if not _scheduler_autostart_task.done():
-                _scheduler_autostart_task.cancel()
-                try:
-                    await _scheduler_autostart_task
-                except asyncio.CancelledError:
-                    logger.info("Scheduler auto-start task cancelled during shutdown")
-                except Exception as exc:
-                    logger.warning("Scheduler auto-start task raised during shutdown: %s", exc)
-            _scheduler_autostart_task = None
-        
-        try:
+        if scheduler_task:
+            scheduler_task.cancel()
             try:
-                from backend.services.live_streaming import get_live_streaming_service
-                streaming_service = get_live_streaming_service()
-                await streaming_service.stop_service()
-                logger.info("Live streaming service stopped")
-            except Exception as exc:
-                logger.warning("Error stopping live streaming service: %s", exc)
-
+                await scheduler_task
+            except asyncio.CancelledError:
+                pass
+        # Recording first: Terminate exits after ten seconds, and a later step (a running
+        # preparation step holds database tools) must not leave the last clip unfinished.
+        steps = [
+            ("Automatic recording service", lambda: get_automatic_recording_service().stop_automatic_recording()),
+            ("PyHSL monitor", lambda: get_pyhsl_monitor().stop()),
+            ("Log readers", lambda: app.state.log_readers.close() if getattr(app.state, "log_readers", None) else None),
+            ("Health sampler", health_sampler.stop),
+            ("Database tools", close_database_tools),
+            ("Resource diagnostics", lambda: diagnostics.stop() if diagnostics else None),
+            ("Live streaming service", lambda: get_live_streaming_service().stop_service()),
+            ("Scheduling service", lambda: get_scheduler_engine().stop()),
+            ("HxRun maintenance enforcer", lambda: get_hxrun_maintenance_service().stop()),
+            ("Camera service", lambda: get_camera_service().shutdown()),
+        ]
+        for name, stop in steps:
             try:
-                from backend.services.automatic_recording import get_automatic_recording_service
-                auto_recording_service = get_automatic_recording_service()
-                auto_recording_service.stop_automatic_recording()
-                logger.info("Automatic recording service stopped")
-            except Exception as exc:
-                logger.warning("Error stopping automatic recording service: %s", exc)
-
-            try:
-                from backend.services.scheduling import get_scheduler_engine
-                scheduler_engine = get_scheduler_engine()
-                scheduler_engine.stop()
-                logger.info("Scheduling service stopped")
-            except Exception as exc:
-                logger.warning("Error stopping scheduling service: %s", exc)
-
-            try:
-                hxrun_maintenance_service = get_hxrun_maintenance_service()
-                hxrun_maintenance_service.stop()
-                logger.info("HxRun maintenance enforcer stopped")
-            except Exception as exc:
-                logger.warning("Error stopping HxRun maintenance enforcer: %s", exc)
-
-            try:
-                from backend.services.camera import get_camera_service
-                camera_service = get_camera_service()
-                camera_service.disable_streaming_integration()
-                camera_service.shutdown()
-                logger.info("Camera service shutdown complete")
-            except Exception as exc:
-                logger.warning("Error stopping camera service: %s", exc)
-
-            logger.info("Services cleaned up successfully")
-        except Exception as exc:
-            logger.error("Error during shutdown: %s", exc)
-
+                result = await asyncio.to_thread(stop)
+                if inspect.isawaitable(result):
+                    await result
+                logger.info("%s stopped", name)
+            except Exception:
+                logger.exception("Error stopping %s", name)
         logger.info("Backend session stopped | pid=%s", os.getpid())
-        logger.info(session_marker)
+        app.state.shutdown_complete.set()
 
 # Create FastAPI application
 app = FastAPI(
@@ -396,6 +291,7 @@ app = FastAPI(
 # Share the logger's actual root with all log browsing/reading endpoints.
 app.state.log_root = Path(logging_handlers.application.baseFilename).parent
 app.state.log_reader_cache = data_paths.temp_path / "log-readers"
+app.state.shutdown_complete = threading.Event()
 
 # Configure CORS for frontend access
 app.add_middleware(
@@ -418,49 +314,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Graceful shutdown handling
-def graceful_shutdown(signum=None, frame=None):
-    """Handle graceful shutdown on signal"""
-    logger.info(f"Received shutdown signal {signum}, initiating graceful shutdown...")
-    
-    try:
-        # Stop camera service to save any unsaved clips
-        try:
-            from backend.services.camera import get_camera_service
-            camera_service = get_camera_service()
-            camera_service.shutdown()
-            logger.info("Camera service shutdown complete")
-        except Exception as e:
-            logger.warning(f"Error stopping camera service: {e}")
-        
-        # Stop automatic recording service
-        try:
-            from backend.services.automatic_recording import get_automatic_recording_service
-            auto_recording_service = get_automatic_recording_service()
-            auto_recording_service.stop_automatic_recording()
-            logger.info("Automatic recording service stopped")
-        except Exception as e:
-            logger.warning(f"Error stopping automatic recording service: {e}")
-            
-        try:
-            hxrun_maintenance_service = get_hxrun_maintenance_service()
-            hxrun_maintenance_service.stop()
-            logger.info("HxRun maintenance enforcer stopped")
-        except Exception as e:
-            logger.warning(f"Error stopping HxRun maintenance enforcer: {e}")
-            
-    except Exception as e:
-        logger.error(f"Error during graceful shutdown: {e}")
-    finally:
-        logger.info("Graceful shutdown complete")
-        if signum:
-            sys.exit(0)
-
 # Include API routers
 app.include_router(auth_router)
 app.include_router(pyhsl_router)
 app.include_router(database_router)
-from backend.api.database_tools import router as database_tools_router
 app.include_router(database_tools_router)
 app.include_router(experiments_router)
 app.include_router(camera_router, prefix="/api", tags=["camera"])
@@ -491,199 +348,45 @@ def _is_asset_path(path: str) -> bool:
     return path.startswith('assets/') or '.' in path.split('/')[-1]
 
 
-# Add embedded static file serving (must be after API routes)
-if EMBEDDED_MODE:
-    resource_manager = get_resource_manager()
-    
-    @app.get("/{path:path}", response_class=HTMLResponse, include_in_schema=False)
-    async def serve_embedded_static(request: Request, path: str):
-        """Serve embedded static files for single-exe mode"""
-        # Don't serve API routes as static files
-        if (path.startswith('api/') or path.startswith('docs') or path.startswith('redoc') or 
-            path == 'health' or path.startswith('auth/')):
-            raise HTTPException(status_code=404, detail="Not found")
-        
-        # Handle root path
-        if not path or path == '/':
-            path = 'index.html'
-        
-        # Get resource from embedded files
-        resource = resource_manager.get_resource(path)
-        if not resource:
-            if _is_asset_path(path):
-                raise HTTPException(status_code=404, detail="File not found")
-            # Page route: index.html for SPA routing
-            resource = resource_manager.get_resource('index.html')
-            if not resource:
-                raise HTTPException(status_code=404, detail="Resource not found")
-        
-        content, mime_type, etag = resource
-        
-        # Check if client has cached version
-        client_etag = request.headers.get("if-none-match")
-        if client_etag and client_etag == etag:
-            return Response(status_code=304)
-        
-        # Get cache headers
-        cache_headers = resource_manager.get_cache_headers(mime_type)
-        
-        # Return content with appropriate headers
-        headers = {
-            "etag": etag,
-            "content-type": mime_type,
-            **cache_headers
-        }
-        
-        return Response(content=content, headers=headers, media_type=mime_type)
+frontend_dist = Path(project_root) / "frontend" / "dist"
 
-else:
-    # Development mode serves the built frontend from the filesystem
-    frontend_dist = Path(project_root) / "frontend" / "dist"
-    if frontend_dist.exists():
-        # Use manual route for development mode to avoid catching API routes
-        @app.get("/{path:path}", response_class=HTMLResponse, include_in_schema=False)
-        async def serve_static_dev(request: Request, path: str):
-            """Serve static files for development mode"""
-            # Don't serve API routes as static files
-            if (path.startswith('api/') or path.startswith('docs') or path.startswith('redoc') or 
-                path == 'health' or path.startswith('auth/') or path == 'api'):
-                raise HTTPException(status_code=404, detail="Not found")
-            
-            # Handle root path
-            if not path or path == '/':
-                path = 'index.html'
-            
-            # Build full file path
-            file_path = frontend_dist / path
-            
-            # Check if file exists
-            if not file_path.exists() or not file_path.is_file():
-                # Only fall back to index.html for navigation routes (not assets)
-                if _is_asset_path(path):
-                    # This is likely an asset file, return 404
-                    raise HTTPException(status_code=404, detail="File not found")
-                else:
-                    # This is a navigation route, serve index.html for SPA routing
-                    index_path = frontend_dist / 'index.html'
-                    if index_path.exists():
-                        file_path = index_path
-                        path = 'index.html'
-                    else:
-                        raise HTTPException(status_code=404, detail="File not found")
-            
-            # Determine MIME type
-            import mimetypes
-            mime_type, _ = mimetypes.guess_type(str(file_path))
-            if not mime_type:
-                mime_type = 'application/octet-stream'
-            
-            # Read and return file
-            with open(file_path, 'rb') as f:
-                content = f.read()
-            
-            return Response(content=content, media_type=mime_type)
-            
-        logger.info(f"Development mode: serving static files from {frontend_dist}")
-    else:
-        logger.info("No frontend build found - API only mode")
 
-# Global exception handler
+def _static_resource(path: str):
+    if EMBEDDED_MODE:
+        return get_resource_manager().get_resource(path)
+    root = frontend_dist.resolve()
+    target = (root / path).resolve()
+    if not target.is_relative_to(root):
+        raise HTTPException(status_code=404, detail="File not found")
+    if not target.is_file():
+        return None
+    content = target.read_bytes()
+    mime = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
+    return content, mime, '"' + hashlib.sha256(content).hexdigest() + '"'
+
+
+@app.get("/{path:path}", response_class=HTMLResponse, include_in_schema=False)
+async def serve_static(request: Request, path: str):
+    if path == "api" or path.startswith(("api/", "docs", "redoc", "auth/")) or path == "health":
+        raise HTTPException(status_code=404, detail="Not found")
+    resource = _static_resource(path or "index.html")
+    if resource is None and not _is_asset_path(path):
+        resource = _static_resource("index.html")
+    if resource is None:
+        raise HTTPException(status_code=404, detail="File not found")
+    content, mime, etag = resource
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304)
+    headers = {"etag": etag}
+    if EMBEDDED_MODE:
+        headers.update(get_resource_manager().get_cache_headers(mime))
+    return Response(content=content, media_type=mime, headers=headers)
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
-    """Global exception handler for unhandled errors"""
-    logger.error(f"Unhandled exception: {exc}")
-    return JSONResponse(
-        status_code=500,
-        content={
-            "success": False,
-            "error": "Internal server error",
-            "detail": str(exc) if app.debug else "An unexpected error occurred"
-        }
-    )
-
-
-# Root endpoint
-# Root endpoint
-@app.get("/")
-async def root():
-    """Root endpoint with basic information - respects lazy loading"""
-    return {
-        "service": "RobotControl Backend",
-        "version": __version__,
-        "status": "healthy",
-        "timestamp": datetime.now().isoformat(),
-        "message": "Services are lazy-loaded on first access",
-        "endpoints": {
-            "authentication": "/api/auth/",
-            "database": "/api/database/",
-            "backup": "/api/admin/backup/",
-            "admin": "/api/admin/",
-            "labware": "/api/labware/",
-            **({} if EMBEDDED_MODE else {"documentation": "/docs"}),
-            "health": "/health"
-        }
-    }
-
-
-# API info endpoint
-@app.get("/api")
-async def api_info():
-    """API information and available endpoints"""
-    return {
-        "api": "RobotControl API",
-        "version": __version__,
-        "endpoints": {
-            "authentication": {
-                "base_url": "/api/auth",
-                "endpoints": [
-                    "POST /api/auth/login",
-                    "POST /api/auth/refresh",
-                    "POST /api/auth/logout",
-                    "GET /api/auth/me",
-                    "GET /api/auth/users",
-                    "GET /api/auth/status"
-                ]
-            },
-            "database": {
-                "base_url": "/api/database",
-                "endpoints": [
-                    "GET /api/database/status",
-                    "GET /api/database/tables",
-                    "GET /api/database/tables/{table_name}",
-                    "GET /api/database/tools/catalogue",
-                    "GET /api/database/monitoring",
-                    "GET /api/database/performance"
-                ]
-            },
-            "backup": {
-                "base_url": "/api/admin/backup",
-                "endpoints": [
-                    "POST /api/admin/backup/create",
-                    "GET /api/admin/backup/list",
-                    "GET /api/admin/backup/{filename}/details",
-                    "POST /api/admin/backup/restore/{filename}",
-                    "DELETE /api/admin/backup/{filename}",
-                    "GET /api/admin/backup/health"
-                ],
-                "note": "Admin authentication required for all backup operations"
-            },
-            "labware": {
-                "base_url": "/api/labware",
-                "endpoints": [
-                    "GET /api/labware/tip-tracking",
-                    "PUT /api/labware/tip-tracking",
-                    "POST /api/labware/tip-tracking/reset"
-                ],
-                "note": "Update and reset operations require local network access"
-            }
-        },
-        # The packaged app does not publish its API description (see the FastAPI setup above).
-        **({} if EMBEDDED_MODE else {"documentation": {
-            "swagger_ui": "/docs",
-            "redoc": "/redoc",
-            "openapi_json": "/openapi.json"
-        }}),
-    }
+    logger.error("Unhandled exception", exc_info=(type(exc), exc, exc.__traceback__))
+    return ResponseFormatter.server_error()
 
 
 def main():
@@ -708,110 +411,23 @@ Examples:
     
     args = parser.parse_args()
 
-    # Process-wide handlers belong to the executable entrypoint, not app imports
-    # performed by tests, Uvicorn, or PyInstaller's module discovery.
-    signal.signal(signal.SIGINT, graceful_shutdown)
-    signal.signal(signal.SIGTERM, graceful_shutdown)
-    atexit.register(graceful_shutdown)
-    
-    
-    # Detect if running as compiled executable
-    is_compiled = getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS')
-    
-    # Configuration
-    host = args.host
-    port = args.port
-    reload = False  # Auto-reload disabled to keep sessions clean
-    
-    logger.info(f"Running mode: {'Compiled executable' if is_compiled else 'Development'}")
-    logger.info(f"Server will start on http://{host}:{port}")
-    
-    # Initialize system tray (only in compiled mode for now)
+    server = uvicorn.Server(uvicorn.Config(
+        app=app, host=args.host, port=args.port, reload=False,
+        log_level="info", access_log=False, proxy_headers=False,
+        use_colors=False, log_config=None, timeout_graceful_shutdown=5,
+    ))
     tray = None
-    shutdown_requested = threading.Event()
-    server_holder: dict[str, Optional[uvicorn.Server]] = {"server": None}
-    if is_compiled:
-        try:
-            from backend.utils.system_tray import start_system_tray, update_tray_status, is_tray_available
-            
-            if is_tray_available():
-                # Create stop callback for tray
-                def stop_server():
-                    logger.info("Server stop requested from system tray")
-                    shutdown_requested.set()
-                    server_obj = server_holder.get("server")
-                    if server_obj is not None:
-                        server_obj.should_exit = True
-                    else:
-                        logger.debug("Stop requested before server initialised; awaiting startup")
-                
-                tray = start_system_tray(port, stop_server)
-                update_tray_status("starting")
-                logger.info("System tray icon initialized")
-            else:
-                logger.info("System tray not available - missing dependencies")
-                
-        except Exception as e:
-            logger.warning(f"System tray initialization failed: {e}")
-    
+    if EMBEDDED_MODE:
+        from backend.utils.system_tray import RobotControlSystemTray
+        tray = RobotControlSystemTray(args.port, shutdown_complete=app.state.shutdown_complete)
+        def stop_server():
+            server.should_exit = True
+        tray.start(stop_server)
     try:
-        # Update tray status to running
-        if tray:
-            update_tray_status("running")
-            
-        if is_compiled:
-            # Configure uvicorn logging for compiled mode
-            configure_uvicorn_logging()
-            
-            # For compiled executable, pass app object directly
-            # Configure uvicorn to use existing logger configuration
-            uvicorn_config = uvicorn.Config(
-                app=app,
-                host=host,
-                port=port,
-                reload=False,
-                log_level="info",
-                access_log=False,
-                proxy_headers=False,  # Access checks must retain the actual socket peer.
-                use_colors=False,  # Disable colors in compiled mode
-                log_config=None,  # Use existing logger configuration
-            )
-            server = uvicorn.Server(uvicorn_config)
-            server_holder["server"] = server
-            if shutdown_requested.is_set():
-                logger.info("Shutdown requested before server fully started; signalling server exit")
-                server.should_exit = True
-            server.run()
-            server_holder["server"] = None
-        else:
-            # For development, use string reference for auto-reload
-            uvicorn.run(
-                "backend.main:app",
-                host=host,
-                port=port,
-                reload=False,
-                log_level="info",
-                access_log=False,
-                proxy_headers=False,
-                log_config=None
-            )
-    except KeyboardInterrupt:
-        logger.info("Server stopped by user")
-        if tray:
-            update_tray_status("stopped")
-    except Exception as e:
-        logger.error(f"Server failed to start: {e}")
-        if tray:
-            update_tray_status("error", str(e))
-        sys.exit(1)
+        server.run()
     finally:
-        # Clean up tray
         if tray:
-            try:
-                from backend.utils.system_tray import stop_system_tray
-                stop_system_tray()
-            except:
-                pass
+            tray.stop()
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-import { api } from "./api";
+import { api, unwrapData } from "./api";
 
 export type BrowseOptions = {
   search?: string;
@@ -10,8 +10,6 @@ export type BrowseOptions = {
   page?: number;
   limit?: number;
 };
-
-export type PreviewMode = "head" | "tail";
 
 export interface LogFileSource {
   id: string;
@@ -62,78 +60,25 @@ export interface LogFileListItem {
   path?: string;
   is_directory: boolean;
   extension?: string;
-  is_archive?: boolean;
-  archive_type?: string | null;
   size?: number;
   size_formatted?: string;
-  compressed_size?: number;
   modified_date?: string;
   entry_path?: string;
 }
 
+/** A folder, or a folder inside a ZIP archive (archive/browse). */
 export interface LogFileBrowseResponse {
-  source: {
-    id: string;
-    label: string;
-    path: string;
-  };
-  current_path: string;
-  relative_path: string;
   items: LogFileListItem[];
   total_items: number;
-  returned_items?: number;
-  truncated?: boolean;
-  max_items?: number;
 }
 
-export interface LogFileArchiveBrowseResponse {
-  source: {
-    id: string;
-    label: string;
-    path: string;
-  };
-  archive: {
-    relative_path: string;
-    path: string;
-    name: string;
-  };
-  entry_path: string;
-  items: LogFileListItem[];
-  total_items: number;
-  returned_items?: number;
-  truncated?: boolean;
-  max_items?: number;
-}
-
+/** The tail of a plain file; a .gz or .zip is refused with "open compressed files in the reader". */
 export interface LogFilePreview {
-  source_id: string;
-  source_label: string;
-  file_path: string;
-  display_name: string;
-  mode: PreviewMode;
-  max_bytes: number;
-  bytes_returned: number;
-  bytes_scanned: number;
-  truncated: boolean;
-  encoding_used?: string | null;
-  is_binary: boolean;
-  file_locked: boolean;
   content: string | null;
-  compressed?: boolean;
-  archive_type?: string;
-  file_size?: number;
-  file_size_formatted?: string;
-  modified_date?: string;
-  archive_relative_path?: string;
-  entry_path?: string;
-  entry_size?: number;
-  entry_size_formatted?: string;
-  entry_compressed_size?: number;
+  is_binary: boolean;
+  file_path: string;
+  modified_date?: string | null;
 }
-
-const unwrapData = <T>(response: any): T =>
-  (response?.data?.data ?? response?.data) as T;
-
 export const logFileApi = {
   openReader: async (
     sourceId: string,
@@ -187,7 +132,6 @@ export const logFileApi = {
   preview: async (
     sourceId: string,
     relativePath: string,
-    mode: PreviewMode = "tail",
     maxBytes = 1024 * 1024,
     signal?: AbortSignal,
   ): Promise<LogFilePreview> => {
@@ -196,7 +140,6 @@ export const logFileApi = {
       params: {
         source_id: sourceId,
         relative_path: relativePath,
-        mode,
         max_bytes: maxBytes,
       },
     });
@@ -209,7 +152,7 @@ export const logFileApi = {
     entryPath = "",
     options: BrowseOptions = {},
     signal?: AbortSignal,
-  ): Promise<LogFileArchiveBrowseResponse> => {
+  ): Promise<LogFileBrowseResponse> => {
     const response = await api.get("/api/logfiles/archive/browse", {
       signal,
       params: {
@@ -219,7 +162,7 @@ export const logFileApi = {
         entry_path: entryPath,
       },
     });
-    return unwrapData<LogFileArchiveBrowseResponse>(response);
+    return unwrapData<LogFileBrowseResponse>(response);
   },
 
 };

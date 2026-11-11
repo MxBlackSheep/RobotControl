@@ -24,7 +24,7 @@ For a live/archive conflict, inspect a stopped, consistent copy of the current d
 ## Storage implementation rules
 
 - Both connection helpers enable and verify foreign keys before any transaction. The lock wait is bounded to two seconds. Existing journal modes are unchanged.
-- `SchemaMigrations` records the safety migration. All migration statements commit together; do not catch and continue after an ALTER failure. A missing existing scheduler-state row stays unavailable until reviewed repair.
+- `SchemaMigrations` records the scheduling store version. `backend/services/stored_data.py` backs up before ordered upgrades; each step commits with its version. Version 1 sets the recovery resume hold once; version 2 creates the current tables and columns. A failed step rolls back, preserves the backup and blocks store access; the application remains available and Storage health shows the step, reason and backup. A newer store version is refused without writes. A missing existing scheduler-state row stays unavailable until reviewed repair.
 - `SchedulerSafetyStore` owns recovery transitions. Schedule/global flags, `safety_revision`, `resume_required` and `SchedulerSafetyEvents` are committed together using `BEGIN IMMEDIATE`. Only this code may change recovery columns. Ordinary edits and finalization must not reactivate a flagged or archived schedule.
 - Deletion/archive guards run inside the write transaction. Recovery, a running execution or unfinished monitoring prevents deletion/archive. Queued deletion cancels and archives queued executions before the schedule and live children are removed.
 - Live execution writes use upsert, not `INSERT OR REPLACE`. Callbacks after deletion update archived history and never recreate live executions. Monitoring snapshots and recovery metadata intentionally survive schedule deletion.
@@ -36,7 +36,7 @@ For a live/archive conflict, inspect a stopped, consistent copy of the current d
 
 `manual_recovery` retains its existing fields and adds `safety_revision`, `resume_required`, `pending_recoveries`, `schedule_missing`, `storage_healthy`, `storage_error`, and `resume_block_reason`.
 
-- `POST /api/scheduling/recovery/resolve`: `{schedule_id, expected_revision, robot_ready, note, expected_updated_at?}`. `schedule_id` may be null for a global incident with no known origin. The schedule-specific resolve route remains an adapter, but also requires revision and confirmation.
+- `POST /api/scheduling/recovery/resolve`: `{schedule_id, expected_revision, robot_ready, note, expected_updated_at?}`. `schedule_id` may be null for a global incident with no known origin. The schedule-specific resolve route is removed; use this global route with the schedule ID.
 - `POST /api/scheduling/dispatch/resume`: `{expected_revision}`.
 - `GET /api/admin/sqlite/{scheduling|authentication}/preview` and `POST .../repair` with `{token}`.
 - `POST /api/admin/sqlite/scheduling/reconcile`: `{token, execution_id, robot_ready, note}`.

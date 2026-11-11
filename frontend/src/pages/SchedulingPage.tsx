@@ -1,52 +1,15 @@
 import { DetailTitle, EmptyPanel, ListRow, PageContent, PageHeader, Panel, PanelLabel } from '../components/PageLayout';
 import { useSchedulingSection, isLocalUser } from '../components/navigation';
-/**
- * RobotControl Experiment Scheduling Page
- *
- * Dedicated page for experiment scheduling and management operations.
- * Provides full-page scheduling interface with:
- * - Page-level error boundaries and authentication
- * - Breadcrumb navigation following app patterns
- * - User and admin access control for different operations
- * - Comprehensive scheduling functionality
- * - Integration with main application navigation
- */
-
-import React, { useState, useEffect, useCallback, useLayoutEffect, useMemo, useRef } from 'react';
-import {
-  Box,
-  Typography,
-  Button,
-  Alert,
-  Stack,
-  Grid,
-  Card,
-  CardContent,
-  Tab,
-  Tabs,
-  TextField,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  Table,
-  TableContainer,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
-  CircularProgress
-} from '@mui/material';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import { Box, Typography, Button, Alert, Stack, Grid, Card, Tab, Tabs } from '@mui/material';
 import { Refresh as RefreshIcon } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-
-// Import scheduling components
-import ScheduleList from '../components/ScheduleList';
-import ScheduleCollection, { repeatLabel, scheduleState } from '../components/scheduling/ScheduleCollection';
+import { useRobotStatusContext } from '../hooks/useRobotStatus';
+import ScheduleCollection, { repeatLabel, scheduleState, scheduleTarget } from '../components/scheduling/ScheduleCollection';
 import StatusChip from '../components/StatusChip';
 import { preparationSummary, stateChip } from '../components/scheduling/PreparationStepField';
-import { fontMono, layout, StatusTone } from '../theme';
+import { fontMono, layout } from '../theme';
+import { dayTime } from '../utils/displayTime';
 import WarningAmber from '@mui/icons-material/WarningAmber';
 import InspectionWorkspace, { pinnedBarSx, usePhoneWorkspace } from '../components/InspectionWorkspace';
 import PhoneRuns from '../components/scheduling/PhoneRuns';
@@ -55,36 +18,22 @@ import RecoverySafetyPanel from '../components/scheduling/RecoverySafetyPanel';
 import ImprovedScheduleForm from '../components/scheduling/ImprovedScheduleForm';
 import NotificationContactsPanel from '../components/scheduling/NotificationContactsPanel';
 import NotificationEmailSettingsPanel from '../components/scheduling/NotificationEmailSettingsPanel';
+import NotificationLogPanel from '../components/scheduling/NotificationLogPanel';
 import FolderImportDialog from '../components/scheduling/FolderImportDialog';
 import MethodLibraryPanel from '../components/scheduling/MethodLibraryPanel';
 import MethodPathDialog from '../components/scheduling/MethodPathDialog';
-import { LibraryMethod } from '../types/scheduling';
 import ExecutionHistory from '../components/ExecutionHistory';
 import useScheduling from '../hooks/useScheduling';
-import { scheduleTarget } from '../components/scheduling/ScheduleCollection';
-import { formatDuration, SCHEDULE_MODE_LABELS, ScheduledExperiment, ScheduleMode, ScheduleRunner, CreateScheduleFormData, UpdateScheduleRequest, SchedulingOperationStatus } from '../types/scheduling';
+import { formatDuration, LibraryMethod, SCHEDULE_MODE_LABELS, ScheduledExperiment } from '../types/scheduling';
 import StatusDialog from '../components/StatusDialog';
 import { DeleteConfirmationDialog } from '../components/ScheduleActions';
 
-type ScheduleFormValues = Partial<{
-  experiment_name: string;
-  experiment_path: string;
-  schedule_type: 'once' | 'interval' | 'daily' | 'weekly';
-  interval_hours: number;
-  start_time: string | null;
-  estimated_duration: number;
-  log_inactivity_threshold_minutes: number;
-  mode: ScheduleMode;
-  runner?: ScheduleRunner;
-  protocol_id?: string;
-  parameters?: Record<string, unknown>;
-  is_active: boolean;
-  timeout_minutes: number | null;
-  timeout_action: 'continue' | 'run_cleanup_and_terminate';
-  timeout_cleanup_experiment_name: string | null;
-  timeout_cleanup_experiment_path: string | null;
-  notification_contacts: string[];
-}>;
+/** The open schedule form: the stored schedule to edit, or a new one (from a library method). */
+type OpenForm = { schedule?: ScheduledExperiment; method?: LibraryMethod };
+
+// Not Active: a stored next_run is not a run that will happen.
+const notRunning: Record<string, string> = { 'Needs review': 'No run until reviewed', 'Recovery required': 'No run until recovery is resolved',
+  Archived: 'No run while archived', Inactive: 'No run while inactive' };
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -104,41 +53,25 @@ const TabPanel: React.FC<TabPanelProps> = ({ children, value, index }) => {
     );
 };
 
-/**
- * SchedulingPage Component
- *
- * Full-page interface for experiment scheduling operations.
- * Implements role-based access control and proper navigation patterns.
- */
+/** Schedules, archive, calendar, history, recovery, notifications and the method library. The route admits only admin and user. */
 const SchedulingPage: React.FC = () => {
-  const navigate = useNavigate();
   const { user } = useAuth();
   const [currentTab, setCurrentTab] = useSchedulingSection(user);
-  const [improvedFormOpen, setImprovedFormOpen] = useState(false);
+  const [form, setForm] = useState<OpenForm | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [queueDetailsOpen, setQueueDetailsOpen] = useState(false);
   const [catalogueVersion, setCatalogueVersion] = useState(0);
   const [methodToRelink, setMethodToRelink] = useState<LibraryMethod | null>(null);
   const [folderImportOpen, setFolderImportOpen] = useState(false);
-  const [scheduleFormMode, setScheduleFormMode] = useState<'create' | 'edit'>('create');
-  const [scheduleFormInitialData, setScheduleFormInitialData] = useState<ScheduleFormValues>({});
-  const [editingVersion, setEditingVersion] = useState<string | undefined>();
-  const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
-  // Captured when the edit form opens, like its initial data.
-  const [editingPreparation, setEditingPreparation] = useState<Pick<ScheduledExperiment, 'preparation' | 'preparation_state' | 'legacy_preparation'>>({});
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [logsLoading, setLogsLoading] = useState(false);
-  const [logsError, setLogsError] = useState<string | null>(null);
-  const [logScheduleFilter, setLogScheduleFilter] = useState('');
-  const [logStatusFilter, setLogStatusFilter] = useState<'all' | 'sent' | 'pending' | 'error' | 'partial' | 'unknown' | 'cancelled'>('all');
-  const [appliedLogFilters, setAppliedLogFilters] = useState({ schedule: '', status: 'all' });
   const [notificationsTab, setNotificationsTab] = useState(0);
   const [contactsRequested, setContactsRequested] = useState(false);
   const [emailSettingsRequested, setEmailSettingsRequested] = useState(false);
 
-  // Initialize scheduling hook
   const { state, actions } = useScheduling();
-  const cardPadding = { xs: 2, md: 2 };
+  // The frame owns the one status read; the page shows it and asks it to refresh.
+  const robot = useRobotStatusContext();
+  const status = robot.status;
   const isLocalSession = isLocalUser(user);
   const isLocalClient = isLocalSession;
   const phone = usePhoneWorkspace();
@@ -158,186 +91,7 @@ const SchedulingPage: React.FC = () => {
     if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
   }, [openScheduleId]);
 
-  const formatTimestamp = (value?: string | null): string => {
-    if (!value) {
-      return 'N/A';
-    }
-    const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
-  };
-
-  const formatStartTimeForInput = (iso?: string | null): string => {
-    if (!iso) {
-      return '';
-    }
-    const date = new Date(iso);
-    if (Number.isNaN(date.getTime())) {
-      return '';
-    }
-    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
-    return local.toISOString().slice(0, 16);
-  };
-
-  const handleScheduleFormSubmit = async (data: any) => {
-    if (scheduleFormMode === 'edit' && editingScheduleId) {
-      const updatePayload: UpdateScheduleRequest = {
-        experiment_name: data.experiment_name,
-        experiment_path: data.experiment_path,
-        runner: data.runner ?? 'venus',
-        ...(data.runner === 'pyhsl' ? { protocol_id: data.protocol_id, parameters: data.parameters } : {}),
-        schedule_type: data.schedule_type,
-        interval_hours: data.schedule_type === 'interval' ? Number(data.interval_hours) : undefined,
-        start_time: data.start_time ? new Date(data.start_time).toISOString() : undefined,
-        estimated_duration: Number(data.estimated_duration),
-        log_inactivity_threshold_minutes: Number(data.log_inactivity_threshold_minutes ?? 3),
-        mode: data.mode,
-        is_active: data.is_active ?? true,
-        timeout_config: {
-          timeout_minutes:
-            data.timeout_minutes === null || data.timeout_minutes === undefined
-              ? null
-              : Number(data.timeout_minutes),
-          action: data.timeout_action || 'continue',
-          cleanup_experiment_name:
-            data.timeout_action === 'run_cleanup_and_terminate'
-              ? data.timeout_cleanup_experiment_name ?? null
-              : null,
-          cleanup_experiment_path:
-            data.timeout_action === 'run_cleanup_and_terminate'
-              ? data.timeout_cleanup_experiment_path ?? null
-              : null,
-        },
-        ...(data.preparation !== undefined ? { preparation: data.preparation } : {}),
-        notification_contacts: Array.isArray(data.notification_contacts) ? data.notification_contacts : [],
-        expected_updated_at: editingVersion,
-      };
-      await actions.updateSchedule(editingScheduleId, updatePayload);
-    } else {
-      const createPayload: CreateScheduleFormData = {
-        experiment_name: data.experiment_name,
-        experiment_path: data.experiment_path,
-        ...(data.runner === 'pyhsl' ? { runner: 'pyhsl' as const, protocol_id: data.protocol_id, parameters: data.parameters } : {}),
-        schedule_type: data.schedule_type,
-        interval_hours: data.schedule_type === 'interval' ? Number(data.interval_hours) : undefined,
-        start_time: data.start_time ? new Date(data.start_time) : null,
-        estimated_duration: Number(data.estimated_duration),
-        log_inactivity_threshold_minutes: Number(data.log_inactivity_threshold_minutes ?? 3),
-        mode: data.mode ?? 'real',
-        is_active: data.is_active ?? true,
-        timeout_minutes:
-          data.timeout_minutes === null || data.timeout_minutes === undefined
-            ? null
-            : Number(data.timeout_minutes),
-        timeout_action: data.timeout_action || 'continue',
-        timeout_cleanup_experiment_name:
-          data.timeout_action === 'run_cleanup_and_terminate'
-            ? data.timeout_cleanup_experiment_name ?? null
-            : null,
-        timeout_cleanup_experiment_path:
-          data.timeout_action === 'run_cleanup_and_terminate'
-            ? data.timeout_cleanup_experiment_path ?? null
-            : null,
-        preparation: data.preparation,
-        notification_contacts: Array.isArray(data.notification_contacts) ? data.notification_contacts : [],
-      };
-      await actions.createSchedule(createPayload);
-    }
-  };
-
-  const handleScheduleFormClose = () => {
-    setImprovedFormOpen(false);
-    setScheduleFormMode('create');
-    setScheduleFormInitialData({ notification_contacts: [] });
-    setEditingScheduleId(null);
-    setEditingPreparation({});
-  };
-
-  const handleOpenCreateForm = () => {
-    setScheduleFormMode('create');
-    setScheduleFormInitialData({ notification_contacts: [] });
-    setEditingScheduleId(null);
-    setEditingPreparation({});
-    setImprovedFormOpen(true);
-  };
-
-  const handleOpenEditForm = () => {
-    const selected = state.selectedSchedule;
-    if (!selected) {
-      return;
-    }
-
-    setScheduleFormMode('edit');
-    setEditingScheduleId(selected.schedule_id);
-    setEditingPreparation({ preparation: selected.preparation ?? null, preparation_state: selected.preparation_state,
-      legacy_preparation: selected.legacy_preparation ?? null });
-    setEditingVersion(selected.updated_at || undefined);
-    const allowedTypes: Array<'once' | 'interval' | 'daily' | 'weekly'> = ['once', 'interval', 'daily', 'weekly'];
-    const scheduleType = allowedTypes.includes(selected.schedule_type as any)
-      ? (selected.schedule_type as 'once' | 'interval' | 'daily' | 'weekly')
-      : 'once';
-    setScheduleFormInitialData({
-      experiment_name: selected.experiment_name,
-      experiment_path: selected.experiment_path,
-      schedule_type: scheduleType,
-      interval_hours: selected.interval_hours ?? undefined,
-      start_time: selected.start_time ? formatStartTimeForInput(selected.start_time) : null,
-      estimated_duration: selected.estimated_duration,
-      log_inactivity_threshold_minutes: selected.log_inactivity_threshold_minutes,
-      mode: selected.mode,
-      runner: selected.runner,
-      protocol_id: selected.protocol_id ?? undefined,
-      parameters: selected.parameters,
-      is_active: selected.is_active,
-      timeout_minutes: selected.timeout_config?.timeout_minutes ?? null,
-      timeout_action: selected.timeout_config?.action ?? 'continue',
-      timeout_cleanup_experiment_name: selected.timeout_config?.cleanup_experiment_name ?? null,
-      timeout_cleanup_experiment_path: selected.timeout_config?.cleanup_experiment_path ?? null,
-      notification_contacts: selected.notification_contacts ?? [],
-    });
-    setImprovedFormOpen(true);
-  };
-
-  const logRead = useRef(0);
-  const handleLogsRefresh = useCallback(async () => {
-    const id = ++logRead.current;
-    if (user?.role !== 'admin') {
-      return;
-    }
-    setLogsLoading(true);
-    setLogsError(null);
-
-    const params: Record<string, string | number> = { limit: 50 };
-    const trimmedSchedule = appliedLogFilters.schedule.trim();
-    if (trimmedSchedule) {
-      params.schedule_id = trimmedSchedule;
-    }
-    if (appliedLogFilters.status !== 'all') {
-      params.status = appliedLogFilters.status;
-    }
-
-    const result = await actions.loadNotificationLogs(params);
-    if (id !== logRead.current) return;
-    if (result?.error) {
-      setLogsError(result.error);
-    }
-    setLogsLoading(false);
-  }, [actions.loadNotificationLogs, appliedLogFilters, user?.role]);
-
-  const applyLogFilters = useCallback(() => {
-    setAppliedLogFilters({ schedule: logScheduleFilter, status: logStatusFilter });
-  }, [logScheduleFilter, logStatusFilter]);
-
-  const resetLogFilters = useCallback(() => {
-    setLogScheduleFilter('');
-    setLogStatusFilter('all');
-    setAppliedLogFilters({ schedule: '', status: 'all' });
-  }, []);
-
-  const openNotificationsTab = useCallback(() => {
-    if (user?.role === 'admin') {
-      setCurrentTab(5);
-    }
-  }, [user?.role, setCurrentTab]);
+  const openNotificationsTab = () => setCurrentTab(5);
 
   useEffect(() => {
     if (user?.role !== 'admin') {
@@ -353,18 +107,6 @@ const SchedulingPage: React.FC = () => {
   }, [user?.role, currentTab, notificationsTab, contactsRequested, actions]);
 
   useEffect(() => {
-    if (user?.role !== 'admin' || currentTab !== 5 || notificationsTab !== 1) return;
-    let stopped = false;
-    let timer: number;
-    const poll = async () => {
-      if (document.visibilityState === 'visible') await handleLogsRefresh();
-      if (!stopped) timer = window.setTimeout(poll, 5000);
-    };
-    void poll();
-    return () => { stopped = true; logRead.current++; clearTimeout(timer); };
-  }, [user?.role, currentTab, notificationsTab, handleLogsRefresh]);
-
-  useEffect(() => {
     if (user?.role !== 'admin') {
       return;
     }
@@ -377,61 +119,14 @@ const SchedulingPage: React.FC = () => {
     }
   }, [user?.role, currentTab, notificationsTab, emailSettingsRequested, actions]);
 
-  const latestNotificationForSelectedSchedule = useMemo(() => {
-    if (!state.selectedSchedule || !state.notificationLogs.length) {
-      return null;
-    }
-    const scheduleId = state.selectedSchedule.schedule_id;
-    let latest = null;
-    let latestTime = -Infinity;
-    for (const log of state.notificationLogs) {
-      if (log.schedule_id !== scheduleId) {
-        continue;
-      }
-      const timestamp = log.triggered_at ? new Date(log.triggered_at).getTime() : -Infinity;
-      if (!Number.isNaN(timestamp) && timestamp > latestTime) {
-        latest = log;
-        latestTime = timestamp;
-      }
-    }
-    return latest;
-  }, [state.selectedSchedule, state.notificationLogs]);
-
-  const getLogStatusTone = (status?: string): StatusTone => {
-    switch ((status || '').toLowerCase()) {
-      case 'sent': return 'completed';
-      case 'partial': case 'unknown': case 'pending': return 'attention';
-      case 'error': return 'fault';
-      default: return 'neutral';
-    }
-  };
-
-  // Access control - users and admins can view, only admins can control scheduler service
-  if (!user) {
-    return (
-      <StatusDialog
-        status={{ title: 'Authentication Required', message: 'Please log in to access experiment scheduling functionality.', severity: 'warning', action: { label: 'Go to Login', onClick: () => navigate('/login') } }}
-        onClose={() => navigate('/login')}
-      />
-    );
-  }
-
-  if (!['admin', 'user'].includes(user.role)) {
-    return (
-      <StatusDialog
-        status={{ title: 'Insufficient Permissions', message: 'Experiment scheduling requires user or administrator privileges. Contact your system administrator for access.', severity: 'warning', action: { label: 'Return to Dashboard', onClick: () => navigate('/') } }}
-        onClose={() => navigate('/')}
-      />
-    );
-  }
-
   const handleNotificationsTabChange = (_event: React.SyntheticEvent, newValue: number) => {
     setNotificationsTab(newValue);
   };
 
   const calendarData = (() => {
     const grouped: Record<string, ScheduledExperiment[]> = {};
-    state.schedules.filter(schedule => schedule.next_run).forEach(schedule => {
+    // A record under review never runs, whatever time it holds.
+    state.schedules.filter(schedule => schedule.next_run && !schedule.review_reason).forEach(schedule => {
       const day = new Date(schedule.next_run!).toDateString();
       (grouped[day] ||= []).push(schedule);
     });
@@ -449,7 +144,7 @@ const SchedulingPage: React.FC = () => {
     return (
       <Box>
         <Stack direction="row" justifyContent="flex-end" sx={{ mb: { xs: 2.5, md: 3 } }}>
-          <Button onClick={() => void actions.loadSchedules(false)} size="small">
+          <Button onClick={() => void actions.loadSchedules()} size="small">
             Refresh
           </Button>
         </Stack>
@@ -492,33 +187,35 @@ const SchedulingPage: React.FC = () => {
   };
 
   const renderScheduleDetail = (schedule: ScheduledExperiment) => {
-    const status = scheduleState(schedule);
-    const statusChip = <StatusChip {...status} />;
+    const scheduleStatus = scheduleState(schedule);
+    const statusChip = <StatusChip {...scheduleStatus} />;
     const facts = ([
       ['Timing', repeatLabel(schedule)],
-      ...(phone ? [] : [['Next run', formatTimestamp(schedule.next_run)]]),
+      ...(phone ? [] : [['Next run', schedule.next_run && !schedule.review_reason ? dayTime(schedule.next_run) : notRunning[scheduleStatus.label] ?? 'Not scheduled']]),
+      ['Last run', schedule.last_run ? dayTime(schedule.last_run) : 'Never'],
       ['Duration', formatDuration(schedule.estimated_duration)],
       ...(schedule.runner === 'pyhsl' ? [['Protocol', schedule.protocol_id ?? '']] : []),
       ['Mode', SCHEDULE_MODE_LABELS[schedule.mode]],
       ['Before this run', preparationSummary(schedule)],
       ['Late-start action', `${schedule.timeout_config?.action === 'run_cleanup_and_terminate' ? 'Run cleanup and terminate' : 'Continue'}${schedule.timeout_config?.timeout_minutes ? ` after ${schedule.timeout_config.timeout_minutes} minutes` : ''}`],
+      ['Created by', schedule.created_by],
+      ['Created', dayTime(schedule.created_at)],
     ] as [string, string][]);
     // Phones show the visible words; the accessible names stay the full action names.
     const actionLabel = (full: string) => phone ? { 'aria-label': full, children: full.split(' ')[0] } : { children: full };
     const archiveLabel = schedule.archived ? 'Restore schedule' : 'Archive schedule';
+    // Archived: restore before editing. Under review: edit or delete only (the server refuses the rest).
     const scheduleActions = isLocalSession
       ? <Stack direction="row" gap={1} flexWrap={phone ? 'nowrap' : 'wrap'} aria-label="Schedule actions" sx={phone ? { '& > *': { flex: '1 1 0', minHeight: 44 } } : undefined}>
-        <Button variant="contained" onClick={handleOpenEditForm} disabled={state.loading} {...actionLabel('Edit schedule')} />
-        <Button variant="outlined" disabled={state.loading || schedule.recovery_required}
-          onClick={() => void actions.archiveSchedule(schedule, !schedule.archived)} {...actionLabel(archiveLabel)} />
+        {!schedule.archived && <Button variant="contained" onClick={() => setForm({ schedule })} disabled={state.loading} {...actionLabel('Edit schedule')} />}
+        {!schedule.review_reason && <Button variant={schedule.archived ? 'contained' : 'outlined'} disabled={state.loading || schedule.recovery_required}
+          onClick={() => void actions.archiveSchedule(schedule, !schedule.archived)} {...actionLabel(archiveLabel)} />}
         <Button variant="outlined" color="error" onClick={() => setDeleteDialogOpen(true)} disabled={state.loading || schedule.recovery_required} {...actionLabel('Delete schedule')} />
       </Stack>
       : <Typography variant="body2" color="text.secondary">Read only · Changes require the local workstation.</Typography>;
     const nextRun = schedule.next_run ? new Date(schedule.next_run) : null;
     const validNextRun = nextRun && !Number.isNaN(nextRun.getTime()) ? nextRun : null;
-    // Not Active (recovery, inactive, archived): a stored next_run is not a run that will happen.
-    const notRunning: Record<string, string> = { 'Recovery required': 'No run until recovery is resolved', Archived: 'No run while archived', Inactive: 'No run while inactive' };
-    const waitingReason = state.queueStatus?.queued_job_details?.find(item => item.schedule_id === schedule.schedule_id)?.waiting_reason;
+    const waitingReason = status?.queuedJobs.find(item => item.schedule_id === schedule.schedule_id)?.waiting_reason;
     return <Box data-testid="schedule-detail" sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
       <Panel title="Schedule" fill inset={false} sx={{ flex: 1 }} bodySx={{ overflow: phone ? 'visible' : 'auto' }} actions={phone ? undefined : statusChip}>
         <Box ref={detailHeading} sx={{ p: 2, borderBottom: 1, borderColor: 'surface.rowLine' }}>
@@ -530,10 +227,10 @@ const SchedulingPage: React.FC = () => {
         </Box>
         {phone && <Box component="section" aria-label="Next run" sx={{ p: 2, borderBottom: 1, borderColor: 'surface.rowLine' }}>
           <PanelLabel component="p">Next run</PanelLabel>
-          {status.label !== 'Active'
+          {scheduleStatus.label !== 'Active'
             ? <>
-              <Typography sx={{ fontSize: 20, fontWeight: 600, lineHeight: '28px', mt: 0.5 }}>{notRunning[status.label] ?? status.label}</Typography>
-              {schedule.next_run && <Typography variant="body2" color="text.secondary">Stored time: {formatTimestamp(schedule.next_run)}</Typography>}
+              <Typography sx={{ fontSize: 20, fontWeight: 600, lineHeight: '28px', mt: 0.5 }}>{notRunning[scheduleStatus.label] ?? scheduleStatus.label}</Typography>
+              {schedule.next_run && !schedule.review_reason && <Typography variant="body2" color="text.secondary">Stored time: {dayTime(schedule.next_run)}</Typography>}
             </>
             : validNextRun
               ? <>
@@ -544,9 +241,10 @@ const SchedulingPage: React.FC = () => {
                 {/* A time already past is a missed or late run, never an upcoming one. */}
                 {validNextRun.getTime() < Date.now() && <Typography variant="body2" sx={{ color: 'warning.dark', fontWeight: 600 }}>Overdue</Typography>}
               </>
-              : <Typography sx={{ fontSize: 20, fontWeight: 600, lineHeight: '28px', mt: 0.5 }}>{schedule.next_run ? formatTimestamp(schedule.next_run) : 'Not scheduled'}</Typography>}
+              : <Typography sx={{ fontSize: 20, fontWeight: 600, lineHeight: '28px', mt: 0.5 }}>{schedule.next_run ? dayTime(schedule.next_run) : 'Not scheduled'}</Typography>}
           <Typography variant="body2" color="text.secondary">Expected duration {formatDuration(schedule.estimated_duration)}</Typography>
         </Box>}
+        {schedule.review_reason && <Alert severity="warning" sx={{ m: 2 }}>Needs review: {schedule.review_reason}</Alert>}
         {schedule.recovery_required && <Alert severity="warning" sx={{ m: 2 }} action={<Button color="inherit" onClick={() => setCurrentTab(1)}>Review recovery</Button>}>Recovery required</Alert>}
         {waitingReason && <Alert severity="warning" sx={{ m: 2 }}>Waiting: {waitingReason}</Alert>}
         <Box component="dl" sx={{ m: 0 }}>
@@ -555,59 +253,59 @@ const SchedulingPage: React.FC = () => {
           </ListRow>)}
         </Box>
         {!phone && <Stack spacing={1.5} sx={{ p: 2 }}>{scheduleActions}</Stack>}
-        {user?.role === 'admin' && <Box sx={{ p: 2, borderTop: phone ? 0 : 1, borderColor: 'surface.rowLine' }}>
-          <PanelLabel component="p">Latest notification</PanelLabel>
-          <Typography variant="body2" sx={{ mt: 0.5 }}>{latestNotificationForSelectedSchedule ? `${latestNotificationForSelectedSchedule.status} · ${formatTimestamp(latestNotificationForSelectedSchedule.triggered_at)}` : 'No notifications yet'}</Typography>
-          {latestNotificationForSelectedSchedule?.error_message && <Alert severity="error" sx={{ mt: 1 }}>{latestNotificationForSelectedSchedule.error_message}</Alert>}
-          <Button sx={{ mt: 1 }} onClick={openNotificationsTab}>Notification history</Button>
+        {user?.role === 'admin' && <Box sx={{ px: 2, pb: 2, pt: phone ? 2 : 0 }}>
+          <Button onClick={openNotificationsTab}>Notification history</Button>
         </Box>}
         {phone && <Box sx={[{ px: 2, py: 1 }, pinnedBarSx]}>{scheduleActions}</Box>}
       </Panel>
     </Box>;
   };
 
+  // Schedules and Archived share the list and the detail; each shows the selection only when it lists it.
+  const scheduleWorkspace = (title: string, schedules: ScheduledExperiment[], onRefresh: () => void, loading: boolean, error: string | null, statusFilter: boolean) => {
+    const selected = schedules.find(schedule => schedule.schedule_id === state.selectedSchedule?.schedule_id) ?? null;
+    return <InspectionWorkspace label={`${title} workspace`} selectorLabel={title} layout="table" detailOpen={detailOpen && Boolean(selected)}
+      onBack={() => setDetailOpen(false)} selector={<ScheduleCollection title={title} statusFilter={statusFilter} schedules={schedules}
+        selected={selected} onSelect={schedule => { actions.selectSchedule(schedule); setDetailOpen(true); }}
+        onRefresh={onRefresh} loading={loading} error={error} />}>
+      {selected ? renderScheduleDetail(selected) : <EmptyPanel>Select a schedule.</EmptyPanel>}
+    </InspectionWorkspace>;
+  };
+
+  const recovery = status?.recovery;
   return (
     <PageContent variant={currentTab === 5 && notificationsTab === 2 ? "task" : "inspection"}>
       <PageHeader title="Scheduling" actions={isLocalSession && <>
-        <Button variant="contained" onClick={handleOpenCreateForm} disabled={state.loading}>Create schedule</Button>
+        <Button variant="contained" onClick={() => setForm({})} disabled={state.loading}>Create schedule</Button>
         <Button variant="outlined" onClick={() => setFolderImportOpen(true)} disabled={state.loading}>Import methods</Button>
       </>} />
       <Stack direction="row" gap={1} flexWrap="wrap" alignItems="center" sx={{ mb: `${layout.gutter}px`, px: 2, py: 0.5, minHeight: layout.row, boxSizing: 'border-box', bgcolor: 'background.paper', border: 1, borderColor: 'divider', borderRadius: `${layout.radius}px` }} aria-label="Scheduler service summary">
-        <StatusChip tone={state.schedulerRunning ? 'running' : 'neutral'} label={`Scheduler service: ${state.schedulerRunning ? 'Running' : 'Stopped'}`} />
-        <StatusChip tone="neutral" label={state.queueStatus ? `${state.queueStatus.running_jobs ?? 0} running · ${state.queueStatus.queued_jobs ?? 0} queued` : 'Queue unavailable'} />
-        <Button size="small" startIcon={<RefreshIcon />} onClick={() => void actions.getQueueStatus()} sx={{ ml: { sm: 'auto' } }}>Refresh queue</Button>
-        {currentTab === 0 && state.queueStatus && <Button size="small" aria-expanded={queueDetailsOpen} onClick={() => setQueueDetailsOpen(value => !value)}>Queue details</Button>}
-        {(state.manualRecovery?.active || state.manualRecovery?.resume_required) && <Button size="small" variant="contained" startIcon={<WarningAmber />} onClick={() => setCurrentTab(1)}
+        <StatusChip tone={status?.schedulerRunning ? 'running' : 'neutral'} label={`Scheduler service: ${!status ? 'Unknown' : status.schedulerRunning ? 'Running' : 'Stopped'}`} />
+        <StatusChip tone="neutral" label={status ? `${status.running.length} running · ${status.queued} queued` : 'Queue unavailable'} />
+        <Button size="small" startIcon={<RefreshIcon />} onClick={() => void robot.refresh()} sx={{ ml: { sm: 'auto' } }}>Refresh queue</Button>
+        {currentTab === 0 && status && <Button size="small" aria-expanded={queueDetailsOpen} onClick={() => setQueueDetailsOpen(value => !value)}>Queue details</Button>}
+        {(recovery?.active || recovery?.resume_required) && <Button size="small" variant="contained" startIcon={<WarningAmber />} onClick={() => setCurrentTab(1)}
           sx={{ bgcolor: theme => theme.palette.tone.attention.bg, color: theme => theme.palette.tone.attention.fg, '&:hover': { bgcolor: theme => theme.palette.tone.attention.bg, filter: 'brightness(0.96)' } }}>Recovery required</Button>}
       </Stack>
-      {state.queueError && <Alert severity="warning" sx={{ mb: 1 }}>Queue status not updated: {state.queueError}</Alert>}
-      {state.schedulerError && <Alert severity="warning" sx={{ mb: 1 }}>Scheduler status not updated: {state.schedulerError}</Alert>}
-      {currentTab === 0 && state.queueStatus && queueDetailsOpen && <Box sx={{ mb: `${layout.gutter}px`, bgcolor: 'background.paper', border: 1, borderColor: 'divider', borderRadius: `${layout.radius}px` }}>
+      {robot.error && <Alert severity="warning" sx={{ mb: 1 }}>Status not updated: {robot.error}</Alert>}
+      {currentTab === 0 && status && queueDetailsOpen && <Box sx={{ mb: `${layout.gutter}px`, bgcolor: 'background.paper', border: 1, borderColor: 'divider', borderRadius: `${layout.radius}px` }}>
         <Stack spacing={1} sx={{ px: 2, py: 1.5 }}>
-          {(state.queueStatus.running_job_details ?? []).map(item => <Typography key={`running-${item.schedule_id}`} variant="body2">Running · {item.experiment_name}</Typography>)}
-          {(state.queueStatus.queued_job_details ?? []).map(item => <Typography key={`queued-${item.schedule_id}`} variant="body2">Queued · {item.experiment_name}{item.waiting_reason ? ` · ${item.waiting_reason}` : ''}</Typography>)}
-          {!state.queueStatus.running_jobs && !state.queueStatus.queued_jobs && <Typography variant="body2">Queue empty</Typography>}
+          {status.running.map(item => <Typography key={`running-${item.schedule_id}`} variant="body2">Running · {item.experiment_name}</Typography>)}
+          {status.queuedJobs.map(item => <Typography key={`queued-${item.schedule_id}`} variant="body2">Queued · {item.experiment_name}{item.waiting_reason ? ` · ${item.waiting_reason}` : ''}</Typography>)}
+          {!status.running.length && !status.queued && <Typography variant="body2">Queue empty</Typography>}
         </Stack>
       </Box>}
       <StatusDialog status={state.error ? { title: 'Server Error', message: state.error, severity: 'error' } : null} onClose={actions.clearError} />
 
       {/* Main Content */}
-      <Box sx={{ minWidth: 0 }}>
-        {/* Tab Panels */}
+      <Box ref={workspaceTop} sx={{ minWidth: 0 }}>
         <TabPanel value={currentTab} index={0}>
-          <Box ref={workspaceTop}>
-          <InspectionWorkspace label="Schedule workspace" selectorLabel="Schedules" layout="table" detailOpen={detailOpen}
-            onBack={() => setDetailOpen(false)} selector={<ScheduleCollection schedules={state.schedules}
-              selected={state.selectedSchedule} onSelect={schedule => { actions.selectSchedule(schedule); setDetailOpen(true); }}
-              onRefresh={() => void actions.loadSchedules(false)} loading={state.loading} error={state.error} />}>
-            {state.selectedSchedule ? renderScheduleDetail(state.selectedSchedule) : <EmptyPanel>Select a schedule.</EmptyPanel>}
-          </InspectionWorkspace>
-          </Box>
+          {scheduleWorkspace('Schedules', state.schedules, () => void actions.loadSchedules(), state.loading, state.error, true)}
         </TabPanel>
 
         <TabPanel value={currentTab} index={1}>
-          <RecoverySafetyPanel state={state.manualRecovery} isLocal={isLocalSession}
-            onChanged={async () => { await actions.getQueueStatus(); await actions.loadSchedules(false); }} />
+          <RecoverySafetyPanel state={recovery ?? null} isLocal={isLocalSession}
+            onChanged={async () => { await robot.refresh(); await actions.loadSchedules(); }} />
         </TabPanel>
 
         <TabPanel value={currentTab} index={2}>
@@ -622,24 +320,7 @@ const SchedulingPage: React.FC = () => {
         </TabPanel>
 
         <TabPanel value={currentTab} index={4}>
-          <ScheduleList
-            schedules={state.archivedSchedules}
-            selectedSchedule={state.selectedSchedule}
-            onScheduleSelect={actions.selectSchedule}
-            onRefresh={actions.loadArchivedSchedules}
-            onDeleteSchedule={
-              isLocalSession
-                ? (schedule) => {
-                    actions.selectSchedule(schedule);
-                    setDeleteDialogOpen(true);
-                  }
-                : undefined
-            }
-            loading={state.archivedLoading}
-            error={state.archivedError}
-            initialized={state.archivedInitialized}
-            archivedView
-          />
+          {scheduleWorkspace('Archived', state.archivedSchedules, () => void actions.loadArchivedSchedules(), state.archivedLoading, state.archivedError, false)}
           {!isLocalSession && (
             <Typography
               variant="caption"
@@ -686,124 +367,9 @@ const SchedulingPage: React.FC = () => {
                 />
               )}
 
-              {notificationsTab === 1 && (
-                <Card sx={{ borderRadius: 2 }}>
-                  <CardContent sx={{ p: cardPadding }}>
-                    <Stack
-                      direction={{ xs: 'column', md: 'row' }}
-                      spacing={2}
-                      alignItems={{ xs: 'stretch', md: 'flex-end' }}
-                      sx={{ mb: 2 }}
-                    >
-                      <TextField
-                        label="Schedule filter"
-                        value={logScheduleFilter}
-                        onChange={(event) => setLogScheduleFilter(event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter') {
-                            event.preventDefault();
-                            applyLogFilters();
-                          }
-                        }}
-                        size="small"
-                        sx={{ minWidth: { xs: '100%', md: 220 } }}
-                        placeholder="Schedule ID"
-                      />
-                      <FormControl size="small" sx={{ minWidth: 160 }}>
-                        <InputLabel id="log-status-label">Status</InputLabel>
-                        <Select
-                          labelId="log-status-label"
-                          label="Status"
-                          value={logStatusFilter}
-                          onChange={(event) => setLogStatusFilter(event.target.value as typeof logStatusFilter)}
-                        >
-                          <MenuItem value="all">All statuses</MenuItem>
-                          <MenuItem value="sent">Sent</MenuItem>
-                          <MenuItem value="pending">Pending</MenuItem>
-                          <MenuItem value="error">Error</MenuItem>
-                          <MenuItem value="partial">Partial</MenuItem>
-                          <MenuItem value="unknown">Unknown</MenuItem>
-                          <MenuItem value="cancelled">Cancelled</MenuItem>
-                        </Select>
-                      </FormControl>
-                      <Stack direction="row" spacing={1}>
-                        <Button variant="contained" size="small" onClick={applyLogFilters} disabled={logsLoading}>
-                          Apply
-                        </Button>
-                        <Button
-                          variant="text"
-                          size="small"
-                          onClick={resetLogFilters}
-                          disabled={logsLoading || (logScheduleFilter === '' && logStatusFilter === 'all')}
-                        >
-                          Reset
-                        </Button>
-                      </Stack>
-                      <Button
-                        variant="outlined"
-                        size="small"
-                        onClick={handleLogsRefresh}
-                        disabled={logsLoading}
-                      >
-                        Refresh
-                      </Button>
-                    </Stack>
-
-                    <StatusDialog
-                      status={logsError ? { title: 'Notification Logs Error', message: logsError, severity: 'error', action: { label: 'Retry', onClick: handleLogsRefresh } } : null}
-                      onClose={() => setLogsError(null)}
-                    />
-
-                    {logsLoading && state.notificationLogs.length === 0 ? (
-                      <Box display="flex" justifyContent="center" py={4}>
-                        <CircularProgress size={32} />
-                      </Box>
-                    ) : state.notificationLogs.length === 0 ? (
-                      <Typography variant="body2" color="text.secondary">
-                        No notification events recorded yet.
-                      </Typography>
-                    ) : (
-                      <TableContainer tabIndex={0} aria-label="Notification deliveries"><Table size="small">
-                        <TableHead>
-                          <TableRow>
-                            <TableCell>Timestamp</TableCell>
-                            <TableCell>Schedule</TableCell>
-                            <TableCell>Event</TableCell>
-                            <TableCell>Status</TableCell>
-                            <TableCell>Recipients</TableCell>
-                            <TableCell>Attachments</TableCell>
-                          </TableRow>
-                        </TableHead>
-                        <TableBody>
-                          {state.notificationLogs.map((log) => (
-                            <TableRow key={log.log_id} hover>
-                              <TableCell>{formatTimestamp(log.triggered_at)}</TableCell>
-                              <TableCell>{log.schedule_id || 'N/A'}</TableCell>
-                              <TableCell>{(log.event_type || 'event').replace(/_/g, ' ')}</TableCell>
-                              <TableCell>
-                                <StatusChip label={log.status || 'unknown'} tone={getLogStatusTone(log.status)} />
-                              </TableCell>
-                              <TableCell>
-                                {log.recipients.length ? log.recipients.join(', ') : 'N/A'}
-                                {log.error_message && (
-                                  <Typography variant="caption" color="error" display="block">
-                                    {log.error_message}
-                                  </Typography>
-                                )}
-                              </TableCell>
-                              <TableCell>
-                                {log.attachments.length
-                                  ? `${log.attachments.length} file${log.attachments.length > 1 ? 's' : ''}`
-                                  : 'N/A'}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table></TableContainer>
-                    )}
-                  </CardContent>
-                </Card>
-              )}
+              <SectionPanel active={notificationsTab === 1}>
+                <NotificationLogPanel active={currentTab === 5 && notificationsTab === 1} />
+              </SectionPanel>
 
               <SectionPanel active={notificationsTab === 2}>
               <NotificationEmailSettingsPanel
@@ -821,47 +387,35 @@ const SchedulingPage: React.FC = () => {
         {isLocalClient && <TabPanel value={currentTab} index={6}>
           <MethodLibraryPanel showImportAction={false} version={catalogueVersion} onChanged={() => setCatalogueVersion(value => value + 1)}
             onChangePath={setMethodToRelink}
-            onImport={() => setFolderImportOpen(true)} onCreateSchedule={method => {
-              handleOpenCreateForm();
-              setScheduleFormInitialData({ experiment_name: method.method_name, experiment_path: method.file_path, notification_contacts: [] });
-            }} />
+            onImport={() => setFolderImportOpen(true)} onCreateSchedule={method => setForm({ method })} />
         </TabPanel>}
       </Box>
 
-      {/* Improved Schedule Form Dialog */}
       {methodToRelink && <MethodPathDialog method={methodToRelink} onClose={() => setMethodToRelink(null)} onChanged={() => {
         setCatalogueVersion(value => value + 1); void actions.loadSchedules();
       }} />}
-      <ImprovedScheduleForm
-        open={improvedFormOpen}
-        onClose={handleScheduleFormClose}
-        onSubmit={handleScheduleFormSubmit}
-        initialData={scheduleFormInitialData}
-        mode={scheduleFormMode}
-        contacts={state.contacts}
-        catalogueVersion={catalogueVersion}
-        savedPreparation={editingPreparation.preparation}
-        preparationState={editingPreparation.preparation_state}
-        legacyPreparation={editingPreparation.legacy_preparation}
+      {/* Mounted per opening: the draft is a snapshot of the schedule as it was opened. */}
+      {form && <ImprovedScheduleForm schedule={form.schedule} method={form.method} contacts={state.contacts} catalogueVersion={catalogueVersion}
+        onClose={() => setForm(null)}
+        onSubmit={values => form.schedule
+          ? actions.updateSchedule(form.schedule.schedule_id, values, form.schedule.updated_at)
+          : actions.createSchedule(values)} />}
+
+      <DeleteConfirmationDialog
+        open={deleteDialogOpen}
+        schedule={state.selectedSchedule}
+        onClose={() => setDeleteDialogOpen(false)}
+        onConfirm={async () => {
+          if (state.selectedSchedule) await actions.deleteSchedule(state.selectedSchedule);
+        }}
+        loading={state.deleting}
       />
 
-  {/* Folder Import Dialog */}
-  <DeleteConfirmationDialog
-    open={deleteDialogOpen}
-    schedule={state.selectedSchedule}
-    onClose={() => setDeleteDialogOpen(false)}
-    onConfirm={async () => {
-      if (!state.selectedSchedule) return;
-      await actions.deleteSchedule(state.selectedSchedule);
-    }}
-    loading={state.operationStatus === SchedulingOperationStatus.Deleting}
-  />
-
-  <FolderImportDialog
-    open={folderImportOpen}
-    onClose={() => setFolderImportOpen(false)}
-    onImportComplete={() => setCatalogueVersion(version => version + 1)}
-    onCreateSchedule={handleOpenCreateForm}
+      <FolderImportDialog
+        open={folderImportOpen}
+        onClose={() => setFolderImportOpen(false)}
+        onImportComplete={() => setCatalogueVersion(version => version + 1)}
+        onCreateSchedule={() => setForm({})}
         isLocalClient={isLocalClient}
       />
     </PageContent>

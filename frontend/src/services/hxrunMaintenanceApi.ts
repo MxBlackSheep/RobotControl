@@ -1,4 +1,4 @@
-import { api } from './api';
+import { api, unwrapData } from './api';
 
 export interface HxRunMaintenancePermissions {
   is_local_session: boolean;
@@ -14,10 +14,6 @@ export interface HxRunMaintenanceState {
   updated_at?: string | null;
   permissions: HxRunMaintenancePermissions;
 }
-
-const unwrapData = <T>(response: any): T => {
-  return (response?.data?.data ?? response?.data) as T;
-};
 
 export const hxrunMaintenanceApi = {
   getState: async (): Promise<HxRunMaintenanceState> => {

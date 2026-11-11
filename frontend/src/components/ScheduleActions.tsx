@@ -17,7 +17,9 @@ import {
   CardContent,
 } from '@mui/material';
 
-import { ScheduledExperiment, formatScheduleType } from '../types/scheduling';
+import { ScheduledExperiment } from '../types/scheduling';
+import { repeatLabel } from './scheduling/ScheduleCollection';
+import { dayTime } from '../utils/displayTime';
 
 interface DeleteConfirmationDialogProps {
   open: boolean;
@@ -71,13 +73,13 @@ const DeleteConfirmationDialog: React.FC<DeleteConfirmationDialogProps> = ({
                   <strong>Name:</strong> {schedule.experiment_name}
                 </Typography>
                 <Typography variant="body2">
-                  <strong>Type:</strong> {formatScheduleType(schedule.schedule_type, schedule.interval_hours)}
+                  <strong>Type:</strong> {repeatLabel(schedule)}
                 </Typography>
                 <Typography variant="body2">
                   <strong>Duration:</strong> {schedule.estimated_duration} minutes
                 </Typography>
                 <Typography variant="body2">
-                  <strong>Created:</strong> {new Date(schedule.created_at).toLocaleString()}
+                  <strong>Created:</strong> {dayTime(schedule.created_at)}
                 </Typography>
               </Stack>
             </CardContent>

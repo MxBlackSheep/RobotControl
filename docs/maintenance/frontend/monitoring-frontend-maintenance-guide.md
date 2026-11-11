@@ -7,14 +7,14 @@ starts another polling owner.
 
 ## Data and state
 
-`useMonitoring` reads `/api/monitoring/experiments`, `/api/monitoring/system-health`,
-`/api/camera/streaming/status` and `/api/monitoring/databases` through one serial cycle; a
+`useMonitoring` reads `/api/monitoring/system-health`, `/api/camera/streaming/status` and
+`/api/monitoring/databases` through one serial cycle; a
 failed streaming or databases read leaves only that card unavailable. The normal interval is
 60 seconds; failed reads retry after 30 seconds. Unmount invalidates and aborts the
-owner. Manual Refresh joins an existing request. This hook currently uses REST,
-not WebSockets, despite some older type names/comments. Reads go through the shared
+owner. Manual Refresh joins an existing request. Reads go through the shared
 `api` client, so an expired access token is renewed; polling restarts only when the
-signed-in user changes. An experiment without a start time keeps `start_time: null`.
+signed-in user changes. "Last reading" is the sample's `sampled_at`; a reply without it shows no time rather than
+the browser's clock.
 
 Database connection and streaming availability are independent of CPU/memory/disk
 usage. Never infer service health from a low CPU reading. The CPU card's detail,
@@ -25,9 +25,10 @@ Stale data and displays the last reading time. A good reading shows only "Last r
 (no chip); a routine poll shows the progress bar, so the header row changes only for a problem
 or before the first reading. The Refresh control is disabled while a read is pending.
 
-The **Live view** card's Enabled/Disabled chip reports the service configuration.
-It does not claim that a camera is connected, a frame is fresh, or recording is
-active. Its Sessions row counts all registered sessions, including a pending
+The **Live view** card shows "N of M slots in use" (`active_session_count` of `max_sessions`)
+and a chip only when the numbers cannot be read (Unavailable: a failed read, or a count that is
+not a whole number); like Databases, only a problem earns a chip. It does not claim that a camera
+is connected, a frame is fresh, or recording is active. Its Sessions row counts all registered sessions, including a pending
 connection or a paused session; do not rename this to connected viewers. The
 **Databases** card lists every SQL Server connection RobotControl depends on: the built-in
 Hamilton connection (`DB_CONFIG_PRIMARY`; run records, labware, backup) and each saved
@@ -38,12 +39,9 @@ rows say so and the header has no chip. An
 incomplete reply (`normalizeDatabases`) is Unavailable, never an empty healthy list. After
 a failed read both cards keep the last state in neutral colour beside Stale data.
 
-Do not restore the old streaming utilization or bandwidth readouts. The backend
-`resource_usage_percent` is process CPU with a system-CPU fallback, not a streaming
-load percentage. `total_bandwidth_mbps` counts JPEG payload bytes and updates only
-when frames are sent, so it can remain unchanged after delivery stops. Neither
-belongs in this operator overview without a stronger metric contract. The regular
-CPU/memory/disk cards continue to use the system-health sampler.
+The streaming status no longer exposes utilization or bandwidth fields. The
+CPU/memory/disk cards use the system-health sampler; live-view status shows its
+availability and session count.
 
 A request that never answers is abandoned after 20 seconds and shown as
 "Request timed out" (see `polling-maintenance-guide.md`). Hidden pages keep the shared

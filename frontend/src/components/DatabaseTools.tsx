@@ -1,15 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Autocomplete, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle,
+import { Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle,
   FormControlLabel, LinearProgress, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material';
 import InspectionWorkspace from './InspectionWorkspace';
-import ExperimentBrowser, { Experiment } from './ExperimentBrowser';
 export { default as DatabasePackages } from './DatabasePackages';
 import { api } from '../services/api';
-import ReportInputs, { changedInputs, ReportField } from './ReportInputs';
+import ReportInputs, { toolsBase, changedInputs, ReportField } from './ReportInputs';
 import { useAuth } from '../context/AuthContext';
 import { isLocalUser } from './navigation';
 
-const base = '/api/database/tools';
 type Tool = { id: string; name: string; kind: string; package_version: string; inputs: ReportField[]; setup_needed?: boolean; target?: string };
 type Preview = { token: string; confirmation: string; summary: string; details: Record<string, unknown>; target?: string };
 type Job = { id: string; status: string; filename?: string; error?: string; error_details?: string; package_version?: string };
@@ -17,42 +15,6 @@ const message = (error: any) => {
   const value = error?.response?.data?.detail || error?.message || 'Request failed.';
   return typeof value === 'string' ? value : 'The request could not be completed.';
 };
-
-function ExperimentInput({ label, value, onChange, disabled, operationId, reportId }: { label: string; value: unknown; onChange: (value: number | null) => void; disabled: boolean; operationId?: string; reportId?: string }) {
-  const [query, setQuery] = useState('');
-  const [options, setOptions] = useState<{ id: number; label: string }[]>([]);
-  const [selected, setSelected] = useState<{ id: number; label: string } | null>(null);
-  const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  useEffect(() => { if (!value) setSelected(null); }, [value]);
-  useEffect(() => {
-    const controller = new AbortController();
-    const timer = window.setTimeout(async () => {
-      setLoading(true);
-      try {
-        const { data } = await api.get(`${base}/experiments`, { params: { search: query, page, operation_id: operationId, report_id: reportId }, signal: controller.signal });
-        if (controller.signal.aborted) return;
-        const values = data.rows.map((row: any) => ({ id: row.ExperimentID,
-          label: [row.ExperimentID, row.UserDefinedID, row.Note].filter(v => v !== undefined && v !== null && v !== '').join(' · ') }));
-        setOptions(old => page === 1 ? values : [...old, ...values]);
-        setTotal(data.total_count); setError('');
-      } catch (error) { if (!controller.signal.aborted) setError(message(error)); }
-      finally { if (!controller.signal.aborted) setLoading(false); }
-    }, 250);
-    return () => { clearTimeout(timer); controller.abort(); };
-  }, [query, page, operationId, reportId]);
-  return <Stack spacing={1}>
-    <Autocomplete options={options} value={selected} disabled={disabled} loading={loading}
-      filterOptions={values => values} isOptionEqualToValue={(a, b) => a.id === b.id}
-      onInputChange={(_, text, reason) => { if (reason === 'input' || reason === 'clear') { setQuery(text); setPage(1); } }}
-      onChange={(_, option) => { setSelected(option); onChange(option?.id ?? null); }}
-      renderInput={params => <TextField {...params} label={label} required size="small" />} />
-    {options.length < total && <Button disabled={disabled || loading} onClick={() => setPage(old => old + 1)}>Load more experiments</Button>}
-    {error && <Alert severity="error">{error}</Alert>}
-  </Stack>;
-}
 
 export default function DatabaseTools({ kind, active }: { kind: 'operation' | 'report'; active: boolean }) {
   const { user } = useAuth();
@@ -67,17 +29,11 @@ export default function DatabaseTools({ kind, active }: { kind: 'operation' | 'r
   const [job, setJob] = useState<Job | null>(null);
   const [uncertain, setUncertain] = useState(false);
   const generation = useRef(0);
-  const [experiment, setExperiment] = useState<Experiment>();
-  const [detailOpen, setDetailOpen] = useState(false);
-  const detail = useRef<HTMLDivElement>(null);
-  const selection = useRef<HTMLDivElement>(null);
   const tool = tools.find(item => item.id === selected);
-  const experimentFields = tool?.inputs.filter(field => field.type === 'experiment') || [];
-  const experimentField = !tool?.setup_needed && experimentFields.length === 1 ? experimentFields[0] : undefined;
   useEffect(() => {
     if (!active) return;
     const controller = new AbortController();
-    api.get(`${base}/catalogue`, { params: { kind }, signal: controller.signal }).then(({ data }) => {
+    api.get(`${toolsBase}/catalogue`, { params: { kind }, signal: controller.signal }).then(({ data }) => {
       setTools(data); setSelected(old => data.some((item: Tool) => item.id === old) ? old : data[0]?.id || '');
     }).catch(error => { if (!controller.signal.aborted) setError(message(error)); });
     return () => controller.abort();
@@ -89,7 +45,7 @@ export default function DatabaseTools({ kind, active }: { kind: 'operation' | 'r
     let timer: number;
     const poll = async () => {
       try {
-        const { data } = await api.get(`${base}/reports/${job.id}`);
+        const { data } = await api.get(`${toolsBase}/reports/${job.id}`);
         if (!stopped) { setJob(data); setError(''); }
       } catch (error) { if (!stopped) setError(message(error)); }
       if (!stopped) timer = window.setTimeout(poll, 1500);
@@ -106,7 +62,7 @@ export default function DatabaseTools({ kind, active }: { kind: 'operation' | 'r
     try {
       const inputs = { ...values };
       tool?.inputs.forEach(field => { if (field.type === 'boolean' && inputs[field.name] === undefined) inputs[field.name] = false; });
-      const { data } = await api.post(kind === 'operation' ? `${base}/operations/${selected}/preview` : `${base}/reports/${selected}`, { inputs }, { timeout: 40000 });
+      const { data } = await api.post(kind === 'operation' ? `${toolsBase}/operations/${selected}/preview` : `${toolsBase}/reports/${selected}`, { inputs }, { timeout: 40000 });
       if (generation.current !== id) return;
       if (kind === 'operation') { setPreview(data); setConfirmation(''); setUncertain(false); }
       else setJob(data);
@@ -117,7 +73,7 @@ export default function DatabaseTools({ kind, active }: { kind: 'operation' | 'r
     if (!preview) return;
     setBusy(true); setError('');
     try {
-      const { data } = await api.post(`${base}/operations/execute`, { token: preview.token, confirmation }, { timeout: 45000 });
+      const { data } = await api.post(`${toolsBase}/operations/execute`, { token: preview.token, confirmation }, { timeout: 45000 });
       if (data.status === 'unknown') { setUncertain(true); setError(data.message); }
       else {
         setPreview(null); setUncertain(false);
@@ -131,7 +87,7 @@ export default function DatabaseTools({ kind, active }: { kind: 'operation' | 'r
     if (!job) return;
     setBusy(true);
     try {
-      const { data } = await api.get(`${base}/reports/${job.id}/download`, { responseType: 'blob', timeout: 120000 });
+      const { data } = await api.get(`${toolsBase}/reports/${job.id}/download`, { responseType: 'blob', timeout: 120000 });
       const url = URL.createObjectURL(data); const anchor = document.createElement('a');
       anchor.href = url; anchor.download = job.filename || 'CultureHistory.xlsx'; anchor.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
@@ -140,7 +96,7 @@ export default function DatabaseTools({ kind, active }: { kind: 'operation' | 'r
   };
   const locked = busy || !!preview || !!job && ['pending', 'running'].includes(job.status);
   const chooseTool = (id: string) => {
-    setSelected(id); setValues({}); setExperiment(undefined); setDetailOpen(false); setNotice(''); setError(''); setJob(null);
+    setSelected(id); setValues({}); setNotice(''); setError(''); setJob(null);
   };
   const invalid = tool?.inputs.some(field => field.required && field.type !== 'boolean' && (values[field.name] == null || values[field.name] === ''));
   return <>
@@ -151,37 +107,17 @@ export default function DatabaseTools({ kind, active }: { kind: 'operation' | 'r
       </TextField>}
     </Stack>
     <InspectionWorkspace label="Database task workspace">
-      <Box sx={{ display: 'grid', gridTemplateColumns: experimentField ? 'minmax(0, 2fr) minmax(0, 3fr)' : '1fr', gap: 2, height: '100%', minHeight: 0,
-        '@container workspace (max-width: 899px)': { gridTemplateColumns: '1fr' } }}>
-        {experimentField && <Box ref={selection} sx={{ minWidth: 0, minHeight: 0,
-          '@container workspace (max-width: 899px)': { display: detailOpen ? 'none' : 'block' } }}>
-          <ExperimentBrowser key={tool?.id} selected={experiment} disabled={locked || !!tool?.setup_needed} active={active && !tool?.setup_needed}
-            operationId={kind === 'operation' ? tool?.id : undefined} reportId={kind === 'report' ? tool?.id : undefined} onSelect={row => {
-            setExperiment(row);
-            if (values[experimentField.name] !== row.ExperimentID) changeValue(experimentField.name, row.ExperimentID);
-            setDetailOpen(true);
-            requestAnimationFrame(() => detail.current?.focus());
-          }} />
-        </Box>}
-        <Paper ref={detail} tabIndex={-1} variant="outlined" sx={{ p: { xs: 1.5, md: 2.5 }, minWidth: 0, minHeight: 0, overflow: 'auto', outline: 'none',
-          '@container workspace (max-width: 899px)': { display: experimentField && !detailOpen ? 'none' : 'block' } }}>
+      <Box sx={{ display: 'grid', height: '100%', minHeight: 0 }}>
+        <Paper variant="outlined" sx={{ p: { xs: 1.5, md: 2.5 }, minWidth: 0, minHeight: 0, overflow: 'auto' }}>
           <Stack spacing={2}>
-            {experimentField && <Button sx={{ display: 'none', alignSelf: 'flex-start', '@container workspace (max-width: 899px)': { display: 'inline-flex' } }}
-              onClick={() => { setDetailOpen(false); requestAnimationFrame(() => selection.current?.querySelector<HTMLElement>('[aria-current="true"]')?.focus()); }}>Back to experiments</Button>}
             {error && !preview && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
             {notice && <Alert severity="success">{notice}</Alert>}
             {tool?.setup_needed && <Alert severity="info" action={user?.role === 'admin' && isLocalUser(user) ? <Button href="/database?section=packages">Configure</Button> : undefined}>
               Connection setup needed. Ask a local administrator to assign a connection.</Alert>}
             {!tools.length && <Typography color="text.secondary">No {kind === 'operation' ? 'operations' : 'reports'} installed.</Typography>}
-            {experimentField && (experiment ? <Box>
-              <Typography component="h3" variant="h6" sx={{ overflowWrap: 'anywhere' }}>{experiment.UserDefinedID || 'Unnamed experiment'}</Typography>
-              {experiment.Note && <Typography color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{experiment.Note}</Typography>}
-            </Box> : <Typography color="text.secondary">Select an experiment.</Typography>)}
-            {tool?.inputs.filter(field => !tool.setup_needed && field !== experimentField).map(field => ['lookup', 'date'].includes(field.type)
+            {!tool?.setup_needed && tool?.inputs.map(field => ['lookup', 'date'].includes(field.type)
               ? <ReportInputs key={`${tool.id}/${field.name}`} fields={[field]} allFields={tool.inputs} values={values} disabled={locked || !!tool.setup_needed}
-                  choiceBase={`${base}/${kind === 'operation' ? 'operations' : 'reports'}/${tool.id}/choices`} onChange={changeValue} />
-              : field.type === 'experiment'
-              ? <ExperimentInput operationId={kind === 'operation' ? tool.id : undefined} reportId={kind === 'report' ? tool.id : undefined} key={`${tool.id}/${field.name}`} label={field.label} value={values[field.name]} disabled={locked} onChange={value => changeValue(field.name, value)} />
+                  choiceBase={`${toolsBase}/${kind === 'operation' ? 'operations' : 'reports'}/${tool.id}/choices`} onChange={changeValue} />
               : field.type === 'boolean' ? <FormControlLabel key={field.name} label={field.label} control={<Checkbox disabled={locked} checked={values[field.name] === true} onChange={(_, value) => changeValue(field.name, value)} />} />
               : <TextField key={field.name} label={field.label} required={field.required} disabled={locked} select={field.type === 'choice'}
                 type={['integer', 'number'].includes(field.type) ? 'number' : 'text'} value={values[field.name] ?? ''}

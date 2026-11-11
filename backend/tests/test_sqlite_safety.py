@@ -46,6 +46,7 @@ def engine(db):
     value._manual_state_last_check = 0
     value._manual_state_logged_active = False
     value._manual_recovery_cache = db.get_manual_recovery_state()
+    value._database_restore_active = False
     value._owned_execution_ids = set()
     value._running_jobs = set()
     value._active_schedules = {}

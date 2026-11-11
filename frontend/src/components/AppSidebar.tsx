@@ -13,37 +13,36 @@ export default function AppSidebar({ user, expanded, onToggle, footer }: {
 }) {
   const location = useLocation();
   const attention = robotAttention(useRobotStatusContext().status);
-  const wide = expanded;
-  const width = wide ? layout.rail : layout.railCollapsed;
+  const width = expanded ? layout.rail : layout.railCollapsed;
   return <Drawer variant="permanent" open
     sx={{ width, flexShrink: 0, '& .MuiDrawer-paper': { width, boxSizing: 'border-box', border: 0, bgcolor: 'rail.bg', color: 'rail.text' } }}>
-    <Box component="nav" aria-label="Main navigation" sx={{ display: 'flex', flexDirection: 'column', height: '100%', py: 2, px: wide ? 1.5 : 1 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: wide ? 'space-between' : 'center', height: layout.header, pl: wide ? 1.5 : 0, mb: 2 }}>
-        {wide && <Box><Typography sx={{ fontSize: 15, fontWeight: 600, lineHeight: '20px', color: 'rail.activeText' }}>RobotControl</Typography>
+    <Box component="nav" aria-label="Main navigation" sx={{ display: 'flex', flexDirection: 'column', height: '100%', py: 2, px: expanded ? 1.5 : 1 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: expanded ? 'space-between' : 'center', height: layout.header, pl: expanded ? 1.5 : 0, mb: 2 }}>
+        {expanded && <Box><Typography sx={{ fontSize: 15, fontWeight: 600, lineHeight: '20px', color: 'rail.activeText' }}>RobotControl</Typography>
           <Typography sx={{ fontFamily: fontMono, fontSize: 11, lineHeight: '16px', color: 'rail.muted' }}>v{APP_VERSION}</Typography></Box>}
-        <IconButton aria-label={wide ? 'Collapse navigation' : 'Expand navigation'} onClick={onToggle} sx={{ color: 'rail.text' }}>
-          {wide ? <ChevronLeft /> : <ChevronRight />}
+        <IconButton aria-label={expanded ? 'Collapse navigation' : 'Expand navigation'} onClick={onToggle} sx={{ color: 'rail.text' }}>
+          {expanded ? <ChevronLeft /> : <ChevronRight />}
         </IconButton>
       </Box>
       <List disablePadding sx={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 0.5 }}>
         {visibleNavigation(user).map(item => {
           const selected = location.pathname === item.path;
           const badge = item.path === '/scheduling' && !!attention;
-          return <Tooltip key={item.path} title={wide ? '' : item.label} placement="right">
+          return <Tooltip key={item.path} title={expanded ? '' : item.label} placement="right">
             <ListItemButton component={Link} to={item.path} selected={selected} aria-label={badge ? `${item.label}, recovery requires attention` : item.label}
               aria-current={selected ? 'page' : undefined}
-              sx={{ flex: '0 0 auto', minHeight: layout.row, px: 1.5, borderRadius: `${layout.radius}px`, color: selected ? 'rail.activeText' : 'rail.text', justifyContent: wide ? 'flex-start' : 'center',
+              sx={{ flex: '0 0 auto', minHeight: layout.row, px: 1.5, borderRadius: `${layout.radius}px`, color: selected ? 'rail.activeText' : 'rail.text', justifyContent: expanded ? 'flex-start' : 'center',
                 '&.Mui-selected, &.Mui-selected:hover': { bgcolor: 'rail.activeBg' }, '&:hover': { bgcolor: 'rail.activeBg' } }}>
-              <ListItemIcon sx={{ minWidth: wide ? 30 : 0, color: 'inherit', position: 'relative' }}>
+              <ListItemIcon sx={{ minWidth: expanded ? 30 : 0, color: 'inherit', position: 'relative' }}>
                 <item.icon fontSize="small" />
-                {badge && !wide && <Box component="span" aria-hidden sx={{ position: 'absolute', top: -3, right: -5, width: 9, height: 9, borderRadius: 5, bgcolor: 'attentionSurface.action' }} />}
+                {badge && !expanded && <Box component="span" aria-hidden sx={{ position: 'absolute', top: -3, right: -5, width: 9, height: 9, borderRadius: 5, bgcolor: 'attentionSurface.action' }} />}
               </ListItemIcon>
-              {wide && <ListItemText primary={item.label} primaryTypographyProps={{ fontSize: 14, fontWeight: selected ? 600 : 400 }} />}
-              {badge && wide && <Box component="span" sx={{ minWidth: 20, height: 20, px: 0.5, borderRadius: 10, bgcolor: '#F2B544', color: '#15171C', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{attention?.kind === 'recovery' ? attention.count : '!'}</Box>}            </ListItemButton>
+              {expanded && <ListItemText primary={item.label} primaryTypographyProps={{ fontSize: 14, fontWeight: selected ? 600 : 400 }} />}
+              {badge && expanded && <Box component="span" sx={{ minWidth: 20, height: 20, px: 0.5, borderRadius: 10, bgcolor: '#F2B544', color: '#15171C', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{attention?.kind === 'recovery' ? attention.count : '!'}</Box>}            </ListItemButton>
           </Tooltip>;
         })}
       </List>
-      <Box sx={{ display: 'flex', flexDirection: wide ? 'row' : 'column', alignItems: 'center', gap: 0.5, pt: 1, borderTop: 1, borderColor: 'rail.activeBg' }}>{footer}</Box>
+      <Box sx={{ display: 'flex', flexDirection: expanded ? 'row' : 'column', alignItems: 'center', gap: 0.5, pt: 1, borderTop: 1, borderColor: 'rail.activeBg' }}>{footer}</Box>
     </Box>
   </Drawer>;
 }

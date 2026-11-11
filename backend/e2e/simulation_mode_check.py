@@ -114,7 +114,6 @@ def run():
             storage = SQLiteSchedulingDatabase(str(root / 'scheduler.db'))
             manager = SchedulingDatabaseManager.__new__(SchedulingDatabaseManager)
             manager.sqlite_db = storage
-            manager.should_block_due_to_abort = lambda _: None
             manager.main_db_service = None
             method = root / 'fixture.med'
             method.write_text('fixture')
@@ -123,6 +122,7 @@ def run():
             assert storage.create_schedule(old)
             with storage._get_connection() as conn:
                 conn.execute('ALTER TABLE ScheduledExperiments DROP COLUMN mode')
+                conn.execute('DELETE FROM SchemaMigrations WHERE version > 1')
                 conn.commit()
             storage = SQLiteSchedulingDatabase(str(root / 'scheduler.db'))
             manager.sqlite_db = storage
@@ -142,7 +142,10 @@ def run():
             notification._hamilton_log_dir.mkdir()
             unrelated_trace = notification._hamilton_log_dir / 'unrelated-run.trc'
             unrelated_trace.write_text('Trace from another run')
-            notification._rolling_clips_dir = root / 'rolling_clips'
+            from backend.services import storage_manager
+            stack.enter_context(patch.object(storage_manager, 'VIDEO_PATH', root / 'videos'))
+            video_store = storage_manager.StorageManager()
+            stack.enter_context(patch.object(storage_manager, 'get_storage_manager', return_value=video_store))
             def deliver(*args, **kwargs):
                 delivered.append(kwargs)
                 return True
@@ -172,7 +175,7 @@ def run():
             popen_mock = stack.enter_context(patch.object(ex.subprocess, 'Popen', side_effect=popen))
             stack.enter_context(patch.object(ex, 'get_experiment_discovery_service', return_value=SimpleNamespace(
                 db=SimpleNamespace(update_method_usage=lambda _: None))))
-            original_prepare = ex.PreExecutionPipeline.run
+            original_prepare = ex.PreExecutionPipeline.prepare
             change_after_prepare = False
             def prepare(pipeline, schedule, execution_id):
                 prepared.append(execution_id)
@@ -180,7 +183,7 @@ def run():
                 if change_after_prepare:
                     sample_config(root, 1, 0)
                 return result
-            stack.enter_context(patch.object(ex.PreExecutionPipeline, 'run', prepare))
+            stack.enter_context(patch.object(ex.PreExecutionPipeline, 'prepare', prepare))
 
             def schedule(mode='real', contacts=True, **kwargs):
                 value = ScheduledExperiment('', 'Fixture', str(method), 'once', mode=mode,
@@ -200,9 +203,9 @@ def run():
                 def create(extra):
                     return client.post('/api/scheduling/create', json={**body, **extra})
                 def read(identity):
-                    response = client.get(f'/api/scheduling/{identity}')
+                    response = client.get('/api/scheduling/list?active_only=false')
                     assert response.status_code == 200, response.text
-                    return response.json()['data']
+                    return next(row for row in response.json()['data'] if row['schedule_id'] == identity)
                 real = create({})
                 assert real.status_code == 200, real.text
                 identity = real.json()['data']['schedule_id']
@@ -230,9 +233,7 @@ def run():
                     assert (engine._resolve_dispatch_block_reason(value) is None) == allowed
                     before = len(launched)
                     item = JobExecution('', value.schedule_id, 'pending')
-                    executor = ex.ExperimentExecutor(config)
-                    executor.launch_guard = engine.launch_guard
-                    executor.run_log_monitor = engine.run_log_monitor
+                    executor = ex.ExperimentExecutor(engine.run_log_monitor, engine.launch_guard, config)
                     if allowed:
                         assert executor.execute_experiment(value, item)
                         assert len(launched) == before + 1

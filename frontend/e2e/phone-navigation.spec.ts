@@ -50,7 +50,7 @@ test('a More entry opens its section, titled with the name that was tapped', asy
 
 test('a held run marks the Now tab', async ({ page }) => {
   await page.route('**/api/scheduling/status/queue', route => route.fulfill({ json: { success: true, data: {
-    queue: { queued_jobs: 0, running_job_details: [] }, hamilton: { is_running: false },
+    is_running: true, queue: { queued_jobs: 0, running_job_details: [] }, hamilton: { is_running: false },
     manual_recovery: { active: true, storage_healthy: true, safety_revision: 4,
       pending_recoveries: [{ schedule_id: 'feed2', experiment_name: 'Cell feeding · stack 2', note: 'No log activity for 3 min.' }] } } } }));
   await page.goto('/logfile');

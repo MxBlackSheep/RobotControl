@@ -11,8 +11,6 @@ import time
 
 from backend.services.auth import get_current_user
 from backend.services.database import get_database_service
-from backend.services.experiment_monitor import get_experiment_monitor
-from backend.constants import HAMILTON_STATE_MAPPING
 
 # Import standardized response formatter
 from backend.api.response_formatter import ResponseFormatter, ResponseMetadata
@@ -47,55 +45,6 @@ def get_database_connections(current_user: dict = Depends(get_current_user)):
         checked_at=workspace["checked_at"] if workspace else None,
     ))
 
-@router.get("/experiments")
-async def get_current_experiments(current_user: dict = Depends(get_current_user)):
-    """Get current experiment monitoring data using centralized experiment monitor"""
-    start_time = time.time()
-    
-    try:
-        # Get experiment data from centralized experiment monitor
-        current_experiment = await run_in_threadpool(lambda: get_experiment_monitor().get_current_experiment())
-        
-        experiments = []
-        if current_experiment:
-            # Use centralized Hamilton state mapping for consistency
-            raw_state = str(current_experiment.run_state.value)
-            display_state = HAMILTON_STATE_MAPPING.get(raw_state, raw_state)
-            
-            experiments = [{
-                "ExperimentID": current_experiment.run_guid,
-                "MethodName": current_experiment.method_name,
-                "PlateID": "N/A",  # Not available in experiment monitor
-                "StartTime": current_experiment.start_time.isoformat() if current_experiment.start_time else None,
-                "EndTime": current_experiment.end_time.isoformat() if current_experiment.end_time else None,
-                "Status": display_state,
-                "RawState": current_experiment.raw_run_state or raw_state,
-                "Progress": 100 if current_experiment.is_complete else (50 if current_experiment.is_in_progress else 0),
-                "IsNewlyCompleted": current_experiment.is_newly_completed,
-                "StateChangeTime": current_experiment.state_change_time.isoformat() if current_experiment.state_change_time else None
-            }]
-        
-        data = {
-            "experiments": experiments,
-            "count": len(experiments)
-        }
-        
-        # Create metadata
-        metadata = ResponseMetadata()
-        metadata.set_execution_time(start_time)
-        metadata.add_metadata("operation", "get_current_experiments")
-        metadata.add_metadata("user_id", current_user.get("user_id"))
-        metadata.add_metadata("experiment_count", len(experiments))
-        
-        return ResponseFormatter.success(data=data, metadata=metadata)
-        
-    except Exception as e:
-        logger.error(f"Error getting current experiments: {e}")
-        return ResponseFormatter.server_error(
-            message="Error retrieving experiment data",
-            details=str(e)
-        )
-
 @router.get("/system-health")
 async def get_system_health(current_user: dict = Depends(get_current_user)):
     """Get current system health metrics"""
@@ -105,31 +54,14 @@ async def get_system_health(current_user: dict = Depends(get_current_user)):
         from datetime import datetime
         
         metrics = await run_in_threadpool(health_sampler.snapshot)
-        cpu_percent = metrics["cpu_percent"]
+        health_data = {"system": metrics, "sampled_at": metrics["timestamp"]}
 
-        # Get database status
-        db_service = get_database_service()
-        db_status = await run_in_threadpool(db_service.get_status)
-        
-        health_data = {
-            "timestamp": datetime.now().isoformat(),
-            "system": metrics,
-            "sampled_at": metrics["timestamp"],
-            "database": {
-                "is_connected": db_status.is_connected,
-                "mode": db_status.mode,
-                "database_name": db_status.database_name,
-                "server_name": db_status.server_name,
-                "error_message": db_status.error_message
-            }
-        }
-        
         # Create metadata
         metadata = ResponseMetadata()
         metadata.set_execution_time(start_time)
         metadata.add_metadata("operation", "get_system_health")
         metadata.add_metadata("user_id", current_user.get("user_id"))
-        metadata.add_metadata("cpu_percent", cpu_percent)
+        metadata.add_metadata("cpu_percent", metrics["cpu_percent"])
         metadata.add_metadata("memory_percent", metrics["memory_percent"])
         
         return ResponseFormatter.success(

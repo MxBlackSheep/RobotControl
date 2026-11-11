@@ -16,7 +16,7 @@ import threading
 import subprocess
 import platform
 import os
-from typing import List, Optional, Callable
+from typing import List, Optional
 from datetime import datetime
 from dataclasses import dataclass
 
@@ -35,18 +35,6 @@ class ProcessInfo:
     process_name: str
     command_line: Optional[str]
     start_time: Optional[datetime]
-    cpu_percent: float = 0.0
-    memory_mb: float = 0.0
-
-
-@dataclass
-class HamiltonStatus:
-    """Hamilton robot status information"""
-    is_running: bool
-    process_count: int
-    processes: List[ProcessInfo]
-    last_check: datetime
-    availability: str  # 'available', 'busy', 'error', 'unknown'
 
 
 class HamiltonProcessMonitor:
@@ -59,16 +47,6 @@ class HamiltonProcessMonitor:
         self._monitoring = False
         self._monitor_thread = None
         self._stop_event = threading.Event()
-        self._status_callbacks = []
-        self._last_status = HamiltonStatus(
-            is_running=False,
-            process_count=0,
-            processes=[],
-            last_check=datetime.now(),
-            availability='unknown'
-        )
-        self._status_lock = threading.Lock()
-        
         logger.info("Hamilton process monitor initialized")
     
     def start_monitoring(self, check_interval: float = 5.0) -> bool:
@@ -171,93 +149,23 @@ class HamiltonProcessMonitor:
         return [ProcessInfo(int(row[1]), row[0], None, None)
                 for row in rows if row[0].lower() == "hxrun.exe"]
     
-    def get_status(self) -> HamiltonStatus:
-        """
-        Get current Hamilton status
-        
-        Returns:
-            HamiltonStatus object with current status information
-        """
-        with self._status_lock:
-            return HamiltonStatus(
-                is_running=self._last_status.is_running,
-                process_count=self._last_status.process_count,
-                processes=self._last_status.processes.copy(),
-                last_check=self._last_status.last_check,
-                availability=self._last_status.availability
-            )
-    
-    def add_status_callback(self, callback: Callable[[HamiltonStatus], None]):
-        """
-        Add a callback function to be called when status changes
-        
-        Args:
-            callback: Function to call with HamiltonStatus when status changes
-        """
-        self._status_callbacks.append(callback)
-    
     def _monitor_loop(self, check_interval: float):
-        """
-        Main monitoring loop running in background thread
-        
-        Args:
-            check_interval: Seconds between checks
-        """
-        logger.info("Process monitoring loop started")
-        
+        """Log changes; dispatch and status requests always inspect processes live."""
+        previous = None
         while self._monitoring:
+            reason = None
             try:
-                # Get current process information
-                inspection_error = None
-                try:
-                    processes = self.get_hamilton_processes()
-                    is_running = bool(processes)
-                    availability = 'busy' if is_running else 'available'
-                except Exception as exc:
-                    inspection_error = str(exc)
-                    processes = []
-                    is_running = True
-                    availability = 'error'
-                process_count = len(processes)
-                
-                # Create new status
-                new_status = HamiltonStatus(
-                    is_running=is_running,
-                    process_count=process_count,
-                    processes=processes,
-                    last_check=datetime.now(),
-                    availability=availability
-                )
-                
-                # Check if status changed
-                status_changed = False
-                with self._status_lock:
-                    if (self._last_status.is_running != new_status.is_running or
-                        self._last_status.process_count != new_status.process_count or
-                        self._last_status.availability != new_status.availability):
-                        status_changed = True
-                    
-                    self._last_status = new_status
-                
-                # Notify callbacks if status changed
-                if status_changed:
-                    if inspection_error:
-                        logger.error("Hamilton status changed: error; blocking dispatch: %s", inspection_error)
-                    else:
-                        logger.info("Hamilton status changed: %s (%s processes)", availability, process_count)
-                    for callback in self._status_callbacks:
-                        try:
-                            callback(new_status)
-                        except Exception as e:
-                            logger.error(f"Status callback error: {e}")
-                
-                self._stop_event.wait(check_interval)
-                
-            except Exception as e:
-                logger.error(f"Error in process monitoring loop: {e}")
-                self._stop_event.wait(check_interval)
-        
-        logger.info("Process monitoring loop stopped")
+                processes = self.get_hamilton_processes()
+                state = "busy" if processes else "available"
+            except Exception as exc:
+                state, reason = "error", str(exc)
+            if state != previous:
+                if reason:
+                    logger.error("Hamilton status changed: error; blocking dispatch: %s", reason)
+                else:
+                    logger.info("Hamilton status changed: %s (%s processes)", state, len(processes))
+                previous = state
+            self._stop_event.wait(check_interval)
 
 
 # Singleton instance management
@@ -279,15 +187,3 @@ def get_hamilton_process_monitor() -> HamiltonProcessMonitor:
             _process_monitor_instance = HamiltonProcessMonitor()
             
     return _process_monitor_instance
-
-
-def is_hamilton_available() -> bool:
-    """
-    Quick check if Hamilton is available (not running)
-    Convenience function replicating VBS functionality
-    
-    Returns:
-        bool: True if Hamilton is available, False if busy
-    """
-    monitor = get_hamilton_process_monitor()
-    return not monitor.is_hamilton_running()

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavigateFunction, useNavigate } from 'react-router-dom';
+import { canOpen, navigationItems, type NavigationUser } from '../components/navigation';
 
 export interface Shortcut {
   key: string;
@@ -11,20 +12,13 @@ export interface Shortcut {
 
 interface BoundShortcut extends Shortcut {
   run: (navigate: NavigateFunction) => void;
+  /** The page it opens; a role that may not open it gets no shortcut. */
+  path?: string;
 }
 
-// Alt+1 … Alt+9 in this order.
-const PAGES: Array<[path: string, name: string]> = [
-  ['/', 'Overview'],
-  ['/database', 'Database'],
-  ['/camera', 'Camera'],
-  ['/labware', 'Labware'],
-  ['/maintenance', 'Maintenance'],
-  ['/system-status', 'System status'],
-  ['/scheduling', 'Scheduling'],
-  ['/about', 'About'],
-  ['/logfile', 'LogFile'],
-];
+// Alt+1 … Alt+9 in this order; names are the menu's. About is not in the menu.
+const PAGES = ['/', '/database', '/camera', '/labware', '/maintenance', '/system-status', '/scheduling', '/about', '/logfile'];
+const pageName = (path: string) => navigationItems.find(item => item.path === path)?.label ?? 'About';
 
 const focusSearch = () => {
   const target = document.querySelector<HTMLInputElement>('input[type="search"], input[placeholder*="search" i]')
@@ -34,8 +28,8 @@ const focusSearch = () => {
 };
 
 const SHORTCUTS: BoundShortcut[] = [
-  ...PAGES.map(([path, name], index): BoundShortcut => ({
-    key: String(index + 1), alt: true, description: `Go to ${name}`, run: navigate => navigate(path),
+  ...PAGES.map((path, index): BoundShortcut => ({
+    key: String(index + 1), alt: true, description: `Go to ${pageName(path)}`, run: navigate => navigate(path), path,
   })),
   { key: 'h', ctrl: true, description: 'Go to Home/Dashboard', run: navigate => navigate('/') },
   { key: 'b', ctrl: true, description: 'Go Back', run: () => window.history.back() },
@@ -54,12 +48,12 @@ const isTyping = (element: Element | null) =>
   element instanceof HTMLElement && (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA' || element.isContentEditable);
 
 /** Global navigation shortcuts; `?` opens the help dialog the caller renders. */
-export const useKeyboardNavigation = ({ enabled = true }: { enabled?: boolean } = {}) => {
+export const useKeyboardNavigation = (user: NavigationUser) => {
   const navigate = useNavigate();
   const [helpOpen, setHelpOpen] = useState(false);
 
+  const role = user?.role;
   useEffect(() => {
-    if (!enabled) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
       // MUI owns modal/menu keys and focus restoration. Never navigate away from a draft.
@@ -78,7 +72,7 @@ export const useKeyboardNavigation = ({ enabled = true }: { enabled?: boolean } 
         && Boolean(s.ctrl) === event.ctrlKey
         && Boolean(s.alt) === event.altKey
         && Boolean(s.shift) === event.shiftKey);
-      if (shortcut) {
+      if (shortcut && (!shortcut.path || canOpen(shortcut.path, { role }))) {
         event.preventDefault();
         event.stopPropagation();
         shortcut.run(navigate);
@@ -86,7 +80,7 @@ export const useKeyboardNavigation = ({ enabled = true }: { enabled?: boolean } 
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [enabled, navigate]);
+  }, [role, navigate]);
 
   return { helpOpen, closeHelp: () => setHelpOpen(false) };
 };

@@ -26,10 +26,10 @@ import DatabaseRestore from "../components/DatabaseRestore";
 import DatabaseTools, { DatabasePackages } from "../components/DatabaseTools";
 
 import { Source } from "../components/ReportConnections";
+import { toolsBase } from "../components/ReportInputs";
 import { fontMono, layout } from "../theme";
 
-// has_data is null when the server could not check the table (not the same as empty).
-type TableInfo = { name: string; has_data?: boolean | null };
+type TableInfo = { name: string };
 
 export default function DatabasePage() {
   const { user } = useAuth();
@@ -38,7 +38,7 @@ export default function DatabasePage() {
   const sourceId = sources[0]?.id || '';
   useEffect(() => {
     const c = new AbortController();
-    if (section === 0 || section === 1) void api.get('/api/database/tools/viewer-sources', {signal:c.signal})
+    if (section === 0 || section === 1) void api.get(`${toolsBase}/viewer-sources`, {signal:c.signal})
       .then(r => { if (!c.signal.aborted) setSources(r.data); })
       .catch(() => { if (!c.signal.aborted) setError('Unable to load the viewer database.'); });
     return () => c.abort();
@@ -106,31 +106,24 @@ export default function DatabasePage() {
         disablePadding
         sx={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden" }}
       >
-        {filtered.map((table) => {
-          const state = table.has_data === true ? "Has data" : table.has_data === false ? "Empty"
-            : table.has_data === null ? "Could not check" : undefined;
-          return (
-            <ListItemButton
-              key={table.name}
-              selected={selected === table.name}
-              aria-current={selected === table.name ? "true" : undefined}
-              title={table.name}
-              onClick={() => {
-                setSelected(table.name);
-                setShowTable(true);
-              }}
-              sx={{ minHeight: layout.row, gap: 1, px: 2, borderBottom: 1, borderColor: "surface.rowLine" }}
-            >
-              <ListItemText
-                primary={table.name}
-                primaryTypographyProps={{ sx: { fontFamily: fontMono, fontSize: 12, overflowWrap: "anywhere" } }}
-              />
-              {/* "Could not check" is unknown, not empty: amber like other states that need a look. */}
-              {state && <Typography component="span" sx={{ fontSize: 12, flexShrink: 0,
-                color: table.has_data === null ? (theme) => theme.palette.tone.attention.fg : table.has_data ? "success.main" : "text.secondary" }}>{state}</Typography>}
-            </ListItemButton>
-          );
-        })}
+        {filtered.map((table) => (
+          <ListItemButton
+            key={table.name}
+            selected={selected === table.name}
+            aria-current={selected === table.name ? "true" : undefined}
+            title={table.name}
+            onClick={() => {
+              setSelected(table.name);
+              setShowTable(true);
+            }}
+            sx={{ minHeight: layout.row, gap: 1, px: 2, borderBottom: 1, borderColor: "surface.rowLine" }}
+          >
+            <ListItemText
+              primary={table.name}
+              primaryTypographyProps={{ sx: { fontFamily: fontMono, fontSize: 12, overflowWrap: "anywhere" } }}
+            />
+          </ListItemButton>
+        ))}
         {!loading && !filtered.length && (
           <Typography variant="body2" sx={{ p: 2, color: "text.secondary" }}>No tables match this view.</Typography>
         )}

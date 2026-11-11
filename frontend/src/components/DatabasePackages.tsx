@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, LinearProgress, TextField, Paper, Stack, Typography } from '@mui/material';
 import { api } from '../services/api';
-import { saveBlob } from './ReportInputs';
+import { saveBlob, toolsBase } from './ReportInputs';
 import ReportWizard from './ReportWizard';
 import ToolAuthoring from './ToolAuthoring';
 import ReportConnections, { AssignConnections, PackageBinding, Source } from './ReportConnections';
@@ -36,9 +36,9 @@ export default function DatabasePackages({ active }: { active: boolean }) {
   const [binding, setBinding] = useState<PackageBinding>();
   const input = useRef<HTMLInputElement>(null);
   const load = useCallback(async (signal?: AbortSignal) => {
-    const { data } = await api.get('/api/database/tools/packages', { signal });
+    const { data } = await api.get(`${toolsBase}/packages`, { signal });
     if (!signal?.aborted) setPackages(data);
-    const saved = await api.get('/api/database/tools/drafts', { signal });
+    const saved = await api.get(`${toolsBase}/drafts`, { signal });
     if (!signal?.aborted) setDrafts(saved.data);
   }, []);
   useEffect(() => {
@@ -51,7 +51,7 @@ export default function DatabasePackages({ active }: { active: boolean }) {
     setBusy(true); setError(''); setNotice(''); setReview(undefined); setFile(undefined); setChangeNote('');
     try {
       const form = new FormData(); form.append('file', incoming);
-      const { data } = await api.post('/api/database/tools/packages/inspect', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+      const { data } = await api.post(`${toolsBase}/packages/inspect`, form, { headers: { 'Content-Type': 'multipart/form-data' } });
       // Prefilled once, as the review opens: later typing is never replaced.
       setFile(incoming); setReview(data); setChangeNote(data.changelog || '');
     } catch (error) { setError(message(error)); }
@@ -65,7 +65,7 @@ export default function DatabasePackages({ active }: { active: boolean }) {
       form.append('expected_package', review.package.id);
       form.append('expected_current', review.current_sha256 || 'absent');
       form.append('change_note',changeNote);
-      await api.post('/api/database/tools/packages', form, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 });
+      await api.post(`${toolsBase}/packages`, form, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 });
       setNotice(`${review.package.name} ${review.package.version} installed.`);
       setReview(undefined); setFile(undefined);
       await load();
@@ -75,7 +75,7 @@ export default function DatabasePackages({ active }: { active: boolean }) {
   const removePackage = async () => {
     if (!remove) return;
     setBusy(true); setError('');
-    try { await api.delete(`/api/database/tools/packages/${remove.id}`); setRemove(undefined); await load(); }
+    try { await api.delete(`${toolsBase}/packages/${remove.id}`); setRemove(undefined); await load(); }
     catch (error) { setError(message(error)); }
     finally { setBusy(false); }
   };
@@ -115,18 +115,18 @@ export default function DatabasePackages({ active }: { active: boolean }) {
           <Stack direction="row" gap={1} flexWrap="wrap">
             {pkg.tools.map(t => <Button key={t.id} disabled={busy} onClick={async () => {
               setBusy(true); setError('');
-              try { const r = await api.post(`/api/database/tools/authoring/${t.kind}/${t.id}/edit`, {}); setToolEditor(r.data.id); }
+              try { const r = await api.post(`${toolsBase}/authoring/${t.kind}/${t.id}/edit`, {}); setToolEditor(r.data.id); }
               catch(e) { setError(message(e)); } finally { setBusy(false); }
             }}>{pkg.tools.length === 1 ? `Edit ${t.kind}` : `Edit ${t.name}`}</Button>)}
-            <Button disabled={busy} onClick={async () => { try { const r = await api.get(`/api/database/tools/packages/${pkg.id}/export`, { responseType: 'blob' }); saveBlob(r.data, /filename="([^"]+)"/.exec(r.headers['content-disposition'] || '')?.[1] || `${pkg.id}-${pkg.version}.zip`); } catch (e) { setError(message(e)); } }}>Download package</Button>
+            <Button disabled={busy} onClick={async () => { try { const r = await api.get(`${toolsBase}/packages/${pkg.id}/export`, { responseType: 'blob' }); saveBlob(r.data, /filename="([^"]+)"/.exec(r.headers['content-disposition'] || '')?.[1] || `${pkg.id}-${pkg.version}.zip`); } catch (e) { setError(message(e)); } }}>Download package</Button>
             {<Button disabled={busy || pkg.running > 0} onClick={async () => {
               try {
-                const [mapping, profiles] = await Promise.all([api.get(`/api/database/tools/packages/${pkg.id}/sources`), api.get('/api/database/tools/sources')]);
+                const [mapping, profiles] = await Promise.all([api.get(`${toolsBase}/packages/${pkg.id}/sources`), api.get(`${toolsBase}/sources`)]);
                 setSources(profiles.data); setBinding({ id: pkg.id, name: pkg.name, ...mapping.data });
               } catch (e) { setError(message(e)); }
             }}>Connections</Button>}
             <Button disabled={busy} aria-label={`History for ${pkg.name}`} onClick={async()=>{
-              setBusy(true);setError('');try{const r=await api.get(`/api/database/tools/packages/${pkg.id}/history`);setHistory({name:pkg.name,changes:r.data});}
+              setBusy(true);setError('');try{const r=await api.get(`${toolsBase}/packages/${pkg.id}/history`);setHistory({name:pkg.name,changes:r.data});}
               catch(e){setError(message(e));}finally{setBusy(false);}
             }}>History</Button>
             <Button color="error" disabled={busy || pkg.running > 0} aria-label={`Remove ${pkg.name}`} onClick={() => setRemove(pkg)}>Remove</Button>
@@ -165,12 +165,12 @@ export default function DatabasePackages({ active }: { active: boolean }) {
         </Box>)}
       </Stack></DialogContent><DialogActions><Button onClick={()=>setHistory(undefined)}>Close</Button></DialogActions>
     </Dialog>
-    <ReportConnections open={connectionsOpen} onClose={() => { setConnectionsOpen(false); if (binding) void api.get('/api/database/tools/sources').then(r => setSources(r.data)); }} />
+    <ReportConnections open={connectionsOpen} onClose={() => { setConnectionsOpen(false); if (binding) void api.get(`${toolsBase}/sources`).then(r => setSources(r.data)); }} />
     <Dialog open={!!removeDraft} onClose={() => !busy && setRemoveDraft(undefined)}>
       <DialogTitle>Remove draft?</DialogTitle><DialogContent>{removeDraft?.name}: its saved scripts and input settings will be deleted. Installed reports are kept.</DialogContent>
       <DialogActions><Button disabled={busy} onClick={() => setRemoveDraft(undefined)}>Cancel</Button><Button disabled={busy} color="error" onClick={async () => {
         if (!removeDraft) return; setBusy(true);
-        try { await api.delete(`/api/database/tools/drafts/${removeDraft.id}`); setRemoveDraft(undefined); await load(); }
+        try { await api.delete(`${toolsBase}/drafts/${removeDraft.id}`); setRemoveDraft(undefined); await load(); }
         catch (e) { setError(message(e)); } finally { setBusy(false); }
       }}>Remove draft</Button></DialogActions>
     </Dialog>

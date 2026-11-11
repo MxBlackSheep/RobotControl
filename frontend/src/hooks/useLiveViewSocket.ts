@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { isAxiosError } from 'axios';
+import { api } from '@/services/api';
 import { buildWsUrl } from '@/utils/apiBase';
 
 /** backend/services/streaming_session.py FRAME_HEADER: <BIdHHB (version, sequence, time, width, height, flags). */
@@ -33,7 +35,8 @@ const DECODER_CONFIGS: VideoDecoderConfig[] = [
 /** The first of DECODER_CONFIGS this browser supports, chosen by liveViewUnsupportedReason. */
 let decoderConfig = DECODER_CONFIGS[DECODER_CONFIGS.length - 1];
 
-export type LiveViewState = 'connecting' | 'connected' | 'disconnected' | 'reconnecting';
+/** 'idle': this viewer has no live-view session. */
+export type LiveViewState = 'idle' | 'connecting' | 'connected' | 'disconnected' | 'reconnecting';
 
 /**
  * A decoder for one socket and frame size; `received` is the newest sequence given to it and
@@ -114,27 +117,29 @@ export async function liveViewUnsupportedReason(): Promise<string | null> {
 }
 
 /**
- * Owns the live-view WebSocket: H.264 frames decoded by WebCodecs, acknowledgements (the server
- * keeps about one round trip of unacknowledged frames in flight, so a slow link lowers the frame
- * rate instead of queueing video), pause while the tab is hidden, and automatic reconnection. The page owns the
- * session API: `reconnect` creates a new session and calls `connect`; it returns whether that
- * worked. Decoded frames are acknowledged at once (so the window measures the link, not the
- * playout delay), then go through the playout buffer to `showFrame`, which takes ownership (the
- * frame store closes them).
+ * Owns live view for this viewer: the session (create, release), its WebSocket, H.264 frames
+ * decoded by WebCodecs, acknowledgements (the server keeps about one round trip of unacknowledged
+ * frames in flight, so a slow link lowers the frame rate instead of queueing video), pause while
+ * the tab is hidden, and automatic reconnection. Decoded frames are acknowledged at once (so the
+ * window measures the link, not the playout delay), then go through the playout buffer to
+ * `showFrame`, which takes ownership (the frame store closes them). Start, Stop, Reconnect and the
+ * automatic retry share one session request at a time.
  */
-export function useLiveViewSocket(options: {
-  showFrame: (frame: VideoFrame | null) => void;
-  onState: (state: LiveViewState) => void;
-  onError: (message: string) => void;
-  reconnect: () => Promise<boolean>;
-}) {
-  const latest = useRef(options);
-  latest.current = options;
+export function useLiveViewSocket(showFrame: (frame: VideoFrame | null) => void) {
+  const show = useRef(showFrame);
+  show.current = showFrame;
+  const [state, setState] = useState<LiveViewState>('idle');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  // Live view is H.264 only: a browser or page that cannot decode it gets this reason instead.
+  const [unsupported, setUnsupported] = useState<string | null>(null);
+  const session = useRef<string | null>(null);
+  const request = useRef<AbortController | null>(null);
   const socket = useRef<WebSocket | null>(null);
   const decoding = useRef<Decoding | null>(null);
   // The newest sequence passed to the playout buffer or shown.
   const newestSequence = useRef(0);
-  const [playout] = useState(() => createPlayout(frame => latest.current.showFrame(frame)));
+  const [playout] = useState(() => createPlayout(frame => show.current(frame)));
   // The viewer wants live view: false after Stop or unmount, so nothing reconnects then.
   const wanted = useRef(false);
   const retryTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -152,7 +157,9 @@ export function useLiveViewSocket(options: {
     playout.clear();
   }, [playout]);
 
+  /** Closes the socket; the last image stays until a new one or Stop replaces it. */
   const detach = useCallback(() => {
+    clearTimeout(retryTimer.current);
     clearInterval(keepaliveTimer.current);
     closeDecoder();
     const ws = socket.current;
@@ -182,7 +189,7 @@ export function useLiveViewSocket(options: {
         }
         newestSequence.current = sequence;
         if (PLAYOUT_BUFFER && captured !== undefined) playout.push(frame, captured);
-        else latest.current.showFrame(frame);
+        else show.current(frame);
       },
       error: () => {
         // The decoder has closed itself. Acknowledge what it held so the server keeps sending;
@@ -228,33 +235,18 @@ export function useLiveViewSocket(options: {
     }
   };
 
-  const scheduleReconnect = useCallback(() => {
-    clearTimeout(retryTimer.current);
-    if (!wanted.current) return;
-    latest.current.onState('reconnecting');
-    if (!navigator.onLine) return; // the 'online' listener resumes
-    const base = Math.min(RECONNECT_MAX_MS, 1000 * 2 ** attempts.current);
-    attempts.current += 1;
-    retryTimer.current = setTimeout(async () => {
-      if (!wanted.current || socket.current) return;
-      const connected = await latest.current.reconnect();
-      if (!connected && wanted.current && !socket.current) scheduleReconnect();
-    }, base * (0.75 + Math.random() * 0.5));
-  }, []);
-
-  const connect = useCallback((sessionId: string) => {
+  const connect = (sessionId: string) => {
     wanted.current = true;
-    clearTimeout(retryTimer.current);
     detach();
     newestSequence.current = 0;
     const ws = new WebSocket(buildWsUrl(`/api/camera/streaming/video/${sessionId}`));
     ws.binaryType = 'arraybuffer';
     socket.current = ws;
-    latest.current.onState('connecting');
+    setState('connecting');
     ws.onopen = () => {
       if (socket.current !== ws) return;
       attempts.current = 0;
-      latest.current.onState('connected');
+      setState('connected');
       if (document.visibilityState === 'hidden') send(ws, 'pause');
       // Also while paused: proves this browser is still there and keeps the tunnel open.
       clearInterval(keepaliveTimer.current);
@@ -268,7 +260,7 @@ export function useLiveViewSocket(options: {
       }
       try {
         const message = JSON.parse(event.data);
-        if (message.type === 'error') latest.current.onError(message.error || 'Streaming error');
+        if (message.type === 'error') setError(message.error || 'Streaming error');
       } catch {
         /* Status messages are informational. */
       }
@@ -279,25 +271,121 @@ export function useLiveViewSocket(options: {
       clearInterval(keepaliveTimer.current);
       closeDecoder();
       // Keep the last image: its freshness label turns stale while reconnecting.
-      latest.current.onState('disconnected');
-      scheduleReconnect();
+      setState('disconnected');
+      latest.current.scheduleReconnect();
     };
-  }, [detach, closeDecoder, scheduleReconnect]);
+  };
 
-  /** Close the socket but keep the last image (a manual reconnect replaces the session). */
-  const close = useCallback(() => {
-    clearTimeout(retryTimer.current);
+  /** Runs one session request; returns undefined while another is in flight. */
+  const exclusive = async <T,>(work: (signal: AbortSignal) => Promise<T>): Promise<T | undefined> => {
+    if (request.current) return undefined;
+    const controller = new AbortController();
+    request.current = controller;
+    setBusy(true);
+    try {
+      return await work(controller.signal);
+    } finally {
+      if (request.current === controller) {
+        request.current = null;
+        setBusy(false);
+      }
+    }
+  };
+
+  /** A 404 means the server has already ended the session. */
+  const release = async (id: string) => {
+    try {
+      await api.delete(`/api/camera/streaming/session/${id}`);
+      return true;
+    } catch (cause) {
+      return isAxiosError(cause) && cause.response?.status === 404;
+    }
+  };
+
+  /** Creates a session and connects to it; the server's refusal reason (429, 503) is shown. */
+  const open = async (signal: AbortSignal) => {
+    try {
+      const { data } = await api.post('/api/camera/streaming/session', undefined, { signal });
+      if (signal.aborted) return false;
+      session.current = data.data.session_id;
+      setError('');
+      connect(data.data.session_id);
+      return true;
+    } catch (cause) {
+      if (signal.aborted) return false;
+      const detail = isAxiosError(cause) ? cause.response?.data?.detail : undefined;
+      setError(typeof detail === 'string' ? detail : 'Failed to create streaming session');
+      return false;
+    }
+  };
+
+  /** Replaces the session; the last image stays, marked stale, until new frames arrive. Until a
+   * new session exists the old id is kept, so the next try releases it again (404 counts). */
+  const replace = (signal: AbortSignal) => {
+    const id = session.current;
+    if (!id) return Promise.resolve(false);
     detach();
-  }, [detach]);
+    return release(id).then(released => {
+      if (released) return open(signal);
+      setError('Could not release the previous live-view session. Retrying…');
+      return false;
+    });
+  };
 
-  /** The viewer stopped live view: no reconnection, no image. */
-  const stop = useCallback(() => {
+  const scheduleReconnect = () => {
+    clearTimeout(retryTimer.current);
+    if (!wanted.current) return;
+    setState('reconnecting');
+    if (!navigator.onLine) return; // the 'online' listener resumes
+    const base = Math.min(RECONNECT_MAX_MS, 1000 * 2 ** attempts.current);
+    attempts.current += 1;
+    retryTimer.current = setTimeout(() => void latest.current.retry(), base * (0.75 + Math.random() * 0.5));
+  };
+
+  /** Manual Reconnect and the automatic retry: a failure keeps the back-off going. */
+  const retry = async () => {
+    if (!wanted.current || socket.current) return;
+    const connected = await exclusive(replace);
+    if (connected === false && wanted.current && !socket.current) scheduleReconnect();
+  };
+
+  // Timers and socket handlers call the current render's functions.
+  const latest = useRef({ scheduleReconnect, retry });
+  latest.current = { scheduleReconnect, retry };
+
+  const start = () => {
+    if (unsupported || session.current) return;
+    void exclusive(open);
+  };
+
+  /** No reconnection and no image. A failed release keeps the session so Stop can be pressed again. */
+  const stop = () => void exclusive(async () => {
+    const id = session.current;
+    if (!id) return;
     wanted.current = false;
-    close();
-    latest.current.showFrame(null);
-  }, [close]);
+    detach();
+    show.current(null);
+    if (await release(id)) {
+      session.current = null;
+      setState('idle');
+      setError('');
+    } else {
+      setState('disconnected');
+      setError('Failed to stop streaming session');
+    }
+  });
+
+  const reconnect = () => {
+    if (!session.current || request.current) return;
+    wanted.current = true;
+    attempts.current = 0;
+    detach();
+    void retry();
+  };
 
   useEffect(() => {
+    let current = true;
+    void liveViewUnsupportedReason().then(reason => { if (current) setUnsupported(reason); });
     const visibility = () => {
       // Hidden: nothing is drawn. Visible: the server restarts at a keyframe after a gap.
       playout.clear();
@@ -307,17 +395,21 @@ export function useLiveViewSocket(options: {
     const online = () => {
       if (wanted.current && !socket.current) {
         attempts.current = 0;
-        scheduleReconnect();
+        latest.current.scheduleReconnect();
       }
     };
     document.addEventListener('visibilitychange', visibility);
     window.addEventListener('online', online);
     return () => {
+      current = false;
       document.removeEventListener('visibilitychange', visibility);
       window.removeEventListener('online', online);
-      stop();
+      wanted.current = false;
+      request.current?.abort();
+      detach();
+      show.current(null);
     };
-  }, [scheduleReconnect, stop, playout]);
+  }, [detach, playout]);
 
-  return { connect, close, stop };
+  return { state, error, busy, unsupported, start, stop, reconnect };
 }

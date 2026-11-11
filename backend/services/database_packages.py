@@ -142,7 +142,7 @@ class InputDefinition(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
     label: str = Field(min_length=1, max_length=100)
-    type: Literal["text", "integer", "number", "boolean", "choice", "experiment", "date", "lookup"]
+    type: Literal["text", "integer", "number", "boolean", "choice", "date", "lookup"]
     required: bool = True
     choices: list[str] = Field(default_factory=list, max_length=100)
     lookup: LookupDefinition | None = None
@@ -217,7 +217,6 @@ class ToolDefinition(BaseModel):
                     raise PackageError(f'Invalid {field.label}')
             valid = {"text": lambda: isinstance(value, str) and len(value) <= 2000,
                      "integer": lambda: type(value) is int,
-                     "experiment": lambda: type(value) is int and value > 0,
                      "number": lambda: type(value) in (int, float) and math.isfinite(value),
                      "boolean": lambda: type(value) is bool,
                      "date": lambda: True,
@@ -237,11 +236,38 @@ class Manifest(BaseModel):
     libraries: list[str] = Field(default_factory=list, max_length=20)
     tools: list[ToolDefinition] = Field(min_length=1, max_length=20)
 
+    @model_validator(mode='before')
+    @classmethod
+    def retired_inputs(cls, data):
+        # Installed/archive manifests used the retired picker for an integer ID.
+        # Normalize at the boundary so old packages still execute with the same input.
+        import copy
+        data = copy.deepcopy(data)
+        if isinstance(data, dict):
+            for tool in data.get('tools', []):
+                for field in tool.get('inputs', []):
+                    if field.get('type') == 'experiment':
+                        field['type'] = 'integer'
+        return data
+
     @model_validator(mode='after')
     def contract(self):
         if self.contract_version == 1 and any(t.sources or t.kind == 'preparation' or any(f.type in {'lookup', 'date'} for f in t.inputs) for t in self.tools):
             raise ValueError('Sources, dates, database choices and preparation steps require contract version 2')
+        if self.contract_version == 1:
+            for tool in self.tools:
+                if tool.kind == 'report':
+                    tool.sources = ['primary']
+            self.contract_version = 2
         return self
+
+
+def _upgrade_installed(index):
+    packages = dict(index)
+    for entry in packages.values():
+        entry['manifest'] = Manifest.model_validate(entry['manifest']).model_dump(mode='json')
+    index.clear()
+    index['packages'] = packages
 
 
 def inspect_archive(content):
@@ -323,7 +349,12 @@ class PackageCatalogue:
                 self.index_path.unlink(missing_ok=True)
                 raise
         else:
-            self.index = json.loads(self.index_path.read_text(encoding="utf-8"))
+            from backend.services.stored_data import upgrade_json, UpgradeStopped
+            try:
+                upgrade_json(self.index_path, {2: _upgrade_installed})
+                self.index = json.loads(self.index_path.read_text(encoding="utf-8"))['packages']
+            except (UpgradeStopped, KeyError, TypeError) as exc:
+                raise PackageError(str(exc), 409) from exc
         # Only generated directories belonging to this catalogue are cleaned.
         active = {entry["directory"] for entry in self.index.values()}
         for folder in root.iterdir():
@@ -332,7 +363,7 @@ class PackageCatalogue:
 
     def _save(self, index):
         temporary = self.index_path.with_suffix(".tmp")
-        temporary.write_text(json.dumps(index, indent=2), encoding="utf-8")
+        temporary.write_text(json.dumps({"version": 2, "packages": index}, indent=2), encoding="utf-8")
         replace_file(temporary, self.index_path)
 
     def packages(self):

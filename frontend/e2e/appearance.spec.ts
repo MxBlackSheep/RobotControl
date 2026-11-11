@@ -39,12 +39,10 @@ test('maintenance scheduled runs reflects maintenance and recovery holds', async
   let recoveryKnown = true;
   await page.route('**/api/maintenance/hxrun*', route => route.fulfill({ json: { success: true,
     data: { enabled, reason: 'Deck service', permissions: { can_edit: true } } } }));
-  await page.route('**/api/scheduling/status/scheduler', route => route.fulfill({ json: { success: true,
-    data: { is_running: schedulerRunning, manual_recovery: null } } }));
   await page.route('**/api/scheduling/status/queue', route => route.fulfill(robotBroken
     ? { status: 500, json: { detail: 'Robot status unavailable' } }
     : { json: { success: true, data: {
-    queue: { queued_jobs: 1, running_job_details: [] }, hamilton: { is_running: false },
+    is_running: schedulerRunning, queue: { queued_jobs: 1, running_job_details: [] }, hamilton: { is_running: false },
     manual_recovery: recoveryKnown ? { active: recovering, storage_healthy: true, safety_revision: 3, resume_required: false, pending_recoveries: [] } : null,
   } } }));
   await page.goto('/maintenance');

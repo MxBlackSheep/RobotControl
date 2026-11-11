@@ -59,8 +59,8 @@ def test_change_password_requires_current_password():
     service.register_user("carol", "carol@example.com", "SecurePass!1")
     user = service.authenticate_user("carol", "SecurePass!1")
     assert user is not None
-    assert service.change_password(user, "wrong", "NewPass!1") is False
-    assert service.change_password(user, "SecurePass!1", "NewPass!1") is True
+    assert service.change_password(str(user.id), "wrong", "NewPass!1") is False
+    assert service.change_password(str(user.id), "SecurePass!1", "NewPass!1") is True
     assert service.login("carol", "NewPass!1") is not None
 
 

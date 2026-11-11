@@ -42,91 +42,94 @@ class AuthDatabase:
 
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
+            from backend.services.stored_data import upgrade_sqlite
+            from backend.services.sqlite_health import SQLiteHealthService
+            health = SQLiteHealthService(self.db_path, 'auth', self.db_path.parent / 'backups/sqlite-safety')
+            upgrade_sqlite(self._get_connection, [self._create_schema], health._backup)
             with self._get_connection() as conn:
-                conn.execute("BEGIN IMMEDIATE")
-                cursor = conn.cursor()
-                cursor.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS users (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        username TEXT NOT NULL UNIQUE,
-                        email TEXT NOT NULL UNIQUE,
-                        password_hash TEXT NOT NULL,
-                        role TEXT NOT NULL CHECK(role IN ('admin', 'user')),
-                        is_active INTEGER NOT NULL DEFAULT 1,
-                        must_reset INTEGER NOT NULL DEFAULT 0,
-                        created_at TEXT NOT NULL,
-                        updated_at TEXT NOT NULL,
-                        last_login_at TEXT,
-                        last_login_ip TEXT,
-                        last_login_ip_type TEXT
-                    )
-                    """
-                )
-                cursor.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS refresh_tokens (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        user_id INTEGER NOT NULL,
-                        token_hash TEXT NOT NULL UNIQUE,
-                        issued_at TEXT NOT NULL,
-                        expires_at TEXT NOT NULL,
-                        revoked_at TEXT,
-                        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-                    )
-                    """
-                )
-                cursor.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)"
-                )
-                cursor.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)"
-                )
-                cursor.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_tokens_user ON refresh_tokens(user_id)"
-                )
-                cursor.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_tokens_hash ON refresh_tokens(token_hash)"
-                )
-
-                cursor.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS password_reset_requests (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        user_id INTEGER,
-                        username TEXT NOT NULL,
-                        email TEXT NOT NULL,
-                        status TEXT NOT NULL DEFAULT 'pending',
-                        note TEXT,
-                        client_ip TEXT,
-                        user_agent TEXT,
-                        requested_at TEXT NOT NULL,
-                        resolved_at TEXT,
-                        resolved_by TEXT,
-                        resolution_note TEXT,
-                        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE SET NULL
-                    )
-                    """
-                )
-                cursor.execute(
-                    """
-                    CREATE INDEX IF NOT EXISTS idx_password_reset_status
-                    ON password_reset_requests(status, requested_at DESC)
-                    """
-                )
-                cursor.execute(
-                    """
-                    CREATE INDEX IF NOT EXISTS idx_password_reset_user
-                    ON password_reset_requests(username)
-                    """
-                )
-                cursor.execute("CREATE TABLE IF NOT EXISTS SchemaMigrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)")
-                cursor.execute("INSERT OR IGNORE INTO SchemaMigrations VALUES (1, CURRENT_TIMESTAMP)")
-                conn.commit()
                 self._integrity_error = None if [row[0] for row in conn.execute('PRAGMA quick_check')] == ['ok'] else 'SQLite integrity check failed; restore a verified backup'
 
             self._initialised = True
             logger.info("Auth database initialised at %s", self.db_path)
+
+    @staticmethod
+    def _create_schema(conn):
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL UNIQUE,
+                email TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL CHECK(role IN ('admin', 'user')),
+                is_active INTEGER NOT NULL DEFAULT 1,
+                must_reset INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                last_login_at TEXT,
+                last_login_ip TEXT,
+                last_login_ip_type TEXT
+            )
+            """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS refresh_tokens (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                token_hash TEXT NOT NULL UNIQUE,
+                issued_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                revoked_at TEXT,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+            """
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tokens_user ON refresh_tokens(user_id)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tokens_hash ON refresh_tokens(token_hash)"
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS password_reset_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                username TEXT NOT NULL,
+                email TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                note TEXT,
+                client_ip TEXT,
+                user_agent TEXT,
+                requested_at TEXT NOT NULL,
+                resolved_at TEXT,
+                resolved_by TEXT,
+                resolution_note TEXT,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE SET NULL
+            )
+            """
+        )
+        cursor.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_password_reset_status
+            ON password_reset_requests(status, requested_at DESC)
+            """
+        )
+        cursor.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_password_reset_user
+            ON password_reset_requests(username)
+            """
+        )
 
     @contextmanager
     def _get_connection(self) -> Iterable[sqlite3.Connection]:
@@ -251,29 +254,6 @@ class AuthDatabase:
             cursor.execute("SELECT * FROM users ORDER BY username ASC")
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
-
-    def toggle_user_active(self, username: str) -> bool:
-        with self._lock, self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT id, is_active FROM users WHERE username = ?",
-                (username,),
-            )
-            row = cursor.fetchone()
-            if not row:
-                return False
-
-            new_status = 0 if row["is_active"] else 1
-            cursor.execute(
-                """
-                UPDATE users
-                SET is_active = ?, updated_at = ?
-                WHERE id = ?
-                """,
-                (new_status, datetime.utcnow().isoformat(), row["id"]),
-            )
-            conn.commit()
-            return True
 
     def update_user_email(self, username: str, email: str) -> bool:
         with self._lock, self._get_connection() as conn:

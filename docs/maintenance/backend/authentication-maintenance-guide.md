@@ -6,7 +6,7 @@ Each authentication connection enables foreign keys and uses a two-second lock t
 
 ## uv setup and verification
 
-Python dependencies now come from the root uv project. Keep Passlib 1.7.4 and bcrypt 4.3.0 pinned together; bcrypt 5 is incompatible with the current Passlib backend. Existing bcrypt hashes remain unchanged. Run `uv run --locked python -m pytest backend/tests/test_auth.py` to check login, password changes, refresh tokens, and reopening an existing password database. Test fixtures reset both service and database singletons and use temporary SQLite files.
+Python dependencies now come from the root uv project. Keep bcrypt pinned at 4.3.0 to preserve existing hashes and password handling, including passwords over 72 UTF-8 bytes. Run `uv run --locked python -m pytest backend/tests/test_auth.py` to check login, password changes, refresh tokens, and reopening an existing password database. Test fixtures reset both service and database singletons and use temporary SQLite files.
 
 This guide walks through the authentication stack so you always know **which file to touch and why**. Follow the steps exactly—even if they feel obvious—so we don't break logins for the lab.
 
@@ -37,7 +37,7 @@ This guide walks through the authentication stack so you always know **which fil
 ## 2. Authentication Lifecycle Cheat Sheet
 
 1. **User submits credentials** (`POST /api/auth/login`).  
-   `AuthService.login` verifies the password (bcrypt via `pwd_context`), logs IP/user agent, and returns access + refresh tokens.  
+   `AuthService.login` verifies the password through `verify_password` using `bcrypt.checkpw`, logs IP/user agent, and returns access + refresh tokens.
    **Built-in default password.** `BUILT_IN_ADMIN_PASSWORD` (`backend/services/auth.py`) is public in the repository. A sign-in with it that is not local (tunnel, LAN; rule in `get_connection_context`, see the [remote access guide](remote-access-guide.md)) answers 403 "Change the default password on the robot PC before signing in remotely." and issues no tokens. The route checks this at sign-in (`AuthService.has_built_in_password`: the submitted password equals the built-in one *and* verifies against the account's hash), so nothing is stored and the rule ends as soon as the password changes. It applies to any account carrying that password, is checked only after the throttle, is not counted as a failed attempt, and never runs for a wrong password, which keeps the generic 401 (no hint whether the default is in use). A local sign-in with it succeeds with `user.must_reset: true` in the response, so the app opens the required change-password dialog. A deployment that set its own `ROBOTCONTROL_ADMIN_PASSWORD` is not affected. Check: `backend/e2e/auth_storage_check.py`.
 
 2. **Tokens hit the browser.**  
@@ -102,7 +102,7 @@ This guide walks through the authentication stack so you always know **which fil
 |------|-------|--------------|
 | Reset bootstrap admin password | `backend/services/auth.py` / ENV vars | Update `ROBOTCONTROL_ADMIN_PASSWORD`, delete `data/robotcontrol_auth.db`, restart backend so `ensure_admin` seeds the new hash. |
 | Force-refresh all sessions | `AuthService` | Call `AuthService.db.revoke_tokens_for_user(user_id)` for each user (or wipe `refresh_tokens` table) so everyone signs in again. |
-| Add a new admin user | `AuthService.register_user` | Call `register_user`, then `toggle_user_active` or direct SQL to flip role to `admin`. Remember to hash the password through `get_password_hash`. |
+| Add a user | `AuthService.register_user` | Call `register_user` with username, email and password; it hashes the password through `get_password_hash` and creates a user with role `user`. |
 | Review password reset tickets | `backend/api/admin.py`, `adminAPI.getPasswordResetRequests` | Use admin UI to see pending requests → resolve with a new password → confirm `must_reset` handshake. |
 | Move auth DB location | `ROBOTCONTROL_AUTH_DB_FILENAME` | Set env var to desired filename (absolute or relative). Ensure containing folder exists; restart backend to create schema. |
 
@@ -136,7 +136,7 @@ This guide walks through the authentication stack so you always know **which fil
 | `AuthService.refresh_access_token(refresh_token)` | Rotate access token | Validates hashed refresh token, returns new access token string. |
 | `AuthService.change_password(user, current_password, new_password)` | User-driven password change | Revokes old refresh tokens to kick other sessions. |
 | `AuthService.request_password_reset(...)` | Queue manual reset | Logs request for admin follow-up; returns ticket if user exists. |
-| `AuthService.get_auth_stats()` | Dashboard numbers | Used by `/api/auth/status` and admin UI. |
+| `get_auth_service()` | Shared sign-in owner | Authentication and admin routes use the same service. |
 | `AuthDatabase.list_users()` | Raw rows | Prefer `AuthService.get_user_list()` which formats data for responses. |
 
 ---

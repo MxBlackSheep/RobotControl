@@ -4,7 +4,7 @@ Run: uv run --locked python backend/e2e/failed_occurrence_check.py
 Failure cases:
 1. Fast once failure dispatches once over several loops: one email/database step; off.
 2. Slow once failure has the same outcome.
-3. Fast interval/hourly/daily/weekly failures advance once; an already advanced time stays.
+3. Fast interval/daily/weekly failures advance once; an already advanced time stays.
 4. Keyword-only abort consumes the occurrence and still sends aborted.
 5. Abort with a note still requires manual recovery; cancelled remains recovery-owned.
 6. HxRun appearing or Simulation Mode changing at either launch guard consumes failure;
@@ -14,12 +14,15 @@ Failure cases:
 9. Duplicate finalization returns False and changes nothing; a real SQLite write
    failure retains the observation and storage safety hold.
 10. Edit schedule can reactivate a consumed once occurrence; in-flight edits survive.
-11. Interval without interval_hours turns off with no repeat.
+11. An interval without interval_hours is listed for review, never runs or advances, and an edit repairs it.
+    Contract changed by the owner on 11 Nov: invalid stored schedules become review records.
 12. Ended occurrences reject stale edits; fresh/list tokens and in-flight edits work.
 13. Finalization serializes a concurrent edit; restart cannot repeat the occurrence.
 14. Keyword abort emails describe the next run; noted aborts describe recovery only.
 15. Queue, worker and email-delivery logs share the run ID; subsequent runs and unrelated
     threads never inherit it.
+16. Failed finalization retains running ownership until reconciliation; stale queued
+    interval occurrences cannot launch before the schedule's next start.
 
 Exit-zero outcome cases:
 1. No SQL row, once: failed, one dispatch/email, schedule off, manual recovery.
@@ -82,8 +85,6 @@ class Fixture:
             self.waits.append(seconds)
             self.after_wait()
         stack.enter_context(patch.object(ex, 'time', SimpleNamespace(time=ex.time.time, sleep=sleep)))
-        self.note = None
-        self.manager.should_block_due_to_abort = lambda _: self.note
         executable = sample_config(root)
         executable.write_text('Never executed')
         config = ex.ExecutionConfig(hxrun_path=str(executable), method_base_path=str(root))
@@ -342,13 +343,13 @@ def run():
         f.loops()
         f.assert_consumed(value)
 
-    for schedule_type in ('interval', 'hourly', 'daily', 'weekly'):
+    for schedule_type in ('interval', 'daily', 'weekly'):
         @case(f'3 fast {schedule_type}')
         def interval(f, kind=schedule_type):
             value = f.schedule(kind, **({'interval_hours': 6} if kind == 'interval' else {}))
             f.loops()
             stored = f.assert_consumed(value)
-            hours = {'interval': 6, 'hourly': 1, 'daily': 24, 'weekly': 168}[kind]
+            hours = {'interval': 6, 'daily': 24, 'weekly': 168}[kind]
             assert stored.start_time == (f.now - timedelta(minutes=2) + timedelta(hours=hours))
 
     @case('3 slow interval keeps next time')
@@ -373,7 +374,6 @@ def run():
     @case('5 noted abort and cancelled recovery')
     def noted(f):
         value = f.schedule()
-        f.note = 'Hamilton reported last run as aborted'
         f.returncode = 64
         f.loops()
         stored = f.storage.get_schedule_by_id(value.schedule_id)
@@ -481,6 +481,41 @@ def run():
         f.assert_consumed(value)
         assert f.manager.get_manual_recovery_state().resume_required
 
+    @case('16 VENUS finalization failure cannot queue the occurrence again')
+    def finalize_failure(f):
+        value = f.schedule('interval', interval_hours=6)
+        from backend.services.sqlite_safety import StorageUnavailable
+        with patch.object(f.manager, 'finalize_job_execution', side_effect=StorageUnavailable('Fixture finalization failure')):
+            f.loops(1)
+        assert f.storage.get_execution_history(value.schedule_id)[0]['status'] == 'running'
+        assert value.schedule_id in f.engine._running_jobs, 'Unfinished occurrence lost running ownership'
+        assert not f.engine._find_due_jobs(f.now), 'Unfinished occurrence became due again'
+        f.engine._evaluate_active_executions(f.now)
+        f.loops()
+        f.assert_consumed(value)
+
+    @case('16 stale queued interval occurrence is dropped by the worker')
+    def stale_queue(f):
+        value = f.schedule('interval', interval_hours=6)
+        f.loops(1)
+        # A duplicate already in the queue must be refused even after ownership clears.
+        duplicate = JobExecution('', value.schedule_id, 'pending')
+        assert f.manager.store_job_execution(duplicate)
+        f.engine._job_queue.put((value, duplicate))
+        f.engine._running = True
+        worker = Thread(target=f.engine._job_worker_loop)
+        try:
+            worker.start()
+            f.engine._job_queue.join()
+        finally:
+            f.engine._running = False
+            f.engine._job_queue.put(None)
+            worker.join(5)
+        assert not worker.is_alive()
+        assert len(f.launched) == len(f.prepared) == 1, 'Stale queued occurrence launched'
+        saved = f.engine.run_log_monitor.store.execution(duplicate.execution_id)
+        assert saved.status == 'cancelled' and 'future' in saved.error_message.lower()
+
     @case('10 retry and in-flight edits')
     def retry(f):
         value = f.schedule()
@@ -505,8 +540,20 @@ def run():
     @case('11 missing interval')
     def missing(f):
         value = f.schedule('interval')
+        f.engine._active_schedules.clear()
+        f.engine._load_schedules_from_database()
+        before = f.storage.get_schedule_by_id(value.schedule_id).to_dict()
+        listed = f.api.list_schedules(active_only=True, archived_only=False, current_user={'role': 'user'})['data']
+        assert listed[0]['review_reason'] == 'interval_hours is required for interval schedules'
         f.loops()
-        f.assert_consumed(value)
+        assert not f.launched and not f.prepared
+        assert not f.storage.get_execution_history(value.schedule_id)
+        assert f.storage.get_schedule_by_id(value.schedule_id).to_dict() == before
+        repaired = f.api.update_schedule(value.schedule_id, {'interval_hours': 6},
+            current_user={'role': 'admin', 'username': 'system'}, connection=SimpleNamespace(client_ip='127.0.0.1'),
+            if_unmodified_since=None)
+        assert repaired['success']
+        assert not getattr(f.storage.get_schedule_by_id(value.schedule_id), 'review_reason', None)
 
     for kind, result in (('once', 1), ('interval', 1), ('once', 0)):
         @case(f'12 stale and fresh Save {kind} exit {result}')

@@ -3,8 +3,7 @@ Global HxRun maintenance mode enforcement.
 
 When enabled, this service blocks all HxRun launches by:
 - exposing a persistent flag in scheduling SQLite state
-- watching for HxRun process starts (event-driven when possible)
-- falling back to periodic process checks
+- polling for HxRun once a second
 - terminating HxRun if detected while maintenance mode is active
 """
 
@@ -17,8 +16,7 @@ import platform
 import subprocess
 import threading
 import time
-from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import Optional
 
 from backend.models import HxRunMaintenanceState
 from backend.services.scheduling.database_manager import get_scheduling_database_manager
@@ -27,24 +25,17 @@ from backend.services.scheduling.process_monitor import get_hamilton_process_mon
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class HxRunMaintenanceConfig:
-    """Runtime controls for the maintenance enforcer loop."""
-
-    process_name: str = "HxRun.exe"
-    idle_sleep_seconds: float = 0.5
-    fallback_poll_seconds: float = 1.0
-    event_timeout_seconds: float = 0.8
-    event_retry_seconds: float = 30.0
-    popup_cooldown_seconds: float = 10.0
-    state_refresh_seconds: float = 1.0
+PROCESS_NAME = "HxRun.exe"
+IDLE_SLEEP_SECONDS = 0.5
+POLL_SECONDS = 1.0
+POPUP_COOLDOWN_SECONDS = 10.0
+STATE_REFRESH_SECONDS = 1.0
 
 
 class HxRunMaintenanceService:
     """Singleton service that stores and enforces HxRun maintenance mode."""
 
-    def __init__(self, config: Optional[HxRunMaintenanceConfig] = None) -> None:
-        self.config = config or HxRunMaintenanceConfig()
+    def __init__(self) -> None:
         self.db_manager = get_scheduling_database_manager()
         self.process_monitor = get_hamilton_process_monitor()
 
@@ -54,10 +45,6 @@ class HxRunMaintenanceService:
 
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
-
-        self._wmi_client: Any = None
-        self._process_start_watcher: Optional[Callable[..., Any]] = None
-        self._next_event_retry_at = 0.0
 
         self._last_popup_at = 0.0
 
@@ -95,7 +82,7 @@ class HxRunMaintenanceService:
         with self._state_lock:
             if (
                 not force_refresh
-                and (now - self._last_state_refresh) < self.config.state_refresh_seconds
+                and (now - self._last_state_refresh) < STATE_REFRESH_SECONDS
             ):
                 return self._cached_state
 
@@ -130,89 +117,23 @@ class HxRunMaintenanceService:
 
     def is_hxrun_running(self) -> bool:
         """Return whether HxRun.exe is currently running."""
-        return self._is_hxrun_running()
+        return self.process_monitor.is_hamilton_running()
 
     def _enforcement_loop(self) -> None:
-        """Background loop: event watcher + fallback polling."""
-        next_poll_at = 0.0
-
+        """Poll while enabled; failed detection still counts as running."""
         while not self._stop_event.is_set():
             try:
                 state = self.get_state(force_refresh=False)
             except Exception:
                 logger.exception('Maintenance storage unavailable; keeping enforcement worker alive')
-                self._stop_event.wait(self.config.idle_sleep_seconds)
+                self._stop_event.wait(IDLE_SLEEP_SECONDS)
                 continue
             if not state.enabled:
-                self._process_start_watcher = None
-                self._stop_event.wait(self.config.idle_sleep_seconds)
+                self._stop_event.wait(IDLE_SLEEP_SECONDS)
                 continue
-
-            event_handled = self._check_event_watcher()
-
-            now = time.time()
-            if now >= next_poll_at:
-                next_poll_at = now + max(self.config.fallback_poll_seconds, 0.2)
-                if self._is_hxrun_running():
-                    self._handle_hxrun_detected(source="poll")
-
-            if not event_handled:
-                self._stop_event.wait(0.1)
-
-    def _check_event_watcher(self) -> bool:
-        """Check one event watcher cycle; returns True when an event is handled."""
-        if platform.system() != "Windows":
-            return False
-
-        now = time.time()
-        if self._process_start_watcher is None and now >= self._next_event_retry_at:
-            self._process_start_watcher = self._build_process_start_watcher()
-            if self._process_start_watcher is None:
-                self._next_event_retry_at = now + self.config.event_retry_seconds
-
-        watcher = self._process_start_watcher
-        if watcher is None:
-            return False
-
-        try:
-            event = watcher(timeout_ms=int(self.config.event_timeout_seconds * 1000))
-            if event:
-                self._handle_hxrun_detected(source="event")
-                return True
-            return False
-        except Exception as exc:  # pragma: no cover - depends on wmi runtime behavior
-            name = exc.__class__.__name__.lower()
-            message = str(exc).lower()
-            if "timed out" in name or "timed out" in message:
-                return False
-            logger.warning("HxRun event watcher failed; retrying with fallback poll: %s", exc)
-            self._process_start_watcher = None
-            self._next_event_retry_at = time.time() + self.config.event_retry_seconds
-            return False
-
-    def _build_process_start_watcher(self) -> Optional[Callable[..., Any]]:
-        """Create a WMI process-start watcher for HxRun.exe."""
-        if platform.system() != "Windows":
-            return None
-        try:
-            if self._wmi_client is None:
-                import wmi  # type: ignore
-
-                self._wmi_client = wmi.WMI()
-            return self._wmi_client.Win32_ProcessStartTrace.watch_for(
-                "creation",
-                ProcessName=self.config.process_name,
-            )
-        except Exception as exc:  # pragma: no cover - depends on host OS/libs
-            logger.warning("Unable to initialize HxRun event watcher: %s", exc)
-            return None
-
-    def _is_hxrun_running(self) -> bool:
-        try:
-            return self.process_monitor.is_hamilton_running()
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.warning("HxRun fallback poll failed: %s", exc)
-            return False
+            if self.is_hxrun_running():
+                self._handle_hxrun_detected(source="poll")
+            self._stop_event.wait(POLL_SECONDS)
 
     def _handle_hxrun_detected(self, *, source: str) -> None:
         """Terminate blocked HxRun process and notify operator."""
@@ -226,8 +147,8 @@ class HxRunMaintenanceService:
             source,
             terminated,
         )
-        # Event path should always notify; poll path only notifies if a process was terminated.
-        if source == "event" or terminated > 0:
+        # Notify only after taskkill reports a termination.
+        if terminated > 0:
             self._show_block_popup(state)
 
     def _terminate_hxrun_processes(self) -> int:
@@ -236,17 +157,6 @@ class HxRunMaintenanceService:
             return 0
 
         killed_count = 0
-
-        if self._wmi_client is not None:
-            try:
-                for proc in self._wmi_client.Win32_Process(name=self.config.process_name):
-                    proc.Terminate()
-                    killed_count += 1
-            except Exception as exc:  # pragma: no cover - depends on WMI host permissions
-                logger.warning("WMI terminate failed for HxRun: %s", exc)
-
-        if killed_count > 0:
-            return killed_count
 
         try:
             startupinfo = None
@@ -257,7 +167,7 @@ class HxRunMaintenanceService:
                 creationflags = subprocess.CREATE_NO_WINDOW
 
             result = subprocess.run(
-                ["taskkill", "/F", "/IM", self.config.process_name],
+                ["taskkill", "/F", "/IM", PROCESS_NAME],
                 capture_output=True,
                 text=True,
                 timeout=5,
@@ -269,7 +179,7 @@ class HxRunMaintenanceService:
                 output = (result.stdout or "") + "\n" + (result.stderr or "")
                 killed_count = max(1, output.count("SUCCESS:"))
         except Exception as exc:  # pragma: no cover - depends on host process state
-            logger.warning("taskkill fallback failed for HxRun: %s", exc)
+            logger.warning("taskkill failed for HxRun: %s", exc)
 
         return killed_count
 
@@ -279,7 +189,7 @@ class HxRunMaintenanceService:
             return
 
         now = time.time()
-        if (now - self._last_popup_at) < self.config.popup_cooldown_seconds:
+        if (now - self._last_popup_at) < POPUP_COOLDOWN_SECONDS:
             return
         self._last_popup_at = now
 

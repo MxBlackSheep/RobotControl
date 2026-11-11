@@ -14,7 +14,7 @@ versions, bundled tool details and authoring steps are owned by
 
 - `services/backup.py`: `BackupService` is the entry point for backup, restore and
   delete. Creation, both restore paths and deletion take `_operation_lock`. `SqlCommandExecutor` runs `sqlcmd -E`;
-  `BackupMetadataStore` owns the `.json` file beside each `.bak`. API routes and new code
+  `BackupService` owns each pair; `metadata_path` and `read_metadata` locate and read the `.json` beside each `.bak`. API routes and new code
   must not call the executor or write metadata directly. Routes: `api/backup.py`.
 - `services/database.py`: `DatabaseService` (singleton `get_database_service()`) opens its
   own pyodbc connections to the native SQL Server in `settings.DB_CONFIG_PRIMARY`. Monitoring
@@ -23,8 +23,8 @@ versions, bundled tool details and authoring steps are owned by
   backup connection strings. `services/labware_connection.py` shares connection handling for
   tip tracking and Cytomat, including driver fallback. Saved report sources keep their own
   quoted connection strings and permission checks.
-- `services/workspace_database.py`: `WorkspaceDatabase` subclasses `DatabaseService` to browse
-  the selected viewer connection, never the native connection. Routes: `api/database.py`.
+- `services/workspace_database.py`: `WorkspaceDatabase` browses a captured viewer connection
+  and reuses `DatabaseService._format_row`; it never opens the native connection. Routes: `api/database.py`.
 - `services/report_sources.py`: `ReportSources` owns saved connections, encrypted passwords,
   the viewer choice, package connection assignments, the read-only permission check and
   dropdown (choice) queries. Stored in `data/database-tools/report-sources.json`.
@@ -73,13 +73,13 @@ and path restore use `RESTORE_TIMEOUT` (600 seconds). Recovery commands keep the
   same operation lock. If SQL Server rejects it, `MULTI_USER` is set again. It does not
   confine the path to the backup folder; SQL Server must be able to read the file.
   After either restore succeeds, `_recover_database_connections` retries `SELECT 1`
-  through `open_restore_connection` with a 30-second retry window; a timeout becomes a warning.
-  Each attempt opens and closes a direct connection, trying Windows authentication to
-  `LOCALHOST\HAMILTON` first, then the configured `VM_SQL_*` login. There is no shared pool to
-  reset. Requests handled by the restore route are audit-logged. Restore does **not** take the
-  scheduler's `database_change_guard`, so it does not check for an active run; the operator must.
+  through the same sqlcmd executor within thirty seconds; failure becomes a warning.
+  The route audits requests and reserves `database_restore_guard`: run/recovery refusals
+  match database changes. Schedules due during restore stay queued with "Database restore is in progress",
+  without consuming the occurrence or sending a failure email, and start after restore ends.
+  The final launch check still refuses during restore, and schedule edits remain responsive.
 - **Delete** (`DELETE /api/backup/{filename}`, local admin): removes `.bak` and `.json` and
-  reports partial success if one remains. **Health** (`GET /api/backup/health`): admin.
+  reports partial success if one remains. The list route replaces the removed backup health endpoint.
 
 Backups contain laboratory data; keep `BACKUP_DIR` and any share restricted.
 
@@ -90,7 +90,7 @@ All `/api/database` routes require sign-in. `/tables`, `/tables/{name}` and
 (`PUT /api/database/tools/viewer-source`). On upgrade, the first read-only connection is saved
 once as the viewer. With none chosen the routes return 409 with a setup message; they never
 fall back to the native or robot connection. A request whose `source_id` differs from the
-current viewer returns 409 ("refresh"). `/query` and `/execute-procedure` return 410.
+current viewer returns 409 ("refresh"). `/query` and `/execute-procedure` are removed (HTTP 404).
 
 - Table names come from `INFORMATION_SCHEMA` metadata and are quoted with their schema, so
   views and equal names in different schemas work. Column names are checked against metadata

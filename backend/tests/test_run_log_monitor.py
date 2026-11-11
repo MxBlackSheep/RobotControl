@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 import os
 from backend.services.sqlite_safety import SafetyConflict
 from datetime import datetime, timedelta
@@ -344,6 +345,7 @@ def test_schedule_migration_and_atomic_finalization(rig):
     r = rig
     with r.db._get_connection() as conn:
         conn.execute("ALTER TABLE ScheduledExperiments DROP COLUMN log_inactivity_threshold_minutes")
+        conn.execute('DELETE FROM SchemaMigrations WHERE version > 1')
         conn.commit()
     reopened = SQLiteSchedulingDatabase(str(r.db.db_path))
     assert reopened.get_schedule_by_id("schedule").log_inactivity_threshold_minutes == 3
@@ -464,12 +466,9 @@ def test_executor_waits_without_runtime_cap_and_tracks_actual_cleanup(rig, monke
     process.communicate.return_value = ("", "")
     monkeypatch.setattr(experiment_executor.subprocess, "Popen", Mock(return_value=process))
     monitor = Mock()
-    executor = experiment_executor.ExperimentExecutor()
-    executor.run_log_monitor = monitor
-    executor._monitor_schedule = r.schedule
-    executor._monitor_terminate_schedule = True
+    executor = experiment_executor.ExperimentExecutor(monitor, lambda *args: nullcontext())
     cleanup = ScheduledExperiment("schedule", "Cleanup", str(path), "once")
-    result = executor._execute_real_command(cleanup, r.execution, 0)
+    result = executor._execute_real_command(cleanup, r.execution, 0, r.schedule, True)
     assert result.success
     assert result.execution_time_seconds > 120 * 60
     process.communicate.assert_called_once_with()

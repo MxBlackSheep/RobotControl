@@ -13,13 +13,16 @@ TERMINAL = {'completed', 'failed', 'cancelled', 'aborted', 'missed'}
 
 
 class SQLiteHealthService:
-    def __init__(self, path, kind, backup_directory):
+    def __init__(self, path, kind, backup_directory, storage_error=None):
         self.path = Path(path)
         self.kind = kind
         self.backup_directory = Path(backup_directory)
+        self.storage_error = storage_error
 
     @contextmanager
     def connection(self):
+        if self.storage_error:
+            raise StorageUnavailable(self.storage_error)
         # Never create an empty replacement for missing application storage.
         conn = sqlite3.connect(self.path.resolve().as_uri() + '?mode=rw', uri=True, timeout=2)
         try:
@@ -88,6 +91,8 @@ class SQLiteHealthService:
             with self.connection() as conn:
                 conn.execute('BEGIN')
                 return self._inspect(conn)
+        except StorageUnavailable as exc:
+            return dict(healthy=False, structural_error=True, issues=[], token=None, message=str(exc))
         except (sqlite3.Error, OSError):
             return dict(healthy=False, structural_error=True, issues=[], token=None,
                         message='Storage could not be inspected. Check file access or restore a verified backup.')

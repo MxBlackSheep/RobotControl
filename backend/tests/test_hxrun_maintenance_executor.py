@@ -1,15 +1,10 @@
 from datetime import datetime, timedelta
-from dataclasses import dataclass
+from contextlib import nullcontext
+import pytest
 from types import SimpleNamespace
 
 from backend.models import JobExecution, ScheduledExperiment, TimeoutConfig
 import backend.services.scheduling.experiment_executor as executor_module
-
-
-@dataclass
-class _PreRunResult:
-    success: bool = True
-    failure_reason: str = ""
 
 
 class StubPreExecutionPipeline:
@@ -18,14 +13,12 @@ class StubPreExecutionPipeline:
     def __init__(self, _db_manager):
         return
 
-    def run(self, _experiment, _execution_id):
+    def prepare(self, _experiment, _execution_id):
         StubPreExecutionPipeline.run_calls += 1
-        return _PreRunResult(success=True)
 
 
 class StubDBManager:
-    def should_block_due_to_abort(self, _experiment):
-        return None
+    pass
 
 
 def _make_schedule(timeout_config: TimeoutConfig) -> ScheduledExperiment:
@@ -40,25 +33,11 @@ def _make_schedule(timeout_config: TimeoutConfig) -> ScheduledExperiment:
     )
 
 
-def test_executor_timeout_cleanup_requires_cleanup_path(monkeypatch):
-    monkeypatch.setattr(executor_module, "get_scheduling_database_manager", lambda: StubDBManager())
-    monkeypatch.setattr(executor_module, "PreExecutionPipeline", StubPreExecutionPipeline)
-
-    executor = executor_module.ExperimentExecutor()
-    schedule = _make_schedule(
-        TimeoutConfig(
-            timeout_minutes=5,
-            action="run_cleanup_and_terminate",
-            cleanup_experiment_name="Cleanup",
-            cleanup_experiment_path=None,
-        )
-    )
-    execution = JobExecution(execution_id="exec-1", schedule_id=schedule.schedule_id, status="pending")
-
-    success = executor.execute_experiment(schedule, execution, timeout_context={})
-
-    assert success is False
-    assert "cleanup_experiment_path" in (execution.error_message or "")
+def test_schedule_check_requires_cleanup_path():
+    from backend.services.scheduling.schedule_check import check_schedule
+    schedule = _make_schedule(TimeoutConfig(timeout_minutes=5, action='run_cleanup_and_terminate'))
+    with pytest.raises(ValueError, match='cleanup_experiment_path'):
+        check_schedule(schedule.to_dict())
 
 
 def test_executor_uses_timeout_cleanup_target_and_skips_pre_run(monkeypatch):
@@ -68,7 +47,7 @@ def test_executor_uses_timeout_cleanup_target_and_skips_pre_run(monkeypatch):
     monkeypatch.setattr(executor_module, "get_scheduling_database_manager", lambda: StubDBManager())
     monkeypatch.setattr(executor_module, "PreExecutionPipeline", StubPreExecutionPipeline)
 
-    def _fake_execute(self, experiment, execution):
+    def _fake_execute(self, experiment, execution, *args):
         captured["name"] = experiment.experiment_name
         captured["path"] = experiment.experiment_path
         return executor_module.ExecutionResult(
@@ -80,10 +59,10 @@ def test_executor_uses_timeout_cleanup_target_and_skips_pre_run(monkeypatch):
             command_executed="HxRun.exe ...",
         )
 
-    monkeypatch.setattr(executor_module.ExperimentExecutor, "_execute_hamilton_command", _fake_execute)
+    monkeypatch.setattr(executor_module.ExperimentExecutor, "_execute_real_command", _fake_execute)
 
-    executor = executor_module.ExperimentExecutor()
-    executor.run_log_monitor = SimpleNamespace(check=lambda _: SimpleNamespace(run_state="Complete"))
+    executor = executor_module.ExperimentExecutor(
+        SimpleNamespace(check=lambda _: SimpleNamespace(run_state="Complete")), lambda *args: nullcontext())
     schedule = _make_schedule(
         TimeoutConfig(
             timeout_minutes=5,

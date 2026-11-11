@@ -85,28 +85,37 @@ def assert_read_only(conn):
             cursor.execute('USE [' + original.replace(']', ']]') + ']')
 
 
+def _upgrade_sources(state):
+    state['operation_bindings'] = state.get('operation_bindings', {})
+    for source in state['sources'].values():
+        source.setdefault('access', 'read')
+    state.setdefault('viewer_source', next((source['id'] for source in state['sources'].values()
+                                           if source['access'] == 'read'), None))
+
+
 class ReportSources:
     def __init__(self, root):
         self.path = Path(root) / 'report-sources.json'
         self.lock = threading.RLock()
-        self.state = json.loads(self.path.read_text('utf-8')) if self.path.exists() else {'sources': {}, 'bindings': {}}
-        self.state.setdefault('operation_bindings', {})
+        if self.path.exists():
+            from backend.services.stored_data import upgrade_json, UpgradeStopped
+            try:
+                upgrade_json(self.path, {2: _upgrade_sources})
+                self.state = json.loads(self.path.read_text('utf-8'))
+            except UpgradeStopped as exc:
+                raise PackageError(str(exc), 409) from exc
+        else:
+            self.state = {'version': 2, 'sources': {}, 'bindings': {}, 'operation_bindings': {}, 'viewer_source': None}
 
     def get(self, source_id, access='read'):
         with self.lock:
             source = self.state['sources'].get(source_id)
-            if not source or source.get('access', 'read') != access:
+            if not source or source['access'] != access:
                 raise PackageError('Choose a configured ' + ('read-only' if access == 'read' else 'operation') + ' connection.', 409)
             return copy.deepcopy(source)
 
     def viewer(self):
         with self.lock:
-            # Migrate the old first-available default once; do not silently switch
-            # databases when an administrator removes or adds a connection.
-            if 'viewer_source' not in self.state:
-                first = next((s['id'] for s in self.state['sources'].values() if s.get('access', 'read') == 'read'), None)
-                if first:
-                    self.set_viewer(first)
             source_id = self.state.get('viewer_source')
             return self.get(source_id) if source_id else None
 
@@ -174,7 +183,7 @@ class ReportSources:
     @staticmethod
     def aliases(manifest):
         return sorted({alias for tool in manifest['tools']
-                       for alias in (tool.get('sources', []) if manifest.get('contract_version') == 2 else ['primary'] if tool['kind'] == 'report' else [])})
+                       for alias in tool.get('sources', [])})
 
     def bindings(self, package_id):
         with self.lock:
@@ -214,7 +223,7 @@ class ReportSources:
         try:
             conn = pyodbc.connect(';'.join(f'{k}={quoted(v)}' for k, v in config.items()), timeout=8)
             conn.timeout = 30
-            if source.get('access', 'read') == 'read':
+            if source['access'] == 'read':
                 assert_read_only(conn)
             else:
                 conn.execute('SELECT DB_NAME()').fetchone()
@@ -275,3 +284,11 @@ def lookup_rows(conn, field, values, search='', page=1, selected=None):
         if value is not None:
             result.append({'value': value, 'label': str(label) if label is not None else str(value)})
     return {'options': result, 'has_more': len(rows) > 25}
+
+
+def validate_choices(tool, inputs, connections):
+    for field in tool.inputs:
+        if field.lookup and field.name in inputs:
+            options = lookup_rows(connections[field.lookup.source], field, inputs, selected=inputs[field.name])['options']
+            if not any(x['value'] == inputs[field.name] for x in options):
+                raise PackageError(f'{field.label} is no longer available. Choose it again.')

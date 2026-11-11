@@ -3,6 +3,9 @@ import useMediaQuery from '@mui/material/useMediaQuery';
 import { useSearchParams } from 'react-router-dom';
 import { Dashboard, Storage, Schedule, Videocam, Science, Build, Description, MonitorHeart, AdminPanelSettings } from '@mui/icons-material';
 export type NavigationUser = { role?: string; session_is_local?: boolean } | null;
+/** Roles that may open a page; any other page is open to every signed-in role. The server still refuses what a role may not do. */
+const pageRoles: Record<string, string[]> = { '/scheduling': ['admin', 'user'], '/pyhsl': ['admin', 'user'], '/labware': ['admin', 'user'], '/admin': ['admin'] };
+export const canOpen = (path: string, user: NavigationUser) => !pageRoles[path] || pageRoles[path].includes(user?.role || '');
 export const isLocalUser = (user: NavigationUser) => typeof user?.session_is_local === 'boolean' ? user.session_is_local : ['localhost', '127.0.0.1', '::1', '[::1]', '0.0.0.0'].includes(window.location.hostname);
 export const schedulingSections = [
   { id: 'schedules', label: 'Schedules', index: 0 }, { id: 'methods', label: 'Methods', index: 6, local: true },
@@ -10,38 +13,39 @@ export const schedulingSections = [
   { id: 'archived', label: 'Archived', index: 4 }, { id: 'recovery', label: 'Recovery', index: 1 },
   { id: 'notifications', label: 'Notifications', index: 5, admin: true },
 ];
-export type Section = {id: string; label: string; index: number; local?: boolean; admin?: boolean; adminOrLocal?: boolean};
+/** `source` names the log source a Logs section shows. */
+export type Section = {id: string; label: string; index: number; local?: boolean; admin?: boolean; adminOrLocal?: boolean; source?: string};
 export const sectionRegistry: Record<string, Section[]> = {
   '/scheduling': schedulingSections,
   '/database': [{id: 'tables', label: 'Tables', index: 0}, {id: 'procedures', label: 'Stored procedures', index: 1}, {id: 'restore', label: 'Restore', index: 2, adminOrLocal: true}, {id: 'operations', label: 'Operations', index: 3, local: true, admin: true}, {id: 'retrieval', label: 'Data retrieval', index: 4}, {id: 'packages', label: 'Manage packages', index: 5, local: true, admin: true}, {id: 'settings', label: 'Database settings', index: 6, local: true, admin: true}],
   '/camera': [{id: 'live', label: 'Live view', index: 0}, {id: 'archive', label: 'Video archive', index: 1}],
   '/labware': [{id: 'tips', label: 'Tip tracking', index: 0}, {id: 'cytomat', label: 'Cytomat', index: 1}],
-  '/logfile': [{id: 'python', label: 'Python logs', index: 0}, {id: 'hamilton', label: 'Hamilton traces', index: 1}, {id: 'robotcontrol', label: 'RobotControl logs', index: 2, adminOrLocal: true}],
+  '/logfile': [{id: 'python', label: 'Python logs', index: 0, source: 'python_log'}, {id: 'hamilton', label: 'Hamilton traces', index: 1, source: 'hamilton_logfiles'}, {id: 'robotcontrol', label: 'RobotControl logs', index: 2, adminOrLocal: true, source: 'robotcontrol_logs'}],
   '/admin': [{id: 'users', label: 'User accounts', index: 0}, {id: 'password-resets', label: 'Password reset requests', index: 1}, {id: 'storage', label: 'Storage health', index: 2, local: true}],
 };
 export const allowedSections = (path: string, user: NavigationUser) => {
-  if ((['/scheduling', '/labware'].includes(path) && !['admin', 'user'].includes(user?.role || '')) || (path === '/admin' && user?.role !== 'admin')) return [];
+  if (!canOpen(path, user)) return [];
   return (sectionRegistry[path] || []).filter(section => (!section.admin || user?.role === 'admin') && (!section.local || isLocalUser(user)) && (!section.adminOrLocal || user?.role === 'admin' || isLocalUser(user)));
 };
 export const allowedSchedulingSections = (user: NavigationUser) => allowedSections('/scheduling', user);
 export const moduleSectionUrl = (path: string, index: number) => index === 0 ? path : `${path}?section=${sectionRegistry[path]?.find(section => section.index === index)?.id || ''}`;
 export const navigationItems = [
   { label: 'Overview', path: '/', icon: Dashboard }, { label: 'Database', path: '/database', icon: Storage },
-  { label: 'Scheduling', path: '/scheduling', icon: Schedule, roles: ['admin', 'user'] },
-  { label: 'Camera', path: '/camera', icon: Videocam }, { label: 'Labware', path: '/labware', icon: Science, roles: ['admin', 'user'] },
+  { label: 'Scheduling', path: '/scheduling', icon: Schedule },
+  { label: 'Camera', path: '/camera', icon: Videocam }, { label: 'Labware', path: '/labware', icon: Science },
   { label: 'Maintenance', path: '/maintenance', icon: Build }, { label: 'Logs', path: '/logfile', icon: Description },
-  { label: 'System status', path: '/system-status', icon: MonitorHeart }, { label: 'Admin', path: '/admin', icon: AdminPanelSettings, roles: ['admin'] },
+  { label: 'System status', path: '/system-status', icon: MonitorHeart }, { label: 'Admin', path: '/admin', icon: AdminPanelSettings },
 ];
-export const visibleNavigation = (user: NavigationUser) => navigationItems.filter(item => !item.roles || item.roles.includes(user?.role || ''));
+export const visibleNavigation = (user: NavigationUser) => navigationItems.filter(item => canOpen(item.path, user));
 
 /*
  * Phones (below 900px) are a monitor: through the tunnel the server refuses robot and lab changes,
  * so the phone shows four fixed tabs and a More list of read-only places instead of every module.
  */
-type PhoneLink = { label: string; to: string; roles?: string[] };
-const permitted = (user: NavigationUser) => (item: PhoneLink) => !item.roles || item.roles.includes(user?.role || '');
+type PhoneLink = { label: string; to: string };
+const permitted = (user: NavigationUser) => (item: PhoneLink) => canOpen(item.to.split('?')[0], user);
 export const phoneTabs: (PhoneLink & { id: 'now' | 'runs' | 'camera' | 'more' })[] = [
-  { id: 'now', label: 'Now', to: '/' }, { id: 'runs', label: 'Runs', to: '/scheduling', roles: ['admin', 'user'] },
+  { id: 'now', label: 'Now', to: '/' }, { id: 'runs', label: 'Runs', to: '/scheduling' },
   { id: 'camera', label: 'Camera', to: '/camera' }, { id: 'more', label: 'More', to: '/more' },
 ];
 export const visiblePhoneTabs = (user: NavigationUser) => phoneTabs.filter(permitted(user));
@@ -56,7 +60,7 @@ export const phoneBack = (path: string) => {
   return { label: tab.label, to: tab.to };
 };
 export const moreItems: PhoneLink[] = [
-  { label: 'Tip racks', to: '/labware', roles: ['admin', 'user'] }, { label: 'Cytomat', to: '/labware?section=cytomat', roles: ['admin', 'user'] },
+  { label: 'Tip racks', to: '/labware' }, { label: 'Cytomat', to: '/labware?section=cytomat' },
   { label: 'Run logs', to: '/logfile?section=hamilton' }, { label: 'Database tables', to: '/database' },
   { label: 'Reports', to: '/database?section=retrieval' }, { label: 'System status', to: '/system-status' }, { label: 'Account', to: '/account' },
 ];

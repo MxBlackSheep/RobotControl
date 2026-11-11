@@ -8,6 +8,7 @@ import { usePyHslStatus } from '../hooks/usePyHslStatus';
 import { CleanTips, InstrumentHealth, InstrumentProblems, NeedsAttention, RecentRuns, UpNext } from '../components/overview/OverviewPanels';
 import { robotAttention, useRobotStatusContext } from '../hooks/useRobotStatus';
 import { useAuth } from '../context/AuthContext';
+import { canOpen } from '../components/navigation';
 import { fontMono, layout } from '../theme';
 import { clockTime } from '../utils/displayTime';
 
@@ -54,7 +55,7 @@ const Dashboard: React.FC = memo(() => {
   const pyhsl = usePyHslStatus();
   const phone = useMediaQuery((theme: Theme) => theme.breakpoints.down('sm'), { noSsr: true });
   const attention = !!robotAttention(status);
-  const canOpenScheduling = ['admin', 'user'].includes(user?.role || '');
+  const canOpenScheduling = canOpen('/scheduling', user);
   const running = <PanelErrorBoundary key="Now running" name="Now running" span={attention ? 8 : 12}><NowRunning status={status} error={error} span={attention ? 8 : 12} /></PanelErrorBoundary>;
   const hold = attention && <PanelErrorBoundary key="Needs attention" name="Needs attention" span={4}><NeedsAttention status={status} span={4} /></PanelErrorBoundary>;
   const updated = status && <Typography sx={{ fontFamily: fontMono, fontSize: 12, color: 'text.secondary' }}>

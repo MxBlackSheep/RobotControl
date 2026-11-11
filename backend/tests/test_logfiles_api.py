@@ -127,29 +127,8 @@ def test_logfiles_browse_newest_first_and_limited(monkeypatch, tmp_path):
     payload = response.json()
     data = payload["data"]
     assert data["total_items"] == 210
-    assert data["returned_items"] == 200
-    assert data["truncated"] is True
-    assert data["max_items"] == 200
     assert data["items"][0]["name"] == "file_209.trc"
     assert data["items"][1]["name"] == "file_208.trc"
-
-
-def test_logfiles_preview_gzip(monkeypatch, tmp_path):
-    roots = _set_test_sources(monkeypatch, tmp_path)
-    gz_path = roots["primary"] / "robot.log.gz"
-    with gzip.open(gz_path, "wb") as handle:
-        handle.write(b"alpha\nbeta\ngamma\n")
-
-    response = client.get(
-        "/api/logfiles/preview",
-        params={"source_id": "primary", "relative_path": "robot.log.gz", "mode": "tail"},
-        headers={"x-forwarded-for": "127.0.0.1"},
-    )
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["data"]["archive_type"] == "gz"
-    assert "gamma" in payload["data"]["content"]
 
 
 def test_logfiles_preview_utf16_trc_tail_not_marked_binary(monkeypatch, tmp_path):
@@ -314,7 +293,6 @@ def test_paged_search_reaches_old_files_and_has_deterministic_ties(monkeypatch, 
     params = {"source_id":"primary", "limit":25, "sort_by":"name", "sort_direction":"asc"}
     response = client.get("/api/logfiles/browse", params={**params,"page":11}, headers=headers).json()["data"]
     assert response["items"][0]["name"] == "file_250.TRC"
-    assert response["relative_path"] == ""
     found = client.get("/api/logfiles/browse", params={**params,"search":"FILE_250","file_type":"traces"}, headers=headers).json()["data"]
     assert found["total_items"] == 1
     assert client.get("/api/logfiles/browse", params={**params,"limit":201}, headers=headers).status_code == 422

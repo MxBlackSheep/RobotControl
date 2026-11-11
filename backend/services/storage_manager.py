@@ -6,20 +6,28 @@ experiment folder management, and video archiving. Extracted from
 camera service for modular storage management.
 """
 
+import json
 import shutil
 import logging
 import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, Any, Optional
-from collections import deque
-import time
 
 from backend.config import AUTO_RECORDING_CONFIG, VIDEO_PATH
 from backend.services.clip_transcoder import clip_files, finalized_clips
-from backend.services.automatic_recording_types import (
-    ArchiveResult, StorageCleanupResult
-)
+from dataclasses import dataclass, field
+
+
+@dataclass
+class ArchiveResult:
+    success: bool
+    archive_path: Optional[str] = None
+    clips_archived: int = 0
+    archive_size_bytes: int = 0
+    error_message: Optional[str] = None
+    warnings: list[str] = field(default_factory=list)
+
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -49,24 +57,16 @@ class StorageManager:
         
         # Thread safety for file operations
         self.storage_lock = threading.Lock()
+        self.clips_lock = threading.Lock()
+        self.cleanup_rolling_clips()
         
         logger.info(f"StorageManager initialized - Rolling clips limit: {self.rolling_clips_limit}, "
                    f"Experiment folders limit: {self.experiment_folders_limit}")
     
     def _setup_storage_paths(self):
         """Setup storage paths with fallback for different deployment modes"""
-        try:
-            from backend.utils.data_paths import get_videos_path, is_compiled_mode
-            if is_compiled_mode():
-                self.video_path = get_videos_path()
-                logger.info(f"Compiled mode - using local video directory: {self.video_path}")
-            else:
-                self.video_path = Path(VIDEO_PATH)
-                logger.info(f"Development mode - using configured video path: {self.video_path}")
-        except ImportError:
-            self.video_path = Path(VIDEO_PATH)
-            logger.warning(f"Data path manager not available, using fallback: {self.video_path}")
-        
+        self.video_path = Path(VIDEO_PATH)
+
         # Define standard subdirectories
         self.rolling_clips_path = self.video_path / "rolling_clips"
         self.experiments_path = self.video_path / "experiments"
@@ -85,40 +85,50 @@ class StorageManager:
             logger.error(f"Failed to create storage directories: {e}")
             raise
     
-    def cleanup_rolling_clips(self, rolling_clips: deque, clips_lock: threading.Lock) -> StorageCleanupResult:
+    def _read_finalized_clips(self):
+        clips = []
+        for path in finalized_clips(self.rolling_clips_path):
+            try:
+                sidecar = path.with_suffix(".json")
+                if sidecar.exists():
+                    clip = json.loads(sidecar.read_text(encoding="utf-8"))
+                    clip["path"] = str(path)
+                    clip["timestamp"] = datetime.fromisoformat(clip["timestamp"])
+                else:
+                    # Legacy clips remain usable; unknown metadata stays unknown.
+                    stamp = datetime.strptime(path.stem.split("_", 1)[1], "%Y%m%d_%H%M%S")
+                    clip = {"path": str(path), "timestamp": stamp, "camera_id": None,
+                            "frame_count": None, "actual_duration": None}
+                clips.append(clip)
+            except (OSError, ValueError, KeyError) as exc:
+                logger.warning("Cannot read finalized clip %s: %s", path.name, exc)
+        return clips
+
+    def cleanup_rolling_clips(self) -> int:
         """Keep the newest finalized clip names under the archive/transcode lock."""
-        cleanup_start = time.time()
-        result = StorageCleanupResult()
+        removed = 0
         try:
-            with clips_lock:
+            with self.clips_lock:
                 clips = finalized_clips(self.rolling_clips_path)
                 clips_to_remove = max(0, len(clips) - self.rolling_clips_limit)
                 for clip_file in clips[:clips_to_remove]:
                     try:
                         files = clip_files(clip_file)
-                        size_bytes = sum(path.stat().st_size for path in files)
                         for path in files:
                             path.unlink()
                         clip_file.with_suffix(".json").unlink(missing_ok=True)
-                        result.rolling_clips_removed += 1
-                        result.storage_freed_bytes += size_bytes
+                        removed += 1
                     except OSError as exc:
                         error_msg = f"Failed to remove rolling clip {clip_file}: {exc}"
                         logger.warning(error_msg)
-                        result.rolling_clips_errors.append(error_msg)
-                kept = [clip for clip in rolling_clips if Path(clip["path"]).exists()]
-                rolling_clips.clear()
-                rolling_clips.extend(kept)
         except Exception as exc:
             error_msg = f"Error during rolling clips cleanup: {exc}"
             logger.error(error_msg)
-            result.rolling_clips_errors.append(error_msg)
-        result.cleanup_duration_seconds = time.time() - cleanup_start
-        logger.info("Rolling clips cleanup completed - Removed: %s, Freed: %.1fMB",
-                    result.rolling_clips_removed, result.storage_freed_bytes / (1024 * 1024))
-        return result
+        if removed:
+            logger.info("Rolling clips cleanup removed %s clips", removed)
+        return removed
 
-    def cleanup_experiment_folders(self, max_folders: Optional[int] = None) -> StorageCleanupResult:
+    def cleanup_experiment_folders(self, max_folders: Optional[int] = None) -> int:
         """
         Clean up old experiment folders to maintain storage limits
         
@@ -126,10 +136,9 @@ class StorageManager:
             max_folders: Maximum folders to keep (uses config default if None)
             
         Returns:
-            StorageCleanupResult with cleanup statistics and any errors
+            Number of folders removed
         """
-        cleanup_start = time.time()
-        result = StorageCleanupResult()
+        removed = 0
         
         if max_folders is None:
             max_folders = self.experiment_folders_limit
@@ -143,13 +152,7 @@ class StorageManager:
                         if exp_dir.is_dir():
                             try:
                                 stat = exp_dir.stat()
-                                # Calculate folder size
-                                folder_size = sum(
-                                    f.stat().st_size 
-                                    for f in exp_dir.rglob('*') 
-                                    if f.is_file()
-                                )
-                                experiment_folders.append((exp_dir, stat.st_ctime, folder_size))
+                                experiment_folders.append((exp_dir, stat.st_ctime))
                             except (OSError, FileNotFoundError) as e:
                                 logger.warning(f"Could not stat experiment folder {exp_dir}: {e}")
                 
@@ -161,34 +164,27 @@ class StorageManager:
                 if folders_to_remove > 0:
                     logger.info(f"Cleaning up {folders_to_remove} old experiment folders (limit: {max_folders})")
                     
-                    for exp_dir, _, folder_size in experiment_folders[:folders_to_remove]:
+                    for exp_dir, _ in experiment_folders[:folders_to_remove]:
                         try:
                             shutil.rmtree(exp_dir)
-                            result.experiment_folders_removed += 1
-                            result.storage_freed_bytes += folder_size
+                            removed += 1
                             logger.info(f"Removed old experiment folder: {exp_dir.name}")
                         except Exception as e:
                             error_msg = f"Failed to remove experiment folder {exp_dir}: {e}"
                             logger.warning(error_msg)
-                            result.experiment_folders_errors.append(error_msg)
                 
         except Exception as e:
             error_msg = f"Error during experiment folders cleanup: {e}"
             logger.error(error_msg)
-            result.experiment_folders_errors.append(error_msg)
         
-        result.cleanup_duration_seconds = time.time() - cleanup_start
-        logger.info(f"Experiment folders cleanup completed - Removed: {result.experiment_folders_removed}, "
-                   f"Freed: {result.storage_freed_bytes / (1024*1024):.1f}MB")
-        
-        return result
-    
+        if removed:
+            logger.info("Experiment folders cleanup removed %s folders", removed)
+        return removed
+
     def archive_experiment_videos(
         self, 
         experiment_id: str, 
         method_name: str, 
-        rolling_clips: deque,
-        clips_lock: threading.Lock
     ) -> ArchiveResult:
         """
         Archive the last N minutes of rolling clips for an experiment
@@ -196,14 +192,11 @@ class StorageManager:
         Args:
             experiment_id: Unique experiment identifier (RunGUID)
             method_name: Name of the experimental method
-            rolling_clips: Deque of rolling clips from camera service
-            clips_lock: Thread lock for accessing rolling clips
             
         Returns:
             ArchiveResult with archiving statistics and outcome
         """
-        archive_start_time = datetime.now()
-        result = ArchiveResult(success=False, archive_start_time=archive_start_time)
+        result = ArchiveResult(success=False)
         
         try:
             # Create experiment archive directory with RunID + method + timestamp
@@ -215,10 +208,6 @@ class StorageManager:
             
             logger.info(f"Starting experiment video archive for {experiment_id} -> {archive_dir_name}")
             
-            # Create archive directory
-            archive_dir.mkdir(parents=True, exist_ok=True)
-            result.archive_path = str(archive_dir)
-            
             # Calculate cutoff time for archiving (last N minutes)
             cutoff_time = datetime.now() - timedelta(minutes=self.archive_duration_minutes)
             
@@ -227,11 +216,11 @@ class StorageManager:
             skipped_count = 0
             total_size = 0
             
-            with clips_lock:  # Use camera service's clips lock for thread safety
+            with self.clips_lock:  # Serialize archive selection/copying with retention and transcoding
                 clips_to_archive = []
                 
                 # Collect clips within archive window
-                for clip in list(rolling_clips):
+                for clip in self._read_finalized_clips():
                     if clip.get("timestamp") and clip["timestamp"] >= cutoff_time and ".partial." not in Path(clip["path"]).name:
                         clips_to_archive.append(clip)
                 
@@ -262,7 +251,9 @@ class StorageManager:
                             result.warnings.append(f"Archive file already exists: {archive_filename}")
                             continue
                         
-                        # Copy file with metadata preservation
+                        # Do not consume retention for a run with no copyable clips.
+                        archive_dir.mkdir(parents=True, exist_ok=True)
+                        result.archive_path = str(archive_dir)
                         shutil.copy2(source_path, dest_path)
                         
                         # Update statistics
@@ -281,9 +272,7 @@ class StorageManager:
             # Update result statistics
             result.success = archived_count > 0
             result.clips_archived = archived_count
-            result.clips_skipped = skipped_count
             result.archive_size_bytes = total_size
-            result.archive_duration_seconds = (datetime.now() - archive_start_time).total_seconds()
             
             if result.success:
                 logger.info(f"Successfully archived {archived_count} clips for experiment {experiment_id} "
@@ -295,106 +284,10 @@ class StorageManager:
         except Exception as e:
             result.success = False
             result.error_message = str(e)
-            result.archive_duration_seconds = (datetime.now() - archive_start_time).total_seconds()
             logger.error(f"Error archiving experiment videos for {experiment_id}: {e}")
         
         return result
     
-    def get_storage_statistics(self) -> Dict[str, Any]:
-        """
-        Get comprehensive storage statistics
-        
-        Returns:
-            Dictionary with storage information and statistics
-        """
-        stats = {
-            "video_path": str(self.video_path),
-            "rolling_clips_path": str(self.rolling_clips_path),
-            "experiments_path": str(self.experiments_path),
-            "rolling_clips_count": 0,
-            "experiment_folders_count": 0,
-            "total_storage_bytes": 0,
-            "rolling_clips_size_bytes": 0,
-            "experiments_size_bytes": 0
-        }
-        
-        try:
-            # Count rolling clips and calculate size
-            if self.rolling_clips_path.exists():
-                rolling_clips = finalized_clips(self.rolling_clips_path)
-                stats["rolling_clips_count"] = len(rolling_clips)
-                stats["rolling_clips_size_bytes"] = sum(
-                    f.stat().st_size for clip in rolling_clips for f in clip_files(clip)
-                )
-            
-            # Count experiment folders and calculate size
-            if self.experiments_path.exists():
-                experiment_folders = [d for d in self.experiments_path.iterdir() if d.is_dir()]
-                stats["experiment_folders_count"] = len(experiment_folders)
-                
-                experiments_size = 0
-                for exp_dir in experiment_folders:
-                    try:
-                        experiments_size += sum(
-                            f.stat().st_size 
-                            for f in exp_dir.rglob('*') 
-                            if f.is_file()
-                        )
-                    except Exception as e:
-                        logger.debug(f"Could not calculate size for {exp_dir}: {e}")
-                
-                stats["experiments_size_bytes"] = experiments_size
-            
-            # Calculate total storage
-            stats["total_storage_bytes"] = (
-                stats["rolling_clips_size_bytes"] + 
-                stats["experiments_size_bytes"]
-            )
-            
-            # Add human-readable sizes
-            stats["rolling_clips_size_mb"] = round(stats["rolling_clips_size_bytes"] / (1024*1024), 1)
-            stats["experiments_size_mb"] = round(stats["experiments_size_bytes"] / (1024*1024), 1)
-            stats["total_storage_mb"] = round(stats["total_storage_bytes"] / (1024*1024), 1)
-            
-        except Exception as e:
-            logger.error(f"Error calculating storage statistics: {e}")
-            stats["error"] = str(e)
-        
-        return stats
-    
-    def cleanup_all_storage(self, rolling_clips: deque, clips_lock: threading.Lock) -> StorageCleanupResult:
-        """
-        Perform complete storage cleanup (rolling clips + experiment folders)
-        
-        Returns:
-            Combined StorageCleanupResult from all cleanup operations
-        """
-        logger.info("Starting complete storage cleanup")
-        cleanup_start = time.time()
-        
-        # Cleanup rolling clips
-        rolling_result = self.cleanup_rolling_clips(rolling_clips, clips_lock)
-        
-        # Cleanup experiment folders
-        folders_result = self.cleanup_experiment_folders()
-        
-        # Combine results
-        combined_result = StorageCleanupResult()
-        combined_result.rolling_clips_removed = rolling_result.rolling_clips_removed
-        combined_result.rolling_clips_errors = rolling_result.rolling_clips_errors
-        combined_result.experiment_folders_removed = folders_result.experiment_folders_removed
-        combined_result.experiment_folders_errors = folders_result.experiment_folders_errors
-        combined_result.storage_freed_bytes = (
-            rolling_result.storage_freed_bytes + folders_result.storage_freed_bytes
-        )
-        combined_result.cleanup_duration_seconds = time.time() - cleanup_start
-        
-        logger.info(f"Complete storage cleanup finished - Total items removed: {combined_result.total_items_removed}, "
-                   f"Storage freed: {combined_result.storage_freed_bytes / (1024*1024):.1f}MB")
-        
-        return combined_result
-
-
 # Global instance management
 _storage_manager = None
 _storage_lock = threading.Lock()

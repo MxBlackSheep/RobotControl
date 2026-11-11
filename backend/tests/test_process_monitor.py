@@ -93,34 +93,27 @@ def test_unreadable_fallback_blocks_dispatch(monitor, monkeypatch, output):
 
 
 @pytest.mark.parametrize("failure", [subprocess.TimeoutExpired("tasklist", 5), subprocess.CalledProcessError(1, "tasklist")])
-def test_all_detection_failures_block_dispatch_and_publish_error(monitor, monkeypatch, failure):
+def test_all_detection_failures_block_dispatch_and_publish_error(monitor, monkeypatch, failure, caplog):
     monkeypatch.setattr(psutil, "process_iter", Mock(side_effect=RuntimeError("unavailable")))
     monkeypatch.setattr(process_monitor.subprocess, "run", Mock(side_effect=failure))
     assert monitor.is_hamilton_running()
-    received = threading.Event()
-    monitor.add_status_callback(lambda status: received.set())
-    assert monitor.start_monitoring(0.01)
-    try:
-        assert received.wait(2)
-        status = monitor.get_status()
-        assert status.availability == "error"
-        assert status.is_running
-    finally:
-        monitor.stop_monitoring()
-    assert not monitor._monitor_thread.is_alive()
+    monitor._monitoring = True
+    monkeypatch.setattr(monitor._stop_event, "wait", lambda _: setattr(monitor, "_monitoring", False))
+    monitor._monitor_loop(0)
+    assert "Hamilton status changed: error; blocking dispatch:" in caplog.text
 
 
-def test_background_status_recovers_and_can_restart(monitor, monkeypatch):
-    process_list = [fake_process()]
-    monkeypatch.setattr(psutil, "process_iter", lambda attrs: iter(process_list))
-    changed = threading.Event()
-    monitor.add_status_callback(lambda status: changed.set())
-    for expected in ("busy", "available"):
-        changed.clear()
-        assert monitor.start_monitoring(0.01)
-        try:
-            assert changed.wait(2)
-            assert monitor.get_status().availability == expected
-        finally:
-            monitor.stop_monitoring()
-        process_list.clear()
+def test_background_status_recovers_and_logs_only_changes(monitor, monkeypatch, caplog):
+    readings = iter([[fake_process()], [fake_process()], [], []])
+    monkeypatch.setattr(monitor, "get_hamilton_processes", lambda: next(readings))
+    count = 0
+    def wait(_):
+        nonlocal count
+        count += 1
+        monitor._monitoring = count < 4
+    monkeypatch.setattr(monitor._stop_event, "wait", wait)
+    monitor._monitoring = True
+    with caplog.at_level("INFO"):
+        monitor._monitor_loop(0)
+    assert caplog.text.count("Hamilton status changed: busy") == 1
+    assert caplog.text.count("Hamilton status changed: available") == 1

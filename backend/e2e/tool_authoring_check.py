@@ -70,7 +70,7 @@ def run():
             admin.execute(f"USE [{fixture['names'][0]}]; CREATE USER [{writer}] FOR LOGIN [{writer}]; GRANT SELECT, DELETE TO [{writer}]")
             admin.execute("CREATE TABLE dbo.DemoItems(id int PRIMARY KEY,label nvarchar(60)); INSERT dbo.DemoItems VALUES(7,'Disposable item')")
             result['fixture'] = dict(databases=fixture['names'], rows='Projects 1/2; Plates 11/12/21; DemoItems 7')
-            service = DatabaseTools(Path(temp)/'tools', ROOT/'database_packages', database=object(), guard=nullcontext)
+            service = DatabaseTools(Path(temp)/'tools', ROOT/'database_packages', guard=nullcontext)
             app = FastAPI(); app.include_router(router)
             def user(request: Request):
                 name = request.headers.get('authorization')
@@ -239,7 +239,7 @@ def run():
                     assert any(t['id']=='delete-demo-item' for t in call('GET','/catalogue?kind=operation'))
                     result['checks'].append('Activation journal recovery and discard preserve installed tools')
                     service.close()
-                    service=DatabaseTools(Path(temp)/'tools', ROOT/'database_packages', database=object(), guard=nullcontext)
+                    service=DatabaseTools(Path(temp)/'tools', ROOT/'database_packages', guard=nullcontext)
                     assert call('GET','/packages/plate-export/history')==history
                     assert not call('GET','/drafts')
                     result['checks'].append('Renamed Python replacement preserves helpers; supporting TOOL rejected; publication retires only its draft; notes, file changes and duplicate-publish receipts survive restart')

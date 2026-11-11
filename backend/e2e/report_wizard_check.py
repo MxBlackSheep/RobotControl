@@ -144,7 +144,7 @@ def run():
     try:
         with sql_fixture() as fixture, tempfile.TemporaryDirectory(prefix='rc-report-author-') as temporary:
             result['fixture'] = {'databases': fixture['names'], 'login': fixture['login'], 'rows': 'Projects 1/2; Plates 11/12/21'}
-            service = DatabaseTools(Path(temporary)/'tools', ROOT/'database_packages', database=object())
+            service = DatabaseTools(Path(temporary)/'tools', ROOT/'database_packages')
             app = FastAPI(); app.include_router(router)
             def user(request: Request):
                 name = request.headers.get('authorization')

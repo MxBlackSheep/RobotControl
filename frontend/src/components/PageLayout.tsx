@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, ButtonBase, IconButton, Link as MuiLink, Menu, MenuItem, Stack, Tab, Tabs, Typography, type SxProps, type Theme } from '@mui/material';
+import { Box, Button, ButtonBase, IconButton, Link as MuiLink, Menu, MenuItem, Stack, Tab, Tabs, Typography, type SxProps, type Theme } from '@mui/material';
 import ChevronLeft from '@mui/icons-material/ChevronLeft';
 import ExpandMore from '@mui/icons-material/ExpandMore';
 import InfoOutlined from '@mui/icons-material/InfoOutlined';
@@ -166,6 +166,19 @@ export function StatusDot({ tone, label }: { tone: StatusTone; label: string }) 
   return <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75, fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap', color: theme => theme.palette.tone[tone].fg }}>
     <Box component="span" aria-hidden sx={{ width: 8, height: 8, borderRadius: 4, flexShrink: 0, bgcolor: theme => theme.palette.tone[tone].dot }} />{label}
   </Box>;
+}
+
+// The pseudo-element gives the text link a 44px-high touch target without growing the 40px band.
+/** A link in a panel's header band. */
+export const headerLink = (to: string, text: string) => <MuiLink component={Link} to={to} underline="hover"
+  sx={{ fontSize: 13, position: 'relative', '&::after': { content: '""', position: 'absolute', inset: '-12px -8px' } }}>{text}</MuiLink>;
+
+/** A panel's read failed: keep what was shown and offer a retry, without blanking the page. */
+export function ReadProblem({ error, stale, onRetry, pending }: { error: string; stale: boolean; onRetry: () => void; pending: boolean }) {
+  return <Stack direction="row" alignItems="center" gap={1} role="alert" sx={{ minHeight: layout.row, px: `${layout.inset}px`, fontSize: 13, color: 'attentionSurface.text', borderBottom: 1, borderColor: 'surface.rowLine' }}>
+    <span>{stale ? 'Could not refresh. Showing earlier data.' : error}</span>
+    <Button size="small" onClick={onRetry} disabled={pending}>Retry</Button>
+  </Stack>;
 }
 
 /** The name of the selected item in a detail panel (a run, a schedule, a folder, a recovery). */

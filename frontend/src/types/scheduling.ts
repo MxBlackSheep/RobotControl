@@ -1,11 +1,5 @@
-/**
- * RobotControl Scheduling TypeScript Interfaces
- * 
- * Type definitions for experiment scheduling functionality.
- * Mirrors the backend Python data models to ensure type safety across the full stack.
- */
+/** Scheduling types: the server's replies and the requests the page sends. */
 
-// Core scheduling interfaces
 /** A database package's preparation step as requested by the form: tool and inputs only. */
 export interface PreparationStep {
   tool_id: string;
@@ -21,17 +15,6 @@ export interface PinnedPreparation extends PreparationStep {
   attached_at?: string;
 }
 
-/**
- * Derived on read for schedules saved with the retired built-in lab adapter's tokens. The run
- * is refused until a local administrator saves a database step; suggestion prefills it, or is
- * null when the tokens cannot be expressed by the EvoYeast package.
- */
-export interface LegacyPreparation {
-  steps: string[];
-  suggestion: PreparationStep | null;
-  message: string;
-}
-
 /** Derived on read: ready, or the package/connection changed (needs_review), or it is gone. */
 export type PreparationState = 'ready' | 'needs_review' | 'missing' | 'invalid' | 'unknown';
 export type ScheduleMode = 'real' | 'simulation' | 'test';
@@ -39,12 +22,15 @@ export type ScheduleMode = 'real' | 'simulation' | 'test';
 export const SCHEDULE_MODE_LABELS: Record<ScheduleMode, string> = { simulation: 'Simulation', test: 'Test', real: 'Real' };
 export type ScheduleRunner = 'venus' | 'pyhsl';
 export const RUNNER_LABELS: Record<ScheduleRunner, string> = { venus: 'VENUS', pyhsl: 'PyHSL' };
+export type ScheduleType = 'once' | 'interval' | 'daily' | 'weekly';
+/** The late-start action. */
+export type TimeoutAction = 'continue' | 'run_cleanup_and_terminate';
 
 export interface ScheduledExperiment {
   schedule_id: string;
   experiment_name: string;
   experiment_path: string;
-  schedule_type: 'once' | 'hourly' | 'daily' | 'weekly' | 'interval';
+  schedule_type: ScheduleType;
   interval_hours?: number | null;
   start_time?: string | null; // ISO format
   estimated_duration: number; // minutes
@@ -59,10 +45,9 @@ export interface ScheduledExperiment {
   is_active: boolean;
   archived: boolean;
   timeout_config: TimeoutConfig;
-  /** Retired adapter tokens, kept until an administrator reviews them (legacy_preparation). */
+  /** Retired adapter tokens, kept until an administrator reviews them. */
   prerequisites: string[];
   preparation?: PinnedPreparation | null;
-  legacy_preparation?: LegacyPreparation | null;
   preparation_state?: PreparationState;
   notification_contacts: string[];
   recovery_required: boolean;
@@ -73,11 +58,13 @@ export interface ScheduledExperiment {
   recovery_resolved_by?: string | null;
   next_run?: string | null; // ISO format
   last_run?: string | null; // ISO format
+  /** Set when the stored record fails its check: it never runs until it is edited or deleted. */
+  review_reason?: string | null;
 }
 
 export interface TimeoutConfig {
   timeout_minutes: number | null;
-  action: 'continue' | 'run_cleanup_and_terminate';
+  action: TimeoutAction;
   cleanup_experiment_name?: string | null;
   cleanup_experiment_path?: string | null;
 }
@@ -285,19 +272,16 @@ export interface ExecutionWindow {
   is_running: boolean;
 }
 
-// Hamilton process monitoring
+/** HxRun process seen on this PC, read live with the queue status. */
 export interface HamiltonStatus {
   is_running: boolean;
-  process_count: number;
-  availability: 'available' | 'busy' | 'unknown';
-  last_check: string; // ISO format
 }
 
 // API Request types
 export interface CreateScheduleRequest {
   experiment_name: string;
   experiment_path: string;
-  schedule_type: 'once' | 'hourly' | 'daily' | 'weekly' | 'interval';
+  schedule_type: ScheduleType;
   interval_hours?: number;
   start_time?: string; // ISO format
   estimated_duration: number;
@@ -307,39 +291,37 @@ export interface CreateScheduleRequest {
   protocol_id?: string;
   parameters?: Record<string, unknown>;
   is_active?: boolean;
-  timeout_config?: {
-    timeout_minutes?: number | null;
-    action?: 'continue' | 'run_cleanup_and_terminate';
-    cleanup_experiment_name?: string | null;
-    cleanup_experiment_path?: string | null;
-  };
+  timeout_config?: Partial<TimeoutConfig>;
+  /** Omitted: the saved step stays. null removes it. Only a local administrator may change it. */
   preparation?: PreparationStep | null;
   notification_contacts?: string[];
 }
 
-export interface UpdateScheduleRequest {
-  experiment_name?: string;
-  experiment_path?: string;
-  schedule_type?: 'once' | 'hourly' | 'daily' | 'weekly' | 'interval';
-  interval_hours?: number;
-  start_time?: string; // ISO format
-  estimated_duration?: number;
-  log_inactivity_threshold_minutes?: number;
-  mode?: ScheduleMode;
-  runner?: ScheduleRunner;
+/** The version the edit opened is the conflict check: a newer saved version answers 409. */
+export type UpdateScheduleRequest = Partial<CreateScheduleRequest> & { expected_updated_at?: string };
+
+/** What the schedule form edits; buildScheduleRequest turns it into the create or update body. */
+export interface ScheduleFormValues {
+  experiment_name: string;
+  experiment_path: string;
+  schedule_type: ScheduleType;
+  interval_hours: number;
+  /** The datetime-local input's text, or null for none. */
+  start_time: string | null;
+  estimated_duration: number;
+  log_inactivity_threshold_minutes: number;
+  mode: ScheduleMode;
+  runner: ScheduleRunner;
   protocol_id?: string;
   parameters?: Record<string, unknown>;
-  is_active?: boolean;
-  timeout_config?: {
-    timeout_minutes?: number | null;
-    action?: 'continue' | 'run_cleanup_and_terminate';
-    cleanup_experiment_name?: string | null;
-    cleanup_experiment_path?: string | null;
-  };
-  /** Omitted: the saved step stays. null removes it. Only a local administrator may change it. */
+  is_active: boolean;
+  timeout_minutes: number | null;
+  timeout_action: TimeoutAction;
+  timeout_cleanup_experiment_name: string | null;
+  timeout_cleanup_experiment_path: string | null;
+  /** Undefined until a local administrator changes the database step; then sent (null removes it). */
   preparation?: PreparationStep | null;
-  notification_contacts?: string[];
-  expected_updated_at?: string;
+  notification_contacts: string[];
 }
 
 // API Response types using standardized wrapper
@@ -368,95 +350,12 @@ export interface ScheduleResponse extends ApiResponse<ScheduledExperiment> {}
 
 
 export interface QueueStatusResponse extends ApiResponse<{
+  /** The scheduler service. */
+  is_running: boolean;
   queue: QueueStatus;
   hamilton: HamiltonStatus;
   manual_recovery: ManualRecoveryState | null;
 }> {}
-
-export interface SchedulerServiceResponse extends ApiResponse<{
-  // Matches SchedulerEngine.get_status(); there is no 'status' string field.
-  is_running: boolean;
-  manual_recovery?: ManualRecoveryState | null;
-}> {}
-
-// UI state management
-export enum SchedulingOperationStatus {
-  Idle = 'idle',
-  Creating = 'creating',
-  Updating = 'updating',
-  Deleting = 'deleting',
-  Loading = 'loading',
-  Starting = 'starting',
-  Stopping = 'stopping',
-  Error = 'error'
-}
-
-// Form interfaces
-export interface CreateScheduleFormData {
-  experiment_name: string;
-  experiment_path: string;
-  schedule_type: 'once' | 'hourly' | 'daily' | 'weekly' | 'interval';
-  interval_hours?: number;
-  start_time?: Date | null;
-  estimated_duration: number;
-  log_inactivity_threshold_minutes: number;
-  mode: ScheduleMode;
-  runner?: ScheduleRunner;
-  protocol_id?: string;
-  parameters?: Record<string, unknown>;
-  is_active: boolean;
-  timeout_minutes?: number | null;
-  timeout_action: 'continue' | 'run_cleanup_and_terminate';
-  timeout_cleanup_experiment_name?: string | null;
-  timeout_cleanup_experiment_path?: string | null;
-  preparation?: PreparationStep | null;
-  notification_contacts: string[];
-}
-
-// Component prop interfaces
-export interface ScheduleListProps {
-  schedules: ScheduledExperiment[];
-  selectedSchedule: ScheduledExperiment | null;
-  onScheduleSelect: (schedule: ScheduledExperiment | null) => void;
-  onRefresh: () => void;
-  onDeleteSchedule?: (schedule: ScheduledExperiment) => void;
-  loading?: boolean;
-  error?: string | null;
-  initialized: boolean;
-  archivedView?: boolean;
-}
-
-// Utility functions
-export const formatScheduleType = (scheduleType: string, intervalHours?: number): string => {
-  switch (scheduleType) {
-    case 'once':
-      return 'Run Once';
-    case 'interval':
-      if (!intervalHours) {
-        return 'Interval';
-      }
-      const totalMinutes = Math.round(intervalHours * 60);
-      const hours = Math.floor(totalMinutes / 60);
-      const minutes = totalMinutes % 60;
-
-      if (hours === 0) {
-        const minuteLabel = minutes === 1 ? 'minute' : 'minutes';
-        return `Every ${minutes} ${minuteLabel}`;
-      }
-      if (minutes === 0) {
-        return `Every ${hours} ${hours === 1 ? 'hour' : 'hours'}`;
-      }
-      return `Every ${hours}h ${minutes}m`;
-    case 'daily':
-      return 'Daily';
-    case 'weekly':
-      return 'Weekly';
-    case 'hourly':
-      return 'Hourly';
-    default:
-      return scheduleType;
-  }
-};
 
 export const formatDuration = (minutes: number): string => {
   if (minutes < 60) {
@@ -472,15 +371,3 @@ export const formatDuration = (minutes: number): string => {
   
   return `${hours}h ${remainingMinutes}m`;
 };
-
-export const getNextExecutionTime = (schedule: ScheduledExperiment): Date | null => {
-  const reference = schedule.next_run ?? schedule.start_time;
-  if (!reference) return null;
-
-  const parsed = new Date(reference);
-  if (Number.isNaN(parsed.getTime())) {
-    return null;
-  }
-  return parsed;
-};
-

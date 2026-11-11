@@ -63,11 +63,13 @@ def run(evidence=ROOT/'test-output/database-verification'):
     checks = []
     with tempfile.TemporaryDirectory(prefix='rc-database-') as temp:
         database = DatabaseFixture(temp)
-        service = DatabaseTools(Path(temp)/'tools', ROOT/'database_packages', database, database.guard)
-        configure_fixture_report_sources(service)
+        service = DatabaseTools(Path(temp)/'tools', ROOT/'database_packages', guard=database.guard)
+        configure_fixture_report_sources(service, database)
         from backend.services.scheduling.scheduler_engine import SchedulerEngine
         engine = SchedulerEngine.__new__(SchedulerEngine)
         engine._schedules_lock, engine._jobs_lock = threading.RLock(), threading.RLock()
+        engine._database_restore_active = False
+        engine.pyhsl_runner = SimpleNamespace(unfinished=lambda: [])
         engine._owned_execution_ids = set()
         safety = SimpleNamespace(storage_healthy=True, active=False, resume_required=False)
         engine._refresh_manual_recovery_state = lambda **kw: safety
@@ -78,7 +80,13 @@ def run(evidence=ROOT/'test-output/database-verification'):
             sqlite_db=SimpleNamespace(_connection_lock=threading.RLock()),
             get_schedule_by_id=lambda _: SimpleNamespace(is_active=True, archived=False, recovery_required=False),
             store_job_execution=lambda _: True)
-        service.guard = engine.database_change_guard
+        from contextlib import contextmanager
+        @contextmanager
+        def guard():
+            with patch('backend.services.scheduling.pyhsl_runner.require_no_active_run'):
+                with engine.database_change_guard():
+                    yield
+        service.guard = guard
         app = FastAPI()
         app.include_router(router)
         app.include_router(legacy_router)
@@ -92,7 +100,7 @@ def run(evidence=ROOT/'test-output/database-verification'):
             with TestClient(app, client=('127.0.0.1', 1234)) as client:
                 client.headers['authorization'] = 'admin'
                 assert {p['id'] for p in client.get(BASE+'/packages').json()} == {'culture-history', 'delete-experiment', 'evoyeast-experiment', 'plate-data-export'}
-                assert client.post('/api/database/query', params={'query': 'DELETE FROM Experiments'}).status_code == 410
+                assert client.post('/api/database/query', params={'query': 'DELETE FROM Experiments'}).status_code in (404, 405)
                 client.headers['authorization'] = 'user'
                 assert client.get(BASE+'/packages').status_code == 403
                 assert client.post(BASE+'/operations/delete-experiment/preview', json={'inputs': {'experiment_id': 43}}).status_code == 403
@@ -332,8 +340,8 @@ def run(evidence=ROOT/'test-output/database-verification'):
 
                 assert client.delete(BASE+'/packages/delete-experiment').status_code==200
             service.close()
-            service=DatabaseTools(Path(temp)/'tools', ROOT/'database_packages', database, database.guard)
-            configure_fixture_report_sources(service)
+            service=DatabaseTools(Path(temp)/'tools', ROOT/'database_packages', guard=database.guard)
+            configure_fixture_report_sources(service, database)
             assert not service.catalogue.tools('operation')
             checks.append('Removal persists across restart: passed')
             checks.append(compare_upstream(database, evidence))

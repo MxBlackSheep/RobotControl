@@ -63,10 +63,10 @@ const describeError = (err: any): string => {
   return 'Experiment data temporarily unavailable';
 };
 
-const ExperimentStatus: React.FC<{ refreshInterval?: number }> = memo(({ refreshInterval = 60 }) => {
+const ExperimentStatus: React.FC = memo(() => {
   const [latest, setLatest] = useState<Latest | null>(null);
   const polling = useSerialPolling<Latest>({
-    interval: refreshInterval * 1000,
+    interval: 60000,
     request: async () => {
       let response;
       try { response = await experimentsAPI.getLatest(); } catch (err) { throw new Error(describeError(err)); }

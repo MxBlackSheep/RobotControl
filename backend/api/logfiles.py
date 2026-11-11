@@ -2,28 +2,26 @@
 Log file review API endpoints.
 
 Provides a restricted, read-only browser and previewer for a fixed allowlist of
-log directories. Supports plain text files plus gzip/zip archive previews.
+log directories. Plain-file tails and private reader sessions support text and compressed logs.
 """
 
 from __future__ import annotations
 
-import gzip
 import logging
 import time
 import zipfile
 import threading
-from collections import deque
 from datetime import datetime, date
 import errno
 from pathlib import Path, PurePosixPath
-from typing import Any, BinaryIO, Deque, Dict, List, Literal, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from fastapi import APIRouter, Depends, Query, Request, status
 from pydantic import BaseModel, Field
 from backend.services.log_readers import LogReaderManager, ReaderError
 
 from backend.api.dependencies import ConnectionContext, get_connection_context
-from backend.api.response_formatter import ResponseFormatter, ResponseMetadata
+from backend.api.response_formatter import ResponseFormatter
 from backend.services.auth import get_current_user
 
 logger = logging.getLogger(__name__)
@@ -33,7 +31,6 @@ _reader_manager_lock = threading.Lock()
 
 MAX_PREVIEW_BYTES = 1024 * 1024
 MAX_BROWSE_ITEMS = 200
-PREVIEW_MODES = {"head", "tail"}
 
 
 class OpenLogReader(BaseModel):
@@ -58,8 +55,7 @@ def _reader_manager(request: Request) -> LogReaderManager:
 def _reader_access(request, ident, current_user, connection):
     manager = _reader_manager(request)
     reader = manager.get(ident, str(current_user["user_id"]))
-    config, root = _resolve_source_root(reader.source_id, request)
-    denied = _enforce_source_access(reader.source_id, config, connection, current_user)
+    config, root, denied = _resolve_source_root(reader.source_id, request, connection, current_user)
     if denied is not None:
         return manager, reader, denied
     if root.resolve() != reader.root or not _is_allowed_file_for_source(config, reader.path):
@@ -80,8 +76,7 @@ def open_log_reader(body: OpenLogReader, request: Request,
                     current_user: Dict[str, Any] = Depends(get_current_user),
                     connection: ConnectionContext = Depends(get_connection_context)):
     try:
-        config, root = _resolve_source_root(body.source_id, request)
-        denied = _enforce_source_access(body.source_id, config, connection, current_user)
+        config, root, denied = _resolve_source_root(body.source_id, request, connection, current_user)
         if denied is not None:
             return denied
         target = _resolve_child_path(root, body.relative_path)
@@ -166,10 +161,6 @@ def _format_file_size(size_bytes: int) -> str:
     return f"{size:.1f} TB"
 
 
-def _path_to_str(path: Path) -> str:
-    return str(path)
-
-
 def _get_sources(request: Optional[Request] = None) -> Dict[str, Dict[str, Any]]:
     sources = {source_id: dict(config) for source_id, config in LOGFILE_SOURCES.items()}
     config = sources.get("robotcontrol_logs")
@@ -233,14 +224,14 @@ def _sanitize_relative_path(relative_path: Optional[str]) -> str:
     return pure.as_posix()
 
 
-def _resolve_source_root(source_id: str, request: Optional[Request] = None) -> Tuple[Dict[str, Any], Path]:
+def _resolve_source_root(source_id, request, connection, current_user):
     sources = _get_sources(request)
     if source_id not in sources:
         raise KeyError(f"Unknown source_id '{source_id}'")
 
     config = sources[source_id]
     root = Path(config["path"])
-    return config, root
+    return config, root, _enforce_source_access(source_id, config, connection, current_user)
 
 
 def _resolve_child_path(root: Path, relative_path: Optional[str]) -> Path:
@@ -272,15 +263,12 @@ def _serialize_fs_item(item: Path) -> Optional[Dict[str, Any]]:
 
     stat_obj = None if is_dir else _safe_stat(item)
     ext = item.suffix.lower()
-    is_archive = ext in {".gz", ".zip"}
 
     payload: Dict[str, Any] = {
         "name": item.name,
-        "path": _path_to_str(item),
+        "path": str(item),
         "is_directory": is_dir,
         "extension": ext,
-        "is_archive": is_archive,
-        "archive_type": ext[1:] if is_archive else None,
     }
 
     if not is_dir and stat_obj is not None:
@@ -327,149 +315,26 @@ def _sort_and_limit_items(items: List[Dict[str, Any]], *, search: str = "", file
     return result, len(ordered), len(result) < len(ordered)
 
 
-def _looks_binary(data: bytes) -> bool:
-    if not data:
-        return False
-    sample = data[:4096]
-    if b"\x00" in sample:
-        return True
-    control_count = sum(1 for byte in sample if byte < 9 or (13 < byte < 32))
-    return (control_count / len(sample)) > 0.2
-
-
-def _text_quality_score(text: str) -> float:
-    if not text:
-        return 1.0
-    good = 0
-    bad = 0
-    line_breaks = 0
-    replacements = 0
-    for char in text[:8000]:
-        if char == "\ufffd":
-            replacements += 1
-            bad += 1
-            continue
-        if char in ("\n", "\r", "\t"):
-            good += 1
-            if char in ("\n", "\r"):
-                line_breaks += 1
-            continue
-        if char.isprintable():
-            good += 1
-        else:
-            bad += 1
-
-    total = max(1, good + bad)
-    score = good / total
-    if line_breaks:
-        score += 0.05
-    if replacements:
-        score -= min(0.15, replacements / total)
-    return score
-
-
-def _decode_preview(data: bytes) -> Tuple[Optional[str], Optional[str], bool]:
-    if not data:
-        return "", "utf-8", False
-
-    sample = data[:4096]
-    null_ratio = sample.count(b"\x00") / max(1, len(sample))
-    utf16_likely = null_ratio > 0.08
-
-    candidates: List[Tuple[float, str, str, bool]] = []
-
-    def _try_decode(encoding: str, *, offset: int = 0, errors: str = "strict") -> None:
-        if offset >= len(data):
-            return
-        try:
-            text = data[offset:].decode(encoding, errors=errors)
-        except UnicodeDecodeError:
-            return
-        score = _text_quality_score(text)
-        if errors == "strict":
-            score += 0.03
-        if offset:
-            score -= 0.01
-        candidates.append((score, text, f"{encoding}{'+1' if offset else ''}{'-replace' if errors != 'strict' else ''}", errors == "strict"))
-
-    if utf16_likely:
-        preferred = ["utf-16-le", "utf-16-be", "utf-16"]
-        fallback = ["utf-8", "cp1252", "latin-1"]
-    else:
-        preferred = ["utf-8", "cp1252", "latin-1"]
-        fallback = ["utf-16-le", "utf-16-be", "utf-16"]
-
-    for encoding in preferred + fallback:
-        _try_decode(encoding, errors="strict")
-        if encoding.startswith("utf-16"):
-            _try_decode(encoding, offset=1, errors="strict")
-
-    if not candidates:
-        for encoding in preferred + fallback:
-            _try_decode(encoding, errors="replace")
-            if encoding.startswith("utf-16"):
-                _try_decode(encoding, offset=1, errors="replace")
-
-    if candidates:
-        candidates.sort(key=lambda item: item[0], reverse=True)
-        best_score, best_text, best_encoding, _ = candidates[0]
-        if best_score >= 0.45 or not _looks_binary(data):
-            return best_text, best_encoding, False
-
-    return None, None, True
-
-
-def _read_stream_head(stream: BinaryIO, max_bytes: int) -> Tuple[bytes, bool, int]:
-    raw = stream.read(max_bytes + 1)
-    total_read = len(raw)
-    if len(raw) > max_bytes:
-        return raw[:max_bytes], True, total_read
-    return raw, False, total_read
-
-
-def _read_stream_tail(stream: BinaryIO, max_bytes: int, chunk_size: int = 64 * 1024) -> Tuple[bytes, bool, int]:
-    chunks: Deque[bytes] = deque()
-    kept_bytes = 0
-    total_read = 0
-
-    while True:
-        chunk = stream.read(chunk_size)
-        if not chunk:
-            break
-        total_read += len(chunk)
-        chunks.append(chunk)
-        kept_bytes += len(chunk)
-        while kept_bytes > max_bytes and chunks:
-            overflow = kept_bytes - max_bytes
-            first = chunks[0]
-            if len(first) <= overflow:
-                chunks.popleft()
-                kept_bytes -= len(first)
-            else:
-                chunks[0] = first[overflow:]
-                kept_bytes -= overflow
-
-    return b"".join(chunks), total_read > max_bytes, total_read
-
-
-def _read_regular_file_preview(path: Path, mode: Literal["head", "tail"], max_bytes: int) -> Tuple[bytes, bool, int]:
+def _read_regular_file_preview(path: Path, max_bytes: int, manager: LogReaderManager):
     with open(path, "rb") as handle:
+        try:
+            encoding = manager.preview_encoding(path, handle)
+        except ReaderError:
+            return None, True
         handle.seek(0, 2)
         size = handle.tell()
-        handle.seek(0)
-        if mode == "head":
-            data = handle.read(max_bytes)
-            return data, size > max_bytes, min(size, max_bytes)
-
-        if size <= max_bytes:
-            return handle.read(), False, size
-
-        # Read a small overlap before the tail window so UTF-16-like files have a
-        # better chance of decoding cleanly when the tail starts mid-character.
-        overlap = min(8192, max(512, max_bytes // 64))
-        start = max(0, size - (max_bytes + overlap))
+        start = max(0, size - max_bytes)
+        if encoding.startswith("utf-16"):
+            start += start % 2
         handle.seek(start)
-        return handle.read(size - start), True, min(size, max_bytes + overlap)
+        content = handle.read(max_bytes).decode(encoding, errors="replace")
+        if start:
+            _, separator, content = content.partition("\n")
+            if not separator:
+                content = ""
+        else:
+            content = content.removeprefix("\ufeff")
+        return content, False
 
 
 def _classify_permission_error(exc: PermissionError) -> Tuple[int, str, str]:
@@ -486,61 +351,9 @@ def _classify_permission_error(exc: PermissionError) -> Tuple[int, str, str]:
     return status.HTTP_403_FORBIDDEN, "FILE_ACCESS_DENIED", "File is inaccessible"
 
 
-def _read_gzip_preview(path: Path, mode: Literal["head", "tail"], max_bytes: int) -> Tuple[bytes, bool, int]:
-    with gzip.open(path, "rb") as gz:
-        if mode == "head":
-            return _read_stream_head(gz, max_bytes)
-        return _read_stream_tail(gz, max_bytes)
-
-
 def _normalize_zip_entry_path(entry_path: Optional[str]) -> str:
     normalized = _sanitize_relative_path(entry_path)
     return normalized
-
-
-def _build_preview_response(
-    *,
-    source_id: str,
-    source_label: str,
-    file_path: str,
-    display_name: str,
-    mode: Literal["head", "tail"],
-    max_bytes: int,
-    raw_bytes: bytes,
-    truncated: bool,
-    total_bytes_read: int,
-    file_locked: bool = False,
-    extra_metadata: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
-    content, encoding_used, is_binary = _decode_preview(raw_bytes)
-    payload: Dict[str, Any] = {
-        "source_id": source_id,
-        "source_label": source_label,
-        "file_path": file_path,
-        "display_name": display_name,
-        "mode": mode,
-        "max_bytes": max_bytes,
-        "bytes_returned": len(raw_bytes),
-        "bytes_scanned": total_bytes_read,
-        "truncated": truncated,
-        "encoding_used": encoding_used,
-        "is_binary": is_binary,
-        "file_locked": file_locked,
-        "content": None if is_binary else content,
-    }
-    if extra_metadata:
-        payload.update(extra_metadata)
-    return payload
-
-
-def _response_metadata(start_time: float, operation: str, current_user: Dict[str, Any], **extras: Any) -> ResponseMetadata:
-    metadata = ResponseMetadata()
-    metadata.set_execution_time(start_time)
-    metadata.add_metadata("operation", operation)
-    metadata.add_metadata("user_id", current_user.get("user_id"))
-    for key, value in extras.items():
-        metadata.add_metadata(key, value)
-    return metadata
 
 
 @router.get("/sources")
@@ -549,7 +362,6 @@ def list_logfile_sources(
     current_user: Dict[str, Any] = Depends(get_current_user),
     connection: ConnectionContext = Depends(get_connection_context),
 ):
-    start_time = time.time()
 
     entries: List[Dict[str, Any]] = []
     for source_id, config in _get_sources(request).items():
@@ -575,11 +387,7 @@ def list_logfile_sources(
                 "shortcuts": [{"label": "Current logs", "relative_path": ""}, {"label": "History", "relative_path": "history"}] if source_id == "robotcontrol_logs" else [],
                 "permissions": {
                     "is_local_session": connection.is_local,
-                    "can_access": (
-                        str(config.get("access_scope") or "local_only") == "all_authenticated"
-                        or connection.is_local
-                        or (config.get("access_scope") == "admin_or_local" and current_user.get("role") == "admin")
-                    ),
+                    "can_access": _enforce_source_access(source_id, config, connection, current_user) is None,
                     "access_scope": str(config.get("access_scope") or "local_only"),
                     "ip_classification": connection.ip_classification,
                     "client_ip": connection.client_ip,
@@ -589,7 +397,6 @@ def list_logfile_sources(
 
     return ResponseFormatter.success(
         data=entries,
-        metadata=_response_metadata(start_time, "logfiles_sources", current_user, source_count=len(entries)),
         message="Log file sources retrieved",
     )
 
@@ -610,19 +417,17 @@ def browse_logfiles(
     current_user: Dict[str, Any] = Depends(get_current_user),
     connection: ConnectionContext = Depends(get_connection_context),
 ):
-    start_time = time.time()
     if modified_from and modified_to and modified_from > modified_to:
         return ResponseFormatter.bad_request(message="Modified-from date must not be later than modified-to date")
 
     try:
-        source_config, root = _resolve_source_root(source_id, request)
+        source_config, root, access_error = _resolve_source_root(source_id, request, connection, current_user)
         target = _resolve_child_path(root, relative_path)
     except KeyError:
         return ResponseFormatter.not_found(message="Unknown log source", details={"source_id": source_id})
     except ValueError as exc:
         return ResponseFormatter.bad_request(message="Invalid relative path", details=str(exc))
 
-    access_error = _enforce_source_access(source_id, source_config, connection, current_user)
     if access_error:
         return access_error
 
@@ -648,38 +453,8 @@ def browse_logfiles(
 
     items, total_items, truncated = _sort_and_limit_items(items, search=search, file_type=file_type, modified_from=modified_from, modified_to=modified_to, sort_by=sort_by, sort_direction=sort_direction, page=page, limit=limit)
 
-    relative_current = ""
-    try:
-        relative_current = target.relative_to(root.resolve(strict=False)).as_posix()  # type: ignore[assignment]
-    except Exception:
-        relative_current = _sanitize_relative_path(relative_path)
-
     return ResponseFormatter.success(
-        data={
-            "source": {
-                "id": source_id,
-                "label": source_config["label"],
-                "path": source_config["path"],
-            },
-            "current_path": _path_to_str(target),
-            "relative_path": "" if relative_current == "." else relative_current,
-            "items": items,
-            "total_items": total_items,
-            "returned_items": len(items),
-            "truncated": truncated,
-            "max_items": limit, "page": page, "limit": limit,
-        },
-        metadata=_response_metadata(
-            start_time,
-            "logfiles_browse",
-            current_user,
-            source_id=source_id,
-            relative_path=relative_current,
-            item_count=total_items,
-            returned_items=len(items),
-            truncated=truncated,
-            max_items=limit,
-        ),
+        data={"items": items, "total_items": total_items},
         message="Log directory listed",
     )
 
@@ -689,25 +464,19 @@ def preview_logfile(
     request: Request,
     source_id: str = Query(..., description="Configured source identifier"),
     relative_path: str = Query(..., description="File path relative to source"),
-    mode: str = Query("tail", description="Preview mode: head or tail"),
     max_bytes: int = Query(MAX_PREVIEW_BYTES, ge=1, le=MAX_PREVIEW_BYTES, description="Max preview bytes"),
     current_user: Dict[str, Any] = Depends(get_current_user),
     connection: ConnectionContext = Depends(get_connection_context),
 ):
-    start_time = time.time()
-
-    if mode not in PREVIEW_MODES:
-        return ResponseFormatter.bad_request(message="Invalid preview mode", details={"mode": mode, "allowed": sorted(PREVIEW_MODES)})
 
     try:
-        source_config, root = _resolve_source_root(source_id, request)
+        source_config, root, access_error = _resolve_source_root(source_id, request, connection, current_user)
         target = _resolve_child_path(root, relative_path)
     except KeyError:
         return ResponseFormatter.not_found(message="Unknown log source", details={"source_id": source_id})
     except ValueError as exc:
         return ResponseFormatter.bad_request(message="Invalid relative path", details=str(exc))
 
-    access_error = _enforce_source_access(source_id, source_config, connection, current_user)
     if access_error:
         return access_error
 
@@ -721,54 +490,15 @@ def preview_logfile(
             details={"relative_path": relative_path, "allowed_extensions": sorted(_get_allowed_extensions_for_source(source_config) or [])},
         )
 
-    lowered = target.name.lower()
     try:
-        if lowered.endswith(".zip"):
-            return ResponseFormatter.bad_request(
-                message="ZIP archives require archive browse/preview endpoints",
-                details={"relative_path": relative_path},
-            )
-
-        if lowered.endswith(".gz"):
-            raw, truncated, total_read = _read_gzip_preview(target, mode, max_bytes)  # type: ignore[arg-type]
-            payload = _build_preview_response(
-                source_id=source_id,
-                source_label=source_config["label"],
-                file_path=_path_to_str(target),
-                display_name=target.name,
-                mode=mode,  # type: ignore[arg-type]
-                max_bytes=max_bytes,
-                raw_bytes=raw,
-                truncated=truncated,
-                total_bytes_read=total_read,
-                extra_metadata={"compressed": True, "archive_type": "gz"},
-            )
-        else:
-            raw, truncated, total_read = _read_regular_file_preview(target, mode, max_bytes)  # type: ignore[arg-type]
-            stat_obj = _safe_stat(target)
-            payload = _build_preview_response(
-                source_id=source_id,
-                source_label=source_config["label"],
-                file_path=_path_to_str(target),
-                display_name=target.name,
-                mode=mode,  # type: ignore[arg-type]
-                max_bytes=max_bytes,
-                raw_bytes=raw,
-                truncated=truncated,
-                total_bytes_read=total_read,
-                extra_metadata={
-                    "compressed": False,
-                    **(
-                        {
-                            "file_size": stat_obj.st_size,
-                            "file_size_formatted": _format_file_size(stat_obj.st_size),
-                            "modified_date": datetime.fromtimestamp(stat_obj.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
-                        }
-                        if stat_obj is not None
-                        else {}
-                    ),
-                },
-            )
+        if target.suffix.lower() in {".zip", ".gz"}:
+            return ResponseFormatter.bad_request(message="open compressed files in the reader")
+        content, is_binary = _read_regular_file_preview(target, max_bytes, _reader_manager(request))
+        stat_obj = _safe_stat(target)
+        payload = {
+            "content": content, "is_binary": is_binary, "file_path": str(target),
+            "modified_date": datetime.fromtimestamp(stat_obj.st_mtime).strftime("%Y-%m-%d %H:%M:%S") if stat_obj else None,
+        }
     except PermissionError as exc:
         status_code, error_code, message = _classify_permission_error(exc)
         return ResponseFormatter.error(
@@ -781,15 +511,12 @@ def preview_logfile(
             },
             status_code=status_code,
         )
-    except gzip.BadGzipFile as exc:
-        return ResponseFormatter.bad_request(message="Invalid gzip file", details=str(exc))
     except OSError as exc:
         logger.warning("Failed to preview file %s: %s", target, exc)
         return ResponseFormatter.server_error(message="Failed to preview log file", details=str(exc))
 
     return ResponseFormatter.success(
         data=payload,
-        metadata=_response_metadata(start_time, "logfiles_preview", current_user, source_id=source_id, relative_path=relative_path),
         message="Log file preview generated",
     )
 
@@ -811,12 +538,11 @@ def browse_archive_entries(
     current_user: Dict[str, Any] = Depends(get_current_user),
     connection: ConnectionContext = Depends(get_connection_context),
 ):
-    start_time = time.time()
     if modified_from and modified_to and modified_from > modified_to:
         return ResponseFormatter.bad_request(message="Modified-from date must not be later than modified-to date")
 
     try:
-        source_config, root = _resolve_source_root(source_id, request)
+        source_config, root, access_error = _resolve_source_root(source_id, request, connection, current_user)
         archive_path = _resolve_child_path(root, archive_relative_path)
         normalized_entry_path = _normalize_zip_entry_path(entry_path)
     except KeyError:
@@ -824,7 +550,6 @@ def browse_archive_entries(
     except ValueError as exc:
         return ResponseFormatter.bad_request(message="Invalid path", details=str(exc))
 
-    access_error = _enforce_source_access(source_id, source_config, connection, current_user)
     if access_error:
         return access_error
 
@@ -870,7 +595,6 @@ def browse_archive_entries(
                     "entry_path": child_entry_path,
                     "is_directory": child_is_dir,
                     "extension": Path(child_key).suffix.lower() if not child_is_dir else "",
-                    "is_archive": (Path(child_key).suffix.lower() in {".gz", ".zip"}) if not child_is_dir else False,
                 }
 
                 if not child_is_dir:
@@ -878,7 +602,6 @@ def browse_archive_entries(
                         {
                             "size": info.file_size,
                             "size_formatted": _format_file_size(info.file_size),
-                            "compressed_size": info.compress_size,
                             "modified_timestamp": datetime(*info.date_time).timestamp(),
                             "modified_date": datetime(*info.date_time).strftime("%Y-%m-%d %H:%M:%S"),
                         }
@@ -904,35 +627,6 @@ def browse_archive_entries(
     items, total_items, truncated = _sort_and_limit_items(list(children.values()), search=search, file_type=file_type, modified_from=modified_from, modified_to=modified_to, sort_by=sort_by, sort_direction=sort_direction, page=page, limit=limit)
 
     return ResponseFormatter.success(
-        data={
-            "source": {
-                "id": source_id,
-                "label": source_config["label"],
-                "path": source_config["path"],
-            },
-            "archive": {
-                "relative_path": _sanitize_relative_path(archive_relative_path),
-                "path": _path_to_str(archive_path),
-                "name": archive_path.name,
-            },
-            "entry_path": normalized_entry_path,
-            "items": items,
-            "total_items": total_items,
-            "returned_items": len(items),
-            "truncated": truncated,
-            "max_items": limit, "page": page, "limit": limit,
-        },
-        metadata=_response_metadata(
-            start_time,
-            "logfiles_archive_browse",
-            current_user,
-            source_id=source_id,
-            archive_relative_path=archive_relative_path,
-            entry_path=normalized_entry_path,
-            item_count=total_items,
-            returned_items=len(items),
-            truncated=truncated,
-            max_items=limit,
-        ),
+        data={"items": items, "total_items": total_items},
         message="Archive entries listed",
     )

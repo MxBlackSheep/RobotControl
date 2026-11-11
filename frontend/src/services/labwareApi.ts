@@ -1,4 +1,4 @@
-import { api } from './api';
+import { api, unwrapData } from './api';
 
 export interface TipTrackingPermissions {
   role: string;
@@ -74,10 +74,6 @@ export interface CytomatUpdateResult {
   updated_count: number;
   updated_at: string;
 }
-
-const unwrapData = <T>(response: any): T => {
-  return (response?.data?.data ?? response?.data) as T;
-};
 
 export const labwareApi = {
   getTipTrackingSnapshot: async (): Promise<TipTrackingSnapshot> => {

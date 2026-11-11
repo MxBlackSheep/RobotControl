@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+import { isAxiosError } from 'axios';
 
 /**
  * Classifies a failed request so screens can tell a RobotControl answer from a
@@ -73,8 +74,10 @@ export function connectionMessage(error: any): string | undefined {
   }
 }
 
-/** RobotControl's own message, else a connection explanation, else the caller's fallback. */
+/** RobotControl's own message, else a connection explanation, else the caller's fallback. A message
+ * the page made itself (an Error that is not a request failure) is kept. */
 export function requestErrorMessage(error: any, fallback: string): string {
+  if (error instanceof Error && !isAxiosError(error)) return error.message || fallback;
   return appErrorMessage(error) ?? connectionMessage(error) ?? fallback;
 }
 

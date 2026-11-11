@@ -3,6 +3,9 @@ import { Alert, Autocomplete, Button, Checkbox, FormControlLabel, MenuItem, Stac
 import { api } from '../services/api';
 import { requestErrorMessage } from '../services/requestError';
 
+/** Every database tools route starts here. */
+export const toolsBase = '/api/database/tools';
+
 export type ReportField = { name: string; label: string; type: string; required: boolean; choices: string[];
   lookup?: { source?: string; query?: string; parameters: string[]; value_type: string } | null };
 export const requestMessage = (e: any): string => requestErrorMessage(e, 'Check the fields and try again.');
@@ -70,8 +73,8 @@ export default function ReportInputs({ fields, values, onChange, disabled, choic
         ? <FormControlLabel key={field.name} label={field.label} control={<Checkbox checked={values[field.name] === true} disabled={disabled} onChange={(_, v) => onChange(field.name, v)} />} />
         : <TextField key={field.name} label={field.label} required={field.required} disabled={disabled} size="small"
           select={field.type === 'choice'} InputLabelProps={field.type === 'date' ? { shrink: true } : undefined}
-          type={field.type === 'date' ? 'date' : ['integer', 'number', 'experiment'].includes(field.type) ? 'number' : 'text'}
-          value={values[field.name] ?? ''} onChange={e => onChange(field.name, ['integer', 'number', 'experiment'].includes(field.type) && e.target.value !== '' ? Number(e.target.value) : e.target.value)}>
+          type={field.type === 'date' ? 'date' : ['integer', 'number'].includes(field.type) ? 'number' : 'text'}
+          value={values[field.name] ?? ''} onChange={e => onChange(field.name, ['integer', 'number'].includes(field.type) && e.target.value !== '' ? Number(e.target.value) : e.target.value)}>
           {(field.choices || []).map(x => <MenuItem key={x} value={x}>{x}</MenuItem>)}
         </TextField>)}
   </Stack>;

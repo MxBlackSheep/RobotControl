@@ -143,15 +143,112 @@ def pyhsl_status():
                 reviews=dict(known=False, blocked=False, run_ids=[]))
 
 
+# Camera controls follow backend/services/camera_runtime.py: Stop recording stops capture, a
+# selection is refused while recording is requested, Connect and Reconnect start capture. The
+# fixture finishes each operation at once; /__e2e/camera sets device, capture and recording.
+cameras = [dict(id=0, name='Fixture camera', device_identity='fixture-camera'),
+           dict(id=1, name='Second camera', device_identity='second-camera')]
+
+
 @app.get('/api/camera/control-status')
 def camera_status():
-    return dict(data=dict(cameras=[dict(id=0,name='Fixture camera',device_identity='fixture-camera')],
-        health=dict(device_identity='fixture-camera',generation=camera['generation'],capture_state='connected',
-        recording_state='recording',recording_requested=True,last_frame_age_seconds=0,error=None,operation=None)))
+    capture, recording = camera.get('capture', 'connected'), camera.get('recording', True)
+    return dict(data=dict(cameras=cameras, health=dict(device_identity=camera.get('device', 'fixture-camera'),
+        generation=camera['generation'], capture_state=capture,
+        recording_state=('recording' if capture == 'connected' else 'error') if recording else 'stopped',
+        recording_requested=recording, last_frame_age_seconds=0, error=None, operation=camera.get('operation'))))
+
+
+def camera_operation(request: Request, action: str, **change):
+    if user(request)['role'] != 'admin':
+        raise HTTPException(403)
+    revision = camera.get('revision', 0) + 1
+    camera.update(change, revision=revision,
+                  operation=dict(id=f'op-{revision}', revision=revision, action=action, state='succeeded', error=None))
+    return dict(success=True, data=dict(operation=camera['operation']))
+
+
+@app.post('/api/camera/devices/refresh', status_code=202)
+def refresh_cameras(request: Request): return camera_operation(request, 'refresh')
+
+
+@app.patch('/api/camera/selection', status_code=202)
+async def select_camera(request: Request):
+    if camera.get('recording', True):
+        raise HTTPException(409, 'Stop recording before changing the selected camera')
+    identity = (await request.json())['device_identity']
+    return camera_operation(request, 'select', device=identity, capture='disconnected')
+
+
+@app.post('/api/camera/connect', status_code=202)
+def connect_camera(request: Request):
+    return camera_operation(request, 'connect', capture='connected', generation=f"g-connect-{camera.get('revision', 0) + 1}")
+
+
+@app.post('/api/camera/reconnect', status_code=202)
+def reconnect_camera(request: Request): return camera_operation(request, 'reconnect', capture='connected')
+
+
+@app.post('/api/camera/recording/stop', status_code=202)
+def stop_recording(request: Request): return camera_operation(request, 'stop', recording=False, capture='disconnected')
+
+
+# One run archive: a real file served by FileResponse (Range and 206 as in backend/api/camera.py)
+# and a listed clip whose file is gone (404). `cut_after` drops the next download after that
+# many bytes; `ranges` records each download's Range header.
+recordings = fixture / 'recordings' / 'Fixture run'
+recordings.mkdir(parents=True)
+(recordings / 'fixture-clip.mp4').write_bytes(bytes(range(256)) * 1200)
+
+
+@app.get('/api/camera/recordings')
+def list_recordings(request: Request):
+    user(request)
+    videos = [dict(filename='fixture-clip.mp4', timestamp='2026-09-30T13:00:00', size_bytes=256 * 1200),
+              dict(filename='missing-clip.mp4', timestamp='2026-09-30T12:59:00', size_bytes=4096)]
+    return dict(success=True, data=dict(experiment_folders=[dict(folder_name='Fixture run', video_count=len(videos),
+        total_size_bytes=sum(video['size_bytes'] for video in videos), creation_time='2026-09-30T13:00:00', videos=videos)]))
+
+
+from starlette.responses import Response
+
+
+class CutResponse(Response):
+    """Sends the first `limit` body bytes of `response`, then drops the connection like a failing link."""
+    def __init__(self, response: Response, limit: int):
+        super().__init__()
+        self.response, self.limit = response, limit
+
+    async def __call__(self, scope, receive, send):
+        sent = 0
+        async def cut(message):
+            nonlocal sent
+            if message['type'] == 'http.response.body':
+                body = message.get('body', b'')
+                if sent + len(body) >= self.limit:
+                    await send(dict(message, body=body[:self.limit - sent], more_body=True))
+                    # A browser drops bytes it has not read yet when the connection fails, so let it read them.
+                    await asyncio.sleep(.5)
+                    raise ConnectionResetError('fixture cut the download')
+                sent += len(body)
+            await send(message)
+        await self.response(scope, receive, cut)
+
+
+@app.get('/api/camera/recording/{name}')
+def download_recording(name: str, request: Request):
+    user(request)
+    camera.setdefault('ranges', []).append(request.headers.get('range'))
+    path = recordings / name
+    if not path.is_file():
+        raise HTTPException(404, f"Recording '{name}' not found")
+    response = FileResponse(path, filename=name, media_type='video/mp4')
+    limit = camera.pop('cut_after', None)
+    return CutResponse(response, limit) if limit else response
 
 
 @app.get('/api/camera/streaming/status')
-def streaming_status(): return dict(data=dict(status=dict(enabled=True, active_session_count=0,max_sessions=4)))
+def streaming_status(): return dict(data=dict(status=dict(active_session_count=0, max_sessions=4)))
 
 
 @app.post('/api/camera/streaming/session')
@@ -234,9 +331,9 @@ async def video(ws: WebSocket, ident: str):
 from backend.api.database_tools import router as database_tools_router
 from backend.services.database_tools import DatabaseTools, get_database_tools
 from backend.e2e.database_fixture import DatabaseFixture, configure_fixture_report_sources
-app.state.database_tools = DatabaseTools(fixture / 'database-tools', ROOT / 'database_packages', DatabaseFixture(fixture))
-configure_fixture_report_sources(app.state.database_tools)
-app.state.database_tools.guard = app.state.database_tools.database.guard
+database_fixture = DatabaseFixture(fixture)
+app.state.database_tools = DatabaseTools(fixture / 'database-tools', ROOT / 'database_packages', guard=database_fixture.guard)
+configure_fixture_report_sources(app.state.database_tools, database_fixture)
 app.dependency_overrides[get_database_tools] = lambda: app.state.database_tools
 app.include_router(database_tools_router)
 
@@ -245,15 +342,11 @@ app.include_router(database_tools_router)
 @app.get('/api/scheduling/status/queue')
 def queue_status():
     return dict(success=True, data=dict(
+        is_running=True,
         queue=dict(queue_size=0, queued_jobs=0, running_jobs=0, max_parallel_jobs=1, capacity_available=True,
                    running_job_details=[], queued_job_details=[], execution_windows=[], hamilton_available=True),
-        hamilton=dict(is_running=False, process_count=0, availability='available', last_check='2026-09-30T12:00:00'),
+        hamilton=dict(is_running=False),
         manual_recovery=dict(active=False, safety_revision=1, storage_healthy=True, pending_recoveries=[])))
-
-
-@app.get('/api/scheduling/status/scheduler')
-def scheduler_status():
-    return dict(success=True, data=dict(is_running=True, manual_recovery=None))
 
 
 @app.get('/api/{path:path}')

@@ -14,7 +14,7 @@ import PageLoadBoundary from './components/PageLoadBoundary';
 import AppSidebar from './components/AppSidebar';
 import PhoneTabs from './components/PhoneTabs';
 import RobotAttentionBanner from './components/RobotAttentionBanner';
-import { useSidebarLayout } from './components/navigation';
+import { canOpen, useSidebarLayout } from './components/navigation';
 import SkipLink from './components/SkipLink';
 import KeyboardShortcutsHelp from './components/KeyboardShortcutsHelp';
 import { useKeyboardNavigation } from './hooks/useKeyboardNavigation';
@@ -72,7 +72,7 @@ function AppShell() {
   React.useEffect(() => { if (user?.must_reset) setPasswordDialogOpen(true); }, [user?.must_reset]);
   const { mobile: isMobile, expanded: sidebarExpanded, toggle: toggleSidebar } = useSidebarLayout();
   const robotStatus = useRobotStatus(user?.username ?? null);
-  const { helpOpen: shortcutsHelpOpen, closeHelp: hideShortcutsHelp } = useKeyboardNavigation({ enabled: true });
+  const { helpOpen: shortcutsHelpOpen, closeHelp: hideShortcutsHelp } = useKeyboardNavigation(user);
   const { pathname } = useLocation();
   const railFooter = <Box sx={{ display: 'flex', flexDirection: sidebarExpanded ? 'row' : 'column', alignItems: 'center', gap: 0.5, width: '100%', color: 'rail.text', '& .MuiIconButton-root': { color: 'rail.text' } }}>
     <AccountMenu compact={!sidebarExpanded} onChangePassword={() => setPasswordDialogOpen(true)} />
@@ -105,25 +105,25 @@ function AppShell() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/database" element={<DatabasePage />} />
             <Route path="/camera" element={<CameraPage />} />
-            {(['admin', 'user'].includes(user?.role || '')) && (
+            {canOpen('/labware', user) && (
               <Route path="/labware" element={<LabwarePage />} />
             )}
             <Route path="/maintenance" element={<MaintenancePage />} />
             <Route path="/logfile" element={<LogFilePage />} />
             <Route path="/system-status" element={<SystemStatusPage />} />
             <Route path="/monitoring" element={<Navigate to="/system-status" replace />} />
-            {(['admin', 'user'].includes(user?.role || '')) && (
+            {canOpen('/scheduling', user) && (
               <Route path="/scheduling" element={<SchedulingPage />} />
             )}
             <Route
               path="/admin"
-              element={user?.role === 'admin' ? <AdminPage /> : <Navigate to="/" replace />}
+              element={canOpen('/admin', user) ? <AdminPage /> : <Navigate to="/" replace />}
             />
             <Route path="/about" element={<AboutPage />} />
             <Route path="/account" element={<AccountPage />} />
             <Route path="/more" element={<MorePage />} />
             <Route path="/held" element={<HeldRunPage />} />
-            {(['admin', 'user'].includes(user?.role || '')) && (
+            {canOpen('/pyhsl', user) && (
               <Route path="/pyhsl" element={<PyHslRunPage />} />
             )}
             <Route path="/login" element={<Navigate to="/" replace />} />

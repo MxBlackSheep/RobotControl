@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, MenuItem, Stack, TextField, Typography } from '@mui/material';
 import { api } from '../services/api';
-import { requestMessage, saveBlob } from './ReportInputs';
-const base = '/api/database/tools';
+import { toolsBase, requestMessage, saveBlob } from './ReportInputs';
 export type Source = { id: string; name: string; server: string; database: string; username: string; driver: string; trust_certificate: boolean; password?: string; revision?: string; access?: 'read' | 'operation' };
 const trustPreferences = (): Record<string, boolean> => { try { const value = JSON.parse(localStorage.getItem('database-certificate-trust') || '{}'); return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; } catch { return {}; } };
 const rememberTrust = (source: Source) => { try { localStorage.setItem('database-certificate-trust', JSON.stringify({ ...trustPreferences(), [source.server]: source.trust_certificate })); } catch { /* Saving a connection does not require browser storage. */ } };
@@ -13,15 +12,15 @@ export default function ReportConnections({ open, onClose }: { open: boolean; on
   const [error, setError] = useState(''), [notice, setNotice] = useState(''), [busy, setBusy] = useState(false);
   const [mode, setMode] = useState('existing'), [review, setReview] = useState<any>();
   const [authority, setAuthority] = useState({ username: '', password: '', windows_auth: false });
-  const load = () => api.get(`${base}/sources`).then(r => setSources(r.data));
+  const load = () => api.get(`${toolsBase}/sources`).then(r => setSources(r.data));
   useEffect(() => { if (open) { setError(''); void load().catch(e => setError(requestMessage(e))); } else { setAuthority({ username: '', password: '', windows_auth: false }); setReview(undefined); } }, [open]);
   const reset = () => { setSource(blank()); setReview(undefined); setMode('existing'); setAuthority({ username: '', password: '', windows_auth: false }); };
   const work = async (action: () => Promise<void>) => { setBusy(true); setError(''); setNotice(''); try { await action(); } catch (e) { setError(requestMessage(e)); } finally { setBusy(false); } };
   const save = () => work(async () => {
     if (mode === 'create') {
-      const r = await api.post(`${base}/sources/access/review`, { ...source, password: undefined, access: 'read' }); setReview(r.data);
+      const r = await api.post(`${toolsBase}/sources/access/review`, { ...source, password: undefined, access: 'read' }); setReview(r.data);
     } else {
-      const r = await api.post(`${base}/sources`, source, { timeout: 120000 }); setNotice(r.data.message); rememberTrust(source); await load(); reset();
+      const r = await api.post(`${toolsBase}/sources`, source, { timeout: 120000 }); setNotice(r.data.message); rememberTrust(source); await load(); reset();
     }
   });
   const editing = sources.some(s => s.id === source.id);
@@ -33,7 +32,7 @@ export default function ReportConnections({ open, onClose }: { open: boolean; on
           {sources.map(item => <Box key={item.id} sx={{ p: 1, border: 1, borderColor: 'divider', borderRadius: 1 }}>
             <Typography sx={{ overflowWrap: 'anywhere' }}>{item.name}</Typography><Typography variant="caption">{item.database} · {item.access === 'operation' ? 'Operations' : 'Read-only'}</Typography>
             <Stack direction="row"><Button disabled={busy || !!review} onClick={() => { const { id, name, server, database, username, driver, trust_certificate, access } = item; setSource({ id, name, server, database, username, driver, trust_certificate, access: access || 'read' }); setMode('existing'); }}>Edit</Button>
-              <Button disabled={busy || !!review} color="error" onClick={() => work(async () => { await api.delete(`${base}/sources/${item.id}`); await load(); if (source.id === item.id) reset(); })}>Remove</Button></Stack>
+              <Button disabled={busy || !!review} color="error" onClick={() => work(async () => { await api.delete(`${toolsBase}/sources/${item.id}`); await load(); if (source.id === item.id) reset(); })}>Remove</Button></Stack>
           </Box>)}
           <Button disabled={busy} onClick={reset}>New connection</Button>
         </Stack>
@@ -70,7 +69,7 @@ export default function ReportConnections({ open, onClose }: { open: boolean; on
     </DialogContent><DialogActions sx={{ flexWrap: 'wrap', gap: 1 }}>
       {review && <><Button disabled={busy} onClick={() => { setReview(undefined); setAuthority({ username: '', password: '', windows_auth: false }); }}>Back</Button>
         <Button variant="contained" disabled={busy} onClick={() => work(async () => {
-          try { const r = await api.post(`${base}/sources/access/create`, { token: review.token, ...authority }, { timeout: 120000 }); setNotice(r.data.message); rememberTrust(source); await load(); reset(); }
+          try { const r = await api.post(`${toolsBase}/sources/access/create`, { token: review.token, ...authority }, { timeout: 120000 }); setNotice(r.data.message); rememberTrust(source); await load(); reset(); }
           finally { setAuthority({ username: '', password: '', windows_auth: false }); setReview(undefined); }
         })}>Create account</Button></>}
       <Button disabled={busy} onClick={onClose}>Close</Button></DialogActions>
@@ -102,7 +101,7 @@ export function AssignConnections({ binding, sources, onChange, onClose, onSaved
   const save = async () => {
     if (!binding) return; setBusy(true); setError('');
     try {
-      await api.put(`${base}/packages/${binding.id}/sources`, { mappings: Object.fromEntries(binding.aliases.map(x => [x, binding.mappings[x]])), operation_source: binding.operation_source || null });
+      await api.put(`${toolsBase}/packages/${binding.id}/sources`, { mappings: Object.fromEntries(binding.aliases.map(x => [x, binding.mappings[x]])), operation_source: binding.operation_source || null });
       onSaved();
     } catch (e) { setError(requestMessage(e)); } finally { setBusy(false); }
   };

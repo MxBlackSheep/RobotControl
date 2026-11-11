@@ -18,21 +18,22 @@ from datetime import datetime
 from typing import List, Optional, Dict
 from pathlib import Path
 from pydantic import BaseModel, Field
-from email.utils import formatdate
-from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, status, WebSocket, Header, Request
-from fastapi.responses import StreamingResponse, Response
+from fastapi.responses import FileResponse
 
 # Import services with relative imports (within backend directory)
 from backend.services.auth import get_current_user, get_current_admin_user
 from backend.api.dependencies import ConnectionContext, get_connection_context
 from backend.services.camera import get_camera_service
+from backend.services.live_streaming import get_live_streaming_service
+from backend.services.h264_encoder import EncoderUnavailable
 
 # Import types and config with proper package resolution
 from backend.models import ApiResponse
 
-from backend.config import VIDEO_PATH, CAMERA_CONFIG
+from backend.config import CAMERA_CONFIG
+from backend.services.storage_manager import get_storage_manager
 
 from backend.constants import ERROR_MESSAGES, WS_HEARTBEAT_INTERVAL
 
@@ -93,11 +94,8 @@ async def stop_selected_camera(current_user: dict = Depends(get_current_admin_us
     return _camera_operation("stop")
 
 # Camera system paths
-VIDEO_BASE_PATH = Path(VIDEO_PATH)
-ROLLING_CLIPS_PATH = VIDEO_BASE_PATH / "rolling_clips"
-EXPERIMENTS_PATH = VIDEO_BASE_PATH / "experiments"
 
-DOWNLOAD_CHUNK_SIZE = 1024 * 1024  # 1MB chunks
+
 
 
 def _resolve_recording_file_path(recording_id: str) -> Optional[Path]:
@@ -113,14 +111,14 @@ def _resolve_recording_file_path(recording_id: str) -> Optional[Path]:
         raise HTTPException(status_code=409, detail="Recording is incomplete and is not available as a finalized clip")
 
     # Check rolling clips first
-    rolling_path = ROLLING_CLIPS_PATH / recording_id
+    rolling_path = get_storage_manager().rolling_clips_path / recording_id
     if rolling_path.exists() and rolling_path.is_file():
         return rolling_path
 
     # Check experiment folders recursively (archives may contain nested folders).
     candidates: List[Path] = []
-    if EXPERIMENTS_PATH.exists():
-        for root, _, files in os.walk(EXPERIMENTS_PATH):
+    if get_storage_manager().experiments_path.exists():
+        for root, _, files in os.walk(get_storage_manager().experiments_path):
             if recording_id in files:
                 candidates.append(Path(root) / recording_id)
 
@@ -138,200 +136,61 @@ def _resolve_recording_file_path(recording_id: str) -> Optional[Path]:
     return None
 
 
-def _build_recording_etag(file_path: Path) -> str:
-    """Build a weak ETag from size + mtime for resume validation."""
-    stat_result = file_path.stat()
-    return f'W/"{stat_result.st_size:x}-{stat_result.st_mtime_ns:x}"'
-
-
-def _parse_range_header(range_header: str, file_size: int) -> tuple[int, int]:
-    """
-    Parse a single HTTP byte range into (start, end), inclusive.
-
-    Supports:
-    - bytes=<start>-<end>
-    - bytes=<start>-
-    - bytes=-<suffix_length>
-    """
-    if not range_header or not range_header.startswith("bytes="):
-        raise ValueError("Range header must start with 'bytes='")
-
-    raw_ranges = range_header[6:].split(",")
-    if len(raw_ranges) != 1:
-        raise ValueError("Multiple ranges are not supported")
-
-    range_value = raw_ranges[0].strip()
-    if "-" not in range_value:
-        raise ValueError("Invalid range format")
-
-    start_str, end_str = range_value.split("-", 1)
-
-    if start_str == "":
-        # Suffix range: bytes=-500 (last 500 bytes)
-        if end_str == "":
-            raise ValueError("Invalid suffix range")
-        suffix_len = int(end_str)
-        if suffix_len <= 0:
-            raise ValueError("Invalid suffix length")
-        start = max(file_size - suffix_len, 0)
-        end = file_size - 1
-    else:
-        start = int(start_str)
-        if start < 0:
-            raise ValueError("Invalid range start")
-        end = file_size - 1 if end_str == "" else int(end_str)
-        if end < start:
-            raise ValueError("Invalid range end")
-
-    if start >= file_size:
-        raise ValueError("Range start beyond file size")
-
-    return start, min(end, file_size - 1)
-
-
-def _iter_file_range(file_path: Path, start: int, end: int):
-    """Yield bytes in [start, end] inclusive."""
-    with open(file_path, mode="rb") as file_obj:
-        file_obj.seek(start)
-        remaining = end - start + 1
-        while remaining > 0:
-            chunk = file_obj.read(min(DOWNLOAD_CHUNK_SIZE, remaining))
-            if not chunk:
-                break
-            remaining -= len(chunk)
-            yield chunk
-
-
-def _build_download_headers(
-    recording_id: str,
-    file_path: Path,
-    file_size: int,
-    content_length: int,
-    etag: str,
-    range_start: Optional[int] = None,
-    range_end: Optional[int] = None
-) -> Dict[str, str]:
-    safe_filename = recording_id.replace('"', '')
-    quoted_filename = quote(safe_filename)
-    headers: Dict[str, str] = {
-        "Accept-Ranges": "bytes",
-        "Content-Disposition": f'attachment; filename="{safe_filename}"; filename*=UTF-8\'\'{quoted_filename}',
-        "Content-Length": str(content_length),
-        "ETag": etag,
-        "Last-Modified": formatdate(file_path.stat().st_mtime, usegmt=True)
-    }
-
-    if range_start is not None and range_end is not None:
-        headers["Content-Range"] = f"bytes {range_start}-{range_end}/{file_size}"
-
-    return headers
-
-
 @router.get("/recordings")
-async def list_recordings(
-    camera_id: Optional[int] = None,
-    recording_type: Optional[str] = None,
-    limit: int = 50,
-    current_user: dict = Depends(get_current_user)
-):
-    """
-    Get list of camera recordings with optional filtering
-    
-    Args:
-        camera_id: Filter by specific camera
-        recording_type: Filter by type (rolling, experiment, manual)
-        limit: Number of recordings to return
-    """
+async def list_recordings(current_user: dict = Depends(get_current_user)):
+    """List retained experiment folders and their finalized videos."""
     try:
-        camera_service = get_camera_service()
-        
-        # Get recent clips from camera service
-        clips = camera_service.get_recent_clips(limit=limit)
-        
-        # Filter by camera_id if specified
-        if camera_id is not None:
-            clips = [clip for clip in clips if clip["camera_id"] == camera_id]
-        
         # Get experiment recordings organized by folder (max 20 folders)
         experiment_folders = []
-        if recording_type is None or recording_type == "experiment":
-            if EXPERIMENTS_PATH.exists():
-                # Get all experiment directories, sorted by modification time (newest first)
-                exp_dirs = [d for d in EXPERIMENTS_PATH.iterdir() if d.is_dir()]
-                exp_dirs.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+        if get_storage_manager().experiments_path.exists():
+            # Get all experiment directories, sorted by modification time (newest first)
+            exp_dirs = [d for d in get_storage_manager().experiments_path.iterdir() if d.is_dir()]
+            exp_dirs.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+
+            # Limit to max 20 folders
+            for exp_dir in exp_dirs[:20]:
+                folder_videos = []
+                folder_size = 0
                 
-                # Limit to max 20 folders
-                for exp_dir in exp_dirs[:20]:
-                    folder_videos = []
-                    folder_size = 0
-                    
-                    # Get all video files in the folder hierarchy (support both .mp4 and .avi)
-                    latest_timestamp = None
-                    for pattern in ["*.mp4", "*.avi"]:
-                        for video_file in exp_dir.rglob(pattern):
-                            if not video_file.is_file():
-                                continue
-                            file_stat = video_file.stat()
-                            file_size = file_stat.st_size
-                            file_timestamp = datetime.fromtimestamp(file_stat.st_mtime).isoformat()
-                            folder_videos.append({
-                                "filename": video_file.name,
-                                "path": str(video_file),
-                                "timestamp": file_timestamp,
-                                "size_bytes": file_size
-                            })
-                            folder_size += file_size
-                            if latest_timestamp is None or file_timestamp > latest_timestamp:
-                                latest_timestamp = file_timestamp
-
-                    if folder_videos:  # Only add folders with video files
-                        folder_videos.sort(key=lambda item: item["timestamp"], reverse=True)
-                        experiment_folders.append({
-                            "folder_name": exp_dir.name,
-                            "folder_path": str(exp_dir),
-                            "creation_time": latest_timestamp or datetime.fromtimestamp(exp_dir.stat().st_mtime).isoformat(),
-                            "video_count": len(folder_videos),
-                            "total_size_bytes": folder_size,
-                            "videos": folder_videos,
-                            "type": "experiment_folder"
+                # Get all video files in the folder hierarchy (support both .mp4 and .avi)
+                latest_timestamp = None
+                for pattern in ["*.mp4", "*.avi"]:
+                    for video_file in exp_dir.rglob(pattern):
+                        if not video_file.is_file():
+                            continue
+                        file_stat = video_file.stat()
+                        file_size = file_stat.st_size
+                        file_timestamp = datetime.fromtimestamp(file_stat.st_mtime).isoformat()
+                        folder_videos.append({
+                            "filename": video_file.name,
+                            "path": str(video_file),
+                            "timestamp": file_timestamp,
+                            "size_bytes": file_size
                         })
+                        folder_size += file_size
+                        if latest_timestamp is None or file_timestamp > latest_timestamp:
+                            latest_timestamp = file_timestamp
+
+                if folder_videos:  # Only add folders with video files
+                    folder_videos.sort(key=lambda item: item["timestamp"], reverse=True)
+                    experiment_folders.append({
+                        "folder_name": exp_dir.name,
+                        "folder_path": str(exp_dir),
+                        "creation_time": latest_timestamp or datetime.fromtimestamp(exp_dir.stat().st_mtime).isoformat(),
+                        "video_count": len(folder_videos),
+                        "total_size_bytes": folder_size,
+                        "videos": folder_videos,
+                        "type": "experiment_folder"
+                    })
 
 
-        # Combine and sort recordings
-        all_recordings = []
-        
-        # Add rolling clips
-        if recording_type is None or recording_type == "rolling":
-            for clip in clips:
-                all_recordings.append({
-                    **clip,
-                    "type": "rolling",
-                    "path": str(ROLLING_CLIPS_PATH / clip["filename"])
-                })
-        
-        # Sort recordings by timestamp (newest first)
-        all_recordings.sort(key=lambda x: x["timestamp"], reverse=True)
-        
-        # Apply limit to rolling clips
-        all_recordings = all_recordings[:limit]
-        
         return ApiResponse(
             success=True,
-            message=f"Found {len(all_recordings)} rolling clips and {len(experiment_folders)} experiment folders",
-            data={
-                "recordings": all_recordings,
-                "experiment_folders": experiment_folders,
-                "total_rolling_clips": len(all_recordings),
-                "total_experiment_folders": len(experiment_folders),
-                "filters": {
-                    "camera_id": camera_id,
-                    "recording_type": recording_type,
-                    "limit": limit
-                },
-                "available_types": ["rolling", "experiment"]
-            }
+            message=f"Found {len(experiment_folders)} experiment folders",
+            data={"experiment_folders": experiment_folders,
+                  "total_experiment_folders": len(experiment_folders)},
         )
-        
+
     except Exception as e:
         logger.error(f"Error listing recordings: {e}")
         raise HTTPException(
@@ -345,9 +204,6 @@ async def list_recordings(
 async def download_recording(
     recording_id: str,
     request: Request,
-    range_header: Optional[str] = Header(default=None, alias="Range"),
-    if_range: Optional[str] = Header(default=None, alias="If-Range"),
-    if_none_match: Optional[str] = Header(default=None, alias="If-None-Match"),
     current_user: dict = Depends(get_current_user)
 ):
     """
@@ -363,84 +219,11 @@ async def download_recording(
                 detail=f"Recording '{recording_id}' not found"
             )
 
-        stat_result = file_path.stat()
-        file_size = stat_result.st_size
-        etag = _build_recording_etag(file_path)
-
-        if if_none_match and if_none_match.strip() == etag:
-            return Response(
-                status_code=status.HTTP_304_NOT_MODIFIED,
-                headers={
-                    "ETag": etag,
-                    "Last-Modified": formatdate(stat_result.st_mtime, usegmt=True),
-                    "Accept-Ranges": "bytes"
-                }
-            )
-
-        # Determine content type based on file extension
-        content_type = "video/mp4"
-        if file_path.suffix.lower() == ".avi":
-            content_type = "video/x-msvideo"
-
-        use_range = bool(range_header)
-        if use_range and if_range:
-            # If-Range can be ETag or HTTP-date; on mismatch send full content.
-            if if_range.strip() != etag and if_range.strip() != formatdate(stat_result.st_mtime, usegmt=True):
-                use_range = False
-
-        if use_range:
-            try:
-                range_start, range_end = _parse_range_header(range_header or "", file_size)
-            except ValueError as range_error:
-                raise HTTPException(
-                    status_code=status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE,
-                    detail=str(range_error),
-                    headers={"Content-Range": f"bytes */{file_size}"}
-                ) from range_error
-
-            content_length = range_end - range_start + 1
-            headers = _build_download_headers(
-                recording_id=recording_id,
-                file_path=file_path,
-                file_size=file_size,
-                content_length=content_length,
-                etag=etag,
-                range_start=range_start,
-                range_end=range_end
-            )
-
-            if range_start == 0 and range_end == file_size - 1:
-                # Clients may send full-range requests explicitly.
-                if range_header:
-                    headers["Content-Range"] = f"bytes 0-{file_size - 1}/{file_size}"
-
-            if request.method == "HEAD":
-                return Response(status_code=status.HTTP_206_PARTIAL_CONTENT, media_type=content_type, headers=headers)
-
-            return StreamingResponse(
-                _iter_file_range(file_path, range_start, range_end),
-                status_code=status.HTTP_206_PARTIAL_CONTENT,
-                media_type=content_type,
-                headers=headers
-            )
-
-        full_headers = _build_download_headers(
-            recording_id=recording_id,
-            file_path=file_path,
-            file_size=file_size,
-            content_length=file_size,
-            etag=etag
+        return FileResponse(
+            file_path, filename=recording_id,
+            media_type="video/x-msvideo" if file_path.suffix.lower() == ".avi" else "video/mp4",
         )
 
-        if request.method == "HEAD":
-            return Response(status_code=status.HTTP_200_OK, media_type=content_type, headers=full_headers)
-
-        return StreamingResponse(
-            _iter_file_range(file_path, 0, file_size - 1),
-            media_type=content_type,
-            headers=full_headers
-        )
-        
     except HTTPException:
         raise
     except Exception as e:
@@ -450,65 +233,6 @@ async def download_recording(
             detail=f"Failed to download recording '{recording_id}'"
         )
 
-
-@router.delete("/recording/{recording_id}")
-async def delete_recording(
-    recording_id: str,
-    current_user: dict = Depends(get_current_admin_user)
-):
-    """
-    Delete a specific recording file (Admin only)
-    """
-    try:
-        # Security check
-        if '..' in recording_id or '/' in recording_id or '\\' in recording_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid recording ID"
-            )
-        
-        file_path = _resolve_recording_file_path(recording_id)
-        if not file_path:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Recording '{recording_id}' not found"
-            )
-
-        file_path.unlink()
-
-        if file_path.parent == ROLLING_CLIPS_PATH:
-            logger.info(f"Deleted rolling clip '{recording_id}' by user {(current_user.get("username", "unknown") if isinstance(current_user, dict) else current_user.username)}")
-        else:
-            logger.info(
-                "Deleted experiment recording '%s' from '%s' by user %s",
-                recording_id,
-                file_path.parent,
-                (current_user.get("username", "unknown") if isinstance(current_user, dict) else current_user.username)
-            )
-        
-        return ApiResponse(
-            success=True,
-            message=f"Recording '{recording_id}' deleted successfully",
-            data={
-                "recording_id": recording_id,
-                "deleted_by": (current_user.get("username", "unknown") if isinstance(current_user, dict) else current_user.username),
-                "delete_time": datetime.utcnow().isoformat()
-            }
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error deleting recording '{recording_id}': {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete recording '{recording_id}'"
-        )
-
-
-# ============================================================================
-# AUTOMATIC RECORDING AUTOMATION ENDPOINTS
-# ============================================================================
 
 # ========== LIVE STREAMING ENDPOINTS ==========
 
@@ -522,8 +246,6 @@ async def create_streaming_session(
     503 with the reason when the encoder (ffmpeg.exe) is missing.
     """
     try:
-        from backend.services.h264_encoder import EncoderUnavailable
-        from backend.services.live_streaming import get_live_streaming_service
 
         streaming_service = get_live_streaming_service()
 
@@ -550,12 +272,6 @@ async def create_streaming_session(
         
     except EncoderUnavailable as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
-    except ImportError:
-        logger.error("StreamingAPI | event=service_unavailable")
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Live streaming service not available"
-        )
     except HTTPException:
         raise
     except Exception as e:
@@ -577,7 +293,6 @@ async def streaming_websocket(websocket: WebSocket, session_id: str):
         session_id: Streaming session identifier
     """
     try:
-        from backend.services.live_streaming import get_live_streaming_service
         
         streaming_service = get_live_streaming_service()
         
@@ -586,9 +301,6 @@ async def streaming_websocket(websocket: WebSocket, session_id: str):
         
         logger.info(f"Streaming WebSocket session {session_id} completed")
         
-    except ImportError:
-        logger.error("StreamingAPI | event=service_unavailable")
-        await websocket.close(code=4503, reason="Service unavailable")
     except Exception as e:
         logger.error(f"Error in streaming WebSocket {session_id}: {e}")
         try:
@@ -609,35 +321,13 @@ async def get_streaming_status(
         Streaming service status
     """
     try:
-        from backend.services.live_streaming import get_live_streaming_service
         
         streaming_service = get_live_streaming_service()
         service_status = streaming_service.get_status()
         
-        # Include additional system information
-        resource_usage = {
-            "active_sessions": len(service_status.active_sessions),
-            "total_bandwidth_mbps": service_status.total_bandwidth_mbps,
-            "resource_usage_percent": service_status.resource_usage_percent,
-            "priority_mode": service_status.priority_mode,
-            "recording_impact": service_status.recording_impact,
-        }
-        
-        return ApiResponse(
-            success=True,
-            message="Streaming service status retrieved",
-            data={
-                "status": service_status.to_dict(),
-                "resource_usage": resource_usage
-            }
-        )
-        
-    except ImportError:
-        logger.error("StreamingAPI | event=service_unavailable")
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Live streaming service not available"
-        )
+        return ApiResponse(success=True, message="Streaming service status retrieved",
+                           data={"status": service_status})
+
     except Exception as e:
         logger.error(f"Error getting streaming status: {e}")
         raise HTTPException(
@@ -661,7 +351,6 @@ async def stop_streaming_session(
         Success confirmation
     """
     try:
-        from backend.services.live_streaming import get_live_streaming_service
         
         streaming_service = get_live_streaming_service()
         
@@ -685,12 +374,6 @@ async def stop_streaming_session(
             data={"session_id": session_id}
         )
         
-    except ImportError:
-        logger.error("StreamingAPI | event=service_unavailable")
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Live streaming service not available"
-        )
     except HTTPException:
         raise
     except Exception as e:

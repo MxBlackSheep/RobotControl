@@ -117,20 +117,6 @@ class PyHslRunner:
 
     def execute(self, schedule, execution):
         engine = self.engine
-        with engine._jobs_lock:
-            engine._owned_execution_ids.add(execution.execution_id)
-        try:
-            self._execute(schedule, execution)
-        except Exception:
-            # Leave the running row for recovery, including interrupted finalization.
-            logger.exception('Could not finish scheduled PyHSL execution')
-        finally:
-            with engine._jobs_lock:
-                engine._owned_execution_ids.discard(execution.execution_id)
-                engine._running_jobs.discard(schedule.schedule_id)
-
-    def _execute(self, schedule, execution):
-        engine = self.engine
         try:
             resumed = execution.status == 'running'
             if resumed and execution.pyhsl.get('result'):

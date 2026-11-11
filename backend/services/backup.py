@@ -19,57 +19,26 @@ import logging
 import subprocess
 import threading
 import time
+import shutil
 from datetime import datetime
 from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass, asdict
 from pathlib import Path
 
 from backend.utils.data_paths import get_path_manager, get_backups_path
-from backend.utils.odbc_driver import build_connection_string, resolve_driver_clause
 
 logger = logging.getLogger(__name__)
 
-def get_available_disk_space(path: str) -> int:
-    """Get available disk space for given path in bytes"""
-    try:
-        import shutil
-        total, used, free = shutil.disk_usage(path)
-        return free
-    except Exception:
-        # Fallback for systems where shutil.disk_usage isn't available
-        return 0
-
-# Backup Configuration Constants
-# Use relative path approach for both development and compiled modes
-try:
-    from backend.config import settings
-    path_manager = get_path_manager()
-    base_path = path_manager.base_path
-
-    configured_backup_path = str(settings.LOCAL_BACKUP_PATH)
-
-    # Resolve relative to executable/project root directory
-    if os.path.isabs(configured_backup_path):
-        # Already absolute path
-        BACKUP_DIR = configured_backup_path
-    else:
-        # Relative path - resolve from compiled/dev base directory
-        BACKUP_DIR = str((base_path / configured_backup_path).resolve())
-    logger.debug(f"Backup directory resolved to: {BACKUP_DIR}")
-
-except ImportError:
-    # Fallback to the managed data/backups directory
-    BACKUP_DIR = str(get_backups_path())
-    logger.warning(f"Config import failed, using fallback directory: {BACKUP_DIR}")
-SQL_SERVER = "LOCALHOST\\HAMILTON"
-DATABASE_NAME = "EvoYeast"
+from backend.config import settings
+configured_backup_path = Path(settings.LOCAL_BACKUP_PATH)
+BACKUP_DIR = str((get_path_manager().base_path / configured_backup_path).resolve())
 
 # Operation timeouts (in seconds)
 BACKUP_TIMEOUT = 300  # 5 minutes
 RESTORE_TIMEOUT = 600  # 10 minutes
 
 # File validation patterns
-ALLOWED_EXTENSIONS = {'.bak', '.bck', '.json'}
+ALLOWED_EXTENSIONS = {'.bak'}
 MAX_DESCRIPTION_LENGTH = 1000
 MAX_FILENAME_LENGTH = 255
 
@@ -82,13 +51,6 @@ FROM DISK = N'{backup_path}'
 WITH REPLACE; 
 ALTER DATABASE [{database}] SET MULTI_USER;
 """
-
-# Ensure backup directory exists (skip if network path not accessible locally)
-try:
-    os.makedirs(BACKUP_DIR, exist_ok=True)
-except Exception as e:
-    logger.warning(f"Could not create backup directory locally (network path expected): {e}")
-
 
 @dataclass
 class BackupInfo:
@@ -129,10 +91,6 @@ class RestoreResult:
     success: bool
     backup_filename: str
     message: str = ""
-    file_path: Optional[str] = None
-    execution_time_seconds: Optional[float] = None
-    database_name: Optional[str] = None
-    sql_server: Optional[str] = None
     duration_ms: Optional[int] = None
     warnings: Optional[List[str]] = None
     error_details: Optional[str] = None
@@ -226,140 +184,21 @@ class SqlCommandExecutor:
             return False, f"Could not verify backup file: {exc}"
 
 
-def open_restore_connection(timeout: int):
-    """Autocommit connection for restore, or None: integrated login to the local
-    instance first, then the configured development VM login."""
-    import pyodbc
-    from backend.config import settings
-
-    driver = resolve_driver_clause(settings.DB_CONFIG_PRIMARY.get("driver"))
-    if not driver:
-        return None
-    logins = (
-        ("integrated", {"server": SQL_SERVER, "trusted_connection": "yes"}),
-        ("VM", {"server": settings.VM_SQL_SERVER, "user": settings.VM_SQL_USER, "password": settings.VM_SQL_PASSWORD,
-                "encrypt": "no", "trust_server_certificate": "yes"}),
-    )
-    for name, login in logins:
-        try:
-            conn = pyodbc.connect(build_connection_string({"driver": driver, "database": DATABASE_NAME, **login}), timeout=2)
-            conn.timeout = timeout
-            conn.autocommit = True
-            return conn
-        except Exception as exc:
-            logger.debug("%s SQL Server connection failed: %s", name, exc)
-    logger.error("All database connection methods failed")
-    return None
-
-class BackupMetadataStore:
-    """Manage backup metadata files and directory listings."""
-
-    def __init__(self, backup_dir: str) -> None:
-        self.backup_dir = backup_dir
-
-    def metadata_path(self, filename: str) -> str:
-        return os.path.join(self.backup_dir, filename.replace(".bak", ".json"))
-
-    def save(
-        self,
-        filename: str,
-        description: str,
-        database_name: str,
-        sql_server: str,
-        file_size: int,
-    ) -> None:
-        metadata = create_backup_metadata(
-            filename, description, database_name, sql_server, file_size
-        )
-        metadata_path = self.metadata_path(filename)
-        with open(metadata_path, "w", encoding="utf-8") as handle:
-            json.dump(metadata, handle, indent=2, ensure_ascii=False)
-        logger.debug("Metadata file created: %s", metadata_path)
-
-    def list_backups(self) -> List[BackupInfo]:
-        backups: List[BackupInfo] = []
-        try:
-            backup_files = [f for f in os.listdir(self.backup_dir) if f.endswith(".bak")]
-            for backup_file in backup_files:
-                try:
-                    backup_path = os.path.join(self.backup_dir, backup_file)
-                    metadata_path = self.metadata_path(backup_file)
-                    backup_exists = os.path.exists(backup_path)
-                    metadata_exists = os.path.exists(metadata_path)
-                    is_valid = backup_exists and metadata_exists
-
-                    if metadata_exists:
-                        with open(metadata_path, "r", encoding="utf-8") as handle:
-                            metadata = json.load(handle)
-                        current_file_size = os.path.getsize(backup_path) if backup_exists else 0
-                        backups.append(
-                            BackupInfo(
-                                filename=backup_file,
-                                description=metadata.get("description", "No description"),
-                                timestamp=metadata.get("timestamp", ""),
-                                created_date=metadata.get("created_date", ""),
-                                file_size=current_file_size,
-                                file_size_formatted=format_file_size(current_file_size),
-                                is_valid=is_valid,
-                                database_name=metadata.get("database_name"),
-                                sql_server=metadata.get("sql_server"),
-                            )
-                        )
-                    else:
-                        file_size = os.path.getsize(backup_path) if backup_exists else 0
-                        file_stats = os.stat(backup_path) if backup_exists else None
-                        created_time = (
-                            datetime.fromtimestamp(file_stats.st_ctime) if file_stats else datetime.now()
-                        )
-                        backups.append(
-                            BackupInfo(
-                                filename=backup_file,
-                                description="[Orphaned backup - no metadata]",
-                                timestamp=created_time.strftime("%Y%m%d_%H%M%S"),
-                                created_date=created_time.isoformat(),
-                                file_size=file_size,
-                                file_size_formatted=format_file_size(file_size),
-                                is_valid=False,
-                            )
-                        )
-                except Exception as exc:  # pragma: no cover - defensive
-                    logger.warning("Error processing backup file %s: %s", backup_file, exc)
-                    continue
-
-            backups.sort(key=lambda b: b.created_date, reverse=True)
-            logger.info("Found %s backup files", len(backups))
-        except Exception as exc:
-            logger.error("Error listing backups: %s", exc)
-        return backups
-
-    def delete_metadata_file(self, filename: str) -> Tuple[bool, str, Optional[str]]:
-        metadata_filename = filename.replace(".bak", ".json")
-        path = self.metadata_path(filename)
-        if os.path.exists(path):
-            try:
-                os.remove(path)
-                return True, metadata_filename, None
-            except Exception as exc:
-                return False, metadata_filename, str(exc)
-        return False, metadata_filename, None
+def metadata_path(backup_path):
+    return Path(backup_path).with_suffix(".json")
 
 
-class BackupError(Exception):
-    """Generic backup service error"""
-    pass
+def read_metadata(backup_path):
+    path = metadata_path(backup_path)
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
 
 
 class BackupValidationError(Exception):
-    """Exception for backup validation errors"""
-    pass
-
-
-class BackupSecurityError(Exception):
     """Exception for backup security violations"""
     pass
 
 
-class BackupOperationError(Exception):
+class BackupError(Exception):
     """Exception for backup operation failures"""
     pass
 
@@ -376,7 +215,7 @@ def validate_filename(filename: str) -> str:
         
     Raises:
         BackupValidationError: If filename is invalid
-        BackupSecurityError: If filename poses security risk
+        BackupValidationError: If filename poses security risk
     """
     if not filename:
         raise BackupValidationError("Filename cannot be empty")
@@ -386,17 +225,17 @@ def validate_filename(filename: str) -> str:
     
     # Security check: prevent directory traversal
     if '..' in filename or '/' in filename or '\\' in filename:
-        raise BackupSecurityError("Invalid characters in filename")
+        raise BackupValidationError("Invalid characters in filename")
     
     # Check for allowed extensions
     file_ext = Path(filename).suffix.lower()
     if file_ext not in ALLOWED_EXTENSIONS:
-        raise BackupSecurityError(f"Invalid file extension. Allowed: {ALLOWED_EXTENSIONS}")
+        raise BackupValidationError(f"Invalid file extension. Allowed: {ALLOWED_EXTENSIONS}")
     
     # Additional security validation
     forbidden_chars = ['<', '>', ':', '"', '|', '?', '*']
     if any(char in filename for char in forbidden_chars):
-        raise BackupSecurityError("Filename contains forbidden characters")
+        raise BackupValidationError("Filename contains forbidden characters")
     
     return filename
 
@@ -412,7 +251,7 @@ def validate_file_path(file_path: str) -> str:
         Validated path
         
     Raises:
-        BackupSecurityError: If path is outside backup directory
+        BackupValidationError: If path is outside backup directory
     """
     try:
         # Handle network paths and local paths
@@ -422,7 +261,7 @@ def validate_file_path(file_path: str) -> str:
             file_path_norm = os.path.normpath(file_path).lower()
             
             if not file_path_norm.startswith(backup_dir_norm):
-                raise BackupSecurityError("File path outside backup directory")
+                raise BackupValidationError("File path outside backup directory")
             
             return file_path
         else:
@@ -431,13 +270,13 @@ def validate_file_path(file_path: str) -> str:
             backup_dir_abs = os.path.abspath(BACKUP_DIR)
             
             if not abs_path.startswith(backup_dir_abs):
-                raise BackupSecurityError("File path outside backup directory")
+                raise BackupValidationError("File path outside backup directory")
             
             return abs_path
     
     except Exception as e:
         logger.error(f"Path validation error: {e}")
-        raise BackupSecurityError(f"Invalid file path: {e}")
+        raise BackupValidationError(f"Invalid file path: {e}")
 
 
 def format_file_size(size_bytes: int) -> str:
@@ -500,37 +339,6 @@ def generate_backup_filename(database_name: str, timestamp: Optional[datetime] =
     return f"{database_name}_{timestamp_str}.bak"
 
 
-def create_backup_metadata(filename: str, description: str, database_name: str, 
-                          sql_server: str, file_size: int) -> Dict[str, Any]:
-    """
-    Create backup metadata dictionary
-    
-    Args:
-        filename: Backup filename
-        description: User description
-        database_name: Source database name
-        sql_server: Source SQL Server instance
-        file_size: Backup file size in bytes
-        
-    Returns:
-        Metadata dictionary
-    """
-    timestamp = datetime.now()
-    
-    return {
-        "file": filename,
-        "description": description,
-        "timestamp": timestamp.strftime("%Y%m%d_%H%M%S"),
-        "created_date": timestamp.isoformat(),
-        "database_name": database_name,
-        "sql_server": sql_server,
-        "file_size": file_size,
-        "file_size_formatted": format_file_size(file_size),
-        "created_by": "RobotControl Backup Service",
-        "version": "1.0"
-    }
-
-
 class BackupService:
     """
     Database backup and restore service
@@ -542,11 +350,10 @@ class BackupService:
     def __init__(self):
         """Initialize backup service"""
         self.backup_dir = BACKUP_DIR
-        self.sql_server = SQL_SERVER
-        self.database_name = DATABASE_NAME
+        self.sql_server = settings.DB_CONFIG_PRIMARY["server"]
+        self.database_name = settings.DB_CONFIG_PRIMARY["database"]
         self._operation_lock = threading.Lock()
         self._sql_executor = SqlCommandExecutor(self.sql_server, self.database_name)
-        self._metadata_store = BackupMetadataStore(self.backup_dir)
         
         # Ensure backup directory exists (skip if network path not accessible locally)  
         try:
@@ -557,35 +364,20 @@ class BackupService:
         logger.info(f"BackupService initialized - Database: {self.database_name}, Server: {self.sql_server}")
     
     def _recover_database_connections(self, timeout_seconds: int = 30) -> Optional[str]:
-        """Verify the database is reachable after a restore."""
-        deadline = time.time() + timeout_seconds
-        last_error: Optional[str] = None
-
-        while time.time() < deadline:
-            conn = None
+        deadline = time.monotonic() + timeout_seconds
+        last_error = None
+        while (remaining := deadline - time.monotonic()) > 0:
             try:
-                conn = open_restore_connection(timeout=5)
-                if conn:
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT 1")
-                    cursor.fetchone()
-                    cursor.close()
+                success, last_error = self._sql_executor.execute(
+                    f"USE [{self.database_name.replace(']', ']]')}]; SELECT 1;", timeout=min(5, remaining))
+                if success:
                     return None
-                time.sleep(2)  # no login succeeded; wait as after an error
             except Exception as exc:
                 last_error = str(exc)
-                time.sleep(2)
-            finally:
-                if conn:
-                    try:
-                        conn.close()
-                    except Exception:
-                        pass
+            time.sleep(min(2, max(0, deadline - time.monotonic())))
+        return (f"Database connectivity check after restore failed: {last_error}" if last_error
+                else "Database connectivity check after restore timed out")
 
-        if last_error:
-            return f"Database connectivity check after restore failed: {last_error}"
-        return "Database connectivity check after restore timed out"
-    
     def create_backup(self, description: str) -> BackupResult:
         """
         Create database backup with comprehensive logging and monitoring
@@ -623,12 +415,12 @@ class BackupService:
                 # Chosen under the lock, when the backup starts: overlapping creates must not share a name.
                 backup_filename = self._unused_backup_filename()
                 backup_file_path = validate_file_path(os.path.join(self.backup_dir, backup_filename))
-                validate_file_path(backup_file_path.replace('.bak', '.json'))
+                validate_file_path(str(metadata_path(backup_file_path)))
                 logger.debug(f"Backup paths validated - File: {backup_file_path}")
 
                 # Check available disk space
                 try:
-                    available_space = get_available_disk_space(self.backup_dir)
+                    available_space = shutil.disk_usage(self.backup_dir).free
                     logger.info(f"Available disk space: {format_file_size(available_space)}")
                     
                 except Exception as e:
@@ -638,16 +430,13 @@ class BackupService:
                 # run on this machine or see BACKUP_DIR under the same name.
                 success, message = self._sql_executor.perform_backup(backup_file_path)
                 if not success:
-                    raise BackupOperationError(
-                        f"SQL Server backup failed: {message}",
-                        "SQL_BACKUP_FAILED"
-                    )
+                    raise BackupError(f"SQL Server backup failed: {message}")
 
                 logger.debug("Backup command executed successfully via sqlcmd: %s", message)
 
                 # Verify backup file was created and get size
                 if not os.path.exists(backup_file_path):
-                    raise BackupOperationError("Backup file was not created by SQL Server", "FILE_NOT_CREATED")
+                    raise BackupError("Backup file was not created by SQL Server")
 
                 # Get the completed backup size
                 file_size = os.path.getsize(backup_file_path)
@@ -656,7 +445,7 @@ class BackupService:
 
                 # Save metadata alongside the backup, still under the lock so a delete cannot
                 # run between the .bak and its .json.
-                self._metadata_store.save(
+                self._save_metadata(
                     backup_filename,
                     description.strip(),
                     self.database_name,
@@ -674,15 +463,19 @@ class BackupService:
                 duration_ms=duration_ms
             )
 
-        except (BackupValidationError, BackupSecurityError) as e:
+        except BackupValidationError as e:
             logger.exception("Backup creation failed after %sms", int((time.perf_counter() - start_time) * 1000))
-            raise BackupOperationError(str(e), "VALIDATION_ERROR")
+            raise BackupError(str(e))
+
+        except BackupError:
+            logger.exception("Backup creation failed")
+            raise
 
         except Exception as e:
             logger.exception("Backup creation failed after %sms", int((time.perf_counter() - start_time) * 1000))
             # Log additional context for unexpected errors
             logger.debug(f"Backup operation context - File: {backup_file_path}, Description length: {len(description)}")
-            raise BackupOperationError(f"Unexpected error during backup: {str(e)}", "UNEXPECTED_ERROR")
+            raise BackupError(f"Unexpected error during backup: {str(e)}")
 
     def _unused_backup_filename(self) -> str:
         """Call under _operation_lock. Names are per second and BACKUP ... WITH INIT overwrites,
@@ -690,20 +483,43 @@ class BackupService:
         base = generate_backup_filename(self.database_name)
         name, attempt = base, 1
         while any(os.path.exists(os.path.join(self.backup_dir, candidate))
-                  for candidate in (name, name.replace('.bak', '.json'))):
+                  for candidate in (name, str(Path(name).with_suffix(".json")))):
             attempt += 1
             name = base.replace('.bak', f'_{attempt}.bak')
         return name
 
+    def _save_metadata(self, filename, description, database_name, sql_server, file_size):
+        timestamp = datetime.now()
+        metadata = dict(file=filename, description=description, timestamp=timestamp.strftime("%Y%m%d_%H%M%S"),
+            created_date=timestamp.isoformat(), database_name=database_name, sql_server=sql_server,
+            file_size=file_size, file_size_formatted=format_file_size(file_size),
+            created_by="RobotControl Backup Service", version="1.0")
+        path = metadata_path(Path(self.backup_dir) / filename)
+        path.write_text(json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8")
+        logger.debug("Metadata file created: %s", path)
+
     def list_backups(self) -> List[BackupInfo]:
-        """
-        List all available backups with metadata
-        
-        Returns:
-            List of BackupInfo objects
-        """
-        return self._metadata_store.list_backups()
-    
+        backups = []
+        try:
+            for path in Path(self.backup_dir).glob("*.bak"):
+                try:
+                    metadata = read_metadata(path)
+                    stat = path.stat()
+                    created = datetime.fromtimestamp(stat.st_ctime)
+                    values = metadata or dict(description="[Orphaned backup - no metadata]",
+                        timestamp=created.strftime("%Y%m%d_%H%M%S"), created_date=created.isoformat())
+                    backups.append(BackupInfo(filename=path.name, description=values.get("description", "No description"),
+                        timestamp=values.get("timestamp", ""), created_date=values.get("created_date", ""),
+                        file_size=stat.st_size, file_size_formatted=format_file_size(stat.st_size),
+                        is_valid=metadata is not None, database_name=values.get("database_name"), sql_server=values.get("sql_server")))
+                except Exception as exc:
+                    logger.warning("Error processing backup file %s: %s", path.name, exc)
+            backups.sort(key=lambda item: item.created_date, reverse=True)
+            logger.info("Found %s backup files", len(backups))
+        except Exception as exc:
+            logger.error("Error listing backups: %s", exc)
+        return backups
+
     def _restore_database(self, backup_path: str, warnings: List[str]) -> Tuple[bool, str]:
         """Run under the caller's operation lock; recover MULTI_USER on SQL failure or timeout."""
         command = SQL_RESTORE_TEMPLATE.format(
@@ -725,95 +541,23 @@ class BackupService:
         return success, message
 
     def restore_backup(self, filename: str) -> RestoreResult:
-        """
-        Restore database from backup file
-        
-        Args:
-            filename: Name of backup file to restore from
-            
-        Returns:
-            RestoreResult with operation status and details
-        """
-        start_time = datetime.now()
-        warnings = []
-        
+        """Resolve a managed backup before entering the shared restore operation."""
         try:
-            # Validate filename
             filename = validate_filename(filename)
-            
-            backup_path = os.path.join(self.backup_dir, filename)
-            metadata_path = backup_path.replace('.bak', '.json')
-            
-            # Validate paths
-            backup_path = validate_file_path(backup_path)
-            metadata_path = validate_file_path(metadata_path)
-            
-            # Check if backup file exists
-            if not os.path.exists(backup_path):
-                return RestoreResult(
-                    success=False,
-                    message=f"Backup file not found: {filename}",
-                    backup_filename=filename
-                )
-            
-            # Load metadata for validation (if exists)
-            metadata = None
-            if os.path.exists(metadata_path):
-                try:
-                    with open(metadata_path, 'r', encoding='utf-8') as f:
-                        metadata = json.load(f)
-                except Exception as e:
-                    warnings.append(f"Could not load metadata: {e}")
-            else:
-                warnings.append("No metadata file found - proceeding with caution")
-            
-            with self._operation_lock:
-                success, message = self._restore_database(backup_path, warnings)
-                if not success:
-                    error_msg = f"SQL Server restore failed: {message}"
-                    return RestoreResult(
-                        success=False,
-                        message="Database restore failed",
-                        backup_filename=filename,
-                        error_details=error_msg,
-                        warnings=warnings if warnings else None
-                    )
-                
-                # Calculate duration
-                duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
-                
-                logger.info(f"Restore completed successfully from: {filename}")
-                recovery_warning = self._recover_database_connections()
-                if recovery_warning:
-                    warnings.append(recovery_warning)
-                
-                return RestoreResult(
-                    success=True,
-                    message="Database restored successfully",
-                    backup_filename=filename,
-                    duration_ms=duration_ms,
-                    warnings=warnings if warnings else None
-                )
-                
-        except (BackupValidationError, BackupSecurityError) as e:
-            logger.error(f"Validation error during restore: {e}")
-            return RestoreResult(
-                success=False,
-                message=str(e),
-                backup_filename=filename
-            )
-            
-        except Exception as e:
-            logger.error(f"Unexpected error during restore: {e}")
-            return RestoreResult(
-                success=False,
-                message="An unexpected error occurred during restore",
-                backup_filename=filename,
-                error_details=str(e),
-                warnings=warnings if warnings else None
-            )
-    
-    def restore_backup_from_path(self, file_path: str) -> RestoreResult:
+            path = validate_file_path(os.path.join(self.backup_dir, filename))
+            sidecar = validate_file_path(str(Path(path).with_suffix('.json')))
+            if not os.path.exists(path):
+                return RestoreResult(False, filename, f"Backup file not found: {filename}")
+            warnings = [] if os.path.exists(sidecar) else ["No metadata file found - proceeding with caution"]
+            return self.restore_backup_from_path(path, warnings)
+        except BackupValidationError as exc:
+            logger.error("Validation error during restore: %s", exc)
+            return RestoreResult(False, filename, str(exc))
+        except Exception as exc:
+            logger.error("Unexpected error during restore: %s", exc)
+            return RestoreResult(False, filename, "An unexpected error occurred during restore", error_details=str(exc))
+
+    def restore_backup_from_path(self, file_path: str, warnings=None) -> RestoreResult:
         """
         Restore database from backup file using full file path (for .bck files without metadata)
         
@@ -824,7 +568,7 @@ class BackupService:
             RestoreResult with operation status and details
         """
         start_time = datetime.now()
-        warnings = []
+        warnings = list(warnings or [])
         
         try:
             from pathlib import Path
@@ -855,21 +599,14 @@ class BackupService:
 
                 logger.info("Database restore completed in %sms", int((datetime.now() - start_time).total_seconds() * 1000))
 
-            # Create successful result
-            execution_time = (datetime.now() - start_time).total_seconds()
-
-            recovery_warning = self._recover_database_connections()
-            if recovery_warning:
-                warnings.append(recovery_warning)
+                recovery_warning = self._recover_database_connections()
+                if recovery_warning:
+                    warnings.append(recovery_warning)
             
             return RestoreResult(
                 success=True,
                 message="Database restored successfully",
                 backup_filename=backup_path.name,
-                file_path=str(backup_path),
-                execution_time_seconds=execution_time,
-                database_name=self.database_name,
-                sql_server=self.sql_server,
                 warnings=warnings if warnings else None
             )
             
@@ -881,8 +618,6 @@ class BackupService:
                 success=False,
                 message="Database restore failed",
                 backup_filename=Path(file_path).name if file_path else 'unknown',
-                file_path=file_path,
-                execution_time_seconds=execution_time,
                 error_details=str(e),
                 warnings=warnings if warnings else None
             )
@@ -901,43 +636,23 @@ class BackupService:
             # Validate filename
             filename = validate_filename(filename)
             
-            backup_path = os.path.join(self.backup_dir, filename)
-            metadata_path = backup_path.replace('.bak', '.json')
-            
-            # Validate paths
-            backup_path = validate_file_path(backup_path)
-            metadata_path = validate_file_path(metadata_path)
-            
-            files_deleted = []
-            errors = []
-
-            # Wait for any running create or restore, which may be writing or reading this file.
+            backup_path = validate_file_path(os.path.join(self.backup_dir, filename))
+            metadata = validate_file_path(str(metadata_path(backup_path)))
+            files_deleted, errors = [], []
             with self._operation_lock:
-                # Delete backup file
-                if os.path.exists(backup_path):
+                for label, path in (("backup", backup_path), ("metadata", metadata)):
+                    name = Path(path).name
+                    if not os.path.exists(path):
+                        logger.warning("%s file not found: %s", label.capitalize(), name)
+                        continue
                     try:
-                        os.remove(backup_path)
-                        files_deleted.append(filename)
-                        logger.info(f"Deleted backup file: {filename}")
-                    except Exception as e:
-                        error_msg = f"Failed to delete backup file: {e}"
-                        logger.error(error_msg)
-                        errors.append(error_msg)
-                else:
-                    logger.warning(f"Backup file not found: {filename}")
-
-                # Delete metadata file
-                deleted_metadata, metadata_filename, metadata_error = self._metadata_store.delete_metadata_file(filename)
-                if deleted_metadata:
-                    files_deleted.append(metadata_filename)
-                    logger.info(f"Deleted metadata file: {metadata_filename}")
-                else:
-                    if metadata_error:
-                        error_msg = f"Failed to delete metadata file: {metadata_error}"
-                        logger.error(error_msg)
-                        errors.append(error_msg)
-                    else:
-                        logger.warning(f"Metadata file not found: {metadata_filename}")
+                        os.remove(path)
+                        files_deleted.append(name)
+                        logger.info("Deleted %s file: %s", label, name)
+                    except Exception as exc:
+                        error = f"Failed to delete {label} file: {exc}"
+                        errors.append(error)
+                        logger.error(error)
 
             # Determine overall success
             if files_deleted and not errors:
@@ -965,7 +680,7 @@ class BackupService:
                     "errors": errors
                 }
                 
-        except (BackupValidationError, BackupSecurityError) as e:
+        except BackupValidationError as e:
             logger.error(f"Validation error during delete: {e}")
             return {
                 "success": False,
@@ -994,10 +709,8 @@ def get_backup_service() -> BackupService:
     """
     global _backup_service_instance
     
-    if _backup_service_instance is None:
-        with _service_lock:
-            if _backup_service_instance is None:
-                _backup_service_instance = BackupService()
-                logger.info("BackupService singleton instance created")
-    
+    with _service_lock:
+        if _backup_service_instance is None:
+            _backup_service_instance = BackupService()
+            logger.info("BackupService singleton instance created")
     return _backup_service_instance

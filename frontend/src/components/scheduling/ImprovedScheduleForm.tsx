@@ -1,17 +1,3 @@
-/**
- * Improved Schedule Form Component
- * 
- * Modular form for creating and editing scheduled experiments.
- * Follows "let the user choose" principle with dropdowns instead of text input.
- * 
- * Features:
- * - Experiment selection from discovered files (grouped by category)
- * - Database step to run before the method (PreparationStepField)
- * - Auto-populated fields based on selection
- * - Validation and error handling
- * - Responsive layout
- */
-
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { isAxiosError } from 'axios';
 import { useTheme } from '@mui/material/styles';
@@ -21,7 +7,7 @@ import { useAuth } from '../../context/AuthContext';
 import { isLocalUser } from '../navigation';
 import PreparationStepField from './PreparationStepField';
 import PyHslProtocolField, { type CheckedProtocol } from './PyHslProtocolField';
-import type { LegacyPreparation, PinnedPreparation, PreparationState, PreparationStep, ScheduleMode, ScheduleRunner } from '../../types/scheduling';
+import type { LibraryMethod, NotificationContact, ScheduledExperiment, ScheduleFormValues, ScheduleRunner, ScheduleType, TimeoutAction } from '../../types/scheduling';
 import { StatusMessage } from '../StatusDialog';
 import {
   Dialog,
@@ -56,7 +42,6 @@ import {
   CheckBox as CheckBoxIcon
 } from '@mui/icons-material';
 import { schedulingAPI } from '../../services/schedulingApi';
-import { NotificationContact } from '../../types/scheduling';
 
 interface ExperimentFile {
   name: string;
@@ -67,183 +52,136 @@ interface ExperimentFile {
   file_size: number;
 }
 
-interface ScheduleFormData {
-  experiment_name: string;
-  experiment_path: string;
-  schedule_type: 'once' | 'interval' | 'daily' | 'weekly';
-  interval_hours: number;
-  start_time: string | null;
-  estimated_duration: number;
-  log_inactivity_threshold_minutes: number;
-  mode: ScheduleMode;
-  runner?: ScheduleRunner;
-  protocol_id?: string;
-  parameters?: Record<string, unknown>;
-  /** Undefined until the administrator changes the database step; then sent (null removes it). */
-  preparation?: PreparationStep | null;
-  notification_contacts: string[];
-  is_active: boolean;
-  timeout_minutes: number | null;
-  timeout_action: 'continue' | 'run_cleanup_and_terminate';
-  timeout_cleanup_experiment_name: string | null;
-  timeout_cleanup_experiment_path: string | null;
+/** A record under review opens with no type chosen: the form may not offer the stored one. */
+type Draft = Omit<ScheduleFormValues, 'schedule_type'> & { schedule_type: ScheduleType | '' };
+
+const defaults: Draft = {
+  experiment_name: '',
+  experiment_path: '',
+  schedule_type: 'once',
+  interval_hours: 6,
+  start_time: null,
+  estimated_duration: 55,
+  log_inactivity_threshold_minutes: 3,
+  mode: 'real',
+  runner: 'venus',
+  notification_contacts: [],
+  is_active: true,
+  timeout_minutes: null,
+  timeout_action: 'continue',
+  timeout_cleanup_experiment_name: null,
+  timeout_cleanup_experiment_path: null,
+};
+
+/** A stored ISO time as the datetime-local input's text, at the browser's offset. */
+const inputTime = (iso?: string | null) => {
+  const date = iso ? new Date(iso) : null;
+  if (!date || Number.isNaN(date.getTime())) return null;
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+};
+
+/** The draft a form opens with: the stored schedule, or a new one (from a library method). */
+function startingDraft(schedule?: ScheduledExperiment, method?: LibraryMethod): Draft {
+  if (!schedule) return method ? { ...defaults, experiment_name: method.method_name, experiment_path: method.file_path } : defaults;
+  return {
+    experiment_name: schedule.experiment_name,
+    experiment_path: schedule.experiment_path,
+    schedule_type: schedule.review_reason ? '' : schedule.schedule_type,
+    interval_hours: schedule.interval_hours ?? defaults.interval_hours,
+    start_time: inputTime(schedule.start_time),
+    estimated_duration: schedule.estimated_duration,
+    log_inactivity_threshold_minutes: schedule.log_inactivity_threshold_minutes,
+    mode: schedule.mode,
+    runner: schedule.runner,
+    protocol_id: schedule.protocol_id ?? undefined,
+    parameters: schedule.parameters,
+    is_active: schedule.is_active,
+    timeout_minutes: schedule.timeout_config?.timeout_minutes ?? null,
+    timeout_action: schedule.timeout_config?.action ?? 'continue',
+    timeout_cleanup_experiment_name: schedule.timeout_config?.cleanup_experiment_name ?? null,
+    timeout_cleanup_experiment_path: schedule.timeout_config?.cleanup_experiment_path ?? null,
+    notification_contacts: schedule.notification_contacts ?? [],
+  };
 }
+
+const intervalPresets = [
+  { label: 'Every 6 hours', hours: 6 },
+  { label: 'Every 8 hours', hours: 8 },
+  { label: 'Every 12 hours', hours: 12 },
+  { label: 'Daily (24 hours)', hours: 24 },
+];
 
 interface ImprovedScheduleFormProps {
-  open: boolean;
+  /** The stored schedule to edit, as it was when the form opened; none creates a schedule. */
+  schedule?: ScheduledExperiment;
+  /** A library method a new schedule starts from. */
+  method?: LibraryMethod;
   onClose: () => void;
-  onSubmit: (data: ScheduleFormData) => Promise<void>;
-  initialData?: Partial<ScheduleFormData>;
-  mode?: 'create' | 'edit';
+  onSubmit: (values: ScheduleFormValues) => Promise<void>;
   contacts: NotificationContact[];
   catalogueVersion?: number;
-  /** The schedule's saved, pinned database step and its derived state (edit mode). */
-  savedPreparation?: PinnedPreparation | null;
-  preparationState?: PreparationState;
-  /** Retired adapter tokens of an older schedule, prefilled as its database step. */
-  legacyPreparation?: LegacyPreparation | null;
 }
 
+/**
+ * Create or edit one schedule. The parent mounts it for each opening, so the draft starts from a
+ * snapshot and a background refresh never changes it.
+ */
 const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
-  open,
+  schedule,
+  method,
   onClose,
   onSubmit,
-  initialData,
-  mode = 'create',
   contacts,
   catalogueVersion = 0,
-  savedPreparation = null,
-  preparationState,
-  legacyPreparation = null,
 }) => {
   const { user } = useAuth();
+  const mode = schedule ? 'edit' : 'create';
   const [protocolChecked, setProtocolChecked] = useState(false);
   const canEditPreparation = user?.role === 'admin' && isLocalUser(user);
-  // Form state
-  const [formData, setFormData] = useState<ScheduleFormData>({
-    experiment_name: '',
-    experiment_path: '',
-    schedule_type: 'once',
-    interval_hours: 6,
-    start_time: null,
-    estimated_duration: 55,
-    log_inactivity_threshold_minutes: 3,
-    mode: 'real',
-    notification_contacts: initialData?.notification_contacts ?? [],
-    is_active: true,
-    timeout_minutes: null,
-    timeout_action: 'continue',
-    timeout_cleanup_experiment_name: null,
-    timeout_cleanup_experiment_path: null,
-    ...initialData
-  });
-
-  const intervalPresets = [
-    { label: 'Every 6 hours', value: '6', hours: 6 },
-    { label: 'Every 8 hours', value: '8', hours: 8 },
-    { label: 'Every 12 hours', value: '12', hours: 12 },
-    { label: 'Daily (24 hours)', value: '24', hours: 24 },
-  ];
-
-  const computeCustomInterval = (hoursValue: number | undefined) => {
-    const safeHours = typeof hoursValue === "number" && !Number.isNaN(hoursValue) ? hoursValue : 0;
-    const totalMinutes = Math.max(1, Math.round(safeHours * 60));
-    return {
-      hours: Math.floor(totalMinutes / 60),
-      minutes: totalMinutes % 60,
-    };
-  };
-
-  const [intervalSelection, setIntervalSelection] = useState<string>(() => {
-    const preset = intervalPresets.find(p => p.hours === (initialData?.interval_hours ?? 6));
-    return preset ? preset.value : 'custom';
-  });
-
-  const [customInterval, setCustomInterval] = useState<{ hours: number; minutes: number }>(() => {
-    if (initialData?.interval_hours && !intervalPresets.some(p => p.hours === initialData.interval_hours)) {
-      return computeCustomInterval(initialData.interval_hours);
-    }
-    return { hours: 1, minutes: 0 };
-  });
-
+  const [initialDraft] = useState(() => startingDraft(schedule, method));
+  const [formData, setFormData] = useState<Draft>(initialDraft);
+  // The interval is stored once (interval_hours); only whether Custom is chosen is kept apart.
+  const [customInterval, setCustomInterval] = useState(() => !intervalPresets.some(preset => preset.hours === initialDraft.interval_hours));
+  const intervalMinutes = Math.round(formData.interval_hours * 60);
   const checkboxIcon = <CheckBoxOutlineBlankIcon fontSize="small" />;
   const checkboxCheckedIcon = <CheckBoxIcon fontSize="small" />;
   const selectedContacts = useMemo(
     () => contacts.filter((contact) => formData.notification_contacts.includes(contact.contact_id)),
     [contacts, formData.notification_contacts],
   );
-  const minimumStartTime = useMemo(() => {
-    const now = new Date();
-    now.setSeconds(0, 0);
-    const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
-    return local.toISOString().slice(0, 16);
-  }, [open]);
+  const [minimumStartTime] = useState(() => inputTime(new Date().toISOString()) ?? '');
 
-
-  useEffect(() => {
-    if (formData.schedule_type !== 'interval') {
-      return;
-    }
-
-    const preset = intervalPresets.find(p => p.hours === formData.interval_hours);
-    if (preset) {
-      setIntervalSelection(preset.value);
-    } else if (typeof formData.interval_hours === 'number' && !Number.isNaN(formData.interval_hours)) {
-      setIntervalSelection('custom');
-      setCustomInterval(computeCustomInterval(formData.interval_hours));
-    }
-  }, [formData.schedule_type, formData.interval_hours, open]);
-
-  const handleIntervalSelectionChange = (value: string) => {
-    setIntervalSelection(value);
-    if (value === 'custom') {
-      const totalMinutes = customInterval.hours * 60 + customInterval.minutes;
-      if (totalMinutes <= 0) {
-        setCustomInterval({ hours: 1, minutes: 0 });
-        setFormData(prev => ({ ...prev, interval_hours: 1 }));
-      } else {
-        setFormData(prev => ({ ...prev, interval_hours: totalMinutes / 60 }));
-      }
-    } else {
-      const hoursValue = Number(value);
-      setFormData(prev => ({ ...prev, interval_hours: hoursValue }));
-    }
+  const chooseInterval = (value: string) => {
+    setCustomInterval(value === 'custom');
+    if (value !== 'custom') setFormData(prev => ({ ...prev, interval_hours: Number(value) }));
   };
-
-  const handleCustomIntervalChange = (part: 'hours' | 'minutes', rawValue: number) => {
-    const parsed = Number.isFinite(rawValue) ? Math.floor(rawValue) : 0;
-    const next = {
-      hours: part === 'hours' ? Math.max(0, parsed) : customInterval.hours,
-      minutes: part === 'minutes' ? Math.max(0, Math.min(59, parsed)) : customInterval.minutes,
-    };
-    setCustomInterval(next);
-    setIntervalSelection('custom');
-    const totalMinutes = next.hours * 60 + next.minutes;
-    setFormData(prev => ({ ...prev, interval_hours: totalMinutes > 0 ? totalMinutes / 60 : 0 }));
+  const changeCustomInterval = (part: 'hours' | 'minutes', rawValue: number) => {
+    const parsed = Number.isFinite(rawValue) ? Math.max(0, Math.floor(rawValue)) : 0;
+    const hours = part === 'hours' ? parsed : Math.floor(intervalMinutes / 60);
+    const minutes = part === 'minutes' ? Math.min(59, parsed) : intervalMinutes % 60;
+    setFormData(prev => ({ ...prev, interval_hours: (hours * 60 + minutes) / 60 }));
   };
 
   // UI state
   const fullScreen = useMediaQuery(useTheme().breakpoints.down('md'));
-  const initialDraft = useRef('');
   const [confirmDiscard, setConfirmDiscard] = useState(false);
-  const dirty = initialDraft.current !== '' && JSON.stringify(formData) !== initialDraft.current;
+  const dirty = JSON.stringify(formData) !== JSON.stringify(initialDraft);
   const requestClose = () => {
     if (loading) return;
     if (dirty) setConfirmDiscard(true);
     else onClose();
   };
   useEffect(() => {
-    if (!open || !dirty) return;
+    if (!dirty) return;
     const protectDraft = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
     window.addEventListener('beforeunload', protectDraft);
     return () => window.removeEventListener('beforeunload', protectDraft);
-  }, [open, dirty]);
+  }, [dirty]);
   const [loading, setLoading] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [experiments, setExperiments] = useState<ExperimentFile[]>([]);
   const [notice, setNotice] = useState<StatusMessage | null>(null);
 
-  const initializedSession = useRef(false);
   const experimentControlRef = useRef<HTMLDivElement>(null);
 
   const loadExperiments = useCallback(async () => {
@@ -268,78 +206,8 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
     }
   }, []);
 
-  const previousCatalogueVersion = useRef(catalogueVersion);
-  useEffect(() => {
-    if (previousCatalogueVersion.current === catalogueVersion) return;
-    previousCatalogueVersion.current = catalogueVersion;
-    if (open) void loadExperiments();
-  }, [catalogueVersion, open, loadExperiments]);
-
-  useEffect(() => {
-    if (!open) {
-      initializedSession.current = false;
-      return;
-    }
-
-    if (initializedSession.current) return;
-    initializedSession.current = true;
-    setNotice(null);
-
-    const defaultFormData: ScheduleFormData = {
-      experiment_name: '',
-      experiment_path: '',
-      schedule_type: 'once',
-      interval_hours: 6,
-      start_time: null,
-      estimated_duration: 55,
-    log_inactivity_threshold_minutes: 3,
-      mode: 'real',
-      notification_contacts: [],
-      is_active: true,
-      timeout_minutes: null,
-      timeout_action: 'continue',
-      timeout_cleanup_experiment_name: null,
-      timeout_cleanup_experiment_path: null,
-    };
-
-    const mergedData: ScheduleFormData = {
-      ...defaultFormData,
-      ...initialData,
-      start_time: initialData?.start_time ?? null,
-      // With retired tokens an administrator's form always holds an explicit step (the suggestion,
-      // else the saved step, else none), so saving sends it and the server replaces the tokens.
-      preparation: canEditPreparation && legacyPreparation
-        ? legacyPreparation.suggestion ?? (savedPreparation ? { tool_id: savedPreparation.tool_id, inputs: savedPreparation.inputs } : null)
-        : undefined,
-      notification_contacts: initialData?.notification_contacts ?? defaultFormData.notification_contacts,
-      timeout_minutes: initialData?.timeout_minutes ?? defaultFormData.timeout_minutes,
-      timeout_action: initialData?.timeout_action ?? defaultFormData.timeout_action,
-      timeout_cleanup_experiment_name:
-        initialData?.timeout_cleanup_experiment_name ?? defaultFormData.timeout_cleanup_experiment_name,
-      timeout_cleanup_experiment_path:
-        initialData?.timeout_cleanup_experiment_path ?? defaultFormData.timeout_cleanup_experiment_path,
-    };
-
-    initialDraft.current = JSON.stringify(mergedData);
-    setConfirmDiscard(false);
-    setFormData(mergedData);
-
-    const intervalHours =
-      typeof mergedData.interval_hours === 'number' && !Number.isNaN(mergedData.interval_hours)
-        ? mergedData.interval_hours
-        : defaultFormData.interval_hours;
-
-    if (mergedData.schedule_type === 'interval') {
-      const preset = intervalPresets.find((preset) => preset.hours === intervalHours);
-      setIntervalSelection(preset ? preset.value : 'custom');
-      setCustomInterval(computeCustomInterval(intervalHours));
-    } else {
-      setIntervalSelection('custom');
-      setCustomInterval({ hours: 1, minutes: 0 });
-    }
-
-    loadExperiments();
-  }, [open, initialData, loadExperiments, canEditPreparation, legacyPreparation, savedPreparation]);
+  // Opening and every library change (import, relink) read the methods again.
+  useEffect(() => { void loadExperiments(); }, [catalogueVersion, loadExperiments]);
 
   const pyhsl = formData.runner === 'pyhsl';
   const chooseRunner = (runner: ScheduleRunner) => setFormData(prev => runner === 'pyhsl'
@@ -371,7 +239,8 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
     }));
   };
 
-  const validateForm = (): boolean => {
+  /** The values to save, or null after showing what is missing. */
+  const validateForm = (): ScheduleFormValues | null => {
     const newErrors: string[] = [];
 
     if (pyhsl ? !protocolChecked : !formData.experiment_path) {
@@ -387,6 +256,10 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
     }
     if (formData.estimated_duration <= 0) {
       newErrors.push('Estimated duration must be greater than 0');
+    }
+
+    if (!formData.schedule_type) {
+      newErrors.push('Choose a schedule type');
     }
 
     if (formData.schedule_type === 'interval' && formData.interval_hours <= 0) {
@@ -413,25 +286,26 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
       newErrors.push('Select a cleanup method for timeout action');
     }
 
-    if (newErrors.length > 0) {
+    if (newErrors.length > 0 || !formData.schedule_type) {
       setNotice({
         message: newErrors.join('\n'),
         severity: 'warning',
       });
-      return false;
+      return null;
     }
 
-    return true;
+    return { ...formData, schedule_type: formData.schedule_type };
   };
 
   const handleSubmit = async () => {
-    if (!validateForm()) {
+    const values = validateForm();
+    if (!values) {
       return;
     }
 
+    setLoading(true);
     try {
-      setLoading(true);
-      await onSubmit(formData);
+      await onSubmit(values);
       onClose();
     } catch (error) {
       setNotice({
@@ -448,7 +322,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
   return (
     <>
       <Dialog
-      open={open}
+      open
       TransitionProps={{ onEntered: () => experimentControlRef.current?.querySelector<HTMLElement>('button')?.focus({ preventScroll: true }) }}
       onClose={!loading ? requestClose : undefined}
       maxWidth="md"
@@ -521,10 +395,11 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
               <Grid container spacing={2}>
                 <Grid item xs={12} md={6}>
                   <FormControl fullWidth>
-                    <InputLabel>Schedule Type</InputLabel>
+                    <InputLabel id="schedule-type-label">Schedule Type</InputLabel>
                     <Select
+                      labelId="schedule-type-label"
                       value={formData.schedule_type}
-                      onChange={(e) => setFormData({ ...formData, schedule_type: e.target.value as any })}
+                      onChange={(e) => setFormData({ ...formData, schedule_type: e.target.value as ScheduleType })}
                       label="Schedule Type"
                     >
                       <MenuItem value="once">Run Once</MenuItem>
@@ -538,21 +413,22 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                 {formData.schedule_type === 'interval' && (
                   <Grid item xs={12} md={6}>
                     <FormControl fullWidth>
-                      <InputLabel>Interval</InputLabel>
+                      <InputLabel id="schedule-interval-label">Interval</InputLabel>
                       <Select
-                        value={intervalSelection}
-                        onChange={(e) => handleIntervalSelectionChange(e.target.value as string)}
+                        labelId="schedule-interval-label"
+                        value={customInterval ? 'custom' : String(formData.interval_hours)}
+                        onChange={(e) => chooseInterval(e.target.value as string)}
                         label="Interval"
                       >
                         {intervalPresets.map(preset => (
-                          <MenuItem key={preset.value} value={preset.value}>
+                          <MenuItem key={preset.hours} value={String(preset.hours)}>
                             {preset.label}
                           </MenuItem>
                         ))}
                         <MenuItem value="custom">Custom interval</MenuItem>
                       </Select>
                     </FormControl>
-                    {intervalSelection === 'custom' && (
+                    {customInterval && (
                       <>
                         <Stack
                           direction={{ xs: 'column', sm: 'row' }}
@@ -563,20 +439,20 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                             label="Hours"
                             type="number"
                             inputProps={{ min: 0 }}
-                            value={customInterval.hours}
-                            onChange={(e) => handleCustomIntervalChange('hours', Number(e.target.value))}
+                            value={Math.floor(intervalMinutes / 60)}
+                            onChange={(e) => changeCustomInterval('hours', Number(e.target.value))}
                             fullWidth
                           />
                           <TextField
                             label="Minutes"
                             type="number"
                             inputProps={{ min: 0, max: 59 }}
-                            value={customInterval.minutes}
-                            onChange={(e) => handleCustomIntervalChange('minutes', Number(e.target.value))}
+                            value={intervalMinutes % 60}
+                            onChange={(e) => changeCustomInterval('minutes', Number(e.target.value))}
                             fullWidth
                           />
                         </Stack>
-                        {customInterval.hours * 60 + customInterval.minutes < 1 && (
+                        {intervalMinutes < 1 && (
                           <Typography variant="caption" color="error" sx={{ display: 'block', mt: 1 }}>
                             Minimum interval is 1 minute.
                           </Typography>
@@ -626,7 +502,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                       onChange={(e) =>
                         setFormData((prev) => ({
                           ...prev,
-                          timeout_action: e.target.value as 'continue' | 'run_cleanup_and_terminate',
+                          timeout_action: e.target.value as TimeoutAction,
                           timeout_cleanup_experiment_name:
                             e.target.value === 'run_cleanup_and_terminate'
                               ? prev.timeout_cleanup_experiment_name
@@ -754,11 +630,10 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
               <Stack spacing={2}>
                 {canEditPreparation && <Button sx={{ alignSelf: 'flex-start' }} href="/database?section=settings" target="_blank" rel="noopener">Database settings</Button>}
                 <PreparationStepField
-                  saved={savedPreparation}
-                  state={preparationState}
+                  saved={schedule?.preparation ?? null}
+                  state={schedule?.preparation_state}
                   value={formData.preparation}
                   editable={canEditPreparation}
-                  legacy={legacyPreparation}
                   onChange={(preparation) => setFormData(prev => ({ ...prev, preparation }))}
                 />
               </Stack>

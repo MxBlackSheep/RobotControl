@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, FormControlLabel, LinearProgress, MenuItem, Paper, Stack, Step, StepLabel, Stepper, TextField, Typography } from '@mui/material';
 import { api } from '../services/api';
-import ReportInputs, { changedInputs, ReportField, requestMessage, saveBlob } from './ReportInputs';
+import ReportInputs, { toolsBase, changedInputs, ReportField, requestMessage, saveBlob } from './ReportInputs';
 import ReportConnections, { Source, SourceMappings } from './ReportConnections';
-const base = '/api/database/tools';
 type Draft = { name: string; package_id: string; version: string; libraries: string[]; original: string; handler: string;
   sources: string[]; mappings: Record<string, string>; inputs: ReportField[]; step: number; change_note?: string };
 type Saved = { id: string; revision: number; draft: Draft; base?: {sha256:string} };
@@ -59,12 +58,12 @@ export default function ReportWizard({ draftId, onClose }: { draftId?: string; o
   const [discardOpen, setDiscardOpen] = useState(false);
   const [sources, setSources] = useState<Source[]>([]), [connectionsOpen, setConnectionsOpen] = useState(false);
   const [values, setValues] = useState<Record<string, any>>({}), [job, setJob] = useState<any>(), [review, setReview] = useState<any>();
-  const loadSources = () => api.get(`${base}/sources`).then(r => setSources(r.data));
+  const loadSources = () => api.get(`${toolsBase}/sources`).then(r => setSources(r.data));
   useEffect(() => {
     const controller = new AbortController();
     if (draftId) {
       setBusy(true);
-      api.get(`${base}/drafts/${draftId}`, { signal: controller.signal }).then(r => { if (!controller.signal.aborted) { setSaved(r.data); setDraft(r.data.draft); void api.post(`${base}/authoring/inspect-python`, { source: r.data.draft.handler || r.data.draft.original }).then(x => { if (!controller.signal.aborted) setInspection(x.data); }).catch(() => {}); } })
+      api.get(`${toolsBase}/drafts/${draftId}`, { signal: controller.signal }).then(r => { if (!controller.signal.aborted) { setSaved(r.data); setDraft(r.data.draft); void api.post(`${toolsBase}/authoring/inspect-python`, { source: r.data.draft.handler || r.data.draft.original }).then(x => { if (!controller.signal.aborted) setInspection(x.data); }).catch(() => {}); } })
         .catch(e => { if (!controller.signal.aborted) setError(requestMessage(e)); })
         .finally(() => { if (!controller.signal.aborted) setBusy(false); });
     }
@@ -75,7 +74,7 @@ export default function ReportWizard({ draftId, onClose }: { draftId?: string; o
     if (!job || !['pending', 'running'].includes(job.status)) return;
     const controller = new AbortController(); let timer: number;
     const poll = async () => {
-      try { const r = await api.get(`${base}/reports/${job.id}`, { signal: controller.signal }); if (!controller.signal.aborted) setJob(r.data); }
+      try { const r = await api.get(`${toolsBase}/reports/${job.id}`, { signal: controller.signal }); if (!controller.signal.aborted) setJob(r.data); }
       catch (e) { if (!controller.signal.aborted) setError(requestMessage(e)); }
       if (!controller.signal.aborted) timer = window.setTimeout(poll, 1000);
     };
@@ -86,8 +85,8 @@ export default function ReportWizard({ draftId, onClose }: { draftId?: string; o
   const update = (patch: Partial<Draft>) => { setDraft(d => ({ ...d, ...patch })); setReview(undefined); setJob(undefined); setValues({}); setNotice(''); };
   const persist = async (value = draft) => {
     value = { ...value, mappings: Object.fromEntries(value.sources.filter(x => value.mappings[x]).map(x => [x, value.mappings[x]])) };
-    const r = saved ? await api.put(`${base}/drafts/${saved.id}`, { draft: value, revision: saved.revision })
-      : await api.post(`${base}/drafts`, { draft: value, revision: 0 });
+    const r = saved ? await api.put(`${toolsBase}/drafts/${saved.id}`, { draft: value, revision: saved.revision })
+      : await api.post(`${toolsBase}/drafts`, { draft: value, revision: 0 });
     setSaved(r.data); setDraft(r.data.draft); return r.data as Saved;
   };
   const action = async (work: () => Promise<void>) => {
@@ -100,7 +99,7 @@ export default function ReportWizard({ draftId, onClose }: { draftId?: string; o
     void action(async () => {
       if (file.size > 1024 * 1024) throw { response: { data: { detail: 'Python files must be under 1 MiB.' } } };
       const source = await file.text();
-      const { data } = await api.post<Inspection>(`${base}/authoring/inspect-python`, { source });
+      const { data } = await api.post<Inspection>(`${toolsBase}/authoring/inspect-python`, { source });
       const next = { ...draft, [which]: source, libraries: [...new Set([...draft.libraries, ...data.available])] };
       if (which === 'original') next.handler = data.compatible && !data.adaptation.length ? source : '';
       await persist(next); setInspection(data); setJob(undefined); setReview(undefined);
@@ -128,7 +127,7 @@ export default function ReportWizard({ draftId, onClose }: { draftId?: string; o
           {!draft.original && !draft.handler && <Button onClick={() => action(async () => {
             const next: Draft = { ...empty(), name: 'Example report', sources: [], original: example, handler: example,
               inputs: [{ name: 'label', label: 'Sample name', type: 'text', required: true, choices: [] }] };
-            await persist(next); setInspection((await api.post(`${base}/authoring/inspect-python`, { source: example })).data);
+            await persist(next); setInspection((await api.post(`${toolsBase}/authoring/inspect-python`, { source: example })).data);
           })}>Try an example</Button>}
           {draft.original && <Button onClick={() => saveBlob(new Blob([draft.original], { type: 'text/x-python' }), 'original.py')}>Download original</Button>}
         </Stack>
@@ -172,7 +171,7 @@ export default function ReportWizard({ draftId, onClose }: { draftId?: string; o
       {draft.step === 2 && <Stack spacing={2}>
         {!draft.handler && <Typography variant="subtitle1">Script needs adaptation</Typography>}
         <Stack direction="row" flexWrap="wrap" gap={1}>
-          {!draft.handler && <Button variant="outlined" onClick={() => action(async () => { const s = await persist(); await download(`${base}/drafts/${s.id}/editing-files`, 'report-editing-files.zip'); })}>Download editing files</Button>}
+          {!draft.handler && <Button variant="outlined" onClick={() => action(async () => { const s = await persist(); await download(`${toolsBase}/drafts/${s.id}/editing-files`, 'report-editing-files.zip'); })}>Download editing files</Button>}
           <Button component="label" variant="outlined">{saved?.base ? 'Replace Python' : 'Upload adapted script'}<input hidden type="file" accept=".py" aria-label="Completed handler" onChange={e => { upload('handler', e.target.files?.[0]); e.target.value = ''; }} /></Button>
           {draft.handler && <Button onClick={() => saveBlob(new Blob([draft.handler], { type: 'text/x-python' }), 'handler.py')}>Download Python</Button>}
           {!draft.handler && inspection?.compatible && <Button title="Original already defines run(context, inputs)" onClick={() => action(async () => {
@@ -180,28 +179,28 @@ export default function ReportWizard({ draftId, onClose }: { draftId?: string; o
           })}>Use original as handler</Button>}
         </Stack>
         <Typography variant="subtitle1">Try report</Typography>
-        {saved && <ReportInputs fields={draft.inputs} values={values} disabled={busy || running} choiceBase={`${base}/drafts/${saved.id}/choices`}
+        {saved && <ReportInputs fields={draft.inputs} values={values} disabled={busy || running} choiceBase={`${toolsBase}/drafts/${saved.id}/choices`}
           onChange={(name, v) => { setValues(old => changedInputs(draft.inputs, old, name, v)); setJob(undefined); }} />}
         <Button variant="contained" sx={{ alignSelf: 'flex-start' }} disabled={!scriptReady || !ready || busy || running} onClick={() => action(async () => {
           const s = await persist(); const inputs = { ...values }; draft.inputs.forEach(f => { if (f.type === 'boolean' && inputs[f.name] == null) inputs[f.name] = false; });
-          const r = await api.post(`${base}/drafts/${s.id}/try`, { inputs }); setJob(r.data);
+          const r = await api.post(`${toolsBase}/drafts/${s.id}/try`, { inputs }); setJob(r.data);
         })}>Try report</Button>
       </Stack>}
       {draft.step === 3 && <Stack spacing={2}>
         <TextField label="What changed? (optional)" multiline maxRows={4} inputProps={{maxLength:2000}} value={draft.change_note || ''} onChange={e=>setDraft({...draft,change_note:e.target.value})} />
         <Typography variant="h6">{draft.name} · {draft.version}</Typography>
-        <Button variant="outlined" sx={{ alignSelf: 'flex-start' }} onClick={() => action(async () => { const s = await persist(); await download(`${base}/drafts/${s.id}/package`, `${draft.package_id}-${draft.version}.zip`); })}>Export package</Button>
-        {!review && <Button variant="contained" sx={{ alignSelf: 'flex-start' }} onClick={() => action(async () => { const s = await persist(); const r = await api.get(`${base}/drafts/${s.id}/review`); setReview(r.data); })}>{saved?.base ? 'Review update' : 'Review installation'}</Button>}
+        <Button variant="outlined" sx={{ alignSelf: 'flex-start' }} onClick={() => action(async () => { const s = await persist(); await download(`${toolsBase}/drafts/${s.id}/package`, `${draft.package_id}-${draft.version}.zip`); })}>Export package</Button>
+        {!review && <Button variant="contained" sx={{ alignSelf: 'flex-start' }} onClick={() => action(async () => { const s = await persist(); const r = await api.get(`${toolsBase}/drafts/${s.id}/review`); setReview(r.data); })}>{saved?.base ? 'Review update' : 'Review installation'}</Button>}
         {review && <><Typography>{review.current_version ? `${review.current_version} → ${draft.version}` : 'New package'}</Typography>
           {review.current_version && <Alert severity="warning">This replaces the installed package. Check the version and Excel output first.</Alert>}
           <Button variant="contained" sx={{ alignSelf: 'flex-start' }} onClick={() => action(async () => {
-            await api.post(`${base}/drafts/${saved!.id}/install`, { expected_current: review.current_sha256, revision: saved!.revision, change_note:draft.change_note || '' });
+            await api.post(`${toolsBase}/drafts/${saved!.id}/install`, { expected_current: review.current_sha256, revision: saved!.revision, change_note:draft.change_note || '' });
             onClose(`${draft.name} ${draft.version} installed. Available in Data retrieval.`);
           })}>{saved?.base ? 'Publish update' : 'Install report'}</Button></>}
       </Stack>}
     </Box></Paper>
     {running && <LinearProgress />}{job?.status === 'error' && <Alert severity="error">{job.error}</Alert>}
-    {job?.status === 'ready' && <Alert severity="success" action={<Button onClick={() => action(() => download(`${base}/reports/${job.id}/download`, job.filename))}>Download Excel</Button>}>Report ready</Alert>}
+    {job?.status === 'ready' && <Alert severity="success" action={<Button onClick={() => action(() => download(`${toolsBase}/reports/${job.id}/download`, job.filename))}>Download Excel</Button>}>Report ready</Alert>}
     <Stack direction="row" justifyContent="space-between"><Button disabled={!draft.step || busy || running} onClick={() => navigate(draft.step - 1)}>Back</Button>
       <Button disabled={busy || running} onClick={() => action(async () => { await persist(); setNotice('Draft saved.'); })}>Save draft</Button>
       <Button disabled={draft.step === 3 || busy || running} onClick={() => navigate(draft.step + 1)}>Next</Button></Stack>
@@ -215,7 +214,7 @@ export default function ReportWizard({ draftId, onClose }: { draftId?: string; o
         <Button disabled={busy} onClick={() => setDiscardOpen(false)}>Keep editing</Button>
         <Button color="error" disabled={busy || running} onClick={() => action(async () => {
           const id = saved?.id || draftId;
-          if (id) await api.delete(`${base}/drafts/${id}`);
+          if (id) await api.delete(`${toolsBase}/drafts/${id}`);
           onClose();
         })}>Discard and close</Button>
       </DialogActions>

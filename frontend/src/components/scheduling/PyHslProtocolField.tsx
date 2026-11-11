@@ -4,14 +4,14 @@ import { api } from '../../services/api';
 import { fontMono } from '../../theme';
 import { SCHEDULE_MODE_LABELS, type ScheduleMode } from '../../types/scheduling';
 
-type Definition = { label?: string; description?: string; type?: string; default?: unknown; choices?: unknown[]; inactive?: boolean; shown_when?: Record<string, unknown[]> };
+type Definition = { label?: string; description?: string; type?: string; default?: unknown; choices?: unknown[]; shown_when?: Record<string, unknown[]> };
 type Listed = { id: string; name: string; revision: string; modes: ScheduleMode[]; description?: string };
 export type CheckedProtocol = { id: string; name: string; modes: ScheduleMode[]; parameters: Record<string, Definition> };
 
 const MODE_ORDER: ScheduleMode[] = ['simulation', 'test', 'real'];
 
 const shown = (definition: Definition, values: Record<string, unknown>) =>
-  !definition.inactive && Object.entries(definition.shown_when ?? {}).every(([other, allowed]) => allowed.includes(values[other]));
+  Object.entries(definition.shown_when ?? {}).every(([other, allowed]) => allowed.includes(values[other]));
 
 /** Only fields that exist for these values are sent: PyHSL refuses a value for a hidden field. */
 const visibleValues = (definitions: Record<string, Definition>, values: Record<string, unknown>) => Object.fromEntries(Object.entries(definitions)

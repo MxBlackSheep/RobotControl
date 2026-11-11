@@ -119,10 +119,8 @@ const base = `http://127.0.0.1:${process.env.PACKAGED_E2E_PORT}`;
     await expect.poll(async () => { const box = await register.boundingBox(); return 1080 - box.y - box.height; }).toBeLessThanOrEqual(25);
     await page.screenshot({ path: path.join(output, 'packaged-cytomat-desktop.png'), fullPage: true, animations: 'disabled' });
     await page.setViewportSize({ width: 320, height: 740 });
-    await page.route('**/api/monitoring/experiments', route => route.fulfill({ json: { data: [] } }));
     await page.route('**/api/monitoring/system-health', route => route.fulfill({ json: { data: {
       sampled_at: '2026-09-26T12:00:00Z', system: { cpu_percent: 4, robotcontrol_cpu_percent: 2, memory_percent: 25, disk_percent: 50 },
-      database: { is_connected: true, database_name: 'Fixture DB', server_name: 'Fixture server', mode: 'primary' },
     } } }));
     // The Databases card reads /api/monitoring/databases: the built-in connection plus saved ones.
     await page.route('**/api/monitoring/databases', route => route.fulfill({ json: { data: {
@@ -130,9 +128,7 @@ const base = `http://127.0.0.1:${process.env.PACKAGED_E2E_PORT}`;
         uses: ['Hamilton run records', 'Labware', 'Backup and restore'], state: 'connected', message: null },
       connections: [], checked_at: '2026-09-26T12:00:00',
     } } }));
-    await page.route('**/api/camera/streaming/status', route => route.fulfill({ json: { data: {
-      enabled: true, active_session_count: 0, max_sessions: 10, resource_usage_percent: 45, total_bandwidth_mbps: 7,
-    } } }));
+    await page.route('**/api/camera/streaming/status', route => route.fulfill({ json: { data: { status: { active_session_count: 0, max_sessions: 10 } } } }));
     await page.goto(base + '/system-status');
     // Connection facts are shown in the Databases and Live view cards (no disclosure); nothing reads as unknown.
     const databases = page.getByRole('region', { name: 'Databases', exact: true });

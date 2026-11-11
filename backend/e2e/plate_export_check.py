@@ -323,7 +323,7 @@ def run(args):
                                    capture_output=True, text=True)
             assert built.returncode == 0, built.stderr
             defaults = temporary/'no-starters'; defaults.mkdir()
-            service = DatabaseTools(temporary/'tools', defaults, database=object())
+            service = DatabaseTools(temporary/'tools', defaults)
             app = FastAPI(); app.include_router(router)
             def user(request: Request):
                 if not request.headers.get('authorization'): raise HTTPException(401)

@@ -1,3 +1,5 @@
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Box, Typography, Button, Paper, Stack, LinearProgress, CircularProgress, Drawer, useMediaQuery } from '@mui/material';
 import CameraControls, { type CameraSummary } from '../components/CameraControls';
 import CameraViewport from '../components/CameraViewport';
 import { createFrameStore } from '../components/LiveFrame';
@@ -5,102 +7,23 @@ import { useAuth } from '../context/AuthContext';
 import { useModuleSection } from '../components/navigation';
 import SectionPanel from '../components/SectionPanel';
 import { DetailTitle, PageContent, PageHeader } from '../components/PageLayout';
-/**
- * Camera Management Page for RobotControl Simplified Architecture
- * 
- * Features:
- * - Live camera streaming interface
- * - Video archive browsing and playback
- * - Recording management controls
- */
-
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Box, Typography, Button, Paper, Stack, LinearProgress, CircularProgress, Drawer, useMediaQuery } from '@mui/material';
 import StatusChip from '../components/StatusChip';
 import StatusDialog from '../components/StatusDialog';
-import { isAxiosError } from 'axios';
-import { api, attemptTokenRefresh } from '@/services/api';
-import { buildApiUrl } from '@/utils/apiBase';
-import { liveViewUnsupportedReason, useLiveViewSocket } from '../hooks/useLiveViewSocket';
-import VideoArchiveTab, {
-  type ExperimentFolder
-} from '../components/camera/VideoArchiveTab';
-import RecentRecordings from '../components/camera/RecentRecordings';
+import { api } from '@/services/api';
+import { useLiveViewSocket } from '../hooks/useLiveViewSocket';
+import { useRecordingDownload } from '../hooks/useRecordingDownload';
+import VideoArchiveTab, { fileSize, type ExperimentFolder } from '../components/camera/VideoArchiveTab';
 import { layout } from '../theme';
 
-interface StreamingSession {
-  session_id: string;
-  user_id: string;
-  user_name: string;
-  created_at: string;
-  is_active: boolean;
-  bandwidth_usage_mbps: number;
-  actual_fps: number;
-  websocket_state: string;
-}
-
-interface StreamingStatus {
-  enabled: boolean;
-  active_session_count: number;
-  max_sessions: number;
-  total_bandwidth_mbps: number;
-  available_bandwidth_mbps: number;
-  resource_usage_percent: number;
-  recording_impact: string;
-  priority_mode: string;
-}
-
-interface DownloadProgressState {
-  filename: string;
-  downloadedBytes: number;
-  totalBytes: number | null;
-  attempt: number;
-  maxAttempts: number;
-  isRetrying: boolean;
-}
-
-class NonRetryableDownloadError extends Error {}
-
-const MAX_DOWNLOAD_ATTEMPTS = 5;
-const RETRY_BASE_DELAY_MS = 1200;
-const RETRY_MAX_DELAY_MS = 8000;
-
-const wait = (ms: number) =>
-  new Promise<void>((resolve) => {
-    window.setTimeout(resolve, ms);
-  });
-
-const formatBytes = (bytes: number): string => {
-  if (!Number.isFinite(bytes) || bytes < 0) {
-    return '0 B';
-  }
-
-  const units = ['B', 'KB', 'MB', 'GB'];
-  let size = bytes;
-  let unitIndex = 0;
-
-  while (size >= 1024 && unitIndex < units.length - 1) {
-    size /= 1024;
-    unitIndex += 1;
-  }
-
-  return `${size.toFixed(size >= 100 ? 0 : 1)} ${units[unitIndex]}`;
-};
-
+/**
+ * Layout for the camera's four functions, each with its own owner: live view (useLiveViewSocket),
+ * camera choice and health (CameraControls), the archive list (the one request below) and
+ * downloads (useRecordingDownload).
+ */
 const CameraPage: React.FC = () => {
-  
-  // State management
-  const [experimentFolders, setExperimentFolders] = useState<ExperimentFolder[]>([]);
-  const [archiveLoading, setArchiveLoading] = useState(true);
-  const [archiveError, setArchiveError] = useState('');
-  const [error, setError] = useState('');
-  // Live-view failures show in the viewer only; rror is for downloads on the archive.
-  const [liveError, setLiveError] = useState('');
-  // Live view is H.264 only: a browser or page that cannot decode it gets this reason instead.
-  const [unsupported, setUnsupported] = useState<string | null>(null);
   const { user } = useAuth();
   const [currentTab] = useModuleSection('/camera', user);
-  // Wide screens put the controls beside the image; narrower ones keep them collapsible below it.
+  // Wide screens put the controls beside the image; narrower ones list them open below it.
   const sideBySide = useMediaQuery('(min-width:1200px)');
   // Phones open the controls in a bottom sheet from just under the picture instead of a disclosure
   // at the end of the page, which sat far from the image and partly behind the bottom page bar.
@@ -110,12 +33,7 @@ const CameraPage: React.FC = () => {
   const [settingsSheetOpen, setSettingsSheetOpen] = useState(false);
   // Leaving Live view or the phone layout closes the sheet, so it never reopens by itself on return.
   useEffect(() => { if (currentTab !== 0 || !phone) setSettingsSheetOpen(false); }, [currentTab, phone]);
-  
-  // Streaming state
-  const [streamingStatus, setStreamingStatus] = useState<StreamingStatus | null>(null);
-  const [streamingStatusError, setStreamingStatusError] = useState(false);
-  const [mySession, setMySession] = useState<StreamingSession | null>(null);
-  const [streamingLoading, setStreamingLoading] = useState(false);
+
   const frameStore = useMemo(createFrameStore, []);
   const [hasFrame, setHasFrame] = useState(false);
   const setCurrentFrame = useCallback((value: VideoFrame | null) => {
@@ -124,64 +42,18 @@ const CameraPage: React.FC = () => {
     if (changedAvailability) setHasFrame(Boolean(value));
   }, [frameStore]);
   const [cameraSummary, setCameraSummary] = useState<CameraSummary>({ text: 'Checking camera · Checking recording', error: null, recording: { label: 'Checking', tone: 'neutral' } });
-  const [sourceRevision, setSourceRevision] = useState(0);
-  const handleSourceChange = useCallback(() => {
-    setCurrentFrame(null);
-    setSourceRevision(value => value + 1);
-  }, [setCurrentFrame]);
+  const handleSourceChange = useCallback(() => setCurrentFrame(null), [setCurrentFrame]);
+  const live = useLiveViewSocket(setCurrentFrame);
+  const download = useRecordingDownload();
 
-  // Video streaming state
-  const streamRequestRef = useRef<AbortController | null>(null);
-  const mountedRef = useRef(true);
-  const [downloadProgress, setDownloadProgress] = useState<DownloadProgressState | null>(null);
-  const downloadAbortRef = useRef<AbortController | null>(null);
-  const downloadCancelledRef = useRef(false);
-  const downloadInFlightRef = useRef(false);
-
-  // The socket, its frames, pause while hidden and automatic reconnection live in the hook;
-  // this page owns the session requests (create, release) it reconnects with.
-  const liveSocket = useLiveViewSocket({
-    showFrame: setCurrentFrame,
-    onState: state => setMySession(prev => prev ? { ...prev, websocket_state: state } : prev),
-    onError: setLiveError,
-    reconnect: () => reconnectLiveView(),
-  });
-  useEffect(() => {
-    let current = true;
-    void liveViewUnsupportedReason().then(reason => { if (current) setUnsupported(reason); });
-    return () => { current = false; };
-  }, []);
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      streamRequestRef.current?.abort();
-    };
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      downloadCancelledRef.current = true;
-      if (downloadAbortRef.current) {
-        downloadAbortRef.current.abort();
-      }
-      downloadInFlightRef.current = false;
-    };
-  }, []);
-
-  // Load content when switching tabs
-  useEffect(() => {
-    // Live view also lists the newest recordings, so both sections read the archive.
-    void loadRecordings();
-    if (currentTab === 0) void loadStreamingStatus();
-  }, [currentTab]);
-
-  // The archive owns archiveError; `error` belongs to downloads and live view.
+  const [experimentFolders, setExperimentFolders] = useState<ExperimentFolder[]>([]);
+  const [archiveLoading, setArchiveLoading] = useState(true);
+  const [archiveError, setArchiveError] = useState('');
   const loadRecordings = async () => {
     setArchiveLoading(true);
     setArchiveError('');
     try {
-      const { data } = await api.get('/api/camera/recordings', { params: { recording_type: 'experiment', limit: 100 } });
+      const { data } = await api.get('/api/camera/recordings');
       setExperimentFolders(data.data?.experiment_folders || []);
     } catch (err) {
       console.error('Error loading experiment folders:', err);
@@ -190,419 +62,81 @@ const CameraPage: React.FC = () => {
       setArchiveLoading(false);
     }
   };
+  // Only the archive section lists recordings.
+  useEffect(() => {
+    if (currentTab === 1) void loadRecordings();
+  }, [currentTab]);
 
-  const handleRefresh = () => {
-    if (currentTab === 1) {
-      void loadRecordings();
-    } else {
-      void loadStreamingStatus();
-    }
-  };
-
-  const downloadRecording = async (filename: string) => {
-    if (downloadInFlightRef.current || downloadProgress) {
-      setError('Another download is already in progress');
-      return;
-    }
-
-    let token = localStorage.getItem('access_token');
-    if (!token) {
-      setError('Missing authentication token. Please sign in again.');
-      return;
-    }
-
-    setError('');
-    downloadCancelledRef.current = false;
-    downloadInFlightRef.current = true;
-
-    let downloadedBytes = 0;
-    let totalBytes: number | null = null;
-    let contentType = 'application/octet-stream';
-    const chunks: ArrayBuffer[] = [];
-
-    setDownloadProgress({
-      filename,
-      downloadedBytes: 0,
-      totalBytes: null,
-      attempt: 1,
-      maxAttempts: MAX_DOWNLOAD_ATTEMPTS,
-      isRetrying: false
-    });
-
-    try {
-      for (let attempt = 1; attempt <= MAX_DOWNLOAD_ATTEMPTS; attempt += 1) {
-        if (downloadCancelledRef.current) {
-          break;
-        }
-
-        const abortController = new AbortController();
-        downloadAbortRef.current = abortController;
-
-        setDownloadProgress((prev) => prev ? {
-          ...prev,
-          downloadedBytes,
-          totalBytes,
-          attempt,
-          isRetrying: false
-        } : prev);
-
-        try {
-          const headers: Record<string, string> = {};
-          if (downloadedBytes > 0) {
-            headers.Range = `bytes=${downloadedBytes}-`;
-          }
-
-          // Streamed with fetch for resume and progress, so renew an expired sign-in here.
-          const request = () => fetch(buildApiUrl(`/api/camera/recording/${filename}`), {
-            headers: { ...headers, Authorization: `Bearer ${token}` },
-            signal: abortController.signal
-          });
-          let response = await request();
-          if (response.status === 401) {
-            const renewed = await attemptTokenRefresh().catch(() => null);
-            if (renewed) {
-              token = renewed;
-              response = await request();
-            }
-          }
-
-          if (!response.ok) {
-            if (response.status === 416 && totalBytes !== null && downloadedBytes >= totalBytes) {
-              break;
-            }
-
-            let message = `Download request failed (${response.status})`;
-            if (response.status === 404) {
-              message = 'Recording not found on server. It may have been moved or deleted.';
-            } else if (response.status === 401 || response.status === 403) {
-              message = 'You are not authorized to download this recording.';
-            } else if (response.status >= 400 && response.status < 500) {
-              message = 'Download request is invalid and cannot be retried automatically.';
-            }
-
-            if (response.status >= 400 && response.status < 500 && response.status !== 408 && response.status !== 429) {
-              throw new NonRetryableDownloadError(message);
-            }
-
-            throw new Error(message);
-          }
-
-          const currentContentType = response.headers.get('Content-Type');
-          if (currentContentType) {
-            contentType = currentContentType;
-          }
-
-          const contentRange = response.headers.get('Content-Range');
-          const contentLengthHeader = response.headers.get('Content-Length');
-
-          if (contentRange) {
-            const rangeMatch = /bytes\s+(\d+)-(\d+)\/(\d+|\*)/i.exec(contentRange);
-            if (rangeMatch) {
-              const rangeStart = Number(rangeMatch[1]);
-              const totalFromHeader = rangeMatch[3] === '*' ? null : Number(rangeMatch[3]);
-              if (downloadedBytes > 0 && rangeStart !== downloadedBytes) {
-                throw new Error('Server resume offset mismatch');
-              }
-              if (totalFromHeader !== null && Number.isFinite(totalFromHeader)) {
-                totalBytes = totalFromHeader;
-              }
-            }
-          } else if (contentLengthHeader) {
-            const contentLength = Number(contentLengthHeader);
-            if (Number.isFinite(contentLength) && contentLength >= 0) {
-              totalBytes = downloadedBytes > 0
-                ? (totalBytes ?? downloadedBytes + contentLength)
-                : contentLength;
-            }
-            if (downloadedBytes > 0 && response.status === 200) {
-              // Server ignored range request; restart cleanly from byte 0.
-              downloadedBytes = 0;
-              chunks.length = 0;
-              totalBytes = Number.isFinite(contentLength) ? contentLength : totalBytes;
-            }
-          }
-
-          const reader = response.body?.getReader();
-          if (!reader) {
-            const arrayBuffer = await response.arrayBuffer();
-            chunks.push(arrayBuffer);
-            downloadedBytes += arrayBuffer.byteLength;
-            setDownloadProgress((prev) => prev ? {
-              ...prev,
-              downloadedBytes,
-              totalBytes
-            } : prev);
-            break;
-          }
-
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) {
-              break;
-            }
-            if (!value || value.length === 0) {
-              continue;
-            }
-
-            // Copy into a plain ArrayBuffer so Blob constructor typing stays strict.
-            const copiedChunk = new Uint8Array(value.byteLength);
-            copiedChunk.set(value);
-            chunks.push(copiedChunk.buffer);
-            downloadedBytes += value.length;
-            setDownloadProgress((prev) => prev ? {
-              ...prev,
-              downloadedBytes,
-              totalBytes
-            } : prev);
-          }
-
-          break;
-        } catch (downloadError) {
-          const aborted = downloadError instanceof DOMException && downloadError.name === 'AbortError';
-          if (downloadCancelledRef.current || aborted) {
-            break;
-          }
-
-          if (downloadError instanceof NonRetryableDownloadError) {
-            throw downloadError;
-          }
-
-          if (attempt === MAX_DOWNLOAD_ATTEMPTS) {
-            throw downloadError;
-          }
-
-          const retryDelayMs = Math.min(
-            RETRY_BASE_DELAY_MS * (2 ** (attempt - 1)),
-            RETRY_MAX_DELAY_MS
-          );
-
-          setDownloadProgress((prev) => prev ? {
-            ...prev,
-            downloadedBytes,
-            totalBytes,
-            attempt,
-            isRetrying: true
-          } : prev);
-
-          let waitedMs = 0;
-          while (waitedMs < retryDelayMs && !downloadCancelledRef.current) {
-            await wait(Math.min(200, retryDelayMs - waitedMs));
-            waitedMs += 200;
-          }
-
-          if (downloadCancelledRef.current) {
-            break;
-          }
-        }
-      }
-
-      if (downloadCancelledRef.current) {
-        return;
-      }
-
-      if (chunks.length === 0) {
-        throw new Error('No data was received');
-      }
-
-      if (totalBytes !== null && downloadedBytes < totalBytes) {
-        throw new Error('Download incomplete');
-      }
-
-      const blob = new Blob(chunks, { type: contentType });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (downloadError) {
-      console.error('Error downloading recording:', downloadError);
-      const message = downloadError instanceof Error
-        ? downloadError.message
-        : 'Failed to download recording after multiple retry attempts';
-      setError(message);
-    } finally {
-      downloadAbortRef.current = null;
-      setDownloadProgress(null);
-      downloadCancelledRef.current = false;
-      downloadInFlightRef.current = false;
-    }
-  };
-
-  const cancelActiveDownload = () => {
-    downloadCancelledRef.current = true;
-    if (downloadAbortRef.current) {
-      downloadAbortRef.current.abort();
-    }
-  };
-
-  // Streaming functions
-  const loadStreamingStatus = async () => {
-    try {
-      const { data } = await api.get('/api/camera/streaming/status');
-      setStreamingStatus(data.data.status);
-      setStreamingStatusError(false);
-    } catch (error) {
-      console.error('Error loading streaming status:', error);
-      // Do not keep showing the previous status as if it were current.
-      setStreamingStatus(null);
-      setStreamingStatusError(true);
-    }
-  };
-
-  /** Creates a session and connects to it; returns whether it worked. */
-  const createStreamingSession = async (): Promise<boolean> => {
-    if (streamRequestRef.current || unsupported) return false;
-    const controller = new AbortController();
-    streamRequestRef.current = controller;
-    setStreamingLoading(true);
-    try {
-      const { data } = await api.post('/api/camera/streaming/session', undefined, { signal: controller.signal });
-      const session = data.data;
-      if (!mountedRef.current || controller.signal.aborted) return false;
-      setMySession(session);
-      setLiveError('');
-      liveSocket.connect(session.session_id);
-      void loadStreamingStatus();
-      return true;
-    } catch (error) {
-      if (!mountedRef.current || controller.signal.aborted) return false;
-      console.error('Error creating streaming session:', error);
-      const detail = isAxiosError(error) ? error.response?.data?.detail : undefined;
-      setLiveError(typeof detail === 'string' ? detail : 'Failed to create streaming session');
-      return false;
-    } finally {
-      if (streamRequestRef.current === controller) streamRequestRef.current = null;
-      if (mountedRef.current) setStreamingLoading(false);
-    }
-  };
-
-  /** Replaces the session (manual Reconnect, or automatically after the socket closed). The
-   * last image stays, marked stale, until new frames arrive. */
-  const reconnectLiveView = async (): Promise<boolean> => {
-    if (!mySession || streamRequestRef.current) return false;
-    liveSocket.close();
-    try {
-      await api.delete(`/api/camera/streaming/session/${mySession.session_id}`);
-    } catch (cause) {
-      if (!isAxiosError(cause) || cause.response?.status !== 404) {
-        setLiveError('Could not release the previous live-view session. Retrying…');
-        return false;
-      }
-    }
-    return createStreamingSession();
-  };
-
-  const stopStreamingSession = async () => {
-    if (!mySession || streamingLoading) return;
-
-    liveSocket.stop();
-
-    setStreamingLoading(true);
-    try {
-      await api.delete(`/api/camera/streaming/session/${mySession.session_id}`);
-      setMySession(null);
-      await loadStreamingStatus();
-      setCurrentFrame(null);
-      setLiveError('');
-    } catch (error) {
-      console.error('Error stopping streaming session:', error);
-      setLiveError('Failed to stop streaming session');
-    } finally {
-      setStreamingLoading(false);
-    }
-  };
-
-  const recentRecordings = <RecentRecordings folders={experimentFolders} loading={archiveLoading} error={archiveError} />;
   // One instance owns camera polling and the viewer's summary; on a phone it lives in the sheet,
   // which keeps it mounted while closed.
-  const cameraControls = <CameraControls active={currentTab === 0} admin={user?.role === 'admin'} collapsible={!sideBySide && !phone}
+  const cameraControls = <CameraControls active={currentTab === 0} admin={user?.role === 'admin'}
     onSourceChange={handleSourceChange} onSummaryChange={setCameraSummary} />;
   const closeSettingsSheet = () => setSettingsSheetOpen(false);
+  const viewing = live.state !== 'idle';
+  const progress = download.progress;
 
   return (
-    <>
-      <PageContent variant="inspection">
+    <PageContent variant="inspection">
       <PageHeader title="Camera" />
 
-      {/* Error Display */}
+      {/* The row's Download button is the retry. */}
       <StatusDialog
-        status={error && currentTab !== 0 ? { title: 'Server Error', message: error, severity: 'error', action: { label: 'Retry', onClick: handleRefresh } } : null}
-        onClose={() => setError('')}
+        status={download.error ? { title: 'Download failed', message: download.error, severity: 'error' } : null}
+        onClose={download.clearError}
       />
 
-      {downloadProgress && (
+      {progress && (
         <Paper sx={{ mb: 3, p: 2 }}>
           <Stack spacing={1.5}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-              <Typography variant="subtitle1" sx={{ wordBreak: 'break-word' }}>
-                Downloading {downloadProgress.filename}
-              </Typography>
-              <Button size="small" color="warning" variant="outlined" onClick={cancelActiveDownload}>
-                Cancel
-              </Button>
+              <Typography variant="subtitle1" sx={{ wordBreak: 'break-word' }}>Downloading {progress.filename}</Typography>
+              <Button size="small" color="warning" variant="outlined" onClick={download.cancel}>Cancel</Button>
             </Box>
             <Typography variant="body2" color="text.secondary">
-              {downloadProgress.totalBytes
-                ? `${formatBytes(downloadProgress.downloadedBytes)} / ${formatBytes(downloadProgress.totalBytes)}`
-                : `${formatBytes(downloadProgress.downloadedBytes)} downloaded`}
-              {downloadProgress.isRetrying ? ' · Reconnecting...' : ''}
+              {progress.total ? `${fileSize(progress.received)} / ${fileSize(progress.total)}` : `${fileSize(progress.received)} downloaded`}
+              {progress.retrying ? ' · Reconnecting...' : ''}
             </Typography>
-            {downloadProgress.totalBytes && downloadProgress.totalBytes > 0 ? (
-              <LinearProgress
-                variant="determinate"
-                value={Math.min(100, (downloadProgress.downloadedBytes / downloadProgress.totalBytes) * 100)}
-              />
-            ) : (
-              <LinearProgress variant="indeterminate" />
-            )}
+            <LinearProgress variant={progress.total ? 'determinate' : 'indeterminate'}
+              value={progress.total ? Math.min(100, (progress.received / progress.total) * 100) : undefined} />
           </Stack>
         </Paper>
       )}
 
-      {/* Video Archive Tab */}
       <SectionPanel active={currentTab === 1}>
         <VideoArchiveTab
           experimentFolders={experimentFolders}
           loading={archiveLoading}
           error={archiveError}
           onRefresh={() => void loadRecordings()}
-          onDownloadVideo={downloadRecording}
-          downloadingFilename={downloadProgress?.filename ?? null}
-          downloadBusy={Boolean(downloadProgress)}
+          onDownloadVideo={download.start}
+          downloadingFilename={progress?.filename ?? null}
+          downloadBusy={Boolean(progress)}
         />
       </SectionPanel>
 
-      {/* The viewer owns display transforms only; camera controls keep polling beside or below it. */}
+      {/* The viewer owns display only; camera controls keep polling beside or below it. */}
       <SectionPanel active={currentTab === 0}>
         <Box sx={{ display: 'grid', gap: `${layout.gutter}px`, alignItems: 'start', gridTemplateColumns: sideBySide ? 'minmax(0, 1fr) 360px' : 'minmax(0, 1fr)' }}>
         <Box sx={{ minWidth: 0 }}>
         <CameraViewport
           store={frameStore}
           hasFrame={hasFrame}
-          connection={unsupported ? 'unavailable' : mySession?.websocket_state ?? 'idle'}
+          connection={live.unsupported ? 'unavailable' : live.state}
           summary={cameraSummary.text}
           inlineSummary={!sideBySide}
-          sourceRevision={sourceRevision}
-          error={unsupported || cameraSummary.error || liveError}
+          error={live.unsupported || cameraSummary.error || live.error}
           controls={<>
             {/* Only an in-between state needs words: Start shows stopped, a moving picture shows connected,
                 but a dropped view can still show its last (stale) picture. */}
-            {mySession && mySession.websocket_state !== 'connected' && <StatusChip tone="neutral" label={`My view: ${mySession.websocket_state}`} />}
-            {mySession ? <>
-              <Button variant="outlined" onClick={stopStreamingSession} disabled={streamingLoading}>
-                {streamingLoading ? <CircularProgress size={20} /> : 'Stop my live view'}
+            {viewing && live.state !== 'connected' && <StatusChip tone="neutral" label={`My view: ${live.state}`} />}
+            {viewing ? <>
+              <Button variant="outlined" onClick={live.stop} disabled={live.busy}>
+                {live.busy ? <CircularProgress size={20} /> : 'Stop my live view'}
               </Button>
-              <Button onClick={() => void reconnectLiveView()} disabled={streamingLoading}>Reconnect live view</Button>
-            </> : <Button variant="contained" onClick={() => void createStreamingSession()}
-              disabled={streamingLoading || !streamingStatus?.enabled || Boolean(unsupported)}>
-              {streamingLoading ? <CircularProgress size={20} /> : 'Start my live view'}
+              <Button onClick={live.reconnect} disabled={live.busy}>Reconnect live view</Button>
+            </> : <Button variant="contained" onClick={live.start} disabled={live.busy || Boolean(live.unsupported)}>
+              {live.busy ? <CircularProgress size={20} /> : 'Start my live view'}
             </Button>}
-            {streamingStatus && !streamingStatus.enabled && <Typography variant="body2" color="error">Live viewing is currently disabled</Typography>}
-            {streamingStatusError && <>
-              <Typography variant="body2" color="error">Live view status unavailable</Typography>
-              <Button onClick={() => void loadStreamingStatus()}>Retry</Button>
-            </>}
           </>}
         />
         {phone && <>
@@ -625,17 +159,11 @@ const CameraPage: React.FC = () => {
             {cameraControls}
           </Drawer>
         </>}
-        {/* Beside the image the column has room below the controls; narrower screens list them under the image. */}
-        {!sideBySide && <Box sx={{ mt: `${layout.gutter}px` }}>{recentRecordings}</Box>}
         </Box>
-        {!phone && <Stack spacing={`${layout.gutter}px`} sx={{ minWidth: 0 }}>
-        {cameraControls}
-        {sideBySide && recentRecordings}
-        </Stack>}
+        {!phone && <Box sx={{ minWidth: 0 }}>{cameraControls}</Box>}
         </Box>
       </SectionPanel>
-      </PageContent>
-    </>
+    </PageContent>
   );
 };
 

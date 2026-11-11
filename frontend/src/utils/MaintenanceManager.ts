@@ -1,84 +1,28 @@
-type Listener = (state: MaintenanceState) => void;
+/**
+ * The pause after a successful database restore: until it ends, the browser refuses its own
+ * requests (services/api.ts) unless they carry X-Allow-Maintenance. One value owns it: the time
+ * the pause ends. Each restore sets a new end time, so a dismissed dialog shows again.
+ */
+let expiresAt = 0;
+const listeners = new Set<() => void>();
+const notify = () => listeners.forEach(listener => listener());
 
-export interface MaintenanceState {
-  active: boolean;
-  expiresAt?: number;
-  reason?: string;
-}
-
-let currentState: MaintenanceState = { active: false };
-const listeners = new Set<Listener>();
-let intervalHandle: ReturnType<typeof setInterval> | null = null;
-
-const notifyListeners = () => {
-  listeners.forEach((listener) => listener(currentState));
-};
-
-const stopInterval = () => {
-  if (intervalHandle) {
-    clearInterval(intervalHandle);
-    intervalHandle = null;
-  }
-};
-
-const startInterval = () => {
-  if (intervalHandle) {
-    return;
-  }
-
-  intervalHandle = setInterval(() => {
-    if (!currentState.active || !currentState.expiresAt) {
-      stopInterval();
-      return;
-    }
-
-    if (Date.now() >= currentState.expiresAt) {
-      clearMaintenance();
-    } else {
-      notifyListeners();
-    }
-  }, 1000);
-};
-
-const setState = (state: MaintenanceState) => {
-  currentState = state;
-  if (currentState.active) {
-    startInterval();
-  } else {
-    stopInterval();
-  }
-  notifyListeners();
-};
-
-export const activateMaintenance = (durationMs: number, reason?: string) => {
-  const expiresAt = Date.now() + Math.max(durationMs, 0);
-  setState({
-    active: true,
-    expiresAt,
-    reason,
-  });
+export const activateMaintenance = (durationMs: number) => {
+  expiresAt = Date.now() + Math.max(durationMs, 0);
+  notify();
 };
 
 export const clearMaintenance = () => {
-  if (!currentState.active) {
-    return;
-  }
-  setState({ active: false });
+  if (expiresAt === 0) return;
+  expiresAt = 0;
+  notify();
 };
 
-export const isMaintenanceActive = (): boolean => currentState.active;
+export const getMaintenanceExpiry = () => expiresAt;
 
-export const getMaintenanceRemainingMs = (): number => {
-  if (!currentState.active || !currentState.expiresAt) {
-    return 0;
-  }
-  return Math.max(currentState.expiresAt - Date.now(), 0);
-};
+export const isMaintenanceActive = () => Date.now() < expiresAt;
 
-export const subscribeToMaintenance = (listener: Listener): (() => void) => {
+export const subscribeToMaintenance = (listener: () => void) => {
   listeners.add(listener);
-  listener(currentState);
-  return () => {
-    listeners.delete(listener);
-  };
+  return () => { listeners.delete(listener); };
 };

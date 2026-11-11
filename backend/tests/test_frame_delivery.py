@@ -52,8 +52,7 @@ class FakeEncoder:
 def service():
     FakeEncoder.instances = []
     LiveStreamingService._instance = None
-    with patch.object(LiveStreamingService, '_ensure_camera_integration'), \
-         patch('backend.services.live_streaming.find_ffmpeg'):
+    with patch('backend.services.live_streaming.find_ffmpeg'):
         service = LiveStreamingService()
         service._encoder_factory = FakeEncoder
         yield service
@@ -375,12 +374,12 @@ def test_running_service_paces_frames_to_the_encoder_and_stops_it_on_shutdown(se
 
 def test_frame_wakeups_are_coalesced_and_unsubscribed():
     async def scenario():
-        buffer = SharedFrameBuffer(2)
+        buffer = SharedFrameBuffer()
         event = asyncio.Event()
         buffer.subscribe_frames(asyncio.get_running_loop(), event)
         for _ in range(100):
             buffer.put_frame(np.zeros((4, 4, 3), dtype=np.uint8))
-        assert len(buffer.buffer) == 2 and len(buffer._async_readers) == 1
+        assert buffer.get_frame_for_streaming() is not None and len(buffer._async_readers) == 1
         await asyncio.wait_for(event.wait(), 1)
         buffer.unsubscribe_frames(event)
         assert not buffer._async_readers

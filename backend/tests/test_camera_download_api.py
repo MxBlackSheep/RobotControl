@@ -33,8 +33,8 @@ def _prepare_video_paths(tmp_path, monkeypatch):
     rolling.mkdir(parents=True, exist_ok=True)
     experiments.mkdir(parents=True, exist_ok=True)
 
-    monkeypatch.setattr(camera_api, "ROLLING_CLIPS_PATH", rolling)
-    monkeypatch.setattr(camera_api, "EXPERIMENTS_PATH", experiments)
+    from types import SimpleNamespace
+    monkeypatch.setattr(camera_api, "get_storage_manager", lambda: SimpleNamespace(rolling_clips_path=rolling, experiments_path=experiments))
     return rolling, experiments
 
 

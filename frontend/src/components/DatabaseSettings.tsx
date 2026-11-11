@@ -2,20 +2,19 @@ import { useEffect, useState } from 'react';
 import { Alert, Box, Button, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material';
 import { api } from '../services/api';
 import ReportConnections, { AssignConnections, PackageBinding, readingLabel, Source } from './ReportConnections';
-import { requestMessage } from './ReportInputs';
+import { toolsBase, requestMessage } from './ReportInputs';
 
-const base = '/api/database/tools';
 export default function DatabaseSettings({ active }: { active: boolean }) {
   const [sources, setSources] = useState<Source[]>([]), [assignments, setAssignments] = useState<PackageBinding[]>([]);
   const [connections, setConnections] = useState(false), [error, setError] = useState('');
   const [busy, setBusy] = useState(false), [binding, setBinding] = useState<PackageBinding>();
   const [viewer, setViewer] = useState(''), [savedViewer, setSavedViewer] = useState('');
   const load = async (signal?: AbortSignal) => {
-    const [profiles, packages] = await Promise.all([api.get(`${base}/sources`, {signal}), api.get(`${base}/packages`, {signal})]);
-    const bindings = await Promise.all(packages.data.map(async (p: any) => ({ id:p.id, name:p.name, ...(await api.get(`${base}/packages/${p.id}/sources`, {signal})).data })));
+    const [profiles, packages] = await Promise.all([api.get(`${toolsBase}/sources`, {signal}), api.get(`${toolsBase}/packages`, {signal})]);
+    const bindings = await Promise.all(packages.data.map(async (p: any) => ({ id:p.id, name:p.name, ...(await api.get(`${toolsBase}/packages/${p.id}/sources`, {signal})).data })));
     if (signal?.aborted) return;
     setSources(profiles.data); setAssignments(bindings);
-    const selected = await api.get(`${base}/viewer-sources`, {signal});
+    const selected = await api.get(`${toolsBase}/viewer-sources`, {signal});
     if (signal?.aborted) return;
     setViewer(selected.data[0]?.id || ''); setSavedViewer(selected.data[0]?.id || '');
   };
@@ -33,7 +32,7 @@ export default function DatabaseSettings({ active }: { active: boolean }) {
     <Paper variant="outlined" sx={{p:2}}><Stack spacing={2}><Typography variant="h6">Tables and Stored procedures</Typography>
       <TextField select size="small" label="Viewer database" value={viewer} disabled={busy} onChange={e => setViewer(e.target.value)}>
         {sources.filter(s => s.access !== 'operation').map(s => <MenuItem key={s.id} value={s.id}>{s.name} · {s.database}</MenuItem>)}
-      </TextField><Button sx={{alignSelf:'flex-start'}} disabled={busy || !viewer || viewer === savedViewer} onClick={() => void work(async () => { await api.put(`${base}/viewer-source`, {source_id:viewer}); setSavedViewer(viewer); })}>Save viewer database</Button>
+      </TextField><Button sx={{alignSelf:'flex-start'}} disabled={busy || !viewer || viewer === savedViewer} onClick={() => void work(async () => { await api.put(`${toolsBase}/viewer-source`, {source_id:viewer}); setSavedViewer(viewer); })}>Save viewer database</Button>
     </Stack></Paper>
     <Paper variant="outlined" sx={{p:2}}><Typography variant="h6">Package connections</Typography>
       {assignments.map(a => <Stack key={a.id} direction="row" gap={1} justifyContent="space-between" alignItems="center" sx={{py:1}}><Box><Typography>{a.name}</Typography><Typography variant="body2" color="text.secondary">{[...a.aliases.map(alias => `${readingLabel(a.aliases, alias)}: ${sources.find(s => s.id === a.mappings[alias])?.name || 'Not configured'}`), ...(a.has_operation ? [`Writing connection: ${sources.find(s => s.id === a.operation_source)?.name || 'Not configured'}`] : [])].join(' · ') || 'No database required'}</Typography></Box><Button disabled={busy} onClick={() => setBinding({...a, mappings:{...a.mappings}})}>Assign</Button></Stack>)}

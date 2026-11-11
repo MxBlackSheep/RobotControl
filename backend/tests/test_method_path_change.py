@@ -148,11 +148,11 @@ def test_ordinary_edit_cannot_overwrite_a_concurrent_path_correction(client, ser
     method, schedule, target, preview = change
     manager = SimpleNamespace(get_schedule_by_id=service.db.get_schedule_by_id)
     monkeypatch.setattr(api, 'get_services', lambda: (engine, manager, None))
-    normalize = api._normalize_schedule_request
+    normalize = api._check_schedule_request
     def relink_during_validation(*args):
         engine.change_library_method_path(service.db, method['method_id'], target, method['revision'], select(preview))
         return normalize(*args)
-    monkeypatch.setattr(api, '_normalize_schedule_request', relink_during_validation)
+    monkeypatch.setattr(api, '_check_schedule_request', relink_during_validation)
     response = client.put(f'/api/scheduling/{schedule.schedule_id}', json={'experiment_name': 'Stale edit'})
     assert response.status_code == 409
     saved = service.db.get_schedule_by_id(schedule.schedule_id)

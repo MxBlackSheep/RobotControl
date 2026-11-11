@@ -52,7 +52,6 @@ def test_connection_failure_has_no_fallback_or_mock_data(sql):
         with service.get_connection():
             pytest.fail("A failed connection must not yield")
     connect.assert_called_once()
-    assert service.get_tables() == []
     status = service.get_status()
     assert status.is_connected is False
     assert status.mode == "unavailable"
@@ -70,19 +69,11 @@ def test_status_reports_primary_database(sql):
     connection.close.assert_called_once()
 
 
-def test_table_metadata(sql, monkeypatch):
-    service, _, _, cursor = sql
-    cursor.fetchall.return_value = [("Experiments",), ("Plates",)]
-    monkeypatch.setattr(service, "_check_table_has_data", lambda name: name == "Experiments")
-    assert service.get_tables() == [
-        {"name": "Experiments", "has_data": True}, {"name": "Plates", "has_data": False},
-    ]
-
-
-def test_pagination_filters_and_result_shape(sql, monkeypatch):
-    service, _, _, cursor = sql
+def test_pagination_filters_and_result_shape(viewer, monkeypatch):
+    service, _, _, cursor = viewer
+    service._tables = {"Experiments": ("dbo", "Experiments")}
     monkeypatch.setattr(service, "_get_browse_metadata", lambda *args: (["id", "name", "created"], ["id"]))
-    service._table_columns_cache["experiments"] = ["id", "name", "created"]
+    monkeypatch.setattr(service, "_get_table_columns", lambda *args: ["id", "name", "created"])
     cursor.description = [("id",), ("name",), ("created",)]
     cursor.fetchall.return_value = [(7, "Sample", datetime(2026, 9, 12, 10, 30))]
     cursor.fetchone.return_value = (12,)
@@ -98,15 +89,6 @@ def test_pagination_filters_and_result_shape(sql, monkeypatch):
     assert result.columns == ["id", "name", "created"]
     assert result.rows == [{"id": 7, "name": "Sample", "created": "2026-09-12T10:30:00"}]
     assert (result.total_count, result.limit, result.offset) == (12, 5, 5)
-    assert service.get_performance_stats()["query_count"] == 1
-
-
-def test_unknown_table_is_rejected(sql):
-    service, _, connection, cursor = sql
-    cursor.fetchall.return_value = []
-    with pytest.raises(ValueError, match="not found"):
-        service.get_table_data("Missing")
-    connection.close.assert_called_once()
 
 
 def test_query_parameters_and_dates(sql):
@@ -121,9 +103,10 @@ def test_query_parameters_and_dates(sql):
     connection.close.assert_called_once()
 
 
-def test_browse_search_sort_and_count_share_predicates(sql, monkeypatch):
-    service, _, connection, cursor = sql
-    service._table_columns_cache["samples"] = ["id", "name", "binary"]
+def test_browse_search_sort_and_count_share_predicates(viewer, monkeypatch):
+    service, _, connection, cursor = viewer
+    service._tables = {"Samples": ("dbo", "Samples")}
+    monkeypatch.setattr(service, "_get_table_columns", lambda *args: ["id", "name", "binary"])
     monkeypatch.setattr(service, "_get_browse_metadata", lambda *args: (["id", "name"], ["id"]))
     cursor.description = [("id",), ("name",), ("binary",)]
     cursor.fetchall.return_value = []
@@ -139,8 +122,26 @@ def test_browse_search_sort_and_count_share_predicates(sql, monkeypatch):
     assert connection.timeout == 30
 
 
-def test_browse_rejects_invalid_inputs_before_sql(sql):
-    service, connect, _, _ = sql
+def test_browse_rejects_invalid_inputs_before_sql(viewer):
+    service, connect, _, _ = viewer
     for kwargs in ({"sort_direction":"desc; DROP TABLE x"}, {"search":"x"*201}, {"filters":[]}):
         with pytest.raises(ValueError): service.get_table_data("Samples", **kwargs)
     connect.assert_not_called()
+
+
+@pytest.fixture
+def viewer(sql):
+    from types import SimpleNamespace
+    from backend.services.workspace_database import WorkspaceDatabase
+    original, connect, connection, cursor = sql
+    service = WorkspaceDatabase(SimpleNamespace(open=lambda _: original.get_connection()), "fixture")
+    return service, connect, connection, cursor
+
+
+def test_unknown_table_is_rejected(viewer):
+    service, _, connection, cursor = viewer
+    cursor.__enter__.return_value = cursor
+    cursor.fetchall.return_value = []
+    with pytest.raises(ValueError, match="not found"):
+        service.get_table_data("Missing")
+    connection.close.assert_called_once()

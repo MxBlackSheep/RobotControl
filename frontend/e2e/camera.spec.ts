@@ -1,16 +1,23 @@
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 
 /** Failure scenarios written before the camera implementation:
- * - Fit crops or distorts 4:3, widescreen or portrait images on desktop/phone.
+ * - The picture (it always fits) crops or distorts 4:3, widescreen or portrait images on
+ *   desktop/phone, or a new frame size is not shown whole.
  * - Expanding renders two frame subscribers or reconnects capture/recording.
- * - Fit width (formerly Fill, which cropped up to 40% of the frame) hides any part of the
- *   frame or ignores the expanded dialog's size; zoom crops without a visible warning;
- *   zoom/pan can lose the image; a smaller frame resets the viewer's sizing choice.
- * - Source dimensions change but the previous zoom/pan remains applied.
+ * - The line under the picture says "Waiting for frames" before live view is started.
  * - Disconnect closes the inspection surface; stale images look live; a dropped stream
  *   clears the image or stays stopped instead of reconnecting by itself; Stop is undone
- *   by an automatic reconnect.
+ *   by an automatic reconnect. Reconnect live view does not replace the session or frames do
+ *   not resume after it.
+ * - Choose and connect: an administrator cannot stop recording, pick another camera, save it
+ *   and connect; the Camera chip does not go from Disconnected to Connected; Connect and
+ *   Reconnect camera are offered at once (they are one backend action).
+ * - Download (useRecordingDownload.ts): a response cut mid-file is not resumed from the received
+ *   byte with Range, the progress line does not show "x / y" then "Reconnecting...", or the
+ *   saved file differs from the server's bytes; the browser cache resumes instead of the page.
+ *   Cancel saves a file, sends another request or leaves the Download buttons disabled. A 404 is
+ *   retried, shown more than once, or opens a dialog whose button does something else.
  * - Frames are not acknowledged (the server then sends at most two and ends a silent
  *   viewer after 15 s); a hidden tab keeps receiving frames or does not resume.
  * - H.264 frames are not decoded onto the canvas (blank or wrong picture), or a new frame
@@ -30,13 +37,15 @@ import { expect, test, type APIRequestContext, type Page } from '@playwright/tes
  *   pool (it stalls: live view freezes on GPUs the checks never see), so decoding must be software. Turned off (PLAYOUT_BUFFER), the same case
  *   fails on evenness with the numbers from before the buffer (frames shown as decoded).
  * Fixture contract: POST /__e2e/camera configures dimensions, send_frames,
- * disconnect, generation, interval (seconds between captured frames) and burst (frames sent
- * together); only the isolated fixture handles these requests. Its frames are
+ * disconnect, generation, interval (seconds between captured frames), burst (frames sent
+ * together), the camera controls' device, capture and recording, and cut_after (drop the next
+ * download after that many bytes); it returns sessions, controls and each download's Range in
+ * ranges. Only the isolated fixture handles these requests. Its frames are
  * real H.264 from the bundled ffmpeg (red, lime, yellow, magenta corner squares on blue).
  */
 test.beforeEach(async ({ page, request }) => {
   await request.post('/__e2e/camera', { data: { width: 640, height: 480, send_frames: true, disconnect: false, generation: 'g1',
-    interval: .2, burst: 1 } });
+    interval: .2, burst: 1, device: 'fixture-camera', capture: 'connected', recording: true, operation: null, ranges: [], cut_after: null } });
   await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));
 });
 
@@ -61,7 +70,11 @@ const wholeFrame = (page: Page) => liveImage(page).evaluate((image: HTMLCanvasEl
 
 async function openLiveView(page: Page) {
   await page.goto('/camera?section=live');
-  await page.getByRole('button', { name: 'Start my live view', exact: true }).click();
+  const start = page.getByRole('button', { name: 'Start my live view', exact: true });
+  await expect(start).toBeEnabled();
+  // The line under the picture stays empty until live view starts.
+  await expect(page.getByText('Waiting for frames', { exact: true })).toHaveCount(0);
+  await start.click();
   await expect(liveImage(page)).toBeVisible();
   await expect.poll(() => cornerColours(page)).toEqual(['red', 'lime', 'yellow', 'magenta']);
   await expect(page.getByText('Live view receiving frames', { exact: true })).toBeVisible();
@@ -91,46 +104,20 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 320, height: 568
   }
 }
 
-test('inspection actions preserve the session and keep crop/zoom explicit', async ({ page, request }, testInfo) => {
+test('Expand keeps one picture and the session, and follows a new frame size whole', async ({ page, request }, testInfo) => {
   const writes: string[] = [];
   page.on('request', req => { if (req.method() !== 'GET' && req.url().includes('/api/camera/')) writes.push(`${req.method()} ${new URL(req.url()).pathname}`); });
   await openLiveView(page);
   await page.getByRole('button', { name: 'Expand live view', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Live camera inspection' })).toBeVisible();
   await expect(liveImage(page)).toHaveCount(1);
-  // Fit width shows the whole frame at the dialog's width and scrolls; only zoom crops.
-  await page.getByRole('button', { name: 'Fit width', exact: true }).click();
-  await expect(page.getByText('Cropped view', { exact: true })).toHaveCount(0);
-  expect(await wholeFrame(page)).toEqual({ clipped: 0, width: page.viewportSize()!.width });
-  await page.getByRole('button', { name: 'Zoom in', exact: true }).click();
-  await expect(page.getByText('Cropped view', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Reset view', exact: true }).click();
-  // A different frame size (another camera) restarts decoding at its keyframe and keeps the viewer's choice.
-  await request.post('/__e2e/camera', { data: { width: 320, height: 240 } });
-  await expect.poll(() => frameWidth(page)).toBe(320);
-  await expect.poll(() => cornerColours(page)).toEqual(['red', 'lime', 'yellow', 'magenta']);
-  await expect(page.getByRole('button', { name: 'Fit width', exact: true })).toHaveAttribute('aria-pressed', 'true');
-  expect(await wholeFrame(page)).toEqual({ clipped: 0, width: page.viewportSize()!.width });
-  await request.post('/__e2e/camera', { data: { width: 640, height: 480 } });
-  await expect.poll(() => frameWidth(page)).toBe(640);
-  await page.getByRole('button', { name: 'Fit entire frame', exact: true }).click();
-  await page.getByRole('button', { name: 'Zoom in', exact: true }).click();
-  await page.getByRole('button', { name: 'Pan up', exact: true }).click();
-  await page.getByTestId('camera-stage').focus();
-  await page.keyboard.press('ArrowDown');
-  await page.getByRole('button', { name: 'Reset view', exact: true }).click();
-  await expect(page.getByText('1×', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Zoom in', exact: true }).click();
-  await request.post('/__e2e/camera', { data: { width: 480, height: 800 } });
-  await expect.poll(() => frameWidth(page)).toBe(480);
-  await expect(page.getByText('1×', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Zoom in', exact: true }).click();
-  // Hold the source-change gap open: disabling the focused zoom control must
-  // keep keyboard focus inside the dialog, including before new frames arrive.
-  await request.post('/__e2e/camera', { data: { generation: 'g2', send_frames: false } });
-  await expect(page.getByText('1×', { exact: true })).toBeVisible({ timeout: 8000 });
-  await expect(page.getByRole('button', { name: 'Zoom in', exact: true })).toBeDisabled();
-  await expect(page.getByTestId('camera-stage')).toBeFocused();
+  // A different frame size (another camera) restarts decoding at its keyframe and still fits whole.
+  for (const [width, height] of [[320, 240], [480, 800], [640, 480]]) {
+    await request.post('/__e2e/camera', { data: { width, height } });
+    await expect.poll(() => frameWidth(page)).toBe(width);
+    await expect.poll(() => cornerColours(page)).toEqual(['red', 'lime', 'yellow', 'magenta']);
+    expect((await wholeFrame(page)).clipped).toBe(0);
+  }
   await page.keyboard.press('Escape');
   await expect(page.getByRole('button', { name: 'Expand live view', exact: true })).toBeFocused();
   expect(writes).toEqual(['POST /api/camera/streaming/session']);
@@ -157,6 +144,14 @@ test('a dropped live view keeps the last image as stale, reconnects by itself an
   await expect(page.getByRole('button', { name: 'Stop my live view', exact: true })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('reconnected-stale.png'), fullPage: true });
   await request.post('/__e2e/camera', { data: { send_frames: true } });
+  await expect(page.getByText('Live view receiving frames', { exact: true })).toBeVisible();
+  // Reconnect replaces the session and frames resume on the new socket.
+  const replaced = (await fixture(request)).sessions;
+  const acks = async () => (((await fixture(request)).controls ?? []) as string[]).filter(type => type === 'ack').length;
+  await page.getByRole('button', { name: 'Reconnect live view', exact: true }).click();
+  await expect.poll(async () => (await fixture(request)).sessions).toBe(replaced + 1);
+  const acknowledged = await acks();
+  await expect.poll(acks).toBeGreaterThan(acknowledged);
   await expect(page.getByText('Live view receiving frames', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Reconnect live view', exact: true })).toBeEnabled();
   // After Stop, a closed stream is not reconnected.
@@ -306,7 +301,6 @@ for (const [name, setup, message] of [
     await page.addInitScript(setup);
     await page.goto('/camera?section=live');
     await expect(page.getByText(message, { exact: true })).toBeVisible();
-    await expect(page.getByText('Live view is not available here', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Start my live view', exact: true })).toBeDisabled();
     await expect(liveImage(page)).toHaveCount(0);
     expect(sessions).toEqual([]);
@@ -366,4 +360,90 @@ test('an expired sign-in is renewed and live view still starts', async ({ page }
   await expect(page.getByText(/\(401\)|Failed to create streaming session/)).toHaveCount(0);
   expect(refreshes).toBe(1);
   await page.screenshot({ path: testInfo.outputPath('renewed-sign-in.png') });
+});
+
+test('an administrator stops recording, chooses another camera and connects it', async ({ page, request }) => {
+  const writes: string[] = [];
+  page.on('request', req => { if (req.method() !== 'GET' && req.url().includes('/api/camera/') && !req.url().includes('/streaming/')) writes.push(`${req.method()} ${new URL(req.url()).pathname}`); });
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await page.goto('/camera?section=live');
+  const cameraPanel = page.getByRole('region', { name: 'Camera', exact: true });
+  const recordingPanel = page.getByRole('region', { name: 'Recording', exact: true });
+  const choice = page.getByRole('combobox', { name: 'Selected camera' });
+  await expect(cameraPanel.getByText('Connected', { exact: true })).toBeVisible();
+  // One button for one backend action: a connected camera offers Reconnect only.
+  await expect(cameraPanel.getByRole('button', { name: 'Connect', exact: true })).toHaveCount(0);
+  await expect(choice).toHaveAttribute('aria-disabled', 'true');
+  await recordingPanel.getByRole('button', { name: 'Stop recording', exact: true }).click();
+  await expect(recordingPanel.getByText('Off', { exact: true })).toBeVisible();
+  await expect(cameraPanel.getByText('Disconnected', { exact: true })).toBeVisible();
+  await cameraPanel.getByRole('button', { name: 'Refresh cameras', exact: true }).click();
+  await expect(choice).not.toHaveAttribute('aria-disabled', 'true');
+  await choice.click();
+  await page.getByRole('option', { name: 'Second camera · Device 2', exact: true }).click();
+  await cameraPanel.getByRole('button', { name: 'Save selection', exact: true }).click();
+  await expect(cameraPanel.getByRole('button', { name: 'Save selection', exact: true })).toBeDisabled();
+  await expect(cameraPanel.getByRole('button', { name: 'Reconnect camera', exact: true })).toHaveCount(0);
+  await cameraPanel.getByRole('button', { name: 'Connect', exact: true }).click();
+  await expect(cameraPanel.getByText('Connected', { exact: true })).toBeVisible();
+  await expect(cameraPanel.getByRole('button', { name: 'Reconnect camera', exact: true })).toBeEnabled();
+  await expect(cameraPanel.getByRole('button', { name: 'Connect', exact: true })).toHaveCount(0);
+  await expect(choice).toContainText('Second camera');
+  expect(writes).toEqual(['POST /api/camera/recording/stop', 'POST /api/camera/devices/refresh', 'PATCH /api/camera/selection', 'POST /api/camera/connect']);
+  expect((await fixture(request)).device).toBe('second-camera');
+});
+
+const clip = 'fixture-clip.mp4';
+const downloadButton = (page: Page, name: string) => page.getByRole('button', { name: `Download ${name}`, exact: true });
+async function openArchive(page: Page) {
+  await page.goto('/camera?section=archive');
+  await page.getByRole('button', { name: /Open folder Fixture run/ }).click();
+}
+
+test('a download cut mid-file resumes from the received byte and saves the whole file', async ({ page, request }) => {
+  await request.post('/__e2e/camera', { data: { cut_after: 100_000 } });
+  await openArchive(page);
+  const saved = page.waitForEvent('download');
+  await downloadButton(page, clip).click();
+  await expect(page.getByText('97.7 KB / 300.0 KB · Reconnecting...', { exact: true })).toBeVisible();
+  const file = await (await saved).path();
+  expect((await fixture(request)).ranges).toEqual([null, 'bytes=100000-']);
+  const served = await request.get(`/api/camera/recording/${clip}`, { headers: { Authorization: 'Bearer viewer-admin' } });
+  expect(readFileSync(file).equals(await served.body())).toBe(true);
+  await expect(page.getByText(/^Downloading /)).toHaveCount(0);
+  await expect(page.getByRole('dialog', { name: 'Download failed' })).toHaveCount(0);
+});
+
+test('Cancel during a download saves no file and frees the Download buttons', async ({ page, request }) => {
+  await request.post('/__e2e/camera', { data: { cut_after: 100_000 } });
+  const downloads: string[] = [];
+  page.on('download', download => downloads.push(download.suggestedFilename()));
+  await openArchive(page);
+  await downloadButton(page, clip).click();
+  await expect(page.getByText(/· Reconnecting\.\.\.$/)).toBeVisible();
+  await expect(downloadButton(page, clip)).toBeDisabled();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.getByText(/^Downloading /)).toHaveCount(0);
+  await expect(downloadButton(page, clip)).toBeEnabled();
+  await page.waitForTimeout(2500); // longer than the first retry wait (1.2 s)
+  expect(downloads).toEqual([]);
+  expect((await fixture(request)).ranges).toEqual([null]);
+  await expect(page.getByRole('dialog', { name: 'Download failed' })).toHaveCount(0);
+  // The buttons work again: the next download completes.
+  const saved = page.waitForEvent('download');
+  await downloadButton(page, clip).click();
+  expect((await saved).suggestedFilename()).toBe(clip);
+});
+
+test('a missing recording shows its reason once and is not retried', async ({ page, request }) => {
+  await openArchive(page);
+  await downloadButton(page, 'missing-clip.mp4').click();
+  const dialog = page.getByRole('dialog', { name: 'Download failed' });
+  await expect(dialog).toContainText('Recording not found on server. It may have been moved or deleted.');
+  await page.waitForTimeout(2500); // longer than the first retry wait (1.2 s)
+  expect((await fixture(request)).ranges).toEqual([null]);
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByText(/Recording not found/)).toHaveCount(0);
+  await expect(downloadButton(page, 'missing-clip.mp4')).toBeEnabled();
 });

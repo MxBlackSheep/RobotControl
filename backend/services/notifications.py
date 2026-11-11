@@ -274,7 +274,6 @@ class SchedulingNotificationService:
         self.email = EmailNotificationService()
         self._video_root_dir = self._resolve_video_root()
         self._hamilton_log_dir = self._resolve_trc_directory()
-        self._rolling_clips_dir = self._video_root_dir / "rolling_clips"
 
     def manual_recovery_required(
         self,
@@ -654,30 +653,12 @@ class SchedulingNotificationService:
 
     def _collect_recent_rolling_clips(self, limit: int = 5) -> List[Path]:
         """Collect the most recent rolling clips to attach as fallback."""
-        directory = self._rolling_clips_dir
-        if not directory.exists():
-            return []
-
-        candidates: List[Tuple[float, Path]] = []
-        try:
-            for candidate in directory.iterdir():
-                if not candidate.is_file():
-                    continue
-                if candidate.suffix.lower() not in {".avi", ".mp4", ".mov"}:
-                    continue
-                try:
-                    stat_result = candidate.stat()
-                except OSError:
-                    continue
-                if stat_result.st_size <= 0:
-                    continue
-                candidates.append((stat_result.st_mtime, candidate))
-        except Exception as exc:  # pragma: no cover - filesystem dependent
-            logger.debug("Failed to enumerate rolling clips: %s", exc)
-            return []
-
-        candidates.sort(key=lambda item: item[0], reverse=True)
-        return [path for _, path in candidates[:limit]]
+        from backend.services.storage_manager import get_storage_manager
+        from backend.services.clip_transcoder import finalized_clips
+        store = get_storage_manager()
+        with store.clips_lock:
+            return [path for path in reversed(finalized_clips(store.rolling_clips_path))
+                    if path.stat().st_size > 0][:limit]
 
 
 _notification_service: Optional[SchedulingNotificationService] = None

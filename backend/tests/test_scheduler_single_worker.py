@@ -87,8 +87,6 @@ class StubDBManager:
     def update_scheduled_experiment(self, experiment: ScheduledExperiment, *, touch_updated_at: bool = True) -> bool:
         return True
 
-    def should_block_due_to_abort(self, experiment: ScheduledExperiment):
-        return None
 
     def notification_log_exists(self, execution_id: str, event_type: str) -> bool:
         return False

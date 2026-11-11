@@ -11,6 +11,50 @@ from backend.models import ScheduledExperiment
 from backend.services.auth import get_current_user
 
 
+@pytest.fixture
+def stored_schedule(tmp_path, monkeypatch):
+    from backend.services.scheduling import sqlite_database
+    from backend.tests.test_sqlite_safety import engine
+    monkeypatch.setattr(sqlite_database, 'get_data_path', lambda: tmp_path)
+    storage = sqlite_database.SQLiteSchedulingDatabase()
+    scheduler = engine(storage)
+    schedule = ScheduledExperiment('paused', 'Paused', 'paused.med', 'once', created_by='tester', is_active=False)
+    assert storage.create_schedule(schedule)
+    monkeypatch.setattr(scheduling_api, 'get_services', lambda: (scheduler, scheduler.db_manager, None))
+    return storage, scheduler, schedule
+
+
+def test_paused_delete_uses_engine_locks(stored_schedule, monkeypatch):
+    storage, scheduler, schedule = stored_schedule
+    delete = storage.delete_schedule
+    def locked_delete(*args, **kwargs):
+        assert scheduler._schedules_lock._is_owned()
+        assert scheduler._jobs_lock._is_owned()
+        return delete(*args, **kwargs)
+    monkeypatch.setattr(storage, 'delete_schedule', locked_delete)
+    response = client.delete('/api/scheduling/paused', headers={'If-Unmodified-Since': schedule.updated_at.isoformat()})
+    assert response.status_code == 200, response.text
+    assert storage.get_schedule_by_id('paused') is None
+    assert 'deleted_via' not in response.json()['data']
+
+
+def test_paused_delete_rejects_stale_version(stored_schedule):
+    storage, scheduler, schedule = stored_schedule
+    response = client.delete('/api/scheduling/paused', headers={'If-Unmodified-Since': '2000-01-01T00:00:00'})
+    assert response.status_code == 409, response.text
+    assert storage.get_schedule_by_id('paused').to_dict() == schedule.to_dict()
+
+
+def test_refused_update_writes_nothing(stored_schedule, monkeypatch):
+    storage, scheduler, schedule = stored_schedule
+    monkeypatch.setattr(scheduler, 'update_schedule', lambda *args, **kwargs: False)
+    before = storage.db_path.read_bytes()
+    response = client.put('/api/scheduling/paused', json={'estimated_duration': 45})
+    assert response.status_code == 400 and response.json()['detail'] == 'Failed to update schedule', response.text
+    assert storage.db_path.read_bytes() == before
+    assert storage.get_schedule_by_id('paused').to_dict() == schedule.to_dict()
+
+
 class FakeScheduler:
     def __init__(self):
         self._schedules_lock = RLock()

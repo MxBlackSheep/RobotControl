@@ -29,6 +29,7 @@ import {
   LogReaderStatus,
 } from "../services/logFileApi";
 import { fontMono } from "../theme";
+import { requestErrorMessage } from "../services/requestError";
 
 export type LogSelection = {
   name: string;
@@ -36,8 +37,7 @@ export type LogSelection = {
   archive: string;
   entry: string;
 };
-const errorMessage = (error: any) =>
-  error.response?.data?.error?.message || error.message || "Unable to read log";
+const errorMessage = (error: unknown) => requestErrorMessage(error, "Unable to read log");
 export default function LogReader({
   sourceId,
   selected,
@@ -53,12 +53,13 @@ export default function LogReader({
     [status, setStatus] = useState<LogReaderStatus | null>(null);
   const [loading, setLoading] = useState(false),
     [error, setError] = useState(""),
-    [revision, setRevision] = useState(0),
-    [cancelled, setCancelled] = useState(false);
-  const [showLive, setShowLive] = useState(false);
-  const [follow, setFollow] = useState(false),
-    [liveText, setLiveText] = useState(""),
-    [livePath, setLivePath] = useState(""),
+    [revision, setRevision] = useState(0);
+  // Reading a captured section, following the end of the file, or stopped with the text kept.
+  const [mode, setMode] = useState<"reading" | "following" | "stopped">("reading");
+  const follow = mode === "following",
+    cancelled = mode === "stopped";
+  // The followed tail; null while a captured section is shown.
+  const [live, setLive] = useState<{ text: string; path: string } | null>(null),
     [updated, setUpdated] = useState("");
   const [visible, setVisible] = useState(
     document.visibilityState === "visible",
@@ -90,15 +91,11 @@ export default function LogReader({
     return () => document.removeEventListener("visibilitychange", listener);
   }, []);
   useEffect(() => {
-    if (!visibleInWorkspace && follow) {
-      setFollow(false);
-      setCancelled(true);
-    }
+    if (!visibleInWorkspace && follow) setMode("stopped");
   }, [visibleInWorkspace, follow]);
   useEffect(() => {
     if (!active && (follow || loading)) {
-      setFollow(false);
-      setCancelled(true);
+      setMode("stopped");
       setLoading(false);
     }
   }, [active, follow, loading]);
@@ -148,7 +145,7 @@ export default function LogReader({
         if (valid && version === requestVersion.current) {
           setSection(result);
           setStatus(result);
-          setShowLive(false);
+          setLive(null);
           setMatch(0);
           setUpdated(new Date().toLocaleTimeString());
           scroll.current = initialCursor.current === "last" ? Number.MAX_SAFE_INTEGER : 0;
@@ -199,7 +196,7 @@ export default function LogReader({
         if (valid && !abort.signal.aborted) {
           setError(errorMessage(e));
           if ([403, 404].includes((e as any).response?.status))
-            setCancelled(true);
+            setMode("stopped");
         }
       } finally {
         if (valid) timer = window.setTimeout(renew, 60000);
@@ -233,16 +230,13 @@ export default function LogReader({
         const result = await logFileApi.preview(
           sourceId,
           selected.relative,
-          "tail",
           1024 * 1024,
           abort.signal,
         );
         if (!valid) return;
         if (result.is_binary)
           throw new Error("This file contains binary data.");
-        setLiveText(result.content || "");
-        setShowLive(true);
-        setLivePath(result.file_path);
+        setLive({ text: result.content || "", path: result.file_path });
         setUpdated(new Date().toLocaleTimeString());
         if (atBottom.current)
           requestAnimationFrame(() => {
@@ -253,8 +247,7 @@ export default function LogReader({
       } catch (e) {
         if (valid && !abort.signal.aborted) {
           setError(errorMessage(e));
-          setFollow(false);
-          setCancelled(true);
+          setMode("stopped");
         }
       } finally {
         if (valid) {
@@ -281,7 +274,7 @@ export default function LogReader({
   useEffect(() => {
     if (pane.current) pane.current.scrollTop = scroll.current;
   }, [expanded, section?.cursor]);
-  const text = showLive ? liveText : section?.content || "";
+  const text = live ? live.text : section?.content || "";
   const matches = useMemo(() => {
     const result: number[] = [];
     if (find) {
@@ -336,8 +329,7 @@ export default function LogReader({
     }
     initialCursor.current = cursor;
     if (follow || !readerId.current || cancelled) {
-      setCancelled(false);
-      setFollow(false);
+      setMode("reading");
       setRevision((v) => v + 1);
       return;
     }
@@ -352,7 +344,7 @@ export default function LogReader({
         scroll.current = cursor === "last" ? Number.MAX_SAFE_INTEGER : sectionScroll.current.get(result.cursor) || 0;
         setSection(result);
         setStatus(result);
-        setShowLive(false);
+        setLive(null);
         setMatch(0);
       }
     } catch (e) {
@@ -363,11 +355,10 @@ export default function LogReader({
   };
   const reopen = () => {
     initialCursor.current = "last";
-    setCancelled(false);
-    setFollow(false);
+    setMode("reading");
     setRevision((v) => v + 1);
   };
-  const path = showLive ? livePath : status?.file_path || section?.file_path || "";
+  const path = live ? live.path : status?.file_path || section?.file_path || "";
   const attachPane = useCallback((element: HTMLDivElement | null) => {
     pane.current = element;
     if (element) {
@@ -408,10 +399,7 @@ export default function LogReader({
                 <Switch
                   size="small"
                   checked={follow}
-                  onChange={(_, value) => {
-                    setCancelled(false);
-                    setFollow(value);
-                  }}
+                  onChange={(_, value) => setMode(value ? "following" : "reading")}
                 />
               }
             />
@@ -451,8 +439,7 @@ export default function LogReader({
             </Typography>
             <Button
               onClick={() => {
-                setCancelled(true);
-                setFollow(false);
+                setMode("stopped");
                 setLoading(false);
               }}
             >
@@ -492,7 +479,7 @@ export default function LogReader({
           {status.encoding}).
         </Alert>
       )}
-      {section?.line_continues && !showLive && (
+      {section?.line_continues && !live && (
         <Typography variant="caption" sx={{ px: 1.5 }}>
           Line continues from the previous section.
         </Typography>
@@ -559,15 +546,15 @@ export default function LogReader({
         sx={{ px: 1, py: 0.5, flexShrink: 0 }}
       >
         <Button
-          disabled={loading || (!showLive && section?.section_number === 1)}
+          disabled={loading || (!live && section?.section_number === 1)}
           onClick={() => void navigate("first")}
         >
           Beginning
         </Button>
         <Button
-          disabled={loading || (!showLive && !section?.previous_cursor)}
+          disabled={loading || (!live && !section?.previous_cursor)}
           onClick={() =>
-            void navigate(showLive ? "older" : section!.previous_cursor!)
+            void navigate(live ? "older" : section!.previous_cursor!)
           }
         >
           Older section
@@ -581,7 +568,7 @@ export default function LogReader({
         <Button disabled={loading} onClick={() => void navigate("last")}>
           Latest
         </Button>
-        {!showLive && section && (
+        {!live && section && (
           <Typography variant="caption">
             Section {section.section_number} of {section.section_count}
           </Typography>

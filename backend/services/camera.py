@@ -13,21 +13,18 @@ Features:
 - Thread-safe operations
 """
 
-import json
 import threading
 import time
 import logging
 from datetime import datetime, timedelta
-from collections import deque
 from pathlib import Path
 from typing import List, Dict, Any
 from concurrent.futures import ThreadPoolExecutor
 
-from backend.config import CAMERA_CONFIG, VIDEO_PATH
+from backend.config import CAMERA_CONFIG
 from backend.services.camera_runtime import CameraRuntime
 from backend.services.clip_transcoder import ClipTranscoder, finalized_clips
 from backend.services.shared_frame_buffer import get_shared_frame_buffer
-from backend.utils.data_paths import get_videos_path, is_compiled_mode
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -44,16 +41,6 @@ class CameraService:
     - Camera health monitoring
     """
     
-    _instance = None
-    _lock = threading.Lock()
-    
-    def __new__(cls):
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
-                    cls._instance = super(CameraService, cls).__new__(cls)
-        return cls._instance
-    
     def __init__(self):
         if hasattr(self, '_initialized'):
             return
@@ -62,49 +49,22 @@ class CameraService:
         
         # Configuration
         self.recording_duration = CAMERA_CONFIG["recording_duration_minutes"] * 60  # Convert to seconds
-        self.archive_duration = CAMERA_CONFIG["archive_duration_minutes"] * 60
         
         # Auto-cleanup configuration
-        self.cleanup_interval = 1 * 60  # 1 minute for debugging
-        self.last_cleanup_time = time.time()
         self.cleanup_lock = threading.Lock()
         
-        # Paths - use data path manager for portable deployment
-        # Initialize video paths with fallbacks for modular design
-        if is_compiled_mode():
-            self.video_path = get_videos_path()
-            logger.info("Compiled mode - using packaged video directory: %s", self.video_path)
-        else:
-            configured = Path(VIDEO_PATH) if VIDEO_PATH else get_videos_path()
-            if not configured.is_absolute():
-                project_root = Path(__file__).resolve().parents[2]  # repo root
-                configured = (project_root / configured).resolve()
-            self.video_path = configured
-            logger.info("Development mode - using video path: %s", self.video_path)
-        self.rolling_clips_path = self.video_path / "rolling_clips"
-        self.experiments_path = self.video_path / "experiments"
-        
-        # Create directories
-        self._create_directories()
-        
-        # Camera management
-        self.cameras: Dict[int, Dict[str, Any]] = {}
-        # Don't use maxlen - we need to track what gets removed for file deletion
-        self.rolling_clips: deque = deque()
-        
-        # Load existing clips into memory to prevent orphan deletion on startup
-        self._load_existing_clips()
-        
-        # Thread safety
-        self.camera_lock = threading.Lock()
-        self.clips_lock = threading.Lock()
+        from backend.services.storage_manager import get_storage_manager
+        self._storage_manager = get_storage_manager()
+        self.video_path = self._storage_manager.video_path
+        self.rolling_clips_path = self._storage_manager.rolling_clips_path
+        self.experiments_path = self._storage_manager.experiments_path
+        self.clips_lock = self._storage_manager.clips_lock
         # Finalized MJPEG clips are re-stored as H.264 MP4 by a low-priority ffmpeg child.
-        self.clip_transcoder = ClipTranscoder(self.rolling_clips_path, self.clips_lock, self._clip_transcoded,
+        self.clip_transcoder = ClipTranscoder(self.rolling_clips_path, self.clips_lock,
                                               CAMERA_CONFIG["clip_h264_kbps"], CAMERA_CONFIG["clip_denoise_filter"])
         
         # Integration with new live streaming system
-        self.streaming_integration_enabled = False
-        self.shared_frame_buffer = None
+        self.shared_frame_buffer = get_shared_frame_buffer()
         
         # Thread pool for async operations
         self.executor = ThreadPoolExecutor(max_workers=4)
@@ -118,85 +78,17 @@ class CameraService:
         self.runtime.capture_fps = CAMERA_CONFIG["capture_fps"]
         logger.info("CameraService initialized")
     
-    def enable_streaming_integration(self):
-        """
-        Enable integration with the new live streaming system.
-        Called during startup to connect with SharedFrameBuffer for live streaming.
-        """
-        try:
-            self.shared_frame_buffer = get_shared_frame_buffer()
-            self.streaming_integration_enabled = True
-            logger.info("Streaming integration enabled")
-        except Exception as exc:
-            logger.error("Failed to enable streaming integration: %s", exc)
-    
-    def disable_streaming_integration(self):
-        """
-        Disable streaming integration.
-        Called during shutdown or if streaming is disabled.
-        """
-        self.streaming_integration_enabled = False
-        self.shared_frame_buffer = None
-        logger.info("Streaming integration disabled")
-
-    
-    def _create_directories(self):
-        """Create necessary directories for video storage"""
-        try:
-            self.video_path.mkdir(parents=True, exist_ok=True)
-            self.rolling_clips_path.mkdir(parents=True, exist_ok=True)
-            self.experiments_path.mkdir(parents=True, exist_ok=True)
-            logger.info(f"Video directories created at: {self.video_path}")
-        except Exception as e:
-            logger.error(f"Failed to create video directories: {e}")
-    
-    def _read_finalized_clips(self):
-        clips = []
-        for path in finalized_clips(self.rolling_clips_path):
-            try:
-                sidecar = path.with_suffix(".json")
-                if sidecar.exists():
-                    clip = json.loads(sidecar.read_text(encoding="utf-8"))
-                    clip["path"] = str(path)
-                    clip["timestamp"] = datetime.fromisoformat(clip["timestamp"])
-                else:
-                    # Legacy clips remain usable; unknown metadata stays unknown.
-                    stamp = datetime.strptime(path.stem.split("_", 1)[1], "%Y%m%d_%H%M%S")
-                    clip = {"path": str(path), "timestamp": stamp, "camera_id": None,
-                            "frame_count": None, "actual_duration": None}
-                clips.append(clip)
-            except (OSError, ValueError, KeyError) as exc:
-                logger.warning("Cannot read finalized clip %s: %s", path.name, exc)
-        return clips
-
-    def _load_existing_clips(self):
-        self.rolling_clips.extend(self._read_finalized_clips())
-
-
     def _publish_frame(self, frame):
-        if not self.streaming_integration_enabled:
-            self.enable_streaming_integration()
         if frame is None:
             self.shared_frame_buffer.clear()
         else:
             self.shared_frame_buffer.put_frame(frame)
 
     def _accept_clip(self, clip):
-        clip = dict(clip)
-        clip["timestamp"] = datetime.fromisoformat(clip["timestamp"])
-        with self.clips_lock:
-            if not any(item["path"] == clip["path"] for item in self.rolling_clips):
-                self.rolling_clips.append(clip)
         with self.cleanup_lock:
             if self._cleanup_future is None or self._cleanup_future.done():
                 self._cleanup_future = self.executor.submit(self.cleanup_rolling_clips)
         self.clip_transcoder.wake()
-
-    def _clip_transcoded(self, avi, mp4):
-        # ClipTranscoder calls this with clips_lock held, so archives see the old or the new path.
-        for clip in self.rolling_clips:
-            if Path(clip["path"]) == avi:
-                clip["path"] = str(mp4)
 
     def wait_for_stored_clips(self, minutes, timeout=60.0):
         """Before archiving the last `minutes`, give their pending H.264 conversion time to finish.
@@ -205,7 +97,7 @@ class CameraService:
         """
         cutoff = datetime.now() - timedelta(minutes=minutes)
         with self.clips_lock:
-            recent = [Path(clip["path"]) for clip in self.rolling_clips
+            recent = [Path(clip["path"]) for clip in self._storage_manager._read_finalized_clips()
                       if clip.get("timestamp") and clip["timestamp"] >= cutoff]
         if not self.clip_transcoder.wait_for(recent, timeout):
             logger.warning("Archiving before every recent clip was stored as H.264: %s",
@@ -213,27 +105,15 @@ class CameraService:
 
     def detect_cameras(self):
         devices = self.runtime.run("refresh")
-        self.cameras = {device["id"]: device for device in devices}
         return devices
 
     def start_recording(self, camera_id):
         try:
             self.runtime.run("start", camera_id=camera_id)
-            self.cameras = {device["id"]: device for device in self.runtime.devices}
             return True
         except Exception as exc:
             logger.error("Camera recording start failed: %s", exc)
             return False
-
-    def prepare_automatic_recording(self, callback):
-        self.runtime.recording_requested = True
-        self.runtime.on_recording_started = callback
-
-    def automatic_camera_id(self, fallback):
-        if self.runtime.identity:
-            from backend.services.camera_devices import resolve_device
-            return resolve_device(self.runtime.devices, self.runtime.identity)["id"]
-        return fallback
 
     def stop_recording(self, camera_id):
         if camera_id != self.runtime.camera_id or not self.runtime.recording_requested:
@@ -246,54 +126,12 @@ class CameraService:
             return False
 
     def cleanup_rolling_clips(self):
-        from backend.services.storage_manager import get_storage_manager
-        result = get_storage_manager().cleanup_rolling_clips(self.rolling_clips, self.clips_lock)
-        # A clip written but never accepted (helper stopped between rename and report) must still be archived.
-        self._sync_memory_with_filesystem()
-        return result
+        return self._storage_manager.cleanup_rolling_clips()
 
-    def _sync_memory_with_filesystem(self):
-        with self.clips_lock:
-            self.rolling_clips.clear()
-            self.rolling_clips.extend(self._read_finalized_clips())
-
-    
     def get_camera_status(self):
         health = self.runtime.status()
         cameras = self.runtime.devices
-        self.cameras = {device["id"]: device for device in cameras}
-        recording = health["recording_state"] == "recording"
-        return {"cameras_detected": len(cameras), "cameras_recording": int(recording),
-                "rolling_clips_count": len(self.rolling_clips), "video_storage_path": str(self.video_path),
-                "health": health, "clip_storage": self.clip_transcoder.status(),
-                "cameras": [{**camera, "recording": recording and camera["id"] == health["camera_id"],
-                    "has_live_stream": health["capture_state"] == "connected" and camera["id"] == health["camera_id"]}
-                    for camera in cameras]}
-
-    def get_recent_clips(self, limit: int = 10) -> List[Dict[str, Any]]:
-        """
-        Get list of recent video clips
-        
-        Args:
-            limit: Maximum number of clips to return
-            
-        Returns:
-            List of clip information dictionaries
-        """
-        with self.clips_lock:
-            recent_clips = list(self.rolling_clips)[-limit:]
-            
-        return [
-            {
-                "filename": Path(clip["path"]).name,
-                "timestamp": clip["timestamp"].isoformat(),
-                "camera_id": clip["camera_id"],
-                "frame_count": clip["frame_count"],
-                "size_bytes": Path(clip["path"]).stat().st_size if Path(clip["path"]).exists() else 0
-            }
-            for clip in reversed(recent_clips)
-        ]
-    
+        return {"health": health, "clip_storage": self.clip_transcoder.status(), "cameras": cameras}
 
     def shutdown(self):
         self.runtime.shutdown()

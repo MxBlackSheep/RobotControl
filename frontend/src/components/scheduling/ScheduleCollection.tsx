@@ -7,6 +7,8 @@ import { columnHeading, fontMono, layout, StatusTone } from '../../theme';
 import { dayTime } from '../../utils/displayTime';
 
 export function scheduleState(schedule: ScheduledExperiment): { label: string; tone: StatusTone } {
+  // A stored record that fails its check never runs, whatever its other flags say.
+  if (schedule.review_reason) return { label: 'Needs review', tone: 'attention' };
   if (schedule.recovery_required) return { label: 'Recovery required', tone: 'attention' };
   if (schedule.archived) return { label: 'Archived', tone: 'neutral' };
   return schedule.is_active ? { label: 'Active', tone: 'completed' } : { label: 'Inactive', tone: 'neutral' };
@@ -22,9 +24,9 @@ export const repeatLabel = (schedule: ScheduledExperiment) => schedule.schedule_
 type Filter = 'all' | 'active' | 'inactive' | 'recovery';
 const filters: { value: Filter; label: string; match: (schedule: ScheduledExperiment) => boolean }[] = [
   { value: 'all', label: 'All', match: () => true },
-  { value: 'active', label: 'Active', match: schedule => schedule.is_active && !schedule.recovery_required },
-  { value: 'inactive', label: 'Inactive', match: schedule => !schedule.is_active && !schedule.recovery_required },
-  { value: 'recovery', label: 'Recovery', match: schedule => schedule.recovery_required },
+  { value: 'active', label: 'Active', match: schedule => scheduleState(schedule).label === 'Active' },
+  { value: 'inactive', label: 'Inactive', match: schedule => scheduleState(schedule).label === 'Inactive' },
+  { value: 'recovery', label: 'Recovery', match: schedule => scheduleState(schedule).label === 'Recovery required' },
 ];
 
 // Wide enough for the table columns; narrower panels stack each row.
@@ -32,8 +34,9 @@ const table = '@container schedules (min-width: 640px)';
 // Date columns hold the longest dayTime ("13 Jan 2027 09:00", ~122px in the mono font) on one line.
 const columns = 'minmax(0, 2.2fr) minmax(90px, 0.8fr) minmax(128px, 1fr) minmax(128px, 1fr) 160px';
 
-export default function ScheduleCollection({ schedules, selected, onSelect, onRefresh, loading, error }: {
-  schedules: ScheduledExperiment[]; selected: ScheduledExperiment | null;
+/** Schedules and Archived share this list; Archived holds one state, so it has no status filter. */
+export default function ScheduleCollection({ title, statusFilter, schedules, selected, onSelect, onRefresh, loading, error }: {
+  title: string; statusFilter: boolean; schedules: ScheduledExperiment[]; selected: ScheduledExperiment | null;
   onSelect: (schedule: ScheduledExperiment) => void; onRefresh: () => void; loading: boolean; error: string | null;
 }) {
   const [query, setQuery] = useState('');
@@ -41,21 +44,21 @@ export default function ScheduleCollection({ schedules, selected, onSelect, onRe
   const [filter, setFilter] = useState<Filter>('all');
   const searched = useMemo(() => schedules.filter(schedule =>
     `${schedule.experiment_name} ${scheduleTarget(schedule)}`.toLowerCase().includes(query.toLowerCase())), [schedules, query]);
-  const visible = useMemo(() => searched.filter(filters.find(item => item.value === filter)!.match)
+  const visible = useMemo(() => searched.filter(statusFilter ? filters.find(item => item.value === filter)!.match : () => true)
     .sort((a, b) => sort === 'name' ? a.experiment_name.localeCompare(b.experiment_name)
-      : (a.next_run || '9999').localeCompare(b.next_run || '9999')), [searched, filter, sort]);
+      : (a.next_run || '9999').localeCompare(b.next_run || '9999')), [searched, statusFilter, filter, sort]);
   const muted = { color: 'text.secondary', fontSize: 13 };
   // Fills the workspace column: header band, toolbar, column headings, then a scrolling table.
   return <Box data-testid="schedule-collection" sx={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', containerType: 'inline-size', containerName: 'schedules' }}>
-    <Panel title="Schedules" fill inset={false} sx={{ flex: 1 }} bodySx={{ display: 'flex', flexDirection: 'column' }}
+    <Panel title={title} fill inset={false} sx={{ flex: 1 }} bodySx={{ display: 'flex', flexDirection: 'column' }}
       actions={<Button size="small" onClick={onRefresh} disabled={loading}>Refresh</Button>}>
       <Stack direction="row" alignItems="center" flexWrap="wrap" gap={1} sx={{ px: 2, py: 1.5, borderBottom: 1, borderColor: 'surface.rowLine' }}>
         <TextField size="small" label="Search schedules" value={query} onChange={event => setQuery(event.target.value)} sx={{ flex: '1 1 180px', minWidth: 0, maxWidth: 320 }} />
-        <ToggleButtonGroup size="small" exclusive value={filter} onChange={(_, value) => value && setFilter(value)} aria-label="Filter by status" sx={{ flexWrap: 'wrap' }}>
+        {statusFilter && <ToggleButtonGroup size="small" exclusive value={filter} onChange={(_, value) => value && setFilter(value)} aria-label="Filter by status" sx={{ flexWrap: 'wrap' }}>
           {filters.map(item => <ToggleButton key={item.value} value={item.value} sx={{ gap: 0.75 }}>
             {item.label}<Box component="span" sx={{ color: 'text.secondary', fontVariantNumeric: 'tabular-nums' }}>{searched.filter(item.match).length}</Box>
           </ToggleButton>)}
-        </ToggleButtonGroup>
+        </ToggleButtonGroup>}
         <TextField select SelectProps={{ native: true }} label="Sort schedules" size="small" value={sort} onChange={event => setSort(event.target.value)} sx={{ width: 128 }}>
           <option value="next">Next run</option><option value="name">Name</option>
         </TextField>
@@ -66,9 +69,11 @@ export default function ScheduleCollection({ schedules, selected, onSelect, onRe
         borderBottom: 1, borderColor: 'surface.rowLine', ...columnHeading }}>
         <span>Experiment</span><span>Repeats</span><span>Next run</span><span>Last run</span><span>Status</span>
       </Box>
-      <List aria-label={`Schedules (${visible.length})`} disablePadding sx={{ overflow: 'auto', flex: 1, minHeight: 0 }}>
+      <List aria-label={`${title} (${visible.length})`} disablePadding sx={{ overflow: 'auto', flex: 1, minHeight: 0 }}>
         {visible.map(schedule => {
           const state = scheduleState(schedule);
+          // A record under review never runs, whatever time it holds.
+          const nextRun = schedule.review_reason ? null : schedule.next_run;
           const current = selected?.schedule_id === schedule.schedule_id;
           return <ListItemButton key={schedule.schedule_id}
             aria-label={`Open ${schedule.experiment_name}`} aria-current={current ? 'true' : undefined}
@@ -77,13 +82,15 @@ export default function ScheduleCollection({ schedules, selected, onSelect, onRe
               columnGap: 2, rowGap: 0.25, alignItems: 'center', minHeight: 56, borderBottom: 1, borderColor: 'surface.rowLine', py: 1, px: 2 }}>
             <Box sx={{ minWidth: 0 }}>
               <Typography sx={{ fontSize: 13, lineHeight: '20px', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{schedule.experiment_name}</Typography>
-              <Typography sx={{ fontFamily: fontMono, fontSize: 12, lineHeight: '16px', color: 'text.secondary', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{scheduleTarget(schedule)}</Typography>
+              {schedule.review_reason
+                ? <Typography sx={{ fontSize: 12, lineHeight: '16px', color: theme => theme.palette.tone.attention.fg, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{schedule.review_reason}</Typography>
+                : <Typography sx={{ fontFamily: fontMono, fontSize: 12, lineHeight: '16px', color: 'text.secondary', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{scheduleTarget(schedule)}</Typography>}
               <Typography sx={{ ...muted, mt: 0.5, [table]: { display: 'none' } }}>
-                {schedule.next_run ? `Next ${dayTime(schedule.next_run)}` : 'No next run'} · {repeatLabel(schedule)}
+                {nextRun ? `Next ${dayTime(nextRun)}` : 'No next run'} · {repeatLabel(schedule)}
               </Typography>
             </Box>
             <Typography sx={{ ...muted, display: 'none', [table]: { display: 'block' } }}>{repeatLabel(schedule)}</Typography>
-            <Typography sx={{ ...muted, display: 'none', [table]: { display: 'block' }, fontFamily: fontMono, fontSize: 12, color: 'text.primary' }}>{schedule.next_run ? dayTime(schedule.next_run) : '—'}</Typography>
+            <Typography sx={{ ...muted, display: 'none', [table]: { display: 'block' }, fontFamily: fontMono, fontSize: 12, color: 'text.primary' }}>{nextRun ? dayTime(nextRun) : '—'}</Typography>
             <Typography sx={{ ...muted, display: 'none', [table]: { display: 'block' }, fontFamily: fontMono, fontSize: 12 }}>{schedule.last_run ? dayTime(schedule.last_run) : '—'}</Typography>
             <Stack direction="row" flexWrap="wrap" gap={0.5} sx={{ gridRow: { xs: 1 }, gridColumn: { xs: 2 }, [table]: { gridRow: 'auto', gridColumn: 'auto' } }}>
               <StatusChip tone={state.tone} label={state.label} />

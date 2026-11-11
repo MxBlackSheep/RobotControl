@@ -13,9 +13,11 @@ import { expect, test, type Page } from '@playwright/test';
  * - A failed history read shows one result dialog: Retry reads again and closes it on
  *   success; Close dismisses it without another read; Tab stays inside the dialog.
  * - A failed status read shows its own inline error, not the Server Error dialog; the next
- *   successful read of that status clears it and a schedule reload does not.
- * - A status answer arriving last with an older safety_revision cannot overwrite newer
- *   recovery state; one with a newer revision or unhealthy storage is not discarded.
+ *   successful read of that status clears it and a schedule reload does not. The page reads
+ *   the one status reply the frame owns (/status/queue), never /status/scheduler.
+ * - Archived uses the Schedules list and detail: an archived schedule shows Created by and
+ *   Created in the list's date format and offers Restore and Delete only, never Edit; Restore
+ *   sends the opened version and moves it to Schedules; Delete removes the schedule shown.
  * Camera cases are in camera.spec.ts.
  */
 const schedules = Array.from({ length: 24 }, (_, index) => ({
@@ -40,8 +42,8 @@ async function operations(page: Page, local = true) {
     }
     let data: unknown = [];
     if (path.endsWith('/list')) data = schedules;
-    else if (path.endsWith('/status/scheduler')) data = { is_running: true };
     else if (path.endsWith('/status/queue')) data = {
+      is_running: true,
       queue: { running_jobs: 1, queued_jobs: 2, running_job_details: [{ experiment_name: 'Running experiment', schedule_id: 'running' }], queued_job_details: [] },
       manual_recovery: { active: true, storage_healthy: true, safety_revision: 8, resume_required: true,
         pending_recoveries: [{ schedule_id: 'schedule-0', experiment_name: 'Experiment 01', note: 'Check robot before resuming' }] },
@@ -112,7 +114,7 @@ test('phone archive opens files with readable rows and returns to folders', asyn
   await page.setViewportSize({ width: 390, height: 844 });
   await operations(page);
   const name = 'a-long-recording-name-that-must-remain-readable-without-overlapping-controls.mp4';
-  await page.route('**/api/camera/recordings?**', route => route.fulfill({ json: { data: { experiment_folders: [{
+  await page.route('**/api/camera/recordings', route => route.fulfill({ json: { data: { experiment_folders: [{
     folder_name: 'Experiment recordings', video_count: 2, total_size_bytes: 2048, creation_time: '2026-09-25T10:00:00Z',
     videos: [0, 1].map(index => ({ filename: `${index}-${name}`, timestamp: '2026-09-25T10:00:00Z', size_bytes: 1024 })),
   }] } } }));
@@ -180,38 +182,47 @@ test('a failed status read shows its own error until that status reads again', a
   await expect(page.getByRole('button', { name: 'Recovery required', exact: true })).toBeVisible();
 });
 
-// Exercise both response orders; unhealthy storage must remain visible even with a cached revision.
-for (const late of [
-  { name: 'an older revision', revision: 7, healthy: true, shown: false, schedulerLast: false },
-  { name: 'a newer revision', revision: 9, healthy: true, shown: true, schedulerLast: false },
-  { name: 'unhealthy storage', revision: 7, healthy: false, shown: true, schedulerLast: false },
-  { name: 'a later request with an older revision', revision: 9, healthy: true, shown: true, schedulerLast: true },
-]) {
-  test(`a late status answer with ${late.name} preserves recovery freshness`, async ({ page }, info) => {
-    await operations(page);
-    let release!: () => void;
-    const held = new Promise<void>(resolve => { release = resolve; });
-    await page.route('**/api/scheduling/status/queue', async route => {
-      if (!late.schedulerLast) await held;
-      await route.fulfill({ json: { success: true, data: { queue: { running_jobs: 0, queued_jobs: 0 },
-        manual_recovery: { active: late.healthy, storage_healthy: late.healthy, safety_revision: late.revision, resume_required: true, pending_recoveries: [] } } } });
-    });
-    await page.route('**/api/scheduling/status/scheduler', async route => {
-      if (late.schedulerLast) await held;
-      await route.fulfill({ json: { success: true, data: {
-        is_running: true, manual_recovery: { active: false, storage_healthy: true, safety_revision: 8, resume_required: false, pending_recoveries: [] },
-      } } });
-    });
-    await page.goto('/scheduling?section=schedules');
-    if (late.schedulerLast) {
-      await expect(page.getByRole('button', { name: 'Recovery required', exact: true })).toBeVisible();
-    } else {
-      await expect(page.getByText('Scheduler service: Running', { exact: true })).toBeVisible();
-    }
-    release();
-    await expect(page.getByText('Scheduler service: Running', { exact: true })).toBeVisible();
-    await expect(page.getByText('0 running · 0 queued', { exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Recovery required', exact: true })).toHaveCount(late.shown ? 1 : 0);
-    await page.screenshot({ path: info.outputPath('recovery-state.png') });
+test('an archived schedule opens in the shared detail, restores, and another deletes', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 844 });
+  await operations(page);
+  const archived = (id: string, name: string) => ({ ...schedules[1], schedule_id: id, experiment_name: name, archived: true, is_active: false,
+    recovery_required: false, created_by: 'lab.admin', created_at: '2026-09-20T09:15:00' });
+  let active: object[] = [];
+  let archive = [archived('old-wash', 'Old wash'), archived('old-feed', 'Old feed')];
+  const writes: { method: string; body: unknown; version?: string }[] = [];
+  await page.route('**/api/scheduling/list?*', route => route.fulfill({ json: { success: true,
+    data: new URL(route.request().url()).searchParams.get('archived_only') === 'true' ? archive : active } }));
+  await page.route('**/api/scheduling/old-wash/archive', async route => {
+    writes.push({ method: route.request().method(), body: route.request().postDataJSON() });
+    const restored = { ...archive[0], archived: false, updated_at: '2026-09-26T10:00:00Z' };
+    active = [restored];
+    archive = archive.slice(1);
+    await route.fulfill({ json: { success: true, data: restored } });
   });
-}
+  await page.route('**/api/scheduling/old-feed', async route => {
+    writes.push({ method: route.request().method(), body: null, version: route.request().headers()['if-unmodified-since'] });
+    archive = archive.filter(item => item.schedule_id !== 'old-feed');
+    await route.fulfill({ json: { success: true, data: null } });
+  });
+
+  await page.goto('/scheduling?section=archived');
+  await page.getByRole('button', { name: 'Open Old wash', exact: true }).click();
+  const detail = page.getByTestId('schedule-detail');
+  await expect(detail.getByRole('definition').filter({ hasText: 'lab.admin' })).toBeVisible();
+  await expect(detail.getByRole('definition').filter({ hasText: /20 Sep.* 09:15$/ })).toBeVisible();
+  await expect(detail.getByRole('button', { name: 'Edit schedule', exact: true })).toHaveCount(0);
+  await expect(detail.getByRole('button', { name: 'Archive schedule', exact: true })).toHaveCount(0);
+  await page.screenshot({ path: test.info().outputPath('archived-detail.png') });
+  await detail.getByRole('button', { name: 'Restore schedule', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Open Old wash', exact: true })).toHaveCount(0);
+  expect(writes).toEqual([{ method: 'POST', body: { archived: false, expected_updated_at: schedules[1].updated_at } }]);
+
+  await page.getByRole('button', { name: 'Open Old feed', exact: true }).click();
+  await detail.getByRole('button', { name: 'Delete schedule', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete Schedule', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Open Old feed', exact: true })).toHaveCount(0);
+  expect(writes[1]).toEqual({ method: 'DELETE', body: null, version: schedules[1].updated_at });
+
+  await page.goto('/scheduling?section=schedules');
+  await expect(page.getByRole('button', { name: 'Open Old wash', exact: true })).toBeVisible();
+});

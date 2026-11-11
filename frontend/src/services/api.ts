@@ -1,10 +1,13 @@
 import axios, { AxiosHeaders } from 'axios';
 import { getApiBase } from '@/utils/apiBase';
-import { isMaintenanceActive, getMaintenanceRemainingMs } from '@/utils/MaintenanceManager';
+import { isMaintenanceActive } from '@/utils/MaintenanceManager';
 import { isAppResponse, isSignInRejected, recordRequestFailure, recordRequestSuccess } from './requestError';
 
 // Derive API base dynamically so phone/tablet clients proxy to the correct backend
 const API_BASE_URL = getApiBase();
+
+/** The `data` of a RobotControl reply `{ success, message, data }`, or the body itself. */
+export const unwrapData = <T>(response: any): T => (response?.data?.data ?? response?.data) as T;
 
 export const ACCESS_TOKEN_UPDATED_EVENT = 'robotcontrol:access-token-updated';
 
@@ -94,11 +97,7 @@ api.interceptors.request.use((config) => {
   const bypassMaintenance = maintenanceBypassHeader === 'true';
 
   if (!bypassMaintenance && isMaintenanceActive()) {
-    const maintenanceError: any = new Error('Database maintenance in progress. Please wait a moment.');
-    maintenanceError.name = 'MaintenanceError';
-    maintenanceError.isMaintenance = true;
-    maintenanceError.remainingMs = getMaintenanceRemainingMs();
-    return Promise.reject(maintenanceError);
+    return Promise.reject(new Error('Database maintenance in progress. Please wait a moment.'));
   }
 
   const token = localStorage.getItem('access_token');

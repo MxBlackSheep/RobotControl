@@ -31,16 +31,18 @@ logger = logging.getLogger(__name__)
 
 
 from backend.services.scheduling.safety_store import SchedulerSafetyStore
+from backend.services.scheduling.schedule_check import check_schedule
+from backend.services.scheduling.schedule_review import ScheduleReview
 from backend.services.sqlite_safety import SafetyConflict, StorageUnavailable, configure_connection, check_timestamp
 
 
 class SQLiteSchedulingDatabase(SchedulerSafetyStore):
     """SQLite database manager for scheduling system"""
-    
+
     def __init__(self, db_name: str = "robotcontrol_scheduling.db"):
         """
         Initialize SQLite database for scheduling
-        
+
         Args:
             db_name: Name of the SQLite database file
         """
@@ -49,325 +51,363 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
         self._schema_initialized = False
         self._safety_fault = False
         self._integrity_error = None
-        
+
         logger.info(f"SQLite scheduling database: {self.db_path}")
         self._initialize_database()
-    
+
     def _initialize_database(self):
-        """Initialize database schema"""
+        """Upgrade before any reader runs; a failed upgrade leaves the app available."""
+        from backend.services.stored_data import UpgradeStopped, upgrade_sqlite
+        from backend.services.sqlite_health import SQLiteHealthService
+        self._upgrade_error = None
+        health = SQLiteHealthService(self.db_path, 'scheduling', self.db_path.parent / 'backups/sqlite-safety')
         try:
+            upgrade_sqlite(self._get_connection, [self._upgrade_recovery, self._upgrade_schema, self._upgrade_hourly, self._upgrade_preparation_tokens], health._backup)
             with self._get_connection() as conn:
-                conn.execute("BEGIN IMMEDIATE")
-                state_table_existed = conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'SchedulerState'").fetchone() is not None
-                cursor = conn.cursor()
-                cursor.execute('''CREATE TABLE IF NOT EXISTS LabPreparation (
-                    execution_id TEXT PRIMARY KEY, identity TEXT NOT NULL, steps TEXT NOT NULL,
-                    status TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
-                preparation_columns = {row[1] for row in cursor.execute('PRAGMA table_info(LabPreparation)')}
-                # package: the pinned database package step; message: its outcome text.
-                for column in ('package', 'message'):
-                    if column not in preparation_columns:
-                        cursor.execute(f'ALTER TABLE LabPreparation ADD COLUMN {column} TEXT')
-                
-                # Create ExperimentMethods table to track all discovered .med files
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS ExperimentMethods (
-                        method_id TEXT PRIMARY KEY,
-                        method_name TEXT NOT NULL,
-                        file_path TEXT NOT NULL UNIQUE,
-                        category TEXT,
-                        description TEXT,
-                        file_size INTEGER,
-                        file_modified TEXT,
-                        imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                        imported_by TEXT,
-                        source_folder TEXT,
-                        is_valid INTEGER DEFAULT 1,
-                        last_used TEXT,
-                        use_count INTEGER DEFAULT 0,
-                        metadata TEXT
-                    )
-                """)
-                
-                # Create indexes for ExperimentMethods
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_method_name ON ExperimentMethods(method_name)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_method_category ON ExperimentMethods(category)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_method_valid ON ExperimentMethods(is_valid)")
-                method_columns = {row[1] for row in cursor.execute('PRAGMA table_info(ExperimentMethods)')}
-                for name, definition in (
-                    ('archived', 'INTEGER NOT NULL DEFAULT 0'),
-                    ('revision', 'INTEGER NOT NULL DEFAULT 1'),
-                    ('path_status', "TEXT NOT NULL DEFAULT 'not_checked'"),
-                    ('last_checked_at', 'TEXT'),
-                    ('validation_reason', 'TEXT'),
-                ):
-                    if name not in method_columns:
-                        cursor.execute(f'ALTER TABLE ExperimentMethods ADD COLUMN {name} {definition}')
-                
-                # Create ScheduledExperiments table
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS ScheduledExperiments (
-                        schedule_id TEXT PRIMARY KEY,
-                        experiment_name TEXT NOT NULL,
-                        experiment_path TEXT NOT NULL,
-                        schedule_type TEXT NOT NULL,
-                        interval_hours INTEGER,
-                        start_time TEXT,
-                        estimated_duration INTEGER NOT NULL DEFAULT 60,
-                        created_by TEXT NOT NULL DEFAULT 'system',
-                        is_active INTEGER NOT NULL DEFAULT 1,
-                        timeout_minutes INTEGER,
-                        timeout_action TEXT NOT NULL DEFAULT 'continue',
-                        timeout_cleanup_experiment_name TEXT,
-                        timeout_cleanup_experiment_path TEXT,
-                        prerequisites TEXT,
-                        archived INTEGER NOT NULL DEFAULT 0,
-                        recovery_required INTEGER NOT NULL DEFAULT 0,
-                        recovery_note TEXT,
-                        recovery_marked_at TEXT,
-                        recovery_marked_by TEXT,
-                        recovery_resolved_at TEXT,
-                        recovery_resolved_by TEXT,
-                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                
-                # Create JobExecutions table
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS JobExecutions (
-                        execution_id TEXT PRIMARY KEY,
-                        schedule_id TEXT NOT NULL,
-                        status TEXT NOT NULL DEFAULT 'pending',
-                        start_time TEXT,
-                        end_time TEXT,
-                        duration_minutes INTEGER,
-                        retry_count INTEGER NOT NULL DEFAULT 0,
-                        error_message TEXT,
-                        hamilton_command TEXT,
-                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                        FOREIGN KEY (schedule_id) REFERENCES ScheduledExperiments(schedule_id) ON DELETE CASCADE
-                    )
-                """)
-
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS JobExecutionsArchive (
-                        execution_id TEXT PRIMARY KEY,
-                        schedule_id TEXT NOT NULL,
-                        experiment_name_snapshot TEXT,
-                        experiment_path_snapshot TEXT,
-                        status TEXT NOT NULL DEFAULT 'pending',
-                        start_time TEXT,
-                        end_time TEXT,
-                        duration_minutes INTEGER,
-                        retry_count INTEGER NOT NULL DEFAULT 0,
-                        error_message TEXT,
-                        hamilton_command TEXT,
-                        created_at TEXT NOT NULL,
-                        archived_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-
-                # Scheduler state table for global recovery management
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS SchedulerState (
-                        id INTEGER PRIMARY KEY CHECK (id = 1),
-                        recovery_required INTEGER NOT NULL DEFAULT 0,
-                        recovery_note TEXT,
-                        recovery_schedule_id TEXT,
-                        recovery_experiment_name TEXT,
-                        recovery_triggered_by TEXT,
-                        recovery_triggered_at TEXT,
-                        recovery_resolved_by TEXT,
-                        recovery_resolved_at TEXT,
-                        hxrun_maintenance_enabled INTEGER NOT NULL DEFAULT 0,
-                        hxrun_maintenance_reason TEXT,
-                        hxrun_maintenance_updated_by TEXT,
-                        hxrun_maintenance_updated_at TEXT
-                    )
-                """)
-                if not state_table_existed:
-                    cursor.execute("INSERT INTO SchedulerState (id) VALUES (1)")
-
-
-                # Create indexes for performance
-                # No execution foreign key: legacy execution writes use INSERT OR REPLACE.
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS ExecutionMonitoring (
-                        execution_id TEXT PRIMARY KEY,
-                        schedule_id TEXT NOT NULL,
-                        finished INTEGER NOT NULL DEFAULT 0,
-                        data TEXT NOT NULL
-                    )
-                """)
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_scheduled_start_time ON ScheduledExperiments(start_time)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_scheduled_active ON ScheduledExperiments(is_active)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_executions_status ON JobExecutions(status)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_executions_schedule_id ON JobExecutions(schedule_id)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_exec_archive_schedule_id ON JobExecutionsArchive(schedule_id)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_exec_archive_created_at ON JobExecutionsArchive(created_at)")
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS NotificationContacts (
-                        contact_id TEXT PRIMARY KEY,
-                        display_name TEXT NOT NULL,
-                        email_address TEXT NOT NULL,
-                        is_active INTEGER NOT NULL DEFAULT 1,
-                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS ScheduleNotificationContacts (
-                        schedule_id TEXT NOT NULL,
-                        contact_id TEXT NOT NULL,
-                        added_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                        PRIMARY KEY (schedule_id, contact_id),
-                        FOREIGN KEY (schedule_id) REFERENCES ScheduledExperiments(schedule_id) ON DELETE CASCADE,
-                        FOREIGN KEY (contact_id) REFERENCES NotificationContacts(contact_id) ON DELETE CASCADE
-                    )
-                """)
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_notification_contacts_active ON NotificationContacts(is_active)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_schedule_contacts_schedule ON ScheduleNotificationContacts(schedule_id)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_schedule_contacts_contact ON ScheduleNotificationContacts(contact_id)")
-                cursor.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS NotificationLog (
-                        log_id TEXT PRIMARY KEY,
-                        schedule_id TEXT,
-                        execution_id TEXT,
-                        event_type TEXT NOT NULL,
-                        status TEXT NOT NULL,
-                        subject TEXT,
-                        message TEXT,
-                        recipients TEXT NOT NULL,
-                        attachments TEXT,
-                        error_message TEXT,
-                        triggered_at TEXT NOT NULL,
-                        processed_at TEXT,
-                        metadata TEXT,
-                        FOREIGN KEY (schedule_id) REFERENCES ScheduledExperiments(schedule_id) ON DELETE SET NULL
-                    )
-                    """
-                )
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_notification_log_schedule ON NotificationLog(schedule_id)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_notification_log_execution ON NotificationLog(execution_id)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_notification_log_event ON NotificationLog(event_type)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_notification_log_status ON NotificationLog(status)")
-
-                cursor.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS NotificationSettings (
-                        id INTEGER PRIMARY KEY CHECK (id = 1),
-                        smtp_host TEXT,
-                        smtp_port INTEGER NOT NULL DEFAULT 587,
-                        smtp_username TEXT,
-                        smtp_sender TEXT,
-                        smtp_password_encrypted TEXT,
-                        use_tls INTEGER NOT NULL DEFAULT 1,
-                        use_ssl INTEGER NOT NULL DEFAULT 0,
-                        manual_recovery_recipients TEXT,
-                        updated_at TEXT,
-                        updated_by TEXT
-                    )
-                    """
-                )
-                # Ensure manual_recovery_recipients column exists for legacy databases
-                settings_columns = {
-                    column["name"]
-                    for column in cursor.execute("PRAGMA table_info(NotificationSettings)")
-                }
-                if "manual_recovery_recipients" not in settings_columns:
-                    cursor.execute(
-                        "ALTER TABLE NotificationSettings ADD COLUMN manual_recovery_recipients TEXT DEFAULT ''"
-                    )
-                    logger.info("SQLite scheduling database: added manual_recovery_recipients column to NotificationSettings")
-                cursor.execute(
-                    """
-                    INSERT OR IGNORE INTO NotificationSettings (
-                        id, smtp_port, use_tls, use_ssl, manual_recovery_recipients
-                    ) VALUES (1, 587, 1, 0, '')
-                    """
-                )
-                
-                conn.commit()
-
-                existing_columns = {col['name'] for col in cursor.execute("PRAGMA table_info(ScheduledExperiments)")}
-                column_alterations = [
-                    ('runner', "ALTER TABLE ScheduledExperiments ADD COLUMN runner TEXT NOT NULL DEFAULT 'venus'"),
-                    ('protocol_id', 'ALTER TABLE ScheduledExperiments ADD COLUMN protocol_id TEXT'),
-                    ('parameters', "ALTER TABLE ScheduledExperiments ADD COLUMN parameters TEXT NOT NULL DEFAULT '{}'"),
-                    ('protocol_revision', 'ALTER TABLE ScheduledExperiments ADD COLUMN protocol_revision TEXT'),
-                    ('log_inactivity_threshold_minutes', "ALTER TABLE ScheduledExperiments ADD COLUMN log_inactivity_threshold_minutes INTEGER NOT NULL DEFAULT 3"),
-                    ('mode', "ALTER TABLE ScheduledExperiments ADD COLUMN mode TEXT NOT NULL DEFAULT 'real'"),
-                    ('recovery_required', "ALTER TABLE ScheduledExperiments ADD COLUMN recovery_required INTEGER NOT NULL DEFAULT 0"),
-                    ('recovery_note', "ALTER TABLE ScheduledExperiments ADD COLUMN recovery_note TEXT"),
-                    ('recovery_marked_at', "ALTER TABLE ScheduledExperiments ADD COLUMN recovery_marked_at TEXT"),
-                    ('recovery_marked_by', "ALTER TABLE ScheduledExperiments ADD COLUMN recovery_marked_by TEXT"),
-                    ('recovery_resolved_at', "ALTER TABLE ScheduledExperiments ADD COLUMN recovery_resolved_at TEXT"),
-                    ('recovery_resolved_by', "ALTER TABLE ScheduledExperiments ADD COLUMN recovery_resolved_by TEXT"),
-                    ('archived', "ALTER TABLE ScheduledExperiments ADD COLUMN archived INTEGER NOT NULL DEFAULT 0"),
-                    ('timeout_minutes', "ALTER TABLE ScheduledExperiments ADD COLUMN timeout_minutes INTEGER"),
-                    ('timeout_action', "ALTER TABLE ScheduledExperiments ADD COLUMN timeout_action TEXT NOT NULL DEFAULT 'continue'"),
-                    ('timeout_cleanup_experiment_name', "ALTER TABLE ScheduledExperiments ADD COLUMN timeout_cleanup_experiment_name TEXT"),
-                    ('timeout_cleanup_experiment_path', "ALTER TABLE ScheduledExperiments ADD COLUMN timeout_cleanup_experiment_path TEXT"),
-                    ('preparation', "ALTER TABLE ScheduledExperiments ADD COLUMN preparation TEXT"),
-                ]
-                for column_name, alter_sql in column_alterations:
-                    if column_name not in existing_columns:
-                        try:
-                            cursor.execute(alter_sql)
-                            logger.info("SQLite scheduling database: added column %s", column_name)
-                        except Exception as alter_exc:
-                            raise StorageUnavailable(f"Unable to migrate scheduling column {column_name}") from alter_exc
-
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_scheduled_recovery_required ON ScheduledExperiments(recovery_required)")
-                for table in ('JobExecutions', 'JobExecutionsArchive'):
-                    if 'pyhsl' not in {col['name'] for col in cursor.execute(f'PRAGMA table_info({table})')}:
-                        cursor.execute(f'ALTER TABLE {table} ADD COLUMN pyhsl TEXT')
-
-                scheduler_state_columns = {col["name"] for col in cursor.execute("PRAGMA table_info(SchedulerState)")}
-                scheduler_state_alterations = [
-                    ('safety_revision', 'ALTER TABLE SchedulerState ADD COLUMN safety_revision INTEGER NOT NULL DEFAULT 0'),
-                    ('resume_required', 'ALTER TABLE SchedulerState ADD COLUMN resume_required INTEGER NOT NULL DEFAULT 0'),
-                    (
-                        "hxrun_maintenance_enabled",
-                        "ALTER TABLE SchedulerState ADD COLUMN hxrun_maintenance_enabled INTEGER NOT NULL DEFAULT 0",
-                    ),
-                    ("hxrun_maintenance_reason", "ALTER TABLE SchedulerState ADD COLUMN hxrun_maintenance_reason TEXT"),
-                    ("hxrun_maintenance_updated_by", "ALTER TABLE SchedulerState ADD COLUMN hxrun_maintenance_updated_by TEXT"),
-                    ("hxrun_maintenance_updated_at", "ALTER TABLE SchedulerState ADD COLUMN hxrun_maintenance_updated_at TEXT"),
-                ]
-                for column_name, alter_sql in scheduler_state_alterations:
-                    if column_name not in scheduler_state_columns:
-                        try:
-                            cursor.execute(alter_sql)
-                            logger.info("SQLite scheduling database: added SchedulerState column %s", column_name)
-                        except Exception as alter_exc:
-                            raise StorageUnavailable(f"Unable to migrate scheduler state {column_name}") from alter_exc
-                cursor.execute("CREATE TABLE IF NOT EXISTS SchemaMigrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)")
-                cursor.execute("CREATE TABLE IF NOT EXISTS SchedulerSafetyEvents (revision INTEGER PRIMARY KEY, action TEXT NOT NULL, actor TEXT NOT NULL, note TEXT, state TEXT NOT NULL, created_at TEXT NOT NULL)")
-                if not cursor.execute('SELECT 1 FROM SchemaMigrations WHERE version = 1').fetchone():
-                    cursor.execute('UPDATE SchedulerState SET resume_required = 1 WHERE recovery_required = 1 OR EXISTS(SELECT 1 FROM ScheduledExperiments WHERE recovery_required = 1)')
-                    cursor.execute("INSERT INTO SchemaMigrations VALUES (1, CURRENT_TIMESTAMP)")
-                conn.commit()
                 checks = [row[0] for row in conn.execute('PRAGMA quick_check')]
                 self._integrity_error = None if checks == ['ok'] else 'SQLite integrity check failed; restore a verified backup'
+            self._schema_initialized = True
+        except UpgradeStopped as exc:
+            self._upgrade_error = str(exc)
+            self._safety_fault = True
+            logger.error('%s', exc)
 
-                # Test database access
-                cursor.execute("SELECT COUNT(*) FROM ScheduledExperiments")
-                count = cursor.fetchone()[0]
-                
-                self._schema_initialized = True
-                logger.info(f"SQLite scheduling database initialized successfully ({count} existing schedules)")
-                
-        except Exception as e:
-            logger.error(f"Failed to initialize SQLite database: {e}")
-            raise
-    
+    @staticmethod
+    def _upgrade_hourly(conn):
+        conn.execute("UPDATE ScheduledExperiments SET schedule_type='interval', interval_hours=1 WHERE schedule_type='hourly'")
+
+    @staticmethod
+    def _upgrade_preparation_tokens(conn):
+        for row in conn.execute('SELECT schedule_id, prerequisites FROM ScheduledExperiments WHERE prerequisites IS NOT NULL'):
+            try:
+                tokens = json.loads(row['prerequisites'])
+            except (TypeError, ValueError):
+                continue  # Unreadable data remains available for review.
+            if not isinstance(tokens, list):
+                continue
+            def no_write(token):
+                name, _, payload = str(token).partition(':')
+                name = ''.join(c for c in name.lower() if c.isalnum())
+                return name == 'evoyeastexperiment' and payload.partition('|')[2].strip().lower() in {'none', 'noop', 'skip'}
+            kept = [token for token in tokens if not no_write(token)]
+            if kept != tokens:
+                conn.execute('UPDATE ScheduledExperiments SET prerequisites=? WHERE schedule_id=?', (json.dumps(kept), row['schedule_id']))
+
+    @staticmethod
+    def _upgrade_recovery(conn):
+        """Version 1: existing recovery flags also require explicit Resume."""
+        state_columns = {row[1] for row in conn.execute('PRAGMA table_info(SchedulerState)')}
+        if not state_columns:
+            return
+        if 'resume_required' not in state_columns:
+            conn.execute('ALTER TABLE SchedulerState ADD COLUMN resume_required INTEGER NOT NULL DEFAULT 0')
+        conditions = []
+        if 'recovery_required' in state_columns:
+            conditions.append('recovery_required = 1')
+        schedule_columns = {row[1] for row in conn.execute('PRAGMA table_info(ScheduledExperiments)')}
+        if 'recovery_required' in schedule_columns:
+            conditions.append('EXISTS(SELECT 1 FROM ScheduledExperiments WHERE recovery_required = 1)')
+        if conditions:
+            conn.execute('UPDATE SchedulerState SET resume_required = 1 WHERE ' + ' OR '.join(conditions))
+
+    @staticmethod
+    def _upgrade_schema(conn):
+        """Version 2: all tables and columns used by the scheduling store."""
+        state_table_existed = conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'SchedulerState'").fetchone() is not None
+        cursor = conn.cursor()
+        cursor.execute('''CREATE TABLE IF NOT EXISTS LabPreparation (
+            execution_id TEXT PRIMARY KEY, identity TEXT NOT NULL, steps TEXT NOT NULL,
+            status TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+        preparation_columns = {row[1] for row in cursor.execute('PRAGMA table_info(LabPreparation)')}
+        # package: the pinned database package step; message: its outcome text.
+        for column in ('package', 'message'):
+            if column not in preparation_columns:
+                cursor.execute(f'ALTER TABLE LabPreparation ADD COLUMN {column} TEXT')
+
+        # Create ExperimentMethods table to track all discovered .med files
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ExperimentMethods (
+                method_id TEXT PRIMARY KEY,
+                method_name TEXT NOT NULL,
+                file_path TEXT NOT NULL UNIQUE,
+                category TEXT,
+                description TEXT,
+                file_size INTEGER,
+                file_modified TEXT,
+                imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                imported_by TEXT,
+                source_folder TEXT,
+                is_valid INTEGER DEFAULT 1,
+                last_used TEXT,
+                use_count INTEGER DEFAULT 0,
+                metadata TEXT
+            )
+        """)
+
+        # Create indexes for ExperimentMethods
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_method_name ON ExperimentMethods(method_name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_method_category ON ExperimentMethods(category)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_method_valid ON ExperimentMethods(is_valid)")
+        method_columns = {row[1] for row in cursor.execute('PRAGMA table_info(ExperimentMethods)')}
+        for name, definition in (
+            ('archived', 'INTEGER NOT NULL DEFAULT 0'),
+            ('revision', 'INTEGER NOT NULL DEFAULT 1'),
+            ('path_status', "TEXT NOT NULL DEFAULT 'not_checked'"),
+            ('last_checked_at', 'TEXT'),
+            ('validation_reason', 'TEXT'),
+        ):
+            if name not in method_columns:
+                cursor.execute(f'ALTER TABLE ExperimentMethods ADD COLUMN {name} {definition}')
+
+        # Create ScheduledExperiments table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ScheduledExperiments (
+                schedule_id TEXT PRIMARY KEY,
+                experiment_name TEXT NOT NULL,
+                experiment_path TEXT NOT NULL,
+                schedule_type TEXT NOT NULL,
+                interval_hours INTEGER,
+                start_time TEXT,
+                estimated_duration INTEGER NOT NULL DEFAULT 60,
+                created_by TEXT NOT NULL DEFAULT 'system',
+                is_active INTEGER NOT NULL DEFAULT 1,
+                timeout_minutes INTEGER,
+                timeout_action TEXT NOT NULL DEFAULT 'continue',
+                timeout_cleanup_experiment_name TEXT,
+                timeout_cleanup_experiment_path TEXT,
+                prerequisites TEXT,
+                archived INTEGER NOT NULL DEFAULT 0,
+                recovery_required INTEGER NOT NULL DEFAULT 0,
+                recovery_note TEXT,
+                recovery_marked_at TEXT,
+                recovery_marked_by TEXT,
+                recovery_resolved_at TEXT,
+                recovery_resolved_by TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # Create JobExecutions table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS JobExecutions (
+                execution_id TEXT PRIMARY KEY,
+                schedule_id TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                start_time TEXT,
+                end_time TEXT,
+                duration_minutes INTEGER,
+                retry_count INTEGER NOT NULL DEFAULT 0,
+                error_message TEXT,
+                hamilton_command TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (schedule_id) REFERENCES ScheduledExperiments(schedule_id) ON DELETE CASCADE
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS JobExecutionsArchive (
+                execution_id TEXT PRIMARY KEY,
+                schedule_id TEXT NOT NULL,
+                experiment_name_snapshot TEXT,
+                experiment_path_snapshot TEXT,
+                status TEXT NOT NULL DEFAULT 'pending',
+                start_time TEXT,
+                end_time TEXT,
+                duration_minutes INTEGER,
+                retry_count INTEGER NOT NULL DEFAULT 0,
+                error_message TEXT,
+                hamilton_command TEXT,
+                created_at TEXT NOT NULL,
+                archived_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # Scheduler state table for global recovery management
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS SchedulerState (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                recovery_required INTEGER NOT NULL DEFAULT 0,
+                recovery_note TEXT,
+                recovery_schedule_id TEXT,
+                recovery_experiment_name TEXT,
+                recovery_triggered_by TEXT,
+                recovery_triggered_at TEXT,
+                recovery_resolved_by TEXT,
+                recovery_resolved_at TEXT,
+                hxrun_maintenance_enabled INTEGER NOT NULL DEFAULT 0,
+                hxrun_maintenance_reason TEXT,
+                hxrun_maintenance_updated_by TEXT,
+                hxrun_maintenance_updated_at TEXT
+            )
+        """)
+        if not state_table_existed:
+            cursor.execute("INSERT INTO SchedulerState (id) VALUES (1)")
+
+
+        # Create indexes for performance
+        # No execution foreign key: legacy execution writes use INSERT OR REPLACE.
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ExecutionMonitoring (
+                execution_id TEXT PRIMARY KEY,
+                schedule_id TEXT NOT NULL,
+                finished INTEGER NOT NULL DEFAULT 0,
+                data TEXT NOT NULL
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_scheduled_start_time ON ScheduledExperiments(start_time)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_scheduled_active ON ScheduledExperiments(is_active)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_executions_status ON JobExecutions(status)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_executions_schedule_id ON JobExecutions(schedule_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_exec_archive_schedule_id ON JobExecutionsArchive(schedule_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_exec_archive_created_at ON JobExecutionsArchive(created_at)")
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS NotificationContacts (
+                contact_id TEXT PRIMARY KEY,
+                display_name TEXT NOT NULL,
+                email_address TEXT NOT NULL,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ScheduleNotificationContacts (
+                schedule_id TEXT NOT NULL,
+                contact_id TEXT NOT NULL,
+                added_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (schedule_id, contact_id),
+                FOREIGN KEY (schedule_id) REFERENCES ScheduledExperiments(schedule_id) ON DELETE CASCADE,
+                FOREIGN KEY (contact_id) REFERENCES NotificationContacts(contact_id) ON DELETE CASCADE
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_notification_contacts_active ON NotificationContacts(is_active)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_schedule_contacts_schedule ON ScheduleNotificationContacts(schedule_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_schedule_contacts_contact ON ScheduleNotificationContacts(contact_id)")
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS NotificationLog (
+                log_id TEXT PRIMARY KEY,
+                schedule_id TEXT,
+                execution_id TEXT,
+                event_type TEXT NOT NULL,
+                status TEXT NOT NULL,
+                subject TEXT,
+                message TEXT,
+                recipients TEXT NOT NULL,
+                attachments TEXT,
+                error_message TEXT,
+                triggered_at TEXT NOT NULL,
+                processed_at TEXT,
+                metadata TEXT,
+                FOREIGN KEY (schedule_id) REFERENCES ScheduledExperiments(schedule_id) ON DELETE SET NULL
+            )
+            """
+        )
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_notification_log_schedule ON NotificationLog(schedule_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_notification_log_execution ON NotificationLog(execution_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_notification_log_event ON NotificationLog(event_type)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_notification_log_status ON NotificationLog(status)")
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS NotificationSettings (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                smtp_host TEXT,
+                smtp_port INTEGER NOT NULL DEFAULT 587,
+                smtp_username TEXT,
+                smtp_sender TEXT,
+                smtp_password_encrypted TEXT,
+                use_tls INTEGER NOT NULL DEFAULT 1,
+                use_ssl INTEGER NOT NULL DEFAULT 0,
+                manual_recovery_recipients TEXT,
+                updated_at TEXT,
+                updated_by TEXT
+            )
+            """
+        )
+        # Ensure manual_recovery_recipients column exists for legacy databases
+        settings_columns = {
+            column["name"]
+            for column in cursor.execute("PRAGMA table_info(NotificationSettings)")
+        }
+        if "manual_recovery_recipients" not in settings_columns:
+            cursor.execute(
+                "ALTER TABLE NotificationSettings ADD COLUMN manual_recovery_recipients TEXT DEFAULT ''"
+            )
+            logger.info("SQLite scheduling database: added manual_recovery_recipients column to NotificationSettings")
+        cursor.execute(
+            """
+            INSERT OR IGNORE INTO NotificationSettings (
+                id, smtp_port, use_tls, use_ssl, manual_recovery_recipients
+            ) VALUES (1, 587, 1, 0, '')
+            """
+        )
+
+
+        existing_columns = {col['name'] for col in cursor.execute("PRAGMA table_info(ScheduledExperiments)")}
+        column_alterations = [
+            ('log_inactivity_threshold_minutes', "ALTER TABLE ScheduledExperiments ADD COLUMN log_inactivity_threshold_minutes INTEGER NOT NULL DEFAULT 3"),
+            ('preparation', "ALTER TABLE ScheduledExperiments ADD COLUMN preparation TEXT"),
+            ('runner', "ALTER TABLE ScheduledExperiments ADD COLUMN runner TEXT NOT NULL DEFAULT 'venus'"),
+            ('protocol_id', 'ALTER TABLE ScheduledExperiments ADD COLUMN protocol_id TEXT'),
+            ('parameters', "ALTER TABLE ScheduledExperiments ADD COLUMN parameters TEXT NOT NULL DEFAULT '{}'"),
+            ('protocol_revision', 'ALTER TABLE ScheduledExperiments ADD COLUMN protocol_revision TEXT'),
+            ('mode', "ALTER TABLE ScheduledExperiments ADD COLUMN mode TEXT NOT NULL DEFAULT 'real'"),
+            ('recovery_required', "ALTER TABLE ScheduledExperiments ADD COLUMN recovery_required INTEGER NOT NULL DEFAULT 0"),
+            ('recovery_note', "ALTER TABLE ScheduledExperiments ADD COLUMN recovery_note TEXT"),
+            ('recovery_marked_at', "ALTER TABLE ScheduledExperiments ADD COLUMN recovery_marked_at TEXT"),
+            ('recovery_marked_by', "ALTER TABLE ScheduledExperiments ADD COLUMN recovery_marked_by TEXT"),
+            ('recovery_resolved_at', "ALTER TABLE ScheduledExperiments ADD COLUMN recovery_resolved_at TEXT"),
+            ('recovery_resolved_by', "ALTER TABLE ScheduledExperiments ADD COLUMN recovery_resolved_by TEXT"),
+            ('archived', "ALTER TABLE ScheduledExperiments ADD COLUMN archived INTEGER NOT NULL DEFAULT 0"),
+            ('timeout_minutes', "ALTER TABLE ScheduledExperiments ADD COLUMN timeout_minutes INTEGER"),
+            ('timeout_action', "ALTER TABLE ScheduledExperiments ADD COLUMN timeout_action TEXT NOT NULL DEFAULT 'continue'"),
+            ('timeout_cleanup_experiment_name', "ALTER TABLE ScheduledExperiments ADD COLUMN timeout_cleanup_experiment_name TEXT"),
+            ('timeout_cleanup_experiment_path', "ALTER TABLE ScheduledExperiments ADD COLUMN timeout_cleanup_experiment_path TEXT"),
+        ]
+        for column_name, alter_sql in column_alterations:
+            if column_name not in existing_columns:
+                try:
+                    cursor.execute(alter_sql)
+                    logger.info("SQLite scheduling database: added column %s", column_name)
+                except Exception as alter_exc:
+                    raise StorageUnavailable(f"Unable to migrate scheduling column {column_name}") from alter_exc
+
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_scheduled_recovery_required ON ScheduledExperiments(recovery_required)")
+        for table in ('JobExecutions', 'JobExecutionsArchive'):
+            if 'pyhsl' not in {col['name'] for col in cursor.execute(f'PRAGMA table_info({table})')}:
+                cursor.execute(f'ALTER TABLE {table} ADD COLUMN pyhsl TEXT')
+
+        scheduler_state_columns = {col["name"] for col in cursor.execute("PRAGMA table_info(SchedulerState)")}
+        scheduler_state_alterations = [
+            ('safety_revision', 'ALTER TABLE SchedulerState ADD COLUMN safety_revision INTEGER NOT NULL DEFAULT 0'),
+            ('resume_required', 'ALTER TABLE SchedulerState ADD COLUMN resume_required INTEGER NOT NULL DEFAULT 0'),
+            (
+                "hxrun_maintenance_enabled",
+                "ALTER TABLE SchedulerState ADD COLUMN hxrun_maintenance_enabled INTEGER NOT NULL DEFAULT 0",
+            ),
+            ("hxrun_maintenance_reason", "ALTER TABLE SchedulerState ADD COLUMN hxrun_maintenance_reason TEXT"),
+            ("hxrun_maintenance_updated_by", "ALTER TABLE SchedulerState ADD COLUMN hxrun_maintenance_updated_by TEXT"),
+            ("hxrun_maintenance_updated_at", "ALTER TABLE SchedulerState ADD COLUMN hxrun_maintenance_updated_at TEXT"),
+        ]
+        for column_name, alter_sql in scheduler_state_alterations:
+            if column_name not in scheduler_state_columns:
+                try:
+                    cursor.execute(alter_sql)
+                    logger.info("SQLite scheduling database: added SchedulerState column %s", column_name)
+                except Exception as alter_exc:
+                    raise StorageUnavailable(f"Unable to migrate scheduler state {column_name}") from alter_exc
+        cursor.execute("CREATE TABLE IF NOT EXISTS SchedulerSafetyEvents (revision INTEGER PRIMARY KEY, action TEXT NOT NULL, actor TEXT NOT NULL, note TEXT, state TEXT NOT NULL, created_at TEXT NOT NULL)")
+        if not state_table_existed:
+            cursor.execute('UPDATE SchedulerState SET resume_required = 1 WHERE EXISTS(SELECT 1 FROM ScheduledExperiments WHERE recovery_required = 1)')
+
     @contextmanager
     def _get_connection(self):
         """Bounded connections; storage failures latch a scheduler hold."""
         with self._connection_lock:
+            if self._upgrade_error:
+                raise StorageUnavailable(self._upgrade_error)
             conn = None
             try:
                 conn = sqlite3.connect(str(self.db_path), timeout=2.0)
@@ -462,41 +502,13 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
             return False
     
     def get_active_schedules(self) -> List[ScheduledExperiment]:
-        """
-        Get all active scheduled experiments
-        
-        Returns:
-            List of active ScheduledExperiment objects
-        """
-        schedules = []
-        
-        try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                
-                cursor.execute("""
-                    SELECT * FROM ScheduledExperiments 
-                    WHERE is_active = 1 AND archived = 0
-                    ORDER BY start_time ASC
-                """)
-                
-                rows = cursor.fetchall()
-                
-                for row in rows:
-                    schedule = self._row_to_scheduled_experiment(row, conn)
-                    if schedule:
-                        schedules.append(schedule)
-                        
-        except (sqlite3.Error, StorageUnavailable):
-            raise
-        except Exception as e:
-            logger.error(f"Failed to get active schedules from SQLite: {e}")
-        
-        return schedules
+        """Only checked schedules are eligible for the engine and calendar."""
+        return [schedule for schedule in self.get_schedules(active_only=True, archived_only=False)
+                if not isinstance(schedule, ScheduleReview)]
 
-    def get_schedules(self, *, active_only: bool, archived_only: bool) -> List[ScheduledExperiment]:
+    def get_schedules(self, *, active_only: bool, archived_only: bool) -> List[ScheduledExperiment | ScheduleReview]:
         """Fetch schedules filtered by active/archive state."""
-        schedules: List[ScheduledExperiment] = []
+        schedules: List[ScheduledExperiment | ScheduleReview] = []
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -528,7 +540,7 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
             logger.error("Failed to get schedules: %s", exc)
         return schedules
 
-    def get_schedule_by_id(self, schedule_id: str) -> Optional[ScheduledExperiment]:
+    def get_schedule_by_id(self, schedule_id: str) -> Optional[ScheduledExperiment | ScheduleReview]:
         """
         Get a specific schedule by ID
         
@@ -1333,6 +1345,9 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                 row = conn.execute('SELECT * FROM ScheduledExperiments WHERE schedule_id = ?', (schedule_id,)).fetchone()
                 if not row or row['archived']:
                     raise ValueError('A selected schedule is archived or no longer exists. Preview again.')
+                schedule = self._row_to_scheduled_experiment(row, conn)
+                if isinstance(schedule, ScheduleReview):
+                    raise ValueError(f'{schedule.experiment_name}: Needs review: {schedule.review_reason}')
                 pending = conn.execute("SELECT 1 FROM JobExecutions WHERE schedule_id = ? AND status IN ('pending', 'queued', 'running') LIMIT 1", (schedule_id,)).fetchone()
                 if pending:
                     raise ValueError('A selected schedule is queued, running or paused. Wait for it to finish.')
@@ -1508,95 +1523,34 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                 [(schedule_id, contact_id, timestamp) for contact_id in contact_ids]
             )
 
-    def _row_to_scheduled_experiment(self, row: sqlite3.Row, conn: Optional[sqlite3.Connection] = None) -> Optional[ScheduledExperiment]:
-        """Convert database row to ScheduledExperiment object"""
-        try:
-            start_time = self._parse_timestamp(row["start_time"])
-            row_keys = set(row.keys()) if hasattr(row, "keys") else set()
-            created_at = self._parse_timestamp(row["created_at"]) if "created_at" in row_keys else None
-            updated_at = self._parse_timestamp(row["updated_at"]) if "updated_at" in row_keys else None
-
-            timeout_config = TimeoutConfig()
-            raw_timeout_minutes = row["timeout_minutes"] if "timeout_minutes" in row_keys else None
-            raw_timeout_action = row["timeout_action"] if "timeout_action" in row_keys else "continue"
-            raw_cleanup_name = (
-                row["timeout_cleanup_experiment_name"]
-                if "timeout_cleanup_experiment_name" in row_keys
-                else None
-            )
-            raw_cleanup_path = (
-                row["timeout_cleanup_experiment_path"]
-                if "timeout_cleanup_experiment_path" in row_keys
-                else None
-            )
-            timeout_config = TimeoutConfig.from_dict(
-                {
-                    "timeout_minutes": raw_timeout_minutes,
-                    "action": raw_timeout_action,
-                    "cleanup_experiment_name": raw_cleanup_name,
-                    "cleanup_experiment_path": raw_cleanup_path,
-                }
-            )
-
-            prerequisites: List[str] = []
-            raw_prereqs = row["prerequisites"] if "prerequisites" in row_keys else None
-            if raw_prereqs:
+    def _row_to_scheduled_experiment(self, row, conn=None):
+        """Check each row independently; retain rejected fields for Edit and Delete."""
+        fields = dict(row)
+        fields['timeout_config'] = {
+            'timeout_minutes': fields.pop('timeout_minutes'),
+            'action': fields.pop('timeout_action'),
+            'cleanup_experiment_name': fields.pop('timeout_cleanup_experiment_name'),
+            'cleanup_experiment_path': fields.pop('timeout_cleanup_experiment_path'),
+        }
+        fields['notification_contacts'] = self._get_schedule_contact_ids(fields['schedule_id'], conn)
+        reason = None
+        for name in ('parameters', 'prerequisites', 'preparation'):
+            if fields[name] is not None:
                 try:
-                    prerequisites = json.loads(raw_prereqs)
-                except Exception as exc:  # pragma: no cover
-                    logger.debug("Failed to parse prerequisites: %s", exc)
-
-            preparation = None
-            raw_preparation = row["preparation"] if "preparation" in row_keys else None
-            if raw_preparation:
-                try:
-                    preparation = json.loads(raw_preparation)
-                except Exception:
-                    # Never drop a step silently: an unreadable one blocks dispatch instead.
-                    preparation = {"invalid": True}
-
-            recovery_marked_at = self._parse_timestamp(row["recovery_marked_at"]) if "recovery_marked_at" in row_keys else None
-            recovery_resolved_at = self._parse_timestamp(row["recovery_resolved_at"]) if "recovery_resolved_at" in row_keys else None
-
-            schedule = ScheduledExperiment(
-                schedule_id=row["schedule_id"],
-                experiment_name=row["experiment_name"],
-                experiment_path=row["experiment_path"],
-                schedule_type=row["schedule_type"],
-                interval_hours=row["interval_hours"],
-                start_time=start_time,
-                estimated_duration=row["estimated_duration"],
-                log_inactivity_threshold_minutes=row["log_inactivity_threshold_minutes"],
-                mode=row['mode'],
-                runner=row['runner'], protocol_id=row['protocol_id'],
-                parameters=json.loads(row['parameters']), protocol_revision=row['protocol_revision'],
-                created_by=row["created_by"],
-                is_active=bool(row["is_active"]),
-                archived=bool(row["archived"]) if "archived" in row_keys else False,
-                timeout_config=timeout_config,
-                prerequisites=prerequisites,
-                preparation=preparation,
-                notification_contacts=[],
-                recovery_required=bool(row["recovery_required"]) if "recovery_required" in row_keys else False,
-                recovery_note=row["recovery_note"] if "recovery_note" in row_keys else None,
-                recovery_marked_at=recovery_marked_at,
-                recovery_marked_by=row["recovery_marked_by"] if "recovery_marked_by" in row_keys else None,
-                recovery_resolved_at=recovery_resolved_at,
-                recovery_resolved_by=row["recovery_resolved_by"] if "recovery_resolved_by" in row_keys else None,
-                created_at=created_at,
-                updated_at=updated_at,
-            )
-
-            schedule.notification_contacts = self._get_schedule_contact_ids(
-                schedule.schedule_id,
-                conn,
-            )
-
-            return schedule
-
-        except Exception as exc:
-            logger.error("Failed to convert row to ScheduledExperiment: %s", exc)
-            raise StorageUnavailable('A stored schedule could not be read. Review SQLite storage health.') from exc
+                    fields[name] = json.loads(fields[name])
+                except (TypeError, ValueError):
+                    reason = reason or f'{name} contains unreadable JSON'
+        for name in ('is_active', 'archived', 'recovery_required'):
+            fields[name] = bool(fields[name])
+        if reason is None:
+            try:
+                schedule = check_schedule(fields)
+                # Reading must retain saved cleanup references even while their action is inactive.
+                schedule.timeout_config = TimeoutConfig.from_dict(fields['timeout_config'])
+                return schedule
+            except (ValueError, TypeError) as exc:
+                reason = str(exc)
+        return ScheduleReview(fields, reason)
 
     def _row_to_notification_log(self, row: sqlite3.Row) -> NotificationLogEntry:
         """Convert database row to NotificationLogEntry."""
@@ -1626,6 +1580,17 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
             metadata=metadata,
         )
 
+
+    def get_last_run_times(self) -> Dict[str, str]:
+        """Newest finished execution per schedule, independent of history paging."""
+        with self._get_connection() as conn:
+            rows = conn.execute("""
+                SELECT schedule_id, MAX(end_time) AS last_run
+                FROM JobExecutions
+                WHERE end_time IS NOT NULL AND status NOT IN ('pending', 'queued', 'running')
+                GROUP BY schedule_id
+            """)
+            return {row['schedule_id']: row['last_run'] for row in rows}
 
     def get_execution_history(self, schedule_id: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
         """

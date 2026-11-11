@@ -1,20 +1,17 @@
-import { ApiResponse, MethodPathPreview, MethodPathChange, LibraryMethod, HostMethodDirectory, MethodImportSelection, MethodImportPreview, MethodImportResult } from '../types/scheduling';
-﻿import { AxiosError, isAxiosError } from 'axios';
 import { api } from './api';
+import { requestErrorMessage } from './requestError';
 import { coalesceRead } from '../utils/coalesceRead';
 import {
+  ApiResponse,
   CreateScheduleRequest,
   UpdateScheduleRequest,
   ScheduleListResponse,
   ScheduleCreateResponse,
   ScheduleResponse,
   QueueStatusResponse,
-  SchedulerServiceResponse,
   ScheduledExperiment,
-  QueueStatus,
-  HamiltonStatus,
+  ScheduleFormValues,
   ManualRecoveryState,
-  CreateScheduleFormData,
   NotificationContact,
   NotificationContactPayload,
   NotificationLogEntry,
@@ -22,6 +19,13 @@ import {
   NotificationSettings,
   NotificationSettingsUpdatePayload,
   NotificationTestEmailResponse,
+  MethodPathPreview,
+  MethodPathChange,
+  LibraryMethod,
+  HostMethodDirectory,
+  MethodImportSelection,
+  MethodImportPreview,
+  MethodImportResult,
 } from '../types/scheduling';
 
 const coerceNumber = (value: unknown, fallback = 0): number => {
@@ -41,16 +45,6 @@ const coerceOptionalString = (value: unknown): string | null => {
     return null;
   }
   return String(value);
-};
-
-const serializeMaybeDate = (value?: Date | string | null): string | null => {
-  if (!value) {
-    return null;
-  }
-  if (value instanceof Date) {
-    return value.toISOString();
-  }
-  return value;
 };
 
 export const normalizeSchedule = (raw: any): ScheduledExperiment => {
@@ -89,9 +83,8 @@ export const normalizeSchedule = (raw: any): ScheduledExperiment => {
     },
     prerequisites: Array.isArray(raw?.prerequisites) ? raw.prerequisites : [],
     preparation: raw?.preparation && typeof raw.preparation === 'object' ? raw.preparation : null,
-    legacy_preparation: raw?.legacy_preparation && typeof raw.legacy_preparation === 'object' ? raw.legacy_preparation : null,
     // An unrecognised state is shown as unknown, never as ready.
-    preparation_state: raw?.preparation || raw?.legacy_preparation
+    preparation_state: raw?.preparation
       ? (['ready', 'needs_review', 'missing', 'invalid'].includes(raw?.preparation_state) ? raw.preparation_state : 'unknown')
       : undefined,
     notification_contacts: Array.isArray(raw?.notification_contacts) ? raw.notification_contacts : [],
@@ -101,8 +94,10 @@ export const normalizeSchedule = (raw: any): ScheduledExperiment => {
     recovery_marked_by: coerceOptionalString(raw?.recovery_marked_by),
     recovery_resolved_at: raw?.recovery_resolved_at ?? null,
     recovery_resolved_by: coerceOptionalString(raw?.recovery_resolved_by),
-    next_run: raw?.next_run ?? raw?.start_time ?? null,
+    // Only the server's times: start_time is not a next run.
+    next_run: raw?.next_run ?? null,
     last_run: raw?.last_run ?? null,
+    review_reason: coerceOptionalString(raw?.review_reason),
   };
 };
 
@@ -181,31 +176,15 @@ const normalizeNotificationLog = (payload: any): NotificationLogEntry => ({
       : null,
 });
 
-const normalizeQueueStatus = (payload: unknown): { queue?: QueueStatus; hamilton?: HamiltonStatus; manual_recovery?: ManualRecoveryState | null } => {
-  if (!payload || typeof payload !== 'object') {
-    return {};
+/** One call: the reply's data, or the server's message (else `failure`) as `error`; never throws. */
+async function call<T>(request: Promise<{ data: ApiResponse<T> }>, failure: string): Promise<{ data?: T; error?: string }> {
+  try {
+    const { data } = await request;
+    return data.success ? { data: data.data } : { error: data.message || failure };
+  } catch (error) {
+    return { error: requestErrorMessage(error, failure) };
   }
-  const data = payload as { queue?: QueueStatus; hamilton?: HamiltonStatus; manual_recovery?: unknown };
-  return {
-    queue: data.queue,
-    hamilton: data.hamilton,
-    manual_recovery: normalizeManualRecovery(data.manual_recovery),
-  };
-};
-
-const parseAPIError = (error: unknown): string => {
-  if (isAxiosError(error)) {
-    const axiosError = error as AxiosError<any>;
-    const message = axiosError.response?.data?.message || axiosError.response?.data?.detail;
-    if (typeof message === 'string' && message.trim()) {
-      return message;
-    }
-    if (axiosError.message) {
-      return axiosError.message;
-    }
-  }
-  return 'Request failed';
-};
+}
 
 export const schedulingAPI = {
   createSchedule: (data: CreateScheduleRequest) =>
@@ -216,19 +195,8 @@ export const schedulingAPI = {
       params: { active_only: activeOnly, archived_only: archivedOnly },
     }),
 
-  updateSchedule: (
-    scheduleId: string,
-    data: UpdateScheduleRequest,
-    options?: { expectedUpdatedAt?: string | null },
-  ) => {
-    const payload: UpdateScheduleRequest = { ...data };
-    const expected = options?.expectedUpdatedAt ?? undefined;
-    if (expected) {
-      payload.expected_updated_at = expected;
-    }
-    const config = expected ? { headers: { 'If-Unmodified-Since': expected } } : undefined;
-    return api.put<ScheduleResponse>(`/api/scheduling/${scheduleId}`, payload, config);
-  },
+  updateSchedule: (scheduleId: string, data: UpdateScheduleRequest) =>
+    api.put<ScheduleResponse>(`/api/scheduling/${scheduleId}`, data),
 
   deleteSchedule: (scheduleId: string, options?: { expectedUpdatedAt?: string | null }) => {
     const expected = options?.expectedUpdatedAt ?? undefined;
@@ -240,8 +208,6 @@ export const schedulingAPI = {
     api.post<ScheduleResponse>(`/api/scheduling/${scheduleId}/archive`, { archived, expected_updated_at: expectedUpdatedAt }),
 
   getQueueStatus: () => coalesceRead(`queue:${localStorage.getItem('access_token')}`, () => api.get<QueueStatusResponse>('/api/scheduling/status/queue')),
-
-  getSchedulerStatus: () => coalesceRead(`scheduler:${localStorage.getItem('access_token')}`, () => api.get<SchedulerServiceResponse>('/api/scheduling/status/scheduler')),
 
   getAvailableExperiments: () =>
     api.get('/api/scheduling/experiments/available'),
@@ -299,244 +265,105 @@ export const schedulingAPI = {
     api.get('/api/scheduling/notifications/logs', { params }),
 };
 
-const buildScheduleRequest = (data: CreateScheduleFormData): CreateScheduleRequest => ({
-  experiment_name: data.experiment_name,
-  experiment_path: data.experiment_path,
-  ...(data.runner === 'pyhsl' ? { runner: 'pyhsl', protocol_id: data.protocol_id, parameters: data.parameters } : {}),
-  schedule_type: data.schedule_type,
-  interval_hours: data.schedule_type === 'interval' ? data.interval_hours : undefined,
-  start_time: serializeMaybeDate(data.start_time),
-  estimated_duration: data.estimated_duration,
-  log_inactivity_threshold_minutes: data.log_inactivity_threshold_minutes,
-  mode: data.mode,
-  is_active: data.is_active,
+/** The create body; an update sends it with the opened version. The start time is read at the browser's offset. */
+export const buildScheduleRequest = (values: ScheduleFormValues): CreateScheduleRequest => ({
+  experiment_name: values.experiment_name,
+  experiment_path: values.experiment_path,
+  runner: values.runner,
+  ...(values.runner === 'pyhsl' ? { protocol_id: values.protocol_id, parameters: values.parameters } : {}),
+  schedule_type: values.schedule_type,
+  interval_hours: values.schedule_type === 'interval' ? Number(values.interval_hours) : undefined,
+  start_time: values.start_time ? new Date(values.start_time).toISOString() : undefined,
+  estimated_duration: Number(values.estimated_duration),
+  log_inactivity_threshold_minutes: Number(values.log_inactivity_threshold_minutes),
+  mode: values.mode,
+  is_active: values.is_active,
   timeout_config: {
-    timeout_minutes: data.timeout_minutes ?? null,
-    action: data.timeout_action,
-    cleanup_experiment_name:
-      data.timeout_action === 'run_cleanup_and_terminate'
-        ? data.timeout_cleanup_experiment_name ?? null
-        : null,
-    cleanup_experiment_path:
-      data.timeout_action === 'run_cleanup_and_terminate'
-        ? data.timeout_cleanup_experiment_path ?? null
-        : null,
+    timeout_minutes: values.timeout_minutes === null ? null : Number(values.timeout_minutes),
+    action: values.timeout_action,
+    cleanup_experiment_name: values.timeout_action === 'run_cleanup_and_terminate' ? values.timeout_cleanup_experiment_name : null,
+    cleanup_experiment_path: values.timeout_action === 'run_cleanup_and_terminate' ? values.timeout_cleanup_experiment_path : null,
   },
-  ...(data.preparation !== undefined ? { preparation: data.preparation } : {}),
-  notification_contacts: data.notification_contacts,
+  ...(values.preparation !== undefined ? { preparation: values.preparation } : {}),
+  notification_contacts: values.notification_contacts,
 });
 
 export const schedulingService = {
-  async getAllSchedules(
-    activeOnly = true,
-    archivedOnly = false,
-  ): Promise<{ schedules: ScheduledExperiment[]; error?: string }> {
-    try {
-      const { data } = await schedulingAPI.getSchedules(activeOnly, archivedOnly);
-      if (!data.success) {
-        return { schedules: [], error: data.message || 'Failed to load schedules' };
-      }
-      return { schedules: normalizeSchedules(data.data) };
-    } catch (error) {
-      return { schedules: [], error: parseAPIError(error) };
-    }
+  async getAllSchedules(activeOnly = true, archivedOnly = false): Promise<{ schedules: ScheduledExperiment[]; error?: string }> {
+    const { data, error } = await call(schedulingAPI.getSchedules(activeOnly, archivedOnly), 'Failed to load schedules');
+    return { schedules: normalizeSchedules(data), error };
   },
 
-  async getArchivedSchedules(): Promise<{ schedules: ScheduledExperiment[]; error?: string }> {
+  getArchivedSchedules() {
     return this.getAllSchedules(false, true);
   },
 
-  async createSchedule(data: CreateScheduleFormData): Promise<{ scheduleId?: string; error?: string }> {
-    try {
-      const payload = buildScheduleRequest(data);
-      const { data: response } = await schedulingAPI.createSchedule(payload);
-      if (!response.success) {
-        return { error: response.message || 'Failed to create schedule' };
-      }
-      return { scheduleId: response.data?.schedule_id };
-    } catch (error) {
-      return { error: parseAPIError(error) };
-    }
+  async createSchedule(values: ScheduleFormValues): Promise<{ scheduleId?: string; error?: string }> {
+    const { data, error } = await call(schedulingAPI.createSchedule(buildScheduleRequest(values)), 'Failed to create schedule');
+    return { scheduleId: data?.schedule_id, error };
   },
 
-  async deleteSchedule(
-    scheduleId: string,
-    expectedUpdatedAt?: string,
-  ): Promise<{ success: boolean; error?: string }> {
-    try {
-      const { data } = await schedulingAPI.deleteSchedule(scheduleId, { expectedUpdatedAt });
-      if (!data.success) {
-        return { success: false, error: data.message || 'Failed to delete schedule' };
-      }
-      return { success: true };
-    } catch (error) {
-      return { success: false, error: parseAPIError(error) };
-    }
+  async deleteSchedule(scheduleId: string, expectedUpdatedAt?: string): Promise<{ error?: string }> {
+    return call(schedulingAPI.deleteSchedule(scheduleId, { expectedUpdatedAt }), 'Failed to delete schedule');
   },
 
-  async archiveSchedule(
-    scheduleId: string,
-    archived: boolean,
-    expectedUpdatedAt?: string,
-  ): Promise<{ schedule?: ScheduledExperiment; error?: string }> {
-    try {
-      const { data } = await schedulingAPI.archiveSchedule(scheduleId, archived, expectedUpdatedAt);
-      if (!data.success || !data.data) {
-        return { error: data.message || 'Failed to update archive state' };
-      }
-      return { schedule: normalizeSchedule(data.data) };
-    } catch (error) {
-      return { error: parseAPIError(error) };
-    }
+  async archiveSchedule(scheduleId: string, archived: boolean, expectedUpdatedAt?: string): Promise<{ error?: string }> {
+    return call(schedulingAPI.archiveSchedule(scheduleId, archived, expectedUpdatedAt), 'Failed to update archive state');
   },
 
   async getNotificationSettings(): Promise<{ settings?: NotificationSettings; error?: string }> {
-    try {
-      const { data } = await schedulingAPI.getNotificationSettings();
-      if (!data.success) {
-        return { error: data.message || 'Failed to load notification settings' };
-      }
-      return { settings: normalizeNotificationSettings(data.data) };
-    } catch (error) {
-      return { error: parseAPIError(error) };
-    }
+    const { data, error } = await call(schedulingAPI.getNotificationSettings(), 'Failed to load notification settings');
+    return error ? { error } : { settings: normalizeNotificationSettings(data) };
   },
 
-  async updateNotificationSettings(
-      payload: NotificationSettingsUpdatePayload,
-    ): Promise<{ settings?: NotificationSettings; error?: string }> {
-      try {
-        const request: Record<string, unknown> = {
-          host: payload.host,
-          port: payload.port,
-          sender: payload.sender,
-          use_tls: payload.use_tls,
-          use_ssl: payload.use_ssl,
-          manual_recovery_recipients: payload.manual_recovery_recipients,
-        };
-      if (payload.username !== undefined) {
-        request.username = payload.username;
-      }
-      if (Object.prototype.hasOwnProperty.call(payload, 'password')) {
-        request.password = payload.password;
-      }
-      const { data } = await schedulingAPI.updateNotificationSettings(request);
-      if (!data.success) {
-        return { error: data.message || 'Failed to update notification settings' };
-      }
-      return { settings: normalizeNotificationSettings(data.data) };
-    } catch (error) {
-      return { error: parseAPIError(error) };
+  async updateNotificationSettings(payload: NotificationSettingsUpdatePayload): Promise<{ settings?: NotificationSettings; error?: string }> {
+    const request: Record<string, unknown> = {
+      host: payload.host,
+      port: payload.port,
+      sender: payload.sender,
+      use_tls: payload.use_tls,
+      use_ssl: payload.use_ssl,
+      manual_recovery_recipients: payload.manual_recovery_recipients,
+    };
+    if (payload.username !== undefined) {
+      request.username = payload.username;
     }
+    if (Object.prototype.hasOwnProperty.call(payload, 'password')) {
+      request.password = payload.password;
+    }
+    const { data, error } = await call(schedulingAPI.updateNotificationSettings(request), 'Failed to update notification settings');
+    return error ? { error } : { settings: normalizeNotificationSettings(data) };
   },
 
-  async sendNotificationTestEmail(
-    recipient: string,
-  ): Promise<{ success: boolean; recipient?: string; warning?: string; error?: string }> {
-    try {
-      const { data } = await schedulingAPI.sendNotificationTestEmail(recipient);
-      if (!data.success) {
-        return { success: false, error: data.message || 'Failed to send test email' };
-      }
-      const payload: NotificationTestEmailResponse | undefined = data.data;
-      return {
-        success: true,
-        recipient: coerceString(payload?.recipient, recipient),
-        warning: data.data?.warning || undefined,
-      };
-    } catch (error) {
-      return { success: false, error: parseAPIError(error) };
-    }
+  async sendNotificationTestEmail(recipient: string): Promise<{ success: boolean; recipient?: string; warning?: string; error?: string }> {
+    const { data, error } = await call<NotificationTestEmailResponse & { warning?: string }>(
+      schedulingAPI.sendNotificationTestEmail(recipient), 'Failed to send test email');
+    if (error) return { success: false, error };
+    return { success: true, recipient: coerceString(data?.recipient, recipient), warning: data?.warning || undefined };
   },
 
   async getNotificationContacts(includeInactive = true): Promise<{ contacts: NotificationContact[]; error?: string }> {
-    try {
-      const { data } = await schedulingAPI.getNotificationContacts(includeInactive);
-      if (!data.success) {
-        return { contacts: [], error: data.message || 'Failed to load contacts' };
-      }
-      const contacts = Array.isArray(data.data) ? data.data.map(normalizeNotificationContact) : [];
-      return { contacts };
-    } catch (error) {
-      return { contacts: [], error: parseAPIError(error) };
-    }
+    const { data, error } = await call<unknown[]>(schedulingAPI.getNotificationContacts(includeInactive), 'Failed to load contacts');
+    return { contacts: Array.isArray(data) ? data.map(normalizeNotificationContact) : [], error };
   },
 
-  async createNotificationContact(
-    payload: NotificationContactPayload,
-  ): Promise<{ contact?: NotificationContact; error?: string }> {
-    try {
-      const { data } = await schedulingAPI.createNotificationContact(payload);
-      if (!data.success || !data.data) {
-        return { error: data.message || 'Failed to create contact' };
-      }
-      return { contact: normalizeNotificationContact(data.data) };
-    } catch (error) {
-      return { error: parseAPIError(error) };
-    }
+  async createNotificationContact(payload: NotificationContactPayload): Promise<{ contact?: NotificationContact; error?: string }> {
+    const { data, error } = await call(schedulingAPI.createNotificationContact(payload), 'Failed to create contact');
+    return error || !data ? { error: error || 'Failed to create contact' } : { contact: normalizeNotificationContact(data) };
   },
 
-  async updateNotificationContact(
-    contactId: string,
-    payload: NotificationContactPayload,
-  ): Promise<{ contact?: NotificationContact; error?: string }> {
-    try {
-      const { data } = await schedulingAPI.updateNotificationContact(contactId, payload);
-      if (!data.success || !data.data) {
-        return { error: data.message || 'Failed to update contact' };
-      }
-      return { contact: normalizeNotificationContact(data.data) };
-    } catch (error) {
-      return { error: parseAPIError(error) };
-    }
+  async updateNotificationContact(contactId: string, payload: NotificationContactPayload): Promise<{ contact?: NotificationContact; error?: string }> {
+    const { data, error } = await call(schedulingAPI.updateNotificationContact(contactId, payload), 'Failed to update contact');
+    return error || !data ? { error: error || 'Failed to update contact' } : { contact: normalizeNotificationContact(data) };
   },
 
   async deleteNotificationContact(contactId: string): Promise<{ success: boolean; error?: string }> {
-    try {
-      const { data } = await schedulingAPI.deleteNotificationContact(contactId);
-      if (!data.success) {
-        return { success: false, error: data.message || 'Failed to delete contact' };
-      }
-      return { success: true };
-    } catch (error) {
-      return { success: false, error: parseAPIError(error) };
-    }
+    const { error } = await call(schedulingAPI.deleteNotificationContact(contactId), 'Failed to delete contact');
+    return { success: !error, error };
   },
 
-  async getNotificationLogs(
-    params?: NotificationLogQuery & { limit?: number },
-  ): Promise<{ logs: NotificationLogEntry[]; error?: string }> {
-    try {
-      const { data } = await schedulingAPI.getNotificationLogs(params);
-      if (!data.success) {
-        return { logs: [], error: data.message || 'Failed to load notification logs' };
-      }
-      const logs = Array.isArray(data.data) ? data.data.map(normalizeNotificationLog) : [];
-      return { logs };
-    } catch (error) {
-      return { logs: [], error: parseAPIError(error) };
-    }
-  },
-
-  async getQueueStatus(): Promise<{
-    queueStatus?: QueueStatus;
-    hamiltonStatus?: HamiltonStatus;
-    manualRecovery?: ManualRecoveryState | null;
-    error?: string;
-  }> {
-    try {
-      const { data } = await schedulingAPI.getQueueStatus();
-      if (!data.success) {
-        return { error: data.message || 'Failed to load queue status' };
-      }
-      const { queue, hamilton, manual_recovery } = normalizeQueueStatus(data.data);
-      return { queueStatus: queue, hamiltonStatus: hamilton, manualRecovery: manual_recovery ?? null };
-    } catch (error) {
-      return { error: parseAPIError(error) };
-    }
+  async getNotificationLogs(params?: NotificationLogQuery & { limit?: number }): Promise<{ logs: NotificationLogEntry[]; error?: string }> {
+    const { data, error } = await call<unknown[]>(schedulingAPI.getNotificationLogs(params), 'Failed to load notification logs');
+    return { logs: Array.isArray(data) ? data.map(normalizeNotificationLog) : [], error };
   },
 };
-
-
-
-

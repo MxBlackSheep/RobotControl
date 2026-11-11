@@ -13,9 +13,9 @@ Failure cases:
 - An experiment duplicated, or deleted after the schedule was saved, leaves any flag changed
   or launches the run.
 - A schedule saved with adapter tokens runs without them: it must show Needs review with
-  the selection prefilled as the package step, refuse the run before any write (also after a
-  restart), keep the tokens when a user edits timing, and change only when a local
-  administrator saves the step; the saved step then runs the same SQL.
+  its stored tokens and a review_reason, stay out of dispatch after restart, and change only
+  when a local administrator saves the step. Contract changed by the owner on 11 Nov:
+  invalid old schedules are review records; automatic suggestions are removed.
 - Tokens the package cannot express (a ResetHamiltonTables table reset, batch example,
   unknown, ScheduledToRun without an ID, two selections, or a schedule that already has a
   database step) lose the step silently, are prefilled with a guess, or cannot be resolved by
@@ -23,7 +23,7 @@ Failure cases:
 - A client adds or edits adapter tokens through the schedule API.
 Supervised acceptance with a real method is separate.
 """
-from contextlib import closing
+from contextlib import nullcontext, closing
 import hashlib
 import json
 from pathlib import Path
@@ -80,7 +80,7 @@ def run():
             result['fixture'] = dict(database=database, reader=fixture['login'], writer=writer, sqlite='temporary scheduler.db',
                                      rows='Experiments 41 (flagged), 42, 43 twice, 44; no hardware')
 
-            tools = DatabaseTools(root / 'tools', ROOT / 'database_packages', database=object())
+            tools = DatabaseTools(root / 'tools', ROOT / 'database_packages')
             storage = SQLiteSchedulingDatabase(str(root / 'scheduler.db'))
             tools.catalogue.in_use = lambda package_id: [s.experiment_name for s in storage.get_schedules(active_only=True, archived_only=False)
                                                          if (s.preparation or {}).get('package_id') == package_id]
@@ -90,24 +90,26 @@ def run():
             tools.sources.bind(TOOL, ['primary'], {'primary': 'reader'})
             tools.sources.bind_operation(TOOL, 'writer')
 
-            manager = SimpleNamespace(sqlite_db=storage, should_block_due_to_abort=lambda _: None)
+            manager = SimpleNamespace(sqlite_db=storage)
             scheduler = SimpleNamespace(add_schedule=storage.create_schedule, get_schedule=storage.get_schedule_by_id, _schedules_lock=threading.RLock(),
                                         update_schedule=lambda s, expected_updated_at=None: storage.update_schedule(s, expected_updated_at=expected_updated_at),
-                                        invalidate_schedule=lambda _: None)
+                                        invalidate_schedule=lambda _: None, get_next_run_times=lambda: {})
             method = root / 'Reference method.med'
             method.write_text('fixture')
             launched = []
 
             def execute(schedule_id):
                 schedule = storage.get_schedule_by_id(schedule_id)
+                if getattr(schedule, 'review_reason', None):
+                    return False, None
                 execution = JobExecution(str(uuid.uuid4()), schedule.schedule_id, 'running')
                 with patch('backend.services.scheduling.experiment_executor.get_scheduling_database_manager', return_value=manager):
-                    executor = ExperimentExecutor(ExecutionConfig(hxrun_path=str(root / 'not-a-robot.exe')))
+                    executor = ExperimentExecutor(SimpleNamespace(check=lambda _: SimpleNamespace(run_state='Complete')),
+                                                  lambda *args: nullcontext(), ExecutionConfig(hxrun_path=str(root / 'not-a-robot.exe')))
                 def command(*args):
                     launched.append(execution.execution_id)
                     return ExecutionResult(True, 0, '', '', 0, 'fixture-command')
-                executor._execute_hamilton_command = command
-                executor.run_log_monitor = SimpleNamespace(check=lambda _: SimpleNamespace(run_state='Complete'))
+                executor._execute_real_command = command
                 with patch('backend.services.scheduling.experiment_executor.get_experiment_discovery_service',
                            return_value=SimpleNamespace(db=SimpleNamespace(update_method_usage=lambda _: None))):
                     ok = executor.execute_experiment(schedule, execution)
@@ -136,7 +138,7 @@ def run():
                  TestClient(app, client=('127.0.0.1', 1)) as client:
 
                 def read(schedule_id):
-                    return client.get(f'/api/scheduling/{schedule_id}').json()['data']
+                    return next(row for row in client.get('/api/scheduling/list?active_only=false').json()['data'] if row['schedule_id'] == schedule_id)
 
                 def update(schedule_id, changes, role='admin'):
                     return client.put(f'/api/scheduling/{schedule_id}', json={**changes, 'expected_updated_at': read(schedule_id)['updated_at']},
@@ -155,21 +157,20 @@ def run():
                 # A schedule saved by the old form: the lab's only shape, ScheduledToRun plus one selection.
                 old = saved(OLD_FORM)
                 view = read(old)
-                assert view['preparation_state'] == 'needs_review' and view['preparation'] is None
-                suggestion = view['legacy_preparation']['suggestion']
-                assert suggestion == dict(tool_id=TOOL, inputs=dict(experiment_id=42)), suggestion
+                assert view['review_reason'] and view['preparation'] is None
+                suggestion = dict(tool_id=TOOL, inputs=dict(experiment_id=42))
                 ok, blocked = execute(old)
                 assert not ok and not launched and receipt(blocked) is None and flags() == [(41, True), (42, False), (43, False), (43, False), (44, False)]
                 storage = SQLiteSchedulingDatabase(str(root / 'scheduler.db'))  # Restart: derived again, never rewritten.
                 manager.sqlite_db = storage
-                assert update(old, {'estimated_duration': 9}, role='user').status_code == 200
+                assert update(old, {'estimated_duration': 9}, role='user').status_code == 400
                 assert update(old, {'preparation': suggestion}, role='user').status_code == 403
-                assert storage.get_schedule_by_id(old).prerequisites == OLD_FORM and read(old)['preparation_state'] == 'needs_review'
+                assert storage.get_schedule_by_id(old).prerequisites == OLD_FORM and read(old)['review_reason']
                 assert not execute(old)[0] and not launched and flags() == [(41, True), (42, False), (43, False), (43, False), (44, False)]
                 assert update(old, {'prerequisites': ['EvoYeastExperiment:41|set']}).status_code == 400
                 body = dict(experiment_name='Tokens', experiment_path=str(method), schedule_type='once', estimated_duration=5, prerequisites=['ScheduledToRun'])
                 assert client.post('/api/scheduling/create', json=body).status_code == 400
-                result['checks'].append('Old-form schedule is Needs review with its experiment prefilled; the run is refused before any write, also after a restart; a user edit keeps the tokens; clients cannot add or edit tokens')
+                result['checks'].append('Old-form schedule is listed with its stored fields and review reason; the run is refused before any write, also after a restart; an incomplete user edit is refused and keeps the tokens; clients cannot add or edit tokens')
 
                 response = update(old, {'preparation': suggestion})
                 assert response.status_code == 200, response.text
@@ -182,7 +183,7 @@ def run():
                 assert receipt(first)['message'] == 'Experiment 42 marked ScheduledToRun', receipt(first)
                 ok, second = execute(create(dict(experiment_id=41), name='Previous method'))
                 assert ok and launched[-1] == second and flags() == [(41, True), (42, False), (43, False), (43, False), (44, False)]
-                result['checks'].append('After an administrator saves the prefilled step it is pinned, the tokens are cleared and the package clears every flag and sets exactly the chosen one; a second schedule moves the flag')
+                result['checks'].append('After an administrator chooses and saves a step it is pinned, the tokens are cleared and the package clears every flag and sets exactly the chosen one; a second schedule moves the flag')
 
                 count = len(storage.get_schedules(active_only=False, archived_only=False))
                 refused = {'no experiment': post({}), 'experiment empty': post(dict(experiment_id=None)),
@@ -208,7 +209,7 @@ def run():
                 result['checks'].append('A duplicated experiment, or one deleted after the schedule was saved, rolls back every flag, never launches and requests recovery')
 
                 expressed = saved(['scheduled_to_run', 'evoYeastExperiment: 42 | SET'], name='Alias form')
-                assert read(expressed)['legacy_preparation']['suggestion'] == dict(tool_id=TOOL, inputs=dict(experiment_id=42))
+                assert read(expressed)['review_reason'] and read(expressed)['prerequisites'] == ['scheduled_to_run', 'evoYeastExperiment: 42 | SET']
                 with_step = create(dict(experiment_id=42), name='Has a step')
                 with storage._get_connection() as conn:
                     conn.execute('UPDATE ScheduledExperiments SET prerequisites=? WHERE schedule_id=?', (json.dumps(['EvoYeastExperiment:41|set']), with_step))
@@ -218,12 +219,10 @@ def run():
                 for schedule_id in [reset, saved(['ResetHamiltonTables']), batch, saved(['Unknown']), saved(['ScheduledToRun']),
                                     saved(['EvoYeastExperiment:41|set', 'EvoYeastExperiment:42|set']), with_step]:
                     view = read(schedule_id)
-                    assert view['preparation_state'] == 'needs_review' and view['legacy_preparation']['suggestion'] is None, view
-                    assert 'cannot be carried over' in view['legacy_preparation']['message']
+                    assert 'Old preparation step' in view['review_reason'], view
                     count, rows = len(launched), flags()
                     assert not execute(schedule_id)[0] and len(launched) == count and flags() == rows
-                reset_message = read(reset)['legacy_preparation']['message']
-                assert 'the Hamilton table reset (ResetHamiltonTables:Runtime) is no longer part of the EvoYeast step' in reset_message, reset_message
+                assert 'ResetHamiltonTables:Runtime' in read(reset)['review_reason']
                 assert storage.get_schedule_by_id(reset).prerequisites == OLD_RESET
                 # Without a prefill an administrator still resolves the review: a chosen experiment,
                 # an explicit "none", or the schedule's existing step resent unchanged replaces the tokens.
@@ -238,10 +237,15 @@ def run():
                 assert read(with_step)['preparation_state'] == 'ready' and storage.get_schedule_by_id(with_step).preparation == kept
                 assert storage.get_schedule_by_id(with_step).prerequisites == []
                 noop = saved(['EvoYeastExperiment:42|none'], name='No selection')
-                assert 'legacy_preparation' not in read(noop)
+                with storage._get_connection() as conn:
+                    conn.execute('DELETE FROM SchemaMigrations WHERE version=4')
+                    conn.commit()
+                storage = SQLiteSchedulingDatabase(str(root / 'scheduler.db'))
+                manager.sqlite_db = storage
+                assert read(noop)['review_reason'] is None
                 rows = flags()
                 assert execute(noop)[0] and flags() == rows
-                result['checks'].append('Old registry aliases still prefill the intended experiment; ResetHamiltonTables, batch, unknown, marker-only, double selection and token+step schedules are Needs review without a guess, keep their tokens and are refused before any write until an administrator saves an experiment, none or the existing step; a no-op selection still runs and writes nothing')
+                result['checks'].append('Old registry aliases retain their stored fields for review; ResetHamiltonTables, batch, unknown, marker-only, double selection and token+step schedules are Needs review without a guess, keep their tokens and are refused before any write until an administrator saves an experiment, none or the existing step; a no-op selection still runs and writes nothing')
         result['fixtures_removed'] = True
         result['passed'] = True
     except Exception:

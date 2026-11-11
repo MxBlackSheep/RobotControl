@@ -13,11 +13,14 @@ every page shares.
   (`loadComponent` in `utils/BundleOptimizer.ts` retries a failed chunk load, then reloads the
   page once, since a missing chunk after an upgrade answers 404; `PageLoadBoundary`, keyed by
   route, then shows "This page could not load" with Reload while the shell stays usable), and the
-  global dialogs: `MaintenanceDialog` (temporary API pause during a database restore),
+  global dialogs: `MaintenanceDialog` (temporary API pause after a database restore; its one
+  value, the pause's end time, lives in `utils/MaintenanceManager.ts`; Got it hides the dialog
+  for that pause only, while requests stay refused until the pause ends),
   `ChangePasswordDialog` (opens when `user.must_reset`) and `KeyboardShortcutsHelp`.
 - `components/navigation.tsx`: the single registry of pages, sections, URLs and UI
-  permissions. The sidebar and the section tabs in `PageHeader` both read it. App keeps its
-  own route guards as well; backend permissions still apply.
+  permissions. The sidebar and the section tabs in `PageHeader` both read it. Page roles are
+  in `pageRoles`; the sidebar, phone tabs, More, App's routes, Overview links and shortcuts
+  ask `canOpen(path, user)`. Backend permissions still apply.
 
 ## Fixed frame
 
@@ -78,13 +81,13 @@ hiding alone does not stop effects).
 ## Robot status and attention banner
 
 `useRobotStatus` (in `hooks/useRobotStatus.ts`) is the shell's one owner of robot state: it
-polls `GET /api/scheduling/status/queue` and `/status/scheduler` every 15 s through
+polls `GET /api/scheduling/status/queue` every 15 s through
 `useSerialPolling` and publishes the result in `RobotStatusContext`. `RobotAttentionBanner`,
 the rail's Scheduling badge, the Recovery tab badge, Overview and Maintenance's Right now
-panel all read that context; nothing else polls for them. Scheduling keeps its own view.
+panel and Scheduling all read that context; nothing else polls for them.
 
-- Both replies carry `manual_recovery`. `newerRecovery` keeps the higher `safety_revision`;
-  unhealthy storage always wins (fail closed), and a reply without the field clears nothing.
+- The queue reply carries scheduler `is_running` and `manual_recovery`; malformed or failed
+  reads leave status unknown or stale, never healthy by default.
 - `robotAttention` names why runs are held: unhealthy storage, pending recoveries, or an
   acknowledged recovery whose queued jobs still wait for Resume (`resume_required`).
 - There is no always-on status bar. The banner appears on every page only while runs are
@@ -210,8 +213,8 @@ recording and recovery state visible, and never show unknown state as success.
 
 ## Keyboard shortcuts
 
-`hooks/useKeyboardNavigation.ts` holds the only shortcut list: Alt+1…9 for the pages in
-sidebar order, Ctrl+H, Ctrl+B, Ctrl+Shift+R, `/` to focus search, Escape to clear focus,
+`hooks/useKeyboardNavigation.ts` holds the only shortcut list: Alt+1…9 for a fixed page list
+named from `navigationItems` (a page the role may not open has no shortcut), Ctrl+H, Ctrl+B, Ctrl+Shift+R, `/` to focus search, Escape to clear focus,
 and `?` for the help dialog, which renders the same list. Shortcuts do nothing while a
 MUI modal is open or (except Escape) while typing. To change a shortcut, edit that list.
 `navigation.test.tsx` and `system-pages.spec.ts` cover navigation, help and dialog

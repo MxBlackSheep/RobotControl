@@ -6,22 +6,82 @@ Detects experiment completion events and triggers video archiving for the automa
 recording system. Includes graceful database failure handling and lazy connection management.
 """
 
+from dataclasses import dataclass
+from enum import Enum
 import threading
 import logging
 import time
 from datetime import datetime
-from typing import Dict, Any, Optional, Callable, List
+from typing import Dict, Any, Optional, Callable
 
 from backend.config import AUTO_RECORDING_CONFIG
-from backend.services.automatic_recording_types import (
-    ExperimentState, ExperimentStateType
-)
 from backend.constants import HAMILTON_STATE_MAPPING
 
 from backend.utils.datetime import parse_iso_datetime_to_local
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+
+class ExperimentStateType(Enum):
+    """Experiment execution states"""
+    UNKNOWN = "Unknown"
+    RUNNING = "Running"
+    PAUSED = "Paused"
+    COMPLETE = "Complete"
+    ABORTED = "Aborted"
+    ERROR = "Error"
+
+
+@dataclass
+class ExperimentState:
+    """Current state of an experiment from Hamilton Vector database"""
+
+    # Core experiment identifiers
+    run_guid: str                            # Unique experiment identifier
+    method_name: str                         # Experiment method name
+    run_state: ExperimentStateType           # Current execution state
+
+    # Timing information
+    start_time: Optional[datetime] = None    # Experiment start time
+    end_time: Optional[datetime] = None      # Experiment completion time (if finished)
+
+    # State change tracking
+    raw_run_state: Optional[str] = None  # Original Hamilton SQL value
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for API responses"""
+        return {
+            "run_guid": self.run_guid,
+            "method_name": self.method_name,
+            "run_state": self.run_state.value,
+            "raw_run_state": self.raw_run_state,
+            "start_time": self.start_time.isoformat() if self.start_time else None,
+            "end_time": self.end_time.isoformat() if self.end_time else None,
+        }
+
+    @property
+    def is_complete(self) -> bool:
+        """Check if experiment is in a completed state"""
+        return self.run_state == ExperimentStateType.COMPLETE
+
+    @property
+    def is_running(self) -> bool:
+        """Check if experiment is currently running"""
+        return self.run_state == ExperimentStateType.RUNNING
+
+    @property
+    def is_in_progress(self) -> bool:
+        """Running and paused methods both retain ownership of the robot."""
+        return self.run_state in {ExperimentStateType.RUNNING, ExperimentStateType.PAUSED}
+
+    @property
+    def duration_minutes(self) -> Optional[float]:
+        """Calculate experiment duration in minutes (if both start and end times available)"""
+        if self.start_time and self.end_time:
+            delta = self.end_time - self.start_time
+            return delta.total_seconds() / 60
+        return None
 
 
 class ExperimentMonitor:
@@ -36,7 +96,7 @@ class ExperimentMonitor:
     - Event callback system for experiment completion notifications
     """
     
-    def __init__(self, check_interval_seconds: Optional[int] = None):
+    def __init__(self, check_interval_seconds: Optional[int] = None, *, on_complete: Callable[[ExperimentState], None]):
         """
         Initialize experiment monitor
         
@@ -55,7 +115,7 @@ class ExperimentMonitor:
         self.current_experiment: Optional[ExperimentState] = None
         
         # Event callbacks
-        self.completion_callbacks: List[Callable[[ExperimentState], None]] = []
+        self.on_complete = on_complete
         
         self.last_check_time: Optional[datetime] = None
         
@@ -112,22 +172,6 @@ class ExperimentMonitor:
             self.monitor_thread = None
             logger.info("Experiment monitoring stopped")
     
-    def add_completion_callback(self, callback: Callable[[ExperimentState], None]):
-        """
-        Add a callback function to be called when an experiment completes
-        
-        Args:
-            callback: Function that takes ExperimentState as parameter
-        """
-        if callback not in self.completion_callbacks:
-            self.completion_callbacks.append(callback)
-        logger.debug(f"Added experiment completion callback: {callback.__name__}")
-    
-    def get_current_experiment(self) -> Optional[ExperimentState]:
-        """Get the current experiment state (thread-safe)"""
-        with self.monitor_lock:
-            return self.current_experiment
-    
     def get_last_check_time(self) -> Optional[datetime]:
         """Get the last check time under the monitor lock."""
         with self.monitor_lock:
@@ -173,48 +217,18 @@ class ExperimentMonitor:
             # Create ExperimentState from database data
             new_experiment = self._create_experiment_state(experiment_data)
             
-            # Check for state changes
-            state_changed = False
-            completion_detected = False
-            
             with self.monitor_lock:
-                if self.current_experiment is None:
-                    # First experiment detected
-                    logger.info(f"First experiment detected: {new_experiment.method_name} ({new_experiment.run_state.value})")
-                    state_changed = True
-                    
-                elif self.current_experiment.run_guid != new_experiment.run_guid:
-                    # New experiment started
-                    logger.info(f"New experiment detected: {new_experiment.method_name} "
-                               f"(was: {self.current_experiment.method_name})")
-                    state_changed = True
-                    
-                elif self.current_experiment.run_state != new_experiment.run_state:
-                    # Same experiment, state changed
-                    logger.info(f"Experiment state changed: {new_experiment.method_name} "
-                               f"{self.current_experiment.run_state.value} -> {new_experiment.run_state.value}")
-                    new_experiment.previous_state = self.current_experiment.run_state
-                    new_experiment.state_change_time = check_start_time
-                    state_changed = True
-                    
-                    # Check for completion (both COMPLETE and ABORTED states indicate experiment ended)
-                    if (new_experiment.run_state in [ExperimentStateType.COMPLETE, ExperimentStateType.ABORTED] and 
-                        self.current_experiment.run_state not in [ExperimentStateType.COMPLETE, ExperimentStateType.ABORTED]):
-                        completion_detected = True
-                        new_experiment.is_newly_completed = True
-                        logger.info(f"Experiment completion detected: {new_experiment.method_name} (state: {new_experiment.run_state.value})")
-                
-                # Update current experiment if changed
-                if state_changed:
-                    self.current_experiment = new_experiment
-                
-            
-            # Fire completion callbacks (outside of lock to prevent deadlock)
-            if completion_detected:
-                self._fire_completion_callbacks(new_experiment)
-            
-            logger.debug(f"Experiment check completed successfully - State: {new_experiment.run_state.value}")
-            
+                previous = self.current_experiment
+                completed = (
+                    previous is not None
+                    and previous.run_guid == new_experiment.run_guid
+                    and previous.run_state not in (ExperimentStateType.COMPLETE, ExperimentStateType.ABORTED)
+                    and new_experiment.run_state in (ExperimentStateType.COMPLETE, ExperimentStateType.ABORTED)
+                )
+                self.current_experiment = new_experiment
+            if completed:
+                self.on_complete(new_experiment)
+
         except Exception as e:
             logger.warning(f"Failed to check experiment state: {e}")
     
@@ -231,15 +245,8 @@ class ExperimentMonitor:
             
             db_service = get_database_service()
             
-            # Query latest experiment (same as experiments API)
-            query = """
-                SELECT TOP 1 RunGUID, MethodName, StartTime, EndTime, RunState
-                FROM HamiltonVectorDB.dbo.HxRun
-                ORDER BY StartTime DESC
-            """
-            
-            result = db_service.execute_query(query)
-            
+            result = query_latest_experiment(db_service)
+
             if result.get("error"):
                 logger.debug(f"Database query failed: {result['error']}")
                 return None
@@ -278,15 +285,10 @@ class ExperimentMonitor:
         
         # Map Hamilton VENUS numeric run states to our enum values using centralized mapping
         run_state_str = str(run_state_raw)
-        if run_state_str in HAMILTON_STATE_MAPPING:
-            state_value = HAMILTON_STATE_MAPPING[run_state_str]
-            # Convert string to enum
-            run_state = getattr(ExperimentStateType, state_value.upper(), ExperimentStateType.UNKNOWN)
-            logger.debug(f"Mapped Hamilton run state '{run_state_str}' to {run_state.value}")
-        else:
-            logger.warning(f"Unknown Hamilton run state '{run_state_str}', using UNKNOWN")
-            run_state = ExperimentStateType.UNKNOWN
-        
+        run_state = ExperimentStateType(HAMILTON_STATE_MAPPING.get(run_state_str, "Unknown"))
+        if run_state == ExperimentStateType.UNKNOWN:
+            logger.warning("Unknown Hamilton run state '%s', using UNKNOWN", run_state_str)
+
         # Parse datetime fields
         start_time = None
         end_time = None
@@ -312,36 +314,11 @@ class ExperimentMonitor:
             end_time=end_time
         )
     
-    def _fire_completion_callbacks(self, completed_experiment: ExperimentState):
-        """
-        Fire all registered completion callbacks for a completed experiment
-        
-        Args:
-            completed_experiment: The experiment that just completed
-        """
-        logger.info(f"Firing completion callbacks for experiment: {completed_experiment.method_name}")
-        
-        for callback in self.completion_callbacks:
-            try:
-                callback(completed_experiment)
-                logger.debug(f"Completion callback {callback.__name__} executed successfully")
-            except Exception as e:
-                logger.error(f"Error in completion callback {callback.__name__}: {e}")
-    
-    def is_monitoring_active(self) -> bool:
-        """Check if monitoring is currently active"""
-        return self.is_running
-    
-# Global instance management
-_experiment_monitor = None
-_monitor_lock = threading.Lock()
 
-
-def get_experiment_monitor() -> ExperimentMonitor:
-    """Get the global experiment monitor instance (singleton pattern)"""
-    global _experiment_monitor
-    if _experiment_monitor is None:
-        with _monitor_lock:
-            if _experiment_monitor is None:
-                _experiment_monitor = ExperimentMonitor()
-    return _experiment_monitor
+def query_latest_experiment(db_service):
+    """Return the database result, keeping query failure distinct from no runs."""
+    return db_service.execute_query("""
+        SELECT TOP 1 RunGUID, MethodName, StartTime, EndTime, RunState
+        FROM HamiltonVectorDB.dbo.HxRun
+        ORDER BY StartTime DESC
+    """)

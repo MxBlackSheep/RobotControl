@@ -21,7 +21,7 @@ def ask(label, default=''):
 def field_definition(value):
     parts = value.split(':', 3)
     if len(parts) < 3:
-        raise ValueError('Use name:type:Label, for example experiment_id:experiment:Experiment')
+        raise ValueError('Use name:type:Label, for example experiment_id:integer:Experiment')
     name, kind, label = parts[:3]
     field = dict(name=name, type=kind, label=label, required=True)
     if kind == 'choice':
@@ -47,17 +47,22 @@ def create(args):
     if fields is None:
         fields = []
         if interactive:
-            print('Add inputs as name:type:Label. Types: experiment, text, integer, number, boolean, choice.')
+            print('Add inputs as name:type:Label. Types: text, integer, number, boolean, choice.')
             print('For choices: state:choice:State:Clean,Dirty. Enter a blank line when finished.')
             while value := ask('Input'):
                 fields.append(value)
         else:
-            fields = ['experiment_id:experiment:Experiment']
+            fields = ['experiment_id:integer:Experiment']
     tool = dict(id=package_id, name=name, kind=kind, entrypoint='handler:run',
                 inputs=[field_definition(field) for field in fields])
+    if args.input is None and not interactive:
+        tool['sources'] = ['primary']
+        tool['inputs'] = [dict(name='experiment_id', type='lookup', label='Experiment', lookup=dict(
+            source='primary', query='SELECT ExperimentID AS value, UserDefinedID AS label FROM dbo.Experiments',
+            value_type='integer'))]
     if kind == 'operation':
         tool.update(preview='handler:preview', confirmation_field=args.confirmation or ask('Input to type for confirmation', 'experiment_id'))
-    manifest = Manifest.model_validate(dict(contract_version=1, id=package_id, name=name, version=version,
+    manifest = Manifest.model_validate(dict(contract_version=2, id=package_id, name=name, version=version,
         libraries=[value.strip() for value in libraries.split(',') if value.strip()], tools=[tool]))
     names = ', '.join(f'inputs[{field.name!r}]' for field in manifest.tools[0].inputs) or '(no inputs)'
     handler = f'''"""Adapt reference/{source.name}; keep its calculations and selection rules."""

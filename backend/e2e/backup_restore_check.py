@@ -40,6 +40,8 @@ import time
 import traceback
 import uuid
 from pathlib import Path
+from contextlib import nullcontext
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pyodbc
@@ -73,7 +75,7 @@ def session_alive(connection):
 
 
 def run():
-    server = backup_module.SQL_SERVER
+    server = backup_module.settings.DB_CONFIG_PRIMARY["server"]
     database = f'RC_BackupCheck_{uuid.uuid4().hex[:8]}'
     checks, commands, created = [], [], []
     held = None
@@ -118,7 +120,8 @@ def run():
         sql(server, f'CREATE TABLE [{database}].dbo.Sample (Value nvarchar(20)); '
                     f"INSERT [{database}].dbo.Sample VALUES (N'before backup')")
 
-        with patch.object(backup_api, 'get_backup_service', return_value=service), \
+        with patch('backend.services.scheduling.scheduler_engine.get_scheduler_engine', return_value=SimpleNamespace(database_restore_guard=nullcontext)), \
+                patch.object(backup_api, 'get_backup_service', return_value=service), \
                 TestClient(app, client=('127.0.0.1', 1234)) as client:
             response = client.post('/api/admin/backup/create', json={'description': 'backup check'})
             body = response.json()
@@ -188,12 +191,12 @@ def run():
             check('the waiting delete then removes the backup and its metadata',
                   body and body.get('success') and not doomed.exists() and not doomed.with_suffix('.json').exists(), body)
 
-            save = service._metadata_store.save
+            save = service._save_metadata
             saved_locked = []
             def recording_save(*args, **kwargs):
                 saved_locked.append(service._operation_lock.locked())
                 return save(*args, **kwargs)
-            with patch.object(service._metadata_store, 'save', side_effect=recording_save):
+            with patch.object(service, '_save_metadata', side_effect=recording_save):
                 body = client.post('/api/admin/backup/create', json={'description': 'locked metadata'}).json()
             if (body.get('data') or {}).get('filename'):
                 created.append(body['data']['filename'])

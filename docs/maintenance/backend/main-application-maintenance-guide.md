@@ -33,7 +33,6 @@ This guide explains how the FastAPI entry point, logging, static assets, and bui
 ## 2. Startup & Shutdown Flow
 
 1. **Module import**  
-   - `_patch_bcrypt_metadata()` runs immediately so modern `bcrypt` works with `passlib`.  
    - Project root is added to `sys.path` before routers import, allowing relative imports inside packaged builds.
 
 2. **Logging**  
@@ -55,8 +54,9 @@ This guide explains how the FastAPI entry point, logging, static assets, and bui
    - CORS allows localhost ports used by Vite (`5173`), CRA (`3000`), and packaged app (`8005`).
 
 5. **Signal & exit handling**  
-   - `main()` registers `graceful_shutdown` for `SIGINT`/`SIGTERM` and `atexit`, stopping camera, auto-recording, monitoring, etc. Importing the app for tests does not install process-wide shutdown hooks.
-   - In packaged builds the system-tray “Terminate” now toggles `server.should_exit`; avoid calling `sys.exit()` there or pystray will log a handler error.
+   - Both modes pass the same app to `uvicorn.Server`. Lifespan owns cleanup, including failed startup; each stop step is attempted once. Recording stops first, so the last clip is finished before Terminate's ten-second exit can cut a slower step short.
+   - In packaged builds the system-tray “Terminate” sets `server.should_exit`, waits up to ten seconds for cleanup, then forces exit.
+   - Uvicorn allows open requests five seconds to finish, then cancels them so lifespan cleanup can run before the tray deadline.
 
 6. **Shutdown block in lifespan**  
    - Cancels pending auto-start task and stops live streaming/auto-recording/scheduler/camera in a predictable order.
@@ -67,12 +67,12 @@ This guide explains how the FastAPI entry point, logging, static assets, and bui
 ## 3. Static Asset Serving
 
 1. **Embedded mode (`EMBEDDED_MODE=True`)**  
-   - `serve_embedded_static` fetches bytes via `EmbeddedResourceManager.get_resource(path)`.  
+   - `serve_static` fetches bytes via `EmbeddedResourceManager.get_resource(path)`.
    - Supports ETag caching (304 responses) and sets headers like `Cache-Control`.  
    - SPA routing fallback: if a path is missing, it serves `/index.html`.
 
 2. **Development mode** (`frontend/dist` present)  
-   - `serve_static_dev` reads files from disk.  
+   - `serve_static` reads files within `frontend/dist`, enforces containment and supports ETags.
    - Only routes non-API paths; asset misses return 404, while navigation routes fall back to `index.html`.
 
 3. **When no dist exists**  
@@ -161,8 +161,8 @@ This guide explains how the FastAPI entry point, logging, static assets, and bui
 |------------------|---------|-------|
 | `_env_flag`, `_env_int`, `_env_scheduler_autostart_delay` | Parse env vars | Keeps parsing defensive; reuse when adding toggles. |
 | `lifespan(app)` | Startup/shutdown manager | Place new service boot/shutdown here so behaviour mirrors packaged build. |
-| `graceful_shutdown(signum, frame)` | Signal handler | Safe to call manually; stops camera, auto-recording, monitoring. |
-| `serve_embedded_static` / `serve_static_dev` | Static asset delivery | Always check path does not start with `api/` to avoid swallowing API routes. |
+| `lifespan` | Service lifetime | One cleanup sequence covers normal stop and failed startup. |
+| `serve_static` | Static asset delivery | Always check path does not start with `api/` to avoid swallowing API routes. |
 | `configure_uvicorn_logging()` | Puts uvicorn under our handlers | Call again after changing handlers if you reload configuration. |
 | `build_scripts/embed_resources.embed_frontend_resources()` | Embed static files | Run after every frontend build; ensures PyInstaller finds `backend/embedded_static.py`. |
 | `build_scripts/pyinstaller_build.build_with_pyinstaller(...)` | Compile executable | Accepts `layout` (`onefile` / `onedir`) and `console` flag. |

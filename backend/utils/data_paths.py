@@ -14,35 +14,38 @@ class DataPathManager:
     """Manages data directories for RobotControl executable deployment"""
     
     def __init__(self):
-        self._base_path: Optional[Path] = None
+        self.base_path: Optional[Path] = None
         self._data_dirs: Dict[str, Path] = {}
         self._initialize_paths()
     
     def _initialize_paths(self):
         """Initialize base path and create data directory structure"""
         # Detect if running as compiled executable
-        if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        if is_compiled_mode():
             # Running as PyInstaller executable
-            self._base_path = Path(sys.executable).parent
-            logger.info(f"Compiled mode: Using executable directory: {self._base_path}")
+            self.base_path = Path(sys.executable).parent
+            logger.info(f"Compiled mode: Using executable directory: {self.base_path}")
         else:
             # Running in development mode
             # Find project root (where main.py would be relative to backend/)
             current_file = Path(__file__).resolve()
             project_root = current_file.parent.parent.parent  # backend/utils -> backend -> project_root
-            self._base_path = project_root
-            logger.info(f"Development mode: Using project root: {self._base_path}")
+            self.base_path = project_root
+            logger.info(f"Development mode: Using project root: {self.base_path}")
         
         # Define data directory structure
         self._data_dirs = {
-            'data': self._base_path / 'data',
-            'backups': self._base_path / 'data' / 'backups',
-            'videos': self._base_path / 'data' / 'videos',
-            'logs': self._base_path / 'data' / 'logs',
-            'config': self._base_path / 'data' / 'config',
-            'temp': self._base_path / 'data' / 'temp'
+            'data': self.base_path / 'data',
+            'backups': self.base_path / 'data' / 'backups',
+            'videos': self.base_path / 'data' / 'videos',
+            'logs': self.base_path / 'data' / 'logs',
+            'config': self.base_path / 'data' / 'config',
+            'temp': self.base_path / 'data' / 'temp'
         }
         
+        for name, path in self._data_dirs.items():
+            setattr(self, f"{name}_path", path)
+
         # Create directories if they don't exist
         self._create_directories()
     
@@ -55,46 +58,6 @@ class DataPathManager:
             except Exception as e:
                 logger.error(f"Failed to create directory {dir_name} at {dir_path}: {e}")
                 # Continue with other directories even if one fails
-    
-    @property
-    def base_path(self) -> Path:
-        """Get the base path (executable directory or project root)"""
-        return self._base_path
-    
-    @property
-    def data_path(self) -> Path:
-        """Get the main data directory path"""
-        return self._data_dirs['data']
-    
-    @property
-    def backups_path(self) -> Path:
-        """Get the backups directory path"""
-        return self._data_dirs['backups']
-    
-    @property
-    def videos_path(self) -> Path:
-        """Get the videos directory path"""
-        return self._data_dirs['videos']
-    
-    @property
-    def logs_path(self) -> Path:
-        """Get the logs directory path"""
-        return self._data_dirs['logs']
-    
-    @property
-    def config_path(self) -> Path:
-        """Get the config directory path"""
-        return self._data_dirs['config']
-    
-    @property
-    def temp_path(self) -> Path:
-        """Get the temp directory path"""
-        return self._data_dirs['temp']
-    
-    
-    def is_compiled_mode(self) -> bool:
-        """Check if running in compiled executable mode"""
-        return getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS')
     
 # Global instance for easy access
 _path_manager: Optional[DataPathManager] = None
@@ -126,4 +89,4 @@ def get_logs_path() -> Path:
 
 def is_compiled_mode() -> bool:
     """Check if running in compiled executable mode"""
-    return get_path_manager().is_compiled_mode()
+    return bool(getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'))
