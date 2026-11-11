@@ -22,8 +22,8 @@ from backend.services.scheduling.experiment_discovery import get_experiment_disc
 from backend.services.scheduling.experiment_executor import resolve_experiment_path
 from backend.services.scheduling.schedule_check import check_schedule
 from backend.services.scheduling.schedule_review import ScheduleReview
-from backend.services.scheduling.notification_check import check_contact, check_email_address
-from backend.models import ScheduledExperiment, CalendarEvent, ApiResponse, NotificationContact, NotificationSettings
+from backend.services.scheduling.notification_check import check_contact, check_email_address, check_email_settings
+from backend.models import ScheduledExperiment, CalendarEvent, ApiResponse, NotificationContact
 from backend.api.dependencies import ConnectionContext, require_local_access
 from backend.utils.audit import log_action
 from backend.services.database_packages import PackageError
@@ -168,10 +168,6 @@ def _checked(check, value):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-def _validate_email_address(value: Any) -> str:
-    return _checked(check_email_address, value)
-
-
 def _requested_contact(contact_id: str, contact_data: Dict[str, Any]) -> NotificationContact:
     return _checked(check_contact, {"contact_id": contact_id, "display_name": contact_data.get("display_name"),
                                     "email_address": contact_data.get("email_address"),
@@ -293,48 +289,27 @@ def update_notification_settings_endpoint(
         raise HTTPException(status_code=403, detail="Admin role required to manage notification settings")
     actor = current_user.get("username", "unknown")
 
-    host_value = payload.get("host")
-    if not isinstance(host_value, str) or not host_value.strip():
-        raise HTTPException(status_code=400, detail="host is required")
-    host = host_value.strip()
-
-    port_value = payload.get("port", 587)
-    try:
-        port = int(port_value)
-    except (TypeError, ValueError):
-        raise HTTPException(status_code=400, detail="port must be an integer")
-    if port < 1 or port > 65535:
-        raise HTTPException(status_code=400, detail="port must be between 1 and 65535")
-
-    username_value = payload.get("username")
-    if username_value is not None and not isinstance(username_value, str):
-        raise HTTPException(status_code=400, detail="username must be a string if provided")
-    username = username_value.strip() if isinstance(username_value, str) and username_value.strip() else None
-
-    sender_value = payload.get("sender")
-    sender = _validate_email_address(sender_value)
-
-    use_tls = bool(payload.get("use_tls", True))
-    use_ssl = bool(payload.get("use_ssl", False))
-    if use_ssl and use_tls:
-        # If SSL is requested, disable STARTTLS to avoid conflicting settings.
-        use_tls = False
-
-    manual_recipients_input = payload.get("manual_recovery_recipients", [])
-    manual_recipients: List[str] = []
-    if isinstance(manual_recipients_input, str):
-        for value in manual_recipients_input.split(","):
-            if value.strip():
-                manual_recipients.append(_validate_email_address(value))
-    elif isinstance(manual_recipients_input, list):
-        for value in manual_recipients_input:
-            if not isinstance(value, str):
-                raise HTTPException(status_code=400, detail="manual_recovery_recipients must contain strings")
-            trimmed = value.strip()
-            if trimmed:
-                manual_recipients.append(_validate_email_address(trimmed))
-    elif manual_recipients_input not in (None, []):
+    manual_recipients = payload.get("manual_recovery_recipients", [])
+    if isinstance(manual_recipients, str):
+        manual_recipients = manual_recipients.split(",")
+    elif isinstance(manual_recipients, list):
+        if not all(isinstance(value, str) for value in manual_recipients):
+            raise HTTPException(status_code=400, detail="manual_recovery_recipients must contain strings")
+    elif manual_recipients is not None:
         raise HTTPException(status_code=400, detail="manual_recovery_recipients must be a string or list of strings")
+    use_ssl = bool(payload.get("use_ssl", False))
+    settings = _checked(check_email_settings, {
+        "host": payload.get("host"),
+        "port": payload.get("port", 587),
+        "username": payload.get("username"),
+        "sender": payload.get("sender"),
+        # SSL replaces STARTTLS rather than conflicting with it.
+        "use_tls": bool(payload.get("use_tls", True)) and not use_ssl,
+        "use_ssl": use_ssl,
+        "manual_recovery_recipients": manual_recipients,
+        "updated_by": current_user.get("username"),
+    })
+
     update_password = "password" in payload
     encrypted_password: Optional[str] = None
     if update_password:
@@ -348,18 +323,6 @@ def update_notification_settings_endpoint(
                 encrypted_password = encrypt_secret(raw_password)
             except SecretCipherError as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
-    manual_recipients = list(dict.fromkeys(manual_recipients))
-
-    settings = NotificationSettings(
-        host=host,
-        port=port,
-        username=username,
-        sender=sender,
-        use_tls=use_tls,
-        use_ssl=use_ssl,
-        updated_by=current_user.get("username"),
-        manual_recovery_recipients=manual_recipients or None,
-    )
 
     scheduler, db_mgr, _ = get_services()
     updated = db_mgr.update_notification_settings(
@@ -401,7 +364,7 @@ def test_notification_settings_endpoint(
         raise HTTPException(status_code=403, detail="Admin role required to manage notification settings")
 
     recipient_value = payload.get("recipient")
-    recipient = _validate_email_address(recipient_value)
+    recipient = _checked(check_email_address, recipient_value)
 
     email_service = EmailNotificationService()
     if not email_service.config.is_enabled:

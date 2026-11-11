@@ -119,6 +119,7 @@ export interface NotificationSettings {
   updated_at?: string | null;
   updated_by?: string | null;
   manual_recovery_recipients: string[];
+  review_reason?: string | null;
 }
 
 export interface MethodImportSelection {

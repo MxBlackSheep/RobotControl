@@ -156,6 +156,7 @@ const normalizeNotificationSettings = (payload: any): NotificationSettings => ({
   manual_recovery_recipients: Array.isArray(payload?.manual_recovery_recipients)
     ? payload.manual_recovery_recipients.map((value: unknown) => coerceString(value))
     : [],
+  review_reason: coerceOptionalString(payload?.review_reason),
 });
 
 const normalizeNotificationLog = (payload: any): NotificationLogEntry => ({

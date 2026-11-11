@@ -66,7 +66,9 @@ section; the page keeps no copy of delivery rows.
 
 A contact with `review_reason` gets no mail: its row in Notifications > Contacts shows the
 Needs review chip in place of Active/Inactive and the reason under the name. Edit opens the
-stored values; a saved edit clears the chip. Delete is unchanged.
+stored values; a saved edit clears the chip. Delete is unchanged. Email settings with
+`review_reason` show "Needs review: <reason>" at the top of the panel; the form opens with
+the stored values and a successful save clears it.
 
 ## Layout and sections
 

@@ -12,6 +12,9 @@ execution, with no next run for review/inactive/archived rows; queue reports eng
 Contacts: a stored contact that fails the route check hides the others or the list, gets
 mail (alone or with checked contacts), drops from a schedule's contacts, or cannot be
 edited back or deleted; an alert whose every recipient is under review leaves no record.
+Email settings: a stored row that fails the settings check reads as unconfigured (defaults),
+hides its values or reason, returns the password, still sends (test or alert), or stays
+under review after a valid save; a database that never had settings reads as under review.
 """
 from contextlib import closing, contextmanager
 import hashlib
@@ -544,6 +547,53 @@ def contact_review_checks(root):
     print('PASS: contact review listing, checked-only mail, review-only alert record, repair and delete')
 
 
+def email_settings_review_checks(root):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from backend.api import scheduling as api
+    from backend.services import notifications
+    from backend.services.auth import get_current_user
+    from backend.services.scheduling import sqlite_database as module
+    from backend.tests.test_sqlite_safety import engine
+
+    with patch.object(module, 'get_data_path', return_value=root):
+        db = module.SQLiteSchedulingDatabase('email-settings.db')
+    scheduler = engine(db)
+    scheduler.refresh_notification_service = lambda: None
+    app = FastAPI()
+    app.include_router(api.router)
+    app.dependency_overrides[get_current_user] = lambda: {'username': 'admin', 'role': 'admin'}
+    valid = {'host': 'smtp.example.test', 'port': 587, 'sender': 'robot@example.test', 'use_tls': True, 'use_ssl': False,
+             'manual_recovery_recipients': ['operator@example.test']}
+    with patch.object(api, 'get_services', return_value=(scheduler, scheduler.db_manager, None)), \
+         patch.object(api, 'log_action'), \
+         patch.object(notifications, '_load_notification_settings', side_effect=db.get_notification_settings), \
+         TestClient(app, client=('127.0.0.1', 1)) as client:
+        reply = client.get('/api/scheduling/notifications/settings')
+        assert reply.status_code == 200 and reply.json()['data']['review_reason'] is None, reply.text
+        assert reply.json()['data']['host'] is None
+        for column, value, shown in (('smtp_port', 0, 'port'), ('smtp_sender', 'not an address', 'sender')):
+            assert client.put('/api/scheduling/notifications/settings', json=valid).status_code == 200
+            with db._get_connection() as conn:
+                conn.execute(f"UPDATE NotificationSettings SET {column}=?, smtp_password_encrypted='stored secret'", (value,))
+                conn.commit()
+            reply = client.get('/api/scheduling/notifications/settings')
+            data = reply.json()['data']
+            assert data['review_reason'] and data[shown] == value and data['host'] == valid['host'], reply.text
+            assert 'stored secret' not in reply.text and data['has_password'], reply.text
+            service = notifications.EmailNotificationService()
+            assert not service.send('Alert', 'Alert', to=['operator@example.test'])
+            assert 'Needs review' in service.last_error, service.last_error
+            reply = client.post('/api/scheduling/notifications/settings/test', json={'recipient': 'operator@example.test'})
+            assert reply.status_code == 400 and data['review_reason'] in reply.json()['detail'], reply.text
+            reply = client.put('/api/scheduling/notifications/settings', json=valid)
+            assert reply.status_code == 200 and reply.json()['data']['review_reason'] is None, reply.text
+            assert client.get('/api/scheduling/notifications/settings').json()['data']['review_reason'] is None
+        reply = client.put('/api/scheduling/notifications/settings', json={**valid, 'port': 0})
+        assert reply.status_code == 400 and reply.json()['detail'] == 'port must be between 1 and 65535', reply.text
+    print('PASS: email settings review keeps stored values, sends nothing, clears on save; a fresh database is not under review')
+
+
 def run():
     with tempfile.TemporaryDirectory(prefix='rc-stored-data-') as folder:
         root = Path(folder)
@@ -555,6 +605,7 @@ def run():
         route_error_checks()
         existing_run_review_checks(root)
         contact_review_checks(root)
+        email_settings_review_checks(root)
 
 
 if __name__ == '__main__':

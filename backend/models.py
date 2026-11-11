@@ -360,6 +360,7 @@ class NotificationSettings:
     updated_at: Optional[datetime] = None
     updated_by: Optional[str] = None
     manual_recovery_recipients: Optional[List[str]] = None
+    review_reason: Optional[str] = None  # set by the reader for a stored row that fails check_email_settings
 
     def to_public_dict(self) -> Dict[str, Any]:
         """Serialize without exposing the encrypted password."""
@@ -374,6 +375,7 @@ class NotificationSettings:
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             "updated_by": self.updated_by,
             "manual_recovery_recipients": self.manual_recovery_recipients or [],
+            "review_reason": self.review_reason,
         }
 
     @classmethod

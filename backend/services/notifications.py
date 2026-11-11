@@ -60,9 +60,12 @@ class EmailConfig:
     manual_recovery_recipients: List[str]
     use_tls: bool
     use_ssl: bool
+    review_reason: Optional[str] = None
 
     @property
     def is_enabled(self) -> bool:
+        if self.review_reason:
+            return False
         if not self.host:
             return False
         if not self.sender:
@@ -115,9 +118,14 @@ class EmailNotificationService:
             manual_recovery_recipients=manual_recipients,
             use_tls=self._settings.use_tls,
             use_ssl=self._settings.use_ssl,
+            review_reason=self._settings.review_reason,
         )
 
-        if not self.config.is_enabled:
+        if self.config.review_reason:
+            # Also the SMTP test route's refusal text.
+            self._settings_error = self.last_error = f"Needs review: {self.config.review_reason}"
+            logger.warning("Email notifications disabled: stored SMTP settings %s", self._settings_error)
+        elif not self.config.is_enabled:
             logger.info("Email notifications disabled: SMTP host/sender not configured")
         elif not self.config.password:
             self._settings_error = self._settings_error or "SMTP password is not configured"

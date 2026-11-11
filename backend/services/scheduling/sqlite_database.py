@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 from backend.services.scheduling.safety_store import SchedulerSafetyStore
 from backend.services.scheduling.schedule_check import check_schedule
-from backend.services.scheduling.notification_check import check_contact
+from backend.services.scheduling.notification_check import check_contact, check_email_settings
 from backend.services.scheduling.schedule_review import ScheduleReview
 from backend.services.sqlite_safety import SafetyConflict, StorageUnavailable, configure_connection, check_timestamp
 
@@ -680,10 +680,22 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                 cursor.execute("SELECT * FROM NotificationSettings WHERE id = 1")
                 row = cursor.fetchone()
                 if row:
-                    return NotificationSettings.from_row(row)
+                    return self._row_to_notification_settings(row)
         except Exception as exc:
             logger.error("Failed to load notification settings: %s", exc)
         return NotificationSettings()
+
+    @staticmethod
+    def _row_to_notification_settings(row) -> NotificationSettings:
+        """The stored row; one that fails check_email_settings keeps its values with review_reason."""
+        settings = NotificationSettings.from_row(row)
+        if not (settings.host or settings.username or settings.sender or settings.manual_recovery_recipients):
+            return settings  # the row every database starts with: not set, not under review
+        try:
+            return check_email_settings(vars(settings))
+        except ValueError as exc:
+            settings.review_reason = str(exc)
+            return settings
 
     def update_notification_settings(
         self,
@@ -749,7 +761,7 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                 cursor.execute("SELECT * FROM NotificationSettings WHERE id = 1")
                 row = cursor.fetchone()
                 if row:
-                    return NotificationSettings.from_row(row)
+                    return self._row_to_notification_settings(row)
         except Exception as exc:
             logger.error("Failed to update notification settings: %s", exc)
         return NotificationSettings()
