@@ -53,7 +53,7 @@ PORT = packaged_app.port(8018)
 
 
 def wizard_check(request, token, result, evidence):
-    from backend.e2e.report_wizard_check import sql_fixture
+    from backend.e2e.sql_server_fixture import sql_fixture
     with sql_fixture() as fixture:
         created_login = fixture['login'] + '_packaged'
         result['fixture'] = {'databases': fixture['names'], 'login': fixture['login']}
@@ -226,7 +226,7 @@ def run(candidate, report_package=None, evidence=ROOT/'test-output/database-veri
             if wizard:
                 wizard_check(request, token, result, evidence)
                 return
-            from backend.e2e.report_wizard_check import sql_fixture
+            from backend.e2e.sql_server_fixture import sql_fixture
             def report(package_id, inputs):
                 job=request('/api/database/tools/reports/'+package_id,{'inputs':inputs},token)
                 deadline=time.monotonic()+60

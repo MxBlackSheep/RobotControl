@@ -41,7 +41,7 @@ import zipfile
 import openpyxl
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.testclient import TestClient
-from backend.e2e.report_wizard_check import sql_fixture, ROOT, BASE
+from backend.e2e.sql_server_fixture import sql_fixture, ROOT, BASE
 from backend.api.database_tools import router
 from backend.services.auth import get_current_user
 from backend.services.database_tools import DatabaseTools, get_database_tools
