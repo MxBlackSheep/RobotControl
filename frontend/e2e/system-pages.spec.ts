@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { signIn } from './sign-in';
 
 // System status (connection facts are shown in cards, not a collapsed disclosure):
 // - Process CPU or cached JPEG throughput is presented as live-view utilization/health.
@@ -45,7 +46,7 @@ import { test, expect } from '@playwright/test';
 // - A camera or scheduler 503 opens "Database Maintenance In Progress", blocks later
 //   requests or Alt+number, or hides the caller's own message.
 
-test.beforeEach(async ({ page }) => { await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin')); });
+test.beforeEach(async ({ page }) => { await signIn(page); });
 
 test('monitoring has one refresh owner and shows stale and unknown services accurately', async ({ page }, info) => {
   let healthRequests = 0, failed = false;
@@ -324,15 +325,15 @@ test('a remote phone gets what happened instead of a recovery dead end', async (
 });
 
 test('System Status renews an expired sign-in', async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem('refresh_token', 'saved-refresh'));
   let expired = false, refreshes = 0, rejected = 0;
-  await page.route('**/api/auth/refresh', route => {
+  await page.route('**/api/auth/refresh', async route => {
     refreshes++;
-    return route.fulfill({ json: { success: true, data: { access_token: 'e2e-admin' } } });
+    await signIn(page, 'e2e-admin');
+    return route.fulfill({ json: { success: true, data: {} } });
   });
   await page.route('**/api/camera/streaming/status', route => route.fulfill({ json: { data: { status: { active_session_count: 0, max_sessions: 4 } } } }));
-  await page.route('**/api/monitoring/system-health', route => {
-    if (expired && route.request().headers().authorization === 'Bearer viewer-admin') {
+  await page.route('**/api/monitoring/system-health', async route => {
+    if (expired && (await route.request().headerValue('cookie'))?.includes('rc_access=viewer-admin')) {
       rejected++;
       return route.fulfill({ status: 401, json: { detail: 'Expired' } });
     }
@@ -344,7 +345,7 @@ test('System Status renews an expired sign-in', async ({ page }) => {
   expired = true;
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
   await expect.poll(() => rejected).toBe(1);
-  await expect.poll(() => page.evaluate(() => localStorage.getItem('access_token'))).toBe('e2e-admin');
+  await expect.poll(async () => (await page.context().cookies()).find(c => c.name === 'rc_access')?.value).toBe('e2e-admin');
   await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
   await expect(page.getByText('Stale data', { exact: true })).toHaveCount(0);
   expect(refreshes).toBe(1);

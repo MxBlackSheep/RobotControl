@@ -1,4 +1,5 @@
 import { expect, Page, test } from '@playwright/test';
+import { signIn } from './sign-in';
 
 /** Failure cases for tip layout and background reading:
  * - The tip surface fills the page width (no maximum). The overview/editor split is
@@ -28,7 +29,7 @@ const right = ['VER_HT_0003', 'VER_HT_0004', 'VER_HT_0007', 'VER_HT_0008', 'VER_
 const statuses = ['clean', 'empty', 'dirty', 'rinsed', 'washed', 'reserved', 'unclear'];
 
 async function fixture(page: Page, firstRack = left[0]) {
-  await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));
+  await signIn(page);
   const snapshot = {
     grid: { rows: 8, cols: 12, positions_per_rack: 96 }, auto_refresh_ms: 1000,
     status_order: statuses, status_colors: { clean: '#22c55e', empty: '#d1d5db', dirty: '#ef4444', rinsed: '#3b82f6', washed: '#a855f7', reserved: '#f59e0b', unclear: '#6b7280' },

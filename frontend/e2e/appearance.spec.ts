@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { signIn } from './sign-in';
 
 /** Failure cases for appearance and maintenance:
  * - System/Light/Dark leaves no light panels, unreadable selection or white flash, and
@@ -12,14 +13,14 @@ import { test, expect } from '@playwright/test';
  *   safety state or a failed robot read; combined holds retain the recovery warning,
  *   and a stopped scheduler is distinguished from permission to dispatch.
  * - A wrong current password shows "Unable to Change Password" with the server's reason,
- *   keeps the form and session open, and never refreshes tokens or redirects to /login.
+ *   keeps the form and session open, and never refreshes or ends the sign-in or redirects to /login.
  * - A successful password change closes the form and shows "Password Updated", which
  *   closes by itself after about 5 seconds and does not return when the form reopens.
  *   (The backend's 400-versus-401 contract is checked in backend/tests/test_auth.py.)
  */
 test.beforeEach(async ({ page }, info) => {
   if (info.title.startsWith('system appearance')) return;
-  await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));
+  await signIn(page);
 });
 
 test('maintenance does not enable actions for malformed state', async ({ page }) => {
@@ -163,7 +164,6 @@ for (const width of [320, 1920]) {
 }
 
 test('system appearance follows OS changes and login exposes the same preference', async ({ page }) => {
-  await page.addInitScript(() => { localStorage.removeItem('access_token'); });
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.goto('/login');
   await expect(page.getByRole('form', { name: 'Login form' })).toBeVisible();
@@ -177,8 +177,8 @@ test('system appearance follows OS changes and login exposes the same preference
 });
 
 test('change password explains a wrong current password and confirms success', async ({ page }, info) => {
-  const refreshes: string[] = [];
-  page.on('request', request => { if (request.url().includes('/api/auth/refresh')) refreshes.push(request.url()); });
+  const signInRequests: string[] = [];
+  page.on('request', request => { if (/\/api\/auth\/(refresh|logout)/.test(request.url())) signInRequests.push(request.url()); });
   // Same status and body as backend/api/auth.py for a wrong and a correct current password.
   await page.route('**/api/auth/change-password', route => {
     const { current_password } = route.request().postDataJSON();
@@ -203,8 +203,7 @@ test('change password explains a wrong current password and confirms success', a
   await expect(failure).toContainText('Current password is incorrect');
   await page.screenshot({ path: info.outputPath('wrong-current-password.png'), animations: 'disabled' });
   expect(new URL(page.url()).pathname).toBe('/system-status');
-  expect(await page.evaluate(() => localStorage.getItem('access_token'))).toBe('viewer-admin');
-  expect(refreshes).toEqual([]);
+  expect(signInRequests).toEqual([]);
   await failure.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(form).toBeVisible();
   await expect(form.getByLabel(/^New Password/)).toHaveValue('Fresh!Pass2');

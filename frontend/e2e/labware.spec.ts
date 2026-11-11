@@ -1,4 +1,5 @@
 import { expect, Page, test } from '@playwright/test';
+import { signIn } from './sign-in';
 
 /** Failure cases for tip editing and saving:
  * - Col A and Col B keep five racks each in backend order on desktop and 320px phones;
@@ -23,7 +24,7 @@ import { expect, Page, test } from '@playwright/test';
  *   it. Repainting one saves the chosen status; Undo and family changes keep it exact.
  */
 async function fixtures(page:Page, canUpdate=true, realDeck=false) {
-  await page.addInitScript(()=>localStorage.setItem('access_token','viewer-admin'));
+  await signIn(page);
   const permissions={role:'admin',is_local_session:canUpdate,can_update:canUpdate};
   const statuses=['clean','empty','dirty','rinsed','washed','reserved','unclear'];
   const tips={grid:{rows:8,cols:12,positions_per_rack:96},auto_refresh_ms:1000,status_order:statuses,status_colors:{clean:'#22c55e',empty:'#d1d5db',dirty:'#ef4444',rinsed:'#3b82f6',washed:'#a855f7',reserved:'#f59e0b',unclear:'#6b7280'},unknown_status:'unclear',refreshed_at:'2026-09-26T12:00:00Z',permissions,families:[

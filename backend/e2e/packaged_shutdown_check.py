@@ -39,7 +39,7 @@ def run(candidate):
             cwd=root,env=env,creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
         try:
             packaged_app.wait_until_serving(process,number,lambda:request("/health"))
-            token=request("/api/auth/login",{"username":"admin","password":password})["data"]["access_token"]
+            token=packaged_app.sign_in(number,"admin",password)
             def operation(path, body=None, method=None):
                 request(path, body or {}, token, method)
                 deadline=time.monotonic()+30

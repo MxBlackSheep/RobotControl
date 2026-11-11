@@ -19,8 +19,7 @@ import sqlite3
 from typing import Any, Dict, List, Optional, Tuple
 
 import jwt
-from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import Depends, HTTPException, Request, Response, status
 import bcrypt
 
 from backend.services.auth_database import get_auth_database, AuthDatabase
@@ -399,8 +398,6 @@ class AuthService:
         jti = secrets.token_hex(16)
         payload = {
             "user_id": user.to_dict()["user_id"],
-            "username": user.username,
-            "role": user.role,
             "jti": jti,
             "type": "refresh",
             "exp": expire,
@@ -529,7 +526,45 @@ class AuthService:
 
 # Global service instance
 _auth_service: Optional[AuthService] = None
-security = HTTPBearer()
+
+# Browsers keep the sign-in in two HttpOnly cookies, out of reach of page scripts.
+ACCESS_COOKIE = "rc_access"
+REFRESH_COOKIE = "rc_refresh"
+_COOKIE_PATHS = {ACCESS_COOKIE: "/api", REFRESH_COOKIE: "/api/auth"}
+
+
+def request_token(request: Request) -> str:
+    """The access token: a Bearer header (programs) wins, else the rc_access cookie (browsers)."""
+    scheme, _, token = request.headers.get("authorization", "").partition(" ")
+    token = token.strip() if scheme.lower() == "bearer" else ""
+    token = token or request.cookies.get(ACCESS_COOKIE, "")
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return token
+
+
+def _secure(request: Request) -> bool:
+    # The tunnel serves HTTPS and forwards plain http; the lab PC opens http://localhost,
+    # where a Secure cookie would not be kept by every browser.
+    return request.url.scheme == "https" or "https" in request.headers.get("x-forwarded-proto", "").lower()
+
+
+def set_sign_in_cookies(response: Response, request: Request, access_token: str,
+                        refresh_token: Optional[str] = None) -> None:
+    lifetimes = {ACCESS_COOKIE: ACCESS_TOKEN_EXPIRE_MINUTES * 60, REFRESH_COOKIE: REFRESH_TOKEN_EXPIRE_HOURS * 3600}
+    for name, value in ((ACCESS_COOKIE, access_token), (REFRESH_COOKIE, refresh_token)):
+        if value:
+            response.set_cookie(name, value, max_age=lifetimes[name], path=_COOKIE_PATHS[name],
+                                httponly=True, samesite="strict", secure=_secure(request))
+
+
+def clear_sign_in_cookies(response: Response, request: Request) -> None:
+    for name, path in _COOKIE_PATHS.items():
+        response.delete_cookie(name, path=path, httponly=True, samesite="strict", secure=_secure(request))
 
 
 def get_auth_service() -> AuthService:
@@ -540,12 +575,10 @@ def get_auth_service() -> AuthService:
     return _auth_service
 
 
-def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-) -> Dict[str, Any]:
+def get_current_user(token: str = Depends(request_token)) -> Dict[str, Any]:
     service = get_auth_service()
     try:
-        user = service.verify_token(credentials.credentials)
+        user = service.verify_token(token)
     except AUTH_STORAGE_ERRORS as exc:
         logger.error("Sign-in storage unavailable during token verification: %s", exc)
         raise HTTPException(

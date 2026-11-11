@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { signIn } from './sign-in';
 
 /** Failure scenarios written before the camera implementation:
  * - The picture (it always fits) crops or distorts 4:3, widescreen or portrait images on
@@ -46,7 +47,7 @@ import { expect, test, type APIRequestContext, type Page } from '@playwright/tes
 test.beforeEach(async ({ page, request }) => {
   await request.post('/__e2e/camera', { data: { width: 640, height: 480, send_frames: true, disconnect: false, generation: 'g1',
     interval: .2, burst: 1, device: 'fixture-camera', capture: 'connected', recording: true, operation: null, ranges: [], cut_after: null } });
-  await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));
+  await signIn(page);
 });
 
 const liveImage = (page: Page) => page.getByRole('img', { name: 'Live camera stream', exact: true });
@@ -336,15 +337,15 @@ test('phone settings sheet: polling continues while closed, controls open from t
 });
 
 test('an expired sign-in is renewed and live view still starts', async ({ page }, testInfo) => {
-  await page.addInitScript(() => localStorage.setItem('refresh_token', 'saved-refresh'));
   let expired = false, refreshes = 0;
   const rejected: string[] = [];
-  await page.route('**/api/auth/refresh', route => {
+  await page.route('**/api/auth/refresh', async route => {
     refreshes++;
-    return route.fulfill({ json: { success: true, data: { access_token: 'e2e-admin' } } });
+    await signIn(page, 'e2e-admin');
+    return route.fulfill({ json: { success: true, data: {} } });
   });
-  await page.route('**/api/camera/**', route => {
-    if (expired && route.request().headers().authorization === 'Bearer viewer-admin') {
+  await page.route('**/api/camera/**', async route => {
+    if (expired && (await route.request().headerValue('cookie'))?.includes('rc_access=viewer-admin')) {
       rejected.push(new URL(route.request().url()).pathname);
       return route.fulfill({ status: 401, json: { detail: 'Expired' } });
     }
@@ -354,7 +355,7 @@ test('an expired sign-in is renewed and live view still starts', async ({ page }
   await expect(page.getByRole('region', { name: 'Camera', exact: true }).getByText('Connected', { exact: true })).toBeVisible();
   expired = true;
   await expect.poll(() => rejected.length, { timeout: 15_000 }).toBeGreaterThan(0);
-  await expect.poll(() => page.evaluate(() => localStorage.getItem('access_token'))).toBe('e2e-admin');
+  await expect.poll(async () => (await page.context().cookies()).find(c => c.name === 'rc_access')?.value).toBe('e2e-admin');
   await page.getByRole('button', { name: 'Start my live view', exact: true }).click();
   await expect(liveImage(page)).toBeVisible();
   await expect(page.getByText(/\(401\)|Failed to create streaming session/)).toHaveCount(0);

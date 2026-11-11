@@ -60,7 +60,7 @@ with tempfile.TemporaryDirectory(prefix='relocated-walkthrough-', dir=ROOT / 'te
     proc = packaged_app.launch(relocated, environment, PORT)
     try:
         packaged_app.wait_until_serving(proc, PORT, lambda: request('/health'))
-        token = request('/api/auth/login', dict(username='walkthrough', password=password))['data']['access_token']
+        token = packaged_app.sign_in(PORT, 'walkthrough', password)
         request('/api/auth/change-password', dict(current_password=password, new_password=secrets.token_urlsafe(24)), token)
         subprocess.run(['node', str(ROOT / 'frontend/e2e/packaged-walkthrough.cjs')], cwd=ROOT / 'frontend', check=True,
                        env={**environment, 'WALKTHROUGH_TOKEN': token, 'WALKTHROUGH_EVIDENCE': str(evidence)})

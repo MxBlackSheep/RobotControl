@@ -295,26 +295,38 @@ app.state.log_root = Path(logging_handlers.application.baseFilename).parent
 app.state.log_reader_cache = data_paths.temp_path / "log-readers"
 app.state.shutdown_complete = threading.Event()
 
-# Configure CORS for frontend access
+# Configure CORS for frontend access: the packaged app and the Vite dev server only.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:8005",  # Unified development and production
-        "http://127.0.0.1:8005",  # Unified development and production (127.0.0.1)
-        # Legacy frontend ports for compatibility during transition
-        "http://localhost:3005",  # Force Port Strategy - Frontend  
-        "http://localhost:3000",  # React dev server (legacy)
-        "http://localhost:3001",  # React dev server alt
-        "http://localhost:5173",  # Vite dev server
-        "http://127.0.0.1:3005",  # Force Port Strategy - Frontend (127.0.0.1)
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:3001", 
-        "http://127.0.0.1:5173"
+        "http://localhost:8005",
+        "http://127.0.0.1:8005",
+        "http://localhost:3005",
+        "http://127.0.0.1:3005",
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+async def require_request_header(request: Request, call_next):
+    """Refuse a cookie-signed change that another site could send (CSRF).
+
+    Another site cannot add a custom header without CORS approval. A program that sends a
+    Bearer token is not relying on a cookie, so it needs no header.
+    """
+    if (
+        request.method in {"POST", "PUT", "PATCH", "DELETE"}
+        and request.url.path.startswith("/api/")
+        and not request.headers.get("authorization", "").lower().startswith("bearer ")
+        and request.headers.get("x-requested-with") != "RobotControl"
+    ):
+        return JSONResponse(status_code=403, content={"detail": "Missing request header"})
+    return await call_next(request)
+
+
+app.middleware("http")(require_request_header)
 
 # Include API routers
 app.include_router(auth_router)

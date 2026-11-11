@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { signIn } from './sign-in';
 
 /** Failure cases for Scheduling and archives:
  * - On a phone, a selected schedule's actions appear with it, not below the whole list;
@@ -30,7 +31,7 @@ const schedules = Array.from({ length: 24 }, (_, index) => ({
 
 async function operations(page: Page, local = true) {
   const writes: string[] = [];
-  await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));
+  await signIn(page);
   await page.route('**/api/auth/me', route => route.fulfill({ json: { success: true, data: {
     user_id: 'viewer-admin', username: 'operator', role: 'admin', session_is_local: local, session: { is_local: local },
   } } }));

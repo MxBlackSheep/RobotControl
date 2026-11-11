@@ -28,7 +28,7 @@ This guide walks through the authentication stack so you always know **which fil
 
 - Frontend helpers  
   - `frontend/src/services/api.ts` (`authAPI.*`) – wraps REST calls.  
-  - `frontend/src/context/AuthContext.tsx` – stores tokens, exposes `login`, `register`, `logout`, etc. All UI logins go through here.
+  - `frontend/src/context/AuthContext.tsx` – holds the signed-in user (never a token), exposes `login`, `register`, `logout`, etc. All UI logins go through here.
 
 **Rule of thumb:** Never query the SQLite file directly. Always go through `AuthService` and `AuthDatabase` helpers so password hashing, refresh-token cleanup, and logging stay consistent.
 
@@ -37,20 +37,23 @@ This guide walks through the authentication stack so you always know **which fil
 ## 2. Authentication Lifecycle Cheat Sheet
 
 1. **User submits credentials** (`POST /api/auth/login`).  
-   `AuthService.login` verifies the password through `verify_password` using `bcrypt.checkpw`, logs IP/user agent, and returns access + refresh tokens.
+   `AuthService.login` verifies the password through `verify_password` using `bcrypt.checkpw`, logs IP/user agent, and returns access + refresh tokens. The route puts them into cookies (`signed_in_reply` in `backend/api/auth.py`) and removes them from the body; register does the same.
    **Built-in default password.** `BUILT_IN_ADMIN_PASSWORD` (`backend/services/auth.py`) is public in the repository. A sign-in with it that is not local (tunnel, LAN; rule in `get_connection_context`, see the [remote access guide](remote-access-guide.md)) answers 403 "Change the default password on the robot PC before signing in remotely." and issues no tokens. The route checks this at sign-in (`AuthService.has_built_in_password`: the submitted password equals the built-in one *and* verifies against the account's hash), so nothing is stored and the rule ends as soon as the password changes. It applies to any account carrying that password, is checked only after the throttle, is not counted as a failed attempt, and never runs for a wrong password, which keeps the generic 401 (no hint whether the default is in use). A local sign-in with it succeeds with `user.must_reset: true` in the response, so the app opens the required change-password dialog. A deployment that set its own `ROBOTCONTROL_ADMIN_PASSWORD` is not affected. Check: `backend/e2e/auth_storage_check.py`.
 
-2. **Tokens hit the browser.**  
-   `AuthContext.login` stores `access_token` and `refresh_token` in `localStorage` so other requests can attach them.
+2. **Tokens hit the browser as cookies.**  
+   `set_sign_in_cookies` (`backend/services/auth.py`) sets `rc_access` (Path `/api`, Max-Age = access lifetime) and `rc_refresh` (Path `/api/auth`, Max-Age = refresh lifetime), both `HttpOnly; SameSite=Strict`, no Domain. `Secure` is added only when the request came over HTTPS (`x-forwarded-proto: https` from the tunnel); the lab PC opens plain `http://localhost:8005`, where a Secure cookie would not be kept. Page scripts never see a token.
 
-3. **Every API call** runs through `api.interceptors.request` (Axios).  
-   It injects `Authorization: Bearer <access_token>` unless maintenance mode blocks the request.
+3. **Every API call** carries the sign-in.
+   `request_token` (`backend/services/auth.py`, the one owner) takes a `Authorization: Bearer` header when present (programs such as the checks in `backend/e2e`), else the `rc_access` cookie, else 401. Programs sign in like the page: they post login with `X-Requested-With: RobotControl` and take the token from the `rc_access` Set-Cookie (`packaged_app.sign_in`). **Request-header rule** (`require_request_header` in `backend/main.py`): a POST, PUT, PATCH or DELETE to `/api/` without a Bearer header must carry `X-Requested-With: RobotControl`, else 403 `{"detail": "Missing request header"}`. Another site cannot add that header without CORS approval, and CORS allows only `http://localhost:8005`, `http://127.0.0.1:8005` and the Vite ports `3005`.
 
 4. **Access token expires?**  
-   `api.interceptors.response` detects a 401, calls `/api/auth/refresh`, and—if valid—replays the original request with the new access token.
+   The frontend gets a 401 and posts `/api/auth/refresh` with no body. The route reads `rc_refresh` and sets a new `rc_access`; the reply is `{success, data: {}}`. A rejection (401) clears both cookies; a storage outage (503) keeps them.
 
 5. **Refresh token expires or is revoked?**  
-   Refresh fails, the interceptor clears both tokens, and the browser redirects to `/login`.
+   Refresh fails, the cookies are cleared, and the browser returns to `/login`.
+
+5a. **Sign out** (`POST /api/auth/logout`, no sign-in needed).
+   Revokes the refresh token from the cookie if present, clears both cookies and always answers 200. Other tabs of that browser are signed out on their next request.
 
 6. **Password reset request** (`POST /api/auth/password-reset/request`).  
    `AuthService.request_password_reset` logs the request in `password_reset_requests` (no email delivered automatically; admins review via `/api/admin/password-reset/*`).
@@ -89,14 +92,14 @@ This guide walks through the authentication stack so you always know **which fil
   - Registration UI (if enabled) calls `authAPI.register`.
 
 - **Session awareness**  
-  - `AuthContext` listens for `ACCESS_TOKEN_UPDATED_EVENT` so any tab stays synced when a token refresh succeeds.
-  - `useAuth()` gatekeeps protected pages (e.g., `MonitoringPage` needs `token` before it opens WebSockets).
+  - `AuthContext` asks `/api/auth/me` on every page load; the cookies themselves are invisible to page code.
+  - `useAuth()` gatekeeps protected pages (e.g., monitoring polls only while `user` is set).
 
 - **Admin console**  
   - `frontend/src/pages/AdminPage.tsx` hits `adminAPI.getUsers` and password-reset endpoints. They expect `AuthService.get_user_list()` shape.
 
 - **Standardised responses**  
-  - Every backend endpoint wraps data using `ResponseFormatter`. If you add new fields, return them inside `data` so the frontend’s `response.data.data || response.data` fallback still works.
+  - Every backend endpoint wraps data using `ResponseFormatter`. If you add new fields, return them inside `data`; `AuthContext` reads `response.data.data`.
 
 ---
 

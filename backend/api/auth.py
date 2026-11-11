@@ -13,7 +13,15 @@ import time
 from datetime import datetime
 
 # Import our simplified authentication service
-from backend.services.auth import AUTH_STORAGE_ERRORS, AuthService, get_auth_service, get_current_user
+from backend.services.auth import (
+    AUTH_STORAGE_ERRORS,
+    REFRESH_COOKIE,
+    AuthService,
+    clear_sign_in_cookies,
+    get_auth_service,
+    get_current_user,
+    set_sign_in_cookies,
+)
 
 # Import standardized response formatter
 from backend.api.response_formatter import (
@@ -98,8 +106,14 @@ class PasswordResetRequestBody(BaseModel):
     email: Optional[EmailStr] = None
     note: Optional[str] = Field(default=None, max_length=500)
 
-class RefreshTokenRequest(BaseModel):
-    refresh_token: str
+
+def signed_in_reply(result: Dict[str, Any], http_request: Request, **reply: Any):
+    """The tokens go into HttpOnly cookies; the body keeps only what the page shows."""
+    access_token, refresh_token = result.pop("access_token"), result.pop("refresh_token")
+    result.pop("token_type", None)
+    response = ResponseFormatter.success(data=result, **reply)
+    set_sign_in_cookies(response, http_request, access_token, refresh_token)
+    return response
 
 
 # Authentication Endpoints
@@ -119,7 +133,7 @@ async def login(
         auth_service: Authentication service
         
     Returns:
-        Access token, refresh token, and user information
+        The user and session; the tokens are set as cookies
     """
     throttled = not connection.is_local
 
@@ -176,7 +190,7 @@ async def login(
         request.username,
         connection.ip_classification,
     )
-    return ResponseFormatter.success(data=result)
+    return signed_in_reply(result, http_request)
 
 @router.post("/register")
 async def register(
@@ -196,14 +210,13 @@ async def register(
             "user_agent": http_request.headers.get("user-agent"),
         }
         result = auth_service.login(request.username, request.password, client_info=client_info)
-        if result:
-            result["session"] = {
-                "is_local": connection.is_local,
-                "ip_classification": connection.ip_classification,
-            }
-
-
-        return ResponseFormatter.success(data=result, status_code=201, message="Registration successful")
+        if not result:
+            return ResponseFormatter.success(data=result, status_code=201, message="Registration successful")
+        result["session"] = {
+            "is_local": connection.is_local,
+            "ip_classification": connection.ip_classification,
+        }
+        return signed_in_reply(result, http_request, status_code=201, message="Registration successful")
 
     except ValueError as exc:
         logger.warning(f"Registration failed for '{request.username}': {exc}")
@@ -294,39 +307,26 @@ async def change_password(
 
 @router.post("/refresh")
 async def refresh_token(
-    request: RefreshTokenRequest,
+    http_request: Request,
     auth_service: AuthService = Depends(get_auth_service)
 ):
-    """
-    Refresh access token using refresh token
-    
-    Args:
-        request: Refresh token request
-        auth_service: Authentication service
-        
-    Returns:
-        New access token
-    """
-    
+    """Set a new rc_access cookie from the rc_refresh cookie; a rejection clears both."""
     try:
-        new_access_token = auth_service.refresh_access_token(request.refresh_token)
-        
+        refresh = http_request.cookies.get(REFRESH_COOKIE)
+        new_access_token = auth_service.refresh_access_token(refresh) if refresh else None
+
         if not new_access_token:
             logger.warning("Failed token refresh attempt")
-            return ResponseFormatter.unauthorized(
+            response = ResponseFormatter.unauthorized(
                 message="Invalid or expired refresh token"
             )
-        
+            clear_sign_in_cookies(response, http_request)
+            return response
 
         logger.info("Token refreshed successfully")
-        return ResponseFormatter.success(
-            data={
-                "access_token": new_access_token,
-                "token_type": "bearer"
-            },
-
-        )
-
+        response = ResponseFormatter.success(data={})
+        set_sign_in_cookies(response, http_request, new_access_token)
+        return response
     except AUTH_STORAGE_ERRORS as e:
         logger.error(f"Sign-in storage unavailable during token refresh: {e}")
         return ResponseFormatter.service_unavailable(
@@ -335,13 +335,27 @@ async def refresh_token(
         )
 
 
+@router.post("/logout")
+async def logout(http_request: Request, auth_service: AuthService = Depends(get_auth_service)):
+    """End the sign-in on the server: revoke the refresh token and clear both cookies."""
+    refresh = http_request.cookies.get(REFRESH_COOKIE)
+    if refresh:
+        try:
+            auth_service.revoke_refresh_token(refresh)
+        except AUTH_STORAGE_ERRORS as exc:
+            logger.error("Sign-in storage unavailable during sign out; refresh token not revoked: %s", exc)
+    response = ResponseFormatter.success(data={})
+    clear_sign_in_cookies(response, http_request)
+    return response
+
+
 @router.get("/me")
 async def get_current_user_info(
     current_user: dict = Depends(get_current_user),
     connection: ConnectionContext = Depends(get_connection_context),
 ):
     return ResponseFormatter.success(data={
-        **{key: current_user[key] for key in ("user_id", "username", "role", "is_active")},
+        **{key: current_user[key] for key in ("user_id", "username", "role", "is_active", "must_reset")},
         "session": {"is_local": connection.is_local, "ip_classification": connection.ip_classification,
                     "client_ip": connection.client_ip},
     })

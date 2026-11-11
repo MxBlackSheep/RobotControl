@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { signIn as signInCookie } from './sign-in';
 
 // Phone Runs (a remote session below 600px): a read-only agenda and history.
 // - A held schedule drops out of the agenda (holding sets is_active false), so a hold looks like nothing to run.
@@ -17,7 +18,7 @@ const signIn = (page: Page, isLocal: boolean) => page.route('**/api/auth/me', ro
 
 test.beforeEach(async ({ page }) => {
   await page.clock.install({ time: now });
-  await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));
+  await signInCookie(page);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.route('**/api/scheduling/status/queue', route => route.fulfill({ json: { success: true, data: {
     is_running: true, queue: { queued_jobs: 0, running_job_details: [{ schedule_id: 'wash', experiment_name: 'Daily tip wash', estimated_duration: 60,

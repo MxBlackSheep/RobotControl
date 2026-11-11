@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { signIn } from './sign-in';
 
 // Phone navigation (below 900px): four fixed tabs, More, and the page heading.
 // - A role sees a tab or More entry it may not open (Runs, Tip racks, Cytomat for a viewer).
@@ -14,7 +15,7 @@ const signInAs = (page: Page, role: string) => page.route('**/api/auth/me', rout
   success: true, data: { user_id: 'viewer-admin', username: 'operator', role, session_is_local: false, session: { is_local: false } } } }));
 
 test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));
+  await signIn(page);
   await page.setViewportSize(phone);
 });
 

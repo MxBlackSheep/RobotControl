@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { signIn } from './sign-in';
 import path from 'node:path';
 
 /** Failure cases: Delivery Logs must show pending, sent, error and partially refused mail
@@ -7,7 +8,7 @@ import path from 'node:path';
 const evidence = process.env.ROBOTCONTROL_E2E_EVIDENCE || '../test-output/database-verification';
 
 async function login(page: any) {
-  await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));
+  await signIn(page);
   await page.route('**/api/auth/me', (route: any) => route.fulfill({ json: { success: true, data: { user_id: 'viewer-admin', username: 'Fixture', role: 'admin', session_is_local: true } } }));
   await page.route('**/api/database/tables?*', (route: any) => route.fulfill({ json: { success: true, data: { table_details: [] } } }));
 }

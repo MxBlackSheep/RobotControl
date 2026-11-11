@@ -1,4 +1,4 @@
-import { api } from './api';
+import { api, currentSignIn } from './api';
 import { requestErrorMessage } from './requestError';
 import { coalesceRead } from '../utils/coalesceRead';
 import {
@@ -209,7 +209,7 @@ export const schedulingAPI = {
   archiveSchedule: (scheduleId: string, archived: boolean, expectedUpdatedAt?: string) =>
     api.post<ScheduleResponse>(`/api/scheduling/${scheduleId}/archive`, { archived, expected_updated_at: expectedUpdatedAt }),
 
-  getQueueStatus: () => coalesceRead(`queue:${localStorage.getItem('access_token')}`, () => api.get<QueueStatusResponse>('/api/scheduling/status/queue')),
+  getQueueStatus: () => coalesceRead(`queue:${currentSignIn()}`, () => api.get<QueueStatusResponse>('/api/scheduling/status/queue')),
 
   getAvailableExperiments: () =>
     api.get('/api/scheduling/experiments/available'),

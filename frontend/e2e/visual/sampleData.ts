@@ -1,5 +1,6 @@
 import { Page } from '@playwright/test';
 import { routeDatabaseViewer } from '../database-fixture';
+import { signIn } from '../sign-in';
 
 /** Fixed sample data for screenshot reviews, so before/after images are comparable; the clock is frozen at 14:30. */
 export const now = new Date('2026-09-30T14:30:00');
@@ -29,7 +30,8 @@ export const archivedSchedules = () => [
 
 export async function sampleData(page: Page, mode: string, local: boolean) {
   await page.clock.install({ time: now });
-  await page.addInitScript(value => { localStorage.setItem('access_token', 'viewer-admin'); localStorage.setItem('robotcontrol-appearance', value); }, mode);
+  await signIn(page);
+  await page.addInitScript(value => localStorage.setItem('robotcontrol-appearance', value), mode);
   await page.route('**/api/auth/me', route => route.fulfill({ json: { success: true, data: { user_id: 'viewer-admin', username: 'operator', role: 'admin', session_is_local: local, session: { is_local: local } } } }));
   await routeDatabaseViewer(page);
   const manual = { active: true, storage_healthy: true, safety_revision: 4, resume_required: true,

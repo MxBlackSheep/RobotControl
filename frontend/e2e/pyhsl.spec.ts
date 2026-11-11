@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { signIn as signInCookie } from './sign-in';
 
 /** Failure cases for PyHSL schedules and the Run page, against faked replies:
  * Schedule form
@@ -35,7 +36,7 @@ const stub = `window.PyHSLMonitor = { mount(element, input) {
 } };`;
 
 async function signIn(page: Page) {
-  await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));
+  await signInCookie(page);
   await page.route('**/api/auth/me', route => route.fulfill({ json: { success: true, data: {
     user_id: 'operator', username: 'operator', role: 'admin', session_is_local: true, session: { is_local: true } } } }));
 }

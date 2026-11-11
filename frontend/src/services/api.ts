@@ -1,110 +1,57 @@
-import axios, { AxiosHeaders } from 'axios';
+import axios from 'axios';
 import { getApiBase } from '@/utils/apiBase';
 import { isMaintenanceActive } from '@/utils/MaintenanceManager';
 import { isAppResponse, isSignInRejected, recordRequestFailure, recordRequestSuccess } from './requestError';
 
-// Derive API base dynamically so phone/tablet clients proxy to the correct backend
-const API_BASE_URL = getApiBase();
-
 /** The `data` of a RobotControl reply `{ success, message, data }`, or the body itself. */
 export const unwrapData = <T>(response: any): T => (response?.data?.data ?? response?.data) as T;
 
-export const ACCESS_TOKEN_UPDATED_EVENT = 'robotcontrol:access-token-updated';
-
-export const api = axios.create({
-  baseURL: API_BASE_URL || undefined,
-  headers: {
-    'Content-Type': 'application/json',
-  },
+// The sign-in travels in HttpOnly cookies the page cannot read. The header marks requests as
+// the page's own: the server refuses a cookie-signed change without it (another site cannot send it).
+const clientOptions = {
+  // Derive API base dynamically so phone/tablet clients proxy to the correct backend
+  baseURL: getApiBase() || undefined,
+  headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'RobotControl' },
   timeout: 10000, // 10 second timeout for API calls
-});
-
-const refreshClient = axios.create({
-  baseURL: API_BASE_URL || undefined,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-  timeout: 10000,
-});
-
-let refreshPromise: Promise<string | null> | null = null;
-
-const dispatchTokenUpdate = (accessToken: string, refreshToken?: string | null) => {
-  if (typeof window === 'undefined') {
-    return;
-  }
-  window.dispatchEvent(
-    new CustomEvent(ACCESS_TOKEN_UPDATED_EVENT, {
-      detail: {
-        accessToken,
-        refreshToken: refreshToken ?? null,
-      },
-    }),
-  );
 };
 
-// Exported for streamed downloads that must use fetch; everything else uses `api`.
-export const attemptTokenRefresh = async (): Promise<string | null> => {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-  const storedRefreshToken = localStorage.getItem('refresh_token');
-  if (!storedRefreshToken) {
-    return null;
-  }
-  if (!refreshPromise) {
-    refreshPromise = refreshClient
-      .post('/api/auth/refresh', { refresh_token: storedRefreshToken })
-      .then((response) => {
-        if (localStorage.getItem('refresh_token') !== storedRefreshToken) {
-          throw new axios.CanceledError('Sign-in changed while refreshing');
-        }
-        const newToken =
-          response.data?.data?.access_token ??
-          response.data?.access_token ??
-          null;
-        if (newToken) {
-          localStorage.setItem('access_token', newToken);
-          dispatchTokenUpdate(newToken, storedRefreshToken);
-        }
-        return newToken;
-      })
-      .catch((err) => {
-        if (localStorage.getItem('refresh_token') !== storedRefreshToken) throw err;
-        // Only RobotControl can reject a sign-in; a tunnel's 403 challenge page cannot.
-        if (isSignInRejected(err)) {
-          localStorage.removeItem('access_token');
-          localStorage.removeItem('refresh_token');
-          return null;
-        }
-        // Propagate the outage, not the original 401: a retry may still refresh.
-        throw err;
-      })
-      .finally(() => {
-        refreshPromise = null;
-      });
-  }
+export const api = axios.create(clientOptions);
+const refreshClient = axios.create(clientOptions);
+
+let refreshPromise: Promise<boolean> | null = null;
+
+/** Renews the access cookie once for all callers: true when renewed, false when RobotControl
+ * rejected the sign-in; an outage rejects, so nobody is signed out by it. Exported for streamed
+ * downloads that must use fetch; everything else uses `api`. */
+export const attemptTokenRefresh = (): Promise<boolean> => {
+  refreshPromise ??= refreshClient
+    .post('/api/auth/refresh')
+    .then(() => true, (err) => {
+      // Only RobotControl can reject a sign-in; a tunnel's 403 challenge page cannot.
+      if (isSignInRejected(err)) return false;
+      // Propagate the outage, not the original 401: a retry may still refresh.
+      throw err;
+    })
+    .finally(() => {
+      refreshPromise = null;
+    });
   return refreshPromise;
 };
 
-// Add auth token to requests and respect maintenance windows
+/** Settles once no refresh is in flight, so a late refresh cannot set the cookie after Sign out. */
+export const refreshSettled = (): Promise<unknown> => (refreshPromise ?? Promise.resolve()).catch(() => undefined);
+
+let signInRevision = 0;
+/** Changes on every sign-in and sign-out, so a read cached for one person is never served to the next. */
+export const currentSignIn = () => signInRevision;
+export const signInChanged = () => { signInRevision += 1; };
+
+// Respect maintenance windows
 api.interceptors.request.use((config) => {
-  const headers = AxiosHeaders.from(config.headers || {});
-  config.headers = headers;
-
-  const maintenanceBypassHeader =
-    headers.get('X-Allow-Maintenance') ?? headers.get('x-allow-maintenance');
-  const bypassMaintenance = maintenanceBypassHeader === 'true';
-
+  const bypassMaintenance = config.headers.get('X-Allow-Maintenance') === 'true';
   if (!bypassMaintenance && isMaintenanceActive()) {
     return Promise.reject(new Error('Database maintenance in progress. Please wait a moment.'));
   }
-
-  const token = localStorage.getItem('access_token');
-  if (token) {
-    headers.set('Authorization', `Bearer ${token}`);
-  }
-
   return config;
 });
 
@@ -120,33 +67,17 @@ api.interceptors.response.use(
     // A 401 page from a proxy says nothing about the RobotControl sign-in.
     const status = error.response?.status === 401 && !isAppResponse(error) ? undefined : error.response?.status;
     const originalRequest = error.config as Record<string, any> | undefined;
-    const requestUrl = originalRequest?.url ?? '';
+    const requestUrl: string = originalRequest?.url ?? '';
+    const isAuthEndpoint = /\/api\/auth\/(login|register|refresh)/i.test(requestUrl);
 
-    const isAuthEndpoint = (url?: string) =>
-      !!url &&
-      (/\/api\/auth\/login/i.test(url) ||
-        /\/api\/auth\/register/i.test(url) ||
-        /\/api\/auth\/refresh/i.test(url));
-
-    if (status === 401 && originalRequest && !originalRequest._retry && !isAuthEndpoint(requestUrl)) {
+    if (status === 401 && originalRequest && !originalRequest._retry && !isAuthEndpoint) {
       originalRequest._retry = true;
-      const refreshedToken = await attemptTokenRefresh();
-      if (refreshedToken) {
-        const headers = AxiosHeaders.from(originalRequest.headers || {});
-        headers.set('Authorization', `Bearer ${refreshedToken}`);
-        originalRequest.headers = headers;
-        return api(originalRequest);
-      }
+      if (await attemptTokenRefresh()) return api(originalRequest);
     }
 
-    if (status === 401) {
-      if (typeof window !== 'undefined') {
-        window.localStorage.removeItem('access_token');
-        window.localStorage.removeItem('refresh_token');
-        if (!isAuthEndpoint(requestUrl)) {
-          window.location.href = '/login';
-        }
-      }
+    // The signed-in check (/me) shows the sign-in page itself; redirecting it would reload forever.
+    if (status === 401 && !isAuthEndpoint && !/\/api\/auth\/me/i.test(requestUrl)) {
+      window.location.href = '/login';
     }
 
     // A 503 is not a database restart: scheduler and storage use it for their own outages.
@@ -174,6 +105,8 @@ export const authAPI = {
     api.post('/api/auth/password-reset/request', payload),
 
   me: () => api.get('/api/auth/me', { headers: { 'X-Allow-Maintenance': 'true' } }),
+
+  logout: () => api.post('/api/auth/logout'),
 
   changePassword: (currentPassword: string, newPassword: string) =>
     api.post('/api/auth/change-password', {

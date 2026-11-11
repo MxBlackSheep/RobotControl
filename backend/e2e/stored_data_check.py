@@ -37,6 +37,7 @@ the whole list.
 from contextlib import closing, contextmanager
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 import sqlite3
@@ -46,6 +47,10 @@ from unittest.mock import patch
 from backend.services.sqlite_health import SQLiteHealthService
 from backend.services.sqlite_safety import StorageUnavailable, configure_connection
 from backend.services.stored_data import UpgradeStopped, upgrade_json, upgrade_sqlite
+
+# Sign-in keys from the environment, so no key file is written to the real data folder.
+os.environ.setdefault('ROBOTCONTROL_ACCESS_TOKEN_SECRET', 'check-access-key-' + 'a' * 48)
+os.environ.setdefault('ROBOTCONTROL_REFRESH_TOKEN_SECRET', 'check-refresh-key-' + 'b' * 48)
 
 
 def digest(path):
@@ -690,8 +695,9 @@ def user_review_checks(root):
             service.register_user(name, f'{name}@example.test', 'first-password')
         admin = sign_in(module.DEFAULT_ADMIN_USERNAME, module.DEFAULT_ADMIN_PASSWORD)
         assert admin.status_code == 200, admin.text
-        bearer = {'Authorization': f"Bearer {admin.json()['data']['access_token']}"}
-        tokens = sign_in('broken', 'first-password').json()['data']
+        bearer = {'Authorization': f"Bearer {admin.cookies['rc_access']}"}
+        tokens = sign_in('broken', 'first-password').cookies
+        client.cookies.clear()
         with service.db._get_connection() as conn:
             conn.execute("UPDATE users SET password_hash='' WHERE username='broken'")
             conn.commit()
@@ -703,8 +709,9 @@ def user_review_checks(root):
         users = listed()
         assert users['broken'] == "The user's saved password cannot be checked" and users['other'] is None and users['admin'] is None, users
         assert sign_in('broken', 'first-password').status_code == 401
-        assert client.get('/api/auth/me', headers={'Authorization': f"Bearer {tokens['access_token']}"}).status_code == 401
-        assert client.post('/api/auth/refresh', json={'refresh_token': tokens['refresh_token']}).status_code == 401
+        assert client.get('/api/auth/me', headers={'Authorization': f"Bearer {tokens['rc_access']}"}).status_code == 401
+        client.cookies.clear()
+        assert client.post('/api/auth/refresh', headers={'Cookie': f"rc_refresh={tokens['rc_refresh']}"}).status_code == 401
         assert sign_in('other', 'first-password').status_code == 200
         reply = client.post('/api/auth/password-reset/request', json={'username': 'broken', 'note': 'locked out'})
         assert reply.status_code == 202 and reply.json()['data'].get('request_id'), reply.text

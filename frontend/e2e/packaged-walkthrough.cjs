@@ -26,7 +26,7 @@ const pages = [
 (async () => {
   const browser = await chromium.launch({ channel: 'msedge' });
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
-  await context.addInitScript(token => localStorage.setItem('access_token', token), process.env.WALKTHROUGH_TOKEN);
+  await context.addCookies([{ name: 'rc_access', value: process.env.WALKTHROUGH_TOKEN, domain: '127.0.0.1', path: '/api', httpOnly: true, sameSite: 'Strict' }]);
   const page = await context.newPage();
   const visits = [];
   let current = null;

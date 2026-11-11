@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { signIn } from './sign-in';
 
 /** Failure cases for table paging and the SQL reader:
  * - First, Last and page jump never produce an invalid page, including for empty tables
@@ -8,7 +9,7 @@ import { expect, test } from '@playwright/test';
  *   reader state, and stay reachable on a phone.
  */
 test.beforeEach(async ({page}) => {
-  await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));
+  await signIn(page);
   await page.route('**/api/database/tables?*', route => route.fulfill({json:{success:true,data:{table_details:[{name:'PageSamples'}]}}}));
   await page.route('**/api/database/tables/PageSamples?*', route => {
     const params = new URL(route.request().url()).searchParams;
