@@ -14,6 +14,8 @@ import { test, expect } from '@playwright/test';
  * local default-password sign-in (must_reset) does not open the required password change; the
  * page's delayed Username focus takes focus from Password chosen right after the page opens
  * (typing lands in Username; seen as a flaky run).
+ * A Sign out that fails is not sent again on the next load before /me (the reload signs the person
+ * back in); a 401 for a request sent before Sign out starts a refresh that sets the cookie again.
  * Backend side (cookies, the header rule, logout, must_reset on /me): backend/e2e/auth_storage_check.py.
  * Synthetic HTTP fixtures exercise the real app and Axios interceptors; the faked routes stand
  * for the server, so the cookies themselves are checked there.
@@ -210,4 +212,64 @@ test('Sign out during the restore pause still ends the sign-in on the server', a
   await page.getByRole('menuitem', { name: 'Log out' }).click();
   await expect(page.getByLabel('Username', { exact: true })).toBeVisible();
   await expect.poll(() => signOuts).toEqual(['POST']);
+});
+
+test('a Sign out that does not reach the server is sent again on the next load, before /me', async ({ page }) => {
+  let signedIn = true;
+  let logoutAnswers = 0;
+  const events: string[] = [];
+  await page.route('**/api/auth/me', route => {
+    events.push('me');
+    return signedIn
+      ? route.fulfill({ json: { success: true, data: { user_id: 'fixture', username: 'Fixture', role: 'admin' } } })
+      : route.fulfill({ status: 401, json: { detail: 'Invalid authentication credentials' } });
+  });
+  await page.route('**/api/auth/logout', route => {
+    logoutAnswers += 1;
+    if (logoutAnswers === 1) {
+      events.push('logout failed');
+      return route.abort('connectionrefused');
+    }
+    events.push('logout');
+    signedIn = false;
+    return route.fulfill({ json: { success: true, data: {} } });
+  });
+  await page.goto('/system-status');
+  await page.getByRole('button', { name: 'Account menu' }).click();
+  await page.getByRole('menuitem', { name: 'Log out' }).click();
+  await expect(page.getByLabel('Username', { exact: true })).toBeVisible();
+  await expect.poll(() => events.at(-1)).toBe('logout failed');
+  events.length = 0;
+  await page.reload();
+  await expect(page.getByLabel('Username', { exact: true })).toBeVisible();
+  expect(events.slice(0, 2)).toEqual(['logout', 'me']);
+  await expect(page.getByRole('button', { name: 'Account menu' })).toHaveCount(0);
+  // Sent once: the flag is cleared after the server ended the sign-in.
+  events.length = 0;
+  await page.reload();
+  await expect(page.getByLabel('Username', { exact: true })).toBeVisible();
+  expect(events).not.toContain('logout');
+});
+
+test('a request answered 401 after Sign out does not start a refresh', async ({ page }) => {
+  await page.route('**/api/auth/me', route => route.fulfill({ json: { success: true, data: { user_id: 'fixture', username: 'Fixture', role: 'admin' } } }));
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  let listing = false;
+  await page.route('**/api/admin/backup/list', async route => {
+    listing = true;
+    await pending;
+    await route.fulfill({ status: 401, json: { detail: 'Invalid authentication credentials' } });
+  });
+  const refreshes: string[] = [];
+  page.on('request', request => { if (request.url().includes('/api/auth/refresh')) refreshes.push(request.url()); });
+  await page.route('**/api/auth/logout', route => route.fulfill({ json: { success: true, data: {} } }));
+  await page.goto('/database?section=restore');
+  await expect.poll(() => listing).toBe(true);
+  await page.getByRole('button', { name: 'Account menu' }).click();
+  await page.getByRole('menuitem', { name: 'Log out' }).click();
+  await expect(page.getByLabel('Username', { exact: true })).toBeVisible();
+  release();
+  await page.waitForTimeout(500);
+  expect(refreshes).toEqual([]);
 });

@@ -39,12 +39,18 @@ REST endpoints directly, or the request header and refresh fall out of step.
 3. The recording download (`hooks/useRecordingDownload.ts`) uses `fetch`; the cookie goes
    with it, and a 401 calls `attemptTokenRefresh` once.
 4. `logout` clears `user` at once. After any refresh in flight has settled it posts
-   `/api/auth/logout`, which revokes the refresh token and clears both cookies, so a late
-   refresh reply cannot sign the browser in again. A sign-in right after waits for that post.
-   Sign out in one tab signs out the others on their next request.
+   `/api/auth/logout` (also during the restore pause), which revokes the refresh token and
+   clears both cookies, so that refresh's reply cannot sign the browser in again. A sign-in right
+   after waits for that post. Until the server answers, localStorage holds the flag
+   `robotcontrol-sign-out-pending` (never a token); while it is set, a page load posts logout
+   again before `/me`, and stays signed out without asking `/me` if that post fails too. Sign out
+   in one tab signs out the others on their next request.
 
-`signInChanged` / `currentSignIn` (`services/api.ts`) change on every sign-in and sign-out;
-cached reads key on them so one person's read is never served to the next. At start the app
+`signInChanged` / `currentSignIn` (`services/api.ts`) change on every sign-in and sign-out. Each
+request is stamped with the value it was sent under: a 401 for a request sent before Sign out
+starts no refresh and no redirect, so it cannot set the cookie again. Limit: another tab that
+refreshes at that moment can still set it. Cached reads key on the same value so one person's
+read is never served to the next. At start the app
 removes the `access_token` and `refresh_token` that older builds kept in localStorage.
 
 On page load, `/api/auth/me` verifies the sign-in before App renders protected

@@ -55,6 +55,11 @@ const normalizeUser = (rawUser: any, session: any = rawUser.session ?? {}): User
   session_client_ip: session.client_ip ?? null,
 });
 
+// Set from Sign out until the server has ended the sign-in (a flag, never a token). While it is
+// set, a page load sends Sign out again before /me, so a sign-out that never reached the server
+// cannot sign the person back in on reload.
+const SIGN_OUT_PENDING = 'robotcontrol-sign-out-pending';
+
 /**
  * The signed-in user. The sign-in itself lives in HttpOnly cookies that this code never sees,
  * so a page load asks /api/auth/me: 401 means signed out, an outage retries every 5 s.
@@ -75,6 +80,17 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const isCurrent = () => !cancelled && revision === authRevision.current;
     const checkAuth = async () => {
       if (!isCurrent()) return;
+      if (localStorage.getItem(SIGN_OUT_PENDING)) {
+        try {
+          await authAPI.logout();
+          localStorage.removeItem(SIGN_OUT_PENDING);
+        } catch {
+          // Stay signed out without asking /me; the next load tries again.
+          if (!isCurrent()) return;
+          setLoading(false);
+          return;
+        }
+      }
       try {
         const response = await authAPI.me();
         if (!isCurrent()) return;
@@ -105,6 +121,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     await signingOut.current;
     // Errors propagate unchanged: the page must tell a wrong password from an unreachable server.
     const { user: userData, session } = (await request()).data.data;
+    localStorage.removeItem(SIGN_OUT_PENDING);
     signInChanged();
     setUser(normalizeUser(userData, session));
     setLoading(false);
@@ -136,7 +153,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     authRevision.current += 1;
     // The server ends the sign-in after any refresh in flight, so a late refresh reply cannot
     // set the cookie again. The page signs out at once and does not wait for the reply.
-    signingOut.current = refreshSettled().then(() => authAPI.logout()).catch(() => undefined);
+    localStorage.setItem(SIGN_OUT_PENDING, '1');
+    signingOut.current = refreshSettled()
+      .then(() => authAPI.logout())
+      .then(() => localStorage.removeItem(SIGN_OUT_PENDING), () => undefined);
     signInChanged();
     setLoading(false);
     setUser(null);

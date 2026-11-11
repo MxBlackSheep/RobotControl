@@ -10,7 +10,7 @@ import logging
 import time
 
 from backend.api.dependencies import ConnectionContext, get_connection_context
-from backend.services.auth import get_current_admin_user, get_auth_service
+from backend.services.auth import NO_LONGER_ADMIN, get_current_admin_for_account_change, get_current_admin_user, get_auth_service
 from backend.utils.audit import log_action
 
 # Import standardized response formatter
@@ -26,10 +26,6 @@ class UpdateUserEmailRequest(BaseModel):
 
 class SetUserRoleRequest(BaseModel):
     role: Literal["user", "admin"]
-
-
-# Another admin removed the caller's admin role after this request passed the admin check.
-NO_LONGER_ADMIN = "You are no longer an admin. Reload the page"
 
 
 class ResetPasswordRequest(BaseModel):
@@ -178,7 +174,7 @@ async def update_user_email(
 async def set_user_role(
     username: str,
     request: SetUserRoleRequest,
-    current_user: dict = Depends(get_current_admin_user),
+    current_user: dict = Depends(get_current_admin_for_account_change),
     connection: ConnectionContext = Depends(get_connection_context),
 ):
     """Switch another account between user and admin; it applies on that account's next request."""
@@ -201,7 +197,7 @@ async def set_user_role(
 @router.delete("/users/{username}")
 async def delete_user(
     username: str,
-    current_user: dict = Depends(get_current_admin_user),
+    current_user: dict = Depends(get_current_admin_for_account_change),
 ):
     """Delete a user account."""
 

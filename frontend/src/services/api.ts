@@ -6,6 +6,13 @@ import { isAppResponse, isSignInRejected, recordRequestFailure, recordRequestSuc
 /** The `data` of a RobotControl reply `{ success, message, data }`, or the body itself. */
 export const unwrapData = <T>(response: any): T => (response?.data?.data ?? response?.data) as T;
 
+declare module 'axios' {
+  interface AxiosRequestConfig {
+    /** The sign-in the request was sent under (`currentSignIn`). */
+    signInRevision?: number;
+  }
+}
+
 // The sign-in travels in HttpOnly cookies the page cannot read. The header marks requests as
 // the page's own: the server refuses a cookie-signed change without it (another site cannot send it).
 const clientOptions = {
@@ -42,12 +49,14 @@ export const attemptTokenRefresh = (): Promise<boolean> => {
 export const refreshSettled = (): Promise<unknown> => (refreshPromise ?? Promise.resolve()).catch(() => undefined);
 
 let signInRevision = 0;
-/** Changes on every sign-in and sign-out, so a read cached for one person is never served to the next. */
+/** Changes on every sign-in and sign-out, so a read cached for one person is never served to the next,
+ * and a 401 for a request sent before Sign out starts no refresh that would set the cookie again. */
 export const currentSignIn = () => signInRevision;
 export const signInChanged = () => { signInRevision += 1; };
 
 // Respect maintenance windows
 api.interceptors.request.use((config) => {
+  config.signInRevision = signInRevision;
   const bypassMaintenance = config.headers.get('X-Allow-Maintenance') === 'true';
   if (!bypassMaintenance && isMaintenanceActive()) {
     return Promise.reject(new Error('Database maintenance in progress. Please wait a moment.'));
@@ -69,14 +78,17 @@ api.interceptors.response.use(
     const originalRequest = error.config as Record<string, any> | undefined;
     const requestUrl: string = originalRequest?.url ?? '';
     const isAuthEndpoint = /\/api\/auth\/(login|register|refresh)/i.test(requestUrl);
+    // A request sent before Sign out (or another sign-in) belongs to that old sign-in: a refresh
+    // for it would set the cookie again, and a redirect would interrupt the page as it is now.
+    const sameSignIn = originalRequest?.signInRevision === signInRevision;
 
-    if (status === 401 && originalRequest && !originalRequest._retry && !isAuthEndpoint) {
+    if (status === 401 && sameSignIn && originalRequest && !originalRequest._retry && !isAuthEndpoint) {
       originalRequest._retry = true;
       if (await attemptTokenRefresh()) return api(originalRequest);
     }
 
     // The signed-in check (/me) shows the sign-in page itself; redirecting it would reload forever.
-    if (status === 401 && !isAuthEndpoint && !/\/api\/auth\/me/i.test(requestUrl)) {
+    if (status === 401 && sameSignIn && !isAuthEndpoint && !/\/api\/auth\/me/i.test(requestUrl)) {
       window.location.href = '/login';
     }
 

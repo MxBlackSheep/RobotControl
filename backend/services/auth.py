@@ -48,24 +48,27 @@ _token_secrets: Optional[Tuple[str, str]] = None
 
 def _key_file() -> Tuple[str, str]:
     path = get_path_manager().config_path / "token-secrets.json"
-    if not path.exists():
-        path.parent.mkdir(parents=True, exist_ok=True)
-        # Written beside it, then renamed: a crash leaves no half-written file to stop the next
-        # start, and on Windows the rename refuses an existing file, so keys are never replaced.
-        temp = path.with_suffix(".tmp")
-        try:
-            with open(temp, "w", encoding="utf-8") as file:
-                json.dump({"access": secrets.token_urlsafe(48), "refresh": secrets.token_urlsafe(48)}, file)
-            temp.rename(path)
-        finally:
-            temp.unlink(missing_ok=True)
-        logger.info("Created sign-in keys in %s", path)
     try:
+        if not path.exists():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            # Written beside it, flushed to disk, then renamed: a crash leaves no half-written file
+            # to stop the next start, and on Windows the rename refuses an existing file, so keys
+            # are never replaced.
+            temp = path.with_suffix(".tmp")
+            try:
+                with open(temp, "w", encoding="utf-8") as file:
+                    json.dump({"access": secrets.token_urlsafe(48), "refresh": secrets.token_urlsafe(48)}, file)
+                    file.flush()
+                    os.fsync(file.fileno())
+                temp.rename(path)
+            finally:
+                temp.unlink(missing_ok=True)
+            logger.info("Created sign-in keys in %s", path)
         keys = json.loads(path.read_text(encoding="utf-8"))
         return str(keys["access"]), str(keys["refresh"])
     except (OSError, ValueError, KeyError, TypeError) as exc:
-        logger.critical("Sign-in keys in %s cannot be read (%s); fix or delete the file, then start again", path, exc)
-        raise RuntimeError(f"Sign-in keys in {path} cannot be read") from exc
+        logger.critical("Sign-in keys in %s cannot be read or created (%s); fix or delete the file, then start again", path, exc)
+        raise RuntimeError(f"Sign-in keys in {path} cannot be read or created") from exc
 
 
 def token_secrets() -> Tuple[str, str]:
@@ -616,14 +619,26 @@ def get_current_user(token: str = Depends(request_token)) -> Dict[str, Any]:
     return user.to_dict()
 
 
-def get_current_admin_user(
-    current_user: Dict[str, Any] = Depends(get_current_user),
-) -> Dict[str, Any]:
+def _require_admin(current_user: Dict[str, Any], refusal: str) -> Dict[str, Any]:
     service = get_auth_service()
     user = service.get_user_by_id(current_user["user_id"])
     if not user or not service.is_admin(user):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required",
-        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=refusal)
     return current_user
+
+
+def get_current_admin_user(
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    return _require_admin(current_user, "Admin access required")
+
+
+# Role change and delete: the person most likely refused here is an admin whom another admin
+# demoted while their Users page stayed open, so the refusal tells them why.
+NO_LONGER_ADMIN = "You are no longer an admin. Reload the page"
+
+
+def get_current_admin_for_account_change(
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    return _require_admin(current_user, NO_LONGER_ADMIN)

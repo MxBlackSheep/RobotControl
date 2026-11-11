@@ -29,10 +29,12 @@ the RobotControl PC's folders; a local user or a remote admin (who may restore) 
 Role change and delete (PUT /api/admin/users/{name}/role, DELETE /api/admin/users/{name}): a plain
 user changes a role; an admin changes their own role or deletes their own account; an unknown
 user is not 404; a promoted user's existing sign-in must sign in again before admin routes work,
-or a demoted admin's still passes them; two admins acting at the same instant (a demotion and a
-role change or delete of the other) leave no admin who can sign in, because the second change
-is saved although its maker lost the role (must be 403 "You are no longer an admin. Reload the
-page"); a change or refusal is missing from the audit log.
+or a demoted admin's still passes them; a caller who is not an admin (a plain user, or an
+admin demoted earlier whose page stayed open) changes a role or deletes, or is told anything
+but 403 "You are no longer an admin. Reload the page" on these two routes while other admin
+routes keep "Admin access required"; a change or refusal is missing from the audit log.
+Not reached here: two admins acting at the same instant, both past the admin check. The UPDATE
+and DELETE in AuthDatabase then refuse the second change in SQL (maker still an active admin).
 
 Signing keys: a token signed with the old published key is accepted; the key file is missing
 after first start, holds a published text, or is regenerated on restart (signing everyone out);
@@ -204,7 +206,7 @@ def run():
             with patch.object(auth_module.json, 'dump', crash):
                 try:
                     auth_module.token_secrets()
-                except OSError:
+                except RuntimeError:  # the critical log line names the file
                     pass
             left = sorted(p.name for p in crash_folder.iterdir()) if crash_folder.exists() else []
             auth_module._token_secrets = None
@@ -379,7 +381,7 @@ def run():
                 return response.status_code == status and message in (body.get('detail'), (body.get('error') or {}).get('message'))
 
             response = as_user(plain, 'PUT', '/api/admin/users/second/role', {'role': 'admin'})
-            check('a plain user cannot change a role (403)', refused(response, 403, 'Admin access required')
+            check('a plain user cannot change a role (403 with the lost-role text)', refused(response, 403, 'You are no longer an admin. Reload the page')
                   and role_of('second') == 'user', response.text)
             response = as_user(admin, 'PUT', f'/api/admin/users/{DEFAULT_ADMIN_USERNAME}/role', {'role': 'user'})
             check('an admin cannot change their own role (400)', refused(response, 400, 'Cannot change your own role')
@@ -401,27 +403,24 @@ def run():
             response = as_user(plain, 'GET', '/api/admin/users')
             check("the demoted admin's existing sign-in is refused an admin route at once", response.status_code == 403, response.text)
 
-            # Two admins at the same instant: each passed the admin check before the other's change was saved.
+            # An admin demoted by another admin while their page stayed open: the next change says why.
             lost = 'You are no longer an admin. Reload the page'
-            lookup = service.get_user_by_username
-
-            def demoted_meanwhile(username):
-                service.set_user_role('second', 'user', int(tokens['user']['user_id']))  # the first admin's change lands now
-                return lookup(username)
-
             for name, method, path, body in [
                 ('a role change', 'PUT', f'/api/admin/users/{DEFAULT_ADMIN_USERNAME}/role', {'role': 'user'}),
                 ('a delete', 'DELETE', f'/api/admin/users/{DEFAULT_ADMIN_USERNAME}', None),
             ]:
-                service.set_user_role('second', 'admin', int(tokens['user']['user_id']))
-                service.get_user_by_username = demoted_meanwhile
-                try:
-                    response = as_user(second, method, path, body)
-                finally:
-                    service.get_user_by_username = lookup
-                check(f'{name} by an admin demoted meanwhile is refused (403 "{lost}") and the other admin stays',
-                      refused(response, 403, lost) and role_of(DEFAULT_ADMIN_USERNAME) == 'admin' and role_of('second') == 'user',
+                as_user(admin, 'PUT', '/api/admin/users/second/role', {'role': 'admin'})
+                demoted = as_user(admin, 'PUT', '/api/admin/users/second/role', {'role': 'user'})
+                response = as_user(second, method, path, body)
+                check(f'{name} by an admin demoted earlier is refused (403 "{lost}") and the other admin stays',
+                      demoted.status_code == 200 and refused(response, 403, lost)
+                      and role_of(DEFAULT_ADMIN_USERNAME) == 'admin' and role_of('second') == 'user',
                       [response.status_code, response.text, role_of(DEFAULT_ADMIN_USERNAME)])
+            response = as_user(plain, 'DELETE', '/api/admin/users/second')
+            check(f'a plain user cannot delete an account (403 "{lost}")', refused(response, 403, lost)
+                  and role_of('second') == 'user', response.text)
+            response = as_user(plain, 'GET', '/api/admin/users')
+            check('other admin routes keep "Admin access required"', refused(response, 403, 'Admin access required'), response.text)
             response = as_user(admin, 'DELETE', f'/api/admin/users/{DEFAULT_ADMIN_USERNAME}')
             check('an admin cannot delete their own account (400)', response.status_code == 400
                   and role_of(DEFAULT_ADMIN_USERNAME) == 'admin', response.text)
