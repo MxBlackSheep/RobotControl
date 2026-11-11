@@ -32,6 +32,7 @@ import {
 import { NotificationContact, NotificationContactPayload } from '../../types/scheduling';
 import StatusDialog, { StatusMessage } from '../StatusDialog';
 import StatusChip from '../StatusChip';
+import ReviewReason from '../ReviewReason';
 
 interface NotificationContactsPanelProps {
   contacts: NotificationContact[];
@@ -297,11 +298,7 @@ const NotificationContactsPanel: React.FC<NotificationContactsPanelProps> = ({
                     <TableRow key={contact.contact_id} hover>
                       <TableCell>
                         <Typography variant="body2">{contact.display_name}</Typography>
-                        {contact.review_reason && (
-                          <Typography sx={{ fontSize: 12, lineHeight: '16px', color: theme => theme.palette.tone.attention.fg }}>
-                            {contact.review_reason}
-                          </Typography>
-                        )}
+                        {contact.review_reason && <ReviewReason reason={contact.review_reason} />}
                       </TableCell>
                       <TableCell>
                         <Typography variant="body2" color="text.secondary">

@@ -23,6 +23,7 @@ import {
 } from '@mui/icons-material';
 import { adminAPI } from '../services/api';
 import StatusChip from './StatusChip';
+import ReviewReason from './ReviewReason';
 import { columnHeading, fontMono, layout } from '../theme';
 import { Panel } from './PageLayout';
 import { dayTime } from '../utils/displayTime';
@@ -280,14 +281,20 @@ const UserManagement: React.FC<UserManagementProps> = ({ onError, section }) => 
                   alignItems: 'center', minHeight: layout.row, px: 2, py: 0.5, borderBottom: 1, borderColor: 'surface.rowLine', fontSize: 13, minWidth: 0 }}>
                   <Box sx={{ minWidth: 0 }}>
                     <Typography sx={{ fontFamily: fontMono, fontSize: 13, fontWeight: 500, overflowWrap: 'anywhere' }}>{user.username}</Typography>
+                    {user.review_reason && <ReviewReason reason={user.review_reason} />}
                     <Typography sx={{ fontSize: 13, color: 'text.secondary', overflowWrap: 'anywhere', [userTable]: { display: 'none' } }}>
                       {user.email || 'No email'} · {user.role} · {user.last_login ? `Last login ${dayTime(user.last_login)}` : 'Never signed in'}
                     </Typography>
                   </Box>
                   <Typography sx={{ display: 'none', [userTable]: { display: 'block' }, fontSize: 13, color: user.email ? 'text.primary' : 'text.secondary', overflowWrap: 'anywhere' }}>{user.email || '—'}</Typography>
-                  <Box sx={{ display: 'none', [userTable]: { display: 'block' } }}><StatusChip tone={user.role === 'admin' ? 'running' : 'neutral'} label={user.role} /></Box>
+                  <Stack direction="row" flexWrap="wrap" gap={0.5} sx={{ display: 'none', [userTable]: { display: 'flex' } }}>
+                    <StatusChip tone={user.role === 'admin' ? 'running' : 'neutral'} label={user.role} />
+                    {user.review_reason && <StatusChip tone="attention" label="Needs review" />}
+                  </Stack>
                   <Typography sx={{ display: 'none', [userTable]: { display: 'block' }, fontSize: 13, color: 'text.secondary' }} title={`Created ${formatTimestamp(user.created_at)}`}>{user.last_login ? dayTime(user.last_login) : 'Never'}</Typography>
                   <Stack direction="row" alignItems="center" justifyContent="flex-end">
+                    {/* Narrow cards have no Role column; the chip sits beside the actions. */}
+                    {user.review_reason && <Box sx={{ mr: 0.5, [userTable]: { display: 'none' } }}><StatusChip tone="attention" label="Needs review" /></Box>}
                     <Tooltip title="Edit email">
                       <IconButton size="small" onClick={() => openEmailEditor(user)} aria-label={`Edit email for ${user.username}`}>
                         <EditIcon fontSize="small" />
@@ -299,12 +306,6 @@ const UserManagement: React.FC<UserManagementProps> = ({ onError, section }) => 
                       </IconButton>
                     </Tooltip>
                   </Stack>
-                  {user.review_reason && (
-                    <Stack direction="row" alignItems="center" spacing={1} sx={{ gridColumn: '1 / -1', minWidth: 0, pb: 0.5 }}>
-                      <StatusChip tone="attention" label="Needs review" />
-                      <Typography sx={{ fontSize: 13, color: 'text.secondary', overflowWrap: 'anywhere' }}>{user.review_reason}</Typography>
-                    </Stack>
-                  )}
                 </Box>
               ))}
 

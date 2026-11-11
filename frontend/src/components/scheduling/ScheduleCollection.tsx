@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Alert, Box, Button, LinearProgress, List, ListItemButton, Stack, TextField, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
 import { SCHEDULE_MODE_LABELS, ScheduledExperiment } from '../../types/scheduling';
 import StatusChip from '../StatusChip';
+import ReviewReason from '../ReviewReason';
 import { Panel } from '../PageLayout';
 import { columnHeading, fontMono, layout, StatusTone } from '../../theme';
 import { dayTime } from '../../utils/displayTime';
@@ -83,7 +84,7 @@ export default function ScheduleCollection({ title, statusFilter, schedules, sel
             <Box sx={{ minWidth: 0 }}>
               <Typography sx={{ fontSize: 13, lineHeight: '20px', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{schedule.experiment_name}</Typography>
               {schedule.review_reason
-                ? <Typography sx={{ fontSize: 12, lineHeight: '16px', color: theme => theme.palette.tone.attention.fg, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{schedule.review_reason}</Typography>
+                ? <ReviewReason reason={schedule.review_reason} />
                 : <Typography sx={{ fontFamily: fontMono, fontSize: 12, lineHeight: '16px', color: 'text.secondary', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{scheduleTarget(schedule)}</Typography>}
               <Typography sx={{ ...muted, mt: 0.5, [table]: { display: 'none' } }}>
                 {nextRun ? `Next ${dayTime(nextRun)}` : 'No next run'} · {repeatLabel(schedule)}
