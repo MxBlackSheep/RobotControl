@@ -1581,6 +1581,17 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
         )
 
 
+    def get_last_run_times(self) -> Dict[str, str]:
+        """Newest finished execution per schedule, independent of history paging."""
+        with self._get_connection() as conn:
+            rows = conn.execute("""
+                SELECT schedule_id, MAX(end_time) AS last_run
+                FROM JobExecutions
+                WHERE end_time IS NOT NULL AND status NOT IN ('pending', 'queued', 'running')
+                GROUP BY schedule_id
+            """)
+            return {row['schedule_id']: row['last_run'] for row in rows}
+
     def get_execution_history(self, schedule_id: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
         """
         Get execution history for a specific schedule or all schedules

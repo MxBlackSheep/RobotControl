@@ -6,7 +6,8 @@ repeats a completed step, or writes a newer store; fresh and installed-copy sche
 diverge; a failed scheduling upgrade prevents construction or permits storage access.
 Installed files are copied and hashed, never opened for writing. No robot launch.
 Review rows remain listed/editable/deletable and protect package references; bad JSON
-does not hide other rows. Activation, archive, launch and path corrections refuse them.
+does not hide other rows. List times must use the runtime next run and newest finished
+execution, with no next run for review/inactive/archived rows; queue reports engine state. Activation, archive, launch and path corrections refuse them.
 """
 from contextlib import closing, contextmanager
 import hashlib
@@ -400,9 +401,69 @@ def existing_run_review_checks(root):
     print('PASS: review rows retain manual email, pending run alerts, restart tracking and execution completion without schedule advancement')
 
 
+def schedule_status_checks(root):
+    """HTTP list/status use runtime times, finished history and scheduler state."""
+    from copy import deepcopy
+    from datetime import datetime, timedelta
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from backend.api import scheduling as api
+    from backend.models import ScheduledExperiment, JobExecution
+    from backend.services.auth import get_current_user
+    from backend.services.scheduling import sqlite_database as module
+    from backend.tests.test_sqlite_safety import engine
+
+    with patch.object(module, 'get_data_path', return_value=root):
+        db = module.SQLiteSchedulingDatabase('list-status.db')
+    scheduler = engine(db)
+    scheduler._queued_backlog = set()
+    scheduler._queue_runtime = {}
+    scheduler.process_monitor.is_hamilton_running = lambda: False
+    start = datetime(2030, 1, 1, 12)
+    for key in ('active', 'empty', 'inactive', 'archived', 'review'):
+        row = ScheduledExperiment(key, key, 'fixture.med', 'interval',
+                                  start_time=start, interval_hours=1,
+                                  is_active=key != 'inactive', archived=key == 'archived')
+        assert db.create_schedule(row)
+        scheduler._active_schedules[key] = deepcopy(row)
+    next_run = start + timedelta(hours=2)
+    scheduler._active_schedules['active'].start_time = next_run
+    with db._get_connection() as conn:
+        conn.execute("UPDATE ScheduledExperiments SET schedule_type='cron' WHERE schedule_id='review'")
+        conn.commit()
+    for key, end, status in [('latest', start, 'failed'),
+                              ('older', start - timedelta(hours=1), 'completed'),
+                              ('unfinished', None, 'pending')]:
+        assert db.create_job_execution(JobExecution(key, 'active', status, end_time=end))
+    app = FastAPI()
+    app.include_router(api.router)
+    app.dependency_overrides[get_current_user] = lambda: {'username': 'admin', 'role': 'admin'}
+    with patch.object(api, 'get_services', return_value=(scheduler, scheduler.db_manager, None)), TestClient(app) as client:
+        for running in (True, False):
+            scheduler._running = running
+            reply = client.get('/api/scheduling/status/queue')
+            assert reply.status_code == 200, reply.text
+            assert reply.json()['data']['is_running'] is running, reply.text
+        rows = {}
+        for archived in (False, True):
+            reply = client.get('/api/scheduling/list', params={'archived_only': archived, 'active_only': False})
+            assert reply.status_code == 200, reply.text
+            rows.update({row['schedule_id']: row for row in reply.json()['data']})
+        assert rows['active']['last_run'] == start.isoformat(), rows['active']
+        assert rows['active']['next_run'] == next_run.isoformat(), rows['active']
+        assert rows['empty']['last_run'] is None
+        assert rows['empty']['next_run'] == start.isoformat()
+        for key in ('inactive', 'archived', 'review'):
+            assert rows[key]['next_run'] is None, rows[key]
+            assert rows[key]['last_run'] is None, rows[key]
+        assert client.get('/api/scheduling/status/scheduler').status_code == 404
+    print('PASS: HTTP list runtime next run, latest finished run and queue scheduler state')
+
+
 def run():
     with tempfile.TemporaryDirectory(prefix='rc-stored-data-') as folder:
         root = Path(folder)
+        schedule_status_checks(root)
         runner_checks(root)
         schema_checks(root)
         review_checks(root)

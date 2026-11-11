@@ -889,7 +889,18 @@ def list_schedules(
 
     schedules = db_mgr.get_schedules(active_only=active_only, archived_only=archived_only)
 
-    schedule_list = [_schedule_payload(schedule) for schedule in schedules]
+    next_run_times = scheduler.get_next_run_times()
+    last_run_times = db_mgr.sqlite_db.get_last_run_times()
+    schedule_list = []
+    for schedule in schedules:
+        payload = _schedule_payload(schedule)
+        payload['last_run'] = last_run_times.get(schedule.schedule_id)
+        payload['next_run'] = (
+            next_run_times.get(schedule.schedule_id)
+            if not isinstance(schedule, ScheduleReview) and schedule.is_active and not schedule.archived
+            else None
+        )
+        schedule_list.append(payload)
 
     response = ApiResponse(
         success=True,
@@ -1323,29 +1334,6 @@ def set_schedule_archived(
     ).to_dict()
 
 
-@router.get("/status/scheduler")
-def get_scheduler_status(
-    current_user: dict = Depends(get_current_user)
-):
-    """
-    Get current scheduler status
-    
-    Requires: any authenticated user
-    """
-    scheduler, db_mgr, proc_mon = get_services()
-
-    # Get scheduler status
-    scheduler_status = scheduler.get_status()
-
-    response = ApiResponse(
-        success=True,
-        message="Scheduler status retrieved successfully",
-        data=scheduler_status
-    )
-
-    return response.to_dict()
-
-
 @router.get("/status/queue")
 def get_queue_status(
     current_user: dict = Depends(get_current_user)
@@ -1367,6 +1355,7 @@ def get_queue_status(
         success=True,
         message="Queue status retrieved successfully",
         data={
+            "is_running": scheduler.is_running,
             "queue": queue_status,
             "hamilton": {"is_running": not queue_status["hamilton_available"]},
             "manual_recovery": manual_state.to_dict() if manual_state else None,

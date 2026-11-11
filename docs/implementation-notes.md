@@ -1,3 +1,5 @@
+2026-11-11: Schedule lists report the latest finished run and engine-owned next run; queue status includes scheduler running state, replacing the separate scheduler status route.
+
 2026-11-11: Monitoring uses live process reads and one recording watcher; finalized clips share one storage owner. Database restores reserve launch admission, saved settings upgrade at read boundaries, log tails share reader decoding, and lifespan owns shutdown. Sign-in uses bcrypt directly and checks current account state for every token.
 
 2026-11-11: Invalid stored schedules remain available for review and repair without dispatch; hourly schedules upgrade to one-hour intervals, old preparation suggestions are removed, and both runners wait in queue order through the same execution owner.

@@ -370,6 +370,20 @@ class SchedulerEngine:
         with self._schedules_lock:
             return self._active_schedules.get(schedule_id)
     
+    @property
+    def is_running(self) -> bool:
+        return self._running
+
+    def get_next_run_times(self) -> Dict[str, str]:
+        """Snapshot the times dispatch uses, without calculating another schedule."""
+        with self._schedules_lock:
+            return {
+                key: schedule.start_time.isoformat()
+                for key, schedule in self._active_schedules.items()
+                if not isinstance(schedule, ScheduleReview)
+                and schedule.is_active and not schedule.archived and schedule.start_time
+            }
+
     def get_status(self) -> Dict[str, Any]:
         """
         Get current scheduler status and statistics

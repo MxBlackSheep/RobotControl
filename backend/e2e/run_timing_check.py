@@ -50,6 +50,7 @@ def run(evidence):
         checks.append('prepare and SQLite restore retain offset-qualified launch instant')
 
         engine = SchedulerEngine.__new__(SchedulerEngine)
+        engine._running = True
         engine._schedules_lock, engine._jobs_lock = threading.RLock(), threading.RLock()
         engine._active_schedules, engine._queue_runtime = {'timing': schedule}, {}
         engine._running_jobs, engine._queued_backlog = {'timing'}, set()

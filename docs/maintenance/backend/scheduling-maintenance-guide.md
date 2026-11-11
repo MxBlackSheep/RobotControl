@@ -238,6 +238,11 @@ Stored schedules pass the same field check as create and update. The list includ
 
 Scheduling upgrades use `SchemaMigrations`: step 2 supplies the tables and columns, step 3 converts hourly rows to Interval 1 h, and step 4 clears no-write preparation tokens. Unsupported types, unreadable JSON and incomplete timeout cleanup settings remain stored for review. A failed step rolls back and holds dispatch with the step, reason and backup in Storage health.
 
+The schedule list sends `last_run` from the newest finished execution end time (or null),
+and `next_run` from the engine's dispatch snapshot. Review, inactive and archived rows
+have no next run. `GET /status/queue` includes the scheduler's `is_running` alongside
+queue and recovery state; the separate `/status/scheduler` route is removed.
+
 ## Laboratory preparation
 
 The native scheduling SQLite database (`data/robotcontrol_scheduling.db`) remains the owner of

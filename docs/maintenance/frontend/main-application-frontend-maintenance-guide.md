@@ -78,13 +78,13 @@ hiding alone does not stop effects).
 ## Robot status and attention banner
 
 `useRobotStatus` (in `hooks/useRobotStatus.ts`) is the shell's one owner of robot state: it
-polls `GET /api/scheduling/status/queue` and `/status/scheduler` every 15 s through
+polls `GET /api/scheduling/status/queue` every 15 s through
 `useSerialPolling` and publishes the result in `RobotStatusContext`. `RobotAttentionBanner`,
 the rail's Scheduling badge, the Recovery tab badge, Overview and Maintenance's Right now
-panel all read that context; nothing else polls for them. Scheduling keeps its own view.
+panel and Scheduling all read that context; nothing else polls for them.
 
-- Both replies carry `manual_recovery`. `newerRecovery` keeps the higher `safety_revision`;
-  unhealthy storage always wins (fail closed), and a reply without the field clears nothing.
+- The queue reply carries scheduler `is_running` and `manual_recovery`; malformed or failed
+  reads leave status unknown or stale, never healthy by default.
 - `robotAttention` names why runs are held: unhealthy storage, pending recoveries, or an
   acknowledged recovery whose queued jobs still wait for Resume (`resume_required`).
 - There is no always-on status bar. The banner appears on every page only while runs are
