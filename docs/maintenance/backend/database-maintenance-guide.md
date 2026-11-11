@@ -13,7 +13,7 @@ versions, bundled tool details and authoring steps are owned by
 ## Files and ownership
 
 - `services/backup.py`: `BackupService` is the entry point for backup, restore and
-  delete. Creation and both restore paths take `_operation_lock`; deletion does not. `SqlCommandExecutor` runs `sqlcmd -E`;
+  delete. Creation, both restore paths and deletion take `_operation_lock`. `SqlCommandExecutor` runs `sqlcmd -E`;
   `BackupMetadataStore` owns the `.json` file beside each `.bak`. API routes and new code
   must not call the executor or write metadata directly. Routes: `api/backup.py`.
 - `services/database.py`: `DatabaseService` (singleton `get_database_service()`) opens its
@@ -57,8 +57,7 @@ under the same path. The unused `SQL_BACKUP_PATH` setting has been removed; old 
 and path restore use `RESTORE_TIMEOUT` (600 seconds). Recovery commands keep the 300-second default.
 
 - **Create** (`POST /api/backup/create`, local session): description required, at most 1,000
-  characters; file name `<database>_<yyyymmdd_hhmmss>.bak`. The disk-space estimate only logs
-  a warning. After `BACKUP DATABASE` the service confirms the file exists, then saves metadata.
+  characters; file name `<database>_<yyyymmdd_hhmmss>.bak`. Available disk space is logged; there is no backup-size estimate. After `BACKUP DATABASE` the service confirms the file exists, then saves metadata.
 - **List** (`GET /api/backup/list`): pairs `.bak` and `.json`, newest first. A `.bak` without
   metadata is listed as "[Orphaned backup - no metadata]".
 - **Restore** (`POST /api/backup/restore`): local session with role `admin` or `user`;

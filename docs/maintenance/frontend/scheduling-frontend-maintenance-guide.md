@@ -9,9 +9,10 @@ method library, notifications and history. Backend behavior is in
 - `pages/SchedulingPage.tsx` owns selection, dialogs, permissions and the queue/recovery
   view. Its `InspectionWorkspace` keeps list and details mounted; narrow containers show
   one pane with Back.
-- `hooks/useScheduling.ts` owns every schedule, archive, calendar, queue, contact and
-  notification request. Components use its `state` and `actions`, never the REST API. It
-  refreshes scheduler and queue status every 30 seconds. Each status read owns its error
+- `hooks/useScheduling.ts` owns schedule and archive loading, queue and scheduler status,
+  contacts and notification settings and history. Recovery, method-library and protocol
+  components make their own requests through `services/schedulingApi.ts`; the calendar
+  derives its entries from loaded schedules. The hook refreshes scheduler and queue status every 30 seconds. Each status read owns its error
   (`queueError`, `schedulerError`), shown inline and cleared by that read's next success;
   the shared `error` dialog is for schedule loads and edits only. Both reads carry
   `manualRecovery` and can answer out of order; freshness is the server's

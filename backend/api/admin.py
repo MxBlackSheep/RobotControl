@@ -37,7 +37,7 @@ async def get_users(current_user: dict = Depends(get_current_admin_user)):
     
     try:
         auth_service = AuthService()
-        users = auth_service.get_all_users()
+        users = auth_service.get_user_list()
         
         safe_users = []
         for user in users:
@@ -315,4 +315,3 @@ async def delete_user(
             message="Error deleting user",
             details=str(exc),
         )
-

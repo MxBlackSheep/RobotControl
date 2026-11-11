@@ -13,12 +13,10 @@ Features:
 - Thread-safe operations
 """
 
-import os
 import json
 import threading
 import time
 import logging
-import shutil
 from datetime import datetime, timedelta
 from collections import deque
 from pathlib import Path
@@ -29,7 +27,6 @@ from backend.config import CAMERA_CONFIG, VIDEO_PATH
 from backend.services.camera_runtime import CameraRuntime
 from backend.services.clip_transcoder import ClipTranscoder, clip_files, finalized_clips
 from backend.services.shared_frame_buffer import get_shared_frame_buffer
-from backend.services.storage_manager import get_storage_manager
 from backend.utils.data_paths import get_videos_path, is_compiled_mode
 
 # Configure logging
@@ -64,7 +61,6 @@ class CameraService:
         self._initialized = True
         
         # Configuration
-        self.max_cameras = CAMERA_CONFIG["max_cameras"]
         self.recording_duration = CAMERA_CONFIG["recording_duration_minutes"] * 60  # Convert to seconds
         self.archive_duration = CAMERA_CONFIG["archive_duration_minutes"] * 60
         self.rolling_clips_count = CAMERA_CONFIG["rolling_clips_count"]
@@ -115,8 +111,6 @@ class CameraService:
         self.executor = ThreadPoolExecutor(max_workers=4)
         self._cleanup_future = None
 
-        # Lazy-loaded storage manager for experiment archiving
-        self._storage_manager = None
         
         self.runtime = CameraRuntime(self.rolling_clips_path, self.recording_duration,
                                      self._publish_frame, self._accept_clip)
@@ -146,11 +140,6 @@ class CameraService:
         self.shared_frame_buffer = None
         logger.info("Streaming integration disabled")
 
-    def _get_storage_manager(self):
-        """Lazily load the storage manager used for archiving experiment clips."""
-        if self._storage_manager is None:
-            self._storage_manager = get_storage_manager()
-        return self._storage_manager
     
     def _create_directories(self):
         """Create necessary directories for video storage"""
@@ -184,12 +173,6 @@ class CameraService:
     def _load_existing_clips(self):
         self.rolling_clips.extend(self._read_finalized_clips())
 
-    @property
-    def recording_threads(self):
-        # Compatibility for legacy stream routes; ownership lives only in runtime.
-        if self.runtime.status()["recording_state"] == "recording":
-            return {self.runtime.camera_id: self.runtime.process}
-        return {}
 
     def _publish_frame(self, frame):
         if not self.streaming_integration_enabled:
@@ -282,50 +265,6 @@ class CameraService:
             self.rolling_clips.clear()
             self.rolling_clips.extend(self._read_finalized_clips())
 
-    def archive_experiment_videos(self, experiment_id: int, method_name: str) -> str:
-        """
-        Archive recent rolling clips for an experiment without re-encoding.
-
-        Copies clips into an experiment-specific directory and returns that path.
-        """
-        try:
-            storage_manager = self._get_storage_manager()
-            if not storage_manager:
-                logger.error("Storage manager unavailable; cannot archive experiment videos")
-                return ""
-
-            self.wait_for_stored_clips(storage_manager.archive_duration_minutes)
-            result = storage_manager.archive_experiment_videos(
-                experiment_id=str(experiment_id),
-                method_name=method_name,
-                rolling_clips=self.rolling_clips,
-                clips_lock=self.clips_lock,
-            )
-
-            if result.success:
-                size_mb = result.archive_size_bytes / (1024 * 1024) if result.archive_size_bytes else 0.0
-                logger.info(
-                    "Archived %s clips for experiment %s into %s (%.1f MB)",
-                    result.clips_archived,
-                    method_name,
-                    result.archive_path,
-                    size_mb,
-                )
-            else:
-                logger.warning(
-                    "Archive operation incomplete for experiment %s: %s",
-                    method_name,
-                    result.error_message or "unknown error",
-                )
-                if result.warnings:
-                    for warning in result.warnings:
-                        logger.debug("Archive warning: %s", warning)
-
-            return result.archive_path or ""
-
-        except Exception as e:
-            logger.error(f"Failed to archive experiment videos: {e}")
-            return ""
     
     def get_camera_status(self):
         health = self.runtime.status()
@@ -363,17 +302,6 @@ class CameraService:
             for clip in reversed(recent_clips)
         ]
     
-    def health_check(self):
-        health = self.runtime.status()
-        accessible = self.video_path.exists() and os.access(self.video_path, os.W_OK)
-        try:
-            free = shutil.disk_usage(self.video_path).free / 1024**3
-        except OSError:
-            free = 0
-        return {**health, "healthy": accessible and health["capture_state"] == "connected",
-                "storage_accessible": accessible, "active_recording_threads": len(self.recording_threads),
-                "total_cameras": len(self.runtime.devices), "free_disk_space_gb": round(free, 2),
-                "rolling_clips_count": len(self.rolling_clips)}
 
     def shutdown(self):
         self.runtime.shutdown()

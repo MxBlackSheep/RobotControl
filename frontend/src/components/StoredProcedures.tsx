@@ -85,7 +85,7 @@ export default function StoredProcedures({
     setLoading(true);
     setError("");
     databaseAPI
-      .getStoredProcedures(refresh === 0, sourceId)
+      .getStoredProcedures(sourceId)
       .then((response) => {
         if (!current) return;
         const payload = response?.data?.data || {};

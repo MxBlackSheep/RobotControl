@@ -47,7 +47,8 @@ class TestExperimentArchiving(TestCameraService):
             })
         
         # Archive experiment
-        archive_path = camera_service.archive_experiment_videos(123, "TestMethod")
+        archive_path = camera_service._storage_manager.archive_experiment_videos(
+            "123", "TestMethod", camera_service.rolling_clips, camera_service.clips_lock).archive_path
         
         # Verify archive directory was created
         archive_dir = Path(archive_path)
@@ -73,7 +74,8 @@ class TestExperimentArchiving(TestCameraService):
                 "frame_count": 100
             })
         
-        archive_path = camera_service.archive_experiment_videos(123, "TestMethod")
+        archive_path = camera_service._storage_manager.archive_experiment_videos(
+            "123", "TestMethod", camera_service.rolling_clips, camera_service.clips_lock).archive_path
         
         # Verify only recent clips were archived
         archive_dir = Path(archive_path)
@@ -81,7 +83,6 @@ class TestExperimentArchiving(TestCameraService):
         
         # Should have fewer files than total clips due to age filtering
         assert len(archived_files) < 5
-
 
 
 class TestCameraLifecycle(TestCameraService):
@@ -224,4 +225,4 @@ class TestCameraLifecycle(TestCameraService):
         assert camera_service.rolling_clips[0]["frame_count"] is None
 
     def test_health_when_disconnected_is_not_healthy(self, camera_service):
-        assert not camera_service.health_check()["healthy"]
+        assert camera_service.get_camera_status()["health"]["capture_state"] == "disconnected"

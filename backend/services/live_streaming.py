@@ -662,23 +662,6 @@ class LiveStreamingService:
                      "fps": settings.fps, "bitrate_kbps": settings.bitrate_kbps},
         )
 
-    def get_resource_usage(self) -> Dict[str, Any]:
-        """
-        Get current resource usage by streaming.
-
-        Returns:
-            Dictionary with resource usage information
-        """
-        status = self.get_status()
-
-        return {
-            "active_sessions": len(status.active_sessions),
-            "total_bandwidth_mbps": status.total_bandwidth_mbps,
-            "resource_usage_percent": status.resource_usage_percent,
-            "priority_mode": status.priority_mode,
-            "recording_impact": status.recording_impact
-        }
-
 
 # Global instance access
 _service_instance: Optional[LiveStreamingService] = None

@@ -994,20 +994,15 @@ def list_schedules(
     try:
         scheduler, db_mgr, proc_mon = get_services()
         
-        logger.info(f"Getting schedules: active_only={active_only} archived_only={archived_only}")
 
         if archived_only:
             schedules = db_mgr.get_schedules(active_only=False, archived_only=True)
         elif active_only:
             schedules = scheduler.get_active_schedules()
-            if schedules:
-                logger.info(f"Found {len(schedules)} schedules from scheduler cache")
-            else:
-                logger.info("Scheduler cache empty; loading schedules from database")
+            if not schedules:
                 schedules = db_mgr.get_schedules(active_only=True, archived_only=False)
         else:
             schedules = db_mgr.get_schedules(active_only=False, archived_only=False)
-            logger.info(f"Found {len(schedules)} schedules from database (active_only=False)")
         
         schedule_list = []
         if schedules:
@@ -1020,7 +1015,6 @@ def list_schedules(
                     logger.error(f"Error converting schedule to dict: {e}")
                     logger.error(f"Schedule object: {schedule}")
         
-        logger.info(f"Returning {len(schedule_list)} schedules in response")
         
         response = ApiResponse(
             success=True,
@@ -1633,22 +1627,19 @@ def get_queue_status(
 
 @router.get("/experiments/available")
 def get_available_experiments(
-    rescan: bool = Query(False, description="Force rescan of experiment files"),
     current_user: dict = Depends(get_current_user)
 ):
     """
     Get list of available Hamilton experiment files
     
-    Returns experiment files discovered on the system with metadata.
-    Use rescan=true to force a fresh scan of the file system.
+    Returns imported experiment files from the catalogue with metadata.
     
     Requires: any authenticated user
     """
     try:
         discovery_service = get_experiment_discovery_service()
         
-        # Get experiments (use cache unless rescan requested)
-        experiments = discovery_service.get_available_experiments(use_cache=not rescan)
+        experiments = discovery_service.get_available_experiments()
         
         # Group by category for better organization
         categorized = {}
@@ -1663,8 +1654,7 @@ def get_available_experiments(
             message=f"Found {len(experiments)} available experiments",
             data={
                 "experiments": experiments,
-                "categorized": categorized,
-                "last_scan": discovery_service._last_scan.isoformat() if discovery_service._last_scan else None
+                "categorized": categorized
             }
         )
         
@@ -1863,5 +1853,3 @@ def get_execution_history(
     except Exception as e:
         logger.error(f"Error getting execution history: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
-
-

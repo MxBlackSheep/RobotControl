@@ -246,10 +246,10 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
   const initializedSession = useRef(false);
   const experimentControlRef = useRef<HTMLDivElement>(null);
 
-  const loadExperiments = useCallback(async (rescan: boolean = false) => {
+  const loadExperiments = useCallback(async () => {
     try {
       setScanning(true);
-      const response = await schedulingAPI.getAvailableExperiments(rescan);
+      const response = await schedulingAPI.getAvailableExperiments();
       
       if (response.data.success) {
         setExperiments(response.data.data.experiments);

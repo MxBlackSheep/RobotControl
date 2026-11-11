@@ -1,3 +1,7 @@
+## 2026-11-11 Remove unused service paths
+
+Removed unused scheduler, monitoring, camera, database and startup code. Scheduling no longer fetches unread calendar data, database browsing uses one paging path, and backup timing is recorded before returning. Logs omit routine polling and keep compressed history indefinitely.
+
 ## 2026-11-10 PyHSL Start safety checks
 
 - Scheduled PyHSL runs recheck launch safety immediately before every Start send,

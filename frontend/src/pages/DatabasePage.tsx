@@ -29,7 +29,7 @@ import { Source } from "../components/ReportConnections";
 import { fontMono, layout } from "../theme";
 
 // has_data is null when the server could not check the table (not the same as empty).
-type TableInfo = { name: string; has_data?: boolean | null; is_important?: boolean };
+type TableInfo = { name: string; has_data?: boolean | null };
 
 export default function DatabasePage() {
   const { user } = useAuth();
@@ -58,7 +58,7 @@ export default function DatabasePage() {
     setLoading(true);
     setError("");
     try {
-      const response = await databaseAPI.getTables(false, sourceId);
+      const response = await databaseAPI.getTables(sourceId);
       if (id === request.current)
         setTables(response.data.data.table_details || []);
     } catch {

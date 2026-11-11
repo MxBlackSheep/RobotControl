@@ -327,18 +327,6 @@ class AuthDatabase:
             )
             conn.commit()
 
-    def clear_must_reset(self, user_id: int) -> None:
-        with self._lock, self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                UPDATE users
-                SET must_reset = 0, updated_at = ?
-                WHERE id = ?
-                """,
-                (datetime.utcnow().isoformat(), user_id),
-            )
-            conn.commit()
 
     # ------------------------------------------------------------------
     # Refresh token management
@@ -532,15 +520,6 @@ class AuthDatabase:
                 return None
             conn.commit()
             return self.get_password_reset_request(request_id)
-
-    def delete_password_reset_request(self, request_id: int) -> None:
-        with self._lock, self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "DELETE FROM password_reset_requests WHERE id = ?",
-                (request_id,),
-            )
-            conn.commit()
 
 
 _auth_db_instance: Optional[AuthDatabase] = None

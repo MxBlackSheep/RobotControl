@@ -41,67 +41,34 @@ def get_viewer_service(source_id: str | None = Query(None, max_length=64),
 
 @router.get("/tables")
 async def get_tables(
-    use_cache: bool = Query(True, description="Use cached results if available"),
-    important_only: bool = Query(False, description="Show only important tables"),
     db_service: DatabaseService = Depends(get_viewer_service)
 ):
     """
-    Get list of available database tables, optionally filtered to important tables only
+    Get the available database tables in alphabetical order
     
     Args:
-        use_cache: Whether to use cached results for better performance
-        important_only: If True, show only frequently used important tables
         
     Returns:
-        List of table names with basic metadata and categorization
+        List of table names with basic metadata
     """
     start_time = time.time()
     
     try:
-        # Define important tables that should be shown by default
-        important_tables = {
-            "AncestPlatesInExperiments",
-            "Cultures", 
-            "CulturesHistory",
-            "Plates",
-            "Propagation", 
-            "Experiments",
-            "ExperimentParameters"
-        }
-        
-        # Get tables from our simplified service
-        all_tables = await run_in_threadpool(db_service.get_tables, use_cache=use_cache)
-        
-        # Add categorization info to each table
-        categorized_tables = []
-        for table in all_tables:
-            table_with_category = table.copy()
-            table_with_category["is_important"] = table["name"] in important_tables
-            categorized_tables.append(table_with_category)
-        
-        # Filter tables if important_only is requested
-        if important_only:
-            filtered_tables = [table for table in categorized_tables if table["is_important"]]
-        else:
-            # Sort so important tables appear first
-            categorized_tables.sort(key=lambda t: (not t["is_important"], t["name"]))
-            filtered_tables = categorized_tables
-        
+        all_tables = await run_in_threadpool(db_service.get_tables)
+        all_tables.sort(key=lambda table: table["name"])
         data = {
-            "tables": [table["name"] for table in filtered_tables],
-            "table_details": filtered_tables,
-            "total_count": len(filtered_tables),
-            "important_count": len([t for t in categorized_tables if t["is_important"]]),
+            "tables": [table["name"] for table in all_tables],
+            "table_details": all_tables,
+            "total_count": len(all_tables),
             "all_count": len(all_tables),
-            "important_only": important_only
         }
-        
+
         # Create metadata
         metadata = ResponseMetadata()
         metadata.set_execution_time(start_time)
         metadata.add_metadata("operation", "get_tables")
-        metadata.set_cache_used(use_cache)
-        metadata.set_pagination(len(filtered_tables))
+        metadata.set_cache_used(False)
+        metadata.set_pagination(len(all_tables))
         
         return ResponseFormatter.success(data=data, metadata=metadata)
         
@@ -122,7 +89,6 @@ async def get_table_data(
     search: Optional[str] = Query(None, max_length=200, description="Literal search across supported scalar columns"),
     sort_direction: str = Query("asc", pattern="^(asc|desc)$"),
     filters: Optional[str] = Query(None, description="JSON string of column filters"),
-    use_cache: bool = Query(True, description="Use cached results if available"),
     db_service: DatabaseService = Depends(get_viewer_service)
 ):
     """
@@ -134,7 +100,6 @@ async def get_table_data(
         limit: Number of rows per page (max 1000)
         order_by: Column name to sort by
         filters: JSON string of column filters (e.g., '{"Status": "Running"}')
-        use_cache: Whether to use cached results
         
     Returns:
         Paginated table data with metadata
@@ -163,7 +128,7 @@ async def get_table_data(
             offset=offset,
             order_by=order_by,
             filters=parsed_filters,
-            use_cache=use_cache, search=search, sort_direction=sort_direction
+            search=search, sort_direction=sort_direction
         )
         
         data = {
@@ -186,7 +151,7 @@ async def get_table_data(
             page=page,
             limit=limit,
             execution_start_time=start_time,
-            cache_used=use_cache,
+            cache_used=False,
             items_count=len(result.rows)
         )
         
@@ -208,14 +173,12 @@ def retired_execution_route(current_user=Depends(get_current_user)):
 
 @router.get("/stored-procedures")
 async def get_stored_procedures(
-    use_cache: bool = Query(True, description="Use cached results if available"),
     db_service: DatabaseService = Depends(get_viewer_service)
 ):
     """
     Get all stored procedures and functions from the database
     
     Args:
-        use_cache: Whether to use cached results for better performance
         
     Returns:
         List of stored procedures and functions with their definitions and parameters
@@ -224,13 +187,13 @@ async def get_stored_procedures(
     
     try:
         # Get stored procedures from our service
-        result = await run_in_threadpool(db_service.get_stored_procedures, use_cache=use_cache)
+        result = await run_in_threadpool(db_service.get_stored_procedures)
         
         # Create metadata
         metadata = ResponseMetadata()
         metadata.set_execution_time(start_time)
         metadata.add_metadata("operation", "get_stored_procedures")
-        metadata.set_cache_used(use_cache)
+        metadata.set_cache_used(False)
         metadata.set_pagination(len(result) if isinstance(result, list) else 0)
         
         return ResponseFormatter.success(data=result, metadata=metadata)

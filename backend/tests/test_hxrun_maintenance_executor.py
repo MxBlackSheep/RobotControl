@@ -9,8 +9,6 @@ import backend.services.scheduling.experiment_executor as executor_module
 @dataclass
 class _PreRunResult:
     success: bool = True
-    cleanup_required: bool = False
-    steps: list = None
     failure_reason: str = ""
 
 
@@ -22,10 +20,7 @@ class StubPreExecutionPipeline:
 
     def run(self, _experiment, _execution_id):
         StubPreExecutionPipeline.run_calls += 1
-        return _PreRunResult(success=True, cleanup_required=False, steps=[])
-
-    def cleanup(self, _steps):
-        return
+        return _PreRunResult(success=True)
 
 
 class StubDBManager:

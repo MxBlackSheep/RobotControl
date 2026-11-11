@@ -184,8 +184,8 @@ export const authAPI = {
 };
 
 export const databaseAPI = {
-  getTables: (importantOnly = false, sourceId?: string) =>
-    api.get('/api/database/tables', { params: { important_only: importantOnly, source_id: sourceId } }),
+  getTables: (sourceId?: string) =>
+    api.get('/api/database/tables', { params: { source_id: sourceId } }),
 
   getTableData: (tableName: string, page = 1, limit = 50, additionalParams = {}, signal?: AbortSignal) =>
     api.get(`/api/database/tables/${encodeURIComponent(tableName)}`,
@@ -193,8 +193,8 @@ export const databaseAPI = {
         params: { page, limit, ...additionalParams }, signal,
       }),
 
-  getStoredProcedures: (useCache = true, sourceId?: string) =>
-    api.get('/api/database/stored-procedures', { params: { use_cache: useCache, source_id: sourceId } }),
+  getStoredProcedures: (sourceId?: string) =>
+    api.get('/api/database/stored-procedures', { params: { source_id: sourceId } }),
 };
 
 export const experimentsAPI = {

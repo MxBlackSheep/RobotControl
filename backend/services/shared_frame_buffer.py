@@ -7,7 +7,7 @@ import threading
 import time
 from collections import deque
 from datetime import datetime
-from typing import Optional, Callable, List
+from typing import Optional
 import numpy as np
 import logging
 
@@ -44,12 +44,9 @@ class SharedFrameBuffer:
         
         # Statistics
         self.frames_written = 0
-        self.frames_read_recording = 0
         self.frames_read_streaming = 0
         self.frames_dropped_streaming = 0
         
-        # Callbacks for frame distribution
-        self.streaming_callbacks: List[Callable[[FrameData], None]] = []
         self._async_readers = {}
         
         logger.info(f"SharedFrameBuffer initialized with max_frames={max_frames}")
@@ -94,9 +91,6 @@ class SharedFrameBuffer:
                 # Notify streaming threads
                 self.streaming_condition.notify_all()
             
-            # Distribute to streaming callbacks asynchronously
-            if self.streaming_callbacks:
-                self._distribute_to_callbacks(frame_data)
             self._notify_async_readers()
             
             return True
@@ -166,54 +160,8 @@ class SharedFrameBuffer:
             logger.error(f"Error getting frame for streaming: {e}")
             self.frames_dropped_streaming += 1
             return None
-    
-    def unregister_streaming_callback(self, callback: Callable[[FrameData], None]) -> None:
-        """
-        Unregister a streaming callback.
-        
-        Args:
-            callback: Function to remove from callbacks
-        """
-        with self.streaming_lock:
-            if callback in self.streaming_callbacks:
-                self.streaming_callbacks.remove(callback)
-                logger.debug(f"Unregistered streaming callback, remaining: {len(self.streaming_callbacks)}")
-    
-    def _distribute_to_callbacks(self, frame_data: FrameData) -> None:
-        """
-        Distribute frame to all registered callbacks.
-        Non-blocking - callbacks are called in separate threads.
-        
-        Args:
-            frame_data: Frame to distribute
-        """
-        # Create a copy of callbacks to avoid holding lock during distribution
-        with self.streaming_lock:
-            callbacks = self.streaming_callbacks.copy()
-        
-        # Call each callback in a separate thread to avoid blocking
-        for callback in callbacks:
-            threading.Thread(
-                target=self._safe_callback,
-                args=(callback, frame_data),
-                daemon=True
-            ).start()
-    
-    def _safe_callback(self, callback: Callable[[FrameData], None], frame_data: FrameData) -> None:
-        """
-        Safely call a callback with error handling.
-        
-        Args:
-            callback: Function to call
-            frame_data: Frame data to pass
-        """
-        try:
-            callback(frame_data)
-        except Exception as e:
-            logger.error(f"Error in streaming callback: {e}")
-            # Remove failed callback
-            self.unregister_streaming_callback(callback)
-    
+
+
     def clear(self) -> None:
         """
         Clear the buffer and reset statistics.
@@ -224,39 +172,12 @@ class SharedFrameBuffer:
             
         with self.streaming_lock:
             self.buffer.clear()
-            self.streaming_callbacks.clear()
             self.frame_counter = 0
             self.frames_written = 0
-            self.frames_read_recording = 0
             self.frames_read_streaming = 0
             self.frames_dropped_streaming = 0
             
         logger.info("SharedFrameBuffer cleared")
-    
-    def is_healthy(self) -> bool:
-        """
-        Check if buffer is operating normally.
-        
-        Returns:
-            True if buffer is healthy
-        """
-        # Check if we're receiving frames
-        if self.frames_written == 0:
-            return True  # Just started, no frames yet is OK
-        
-        # Check if recording is getting frames
-        recording_ratio = self.frames_read_recording / self.frames_written
-        if recording_ratio < 0.5:  # Recording getting less than 50% of frames
-            logger.warning(f"Recording efficiency low: {recording_ratio:.1%}")
-            return False
-        
-        # Check buffer overflow
-        with self.streaming_lock:
-            if len(self.buffer) >= self.max_frames:
-                logger.warning("Buffer at maximum capacity")
-                # This is OK - circular buffer handles overflow
-        
-        return True
 
 
 # Global instance (singleton pattern)
@@ -284,5 +205,3 @@ def get_shared_frame_buffer(max_frames: int = 30) -> SharedFrameBuffer:
                 logger.info("Created global SharedFrameBuffer instance")
     
     return _shared_buffer_instance
-
-

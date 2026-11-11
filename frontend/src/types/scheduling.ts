@@ -82,20 +82,6 @@ export interface TimeoutConfig {
   cleanup_experiment_path?: string | null;
 }
 
-export interface CalendarEvent {
-  event_id: string;
-  schedule_id: string;
-  title: string;
-  description: string;
-  start_time: string; // ISO format
-  end_time: string; // ISO format
-  event_type: 'scheduled' | 'running' | 'completed' | 'failed';
-  experiment_name: string;
-  estimated_duration: number;
-  status: string;
-  created_by: string;
-}
-
 // Manual recovery state
 export interface PendingRecovery {
   schedule_id: string | null;
@@ -381,14 +367,6 @@ export interface ScheduleCreateResponse extends ApiResponse<{
 export interface ScheduleResponse extends ApiResponse<ScheduledExperiment> {}
 
 
-export interface CalendarDataResponse extends ApiResponse<CalendarEvent[]> {
-  metadata: {
-    start_date: string;
-    end_date: string;
-    event_count: number;
-  };
-}
-
 export interface QueueStatusResponse extends ApiResponse<{
   queue: QueueStatus;
   hamilton: HamiltonStatus;
@@ -448,27 +426,6 @@ export interface ScheduleListProps {
   archivedView?: boolean;
 }
 
-// Constants and validation
-export const SCHEDULING_CONSTANTS = {
-  MIN_ESTIMATED_DURATION: 1, // minutes
-  MAX_ESTIMATED_DURATION: 1440, // 24 hours
-  MIN_INTERVAL_HOURS: 1,
-  MAX_INTERVAL_HOURS: 168, // 1 week
-  MIN_TIMEOUT_MINUTES: 1,
-  MAX_TIMEOUT_MINUTES: 10080, // 7 days
-  CALENDAR_DEFAULT_HOURS_AHEAD: 48,
-  CALENDAR_MAX_HOURS_AHEAD: 168, // 1 week
-  REFRESH_INTERVAL_MS: 30000, // 30 seconds
-  EXPERIMENT_NAME_MAX_LENGTH: 255,
-  EXPERIMENT_PATH_MAX_LENGTH: 500,
-} as const;
-
-export const SCHEDULE_TYPE_OPTIONS = [
-  { value: 'once' as const, label: 'Run Once' },
-  { value: 'interval' as const, label: 'Interval (Hours)' },
-  { value: 'daily' as const, label: 'Daily' },
-  { value: 'weekly' as const, label: 'Weekly' },
-] as const;
 // Utility functions
 export const formatScheduleType = (scheduleType: string, intervalHours?: number): string => {
   switch (scheduleType) {

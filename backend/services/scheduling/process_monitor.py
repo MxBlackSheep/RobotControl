@@ -208,12 +208,13 @@ class HamiltonProcessMonitor:
         while self._monitoring:
             try:
                 # Get current process information
+                inspection_error = None
                 try:
                     processes = self.get_hamilton_processes()
                     is_running = bool(processes)
                     availability = 'busy' if is_running else 'available'
                 except Exception as exc:
-                    logger.error("Cannot inspect Hamilton processes; blocking dispatch: %s", exc)
+                    inspection_error = str(exc)
                     processes = []
                     is_running = True
                     availability = 'error'
@@ -240,7 +241,10 @@ class HamiltonProcessMonitor:
                 
                 # Notify callbacks if status changed
                 if status_changed:
-                    logger.info(f"Hamilton status changed: {availability} ({process_count} processes)")
+                    if inspection_error:
+                        logger.error("Hamilton status changed: error; blocking dispatch: %s", inspection_error)
+                    else:
+                        logger.info("Hamilton status changed: %s (%s processes)", availability, process_count)
                     for callback in self._status_callbacks:
                         try:
                             callback(new_status)

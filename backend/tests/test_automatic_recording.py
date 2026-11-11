@@ -3,10 +3,9 @@
 Failure cases:
 - Disabled automation unexpectedly starts recording.
 - Starting/stopping automation fails to start/stop recording and experiment monitoring.
-- Stop or a manual override during the startup delay still starts recording.
+- Stop during the startup delay still starts recording.
 - Stop returns while the startup thread is still running.
 - A failed camera start leaves a recording camera recorded as active.
-- A manual stop does not stop automation or is not remembered as an override.
 - An error while stopping replaces STOPPING with ERROR.
 """
 
@@ -70,15 +69,6 @@ def test_startup_cancellation_during_delay(mock_config):
     assert service.current_state == AutomationState.STOPPED
 
 
-def test_startup_with_manual_override_during_delay(mock_config):
-    service = AutomaticRecordingService()
-    service.start_automatic_recording()
-    assert service.current_state == AutomationState.STARTING
-    service.manual_override_active = True
-    service.startup_thread.join(timeout=5)
-    assert service.current_state == AutomationState.STOPPED
-
-
 def test_stop_with_startup_thread_running(mock_config):
     service = AutomaticRecordingService()
     service.start_automatic_recording()
@@ -95,18 +85,6 @@ def test_camera_recording_start_service_failure(mock_config, mock_camera_service
         assert service._start_camera_recording(0) is False
         mock_camera_service.start_recording.assert_called_once_with(0)
         assert service.recording_camera_id is None
-
-
-def test_manual_stop_override(mock_config, mock_camera_service):
-    service = AutomaticRecordingService()
-    service.current_state = AutomationState.ACTIVE
-    service.recording_camera_id = 0
-    with patch.object(type(service), 'camera_service', new_callable=PropertyMock, return_value=mock_camera_service):
-        result = service.handle_manual_override("stop")
-    assert result["success"] is True
-    assert result["manual_override"] is True
-    assert service.manual_override_active is True
-    assert service.current_state == AutomationState.STOPPED
 
 
 def test_error_during_stopping_state(mock_config):
@@ -150,10 +128,7 @@ def mock_experiment_monitor():
     mock_monitor.stop_monitoring.return_value = True
     mock_monitor.add_completion_callback = Mock()
 
-    # Mock monitor stats
-    mock_stats = Mock()
-    mock_stats.last_check_time = datetime.now()
-    mock_monitor.get_monitor_stats.return_value = mock_stats
+    mock_monitor.get_last_check_time.return_value = datetime.now()
 
     return mock_monitor
 
@@ -190,7 +165,6 @@ def test_complete_startup_workflow(mock_config, mock_camera_service, mock_storag
                     # Verify final state
                     assert service.current_state == AutomationState.ACTIVE
                     assert service.recording_camera_id == 0
-                    assert service.manual_override_active is False
 
                     # Verify all services were called correctly
                     mock_camera_service.detect_cameras.assert_called()
@@ -215,12 +189,11 @@ def test_complete_shutdown_workflow(mock_config, mock_camera_service, mock_stora
     with patch.object(type(service), 'camera_service', new_callable=PropertyMock, return_value=mock_camera_service):
         with patch.object(type(service), 'experiment_monitor', new_callable=PropertyMock, return_value=mock_experiment_monitor):
 
-            success = service.stop_automatic_recording(manual_stop=True)
+            success = service.stop_automatic_recording()
 
             assert success is True
             assert service.current_state == AutomationState.STOPPED
             assert service.recording_camera_id is None
-            assert service.manual_override_active is True
 
             # Verify cleanup
             mock_camera_service.stop_recording.assert_called_with(0)

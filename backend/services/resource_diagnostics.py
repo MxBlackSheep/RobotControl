@@ -18,7 +18,7 @@ def runtime_counts():
     counts = {"python_threads": threading.active_count()}
     targets = (
         ("backend.services.live_streaming", "_service_instance", "streaming", ("sessions", "sessions_by_user")),
-        ("backend.services.shared_frame_buffer", "_shared_buffer_instance", "frames", ("buffer", "streaming_callbacks")),
+        ("backend.services.shared_frame_buffer", "_shared_buffer_instance", "frames", ("buffer",)),
         ("backend.services.database", "_service_instance", "database", ("_table_columns_cache",)),
         ("backend.services.embedded_resources", "_resource_manager", "static", ("_cache",)),
     )

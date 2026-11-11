@@ -109,7 +109,7 @@ its SHA-256 and is not committed.
 Start the backend, which also serves the built frontend:
 
 ```powershell
-uv run --locked python backend/main.py --host 127.0.0.1 --port 8005 --no-browser
+uv run --locked python backend/main.py --host 127.0.0.1 --port 8005
 ```
 
 Then open <http://127.0.0.1:8005>. For frontend work with hot reload, run

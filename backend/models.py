@@ -16,23 +16,6 @@ from backend.utils.datetime import (
 
 
 @dataclass
-class UserModel:
-    """User model for API authentication"""
-    user_id: str
-    username: str
-    role: str
-    is_active: bool = True
-    
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "user_id": self.user_id,
-            "username": self.username,
-            "role": self.role,
-            "is_active": self.is_active
-        }
-
-
-@dataclass
 class ApiResponse:
     """Standardized API response format"""
     success: bool
@@ -50,27 +33,6 @@ class ApiResponse:
         if self.metadata is not None:
             response["metadata"] = self.metadata
         return response
-
-
-@dataclass 
-class CameraRecordingModel:
-    """Camera recording model"""
-    camera_id: int
-    filename: str
-    timestamp: datetime
-    duration_seconds: int
-    file_size_bytes: int
-    recording_type: str  # 'rolling', 'experiment', 'manual'
-    
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "camera_id": self.camera_id,
-            "filename": self.filename,
-            "timestamp": self.timestamp.isoformat(),
-            "duration_seconds": self.duration_seconds,
-            "file_size_bytes": self.file_size_bytes,
-            "recording_type": self.recording_type
-        }
 
 
 @dataclass

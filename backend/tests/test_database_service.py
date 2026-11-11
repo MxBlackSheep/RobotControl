@@ -35,7 +35,6 @@ def test_primary_connection_is_closed(sql):
         "DATABASE=test-database;Trusted_Connection=yes", timeout=3,
     )
     connection.close.assert_called_once()
-    assert service.get_pool_stats()["active_mode"] == "primary"
 
 
 def test_connection_is_closed_when_query_fails(sql):
@@ -54,7 +53,6 @@ def test_connection_failure_has_no_fallback_or_mock_data(sql):
             pytest.fail("A failed connection must not yield")
     connect.assert_called_once()
     assert service.get_tables() == []
-    assert service.perform_health_check() is False
     status = service.get_status()
     assert status.is_connected is False
     assert status.mode == "unavailable"
@@ -81,12 +79,10 @@ def test_table_metadata(sql, monkeypatch):
     ]
 
 
-@pytest.mark.parametrize("supports_offset", [True, False])
-def test_pagination_filters_and_result_shape(sql, supports_offset, monkeypatch):
+def test_pagination_filters_and_result_shape(sql, monkeypatch):
     service, _, _, cursor = sql
     monkeypatch.setattr(service, "_get_browse_metadata", lambda *args: (["id", "name", "created"], ["id"]))
     service._table_columns_cache["experiments"] = ["id", "name", "created"]
-    service._supports_offset_fetch = supports_offset
     cursor.description = [("id",), ("name",), ("created",)]
     cursor.fetchall.return_value = [(7, "Sample", datetime(2026, 9, 12, 10, 30))]
     cursor.fetchone.return_value = (12,)
@@ -97,12 +93,8 @@ def test_pagination_filters_and_result_shape(sql, supports_offset, monkeypatch):
     query, params = cursor.execute.call_args_list[0].args
     assert "[name]) LIKE ?" in query
     assert "unknown" not in query
-    if supports_offset:
-        assert "OFFSET ? ROWS FETCH NEXT ? ROWS ONLY" in query
-        assert params == ("%Sample%", 5, 5)
-    else:
-        assert "ROW_NUMBER()" in query
-        assert params == ("%Sample%", 6, 10)
+    assert "ROW_NUMBER()" in query
+    assert params == ("%Sample%", 6, 10)
     assert result.columns == ["id", "name", "created"]
     assert result.rows == [{"id": 7, "name": "Sample", "created": "2026-09-12T10:30:00"}]
     assert (result.total_count, result.limit, result.offset) == (12, 5, 5)
@@ -129,11 +121,9 @@ def test_query_parameters_and_dates(sql):
     connection.close.assert_called_once()
 
 
-@pytest.mark.parametrize("supports_offset", [True, False])
-def test_browse_search_sort_and_count_share_predicates(sql, monkeypatch, supports_offset):
+def test_browse_search_sort_and_count_share_predicates(sql, monkeypatch):
     service, _, connection, cursor = sql
     service._table_columns_cache["samples"] = ["id", "name", "binary"]
-    service._supports_offset_fetch = supports_offset
     monkeypatch.setattr(service, "_get_browse_metadata", lambda *args: (["id", "name"], ["id"]))
     cursor.description = [("id",), ("name",), ("binary",)]
     cursor.fetchall.return_value = []

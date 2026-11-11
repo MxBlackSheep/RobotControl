@@ -5,12 +5,11 @@ RobotControl Monitoring API
 Monitoring endpoints for system status and experiments
 """
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends
 import logging
 import time
 
 from backend.services.auth import get_current_user
-from backend.services.monitoring import get_monitoring_service
 from backend.services.database import get_database_service
 from backend.services.experiment_monitor import get_experiment_monitor
 from backend.constants import HAMILTON_STATE_MAPPING
@@ -21,29 +20,6 @@ from backend.api.response_formatter import ResponseFormatter, ResponseMetadata
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-@router.get("/status")
-async def get_monitoring_status(current_user: dict = Depends(get_current_user)):
-    """Get monitoring service status and statistics"""
-    start_time = time.time()
-    
-    try:
-        monitoring_service = get_monitoring_service()
-        stats = monitoring_service.get_monitoring_stats()
-        
-        # Create metadata
-        metadata = ResponseMetadata()
-        metadata.set_execution_time(start_time)
-        metadata.add_metadata("operation", "monitoring_status")
-        metadata.add_metadata("user_id", current_user.get("user_id"))
-        
-        return ResponseFormatter.success(data=stats, metadata=metadata)
-        
-    except Exception as e:
-        logger.error(f"Error getting monitoring status: {e}")
-        return ResponseFormatter.server_error(
-            message="Error retrieving monitoring status",
-            details=str(e)
-        )
 
 @router.get("/databases")
 def get_database_connections(current_user: dict = Depends(get_current_user)):
@@ -168,102 +144,3 @@ async def get_system_health(current_user: dict = Depends(get_current_user)):
             message="Error retrieving system health",
             details=str(e)
         )
-
-@router.post("/start")
-async def start_monitoring(current_user: dict = Depends(get_current_user)):
-    """Start the monitoring service (admin only)"""
-    start_time = time.time()
-    
-    try:
-        if current_user.get("role") != "admin":
-            return ResponseFormatter.forbidden(
-                message="Admin access required",
-                details="Only admin users can start monitoring service"
-            )
-        
-        monitoring_service = get_monitoring_service()
-        
-        if monitoring_service.is_running:
-            metadata = ResponseMetadata()
-            metadata.set_execution_time(start_time)
-            metadata.add_metadata("operation", "start_monitoring")
-            metadata.add_metadata("user_id", current_user.get("user_id"))
-            metadata.add_metadata("was_already_running", True)
-            
-            return ResponseFormatter.success(
-                data={"status": "already_running"},
-                metadata=metadata,
-                message="Monitoring service is already running"
-            )
-        
-        monitoring_service.start_monitoring()
-        
-        # Create metadata
-        metadata = ResponseMetadata()
-        metadata.set_execution_time(start_time)
-        metadata.add_metadata("operation", "start_monitoring")
-        metadata.add_metadata("user_id", current_user.get("user_id"))
-        metadata.add_metadata("service_started", True)
-        
-        return ResponseFormatter.success(
-            data={"status": "started"},
-            metadata=metadata,
-            message="Monitoring service started successfully"
-        )
-        
-    except Exception as e:
-        logger.error(f"Error starting monitoring: {e}")
-        return ResponseFormatter.server_error(
-            message="Error starting monitoring service",
-            details=str(e)
-        )
-
-@router.post("/stop")
-async def stop_monitoring(current_user: dict = Depends(get_current_user)):
-    """Stop the monitoring service (admin only)"""
-    start_time = time.time()
-    
-    try:
-        if current_user.get("role") != "admin":
-            return ResponseFormatter.forbidden(
-                message="Admin access required",
-                details="Only admin users can stop monitoring service"
-            )
-        
-        monitoring_service = get_monitoring_service()
-        
-        if not monitoring_service.is_running:
-            metadata = ResponseMetadata()
-            metadata.set_execution_time(start_time)
-            metadata.add_metadata("operation", "stop_monitoring")
-            metadata.add_metadata("user_id", current_user.get("user_id"))
-            metadata.add_metadata("was_already_stopped", True)
-            
-            return ResponseFormatter.success(
-                data={"status": "already_stopped"},
-                metadata=metadata,
-                message="Monitoring service is already stopped"
-            )
-        
-        monitoring_service.stop_monitoring()
-        
-        # Create metadata
-        metadata = ResponseMetadata()
-        metadata.set_execution_time(start_time)
-        metadata.add_metadata("operation", "stop_monitoring")
-        metadata.add_metadata("user_id", current_user.get("user_id"))
-        metadata.add_metadata("service_stopped", True)
-        
-        return ResponseFormatter.success(
-            data={"status": "stopped"},
-            metadata=metadata,
-            message="Monitoring service stopped successfully"
-        )
-        
-    except Exception as e:
-        logger.error(f"Error stopping monitoring: {e}")
-        return ResponseFormatter.server_error(
-            message="Error stopping monitoring service",
-            details=str(e)
-        )
-

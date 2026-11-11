@@ -8,11 +8,9 @@ import {
   ScheduleListResponse,
   ScheduleCreateResponse,
   ScheduleResponse,
-  CalendarDataResponse,
   QueueStatusResponse,
   SchedulerServiceResponse,
   ScheduledExperiment,
-  CalendarEvent,
   QueueStatus,
   HamiltonStatus,
   ManualRecoveryState,
@@ -183,25 +181,6 @@ const normalizeNotificationLog = (payload: any): NotificationLogEntry => ({
       : null,
 });
 
-const normalizeCalendarEvents = (payload: unknown): CalendarEvent[] => {
-  if (!Array.isArray(payload)) {
-    return [];
-  }
-  return payload.map((event) => ({
-    event_id: coerceString(event?.event_id ?? event?.id),
-    schedule_id: coerceString(event?.schedule_id ?? event?.id),
-    title: coerceString(event?.title ?? event?.experiment_name),
-    description: coerceString(event?.description ?? ''),
-    start_time: coerceString(event?.start_time ?? event?.start),
-    end_time: coerceString(event?.end_time ?? event?.end),
-    event_type: coerceString(event?.event_type ?? 'scheduled') as CalendarEvent['event_type'],
-    experiment_name: coerceString(event?.experiment_name ?? event?.title),
-    estimated_duration: coerceNumber(event?.estimated_duration, 0),
-    status: coerceString(event?.status ?? 'scheduled'),
-    created_by: coerceString(event?.created_by ?? 'system'),
-  }));
-};
-
 const normalizeQueueStatus = (payload: unknown): { queue?: QueueStatus; hamilton?: HamiltonStatus; manual_recovery?: ManualRecoveryState | null } => {
   if (!payload || typeof payload !== 'object') {
     return {};
@@ -260,23 +239,12 @@ export const schedulingAPI = {
   archiveSchedule: (scheduleId: string, archived: boolean, expectedUpdatedAt?: string) =>
     api.post<ScheduleResponse>(`/api/scheduling/${scheduleId}/archive`, { archived, expected_updated_at: expectedUpdatedAt }),
 
-  getCalendarData: (startDate?: string, endDate?: string) =>
-    api.get<CalendarDataResponse>(
-      '/api/scheduling/calendar',
-      {
-        params: {
-          ...(startDate ? { start_date: startDate } : {}),
-          ...(endDate ? { end_date: endDate } : {}),
-        },
-      },
-    ),
-
   getQueueStatus: () => coalesceRead(`queue:${localStorage.getItem('access_token')}`, () => api.get<QueueStatusResponse>('/api/scheduling/status/queue')),
 
   getSchedulerStatus: () => coalesceRead(`scheduler:${localStorage.getItem('access_token')}`, () => api.get<SchedulerServiceResponse>('/api/scheduling/status/scheduler')),
 
-  getAvailableExperiments: (rescan = false) =>
-    api.get('/api/scheduling/experiments/available', { params: { rescan } }),
+  getAvailableExperiments: () =>
+    api.get('/api/scheduling/experiments/available'),
 
   previewExperimentImport: (selection: MethodImportSelection) =>
     api.post<ApiResponse<MethodImportPreview>>('/api/scheduling/experiments/import-preview', selection, { timeout: 60000 }),
@@ -547,24 +515,6 @@ export const schedulingService = {
       return { logs };
     } catch (error) {
       return { logs: [], error: parseAPIError(error) };
-    }
-  },
-
-  async getCalendarData(
-    startDate?: Date,
-    endDate?: Date,
-  ): Promise<{ events: CalendarEvent[]; error?: string }> {
-    try {
-      const { data } = await schedulingAPI.getCalendarData(
-        startDate ? startDate.toISOString() : undefined,
-        endDate ? endDate.toISOString() : undefined,
-      );
-      if (!data.success) {
-        return { events: [], error: data.message || 'Failed to load calendar' };
-      }
-      return { events: normalizeCalendarEvents(data.data) };
-    } catch (error) {
-      return { events: [], error: parseAPIError(error) };
     }
   },
 

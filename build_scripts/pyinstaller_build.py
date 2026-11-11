@@ -143,8 +143,6 @@ def build_with_pyinstaller(layout: str = "onedir", console: bool = False, output
         "--hidden-import", "backend.main",
         "--hidden-import", "backend.embedded_static",
         "--hidden-import", "backend.services.embedded_resources", 
-        "--hidden-import", "backend.utils.browser_launcher",
-        "--hidden-import", "backend.utils.path_resolver",
         "--hidden-import", "backend.api.database",
         "--hidden-import", "backend.api.auth",
         "--hidden-import", "backend.api.admin",
@@ -153,7 +151,6 @@ def build_with_pyinstaller(layout: str = "onedir", console: bool = False, output
         "--hidden-import", "backend.api.backup",
         "--hidden-import", "backend.services.database",
         "--hidden-import", "backend.services.auth",
-        "--hidden-import", "backend.services.monitoring",
         
         # Include passlib handlers
         "--hidden-import", "passlib.handlers.bcrypt",

@@ -17,8 +17,6 @@ from backend.services.scheduling.sqlite_database import SQLiteSchedulingDatabase
 def service(tmp_path):
     instance = ExperimentDiscoveryService.__new__(ExperimentDiscoveryService)
     instance.db = SQLiteSchedulingDatabase(str(tmp_path / 'catalogue.db'))
-    instance.discovered_experiments = []
-    instance._last_scan = None
     return instance
 
 

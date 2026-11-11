@@ -8,8 +8,6 @@ class WorkspaceDatabase(DatabaseService):
         super().__init__()
         self.sources = sources
         self.source = source
-        # ROW_NUMBER works on every supported SQL Server, including 2008.
-        self._supports_offset_fetch = False
         self._tables = {}
 
     @contextmanager
@@ -21,7 +19,7 @@ class WorkspaceDatabase(DatabaseService):
     def qualified(schema, name):
         return '[' + schema.replace(']', ']]') + '].[' + name.replace(']', ']]') + ']'
 
-    def get_tables(self, use_cache=True):
+    def get_tables(self):
         with self.get_connection() as conn, conn.cursor() as cursor:
             rows = cursor.execute("SELECT TABLE_SCHEMA, TABLE_NAME FROM INFORMATION_SCHEMA.TABLES ORDER BY TABLE_SCHEMA, TABLE_NAME").fetchall()
         self._tables = {self.qualified(s, n): (s, n) for s, n in rows}
@@ -58,5 +56,5 @@ class WorkspaceDatabase(DatabaseService):
                 WHERE i.object_id=OBJECT_ID(?) AND i.is_primary_key=1 AND ic.key_ordinal>0 ORDER BY ic.key_ordinal''', table_name).fetchall()
         return searchable, [r[0] for r in keys]
 
-    def get_stored_procedures(self, use_cache=True):
-        return super().get_stored_procedures(use_cache, qualified=True)
+    def get_stored_procedures(self):
+        return super().get_stored_procedures(qualified=True)

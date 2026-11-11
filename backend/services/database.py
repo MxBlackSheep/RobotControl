@@ -66,8 +66,6 @@ class DatabaseService:
         self._query_count = 0
         self._total_execution_time_ms = 0.0
         self._last_error: Optional[str] = None
-        self._supports_offset_fetch: Optional[bool] = None
-        self._server_major_version: Optional[int] = None
         self._table_columns_cache: Dict[str, List[str]] = {}
         self._initialized = True
 
@@ -90,23 +88,6 @@ class DatabaseService:
         self._last_error = None
         return conn, "primary"
 
-    def _ensure_capabilities(self, conn) -> None:
-        """Populate feature flags based on SQL Server version."""
-        if self._supports_offset_fetch is not None:
-            return
-        try:
-            cursor = conn.cursor()
-            cursor.execute("SELECT CAST(SERVERPROPERTY('ProductMajorVersion') AS INT)")
-            row = cursor.fetchone()
-            cursor.close()
-            if row and row[0] is not None:
-                self._server_major_version = int(row[0])
-                self._supports_offset_fetch = self._server_major_version >= 11
-            else:
-                self._supports_offset_fetch = True
-        except Exception as exc:
-            logger.warning("Database capability check failed, assuming OFFSET support: %s", exc)
-            self._supports_offset_fetch = True
 
     @contextmanager
     def get_connection(self):
@@ -152,24 +133,9 @@ class DatabaseService:
                 error_message=str(exc),
             )
 
-    def perform_health_check(self) -> bool:
-        try:
-            with self.get_connection():
-                return True
-        except DatabaseConnectionError:
-            return False
 
-    def clear_connection_pool(self) -> None:
-        """Compatibility shim - pyodbc pooling is managed globally."""
         # Nothing required for the lightweight service.
 
-    def get_pool_stats(self) -> Dict[str, Any]:
-        """Return minimal pool information for compatibility with legacy callers."""
-        return {
-            "active_mode": self._active_mode or "uninitialised",
-            "query_count": self._query_count,
-            "last_error": self._last_error,
-        }
 
     # ------------------------------------------------------------------
     # Query helpers
@@ -188,7 +154,7 @@ class DatabaseService:
                 formatted[column] = value
         return formatted
 
-    def get_tables(self, use_cache: bool = True) -> List[Dict[str, Any]]:  # pragma: no cover - simple passthrough
+    def get_tables(self) -> List[Dict[str, Any]]:  # pragma: no cover - simple passthrough
         tables: List[Dict[str, Any]] = []
         try:
             with self.get_connection() as conn:
@@ -277,7 +243,7 @@ class DatabaseService:
         offset: int,
         limit: int,
     ) -> Tuple[List[str], List[Dict[str, Any]]]:
-        """Execute ROW_NUMBER pagination for servers without OFFSET support."""
+        """Execute stable ROW_NUMBER pagination."""
         safe_table = self._quote_table(table_name)
         start_row = max(1, offset + 1)
         page_size = max(1, limit)
@@ -308,7 +274,6 @@ class DatabaseService:
         offset: int = 0,
         order_by: Optional[str] = None,
         filters: Optional[Dict[str, Any]] = None,
-        use_cache: bool = True,
         search: Optional[str] = None,
         sort_direction: str = "asc",
     ) -> QueryResult:
@@ -388,63 +353,14 @@ class DatabaseService:
             first = order_by or next(iter(unique_key), columns_info[0])
             order_columns = [first] + [col for col in unique_key if col != first and col in columns_info]
             order_expression = ", ".join(f"{quote(col)} {sort_direction.upper()}" for col in order_columns)
-            order_clause = f"ORDER BY {order_expression}"
 
             page_size = limit if isinstance(limit, int) and limit > 0 else 100
 
-            self._ensure_capabilities(conn)
-
             select_columns = ", ".join(f"{quote(col)}" for col in columns_info)
-            supports_offset = self._supports_offset_fetch is not False
-            page_cursor = cursor
-
-            columns: List[str] = []
-            rows: List[Dict[str, Any]] = []
-
-            if supports_offset:
-                try:
-                    query = (
-                        f"SELECT {select_columns} FROM {self._quote_table(table_name)} {where_sql} {order_clause} "
-                        f"OFFSET ? ROWS FETCH NEXT ? ROWS ONLY"
-                    )
-                    page_cursor.execute(query, (*params, offset, page_size))
-                    columns = [column[0] for column in page_cursor.description]
-                    rows = [self._format_row(columns, row) for row in page_cursor.fetchall()]
-                except pyodbc.Error as exc:
-                    message = str(exc).lower()
-                    if "offset" in message and "fetch" in message:
-                        logger.warning(
-                            "Database server lacks OFFSET/FETCH support; using ROW_NUMBER pagination instead."
-                        )
-                        self._supports_offset_fetch = False
-                        page_cursor.close()
-                        page_cursor = conn.cursor()
-                        columns, rows = self._execute_row_number_pagination(
-                            page_cursor,
-                            table_name,
-                            select_columns,
-                            where_sql,
-                            params,
-                            order_expression,
-                            offset,
-                            page_size,
-                        )
-                    else:
-                        raise
-
-            if not supports_offset:
-                columns, rows = self._execute_row_number_pagination(
-                    page_cursor,
-                    table_name,
-                    select_columns,
-                    where_sql,
-                    params,
-                    order_expression,
-                    offset,
-                    page_size,
-                )
-
-            cursor = page_cursor
+            columns, rows = self._execute_row_number_pagination(
+                cursor, table_name, select_columns, where_sql, params,
+                order_expression, offset, page_size,
+            )
 
             if where_clauses:
                 count_query = f"SELECT COUNT(*) FROM {self._quote_table(table_name)} {where_sql}"
@@ -492,9 +408,6 @@ class DatabaseService:
             "execution_time_ms": round(duration_ms, 2),
         }
 
-    def clear_cache(self, pattern: Optional[str] = None) -> int:
-        """Compatibility shim - caching removed, so nothing to clear."""
-        return 0
 
     def get_performance_stats(self) -> Dict[str, Any]:
         average = (self._total_execution_time_ms / self._query_count) if self._query_count else 0.0
@@ -507,7 +420,7 @@ class DatabaseService:
             "last_error": self._last_error,
         }
 
-    def get_stored_procedures(self, use_cache: bool = True, qualified: bool = False) -> Dict[str, List[Dict[str, Any]]]:
+    def get_stored_procedures(self, qualified: bool = False) -> Dict[str, List[Dict[str, Any]]]:
         procedures: List[Dict[str, Any]] = []
         functions: List[Dict[str, Any]] = []
         try:
@@ -578,4 +491,3 @@ def get_database_service() -> DatabaseService:
     if _service_instance is None:
         _service_instance = DatabaseService()
     return _service_instance
-

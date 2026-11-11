@@ -8,8 +8,8 @@ Use this document whenever you need to touch real-time monitoring, experiment tr
 
 ## 1. High-Level Architecture
 
-- `backend/services/monitoring.py`  
-  `MonitoringService` runs the background loop and holds cached telemetry for the REST endpoints.
+- `backend/services/health_sampler.py`
+  `health_sampler` owns the five-second PC sample used by the display endpoints.
 
 - `backend/services/experiment_monitor.py`  
   `ExperimentMonitor` polls the Hamilton database, normalises run states, and fires callbacks when runs complete (e.g., to trigger video archiving).
@@ -18,7 +18,7 @@ Use this document whenever you need to touch real-time monitoring, experiment tr
   Email delivery helpers: `EmailNotificationService` (SMTP client) and `SchedulingNotificationService` (formats schedule alerts, manual recovery emails, TRC attachments).
 
 - `backend/api/monitoring.py`  
-  REST endpoints. Wraps the services in `ResponseFormatter`, enforces auth, and exposes `/status`, `/system-health`, `/databases`, `/experiments`, `/start` and `/stop`.
+  REST endpoints. Wraps the services in `ResponseFormatter`, enforces auth, and exposes `/system-health`, `/databases` and `/experiments`.
   `/databases` reports the built-in connection's `get_status` and `DatabaseTools.connection_health`:
   every saved connection opened as its users open it (a reader's read-only check included),
   in parallel, with its uses. A result under 90 seconds old (`HEALTH_STALE_SECONDS`) returns
@@ -36,20 +36,16 @@ Use this document whenever you need to touch real-time monitoring, experiment tr
 
 SQL status calls and blocking Database/Experiments API calls run in Starlette's bounded worker pool. These display paths never cache scheduler dispatch decisions or Hamilton terminal state.
 
-**Rule of thumb:** Let the service singletons (`get_monitoring_service()`, `get_experiment_monitor()`) own their threads. Do not start extra loops somewhere else, or you will double-poll the database and spam clients.
+**Rule of thumb:** Let the service singletons (`health_sampler`, `get_experiment_monitor()`) own their threads. Do not start extra loops somewhere else, or you will double-poll the database and spam clients.
 
 ---
 
 ## 2. Monitoring Lifecycle Cheat Sheet
 
-1. **Start**: `/api/monitoring/start` (admin) or application startup calls `MonitoringService.start_monitoring()`.
-
-2. **Background loop** (`MonitoringService._monitoring_loop`) runs every 5 seconds:  
-   - `_update_experiment_data()` pulls the latest experiment from `ExperimentMonitor`.  
-   - `_update_system_health()` takes the latest CPU/memory/disk sample from `health_sampler`, which owns one five-second sampler started and stopped with the application. `/system-health` includes `sampled_at` (the frontend shows sample time, not request time); the first CPU sample is a warm-up value. `robotcontrol_cpu_percent` is the CPU of RobotControl's process tree as % of the machine over the same window, null until known (performance guide: why this differs from Task Manager).  
-   - `_update_db_performance()` calls `get_database_service().get_performance_stats()`.
-
-3. **Cached snapshots** live in `MonitoringService.last_experiment_data`, `last_system_health`, `last_db_performance`. These keep REST endpoints fast.
+1. **PC samples**: application lifespan starts and stops `health_sampler`. The API reads its
+   snapshot; `sampled_at` is the sample time. The first CPU sample is a warm-up value.
+2. **Experiment monitoring**: automatic recording starts the experiment monitor and registers
+   its completion callback. The monitor retains its current experiment and synchronized last-check time.
 
 4. **Experiment monitor thread**  
    - `_monitoring_worker` polls SQL (`SELECT TOP 1 … FROM HamiltonVectorDB.dbo.HxRun`).  
@@ -77,7 +73,6 @@ SQL status calls and blocking Database/Experiments API calls run in Starlette's 
   Holds SMTP host, port, TLS/SSL flags, encrypted password. Loaded lazily inside `EmailNotificationService`.
 
 - Environment toggles:  
-  - `ROBOTCONTROL_LOG_RATE_LIMIT_MONITORING`, `ROBOTCONTROL_LOG_RATE_LIMIT_AUTOMATION` – reduce log noise for busy loops.  
   - `AUTO_RECORDING_CONFIG["experiment_check_interval_seconds"]` – tune poll interval for `ExperimentMonitor`.  
   - SMTP settings (set via scheduling admin UI or DB entries).
 
@@ -85,9 +80,9 @@ SQL status calls and blocking Database/Experiments API calls run in Starlette's 
 
 ## 4. REST Responses
 
-1. **Keep them cheap** – use cached data from `MonitoringService` and `health_sampler` so `/system-health` does not sample `psutil` per request.
+1. **Keep them cheap** – use the current experiment and the `health_sampler` snapshot so `/system-health` does not sample `psutil` per request.
 2. **Frontend expectations** – `useMonitoring` normalises `/experiments` and `/system-health`. If you rename fields, update its normaliser to avoid `undefined` values on the System Status page.
-3. **Authentication** – every endpoint requires a Bearer token (`get_current_user`); start/stop require an admin.
+3. **Authentication** – every endpoint requires a Bearer token (`get_current_user`).
 
 ---
 
@@ -96,7 +91,7 @@ SQL status calls and blocking Database/Experiments API calls run in Starlette's 
 | Task | Where | Step-by-step |
 |------|-------|--------------|
 | Adjust polling interval | `ExperimentMonitor.__init__` or `AUTO_RECORDING_CONFIG` | Change `experiment_check_interval_seconds`, restart backend, confirm logs show the new interval. |
-| Add a metric to `/system-health` | `_update_system_health` & `MonitoringService.last_system_health` | Compute metric, store in `last_system_health`, and return it in `/api/monitoring/system-health`. Update dashboard labels. |
+| Add a metric to `/system-health` | `HealthSampler` and its snapshot | Compute the metric in the sampler, and return it in `/api/monitoring/system-health`. Update dashboard labels. |
 | Enable email alerts | `NotificationSettings` table | Populate SMTP host/port/sender/password (UI or SQL). Ensure `EmailNotificationService` logs “Sent email notification…” to confirm. |
 | Attach extra files to schedule alert | `SchedulingNotificationService.schedule_alert` | Append to `attachments`, respect size guard (`GMAIL_MESSAGE_SIZE_LIMIT`) to avoid dropped emails. |
 
@@ -105,8 +100,8 @@ SQL status calls and blocking Database/Experiments API calls run in Starlette's 
 ## 6. Extension Points & Safe Modifications
 
 ### 6.1 Adding a new system metric (example: GPU usage)
-1. Extend `_update_system_health()` with your metric (e.g., call `gpustat`).  
-2. Include it in `last_system_health`.  
+1. Extend `HealthSampler` with your metric (e.g., call `gpustat`).
+2. Include it in the sampler snapshot.
 3. Return the field in `/api/monitoring/system-health`.  
 4. Update the frontend dashboard to render it (chip or chart).
 
@@ -123,16 +118,12 @@ SQL status calls and blocking Database/Experiments API calls run in Starlette's 
 2. Keep plain text—HTML emails or embedded images require MIME tweaks.  
 3. Update `attachment_notes` if you change how TRC/clip files are attached so recipients understand the payload.
 
-### 6.4 Pausing the monitoring loop manually
-Call `get_monitoring_service().stop_monitoring()` (REST `/api/monitoring/stop` does the same). This is useful during heavy debugging so you control when polling happens.
-
 ---
 
 ## 7. Quick Reference
 
 | Function / Method | Purpose | Notes |
 |-------------------|---------|-------|
-| `MonitoringService.start_monitoring()` | Launch background thread | Safe to call multiple times; no-op if already running. |
 | `ExperimentMonitor.start_monitoring()` | Begin polling Hamilton DB | Thread-safe; sets up `stop_event` and `monitor_thread`. |
 | `ExperimentMonitor.add_completion_callback(fn)` | Register completion handler | Use for archiving triggers or alerts. |
 | `SchedulingNotificationService.schedule_alert(...)` | Send email with optional TRC/video attachments | Returns `ScheduleAlertResult` for logging/inspection. |
@@ -144,11 +135,11 @@ Call `get_monitoring_service().stop_monitoring()` (REST `/api/monitoring/stop` d
 
 1. **System Status shows no data or "Stale data"**  
    - "Request timed out" means a response took over 20 seconds; check network path and backend responsiveness.  
-   - Call `/api/monitoring/status` to ensure `is_running` is `True`. If `False`, start it with `/api/monitoring/start` (admin token required).
+   - Inspect the retained endpoint response and application logs for database or sampler failures.
 
 2. **CPU usage spike from monitoring**  
-   - Reduce `MonitoringService.monitor_interval` or skip `psutil.cpu_percent(interval=1)` (replace with `interval=0` for instantaneous reading).  
-   - Ensure you do not create extra monitor threads—`logger` should only show “Monitoring service started” once per process.
+   - Check the shared sampler; display requests must not start another CPU sample.
+   - Keep one PC sampler and one experiment monitor; their owners manage startup and shutdown.
 
 3. **Experiment states never change**  
    - Verify database connection: `ExperimentMonitor._query_latest_experiment` logs errors. If `execute_query` returns `error`, check SQL Server availability.  
