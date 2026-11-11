@@ -152,9 +152,9 @@ def setup_logging(
     console_handler = ImmediateFlushStreamHandler()
     console_handler_level = console_level if console_level is not None else log_level
     console_handler.setLevel(console_handler_level)
-    console_handler.setFormatter(logging.Formatter(DEFAULT_FORMAT))
+    console_handler.setFormatter(logging.Formatter(DEFAULT_FORMAT, defaults={"run_tag": ""}))
 
-    formatter = logging.Formatter(DEFAULT_FORMAT)
+    formatter = logging.Formatter(DEFAULT_FORMAT, defaults={"run_tag": ""})
 
     app_handler = ImmediateGZipTimedRotatingFileHandler(
         filename=str(logs_dir / "robotcontrol_backend.log"),

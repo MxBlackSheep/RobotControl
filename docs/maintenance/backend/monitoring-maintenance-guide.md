@@ -44,19 +44,18 @@ SQL status calls and blocking Database/Experiments API calls run in Starlette's 
 
 1. **PC samples**: application lifespan starts and stops `health_sampler`. The API reads its
    snapshot; `sampled_at` is the sample time. The first CPU sample is a warm-up value.
-2. **Experiment monitoring**: automatic recording starts the experiment monitor and registers
-   its completion callback. The monitor retains its current experiment and synchronized last-check time.
-
-4. **Experiment monitor thread**  
+2. **Experiment monitor thread**  
+   - Automatic recording starts the monitor and registers its completion callback. The monitor keeps its current
+     experiment and the time of its last check.  
    - `_monitoring_worker` polls SQL (`SELECT TOP 1 … FROM HamiltonVectorDB.dbo.HxRun`).  
    - `ExperimentState` is created, state transitions detected, and `is_newly_completed` set when a run goes to `COMPLETE`/`ABORTED`.  
    - Completion callbacks (e.g., auto-recording archiver) run outside locks.
 
-5. **Notifications**  
+3. **Notifications**  
    - Scheduler paths call `SchedulingNotificationService.schedule_alert` and manual recovery helpers.  
    - `EmailNotificationService.send` handles SMTP auth, retries, attachment size limits, and reports errors via logs.
 
-6. **Frontend**  
+4. **Frontend**  
    - `useMonitoring` polls every 60 seconds (30 seconds after a failure). A request that has not answered within 20 seconds is aborted and shown as "Request timed out"; the last reading is kept. See `docs/maintenance/frontend/polling-maintenance-guide.md`.
 
 ---

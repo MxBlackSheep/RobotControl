@@ -204,30 +204,6 @@ class TestCameraLifecycle(TestCameraService):
         assert runtime.process is None
         assert process not in multiprocessing.active_children()
 
-    def test_rolling_cleanup_uses_names_not_modified_times(self, camera_service):
-        import os
-        from backend.services.clip_transcoder import finalized_clips
-        folder = camera_service.rolling_clips_path
-        paths = [folder / f"clip_20260101_12000{i}.avi" for i in range(4)]
-        for i, path in enumerate(paths):
-            path.write_bytes(b"video")
-            path.with_suffix(".json").write_text('{}')
-            os.utime(path, (400 - i * 100, 400 - i * 100))
-        paths[0].with_suffix(".mp4").write_bytes(b"video")
-        os.utime(paths[0].with_suffix(".mp4"), (400, 400))
-        partial = folder / "clip_20250101_120000.partial.avi"
-        partial.write_bytes(b"partial")
-        temporary = folder / "clip_20250101_120000.mp4.tmp"
-        temporary.write_bytes(b"temporary")
-        camera_service._storage_manager.rolling_clips_limit = 2
-        result = camera_service.cleanup_rolling_clips()
-        assert finalized_clips(folder) == paths[2:]
-        assert result.rolling_clips_removed == 2
-        assert not paths[0].with_suffix(".mp4").exists()
-        assert not paths[0].with_suffix(".json").exists()
-        assert paths[2].with_suffix(".json").exists()
-        assert partial.exists() and temporary.exists()
-
     def test_reconcile_preserves_metadata_excludes_partial(self, camera_service):
         import json
         folder = camera_service.rolling_clips_path

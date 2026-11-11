@@ -109,17 +109,6 @@ def _env_flag(name: str, default: str = "0") -> bool:
     return value.lower() in {"1", "true", "yes", "on"}
 
 
-def _env_int(name: str, default: int) -> int:
-    raw = os.getenv(name)
-    if not raw:
-        return default
-    try:
-        parsed = int(raw)
-        return parsed if parsed > 0 else default
-    except ValueError:
-        return default
-
-
 def _env_scheduler_autostart_delay(name: str, default: int) -> Optional[int]:
     """Parse scheduler auto-start delay from environment."""
     raw = os.getenv(name)

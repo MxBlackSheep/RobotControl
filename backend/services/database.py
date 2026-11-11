@@ -134,9 +134,6 @@ class DatabaseService:
             )
 
 
-        # Nothing required for the lightweight service.
-
-
     # ------------------------------------------------------------------
     # Query helpers
     # ------------------------------------------------------------------
