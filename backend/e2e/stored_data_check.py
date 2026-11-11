@@ -9,6 +9,9 @@ Review rows remain listed/editable/deletable and protect package references; bad
 does not hide other rows; a VENUS form without parameters repairs unreadable JSON.
 List times must use the runtime next run and newest finished
 execution, with no next run for review/inactive/archived rows; queue reports engine state. Activation, archive, launch and path corrections refuse them.
+Contacts: a stored contact that fails the route check hides the others or the list, gets
+mail (alone or with checked contacts), drops from a schedule's contacts, or cannot be
+edited back or deleted; an alert whose every recipient is under review leaves no record.
 """
 from contextlib import closing, contextmanager
 import hashlib
@@ -471,6 +474,76 @@ def schedule_status_checks(root):
     print('PASS: HTTP list runtime next run, latest finished run and queue scheduler state')
 
 
+def contact_review_checks(root):
+    import threading
+    from datetime import datetime
+    from types import SimpleNamespace
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from backend.api import scheduling as api
+    from backend.models import ScheduledExperiment, JobExecution, NotificationContact
+    from backend.services.auth import get_current_user
+    from backend.services.scheduling import sqlite_database as module
+    from backend.tests.test_sqlite_safety import engine
+
+    with patch.object(module, 'get_data_path', return_value=root):
+        db = module.SQLiteSchedulingDatabase('contacts.db')
+    for key in ('nameless', 'unaddressed', 'checked'):
+        assert db.create_notification_contact(NotificationContact(key, key.title(), f'{key}@example.test'))
+    with db._get_connection() as conn:
+        conn.execute("UPDATE NotificationContacts SET display_name='' WHERE contact_id='nameless'")
+        conn.execute("UPDATE NotificationContacts SET email_address='not an address' WHERE contact_id='unaddressed'")
+        conn.commit()
+    for key, contacts in (('mixed', ['nameless', 'unaddressed', 'checked']), ('reviewed', ['nameless', 'unaddressed'])):
+        assert db.create_schedule(ScheduledExperiment(key, key, 'fixture.med', 'once', notification_contacts=contacts))
+    scheduler = engine(db)
+    scheduler._contacts_lock = threading.RLock()
+    scheduler.config.enable_notifications = True
+    scheduler.run_log_monitor = SimpleNamespace(snapshot=lambda execution_id: None)
+    sent = []
+    def alert(schedule, execution, **kwargs):
+        sent.append((schedule.schedule_id, [c.contact_id for c in kwargs['contacts']]))
+        return SimpleNamespace(sent=True, delivery_status='sent', error=None, recipients=['checked@example.test'],
+                               attachments=[], subject='Alert', body='Alert', attachment_notes=[])
+    scheduler._notification_service = SimpleNamespace(schedule_alert=alert)
+    scheduler.refresh_notification_contacts(include_inactive=True)
+    for key in ('mixed', 'reviewed'):
+        execution = JobExecution(f'{key}-run', key, 'failed', end_time=datetime.now())
+        assert db.create_job_execution(execution)
+        scheduler._notify_execution_event(db.get_schedule_by_id(key), execution, 'execution_failed')
+    assert sent == [('mixed', ['checked'])], sent
+    logged = {entry.schedule_id: entry for entry in db.get_notification_logs()}
+    assert logged['reviewed'].status != 'sent' and 'Needs review' in (logged['reviewed'].error_message or ''), logged['reviewed']
+    assert db.get_schedule_by_id('reviewed').notification_contacts == ['nameless', 'unaddressed']
+
+    app = FastAPI()
+    app.include_router(api.router)
+    app.dependency_overrides[get_current_user] = lambda: {'username': 'admin', 'role': 'admin'}
+    with patch.object(api, 'get_services', return_value=(scheduler, scheduler.db_manager, None)), \
+         patch.object(api, 'log_action'), TestClient(app, client=('127.0.0.1', 1)) as client:
+        reply = client.get('/api/scheduling/contacts', params={'include_inactive': True})
+        assert reply.status_code == 200, reply.text
+        rows = {row['contact_id']: row for row in reply.json()['data']}
+        assert set(rows) == {'nameless', 'unaddressed', 'checked'}, reply.text
+        assert rows['nameless']['review_reason'] and rows['unaddressed']['review_reason'], reply.text
+        assert rows['checked']['review_reason'] is None and rows['unaddressed']['email_address'] == 'not an address'
+        reply = client.put('/api/scheduling/reviewed', json={'notification_contacts': ['nameless', 'unaddressed']})
+        assert reply.status_code == 200, reply.text
+        before = digest(db.db_path)
+        reply = client.put('/api/scheduling/contacts/unaddressed', json={'display_name': 'Unaddressed', 'email_address': 'still wrong'})
+        assert reply.status_code == 400 and reply.json()['detail'] == 'Invalid email address format', reply.text
+        assert digest(db.db_path) == before
+        reply = client.put('/api/scheduling/contacts/unaddressed', json={'display_name': 'Unaddressed', 'email_address': 'fixed@example.test'})
+        assert reply.status_code == 200, reply.text
+        assert reply.json()['data']['review_reason'] is None, reply.text
+        assert scheduler.get_notification_contact('unaddressed').email_address == 'fixed@example.test'
+        reply = client.delete('/api/scheduling/contacts/nameless')
+        assert reply.status_code == 200, reply.text
+        reply = client.get('/api/scheduling/contacts', params={'include_inactive': True})
+        assert {row['contact_id']: row['review_reason'] for row in reply.json()['data']} == {'unaddressed': None, 'checked': None}
+    print('PASS: contact review listing, checked-only mail, review-only alert record, repair and delete')
+
+
 def run():
     with tempfile.TemporaryDirectory(prefix='rc-stored-data-') as folder:
         root = Path(folder)
@@ -481,6 +554,7 @@ def run():
         schedule_upgrade_checks(root)
         route_error_checks()
         existing_run_review_checks(root)
+        contact_review_checks(root)
 
 
 if __name__ == '__main__':

@@ -249,6 +249,7 @@ class NotificationContact:
     is_active: bool = True
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    review_reason: Optional[str] = None  # set by the reader for a stored row that fails check_contact
 
     def __post_init__(self):
         if not self.contact_id:
@@ -266,6 +267,7 @@ class NotificationContact:
             "is_active": self.is_active,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "review_reason": self.review_reason,
         }
 
     @classmethod
@@ -277,6 +279,7 @@ class NotificationContact:
             is_active=bool(data.get("is_active", True)),
             created_at=parse_iso_datetime_to_local(data.get("created_at")),
             updated_at=parse_iso_datetime_to_local(data.get("updated_at")),
+            review_reason=data.get("review_reason"),
         )
 
 

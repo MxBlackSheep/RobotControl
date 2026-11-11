@@ -105,6 +105,7 @@ export interface NotificationContact {
   is_active: boolean;
   created_at?: string | null;
   updated_at?: string | null;
+  review_reason?: string | null;
 }
 
 export interface NotificationSettings {

@@ -382,7 +382,8 @@ class RunLogMonitor:
                     contacts = [self.manager.get_notification_contact(cid) for cid in schedule.notification_contacts]
                     contacts = [c for c in contacts if c and c.is_active and c.email_address]
                     if not contacts:
-                        raise RuntimeError("No active notification contacts are configured for this schedule")
+                        raise RuntimeError("; ".join(self.manager.contact_reviews(schedule.notification_contacts))
+                                           or "No active notification contacts are configured for this schedule")
                     service = service_getter()
                     if service is None:
                         raise RuntimeError("Email notifications are disabled")

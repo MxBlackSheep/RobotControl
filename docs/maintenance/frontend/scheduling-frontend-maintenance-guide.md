@@ -64,6 +64,10 @@ out. It offers Edit and Delete only. An archived schedule offers Restore and Del
 restore it first, then edit. Notification history in the detail opens the Notifications
 section; the page keeps no copy of delivery rows.
 
+A contact with `review_reason` gets no mail: its row in Notifications > Contacts shows the
+Needs review chip in place of Active/Inactive and the reason under the name. Edit opens the
+stored values; a saved edit clears the chip. Delete is unchanged.
+
 ## Layout and sections
 
 Scheduling uses `PageContent`/`PageHeader`; the heading owns **Create schedule** and

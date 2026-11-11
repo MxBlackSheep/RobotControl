@@ -236,6 +236,8 @@ RobotControl do not pass these checks.
 
 Stored schedules pass the same field check as create and update. The list includes `review_reason` (null for a checked row), and a rejected row keeps its fields for Edit and Delete. Review rows cannot activate, queue, run, appear on the upcoming calendar, archive or advance. Existing executions and recovery remain tracked, manual email and pending alerts keep their contacts, and package/connection reference checks include these rows.
 
+Contacts follow the same rule through `notification_check.check_contact` (create, update and the reader). `get_notification_contacts` returns checked contacts only, so the engine's contact table, alerts and manual email never reach a contact under review; only the contacts list and a schedule's contact-ID check pass `include_review=True`. A schedule keeps a review contact's ID, so the contact gets mail again once saved. An alert whose every active recipient is under review is recorded in `NotificationLog` as `error` with "<name>: Needs review: <reason>".
+
 Scheduling upgrades use `SchemaMigrations`: step 2 supplies the tables and columns, step 3 converts hourly rows to Interval 1 h, and step 4 clears no-write preparation tokens. Unsupported types, unreadable JSON and incomplete timeout cleanup settings remain stored for review. A failed step rolls back and holds dispatch with the step, reason and backup in Storage health.
 
 The schedule list sends `last_run` from the newest finished execution end time (or null),

@@ -139,6 +139,7 @@ const normalizeNotificationContact = (payload: any): NotificationContact => ({
   is_active: Boolean(payload?.is_active ?? true),
   created_at: coerceOptionalString(payload?.created_at),
   updated_at: coerceOptionalString(payload?.updated_at),
+  review_reason: coerceOptionalString(payload?.review_reason),
 });
 
 

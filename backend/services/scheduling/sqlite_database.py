@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 from backend.services.scheduling.safety_store import SchedulerSafetyStore
 from backend.services.scheduling.schedule_check import check_schedule
+from backend.services.scheduling.notification_check import check_contact
 from backend.services.scheduling.schedule_review import ScheduleReview
 from backend.services.sqlite_safety import SafetyConflict, StorageUnavailable, configure_connection, check_timestamp
 
@@ -757,7 +758,8 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
     # Notification contacts
     # ------------------------------------------------------------------
 
-    def get_notification_contacts(self, include_inactive: bool = False) -> List[NotificationContact]:
+    def get_notification_contacts(self, include_inactive: bool = False, include_review: bool = False) -> List[NotificationContact]:
+        """Checked contacts; a row that fails check_contact only with include_review, never for mail."""
         contacts: List[NotificationContact] = []
         try:
             with self._get_connection() as conn:
@@ -770,20 +772,13 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                     cursor.execute(
                         "SELECT * FROM NotificationContacts WHERE is_active = 1 ORDER BY display_name ASC"
                     )
-                rows = cursor.fetchall()
-                for row in rows:
-                    contacts.append(
-                        NotificationContact.from_dict(
-                            {
-                                "contact_id": row["contact_id"],
-                                "display_name": row["display_name"],
-                                "email_address": row["email_address"],
-                                "is_active": bool(row["is_active"]),
-                                "created_at": row["created_at"],
-                                "updated_at": row["updated_at"],
-                            }
-                        )
-                    )
+                for row in cursor.fetchall():
+                    fields = {**dict(row), "is_active": bool(row["is_active"])}
+                    try:
+                        contacts.append(check_contact(fields))
+                    except ValueError as exc:
+                        if include_review:
+                            contacts.append(NotificationContact.from_dict({**fields, "review_reason": str(exc)}))
         except Exception as exc:
             logger.error(f"Failed to load notification contacts: {exc}")
         return contacts
