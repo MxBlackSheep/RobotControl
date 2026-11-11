@@ -1,44 +1,23 @@
 """Prepare laboratory data before launch, retaining a durable attempt receipt.
 
 A schedule's preparation is its pinned database package step (kind "preparation"), which
-DatabaseTools runs in a separate, time-limited process. Tokens of the retired built-in
-adapters refuse the run until an administrator reviews them (legacy_preparation).
+DatabaseTools runs in a separate, time-limited process.
 """
-from dataclasses import dataclass
 from datetime import datetime
 import json
 import logging
-from typing import Optional
 
-from backend.services.scheduling.legacy_preparation import legacy_review
 from backend.services.sqlite_safety import SafetyConflict
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class PreExecutionRun:
-    success: bool
-    failure_reason: Optional[str] = None
 
 
 class PreExecutionPipeline:
     def __init__(self, db_manager):
         self._db_manager = db_manager
 
-    def run(self, experiment, execution_id):
-        try:
-            self.prepare(experiment, execution_id)
-            return PreExecutionRun(success=True)
-        except Exception as exc:
-            logger.exception('Lab preparation failed for %s', experiment.schedule_id)
-            return PreExecutionRun(success=False, failure_reason=str(exc))
-
     def prepare(self, experiment, execution_id):
         preparation = getattr(experiment, 'preparation', None)
-        legacy = legacy_review(experiment.prerequisites, has_step=bool(preparation))
-        if legacy:
-            raise SafetyConflict(legacy['message'])
         tools = None
         if preparation:
             from backend.services.database_tools import get_database_tools

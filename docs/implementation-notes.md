@@ -1,3 +1,5 @@
+2026-11-11: Invalid stored schedules remain available for review and repair without dispatch; hourly schedules upgrade to one-hour intervals, old preparation suggestions are removed, and both runners wait in queue order through the same execution owner.
+
 2026-11-11: Scheduling storage now runs backed-up, numbered upgrades; failed upgrades hold dispatch and explain the failure in Storage health, paused deletions use the engine locks, and refused updates write nothing.
 
 ## 2026-11-11 Unify clip retention and identify run logs

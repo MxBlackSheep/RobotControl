@@ -21,17 +21,6 @@ export interface PinnedPreparation extends PreparationStep {
   attached_at?: string;
 }
 
-/**
- * Derived on read for schedules saved with the retired built-in lab adapter's tokens. The run
- * is refused until a local administrator saves a database step; suggestion prefills it, or is
- * null when the tokens cannot be expressed by the EvoYeast package.
- */
-export interface LegacyPreparation {
-  steps: string[];
-  suggestion: PreparationStep | null;
-  message: string;
-}
-
 /** Derived on read: ready, or the package/connection changed (needs_review), or it is gone. */
 export type PreparationState = 'ready' | 'needs_review' | 'missing' | 'invalid' | 'unknown';
 export type ScheduleMode = 'real' | 'simulation' | 'test';
@@ -44,7 +33,7 @@ export interface ScheduledExperiment {
   schedule_id: string;
   experiment_name: string;
   experiment_path: string;
-  schedule_type: 'once' | 'hourly' | 'daily' | 'weekly' | 'interval';
+  schedule_type: 'once' | 'daily' | 'weekly' | 'interval';
   interval_hours?: number | null;
   start_time?: string | null; // ISO format
   estimated_duration: number; // minutes
@@ -59,10 +48,9 @@ export interface ScheduledExperiment {
   is_active: boolean;
   archived: boolean;
   timeout_config: TimeoutConfig;
-  /** Retired adapter tokens, kept until an administrator reviews them (legacy_preparation). */
+  /** Retired adapter tokens, kept until an administrator reviews them. */
   prerequisites: string[];
   preparation?: PinnedPreparation | null;
-  legacy_preparation?: LegacyPreparation | null;
   preparation_state?: PreparationState;
   notification_contacts: string[];
   recovery_required: boolean;
@@ -297,7 +285,7 @@ export interface HamiltonStatus {
 export interface CreateScheduleRequest {
   experiment_name: string;
   experiment_path: string;
-  schedule_type: 'once' | 'hourly' | 'daily' | 'weekly' | 'interval';
+  schedule_type: 'once' | 'daily' | 'weekly' | 'interval';
   interval_hours?: number;
   start_time?: string; // ISO format
   estimated_duration: number;
@@ -320,7 +308,7 @@ export interface CreateScheduleRequest {
 export interface UpdateScheduleRequest {
   experiment_name?: string;
   experiment_path?: string;
-  schedule_type?: 'once' | 'hourly' | 'daily' | 'weekly' | 'interval';
+  schedule_type?: 'once' | 'daily' | 'weekly' | 'interval';
   interval_hours?: number;
   start_time?: string; // ISO format
   estimated_duration?: number;
@@ -395,7 +383,7 @@ export enum SchedulingOperationStatus {
 export interface CreateScheduleFormData {
   experiment_name: string;
   experiment_path: string;
-  schedule_type: 'once' | 'hourly' | 'daily' | 'weekly' | 'interval';
+  schedule_type: 'once' | 'daily' | 'weekly' | 'interval';
   interval_hours?: number;
   start_time?: Date | null;
   estimated_duration: number;
@@ -451,8 +439,6 @@ export const formatScheduleType = (scheduleType: string, intervalHours?: number)
       return 'Daily';
     case 'weekly':
       return 'Weekly';
-    case 'hourly':
-      return 'Hourly';
     default:
       return scheduleType;
   }

@@ -4,9 +4,9 @@ from pathlib import Path
 
 from backend.models import ScheduledExperiment, TimeoutConfig
 
-INTERVAL_TYPE_DEFAULT_HOURS = {'hourly': 1.0, 'daily': 24.0, 'weekly': 168.0}
+INTERVAL_TYPE_DEFAULT_HOURS = {'daily': 24.0, 'weekly': 168.0}
 INTERVAL_SCHEDULE_TYPES = {'interval'} | set(INTERVAL_TYPE_DEFAULT_HOURS)
-SUPPORTED_SCHEDULE_TYPES = {'once', 'cron'} | INTERVAL_SCHEDULE_TYPES
+SUPPORTED_SCHEDULE_TYPES = {'once'} | INTERVAL_SCHEDULE_TYPES
 SUPPORTED_TIMEOUT_ACTIONS = {'continue', 'run_cleanup_and_terminate'}
 
 
@@ -74,5 +74,9 @@ def check_schedule(fields):
         raise ValueError('PyHSL schedules cannot run a cleanup method')
     if not isinstance(fields.get('parameters', {}), dict):
         raise ValueError('parameters must be an object')
+    if fields.get('prerequisites'):
+        raise ValueError(f"Old preparation step {fields['prerequisites']} is no longer supported")
+    if fields.get('preparation') is not None and not isinstance(fields['preparation'], dict):
+        raise ValueError('preparation must be {tool_id, inputs}')
     fields['timeout_config'] = timeout.to_dict()
     return ScheduledExperiment.from_dict(fields)

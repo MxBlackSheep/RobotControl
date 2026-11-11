@@ -365,7 +365,7 @@ class DatabaseTools:
         from backend.services.scheduling.database_manager import get_scheduling_database_manager
         return [schedule.experiment_name
                 for schedule in get_scheduling_database_manager().get_schedules(active_only=True, archived_only=False)
-                if (schedule.preparation or {}).get('package_id') == package_id]
+                if isinstance(schedule.preparation, dict) and schedule.preparation.get('package_id') == package_id]
 
     def connection_health(self):
         """Every saved connection, what uses it and whether it opened (System status).
@@ -418,7 +418,9 @@ class DatabaseTools:
         from backend.services.scheduling.database_manager import get_scheduling_database_manager
         scheduled = {}
         for schedule in get_scheduling_database_manager().get_schedules(active_only=True, archived_only=False):
-            source_id = (schedule.preparation or {}).get('source_id')
+            if not isinstance(schedule.preparation, dict):
+                continue
+            source_id = schedule.preparation.get('source_id')
             scheduled[source_id] = scheduled.get(source_id, 0) + 1
         for source_id, count in scheduled.items():
             if source_id in uses:

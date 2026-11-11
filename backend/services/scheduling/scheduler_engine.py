@@ -40,6 +40,7 @@ from backend.services.hxrun_maintenance import get_hxrun_maintenance_service
 from backend.services.scheduling.simulation_mode import (
     is_simulation_reason, simulation_block_reason,
 )
+from backend.services.scheduling.schedule_review import ScheduleReview
 from backend.services.scheduling.schedule_check import check_schedule, INTERVAL_TYPE_DEFAULT_HOURS
 
 from backend.utils.datetime import ensure_local_naive
@@ -114,6 +115,8 @@ class SchedulerEngine:
 
     def _resolve_interval_hours(self, experiment: ScheduledExperiment) -> Optional[float]:
         """Return the effective interval hours for a schedule, applying sensible defaults."""
+        if isinstance(experiment, ScheduleReview):
+            return None
         if experiment.schedule_type == "interval":
             if experiment.interval_hours and experiment.interval_hours > 0:
                 return float(experiment.interval_hours)
@@ -156,7 +159,7 @@ class SchedulerEngine:
             self.refresh_notification_contacts(include_inactive=True)
             for observation in self.run_log_monitor.restore():
                 restored_schedule = self.db_manager.get_schedule_by_id(observation.schedule_id)
-                if restored_schedule:
+                if restored_schedule and not isinstance(restored_schedule, ScheduleReview):
                     self._active_schedules[observation.schedule_id] = restored_schedule
                 self._running_jobs.add(observation.schedule_id)
                 self._ensure_queue_runtime_entry(observation.schedule_id)
@@ -407,7 +410,7 @@ class SchedulerEngine:
                 return entry.queued_at if entry else now_dt
 
             def _build_detail(schedule_id: str) -> Dict[str, Any]:
-                schedule = self._active_schedules.get(schedule_id)
+                schedule = self._active_schedules.get(schedule_id) or self.db_manager.get_schedule_by_id(schedule_id)
                 entry = self._queue_runtime.get(schedule_id)
                 queued_at = entry.queued_at if entry else now_dt
                 return {
@@ -503,7 +506,7 @@ class SchedulerEngine:
         with self._schedules_lock, self._jobs_lock:
             updated = self.db_manager.mark_recovery_required(schedule.schedule_id, note, actor,
                         expected_updated_at=expected_updated_at, snapshot=schedule)
-            if updated:
+            if updated and not isinstance(updated, ScheduleReview):
                 updated.is_active = False
                 self._active_schedules[updated.schedule_id] = updated
         self._refresh_manual_recovery_state(force=True)
@@ -523,7 +526,7 @@ class SchedulerEngine:
             self._close_recovered_observations(schedule_id, actor)
             updated = self.db_manager.resolve_recovery_required(schedule_id, note, actor, expected_revision,
                                                                expected_updated_at=expected_updated_at)
-            if updated:
+            if updated and not isinstance(updated, ScheduleReview):
                 self._active_schedules[schedule_id] = updated
         self._refresh_manual_recovery_state(force=True)
         if updated and self.config.enable_notifications and self._notification_service:
@@ -548,7 +551,7 @@ class SchedulerEngine:
                 execution.end_time = datetime.now()
                 execution.error_message = f'Closed after manual recovery acknowledged by {actor}; process no longer running'
                 self.run_log_monitor.process_finished(execution)
-                snapshot = ScheduledExperiment.from_dict(observation.schedule)
+                snapshot = self.db_manager.get_schedule_by_id(observation.schedule_id) or ScheduledExperiment.from_dict(observation.schedule)
                 self._finalize_execution(snapshot, execution)
             else:
                 self.run_log_monitor.finish(execution.execution_id)
@@ -602,7 +605,7 @@ class SchedulerEngine:
             # transaction below independently rechecks flags, including maintenance.
             with self.db_manager.sqlite_db._connection_lock:
                 current = self.db_manager.get_schedule_by_id(execution.schedule_id)
-                if not current or not current.is_active or current.archived or current.recovery_required:
+                if not current or isinstance(current, ScheduleReview) or not current.is_active or current.archived or current.recovery_required:
                     raise SafetyConflict('The schedule is no longer eligible to run')
                 reason = self._simulation_block_reason(current)
                 if reason:
@@ -727,7 +730,22 @@ class SchedulerEngine:
                 self._set_queue_waiting_reason(schedule_id, "Schedule deactivated before dispatch")
                 return None
 
-            reason = self._resolve_dispatch_block_reason(schedule)
+            try:
+                reason = self._resolve_dispatch_block_reason(schedule)
+            except Exception:
+                logger.exception('Could not check dispatch readiness')
+                reason = 'Scheduler safety state unavailable'
+            if schedule.runner == 'pyhsl':
+                from backend.services.scheduling.pyhsl_runner import UNAVAILABLE_REASON
+                if reason == UNAVAILABLE_REASON:
+                    since = self._pyhsl_unavailable_since.setdefault(schedule_id, time.monotonic())
+                    if execution and time.monotonic() - since >= 180:
+                        try:
+                            self._notify_execution_event(schedule, execution, 'pyhsl_unavailable', {'note': reason})
+                        except Exception:
+                            logger.exception('PyHSL wait notification failed')
+                else:
+                    self._pyhsl_unavailable_since.pop(schedule_id, None)
             if reason is None:
                 if last_reason:
                     logger.info(
@@ -765,7 +783,7 @@ class SchedulerEngine:
                             if schedule is not None:
                                 with self._jobs_lock:
                                     self._running_jobs.add(schedule.schedule_id)
-                                self.pyhsl_runner.execute(schedule, execution)
+                                self._execute_job(schedule, execution)
                 except Exception:
                     # A locked database must not end the only worker; the next pass retries.
                     logger.exception('Could not resume unfinished PyHSL executions')
@@ -794,26 +812,6 @@ class SchedulerEngine:
                             self._queued_backlog.discard(schedule_id)
                             continue
 
-                    with self._schedules_lock:
-                        current = self._active_schedules.get(schedule_id)
-                    if self._running and current and current.is_active and current.runner == 'pyhsl':
-                        from backend.services.scheduling.pyhsl_runner import UNAVAILABLE_REASON
-                        # Every gate, not only PyHSL's: a PyHSL job never waits in place, so it never holds
-                        # back the jobs behind it.
-                        reason = self._resolve_dispatch_block_reason(current)
-                        if reason:
-                            self._set_queue_waiting_reason(schedule_id, reason)
-                            since = self._pyhsl_unavailable_since.setdefault(schedule_id, time.monotonic()) \
-                                if reason == UNAVAILABLE_REASON else self._pyhsl_unavailable_since.pop(schedule_id, None)
-                            if reason == UNAVAILABLE_REASON and time.monotonic() - since >= 180:
-                                try:
-                                    self._notify_execution_event(experiment, execution, 'pyhsl_unavailable', {'note': reason})
-                                except Exception:
-                                    logger.exception('PyHSL wait notification failed')
-                            self._job_queue.put(item)
-                            self._stop_event.wait(1)
-                            continue
-                        self._pyhsl_unavailable_since.pop(schedule_id, None)
                     ready_schedule = self._wait_until_dispatch_ready(schedule_id, execution)
                     if ready_schedule is None:
                         wait_reason = self._get_queue_waiting_reason(schedule_id)
@@ -944,38 +942,40 @@ class SchedulerEngine:
 
     def _execute_job(self, experiment: ScheduledExperiment, execution: JobExecution):
         """Run one method and share completion handling with restart reconciliation."""
-        if experiment.runner == 'pyhsl':
-            self.pyhsl_runner.execute(experiment, execution)
-            return
+        pyhsl = execution.pyhsl is not None or experiment.runner == 'pyhsl'
         timeout_context = {}
         with self._jobs_lock:
             self._owned_execution_ids.add(execution.execution_id)
         try:
-            from backend.services.scheduling.experiment_executor import ExperimentExecutor, resolve_timeout_context
-            executor = ExperimentExecutor()
-            executor.run_log_monitor = self.run_log_monitor
-            executor.launch_guard = self.launch_guard
-            timeout_context = resolve_timeout_context(experiment, datetime.now())
-            execution.status = "running"
-            execution.start_time = datetime.now()
-            with self.launch_guard(experiment, execution):
-                pass
-            success = executor.execute_experiment(experiment, execution, timeout_context=timeout_context)
-            execution.status = "completed" if success else "failed"
+            if pyhsl:
+                self.pyhsl_runner.execute(experiment, execution)
+            else:
+                from backend.services.scheduling.experiment_executor import ExperimentExecutor, resolve_timeout_context
+                executor = ExperimentExecutor(self.run_log_monitor, self.launch_guard)
+                timeout_context = resolve_timeout_context(experiment, datetime.now())
+                execution.status = 'running'
+                execution.start_time = datetime.now()
+                with self.launch_guard(experiment, execution):
+                    pass
+                success = executor.execute_experiment(experiment, execution, timeout_context=timeout_context)
+                execution.status = 'completed' if success else 'failed'
         except Exception as exc:
-            logger.exception("Error executing %s", experiment.experiment_name)
-            execution.status = "failed"
-            execution.error_message = str(exc)
+            logger.exception('Error executing %s', experiment.experiment_name)
+            if not pyhsl:
+                execution.status = 'failed'
+                execution.error_message = str(exc)
+            # PyHSL keeps its running row and receipt for the next resume pass.
         finally:
-            execution.end_time = datetime.now()
-            try:
-                self.run_log_monitor.process_finished(execution)
-                self._finalize_execution(experiment, execution, bool(timeout_context.get("terminate_schedule")))
-            except Exception:
-                # Leave durable observation intact for the next reconciliation attempt.
-                logger.exception("Could not finalize execution %s", execution.execution_id)
+            if not pyhsl:
+                execution.end_time = datetime.now()
+                try:
+                    self.run_log_monitor.process_finished(execution)
+                    self._finalize_execution(experiment, execution, bool(timeout_context.get('terminate_schedule')))
+                except Exception:
+                    logger.exception('Could not finalize execution %s', execution.execution_id)
             with self._jobs_lock:
                 self._owned_execution_ids.discard(execution.execution_id)
+                self._running_jobs.discard(experiment.schedule_id)
 
     def _finalize_execution(self, experiment, execution, terminate_schedule=False):
         if execution.start_time and execution.end_time:
@@ -983,17 +983,18 @@ class SchedulerEngine:
         # Serialize the reload and commit with edits, preserving changes made during the run.
         with self._schedules_lock:
             schedule = self.db_manager.get_schedule_by_id(experiment.schedule_id) or experiment
-            if terminate_schedule:
-                schedule.is_active = False
-            elif execution.status in {"completed", "failed"}:
-                if self._resolve_interval_hours(schedule):
-                    schedule.start_time = self._calculate_next_execution_time(schedule)
-                else:
+            if not isinstance(schedule, ScheduleReview):
+                if terminate_schedule:
                     schedule.is_active = False
+                elif execution.status in {'completed', 'failed'}:
+                    if self._resolve_interval_hours(schedule):
+                        schedule.start_time = self._calculate_next_execution_time(schedule)
+                    else:
+                        schedule.is_active = False
             committed = self.db_manager.finalize_job_execution(
                 execution, schedule,
-                touch_updated_at=terminate_schedule or execution.status in {"completed", "failed"})
-            if committed and schedule.schedule_id in self._active_schedules:
+                touch_updated_at=terminate_schedule or execution.status in {'completed', 'failed'})
+            if committed and not isinstance(schedule, ScheduleReview) and schedule.schedule_id in self._active_schedules:
                 self._active_schedules[schedule.schedule_id] = schedule
         if execution.status == "failed" and execution.pyhsl is None:
             self._handle_failed_execution(schedule, execution)
@@ -1189,7 +1190,7 @@ class SchedulerEngine:
                         continue
                     execution = self.run_log_monitor.store.execution(state.execution_id)
                     if execution and execution.status in {"completed", "failed", "cancelled"}:
-                        self._finalize_execution(ScheduledExperiment.from_dict(state.schedule), execution, state.terminate_schedule)
+                        self._finalize_execution(self.db_manager.get_schedule_by_id(state.schedule_id) or ScheduledExperiment.from_dict(state.schedule), execution, state.terminate_schedule)
                     elif state.state == "terminal":
                         if state.process_finished:
                             execution = JobExecution.from_dict(state.execution)
@@ -1199,7 +1200,7 @@ class SchedulerEngine:
                             execution.end_time = self._ensure_naive_datetime(datetime.fromisoformat(state.end_time)) if state.end_time else current_time
                             if execution.status == "failed":
                                 execution.error_message = f"Hamilton reported run {state.run_guid} as {state.run_state}"
-                        self._finalize_execution(ScheduledExperiment.from_dict(state.schedule), execution, state.terminate_schedule)
+                        self._finalize_execution(self.db_manager.get_schedule_by_id(state.schedule_id) or ScheduledExperiment.from_dict(state.schedule), execution, state.terminate_schedule)
                 except Exception:
                     logger.exception("Failed to observe execution %s", observation.execution_id)
 

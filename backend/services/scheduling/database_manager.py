@@ -20,6 +20,7 @@ from datetime import datetime
 
 from backend.services.database import get_database_service
 from backend.services.scheduling.sqlite_database import get_sqlite_scheduling_database
+from backend.services.scheduling.schedule_review import ScheduleReview
 from backend.models import HxRunMaintenanceState, ScheduledExperiment, JobExecution, NotificationContact, NotificationLogEntry, NotificationSettings
 from backend.constants import HAMILTON_STATE_MAPPING
 
@@ -81,7 +82,7 @@ class SchedulingDatabaseManager:
             logger.error("Error storing scheduled experiment: %s", exc)
             return False
 
-    def get_schedule_by_id(self, schedule_id: str) -> Optional[ScheduledExperiment]:
+    def get_schedule_by_id(self, schedule_id: str) -> Optional[ScheduledExperiment | ScheduleReview]:
         """Retrieve a scheduled experiment by ID from SQLite."""
         try:
             return self.sqlite_db.get_schedule_by_id(schedule_id)
@@ -101,7 +102,7 @@ class SchedulingDatabaseManager:
             logger.error("Error getting active schedules: %s", exc)
             return []
 
-    def get_schedules(self, *, active_only: bool, archived_only: bool) -> List[ScheduledExperiment]:
+    def get_schedules(self, *, active_only: bool, archived_only: bool) -> List[ScheduledExperiment | ScheduleReview]:
         """Get schedules filtered by active/archive state."""
         try:
             return self.sqlite_db.get_schedules(active_only=active_only, archived_only=archived_only)

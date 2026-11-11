@@ -89,9 +89,8 @@ export const normalizeSchedule = (raw: any): ScheduledExperiment => {
     },
     prerequisites: Array.isArray(raw?.prerequisites) ? raw.prerequisites : [],
     preparation: raw?.preparation && typeof raw.preparation === 'object' ? raw.preparation : null,
-    legacy_preparation: raw?.legacy_preparation && typeof raw.legacy_preparation === 'object' ? raw.legacy_preparation : null,
     // An unrecognised state is shown as unknown, never as ready.
-    preparation_state: raw?.preparation || raw?.legacy_preparation
+    preparation_state: raw?.preparation
       ? (['ready', 'needs_review', 'missing', 'invalid'].includes(raw?.preparation_state) ? raw.preparation_state : 'unknown')
       : undefined,
     notification_contacts: Array.isArray(raw?.notification_contacts) ? raw.notification_contacts : [],

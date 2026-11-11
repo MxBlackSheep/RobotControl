@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 
 from backend.models import JobExecution, ScheduledExperiment
+from backend.services.scheduling.schedule_review import ScheduleReview
 from backend.utils.datetime import utc_now_as_local_naive
 
 MONITOR_EVENTS = ("log_inactive", "monitoring_unavailable")
@@ -94,13 +95,15 @@ class RunLogStore:
             if not count:
                 return False
             # Do not overwrite settings or contacts edited while the method was running.
-            updated_at = utc_now_as_local_naive() if touch_updated_at else schedule.updated_at
-            conn.execute("UPDATE ScheduledExperiments SET is_active = CASE WHEN is_active = 0 OR recovery_required = 1 OR archived = 1 THEN 0 ELSE ? END, start_time = ?, updated_at = ? WHERE schedule_id = ? AND updated_at = ?",
-                         (int(schedule.is_active), schedule.start_time.isoformat() if schedule.start_time else None,
-                          self.database._serialize_timestamp(updated_at), schedule.schedule_id,
-                          self.database._serialize_timestamp(schedule.updated_at)))
+            if not isinstance(schedule, ScheduleReview):
+                updated_at = utc_now_as_local_naive() if touch_updated_at else schedule.updated_at
+                conn.execute("UPDATE ScheduledExperiments SET is_active = CASE WHEN is_active = 0 OR recovery_required = 1 OR archived = 1 THEN 0 ELSE ? END, start_time = ?, updated_at = ? WHERE schedule_id = ? AND updated_at = ?",
+                             (int(schedule.is_active), schedule.start_time.isoformat() if schedule.start_time else None,
+                              self.database._serialize_timestamp(updated_at), schedule.schedule_id,
+                              self.database._serialize_timestamp(schedule.updated_at)))
             conn.commit()
-            schedule.updated_at = updated_at
+            if not isinstance(schedule, ScheduleReview):
+                schedule.updated_at = updated_at
             return True
 
     def execution(self, execution_id):

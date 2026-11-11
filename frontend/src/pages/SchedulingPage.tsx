@@ -125,7 +125,7 @@ const SchedulingPage: React.FC = () => {
   const [editingVersion, setEditingVersion] = useState<string | undefined>();
   const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
   // Captured when the edit form opens, like its initial data.
-  const [editingPreparation, setEditingPreparation] = useState<Pick<ScheduledExperiment, 'preparation' | 'preparation_state' | 'legacy_preparation'>>({});
+  const [editingPreparation, setEditingPreparation] = useState<Pick<ScheduledExperiment, 'preparation' | 'preparation_state'>>({});
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [logsLoading, setLogsLoading] = useState(false);
   const [logsError, setLogsError] = useState<string | null>(null);
@@ -268,8 +268,7 @@ const SchedulingPage: React.FC = () => {
 
     setScheduleFormMode('edit');
     setEditingScheduleId(selected.schedule_id);
-    setEditingPreparation({ preparation: selected.preparation ?? null, preparation_state: selected.preparation_state,
-      legacy_preparation: selected.legacy_preparation ?? null });
+    setEditingPreparation({ preparation: selected.preparation ?? null, preparation_state: selected.preparation_state });
     setEditingVersion(selected.updated_at || undefined);
     const allowedTypes: Array<'once' | 'interval' | 'daily' | 'weekly'> = ['once', 'interval', 'daily', 'weekly'];
     const scheduleType = allowedTypes.includes(selected.schedule_type as any)
@@ -842,7 +841,6 @@ const SchedulingPage: React.FC = () => {
         catalogueVersion={catalogueVersion}
         savedPreparation={editingPreparation.preparation}
         preparationState={editingPreparation.preparation_state}
-        legacyPreparation={editingPreparation.legacy_preparation}
       />
 
   {/* Folder Import Dialog */}

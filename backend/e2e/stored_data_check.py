@@ -5,6 +5,8 @@ Failure cases: a raised upgrade commits partial data/version, destroys its backu
 repeats a completed step, or writes a newer store; fresh and installed-copy schemas
 diverge; a failed scheduling upgrade prevents construction or permits storage access.
 Installed files are copied and hashed, never opened for writing. No robot launch.
+Review rows remain listed/editable/deletable and protect package references; bad JSON
+does not hide other rows. Activation, archive, launch and path corrections refuse them.
 """
 from contextlib import closing, contextmanager
 import hashlib
@@ -120,7 +122,7 @@ def schema_checks(root):
         fresh = module.SQLiteSchedulingDatabase('empty.db')
         for store in (old, fresh):
             with store._get_connection() as conn:
-                assert conn.execute('SELECT MAX(version) FROM SchemaMigrations').fetchone()[0] == 2
+                assert conn.execute('SELECT MAX(version) FROM SchemaMigrations').fetchone()[0] == 4
         with old._get_connection() as a, fresh._get_connection() as b:
             tables = [r[0] for r in b.execute("SELECT name FROM sqlite_master WHERE type='table'")]
             for table in tables:
@@ -148,7 +150,7 @@ def schema_checks(root):
             raise ValueError('schema failure')
 
         with fresh._get_connection() as conn:
-            conn.execute('DELETE FROM SchemaMigrations WHERE version=2')
+            conn.execute('DELETE FROM SchemaMigrations WHERE version>=2')
             conn.commit()
         before_failure = digest(fresh.db_path)
         with patch.object(module.SQLiteSchedulingDatabase, '_upgrade_schema', staticmethod(fail)):
@@ -180,11 +182,233 @@ def schema_checks(root):
     print('PASS: installed-copy/fresh schema parity, once-only recovery update and failed-upgrade hold')
 
 
+def review_checks(root):
+    from datetime import datetime, timedelta
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from backend.api import scheduling as api
+    from backend.models import ScheduledExperiment, JobExecution, NotificationContact
+    from backend.services.auth import get_current_user
+    from backend.services.scheduling import sqlite_database as module
+    from backend.services.database_tools import DatabaseTools
+    from backend.services.database_packages import PackageCatalogue, PackageError
+    from backend.tests.test_sqlite_safety import engine
+
+    with patch.object(module, 'get_data_path', return_value=root):
+        db = module.SQLiteSchedulingDatabase('review.db')
+    scheduler = engine(db)
+    scheduler._queued_backlog = set()
+    scheduler._queue_runtime = {}
+    method = root / 'review.med'
+    method.write_text('disposable method')
+    for key in ('good', 'cron', 'bad-json'):
+        row = ScheduledExperiment(key, key, str(method), 'once', created_by='admin',
+                                  start_time=datetime.now() - timedelta(minutes=1))
+        assert db.create_schedule(row)
+    contact = NotificationContact('review-contact', 'Review contact', 'review@example.test')
+    assert db.create_notification_contact(contact)
+    saved = db.get_schedule_by_id('bad-json')
+    saved.notification_contacts = [contact.contact_id]
+    assert db.update_schedule(saved)
+    assert db.create_job_execution(JobExecution('prior-run', 'bad-json', 'completed'))
+    with db._get_connection() as conn:
+        conn.execute("UPDATE ScheduledExperiments SET schedule_type='cron', preparation=? WHERE schedule_id='cron'",
+                     (json.dumps({'package_id': 'used', 'source_id': 'connection'}),))
+        conn.execute("UPDATE ScheduledExperiments SET parameters='{' WHERE schedule_id='bad-json'")
+        conn.commit()
+    app = FastAPI()
+    app.include_router(api.router)
+    app.dependency_overrides[get_current_user] = lambda: {'username': 'admin', 'role': 'admin'}
+    with patch.object(api, 'get_services', return_value=(scheduler, scheduler.db_manager, None)), \
+         patch.object(api, 'log_action'), TestClient(app, client=('127.0.0.1', 1)) as client:
+        reply = client.get('/api/scheduling/list')
+        assert reply.status_code == 200, reply.text
+        rows = {row['schedule_id']: row for row in reply.json()['data']}
+        assert set(rows) == {'good', 'cron', 'bad-json'}, reply.text
+        assert rows['cron']['review_reason'] and rows['bad-json']['review_reason']
+        assert rows['good']['review_reason'] is None
+        assert rows['bad-json']['parameters'] == '{'
+        from backend.services.scheduling.method_library import prepare_path_change, check_method_path
+        db.import_experiment_methods([{'path': str(method), 'name': method.stem}], 'admin')
+        target = root / 'corrected.med'
+        target.write_text('disposable corrected method')
+        entry = db.get_experiment_methods()[0]
+        prepared = prepare_path_change(db, entry['method_id'], str(target))
+        selected = [dict(schedule_id=ref['schedule_id'], role=ref['role'], expected_updated_at=ref['updated_at'])
+                    for ref in prepared['references'] if ref['schedule_id'] in ('good', 'cron')]
+        before = digest(db.db_path)
+        try:
+            db.apply_method_path_change(prepared, entry['revision'], selected)
+        except ValueError as exc:
+            assert 'cron' in str(exc) and rows['cron']['review_reason'] in str(exc)
+        else:
+            raise AssertionError('A selected review row must refuse the entire path correction')
+        assert digest(db.db_path) == before
+        db.apply_method_path_change(prepared, entry['revision'], [ref for ref in selected if ref['schedule_id'] == 'good'])
+        assert db.get_schedule_by_id('cron').experiment_path == str(method)
+        assert [s.schedule_id for s in db.get_active_schedules()] == ['good']
+        scheduler._load_schedules_from_database()
+        assert [s.schedule_id for s in scheduler._find_due_jobs(datetime.now())] == ['good']
+        for key in ('cron', 'bad-json'):
+            before = digest(db.db_path)
+            for payload in ({'is_active': True}, {'start_time': datetime.now().isoformat(), 'is_active': True}):
+                reply = client.put('/api/scheduling/' + key, json=payload)
+                assert reply.status_code == 400, reply.text
+            reply = client.post('/api/scheduling/' + key + '/archive', json={'archived': True})
+            assert reply.status_code == 400, reply.text
+            assert digest(db.db_path) == before
+        with patch('backend.services.scheduling.database_manager.get_scheduling_database_manager', return_value=scheduler.db_manager):
+            catalogue = PackageCatalogue.__new__(PackageCatalogue)
+            catalogue.in_use = DatabaseTools.schedules_using
+            try:
+                catalogue.refuse_if_scheduled('used')
+            except PackageError as exc:
+                assert exc.status == 409 and 'cron' in str(exc)
+            else:
+                raise AssertionError('Review row must protect its package')
+        original = rows['bad-json']
+        reply = client.put('/api/scheduling/bad-json', json={**original, 'parameters': {}})
+        assert reply.status_code == 200, reply.text
+        repaired = db.get_schedule_by_id('bad-json')
+        assert repaired.created_at.isoformat() == original['created_at']
+        assert repaired.notification_contacts == original['notification_contacts'] == ['review-contact']
+        assert db.get_execution_history('bad-json')[0]['execution_id'] == 'prior-run'
+        reply = client.put('/api/scheduling/bad-json', json={'estimated_duration': 90},
+                           headers={'If-Unmodified-Since': original['updated_at']})
+        assert reply.status_code == 409, reply.text
+        with db._get_connection() as conn:
+            conn.execute("UPDATE ScheduledExperiments SET preparation='{' WHERE schedule_id='bad-json'")
+            conn.commit()
+        with patch('backend.services.scheduling.database_manager.get_scheduling_database_manager', return_value=scheduler.db_manager):
+            assert DatabaseTools.schedules_using('used') == ['cron']
+        before = digest(db.db_path)
+        reply = client.put('/api/scheduling/bad-json', json={'is_active': True})
+        assert reply.status_code == 400 and digest(db.db_path) == before, reply.text
+        reply = client.delete('/api/scheduling/cron')
+        assert reply.status_code == 200, reply.text
+        assert db.get_schedule_by_id('cron') is None
+    print('PASS: review listing, dispatch exclusions, repair, stale edit, delete and package protection')
+
+
+def schedule_upgrade_checks(root):
+    from backend.models import ScheduledExperiment
+    from backend.services.scheduling import sqlite_database as module
+    from backend.services.scheduling.schedule_check import check_schedule
+    with patch.object(module, 'get_data_path', return_value=root):
+        db = module.SQLiteSchedulingDatabase('old-schedules.db')
+        for key in ('hourly', 'cron', 'noop', 'write', 'cleanup'):
+            assert db.create_schedule(ScheduledExperiment(key, key, 'fixture.med', 'once'))
+        with db._get_connection() as conn:
+            conn.execute('DELETE FROM SchemaMigrations WHERE version > 2')
+            conn.execute("UPDATE ScheduledExperiments SET schedule_type=schedule_id WHERE schedule_id IN ('hourly', 'cron')")
+            conn.execute("UPDATE ScheduledExperiments SET prerequisites=? WHERE schedule_id='noop'", (json.dumps(['EvoYeastExperiment:42|none']),))
+            conn.execute("UPDATE ScheduledExperiments SET prerequisites=? WHERE schedule_id='write'", (json.dumps(['ScheduledToRun', 'EvoYeastExperiment:42|set']),))
+            conn.execute("UPDATE ScheduledExperiments SET timeout_action='run_cleanup_and_terminate' WHERE schedule_id='cleanup'")
+            conn.commit()
+        db = module.SQLiteSchedulingDatabase('old-schedules.db')
+        hourly = db.get_schedule_by_id('hourly')
+        assert hourly.schedule_type == 'interval' and hourly.interval_hours == 1
+        assert db.get_schedule_by_id('noop').prerequisites == []
+        assert {row.schedule_id for row in db.get_active_schedules()} == {'hourly', 'noop'}
+        for key in ('cron', 'write', 'cleanup'):
+            assert db.get_schedule_by_id(key).review_reason
+        assert db.get_schedule_by_id('write').prerequisites == ['ScheduledToRun', 'EvoYeastExperiment:42|set']
+        for kind in ('cron', 'hourly'):
+            try:
+                check_schedule({**hourly.to_dict(), 'schedule_type': kind})
+            except ValueError:
+                pass
+            else:
+                raise AssertionError(f'{kind} must no longer be accepted')
+    print('PASS: hourly upgrade, no-write token upgrade and cron/write-token/cleanup review')
+
+
+def route_error_checks():
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from backend.api import sqlite_health, scheduling
+    from backend.services.auth import get_current_user
+    app = FastAPI()
+    app.include_router(sqlite_health.router)
+    app.include_router(scheduling.router)
+    app.dependency_overrides[get_current_user] = lambda: {'username': 'admin', 'role': 'admin'}
+    with patch.object(sqlite_health, 'service', side_effect=RuntimeError('fixture failure')), \
+         patch.object(scheduling, 'get_services', side_effect=RuntimeError('fixture failure')), \
+         TestClient(app, client=('127.0.0.1', 1), raise_server_exceptions=False) as client:
+        for path in ('/api/admin/sqlite/scheduling/preview', '/api/scheduling/list'):
+            reply = client.get(path)
+            assert reply.status_code == 500 and reply.text == '{"detail":"Internal server error"}', reply.text
+    print('PASS: SafetyRoute unexpected errors return logged JSON 500 responses')
+
+
+def existing_run_review_checks(root):
+    from datetime import datetime
+    from types import SimpleNamespace
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from backend.api import scheduling as api
+    from backend.services.auth import get_current_user
+    from backend.services.scheduling.run_log_monitor import RunLogMonitor
+    from backend.tests.test_run_log_monitor import rig, stall
+    from backend.tests.test_sqlite_safety import engine
+    folder = root / 'existing-run'
+    folder.mkdir()
+    fixture = rig.__wrapped__(folder)
+    with fixture.db._get_connection() as conn:
+        conn.execute("UPDATE ScheduledExperiments SET mode='invalid' WHERE schedule_id='schedule'")
+        conn.commit()
+    row = fixture.db.get_schedule_by_id('schedule')
+    assert row.review_reason
+    stall(fixture)
+    sent = []
+    def alert(schedule, execution, **kwargs):
+        sent.append((schedule, kwargs['contacts']))
+        return SimpleNamespace(sent=True, cancelled=False, delivery_status='sent', error=None,
+                               recipients=['operator@example.test'], attachments=[], subject='Alert', body='Alert', attachment_notes=[])
+    fixture.monitor.deliver_pending(lambda: SimpleNamespace(schedule_alert=alert))
+    assert len(sent) == 1 and sent[0][0].review_reason
+    assert sent[0][1][0].contact_id == 'operator'
+    assert fixture.db.get_notification_logs()[0].status == 'sent'
+    app = FastAPI()
+    app.include_router(api.router)
+    app.dependency_overrides[get_current_user] = lambda: {'username': 'admin', 'role': 'admin'}
+    with patch.object(api, 'get_services', return_value=(None, fixture.manager, None)), \
+         patch.object(api, 'log_action'), \
+         patch.object(api, 'EmailNotificationService', return_value=SimpleNamespace(delivery_log_warning=None)), \
+         patch.object(api, 'send_recorded', return_value=True) as send, \
+         TestClient(app, client=('127.0.0.1', 1)) as client:
+        reply = client.post('/api/scheduling/notifications/send', json={'schedule_id': 'schedule', 'subject': 'Manual', 'body': 'Manual'})
+        assert reply.status_code == 200 and reply.json()['data']['sent'], reply.text
+        assert send.call_args.kwargs['to'] == ['operator@example.test']
+    # A restart still tracks a running execution whose schedule now needs review.
+    monitor = RunLogMonitor(fixture.manager, reader=fixture.reader, directory=fixture.directory)
+    assert len(monitor.restore()) == 1
+    scheduler = engine(fixture.db)
+    scheduler._queued_backlog = set()
+    scheduler._queue_runtime = {}
+    scheduler.run_log_monitor = monitor
+    before = row.to_dict()
+    execution = monitor.store.execution('execution')
+    execution.status = 'completed'
+    execution.end_time = datetime.now()
+    scheduler._finalize_execution(row, execution)
+    assert monitor.store.execution('execution').status == 'completed'
+    assert fixture.db.get_schedule_by_id('schedule').to_dict() == before
+    assert not monitor.snapshots()
+    updated = scheduler.require_manual_recovery('schedule', 'Review existing run', 'admin')
+    assert updated.recovery_required and 'schedule' not in scheduler._active_schedules
+    print('PASS: review rows retain manual email, pending run alerts, restart tracking and execution completion without schedule advancement')
+
+
 def run():
     with tempfile.TemporaryDirectory(prefix='rc-stored-data-') as folder:
         root = Path(folder)
         runner_checks(root)
         schema_checks(root)
+        review_checks(root)
+        schedule_upgrade_checks(root)
+        route_error_checks()
+        existing_run_review_checks(root)
 
 
 if __name__ == '__main__':

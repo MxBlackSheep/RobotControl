@@ -4,7 +4,7 @@ Run: uv run --locked python backend/e2e/failed_occurrence_check.py
 Failure cases:
 1. Fast once failure dispatches once over several loops: one email/database step; off.
 2. Slow once failure has the same outcome.
-3. Fast interval/hourly/daily/weekly failures advance once; an already advanced time stays.
+3. Fast interval/daily/weekly failures advance once; an already advanced time stays.
 4. Keyword-only abort consumes the occurrence and still sends aborted.
 5. Abort with a note still requires manual recovery; cancelled remains recovery-owned.
 6. HxRun appearing or Simulation Mode changing at either launch guard consumes failure;
@@ -14,7 +14,8 @@ Failure cases:
 9. Duplicate finalization returns False and changes nothing; a real SQLite write
    failure retains the observation and storage safety hold.
 10. Edit schedule can reactivate a consumed once occurrence; in-flight edits survive.
-11. Interval without interval_hours turns off with no repeat.
+11. An interval without interval_hours is listed for review, never runs or advances, and an edit repairs it.
+    Contract changed by the owner on 11 Nov: invalid stored schedules become review records.
 12. Ended occurrences reject stale edits; fresh/list tokens and in-flight edits work.
 13. Finalization serializes a concurrent edit; restart cannot repeat the occurrence.
 14. Keyword abort emails describe the next run; noted aborts describe recovery only.
@@ -342,13 +343,13 @@ def run():
         f.loops()
         f.assert_consumed(value)
 
-    for schedule_type in ('interval', 'hourly', 'daily', 'weekly'):
+    for schedule_type in ('interval', 'daily', 'weekly'):
         @case(f'3 fast {schedule_type}')
         def interval(f, kind=schedule_type):
             value = f.schedule(kind, **({'interval_hours': 6} if kind == 'interval' else {}))
             f.loops()
             stored = f.assert_consumed(value)
-            hours = {'interval': 6, 'hourly': 1, 'daily': 24, 'weekly': 168}[kind]
+            hours = {'interval': 6, 'daily': 24, 'weekly': 168}[kind]
             assert stored.start_time == (f.now - timedelta(minutes=2) + timedelta(hours=hours))
 
     @case('3 slow interval keeps next time')
@@ -505,8 +506,20 @@ def run():
     @case('11 missing interval')
     def missing(f):
         value = f.schedule('interval')
+        f.engine._active_schedules.clear()
+        f.engine._load_schedules_from_database()
+        before = f.storage.get_schedule_by_id(value.schedule_id).to_dict()
+        listed = f.api.list_schedules(active_only=True, archived_only=False, current_user={'role': 'user'})['data']
+        assert listed[0]['review_reason'] == 'interval_hours is required for interval schedules'
         f.loops()
-        f.assert_consumed(value)
+        assert not f.launched and not f.prepared
+        assert not f.storage.get_execution_history(value.schedule_id)
+        assert f.storage.get_schedule_by_id(value.schedule_id).to_dict() == before
+        repaired = f.api.update_schedule(value.schedule_id, {'interval_hours': 6},
+            current_user={'role': 'admin', 'username': 'system'}, connection=SimpleNamespace(client_ip='127.0.0.1'),
+            if_unmodified_since=None)
+        assert repaired['success']
+        assert not getattr(f.storage.get_schedule_by_id(value.schedule_id), 'review_reason', None)
 
     for kind, result in (('once', 1), ('interval', 1), ('once', 0)):
         @case(f'12 stale and fresh Save {kind} exit {result}')

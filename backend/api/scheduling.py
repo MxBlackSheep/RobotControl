@@ -2,6 +2,7 @@ from typing import Dict, Any, List, Optional, Tuple
 import logging
 import sqlite3
 from fastapi.routing import APIRoute
+from fastapi.exceptions import RequestValidationError
 from backend.services.sqlite_safety import SafetyConflict, StorageUnavailable
 import re
 from datetime import datetime, timedelta
@@ -20,8 +21,8 @@ from backend.services.notifications import EmailNotificationService
 from backend.services.notification_delivery import send_recorded
 from backend.services.scheduling.experiment_discovery import get_experiment_discovery_service
 from backend.services.scheduling.experiment_executor import resolve_experiment_path
-from backend.services.scheduling.legacy_preparation import legacy_review
 from backend.services.scheduling.schedule_check import check_schedule
+from backend.services.scheduling.schedule_review import ScheduleReview
 from backend.models import ScheduledExperiment, CalendarEvent, ApiResponse, NotificationContact, NotificationSettings
 from backend.api.dependencies import ConnectionContext, require_local_access
 from backend.utils.audit import log_action
@@ -46,6 +47,11 @@ class SafetyRoute(APIRoute):
             except (StorageUnavailable, sqlite3.Error) as exc:
                 logger.exception('Scheduling storage unavailable')
                 raise HTTPException(status_code=503, detail='Scheduler safety state unavailable. Review SQLite storage health and retry.') from exc
+            except (HTTPException, RequestValidationError):
+                raise
+            except Exception as exc:
+                logger.exception('Scheduling request failed')
+                raise HTTPException(status_code=500, detail='Internal server error') from exc
         return handler
 
 
@@ -80,12 +86,10 @@ def get_services():
 def _schedule_payload(schedule: ScheduledExperiment) -> Dict[str, Any]:
     """to_dict plus the derived state of a database preparation step (never stored)."""
     payload = schedule.to_dict()
-    legacy = legacy_review(schedule.prerequisites, has_step=bool(schedule.preparation))
-    if legacy:
-        # Retired adapter tokens: the run is refused until an administrator saves a step.
-        payload["legacy_preparation"] = legacy
-        payload["preparation_state"] = "needs_review"
-    elif schedule.preparation:
+    payload['review_reason'] = getattr(schedule, 'review_reason', None)
+    if isinstance(schedule, ScheduleReview):
+        return payload
+    if schedule.preparation:
         try:
             from backend.services.database_tools import get_database_tools
             payload["preparation_state"] = get_database_tools().preparation_state(schedule.preparation)
@@ -880,49 +884,25 @@ def list_schedules(
     
     Requires: any authenticated user
     """
-    try:
-        scheduler, db_mgr, proc_mon = get_services()
-        
+    scheduler, db_mgr, proc_mon = get_services()
 
-        if archived_only:
-            schedules = db_mgr.get_schedules(active_only=False, archived_only=True)
-        elif active_only:
-            schedules = scheduler.get_active_schedules()
-            if not schedules:
-                schedules = db_mgr.get_schedules(active_only=True, archived_only=False)
-        else:
-            schedules = db_mgr.get_schedules(active_only=False, archived_only=False)
-        
-        schedule_list = []
-        if schedules:
-            for schedule in schedules:
-                try:
-                    schedule_dict = _schedule_payload(schedule)
-                    schedule_list.append(schedule_dict)
-                    logger.debug(f"Added schedule: {schedule.experiment_name}")
-                except Exception as e:
-                    logger.error(f"Error converting schedule to dict: {e}")
-                    logger.error(f"Schedule object: {schedule}")
-        
-        
-        response = ApiResponse(
-            success=True,
-            message=f"Retrieved {len(schedule_list)} schedules",
-            data=schedule_list,
-            metadata={
-                "count": len(schedule_list),
-                "active_only": active_only,
-                "archived_only": archived_only,
-            }
-        )
-        
-        return response.to_dict()
-        
-    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
-        raise
-    except Exception as e:
-        logger.error(f"Error listing schedules: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+
+    schedules = db_mgr.get_schedules(active_only=active_only, archived_only=archived_only)
+
+    schedule_list = [_schedule_payload(schedule) for schedule in schedules]
+
+    response = ApiResponse(
+        success=True,
+        message=f"Retrieved {len(schedule_list)} schedules",
+        data=schedule_list,
+        metadata={
+            "count": len(schedule_list),
+            "active_only": active_only,
+            "archived_only": archived_only,
+        }
+    )
+
+    return response.to_dict()
 
 
 @router.get("/calendar")
@@ -936,97 +916,52 @@ def get_calendar_data(
     
     Requires: any authenticated user
     """
-    try:
-        # Parse date range (ensure values reflect local wall-clock time)
-        if start_date:
-            try:
-                start_dt = parse_iso_datetime_to_local(start_date) or datetime.now()
-            except ValueError:
-                raise HTTPException(status_code=400, detail="Invalid start_date format")
-        else:
-            start_dt = datetime.now()
-        
-        if end_date:
-            try:
-                end_dt = parse_iso_datetime_to_local(end_date) or (start_dt + timedelta(hours=48))
-            except ValueError:
-                raise HTTPException(status_code=400, detail="Invalid end_date format")
-        else:
-            end_dt = start_dt + timedelta(hours=48)  # Default 48-hour view
-        
-        scheduler, db_mgr, proc_mon = get_services()
-        
-        # Get schedules in date range
-        all_schedules = scheduler.get_active_schedules()
-        if not all_schedules:
-            logger.info("Scheduler cache empty when building calendar; loading schedules from database")
-            all_schedules = db_mgr.get_active_schedules()
-        
-        calendar_events = []
-        for schedule in all_schedules:
-            if (schedule.start_time and 
-                schedule.start_time >= start_dt and 
-                schedule.start_time <= end_dt):
-                
-                # Create calendar event
-                event = CalendarEvent.from_scheduled_experiment(schedule)
-                calendar_events.append(event.to_dict())
-        
-        response = ApiResponse(
-            success=True,
-            message=f"Retrieved calendar data for {len(calendar_events)} events",
-            data=calendar_events,
-            metadata={
-                "start_date": start_dt.isoformat(),
-                "end_date": end_dt.isoformat(),
-                "event_count": len(calendar_events)
-            }
-        )
-        
-        return response.to_dict()
-        
-    except HTTPException:
-        raise
-    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
-        raise
-    except Exception as e:
-        logger.error(f"Error getting calendar data: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+    if start_date:
+        try:
+            start_dt = parse_iso_datetime_to_local(start_date) or datetime.now()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid start_date format")
+    else:
+        start_dt = datetime.now()
 
+    if end_date:
+        try:
+            end_dt = parse_iso_datetime_to_local(end_date) or (start_dt + timedelta(hours=48))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid end_date format")
+    else:
+        end_dt = start_dt + timedelta(hours=48)  # Default 48-hour view
 
-@router.get("/{schedule_id}")
-def get_schedule(
-    schedule_id: str,
-    current_user: dict = Depends(get_current_user)
-):
-    """
-    Get a specific scheduled experiment
-    
-    Requires: any authenticated user
-    """
-    try:
-        scheduler, db_mgr, proc_mon = get_services()
-        
-        schedule = scheduler.get_schedule(schedule_id)
-        
-        if not schedule:
-            raise HTTPException(status_code=404, detail="Schedule not found")
-        
-        response = ApiResponse(
-            success=True,
-            message="Schedule retrieved successfully",
-            data=_schedule_payload(schedule)
-        )
-        
-        return response.to_dict()
-        
-    except HTTPException:
-        raise
-    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
-        raise
-    except Exception as e:
-        logger.error(f"Error getting schedule {schedule_id}: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+    scheduler, db_mgr, proc_mon = get_services()
+
+    # Get schedules in date range
+    all_schedules = scheduler.get_active_schedules()
+    if not all_schedules:
+        logger.info("Scheduler cache empty when building calendar; loading schedules from database")
+        all_schedules = db_mgr.get_active_schedules()
+
+    calendar_events = []
+    for schedule in all_schedules:
+        if (schedule.start_time and
+            schedule.start_time >= start_dt and
+            schedule.start_time <= end_dt):
+
+            # Create calendar event
+            event = CalendarEvent.from_scheduled_experiment(schedule)
+            calendar_events.append(event.to_dict())
+
+    response = ApiResponse(
+        success=True,
+        message=f"Retrieved calendar data for {len(calendar_events)} events",
+        data=calendar_events,
+        metadata={
+            "start_date": start_dt.isoformat(),
+            "end_date": end_dt.isoformat(),
+            "event_count": len(calendar_events)
+        }
+    )
+
+    return response.to_dict()
 
 
 @router.put("/{schedule_id}")
@@ -1070,10 +1005,10 @@ def update_schedule(
                 raise HTTPException(status_code=400, detail='Invalid start_time format')
         if fields.get('runner') == 'pyhsl':
             fields['experiment_path'] = 'pyhsl:' + str(fields.get('protocol_id', ''))
-        updated_schedule = _check_schedule_request(fields, 'Failed to update schedule')
-        updated_schedule.preparation = _requested_preparation(update_data, current_user, base_schedule.preparation)
+        fields['preparation'] = _requested_preparation(update_data, current_user, base_schedule.preparation)
         if 'preparation' in update_data and current_user.get('role') == 'admin':
-            updated_schedule.prerequisites = []
+            fields['prerequisites'] = []
+        updated_schedule = _check_schedule_request(fields, 'Failed to update schedule')
         if 'notification_contacts' in update_data:
             updated_schedule.notification_contacts = _normalize_contact_ids(update_data['notification_contacts'], db_mgr)
         unchanged = all(getattr(updated_schedule, key) == getattr(base_schedule, key)
@@ -1237,15 +1172,6 @@ def resolve_global_recovery(payload: RecoveryResolution, current_user: dict = De
     return _resolve_recovery_request(payload, current_user, connection)
 
 
-@router.post('/{schedule_id}/recovery/resolve')
-def resolve_schedule_recovery(schedule_id: str, payload: RecoveryResolution,
-                              current_user: dict = Depends(get_current_user),
-                              connection: ConnectionContext = Depends(require_local_access),
-                              if_unmodified_since: Optional[str] = Header(None, alias='If-Unmodified-Since')):
-    return _resolve_recovery_request(payload.model_copy(update={'schedule_id': schedule_id,
-                                    'expected_updated_at': payload.expected_updated_at or if_unmodified_since}), current_user, connection)
-
-
 @router.post('/dispatch/resume')
 def resume_queued_jobs(payload: DispatchResume, current_user: dict = Depends(get_current_user),
                        connection: ConnectionContext = Depends(require_local_access)):
@@ -1368,6 +1294,9 @@ def set_schedule_archived(
         if not (is_admin or is_local_owner):
             raise HTTPException(status_code=403, detail="Admin role required")
 
+        if isinstance(schedule, ScheduleReview):
+            raise HTTPException(status_code=400, detail=f'Needs review: {schedule.review_reason}')
+
         if schedule.archived == archived:
             return ApiResponse(
                 success=True,
@@ -1403,25 +1332,18 @@ def get_scheduler_status(
     
     Requires: any authenticated user
     """
-    try:
-        scheduler, db_mgr, proc_mon = get_services()
-        
-        # Get scheduler status
-        scheduler_status = scheduler.get_status()
-        
-        response = ApiResponse(
-            success=True,
-            message="Scheduler status retrieved successfully",
-            data=scheduler_status
-        )
-        
-        return response.to_dict()
-        
-    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
-        raise
-    except Exception as e:
-        logger.error(f"Error getting scheduler status: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+    scheduler, db_mgr, proc_mon = get_services()
+
+    # Get scheduler status
+    scheduler_status = scheduler.get_status()
+
+    response = ApiResponse(
+        success=True,
+        message="Scheduler status retrieved successfully",
+        data=scheduler_status
+    )
+
+    return response.to_dict()
 
 
 @router.get("/status/queue")
@@ -1433,39 +1355,32 @@ def get_queue_status(
     
     Requires: any authenticated user
     """
-    try:
-        scheduler, db_mgr, proc_mon = get_services()
-        
-        # Get queue status from scheduler runtime (single-worker queue)
-        queue_status = scheduler.get_runtime_queue_status()
-        
-        # Get Hamilton status
-        hamilton_status = proc_mon.get_status()
-        
-        manual_state = scheduler.get_manual_recovery_state()
+    scheduler, db_mgr, proc_mon = get_services()
 
-        response = ApiResponse(
-            success=True,
-            message="Queue status retrieved successfully",
-            data={
-                "queue": queue_status,
-                "hamilton": {
-                    "is_running": hamilton_status.is_running,
-                    "process_count": hamilton_status.process_count,
-                    "availability": hamilton_status.availability,
-                    "last_check": hamilton_status.last_check.isoformat()
-                },
-                "manual_recovery": manual_state.to_dict() if manual_state else None,
-            }
-        )
+    # Get queue status from scheduler runtime (single-worker queue)
+    queue_status = scheduler.get_runtime_queue_status()
 
-        return response.to_dict()
-        
-    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
-        raise
-    except Exception as e:
-        logger.error(f"Error getting queue status: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+    # Get Hamilton status
+    hamilton_status = proc_mon.get_status()
+
+    manual_state = scheduler.get_manual_recovery_state()
+
+    response = ApiResponse(
+        success=True,
+        message="Queue status retrieved successfully",
+        data={
+            "queue": queue_status,
+            "hamilton": {
+                "is_running": hamilton_status.is_running,
+                "process_count": hamilton_status.process_count,
+                "availability": hamilton_status.availability,
+                "last_check": hamilton_status.last_check.isoformat()
+            },
+            "manual_recovery": manual_state.to_dict() if manual_state else None,
+        }
+    )
+
+    return response.to_dict()
 
 
 @router.get("/experiments/available")
@@ -1667,32 +1582,23 @@ def get_execution_history(
     
     Requires: any authenticated user
     """
-    try:
-        if limit < 1 or limit > 200:
-            raise HTTPException(status_code=400, detail="Limit must be between 1 and 200")
-        
-        scheduler, db_mgr, proc_mon = get_services()
-        
-        # Get execution history from SQLite database
-        sqlite_db = db_mgr.sqlite_db
-        executions = sqlite_db.get_execution_history(schedule_id, limit)
-        response = ApiResponse(
-            success=True,
-            message=f"Retrieved {len(executions)} execution records",
-            data=executions,
-            metadata={
-                "schedule_id": schedule_id,
-                "limit": limit,
-                "count": len(executions)
-            }
-        )
-        
-        return response.to_dict()
-        
-    except HTTPException:
-        raise
-    except (SafetyConflict, StorageUnavailable, sqlite3.Error):
-        raise
-    except Exception as e:
-        logger.error(f"Error getting execution history: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+    if limit < 1 or limit > 200:
+        raise HTTPException(status_code=400, detail="Limit must be between 1 and 200")
+
+    scheduler, db_mgr, proc_mon = get_services()
+
+    # Get execution history from SQLite database
+    sqlite_db = db_mgr.sqlite_db
+    executions = sqlite_db.get_execution_history(schedule_id, limit)
+    response = ApiResponse(
+        success=True,
+        message=f"Retrieved {len(executions)} execution records",
+        data=executions,
+        metadata={
+            "schedule_id": schedule_id,
+            "limit": limit,
+            "count": len(executions)
+        }
+    )
+
+    return response.to_dict()

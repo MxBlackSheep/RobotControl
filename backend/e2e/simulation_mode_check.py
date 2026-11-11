@@ -173,7 +173,7 @@ def run():
             popen_mock = stack.enter_context(patch.object(ex.subprocess, 'Popen', side_effect=popen))
             stack.enter_context(patch.object(ex, 'get_experiment_discovery_service', return_value=SimpleNamespace(
                 db=SimpleNamespace(update_method_usage=lambda _: None))))
-            original_prepare = ex.PreExecutionPipeline.run
+            original_prepare = ex.PreExecutionPipeline.prepare
             change_after_prepare = False
             def prepare(pipeline, schedule, execution_id):
                 prepared.append(execution_id)
@@ -181,7 +181,7 @@ def run():
                 if change_after_prepare:
                     sample_config(root, 1, 0)
                 return result
-            stack.enter_context(patch.object(ex.PreExecutionPipeline, 'run', prepare))
+            stack.enter_context(patch.object(ex.PreExecutionPipeline, 'prepare', prepare))
 
             def schedule(mode='real', contacts=True, **kwargs):
                 value = ScheduledExperiment('', 'Fixture', str(method), 'once', mode=mode,
@@ -201,9 +201,9 @@ def run():
                 def create(extra):
                     return client.post('/api/scheduling/create', json={**body, **extra})
                 def read(identity):
-                    response = client.get(f'/api/scheduling/{identity}')
+                    response = client.get('/api/scheduling/list?active_only=false')
                     assert response.status_code == 200, response.text
-                    return response.json()['data']
+                    return next(row for row in response.json()['data'] if row['schedule_id'] == identity)
                 real = create({})
                 assert real.status_code == 200, real.text
                 identity = real.json()['data']['schedule_id']
@@ -231,9 +231,7 @@ def run():
                     assert (engine._resolve_dispatch_block_reason(value) is None) == allowed
                     before = len(launched)
                     item = JobExecution('', value.schedule_id, 'pending')
-                    executor = ex.ExperimentExecutor(config)
-                    executor.launch_guard = engine.launch_guard
-                    executor.run_log_monitor = engine.run_log_monitor
+                    executor = ex.ExperimentExecutor(engine.run_log_monitor, engine.launch_guard, config)
                     if allowed:
                         assert executor.execute_experiment(value, item)
                         assert len(launched) == before + 1

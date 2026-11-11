@@ -21,7 +21,7 @@ import { useAuth } from '../../context/AuthContext';
 import { isLocalUser } from '../navigation';
 import PreparationStepField from './PreparationStepField';
 import PyHslProtocolField, { type CheckedProtocol } from './PyHslProtocolField';
-import type { LegacyPreparation, PinnedPreparation, PreparationState, PreparationStep, ScheduleMode, ScheduleRunner } from '../../types/scheduling';
+import type { PinnedPreparation, PreparationState, PreparationStep, ScheduleMode, ScheduleRunner } from '../../types/scheduling';
 import { StatusMessage } from '../StatusDialog';
 import {
   Dialog,
@@ -100,8 +100,6 @@ interface ImprovedScheduleFormProps {
   /** The schedule's saved, pinned database step and its derived state (edit mode). */
   savedPreparation?: PinnedPreparation | null;
   preparationState?: PreparationState;
-  /** Retired adapter tokens of an older schedule, prefilled as its database step. */
-  legacyPreparation?: LegacyPreparation | null;
 }
 
 const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
@@ -114,7 +112,6 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
   catalogueVersion = 0,
   savedPreparation = null,
   preparationState,
-  legacyPreparation = null,
 }) => {
   const { user } = useAuth();
   const [protocolChecked, setProtocolChecked] = useState(false);
@@ -306,11 +303,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
       ...defaultFormData,
       ...initialData,
       start_time: initialData?.start_time ?? null,
-      // With retired tokens an administrator's form always holds an explicit step (the suggestion,
-      // else the saved step, else none), so saving sends it and the server replaces the tokens.
-      preparation: canEditPreparation && legacyPreparation
-        ? legacyPreparation.suggestion ?? (savedPreparation ? { tool_id: savedPreparation.tool_id, inputs: savedPreparation.inputs } : null)
-        : undefined,
+      preparation: undefined,
       notification_contacts: initialData?.notification_contacts ?? defaultFormData.notification_contacts,
       timeout_minutes: initialData?.timeout_minutes ?? defaultFormData.timeout_minutes,
       timeout_action: initialData?.timeout_action ?? defaultFormData.timeout_action,
@@ -339,7 +332,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
     }
 
     loadExperiments();
-  }, [open, initialData, loadExperiments, canEditPreparation, legacyPreparation, savedPreparation]);
+  }, [open, initialData, loadExperiments, canEditPreparation, savedPreparation]);
 
   const pyhsl = formData.runner === 'pyhsl';
   const chooseRunner = (runner: ScheduleRunner) => setFormData(prev => runner === 'pyhsl'
@@ -758,7 +751,6 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                   state={preparationState}
                   value={formData.preparation}
                   editable={canEditPreparation}
-                  legacy={legacyPreparation}
                   onChange={(preparation) => setFormData(prev => ({ ...prev, preparation }))}
                 />
               </Stack>

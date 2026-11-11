@@ -138,7 +138,7 @@ const ScheduleDetailsDialog: React.FC<ScheduleDetailsDialogProps> = ({
                 <Typography variant="h6" gutterBottom>
                   Before this run
                 </Typography>
-                <Typography variant="body2" color={schedule.preparation || schedule.legacy_preparation ? 'text.primary' : 'text.secondary'}>
+                <Typography variant="body2" color={schedule.preparation ? 'text.primary' : 'text.secondary'}>
                   {preparationSummary(schedule)}
                 </Typography>
               </CardContent>
@@ -383,7 +383,7 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
   };
 
   const renderPreparationPreview = (schedule: ScheduledExperiment) => {
-    if (!schedule.preparation && !schedule.legacy_preparation) {
+    if (!schedule.preparation) {
       return null;
     }
     return <Chip label={preparationSummary(schedule)} size="small" variant="outlined" sx={{ alignSelf: 'flex-start', maxWidth: '100%' }} />;

@@ -19,7 +19,7 @@ All paths are under `backend/services/scheduling/` unless stated.
 - `experiment_executor.py`: `ExperimentExecutor` applies the late-start timeout action, runs
   laboratory preparation, launches `HxRun.exe "<method>" -t` once and waits for it to exit.
   `pre_execution.py` writes the preparation receipt and runs the schedule's database package
-  step; `legacy_preparation.py` reads the retired adapter's tokens on older schedules.
+  step. `schedule_check.py` checks saved fields and `schedule_review.py` retains rejected rows for repair.
 - `pyhsl_runner.py`: validates, starts and follows scheduled PyHSL runs;
   owns their durable request/result receipts and restart recovery.
 - `process_monitor.py`: detects HxRun with `psutil`, falling back to
@@ -69,8 +69,8 @@ The local admin/user Validate route and its definitions are described in
 The single worker keeps the existing storage, recovery, maintenance and HxRun
 gates. PyHSL uses the monitor's cached reading outside scheduler locks to wait
 for Run Control, an active run, a Run review or an unknown reading. Absence sends
-one `pyhsl_unavailable` execution alert after 180 seconds from queuing. A PyHSL
-job waiting on its own gate moves to the queue tail, allowing VENUS jobs through.
+one `pyhsl_unavailable` execution alert after 180 seconds of unavailability. Both runners
+wait in place; jobs behind a blocked job wait too. A storage read failure is logged and retried without ending the worker.
 The VENUS Simulation Mode gate is bypassed because PyHSL manages that setting itself. An unfinished
 PyHSL execution blocks every new dispatch. Enabling HxRun maintenance or entering
 `database_change_guard` also refuses an active PyHSL run or unknown Run Control state.
@@ -157,7 +157,7 @@ Failure cases are listed in the header of `backend/e2e/pyhsl_runner_check.py`.
    A schedule removed or deactivated while waiting cancels its execution with that reason.
 4. **Timeout action.** Timeout is measured from the scheduled start at actual launch, so queue
    delay counts. `continue` runs the method; `run_cleanup_and_terminate` runs the configured
-   cleanup method instead and deactivates the schedule (a missing cleanup path fails the run).
+   cleanup method instead and deactivates the schedule. A stored row missing its cleanup path needs review and never enters the queue.
 5. **Laboratory preparation** runs next for the original method (see below); a failure fails
    the run before launch. The late-start cleanup method skips this preparation.
 6. **Launch.** `launch_guard` holds `_schedules_lock` and `_jobs_lock`, rechecks storage,
@@ -207,7 +207,7 @@ RobotControl do not pass these checks.
 
 ## Schedules and edits
 
-- `schedule_type` is `once`, `interval`, or the aliases `hourly`, `daily`, `weekly` (default
+- `schedule_type` is `once`, `interval`, or the aliases `daily`, `weekly` (default
   hours are filled in). `timeout_config` holds minutes, action and cleanup method;
   `preparation` holds the pinned database step; `prerequisites` only keeps the retired
   adapter's tokens until an administrator reviews them.
@@ -220,7 +220,7 @@ RobotControl do not pass these checks.
 - `mode` is exactly `real` or `simulation`. `POST /api/scheduling/create` defaults an omitted
   value to `real`; `PUT /api/scheduling/{schedule_id}` preserves an omitted value and still
   requires `expected_updated_at` (or `If-Unmodified-Since`). Invalid values return 400.
-  Detail/list responses include `mode`; migrated schedules are `real`.
+  List responses include `mode`; migrated schedules are `real`. Read a schedule from `/list`; the GET-by-ID route is removed.
 - Timestamps use the helpers in `backend/utils/datetime.py` (`utc_now_as_local_naive`) and
   `_serialize_timestamp`; never store bare `datetime.utcnow()` values.
 - User edits send `expected_updated_at`. The version is compared exactly (including
@@ -233,6 +233,10 @@ RobotControl do not pass these checks.
   schedule's name and path.
 - `SQLiteSchedulingDatabase.get_execution_history` merges live and archived rows per
   `execution_id`; do not repeat that in the client.
+
+Stored schedules pass the same field check as create and update. The list includes `review_reason` (null for a checked row), and a rejected row keeps its fields for Edit and Delete. Review rows cannot activate, queue, run, appear on the upcoming calendar, archive or advance. Existing executions and recovery remain tracked, manual email and pending alerts keep their contacts, and package/connection reference checks include these rows.
+
+Scheduling upgrades use `SchemaMigrations`: step 2 supplies the tables and columns, step 3 converts hourly rows to Interval 1 h, and step 4 clears no-write preparation tokens. Unsupported types, unreadable JSON and incomplete timeout cleanup settings remain stored for review. A failed step rolls back and holds dispatch with the step, reason and backup in Storage health.
 
 ## Laboratory preparation
 
@@ -276,22 +280,10 @@ New installations seed it; on an existing installation an administrator imports
 `starter-packages\evoyeast-experiment.zip` from the release folder (Database → Manage packages;
 `build_scripts/pyinstaller_build.py` writes a ZIP of every starter package there).
 
-**Schedules saved with the retired adapter.** Before this package, a built-in adapter
-(`lab_integration.py`, chosen by `data/scheduling-lab.json`) ran tokens saved in
-`prerequisites`, for example `ResetHamiltonTables:Runtime`, `ScheduledToRun`,
-`EvoYeastExperiment:42|set`, or `Batch:<code>` for the removed SQLite batch example. Nothing
-runs them now and `scheduling-lab.json` is no longer read. `legacy_preparation.py` derives, on
-every read, a review for such a schedule: `preparation_state` is `needs_review` and
-`legacy_preparation` carries the tokens, a message and, where the tokens fit the EvoYeast
-package (one selection, optionally the `ScheduledToRun` marker, no existing database step), a
-prefilled `suggestion` `{experiment_id}`. A `ResetHamiltonTables` token is never prefilled or
-dropped: the message says the table reset is no longer part of the step and an administrator
-decides. The run is refused before any write until a local administrator saves the schedule
-with the `preparation` key; that save clears the tokens. The form always sends that key for an administrator (the suggestion, else the saved step, else
-`null`), so schedules without a prefill can be resolved too.
-`|none`, `|noop` and `|skip` selections never wrote anything and do not block. Clients cannot
-create or edit tokens (HTTP 400). Nothing is rewritten at startup, so restarts and repeated
-upgrades keep the tokens until that save.
+Old preparation tokens remain in their stored fields with a `review_reason`; no suggestion is generated.
+Upgrade step 4 removes only EvoYeast selections ending in `|none`, `|noop` or `|skip`, which never wrote data.
+Other tokens remain blocked until a local administrator saves the `preparation` key, including explicit `null`.
+Clients cannot create or edit tokens (HTTP 400). Existing package and connection review states remain unchanged.
 
 **Receipts.** `LabPreparation` in the scheduling SQLite database holds the execution ID, the
 saved tokens (`steps`), the pinned step (`package`), status `preparing`/`prepared`/`failed`/
@@ -378,7 +370,7 @@ their saved paths.
   file work before any lock; `change_library_method_path` then holds `_schedules_lock` and
   `_jobs_lock`, rejects queued or running selections, and `apply_method_path_change` commits the
   catalogue and selected path columns in one `BEGIN IMMEDIATE` transaction, rechecking revisions
-  and pending executions. The refreshed schedules replace the cache before the locks are released,
+  and pending executions. A selected review row refuses the entire correction with its name and reason; unselected rows remain untouched. The refreshed schedules replace the cache before the locks are released,
   so an older queued object cannot launch the old path. Conflicts return 409; never infer
   references from a method name. Labels, timing, contacts, history, monitoring and archive
   state are kept; files are never moved and runs never relaunched.

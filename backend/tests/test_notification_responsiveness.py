@@ -18,7 +18,7 @@ from backend.services.auth import get_current_user
     ("/notifications/settings/test", {"recipient": "operator@example.com"}),
     ("/notifications/send", {"schedule_id": "schedule", "subject": "Test", "body": "Test"}),
     ("/schedule/recovery/require", {}),
-    ("/schedule/recovery/resolve", {"expected_revision": 0, "robot_ready": True}),
+    ("/recovery/resolve", {"schedule_id": "schedule", "expected_revision": 0, "robot_ready": True}),
 ])
 @pytest.mark.parametrize("delivery_succeeds", [True, False])
 def test_health_responds_while_email_or_recovery_is_waiting(monkeypatch, route, payload, delivery_succeeds):

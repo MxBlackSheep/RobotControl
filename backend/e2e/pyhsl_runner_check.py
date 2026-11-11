@@ -9,8 +9,8 @@ Failure cases (Run Control reply shapes recorded in Simulation, 9 November 2026)
 3. Lost reply: adopt the run without another POST or database preparation.
 4. Every status/review/refusal outcome; error wording cannot classify an abort.
 5. Acknowledge refuses review, active or unreadable reconciliation, then succeeds.
-6. Unavailable waits and alerts once at 180 seconds from queuing; VENUS proceeds,
-   then PyHSL starts when Run Control returns; active/review/unknown gates.
+6. Unavailable waits in place and alerts once at 180 seconds; VENUS behind it waits
+   until PyHSL finishes. Active/review/unknown gates and a locked store keep the worker alive.
 7. Changed revision holds before preparation or POST.
 8. Restart with run_id follows once, no legacy observation or duplicate email.
 9. Restart without run_id adopts a match, resends within five minutes, otherwise
@@ -585,10 +585,15 @@ def gates_and_following():
         venus = f.schedule(mode='real')
         f.returncode, f.stderr, f.sql_state = 0, '', 'Complete'
         venus_id = dispatch(f, venus)
-        assert finished(f, venus_id).status == 'completed'
-        assert len(f.launched) == 1 and not f.server.posts
-        assert f.prepared == [venus_id]
+        time.sleep(1.1)
+        assert not f.launched and not f.server.posts and not f.prepared
+        assert f.engine.run_log_monitor.store.execution(venus_id).status == 'pending'
         # The 180 seconds count from when Run Control went away, not from when the job was queued.
+        until(lambda: s.schedule_id in f.engine._pyhsl_unavailable_since)
+        import sqlite3
+        with patch.object(f.engine.pyhsl_runner, 'unfinished', side_effect=sqlite3.OperationalError('fixture locked')):
+            until(lambda: f.engine._get_queue_waiting_reason(s.schedule_id) == 'Scheduler safety state unavailable')
+            assert f.worker.is_alive()
         until(lambda: s.schedule_id in f.engine._pyhsl_unavailable_since)
         f.engine._pyhsl_unavailable_since[s.schedule_id] -= 181
         until(lambda: any(x[0] == 'pyhsl_unavailable' for x in f.sent), timeout=3)
@@ -597,6 +602,8 @@ def gates_and_following():
         f.discover()
         f.monitor.poll()
         assert finished(f, eid).status == 'completed'
+        assert finished(f, venus_id).status == 'completed'
+        assert len(f.launched) == 1 and f.prepared == [eid, venus_id]
     with fixture() as f:
         s = schedule(f)
         f.server.outcome = 'future_status'

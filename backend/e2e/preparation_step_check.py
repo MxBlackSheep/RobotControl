@@ -18,7 +18,7 @@ Failure cases:
   administrator saves the schedule again.
 - Preparation takes the manual-operation guard (scheduler locks) while it runs.
 """
-from contextlib import closing
+from contextlib import nullcontext, closing
 import hashlib
 import io
 import json
@@ -124,12 +124,12 @@ def run():
                 schedule = storage.get_schedule_by_id(schedule_id)
                 execution = JobExecution(execution_id or str(uuid.uuid4()), schedule.schedule_id, 'running')
                 with patch('backend.services.scheduling.experiment_executor.get_scheduling_database_manager', return_value=manager):
-                    executor = ExperimentExecutor(ExecutionConfig(hxrun_path=str(root / 'not-a-robot.exe')))
+                    executor = ExperimentExecutor(SimpleNamespace(check=lambda _: SimpleNamespace(run_state='Complete')),
+                                                  lambda *args: nullcontext(), ExecutionConfig(hxrun_path=str(root / 'not-a-robot.exe')))
                 def command(*args):
                     launched.append(execution.execution_id)
                     return ExecutionResult(True, 0, '', '', 0, 'fixture-command')
-                executor._execute_hamilton_command = command
-                executor.run_log_monitor = SimpleNamespace(check=lambda _: SimpleNamespace(run_state='Complete'))
+                executor._execute_real_command = command
                 with patch('backend.services.scheduling.experiment_executor.get_experiment_discovery_service',
                            return_value=SimpleNamespace(db=SimpleNamespace(update_method_usage=lambda _: None))):
                     ok = executor.execute_experiment(schedule, execution)
@@ -158,7 +158,7 @@ def run():
                     return client.post('/api/scheduling/create', json=body, headers={'authorization': role})
 
                 def update(schedule_id, changes, role='admin'):
-                    current = client.get(f'/api/scheduling/{schedule_id}').json()['data']
+                    current = next(row for row in client.get('/api/scheduling/list?active_only=false').json()['data'] if row['schedule_id'] == schedule_id)
                     return client.put(f'/api/scheduling/{schedule_id}', json={**changes, 'expected_updated_at': current['updated_at']},
                                       headers={'authorization': role})
 
@@ -170,7 +170,7 @@ def run():
                 schedule_id = response.json()['data']['schedule_id']
                 saved = storage.get_schedule_by_id(schedule_id).preparation
                 assert saved['sha256'] == tools.catalogue.index[PACKAGE]['sha256'] and saved['source_id'] == 'writer'
-                assert client.get(f'/api/scheduling/{schedule_id}').json()['data']['preparation_state'] == 'ready'
+                assert next(row for row in client.get('/api/scheduling/list?active_only=false').json()['data'] if row['schedule_id'] == schedule_id)['preparation_state'] == 'ready'
                 assert update(schedule_id, {'estimated_duration': 7}, role='user').status_code == 200
                 assert storage.get_schedule_by_id(schedule_id).preparation == saved
                 assert update(schedule_id, {'preparation': dict(tool_id=PACKAGE, inputs=dict(mode='ok'))}, role='user').status_code == 200
@@ -218,24 +218,24 @@ def run():
                     schedule.is_active = False
                     assert storage.update_schedule(schedule)
                 tools.catalogue.install(package('1.0.1'))
-                assert client.get(f'/api/scheduling/{schedule_id}').json()['data']['preparation_state'] == 'needs_review'
+                assert next(row for row in client.get('/api/scheduling/list?active_only=false').json()['data'] if row['schedule_id'] == schedule_id)['preparation_state'] == 'needs_review'
                 rows = len(logged())
                 ok, blocked = execute(schedule_id)
                 assert not ok and blocked not in launched and receipt(blocked) is None and len(logged()) == rows
                 assert update(schedule_id, {'preparation': dict(tool_id=PACKAGE, inputs=dict(mode='ok'))}, role='user').status_code == 200
-                assert client.get(f'/api/scheduling/{schedule_id}').json()['data']['preparation_state'] == 'needs_review'
+                assert next(row for row in client.get('/api/scheduling/list?active_only=false').json()['data'] if row['schedule_id'] == schedule_id)['preparation_state'] == 'needs_review'
                 assert update(schedule_id, {'preparation': dict(tool_id=PACKAGE, inputs=dict(mode='ok'))}).status_code == 200
-                assert client.get(f'/api/scheduling/{schedule_id}').json()['data']['preparation_state'] == 'ready'
+                assert next(row for row in client.get('/api/scheduling/list?active_only=false').json()['data'] if row['schedule_id'] == schedule_id)['preparation_state'] == 'ready'
                 tools.sources.bind_operation(PACKAGE, 'other-writer')
-                assert client.get(f'/api/scheduling/{schedule_id}').json()['data']['preparation_state'] == 'needs_review'
+                assert next(row for row in client.get('/api/scheduling/list?active_only=false').json()['data'] if row['schedule_id'] == schedule_id)['preparation_state'] == 'needs_review'
                 ok, rebound = execute(schedule_id)
                 assert not ok and rebound not in launched and receipt(rebound) is None
                 assert update(schedule_id, {'preparation': dict(tool_id=PACKAGE, inputs=dict(mode='ok'))}).status_code == 200
-                assert client.get(f'/api/scheduling/{schedule_id}').json()['data']['preparation_state'] == 'ready'
+                assert next(row for row in client.get('/api/scheduling/list?active_only=false').json()['data'] if row['schedule_id'] == schedule_id)['preparation_state'] == 'ready'
                 # Same connection id, edited to another database: the pin no longer matches.
                 tools.sources.save(ReportSource(id='other-writer', name='Other writer', server=fixture['server'], database=fixture['names'][1],
                                                 username=fixture['login'], password=fixture['password'], trust_certificate=True, access='operation'))
-                assert client.get(f'/api/scheduling/{schedule_id}').json()['data']['preparation_state'] == 'needs_review'
+                assert next(row for row in client.get('/api/scheduling/list?active_only=false').json()['data'] if row['schedule_id'] == schedule_id)['preparation_state'] == 'needs_review'
                 ok, edited = execute(schedule_id)
                 assert not ok and edited not in launched and receipt(edited) is None
                 result['checks'].append('Update, removal and rebinding refused while a schedule is active; a changed package, rebound connection or connection edited to another database blocks dispatch before any write until an administrator saves again')

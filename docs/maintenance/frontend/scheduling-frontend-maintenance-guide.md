@@ -101,12 +101,7 @@ operator to cancel, refresh and reopen. Create and update each reload the list o
   removes it. `preparation_state` from the schedule shows Ready / Needs review / Not
   installed; `schedulingApi.normalizeSchedule` passes it through (unknown values show as
   unknown, never ready). The schedule detail, list and Archive show `preparationSummary`.
-- A schedule saved with the retired adapter tokens arrives with `legacy_preparation`: the
-  field shows its message and the old tokens; for a local administrator the form prefills
-  `preparation` from its `suggestion` (else the saved step, else `null`), so saving always
-  sends a step and the server clears the tokens. A package that is not installed is named and the prefill is kept. Non-admin edits
-  send neither. The form never sends `prerequisites`. A lookup input set before the control
-  mounted stays visible (its label once choices load). Checks: `scheduling-lab.spec.ts`.
+- The retired `legacy_preparation` field and automatic preparation suggestions are removed. The form no longer prefills a database step from tokens and never sends `prerequisites`. A local administrator must choose the database step explicitly. The backend now supplies `review_reason`; the Scheduling page's review-row presentation is a separate change.
 
 ## Runtime queue and recovery
 

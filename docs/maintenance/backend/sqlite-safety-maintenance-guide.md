@@ -36,7 +36,7 @@ For a live/archive conflict, inspect a stopped, consistent copy of the current d
 
 `manual_recovery` retains its existing fields and adds `safety_revision`, `resume_required`, `pending_recoveries`, `schedule_missing`, `storage_healthy`, `storage_error`, and `resume_block_reason`.
 
-- `POST /api/scheduling/recovery/resolve`: `{schedule_id, expected_revision, robot_ready, note, expected_updated_at?}`. `schedule_id` may be null for a global incident with no known origin. The schedule-specific resolve route remains an adapter, but also requires revision and confirmation.
+- `POST /api/scheduling/recovery/resolve`: `{schedule_id, expected_revision, robot_ready, note, expected_updated_at?}`. `schedule_id` may be null for a global incident with no known origin. The schedule-specific resolve route is removed; use this global route with the schedule ID.
 - `POST /api/scheduling/dispatch/resume`: `{expected_revision}`.
 - `GET /api/admin/sqlite/{scheduling|authentication}/preview` and `POST .../repair` with `{token}`.
 - `POST /api/admin/sqlite/scheduling/reconcile`: `{token, execution_id, robot_ready, note}`.

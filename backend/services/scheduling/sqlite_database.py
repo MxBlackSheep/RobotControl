@@ -31,6 +31,8 @@ logger = logging.getLogger(__name__)
 
 
 from backend.services.scheduling.safety_store import SchedulerSafetyStore
+from backend.services.scheduling.schedule_check import check_schedule
+from backend.services.scheduling.schedule_review import ScheduleReview
 from backend.services.sqlite_safety import SafetyConflict, StorageUnavailable, configure_connection, check_timestamp
 
 
@@ -60,7 +62,7 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
         self._upgrade_error = None
         health = SQLiteHealthService(self.db_path, 'scheduling', self.db_path.parent / 'backups/sqlite-safety')
         try:
-            upgrade_sqlite(self._get_connection, [self._upgrade_recovery, self._upgrade_schema], health._backup)
+            upgrade_sqlite(self._get_connection, [self._upgrade_recovery, self._upgrade_schema, self._upgrade_hourly, self._upgrade_preparation_tokens], health._backup)
             with self._get_connection() as conn:
                 checks = [row[0] for row in conn.execute('PRAGMA quick_check')]
                 self._integrity_error = None if checks == ['ok'] else 'SQLite integrity check failed; restore a verified backup'
@@ -69,6 +71,27 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
             self._upgrade_error = str(exc)
             self._safety_fault = True
             logger.error('%s', exc)
+
+    @staticmethod
+    def _upgrade_hourly(conn):
+        conn.execute("UPDATE ScheduledExperiments SET schedule_type='interval', interval_hours=1 WHERE schedule_type='hourly'")
+
+    @staticmethod
+    def _upgrade_preparation_tokens(conn):
+        for row in conn.execute('SELECT schedule_id, prerequisites FROM ScheduledExperiments WHERE prerequisites IS NOT NULL'):
+            try:
+                tokens = json.loads(row['prerequisites'])
+            except (TypeError, ValueError):
+                continue  # Unreadable data remains available for review.
+            if not isinstance(tokens, list):
+                continue
+            def no_write(token):
+                name, _, payload = str(token).partition(':')
+                name = ''.join(c for c in name.lower() if c.isalnum())
+                return name == 'evoyeastexperiment' and payload.partition('|')[2].strip().lower() in {'none', 'noop', 'skip'}
+            kept = [token for token in tokens if not no_write(token)]
+            if kept != tokens:
+                conn.execute('UPDATE ScheduledExperiments SET prerequisites=? WHERE schedule_id=?', (json.dumps(kept), row['schedule_id']))
 
     @staticmethod
     def _upgrade_recovery(conn):
@@ -479,41 +502,13 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
             return False
     
     def get_active_schedules(self) -> List[ScheduledExperiment]:
-        """
-        Get all active scheduled experiments
-        
-        Returns:
-            List of active ScheduledExperiment objects
-        """
-        schedules = []
-        
-        try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                
-                cursor.execute("""
-                    SELECT * FROM ScheduledExperiments 
-                    WHERE is_active = 1 AND archived = 0
-                    ORDER BY start_time ASC
-                """)
-                
-                rows = cursor.fetchall()
-                
-                for row in rows:
-                    schedule = self._row_to_scheduled_experiment(row, conn)
-                    if schedule:
-                        schedules.append(schedule)
-                        
-        except (sqlite3.Error, StorageUnavailable):
-            raise
-        except Exception as e:
-            logger.error(f"Failed to get active schedules from SQLite: {e}")
-        
-        return schedules
+        """Only checked schedules are eligible for the engine and calendar."""
+        return [schedule for schedule in self.get_schedules(active_only=True, archived_only=False)
+                if not isinstance(schedule, ScheduleReview)]
 
-    def get_schedules(self, *, active_only: bool, archived_only: bool) -> List[ScheduledExperiment]:
+    def get_schedules(self, *, active_only: bool, archived_only: bool) -> List[ScheduledExperiment | ScheduleReview]:
         """Fetch schedules filtered by active/archive state."""
-        schedules: List[ScheduledExperiment] = []
+        schedules: List[ScheduledExperiment | ScheduleReview] = []
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -545,7 +540,7 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
             logger.error("Failed to get schedules: %s", exc)
         return schedules
 
-    def get_schedule_by_id(self, schedule_id: str) -> Optional[ScheduledExperiment]:
+    def get_schedule_by_id(self, schedule_id: str) -> Optional[ScheduledExperiment | ScheduleReview]:
         """
         Get a specific schedule by ID
         
@@ -1350,6 +1345,9 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                 row = conn.execute('SELECT * FROM ScheduledExperiments WHERE schedule_id = ?', (schedule_id,)).fetchone()
                 if not row or row['archived']:
                     raise ValueError('A selected schedule is archived or no longer exists. Preview again.')
+                schedule = self._row_to_scheduled_experiment(row, conn)
+                if isinstance(schedule, ScheduleReview):
+                    raise ValueError(f'{schedule.experiment_name}: Needs review: {schedule.review_reason}')
                 pending = conn.execute("SELECT 1 FROM JobExecutions WHERE schedule_id = ? AND status IN ('pending', 'queued', 'running') LIMIT 1", (schedule_id,)).fetchone()
                 if pending:
                     raise ValueError('A selected schedule is queued, running or paused. Wait for it to finish.')
@@ -1525,95 +1523,34 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                 [(schedule_id, contact_id, timestamp) for contact_id in contact_ids]
             )
 
-    def _row_to_scheduled_experiment(self, row: sqlite3.Row, conn: Optional[sqlite3.Connection] = None) -> Optional[ScheduledExperiment]:
-        """Convert database row to ScheduledExperiment object"""
-        try:
-            start_time = self._parse_timestamp(row["start_time"])
-            row_keys = set(row.keys()) if hasattr(row, "keys") else set()
-            created_at = self._parse_timestamp(row["created_at"]) if "created_at" in row_keys else None
-            updated_at = self._parse_timestamp(row["updated_at"]) if "updated_at" in row_keys else None
-
-            timeout_config = TimeoutConfig()
-            raw_timeout_minutes = row["timeout_minutes"] if "timeout_minutes" in row_keys else None
-            raw_timeout_action = row["timeout_action"] if "timeout_action" in row_keys else "continue"
-            raw_cleanup_name = (
-                row["timeout_cleanup_experiment_name"]
-                if "timeout_cleanup_experiment_name" in row_keys
-                else None
-            )
-            raw_cleanup_path = (
-                row["timeout_cleanup_experiment_path"]
-                if "timeout_cleanup_experiment_path" in row_keys
-                else None
-            )
-            timeout_config = TimeoutConfig.from_dict(
-                {
-                    "timeout_minutes": raw_timeout_minutes,
-                    "action": raw_timeout_action,
-                    "cleanup_experiment_name": raw_cleanup_name,
-                    "cleanup_experiment_path": raw_cleanup_path,
-                }
-            )
-
-            prerequisites: List[str] = []
-            raw_prereqs = row["prerequisites"] if "prerequisites" in row_keys else None
-            if raw_prereqs:
+    def _row_to_scheduled_experiment(self, row, conn=None):
+        """Check each row independently; retain rejected fields for Edit and Delete."""
+        fields = dict(row)
+        fields['timeout_config'] = {
+            'timeout_minutes': fields.pop('timeout_minutes'),
+            'action': fields.pop('timeout_action'),
+            'cleanup_experiment_name': fields.pop('timeout_cleanup_experiment_name'),
+            'cleanup_experiment_path': fields.pop('timeout_cleanup_experiment_path'),
+        }
+        fields['notification_contacts'] = self._get_schedule_contact_ids(fields['schedule_id'], conn)
+        reason = None
+        for name in ('parameters', 'prerequisites', 'preparation'):
+            if fields[name] is not None:
                 try:
-                    prerequisites = json.loads(raw_prereqs)
-                except Exception as exc:  # pragma: no cover
-                    logger.debug("Failed to parse prerequisites: %s", exc)
-
-            preparation = None
-            raw_preparation = row["preparation"] if "preparation" in row_keys else None
-            if raw_preparation:
-                try:
-                    preparation = json.loads(raw_preparation)
-                except Exception:
-                    # Never drop a step silently: an unreadable one blocks dispatch instead.
-                    preparation = {"invalid": True}
-
-            recovery_marked_at = self._parse_timestamp(row["recovery_marked_at"]) if "recovery_marked_at" in row_keys else None
-            recovery_resolved_at = self._parse_timestamp(row["recovery_resolved_at"]) if "recovery_resolved_at" in row_keys else None
-
-            schedule = ScheduledExperiment(
-                schedule_id=row["schedule_id"],
-                experiment_name=row["experiment_name"],
-                experiment_path=row["experiment_path"],
-                schedule_type=row["schedule_type"],
-                interval_hours=row["interval_hours"],
-                start_time=start_time,
-                estimated_duration=row["estimated_duration"],
-                log_inactivity_threshold_minutes=row["log_inactivity_threshold_minutes"],
-                mode=row['mode'],
-                runner=row['runner'], protocol_id=row['protocol_id'],
-                parameters=json.loads(row['parameters']), protocol_revision=row['protocol_revision'],
-                created_by=row["created_by"],
-                is_active=bool(row["is_active"]),
-                archived=bool(row["archived"]) if "archived" in row_keys else False,
-                timeout_config=timeout_config,
-                prerequisites=prerequisites,
-                preparation=preparation,
-                notification_contacts=[],
-                recovery_required=bool(row["recovery_required"]) if "recovery_required" in row_keys else False,
-                recovery_note=row["recovery_note"] if "recovery_note" in row_keys else None,
-                recovery_marked_at=recovery_marked_at,
-                recovery_marked_by=row["recovery_marked_by"] if "recovery_marked_by" in row_keys else None,
-                recovery_resolved_at=recovery_resolved_at,
-                recovery_resolved_by=row["recovery_resolved_by"] if "recovery_resolved_by" in row_keys else None,
-                created_at=created_at,
-                updated_at=updated_at,
-            )
-
-            schedule.notification_contacts = self._get_schedule_contact_ids(
-                schedule.schedule_id,
-                conn,
-            )
-
-            return schedule
-
-        except Exception as exc:
-            logger.error("Failed to convert row to ScheduledExperiment: %s", exc)
-            raise StorageUnavailable('A stored schedule could not be read. Review SQLite storage health.') from exc
+                    fields[name] = json.loads(fields[name])
+                except (TypeError, ValueError):
+                    reason = reason or f'{name} contains unreadable JSON'
+        for name in ('is_active', 'archived', 'recovery_required'):
+            fields[name] = bool(fields[name])
+        if reason is None:
+            try:
+                schedule = check_schedule(fields)
+                # Reading must retain saved cleanup references even while their action is inactive.
+                schedule.timeout_config = TimeoutConfig.from_dict(fields['timeout_config'])
+                return schedule
+            except (ValueError, TypeError) as exc:
+                reason = str(exc)
+        return ScheduleReview(fields, reason)
 
     def _row_to_notification_log(self, row: sqlite3.Row) -> NotificationLogEntry:
         """Convert database row to NotificationLogEntry."""

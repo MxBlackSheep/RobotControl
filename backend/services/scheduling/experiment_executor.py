@@ -6,14 +6,12 @@ Replicates VBS script functionality with explicit timeout handling.
 
 Features:
 - HxRun.exe command execution with proper argument handling
-- Database prerequisite configuration (ScheduledToRun flags)
+- Pinned database preparation before launch
 - Timeout action selection (continue or cleanup method)
 - Process monitoring and timeout handling
-- Mock mode support for development environments
 """
 
 import logging
-from contextlib import nullcontext
 import subprocess
 import time
 import os
@@ -115,7 +113,7 @@ def resolve_timeout_context(experiment: ScheduledExperiment, current_time: datet
 class ExperimentExecutor:
     """Service for executing scheduled experiments"""
     
-    def __init__(self, config: Optional[ExecutionConfig] = None):
+    def __init__(self, run_log_monitor, launch_guard, config: Optional[ExecutionConfig] = None):
         """
         Initialize the experiment executor
         
@@ -125,9 +123,8 @@ class ExperimentExecutor:
         self.config = config or ExecutionConfig()
         self.db_manager = get_scheduling_database_manager()
         self.pre_execution = PreExecutionPipeline(self.db_manager)
-        self.run_log_monitor = None
-        self._monitor_schedule = None
-        self._monitor_terminate_schedule = False
+        self.run_log_monitor = run_log_monitor
+        self.launch_guard = launch_guard
         
         # Validate Hamilton installation
         if not os.path.exists(self.config.hxrun_path):
@@ -156,23 +153,12 @@ class ExperimentExecutor:
                 experiment,
                 timeout_context,
             )
-            self._monitor_schedule = experiment
-            self._monitor_terminate_schedule = bool(effective_timeout_context.get("terminate_schedule"))
             run_target = experiment
             run_pre_execution = True
             if effective_timeout_context.get("timed_out"):
                 action = str(effective_timeout_context.get("action") or "continue")
                 if action == "run_cleanup_and_terminate":
                     cleanup_path = effective_timeout_context.get("cleanup_experiment_path")
-                    if not cleanup_path:
-                        execution.error_message = (
-                            "Timeout action requires cleanup_experiment_path but none was configured"
-                        )
-                        logger.error(
-                            "Timeout cleanup path missing for %s",
-                            experiment.experiment_name,
-                        )
-                        return False
                     cleanup_name = effective_timeout_context.get("cleanup_experiment_name") or "Timeout Cleanup"
                     run_target = ScheduledExperiment(
                         schedule_id=experiment.schedule_id,
@@ -197,28 +183,29 @@ class ExperimentExecutor:
                     )
 
             if run_pre_execution:
-                pre_run = self.pre_execution.run(experiment, execution.execution_id)
-                if not pre_run.success:
-                    execution.error_message = pre_run.failure_reason or "Pre-execution pipeline failed"
-                    logger.error("Pre-execution failed for %s: %s", experiment.experiment_name, execution.error_message)
+                try:
+                    self.pre_execution.prepare(experiment, execution.execution_id)
+                except Exception as exc:
+                    logger.exception('Lab preparation failed for %s', experiment.schedule_id)
+                    execution.error_message = str(exc)
                     return False
 
-            result = self._execute_hamilton_command(run_target, execution)
+            result = self._execute_real_command(run_target, execution, time.time(), experiment,
+                                                bool(effective_timeout_context.get('terminate_schedule')))
 
             if result.success:
                 state = None
-                if self.run_log_monitor:
-                    try:
+                try:
+                    state = self.run_log_monitor.check(execution.execution_id)
+                    for _ in range(15):
+                        if state and state.run_state in TERMINAL_STATES:
+                            break
+                        time.sleep(2)
                         state = self.run_log_monitor.check(execution.execution_id)
-                        for _ in range(15):
-                            if state and state.run_state in TERMINAL_STATES:
-                                break
-                            time.sleep(2)
-                            state = self.run_log_monitor.check(execution.execution_id)
-                    except Exception:
-                        # The run has ended, so a failed read leaves its outcome unconfirmed.
-                        logger.exception("Could not confirm the outcome of %s", experiment.experiment_name)
-                        state = None
+                except Exception:
+                    # The run has ended, so a failed read leaves its outcome unconfirmed.
+                    logger.exception("Could not confirm the outcome of %s", experiment.experiment_name)
+                    state = None
                 if not state or state.run_state != "Complete":
                     result.success = False
                     if state and state.run_state in {"Aborted", "Error"}:
@@ -261,38 +248,9 @@ class ExperimentExecutor:
             return timeout_context
         return refreshed
     
-    def _execute_hamilton_command(self, experiment: ScheduledExperiment, 
-                                execution: JobExecution) -> ExecutionResult:
-        """
-        Execute the Hamilton HxRun.exe command
-        
-        Args:
-            experiment: Experiment to execute
-            execution: Execution record
-            
-        Returns:
-            ExecutionResult with execution details
-        """
-        start_time = time.time()
-        
-        try:
-            return self._execute_real_command(experiment, execution, start_time)
-                
-        except Exception as e:
-            execution_time = time.time() - start_time
-            return ExecutionResult(
-                success=False,
-                return_code=None,
-                stdout="",
-                stderr="",
-                execution_time_seconds=execution_time,
-                command_executed="",
-                error_message=f"Command execution error: {str(e)}"
-            )
-    
-    
     def _execute_real_command(self, experiment: ScheduledExperiment, 
-                            execution: JobExecution, start_time: float) -> ExecutionResult:
+                            execution: JobExecution, start_time: float, schedule: ScheduledExperiment,
+                            terminate_schedule: bool) -> ExecutionResult:
         """Execute real Hamilton HxRun.exe command"""
         try:
             raw_path = experiment.experiment_path or experiment.experiment_name
@@ -323,11 +281,8 @@ class ExperimentExecutor:
             logger.info(f"Executing Hamilton command: {command_str}")
             
             # Execute process
-            if self.run_log_monitor:
-                self.run_log_monitor.prepare(self._monitor_schedule or experiment, execution, method_path,
-                                             self._monitor_terminate_schedule)
-            guard = getattr(self, 'launch_guard', None)
-            with guard(self._monitor_schedule or experiment, execution) if guard else nullcontext():
+            self.run_log_monitor.prepare(schedule, execution, method_path, terminate_schedule)
+            with self.launch_guard(schedule, execution):
                 process = subprocess.Popen(
                     cmd,
                     stdout=subprocess.PIPE,
@@ -336,13 +291,12 @@ class ExperimentExecutor:
                     creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == 'nt' else 0
                 )
             
-            if self.run_log_monitor:
-                try:
-                    self.run_log_monitor.launched(execution.execution_id, process.pid)
-                except Exception:
-                    # The process already exists. Continue owning/waiting for it;
-                    # the observer retries persistence during its next check.
-                    logger.exception("Could not persist the process launch observation")
+            try:
+                self.run_log_monitor.launched(execution.execution_id, process.pid)
+            except Exception:
+                # The process already exists. Continue owning/waiting for it;
+                # the observer retries persistence during its next check.
+                logger.exception("Could not persist the process launch observation")
             # Log inactivity alerts are advisory; runtime never kills HxRun.
             stdout, stderr = process.communicate()
             return_code = process.returncode
