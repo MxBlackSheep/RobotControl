@@ -46,6 +46,21 @@ ALGORITHM = "HS256"
 _token_secrets: Optional[Tuple[str, str]] = None
 
 
+def _key_file() -> Tuple[str, str]:
+    path = get_path_manager().config_path / "token-secrets.json"
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "x", encoding="utf-8") as file:  # "x": never overwrite
+            json.dump({"access": secrets.token_urlsafe(48), "refresh": secrets.token_urlsafe(48)}, file)
+        logger.info("Created sign-in keys in %s", path)
+    try:
+        keys = json.loads(path.read_text(encoding="utf-8"))
+        return str(keys["access"]), str(keys["refresh"])
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        logger.critical("Sign-in keys in %s cannot be read (%s); fix or delete the file, then start again", path, exc)
+        raise RuntimeError(f"Sign-in keys in {path} cannot be read") from exc
+
+
 def token_secrets() -> Tuple[str, str]:
     """The (access, refresh) signing keys of this installation.
 
@@ -55,24 +70,8 @@ def token_secrets() -> Tuple[str, str]:
     """
     global _token_secrets
     if _token_secrets is None:
-        access = os.getenv("ROBOTCONTROL_ACCESS_TOKEN_SECRET")
-        refresh = os.getenv("ROBOTCONTROL_REFRESH_TOKEN_SECRET")
-        if access and refresh:
-            _token_secrets = (access, refresh)
-            return _token_secrets
-        path = get_path_manager().config_path / "token-secrets.json"
-        if not path.exists():
-            path.parent.mkdir(parents=True, exist_ok=True)
-            keys = {"access": secrets.token_urlsafe(48), "refresh": secrets.token_urlsafe(48)}
-            with open(path, "x", encoding="utf-8") as file:  # "x": never overwrite
-                json.dump(keys, file)
-            logger.info("Created sign-in keys in %s", path)
-        try:
-            keys = json.loads(path.read_text(encoding="utf-8"))
-            _token_secrets = (str(keys["access"]), str(keys["refresh"]))
-        except (OSError, ValueError, KeyError, TypeError) as exc:
-            logger.critical("Sign-in keys in %s cannot be read (%s); fix or delete the file, then start again", path, exc)
-            raise RuntimeError(f"Sign-in keys in {path} cannot be read") from exc
+        variables = (os.getenv("ROBOTCONTROL_ACCESS_TOKEN_SECRET"), os.getenv("ROBOTCONTROL_REFRESH_TOKEN_SECRET"))
+        _token_secrets = variables if all(variables) else _key_file()
     return _token_secrets
 
 

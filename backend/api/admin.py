@@ -183,26 +183,19 @@ async def set_user_role(
 ):
     """Switch another account between user and admin; it applies on that account's next request."""
 
-    def refuse(response):
-        record(False)
-        return response
-
-    def record(success: bool) -> None:
-        log_action(actor=current_user["username"], action="change_user_role", scope="users",
-                   client_ip=connection.client_ip, success=success, details={"target": username, "role": request.role})
-
-    if username == current_user.get("username"):
-        return refuse(ResponseFormatter.bad_request(message="Cannot change your own role", details={"username": username}))
     auth_service = get_auth_service()
-    if not auth_service.get_user_by_username(username):
-        return refuse(ResponseFormatter.not_found(message="User not found", details={"username": username}))
-    if not auth_service.set_user_role(username, request.role, int(current_user["user_id"])):
-        return refuse(ResponseFormatter.forbidden(message=NO_LONGER_ADMIN, details={"username": username}))
-    record(True)
-    return ResponseFormatter.success(
-        data={"username": username, "role": request.role},
-        message="User role updated successfully",
-    )
+    if username == current_user.get("username"):
+        response = ResponseFormatter.bad_request(message="Cannot change your own role", details={"username": username})
+    elif not auth_service.get_user_by_username(username):
+        response = ResponseFormatter.not_found(message="User not found", details={"username": username})
+    elif not auth_service.set_user_role(username, request.role, int(current_user["user_id"])):
+        response = ResponseFormatter.forbidden(message=NO_LONGER_ADMIN, details={"username": username})
+    else:
+        response = ResponseFormatter.success(data={"username": username, "role": request.role},
+                                             message="User role updated successfully")
+    log_action(actor=current_user["username"], action="change_user_role", scope="users", client_ip=connection.client_ip,
+               success=response.status_code == 200, details={"target": username, "role": request.role})
+    return response
 
 
 @router.delete("/users/{username}")
