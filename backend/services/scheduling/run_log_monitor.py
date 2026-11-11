@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from pathlib import Path, PureWindowsPath
 from typing import Any, Callable, Dict, Optional
 
+from backend.utils.logging_setup import run_log_context
 from backend.constants import HAMILTON_STATE_MAPPING
 from backend.models import JobExecution, ScheduledExperiment
 from backend.services.scheduling.run_log_store import RunLogStore
@@ -359,43 +360,44 @@ class RunLogMonitor:
 
     def deliver_pending(self, service_getter):
         for entry in self.store.due_alerts():
-            if self._delivery_stop.is_set():
-                break
-            log_id = entry["log_id"]
-            if entry["status"] == "error" and log_id not in self._retry_at:
-                self._retry_at[log_id] = self.clock() + RETRY_SECONDS
-            if self.clock() < self._retry_at.get(log_id, 0):
-                continue
-            # SQL and file observations are refreshed immediately before every attempt.
-            state = self.check(entry["execution_id"])
-            if not state or state.active_alert_id != log_id or not self.store.claim_alert(log_id):
-                continue
-            metadata = json.loads(entry["metadata"])
-            try:
-                schedule = self.manager.get_schedule_by_id(state.schedule_id) or ScheduledExperiment.from_dict(state.schedule)
-                contacts = [self.manager.get_notification_contact(cid) for cid in schedule.notification_contacts]
-                contacts = [c for c in contacts if c and c.is_active and c.email_address]
-                if not contacts:
-                    raise RuntimeError("No active notification contacts are configured for this schedule")
-                service = service_getter()
-                if service is None:
-                    raise RuntimeError("Email notifications are disabled")
-                result = service.schedule_alert(schedule, JobExecution.from_dict(state.execution), contacts=contacts,
-                    trigger=entry["event_type"], context=metadata["context"],
-                    trace_path=Path(state.trace_path) if state.trace_path else None, exact_trace=True,
-                    message_id=f"<robotcontrol.{log_id}@robotcontrol.local>",
-                    should_send=lambda: self.alert_is_current(state.execution_id, log_id))
-                self.manager.update_notification_log(log_id, status="cancelled" if result.cancelled else "sent" if result.sent else "partial" if result.delivery_status == "partial" else "error",
-                    error_message=result.error or "", processed_at=datetime.now(), recipients=result.recipients,
-                    attachments=result.attachments, subject=result.subject, message=result.body,
-                    metadata={**metadata, "attachment_notes": result.attachment_notes})
-                if not result.sent and not result.cancelled and result.delivery_status != "partial":
+            with run_log_context(entry["execution_id"]):
+                if self._delivery_stop.is_set():
+                    break
+                log_id = entry["log_id"]
+                if entry["status"] == "error" and log_id not in self._retry_at:
                     self._retry_at[log_id] = self.clock() + RETRY_SECONDS
-                else:
-                    self._retry_at.pop(log_id, None)
-            except Exception as exc:
-                self.manager.update_notification_log(log_id, status="error", error_message=str(exc), processed_at=datetime.now())
-                self._retry_at[log_id] = self.clock() + RETRY_SECONDS
+                if self.clock() < self._retry_at.get(log_id, 0):
+                    continue
+                # SQL and file observations are refreshed immediately before every attempt.
+                state = self.check(entry["execution_id"])
+                if not state or state.active_alert_id != log_id or not self.store.claim_alert(log_id):
+                    continue
+                metadata = json.loads(entry["metadata"])
+                try:
+                    schedule = self.manager.get_schedule_by_id(state.schedule_id) or ScheduledExperiment.from_dict(state.schedule)
+                    contacts = [self.manager.get_notification_contact(cid) for cid in schedule.notification_contacts]
+                    contacts = [c for c in contacts if c and c.is_active and c.email_address]
+                    if not contacts:
+                        raise RuntimeError("No active notification contacts are configured for this schedule")
+                    service = service_getter()
+                    if service is None:
+                        raise RuntimeError("Email notifications are disabled")
+                    result = service.schedule_alert(schedule, JobExecution.from_dict(state.execution), contacts=contacts,
+                        trigger=entry["event_type"], context=metadata["context"],
+                        trace_path=Path(state.trace_path) if state.trace_path else None, exact_trace=True,
+                        message_id=f"<robotcontrol.{log_id}@robotcontrol.local>",
+                        should_send=lambda: self.alert_is_current(state.execution_id, log_id))
+                    self.manager.update_notification_log(log_id, status="cancelled" if result.cancelled else "sent" if result.sent else "partial" if result.delivery_status == "partial" else "error",
+                        error_message=result.error or "", processed_at=datetime.now(), recipients=result.recipients,
+                        attachments=result.attachments, subject=result.subject, message=result.body,
+                        metadata={**metadata, "attachment_notes": result.attachment_notes})
+                    if not result.sent and not result.cancelled and result.delivery_status != "partial":
+                        self._retry_at[log_id] = self.clock() + RETRY_SECONDS
+                    else:
+                        self._retry_at.pop(log_id, None)
+                except Exception as exc:
+                    self.manager.update_notification_log(log_id, status="error", error_message=str(exc), processed_at=datetime.now())
+                    self._retry_at[log_id] = self.clock() + RETRY_SECONDS
 
     def alert_is_current(self, execution_id, log_id):
         if self._delivery_stop.is_set():

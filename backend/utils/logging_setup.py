@@ -9,12 +9,33 @@ import os
 import re
 import shutil
 import time
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, Optional
 
 
 logger = logging.getLogger(__name__)
+
+
+execution_id_context = ContextVar("execution_id", default="")
+
+
+@contextmanager
+def run_log_context(execution_id: str):
+    token = execution_id_context.set(execution_id)
+    try:
+        yield
+    finally:
+        execution_id_context.reset(token)
+
+
+class RunLogFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        execution_id = execution_id_context.get()
+        record.run_tag = f" | run={execution_id[:8]}" if execution_id else ""
+        return True
 
 
 class ImmediateFlushStreamHandler(logging.StreamHandler):
@@ -115,7 +136,7 @@ class LoggingHandlers:
         return result
 
 
-DEFAULT_FORMAT = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+DEFAULT_FORMAT = "%(asctime)s | %(levelname)s | %(name)s | %(message)s%(run_tag)s"
 
 
 def setup_logging(
@@ -152,6 +173,10 @@ def setup_logging(
     )
     error_handler.setLevel(logging.WARNING)
     error_handler.setFormatter(formatter)
+
+    run_filter = RunLogFilter()
+    for handler in (console_handler, app_handler, error_handler):
+        handler.addFilter(run_filter)
 
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)

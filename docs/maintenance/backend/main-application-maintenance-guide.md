@@ -37,7 +37,11 @@ This guide explains how the FastAPI entry point, logging, static assets, and bui
    - Project root is added to `sys.path` before routers import, allowing relative imports inside packaged builds.
 
 2. **Logging**  
-   - `setup_logging(...)` builds handlers under `data/logs/`.  
+   - `setup_logging(...)` builds handlers under `data/logs/`. All handlers share a
+     filter that appends `run=<first 8 of execution_id>` while an execution context
+     is active. Queueing, the job worker, restart reconciliation and run-log email
+     delivery set and reset that context; unrelated lines have no tag. PyHSL start
+     lines also include `pyhsl_run=<id>`.
    - `configure_uvicorn_logging()` uses the application handlers; Uvicorn access logging is disabled.
 
 3. **Lifespan context** (`@asynccontextmanager lifespan`)  

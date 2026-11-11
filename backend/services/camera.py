@@ -25,7 +25,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from backend.config import CAMERA_CONFIG, VIDEO_PATH
 from backend.services.camera_runtime import CameraRuntime
-from backend.services.clip_transcoder import ClipTranscoder, clip_files, finalized_clips
+from backend.services.clip_transcoder import ClipTranscoder, finalized_clips
 from backend.services.shared_frame_buffer import get_shared_frame_buffer
 from backend.utils.data_paths import get_videos_path, is_compiled_mode
 
@@ -63,7 +63,6 @@ class CameraService:
         # Configuration
         self.recording_duration = CAMERA_CONFIG["recording_duration_minutes"] * 60  # Convert to seconds
         self.archive_duration = CAMERA_CONFIG["archive_duration_minutes"] * 60
-        self.rolling_clips_count = CAMERA_CONFIG["rolling_clips_count"]
         
         # Auto-cleanup configuration
         self.cleanup_interval = 1 * 60  # 1 minute for debugging
@@ -190,7 +189,7 @@ class CameraService:
                 self.rolling_clips.append(clip)
         with self.cleanup_lock:
             if self._cleanup_future is None or self._cleanup_future.done():
-                self._cleanup_future = self.executor.submit(self._cleanup_orphaned_files)
+                self._cleanup_future = self.executor.submit(self.cleanup_rolling_clips)
         self.clip_transcoder.wake()
 
     def _clip_transcoded(self, avi, mp4):
@@ -246,19 +245,9 @@ class CameraService:
             logger.error("Camera stop failed: %s", exc)
             return False
 
-    def _cleanup_orphaned_files(self):
-        with self.clips_lock:
-            clips = self._read_finalized_clips()
-            for clip in clips[:-self.rolling_clips_count]:
-                path = Path(clip["path"])
-                try:
-                    for clip_file in clip_files(path):
-                        clip_file.unlink(missing_ok=True)
-                    path.with_suffix(".json").unlink(missing_ok=True)
-                except OSError as exc:
-                    logger.warning("Cannot remove old clip %s: %s", path.name, exc)
-            self.rolling_clips.clear()
-            self.rolling_clips.extend(c for c in clips if Path(c["path"]).exists())
+    def cleanup_rolling_clips(self):
+        from backend.services.storage_manager import get_storage_manager
+        return get_storage_manager().cleanup_rolling_clips(self.rolling_clips, self.clips_lock)
 
     def _sync_memory_with_filesystem(self):
         with self.clips_lock:

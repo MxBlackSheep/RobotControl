@@ -23,6 +23,7 @@ Failure cases:
   open by a download) is listed twice, archived twice or loses the sidecar in cleanup; the AVI is
   not removed once released;
 - legacy clips without sidecar and .partial.avi files are touched;
+- filename retention follows modification times instead, or cleanup races an archive copy;
 - the download route serves the MP4 with the wrong type.
 """
 import argparse
@@ -157,6 +158,8 @@ def run(real_clips: Path = None):
             service = CameraService()
         with patch("backend.services.storage_manager.VIDEO_PATH", str(videos)):
             service._storage_manager = StorageManager()
+        storage_patch = patch("backend.services.storage_manager.get_storage_manager", return_value=service._storage_manager)
+        storage_patch.start()
         transcoder = service.clip_transcoder
         now = datetime.now() - timedelta(minutes=5)
 
@@ -302,22 +305,54 @@ def run(real_clips: Path = None):
         check("released AVI removed on the next pass", not held.exists() and held.with_suffix(".mp4").exists()
               and held.with_suffix(".json").exists())
 
+        # An archive copying a clip holds the same lock that cleanup needs.
+        copying, release_copy, cleanup_started, cleanup_done = (threading.Event() for _ in range(4))
+        original_copy = shutil.copy2
+        def copy_while_locked(source, target):
+            copying.set()
+            if not release_copy.wait(5):
+                raise RuntimeError("Archive fixture was not released")
+            return original_copy(source, target)
+        def cleanup():
+            cleanup_started.set()
+            service.cleanup_rolling_clips()
+            cleanup_done.set()
+        archives = []
+        with patch("backend.services.storage_manager.shutil.copy2", side_effect=copy_while_locked):
+            archive_thread = threading.Thread(target=lambda: archives.append(
+                service._storage_manager.archive_experiment_videos("concurrent", "Check", service.rolling_clips, service.clips_lock)))
+            archive_thread.start()
+            try:
+                assert copying.wait(5), "Archive never reached the copy boundary"
+                cleanup_thread = threading.Thread(target=cleanup)
+                cleanup_thread.start()
+                assert cleanup_started.wait(5)
+                check("cleanup waits while archive copies under clips_lock", not cleanup_done.wait(.1))
+            finally:
+                release_copy.set()
+                archive_thread.join(5)
+            cleanup_thread.join(5)
+        check("archive and waiting cleanup finish without losing footage",
+              bool(archives) and archives[0].success and not archives[0].warnings and cleanup_done.is_set())
+
         # Cleanup with both formats present keeps the sidecar of a kept clip and removes all files of old ones.
-        both_old = write_clip(rolling, now - timedelta(minutes=30), 10)
+        both_old = write_clip(rolling, datetime(2025, 1, 1), 10)
         shutil.copy2(newest.with_suffix(".mp4"), both_old.with_suffix(".mp4"))
-        day_ago = time.time() - 86400  # StorageManager removes by modification time
+        day_ago = time.time() + 86400  # Newer mtime must not save the oldest filename.
         for old_file in (both_old, both_old.with_suffix(".mp4")):
             os.utime(old_file, (day_ago, day_ago))
         before = len(finalized_clips(rolling))
-        result = service._storage_manager.cleanup_rolling_clips(max_clips=before - 1)
+        service._storage_manager.rolling_clips_limit = before - 1
+        result = service._storage_manager.cleanup_rolling_clips(service.rolling_clips, service.clips_lock)
         check("storage cleanup removes every file of the oldest clip", not both_old.exists()
               and not both_old.with_suffix(".mp4").exists() and not both_old.with_suffix(".json").exists()
               and len(finalized_clips(rolling)) == before - 1 and result.rolling_clips_removed == 1, result.rolling_clips_removed)
         kept = finalized_clips(rolling)
         check("every kept clip still has its sidecar or is legacy",
               all(p.with_suffix(".json").exists() or p == legacy for p in kept), [p.name for p in kept])
-        service.rolling_clips_count = len(kept) - 1
-        service._cleanup_orphaned_files()
+        service._storage_manager.rolling_clips_limit = len(kept) - 1
+        service.cleanup_rolling_clips()
+        service._storage_manager.rolling_clips_limit = 120
         check("camera cleanup removes every file of the oldest clip", not legacy.exists() and len(finalized_clips(rolling)) == len(kept) - 1)
 
         # RobotControl killed mid-transcode: ffmpeg ends with it; the next start finishes the clip.
@@ -369,6 +404,7 @@ def run(real_clips: Path = None):
     finally:
         if service is not None:
             service.shutdown()
+            storage_patch.stop()
             from backend.services.camera import CameraService
             CameraService._instance = None
         shutil.rmtree(work, ignore_errors=True)

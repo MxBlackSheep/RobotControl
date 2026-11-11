@@ -457,7 +457,7 @@ class AutomaticRecordingService:
         """Schedule storage cleanup in background thread"""
         def cleanup_worker():
             try:
-                cleanup_result = self.storage_manager.cleanup_all_storage()
+                cleanup_result = self.storage_manager.cleanup_all_storage(self.camera_service.rolling_clips, self.camera_service.clips_lock)
                 logger.info("AutoRecording | event=storage_cleanup | removed=%s | freed_mb=%.1f", cleanup_result.total_items_removed, cleanup_result.storage_freed_bytes / (1024*1024))
             except Exception as e:
                 logger.error("AutoRecording | event=storage_cleanup_error | error=%s", e)
@@ -470,11 +470,11 @@ class AutomaticRecordingService:
         try:
             stats = self.storage_manager.get_storage_statistics()
             rolling_clips_count = stats["rolling_clips_count"]
-            rolling_clips_limit = AUTO_RECORDING_CONFIG["rolling_clips_limit"]
+            rolling_clips_limit = self.storage_manager.rolling_clips_limit
             
             if rolling_clips_count > rolling_clips_limit:
                 logger.info("AutoRecording | event=startup_cleanup_needed | clips=%s | limit=%s", rolling_clips_count, rolling_clips_limit)
-                cleanup_result = self.storage_manager.cleanup_rolling_clips()
+                cleanup_result = self.storage_manager.cleanup_rolling_clips(self.camera_service.rolling_clips, self.camera_service.clips_lock)
                 logger.info("AutoRecording | event=startup_cleanup_done | removed=%s | freed_mb=%.1f", cleanup_result.rolling_clips_removed, cleanup_result.storage_freed_bytes / (1024*1024))
             else:
                 logger.info("AutoRecording | event=startup_cleanup_skipped | clips=%s | limit=%s", rolling_clips_count, rolling_clips_limit)
@@ -500,7 +500,7 @@ class AutomaticRecordingService:
                     # Get current storage statistics
                     stats = self.storage_manager.get_storage_statistics()
                     rolling_clips_count = stats["rolling_clips_count"]
-                    rolling_clips_limit = AUTO_RECORDING_CONFIG["rolling_clips_limit"]
+                    rolling_clips_limit = self.storage_manager.rolling_clips_limit
                     
                     # Check if we're exceeding the threshold
                     if rolling_clips_count > rolling_clips_limit + self.cleanup_threshold_buffer:
@@ -519,7 +519,7 @@ class AutomaticRecordingService:
                 # Perform cleanup if needed
                 if should_cleanup:
                     try:
-                        cleanup_result = self.storage_manager.cleanup_rolling_clips()
+                        cleanup_result = self.storage_manager.cleanup_rolling_clips(self.camera_service.rolling_clips, self.camera_service.clips_lock)
                         logger.info("AutoRecording | event=cleanup_periodic | removed=%s | freed_mb=%.1f", cleanup_result.rolling_clips_removed, cleanup_result.storage_freed_bytes / (1024*1024))
                     except Exception as e:
                         logger.error("AutoRecording | event=cleanup_periodic_error | error=%s", e)

@@ -56,7 +56,6 @@ CAMERA_CONFIG = {
     "startup_seconds": 20,
     "recording_duration_minutes": 1,        # Duration of each video segment in minutes
     "archive_duration_minutes": 15,         # Minutes of clips to archive per experiment
-    "rolling_clips_count": 120,             # Maximum rolling clips to maintain
     # Frame rate requested from the camera; a hint only (live view paces itself to at most 15, recording
     # measures its rate and keeps at most 7.5). The production camera delivers YUY2 at 30 whatever is
     # requested, so 30 matches what arrives (docs/plans/live-view-denoise.md). LIVE_STREAMING_CONFIG
@@ -76,7 +75,7 @@ AUTO_RECORDING_CONFIG = {
     "enabled": os.getenv("ROBOTCONTROL_AUTO_RECORDING_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"},
     "startup_delay_seconds": 20,            # Delay before starting recording
     "primary_camera_id": 0,                 # Default camera to use for automatic recording
-    "rolling_clips_limit": 120,             # Maximum rolling clips to maintain (mirrors CAMERA_CONFIG)
+    "rolling_clips_limit": 120,             # Maximum rolling clips to maintain
     "experiment_folders_limit": 20,         # Maximum experiment folders to keep
     "archive_duration_minutes": 15,         # Minutes of clips to archive per experiment (mirrors CAMERA_CONFIG)
     "experiment_check_interval_seconds": 5,   # Seconds between experiment state checks (reduced to catch short experiments)

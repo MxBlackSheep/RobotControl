@@ -176,6 +176,7 @@ class PyHslRunner:
                         'PyHSL start was interrupted before its request was saved; check Before this run', 'aborted', hold=True)
                 if not self._start(schedule, execution, resumed):
                     return
+            logger.info("Starting PyHSL run: %s | pyhsl_run=%s", schedule.experiment_name, execution.pyhsl["run_id"])
             self._follow(schedule, execution)
         except (PyHslError, SafetyConflict) as exc:
             self._finish(schedule, execution, 'failed', str(exc), 'execution_failed', hold=True)

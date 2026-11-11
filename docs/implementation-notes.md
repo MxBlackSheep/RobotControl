@@ -1,3 +1,7 @@
+## 2026-11-11 Unify clip retention and identify run logs
+
+Removed the unused ZIP-member preview route; archives still use reader sessions. Rolling clips now share one cleanup limit and the archive lock, retaining the newest filenames regardless of modification time. Execution logs carry the same run tag from queueing through email delivery, and PyHSL start lines include its run ID.
+
 ## 2026-11-11 Remove unused service paths
 
 Removed unused scheduler, monitoring, camera, database and startup code. Scheduling no longer fetches unread calendar data, database browsing uses one paging path, and backup timing is recorded before returning. Logs omit routine polling and keep compressed history indefinitely.
