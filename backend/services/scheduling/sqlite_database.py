@@ -692,7 +692,7 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
         if not (settings.host or settings.username or settings.sender or settings.manual_recovery_recipients):
             return settings  # the row every database starts with: not set, not under review
         try:
-            return check_email_settings(vars(settings))
+            return check_email_settings({**vars(settings), 'manual_recovery_recipients': row['manual_recovery_recipients']})
         except ValueError as exc:
             settings.review_reason = str(exc)
             return settings

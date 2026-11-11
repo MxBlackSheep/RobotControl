@@ -227,9 +227,11 @@ catalogue → connections; publication takes catalogue then connections.
   invalidates readiness. Note-only edits keep the trial; code or connection edits clear it.
 - Every draft file passes `check_draft` (JSON with `id`, `owner`, `revision` and a `draft` that
   `ReportDraft` accepts) on save, get and list. The list reads each file on its own; one that
-  fails is listed with `review_reason`, and get, save, try, check and install refuse it with
-  "Needs review: <reason>". Only Delete works on it, and the file is never rewritten, so its
-  bytes stay until then. A file without a readable owner is listed for every administrator.
+  fails is listed with `review_reason` and `openable`. Try, check and install refuse it with
+  "Needs review: <reason>". When its file holds a draft object it opens in Edit
+  (`GET /drafts/{key}` returns `review_reason`) and a save through the check clears it. A
+  file that does not read offers Delete only and is never rewritten, so its bytes stay until
+  then. A file without a readable owner (missing or null) is listed for every administrator.
 - A publication receipt in the history hides the completed draft. Repeating the same request
   returns the installed result without another history event; if the package has changed
   since, it returns 409.

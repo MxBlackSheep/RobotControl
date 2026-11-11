@@ -5,6 +5,7 @@ import { saveBlob, toolsBase } from './ReportInputs';
 import ReportWizard from './ReportWizard';
 import ToolAuthoring from './ToolAuthoring';
 import StatusChip from './StatusChip';
+import ReviewReason from './ReviewReason';
 import ReportConnections, { AssignConnections, PackageBinding, Source } from './ReportConnections';
 
 type Package = { id: string; name: string; version: string; sha256: string; running: number;
@@ -30,7 +31,7 @@ export default function DatabasePackages({ active }: { active: boolean }) {
   const [remove, setRemove] = useState<Package>();
   const [wizard, setWizard] = useState<string>();
   const [toolEditor, setToolEditor] = useState<string>();
-  const [drafts, setDrafts] = useState<{ id: string; name: string; code_defined?: boolean; review_reason?: string | null }[]>([]);
+  const [drafts, setDrafts] = useState<{ id: string; name: string; code_defined?: boolean; review_reason?: string | null; openable?: boolean }[]>([]);
   const [removeDraft, setRemoveDraft] = useState<{ id: string; name: string }>();
   const [connectionsOpen, setConnectionsOpen] = useState(false);
   const [sources, setSources] = useState<Source[]>([]);
@@ -99,8 +100,9 @@ export default function DatabasePackages({ active }: { active: boolean }) {
     {busy && <LinearProgress />}
     {!!drafts.length && <Paper variant="outlined" sx={{ p: 2 }}><Typography variant="subtitle1">Saved drafts</Typography>
       {drafts.map(d => <Stack key={d.id} direction="row" alignItems="center" gap={1}><Box sx={{ flex: 1, minWidth: 0 }}><Typography>{d.name}</Typography>
-        {d.review_reason && <Typography sx={{ fontSize: 12, lineHeight: '16px', color: theme => theme.palette.tone.attention.fg, overflowWrap: 'anywhere' }}>{d.review_reason}</Typography>}</Box>
-        {d.review_reason ? <StatusChip tone="attention" label="Needs review" /> : <Button onClick={() => d.code_defined ? setToolEditor(d.id) : setWizard(d.id)}>Resume</Button>}
+        {d.review_reason && <ReviewReason reason={d.review_reason} />}</Box>
+        {d.review_reason && <StatusChip tone="attention" label="Needs review" />}
+        {d.openable && <Button onClick={() => d.code_defined ? setToolEditor(d.id) : setWizard(d.id)}>Resume</Button>}
         <Button color="error" onClick={() => setRemoveDraft(d)}>Remove draft</Button></Stack>)}
     </Paper>}
     {!packages.length && !busy && <Typography>No packages installed.</Typography>}

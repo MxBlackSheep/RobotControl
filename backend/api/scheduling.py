@@ -289,24 +289,14 @@ def update_notification_settings_endpoint(
         raise HTTPException(status_code=403, detail="Admin role required to manage notification settings")
     actor = current_user.get("username", "unknown")
 
-    manual_recipients = payload.get("manual_recovery_recipients", [])
-    if isinstance(manual_recipients, str):
-        manual_recipients = manual_recipients.split(",")
-    elif isinstance(manual_recipients, list):
-        if not all(isinstance(value, str) for value in manual_recipients):
-            raise HTTPException(status_code=400, detail="manual_recovery_recipients must contain strings")
-    elif manual_recipients is not None:
-        raise HTTPException(status_code=400, detail="manual_recovery_recipients must be a string or list of strings")
-    use_ssl = bool(payload.get("use_ssl", False))
     settings = _checked(check_email_settings, {
         "host": payload.get("host"),
         "port": payload.get("port", 587),
         "username": payload.get("username"),
         "sender": payload.get("sender"),
-        # SSL replaces STARTTLS rather than conflicting with it.
-        "use_tls": bool(payload.get("use_tls", True)) and not use_ssl,
-        "use_ssl": use_ssl,
-        "manual_recovery_recipients": manual_recipients,
+        "use_tls": payload.get("use_tls", True),
+        "use_ssl": payload.get("use_ssl", False),
+        "manual_recovery_recipients": payload.get("manual_recovery_recipients", []),
         "updated_by": current_user.get("username"),
     })
 

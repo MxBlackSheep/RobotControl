@@ -63,12 +63,7 @@ def check_user_email(email: Any) -> None:
 
 
 def check_user(fields: Dict[str, Any]) -> None:
-    """Raise ValueError when stored user fields could not sign in safely; read no files or network."""
-    username = fields.get("username")
-    if not isinstance(username, str) or not 1 <= len(username) <= 100:
-        raise ValueError("user name must be 1 to 100 characters")
-    if fields.get("role") not in ("admin", "user"):
-        raise ValueError("role must be admin or user")
+    """Raise ValueError for a stored password hash or email that reset or Edit email must fix; read no files or network."""
     if not isinstance(fields.get("password_hash"), str) or not BCRYPT_HASH.fullmatch(fields["password_hash"]):
         raise ValueError("password hash is not recognised")
     check_user_email(fields.get("email"))
@@ -116,11 +111,13 @@ class AuthService:
     def __init__(self) -> None:
         self.db: AuthDatabase = get_auth_database()
 
-        # One-time bootstrap for the default admin account; it must never land under review.
-        admin = {"username": DEFAULT_ADMIN_USERNAME, "email": DEFAULT_ADMIN_EMAIL,
-                 "password_hash": self.get_password_hash(DEFAULT_ADMIN_PASSWORD)}
-        check_user({**admin, "role": "admin"})
-        self.db.ensure_admin(**admin)
+        # One-time bootstrap for the default admin account. Checked only when it would be written,
+        # so a later bad ROBOTCONTROL_ADMIN_EMAIL never stops an existing installation.
+        if not self.db.get_user_by_username(DEFAULT_ADMIN_USERNAME):
+            admin = {"username": DEFAULT_ADMIN_USERNAME, "email": DEFAULT_ADMIN_EMAIL,
+                     "password_hash": self.get_password_hash(DEFAULT_ADMIN_PASSWORD)}
+            check_user(admin)
+            self.db.ensure_admin(**admin)
 
         # Cache configuration values locally for quick access
         self.access_token_expiry = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -171,7 +168,7 @@ class AuthService:
             raise ValueError("Email already registered")
 
         password_hash = self.get_password_hash(password)
-        check_user({"username": username, "email": email, "password_hash": password_hash, "role": "user"})
+        check_user({"email": email, "password_hash": password_hash})
         user_row = self.db.create_user(
             username=username,
             email=email,

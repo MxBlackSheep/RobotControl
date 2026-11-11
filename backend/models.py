@@ -381,8 +381,9 @@ class NotificationSettings:
     @classmethod
     def from_row(cls, row: Any) -> "NotificationSettings":
         data = dict(row)
-        recipients_raw = data.get("manual_recovery_recipients") or ""
-        recipients = [email.strip() for email in recipients_raw.split(",") if email and email.strip()]
+        recipients_raw = data.get("manual_recovery_recipients")
+        # A column that is not text reads as no recipients here; check_email_settings reports it.
+        recipients = [email.strip() for email in recipients_raw.split(",") if email.strip()] if isinstance(recipients_raw, str) else []
         return cls(
             host=data.get("smtp_host"),
             port=data.get("smtp_port", 587),

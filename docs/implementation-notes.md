@@ -4,7 +4,7 @@
 - A contact under review gets no mail; an alert to a mix of contacts goes to the checked ones, and an alert whose every recipient is under review is recorded in the delivery log with the reason. Schedules keep the contact, so it gets mail again once saved.
 - Email settings under review send nothing, and the SMTP test says why; before, the same settings silently read as not configured. A database that never had settings is not under review.
 - A user under review cannot sign in and their tokens stop working. They can still request a password reset; the administrator's Reset & Resolve, Edit email or Delete clears it. Stored emails need only "@", so the built-in admin@localhost and every user of this PC's installed sign-in database pass.
-- One unreadable report draft no longer hides every draft. It is listed for review with Remove only and its file is kept unchanged until removed.
+- One unreadable report draft no longer hides every draft. A draft under review is listed with its reason and cannot be tried, checked or installed; one that still reads as JSON opens in Edit and saving it clears the review, and one that does not offers Remove only and its file stays unchanged until removed.
 ## 2026-11-11 Review fixes for scheduling, shutdown and log preview
 
 - Interrupted finalization keeps the occurrence reserved; stale queued occurrences are dropped before dispatch, VENUS edits repair ignored parameters, open requests have five seconds to finish before shutdown cleanup, and growing-log previews reuse their encoding decision.

@@ -14,16 +14,21 @@ mail (alone or with checked contacts), drops from a schedule's contacts, or cann
 edited back or deleted; an alert whose every recipient is under review leaves no record.
 Email settings: a stored row that fails the settings check reads as unconfigured (defaults),
 hides its values or reason, returns the password, still sends (test or alert), or stays
-under review after a valid save; a database that never had settings reads as under review.
+under review after a valid save; a database that never had settings reads as under review;
+a row with both STARTTLS and SSL stops sending (it reads as SSL); a stored recipient that is
+not text reads as defaults; the route's 400 order changes.
 Users: any user of a copy of this PC's installed sign-in database, the administrator with
 its dot-less email above all, fails the check (a lockout); a user under review is missing
 from the Admin list or hides its reason, signs in, keeps a working access or refresh token,
 cannot request a password reset, stays under review after the admin's reset or email edit,
-or cannot be deleted; another user cannot sign in. No email or hash is printed.
+or cannot be deleted; another user cannot sign in. A bad ROBOTCONTROL_ADMIN_EMAIL stops an
+installation whose administrator exists, or writes an administrator into a fresh database.
+No email or hash is printed.
 Report drafts: one unreadable draft file hides the others or fails the list; a truncated file
-or a draft the model refuses is missing from the list, opens, tries, checks or installs, is
-rewritten (its bytes change before Delete) or cannot be deleted; another owner sees a
-readable draft.
+or a draft the model refuses is missing from the list, tries, checks or installs, or cannot
+be deleted; a truncated file opens or is rewritten (its bytes change before Delete); a readable
+draft under review cannot be opened or its save leaves the review; another owner sees a readable
+draft; a draft whose owner is null is hidden or cannot be deleted.
 """
 from contextlib import closing, contextmanager
 import hashlib
@@ -600,6 +605,20 @@ def email_settings_review_checks(root):
             assert client.get('/api/scheduling/notifications/settings').json()['data']['review_reason'] is None
         reply = client.put('/api/scheduling/notifications/settings', json={**valid, 'port': 0})
         assert reply.status_code == 400 and reply.json()['detail'] == 'port must be between 1 and 65535', reply.text
+        reply = client.put('/api/scheduling/notifications/settings', json={**valid, 'host': '', 'manual_recovery_recipients': 5})
+        assert reply.status_code == 400 and reply.json()['detail'] == 'host is required', reply.text
+        # Both encryption flags stored: read as SSL and keep sending, as before the check existed.
+        with db._get_connection() as conn:
+            conn.execute("UPDATE NotificationSettings SET use_tls=1, use_ssl=1, smtp_password_encrypted=NULL")
+            conn.commit()
+        data = client.get('/api/scheduling/notifications/settings').json()['data']
+        assert data['review_reason'] is None and data['use_ssl'] and not data['use_tls'], data
+        assert notifications.EmailNotificationService().config.is_enabled
+        with db._get_connection() as conn:
+            conn.execute("UPDATE NotificationSettings SET manual_recovery_recipients=X'35'")  # a BLOB keeps its type in a TEXT column
+            conn.commit()
+        data = client.get('/api/scheduling/notifications/settings').json()['data']
+        assert data['review_reason'] == 'manual_recovery_recipients must be a string or list of strings', data
     print('PASS: email settings review keeps stored values, sends nothing, clears on save; a fresh database is not under review')
 
 
@@ -625,6 +644,20 @@ def user_review_checks(root):
 
     with patch.object(module, 'get_auth_database', return_value=AuthDatabase(str(root / 'users.db'))):
         service = module.AuthService()
+    # A bad bootstrap email is refused only when the administrator row would be written.
+    with patch.object(module, 'DEFAULT_ADMIN_EMAIL', 'admin-without-at'):
+        with patch.object(module, 'get_auth_database', return_value=AuthDatabase(str(root / 'users.db'))):
+            restarted = module.AuthService()
+        assert restarted.login(module.DEFAULT_ADMIN_USERNAME, module.DEFAULT_ADMIN_PASSWORD)
+        fresh = AuthDatabase(str(root / 'fresh-users.db'))
+        try:
+            with patch.object(module, 'get_auth_database', return_value=fresh):
+                module.AuthService()
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('A bootstrap administrator that fails the user check must not be written')
+        assert fresh.list_users() == []
     app = FastAPI()
     app.include_router(auth_api.router)
     app.include_router(admin_api.router, prefix='/api/admin')
@@ -688,13 +721,15 @@ def draft_review_checks(root):
 
     service = DatabaseTools(root / 'tools', Path(__file__).resolve().parents[2] / 'database_packages', guard=nullcontext)
     authoring = service.authoring
-    good, truncated, nameless = (authoring.save(ReportDraft(name=name), 'admin')['id'] for name in ('Good', 'Truncated', 'Nameless'))
+    good, truncated, nameless, ownerless = (authoring.save(ReportDraft(name=name), 'admin')['id']
+                                            for name in ('Good', 'Truncated', 'Nameless', 'Ownerless'))
     path = authoring._path(truncated)
     path.write_bytes(path.read_bytes()[:40])
     kept = digest(path)
-    record = json.loads(authoring._path(nameless).read_text('utf-8'))
-    record['draft']['name'] = ''
-    authoring._path(nameless).write_text(json.dumps(record), 'utf-8')
+    for key, field, value in ((nameless, 'name', ''), (ownerless, 'owner', None)):
+        record = json.loads(authoring._path(key).read_text('utf-8'))
+        (record['draft'] if field == 'name' else record)[field] = value
+        authoring._path(key).write_text(json.dumps(record), 'utf-8')
     app = FastAPI()
     app.include_router(api.router)
     user = {'username': 'admin', 'role': 'admin'}
@@ -704,25 +739,38 @@ def draft_review_checks(root):
         reply = client.get('/api/database/tools/drafts')
         assert reply.status_code == 200, reply.text
         listed = {entry['id']: entry for entry in reply.json()}
-        assert set(listed) == {good, truncated, nameless}, reply.text
-        assert listed[good]['review_reason'] is None and listed[truncated]['review_reason'] and listed[nameless]['review_reason'], reply.text
+        assert set(listed) == {good, truncated, nameless, ownerless}, reply.text
+        assert listed[good]['review_reason'] is None and all(listed[key]['review_reason'] for key in (truncated, nameless, ownerless)), reply.text
+        assert listed[nameless]['openable'] and not listed[truncated]['openable'], reply.text
         assert client.get(f'/api/database/tools/drafts/{good}').status_code == 200
         for key in (truncated, nameless):
-            for method, suffix, body in (('get', '', None), ('post', '/try', {'inputs': {}}), ('post', '/check', None),
+            for method, suffix, body in (('post', '/try', {'inputs': {}}), ('post', '/check', None),
                                          ('post', '/install', {'expected_current': '', 'revision': 1})):
                 reply = client.request(method.upper(), f'/api/database/tools/drafts/{key}{suffix}', json=body)
                 assert reply.status_code == 400 and 'Needs review' in reply.json()['detail'], (suffix, reply.text)
-            reply = client.put(f'/api/database/tools/drafts/{key}', json={'draft': {'name': 'Repaired'}, 'revision': 1})
-            assert reply.status_code == 400 and 'Needs review' in reply.json()['detail'], reply.text
+        # A file that does not read as JSON offers Delete only; its bytes stay.
+        reply = client.get(f'/api/database/tools/drafts/{truncated}')
+        assert reply.status_code == 400 and 'Needs review' in reply.json()['detail'], reply.text
+        reply = client.put(f'/api/database/tools/drafts/{truncated}', json={'draft': {'name': 'Repaired'}, 'revision': 1})
+        assert reply.status_code == 400 and 'Needs review' in reply.json()['detail'], reply.text
         assert digest(path) == kept
+        # A readable draft under review opens in Edit; saving it through the check clears the review.
+        reply = client.get(f'/api/database/tools/drafts/{nameless}')
+        assert reply.status_code == 200 and reply.json()['review_reason'], reply.text
+        opened = reply.json()
+        reply = client.put(f'/api/database/tools/drafts/{nameless}', json={'draft': {**opened['draft'], 'name': 'Repaired'}, 'revision': opened['revision']})
+        assert reply.status_code == 200, reply.text
+        listed = {entry['id']: entry for entry in client.get('/api/database/tools/drafts').json()}
+        assert listed[nameless]['review_reason'] is None and listed[nameless]['name'] == 'Repaired', listed[nameless]
         user['username'] = 'other'
-        assert [entry['id'] for entry in client.get('/api/database/tools/drafts').json()] == [truncated]
+        assert sorted(entry['id'] for entry in client.get('/api/database/tools/drafts').json()) == sorted([truncated, ownerless])
+        assert client.delete(f'/api/database/tools/drafts/{ownerless}').status_code == 200
         user['username'] = 'admin'
         for key in (truncated, nameless):
             assert client.delete(f'/api/database/tools/drafts/{key}').status_code == 200
         assert [entry['id'] for entry in client.get('/api/database/tools/drafts').json()] == [good]
         assert not path.exists()
-    print('PASS: draft review entries listed beside a good draft, refused for open/try/check/install/save, bytes kept, deleted')
+    print('PASS: draft review entries listed beside a good draft; a readable one opens and its save clears it; try/check/install refused; unreadable bytes kept; ownerless listed for all; deleted')
 
 
 def run():

@@ -241,31 +241,34 @@ class ReportAuthoring:
         if not path.exists():
             raise PackageError('Draft not found', 404)
         data, reason = self._read(path)
-        if data.get('owner', owner) != owner:
+        if (data.get('owner') or owner) != owner:
             raise PackageError('Draft not found', 404)
         return data, reason
 
-    def get(self, key, owner):
+    def get(self, key, owner, review=False):
+        """review=True opens a draft under review for Edit when its file holds a draft object; acting paths never pass it."""
         with self.lock:
             data, reason = self._owned(key, owner)
-            if reason:
+            if reason and not (review and isinstance(data.get('draft'), dict)):
                 raise PackageError(f'Needs review: {reason}')
-            return {k: v for k, v in data.items() if k != 'owner'}
+            record = {k: v for k, v in data.items() if k != 'owner'}
+            return {**record, 'review_reason': reason} if review else record
 
     def list(self, owner):
         with self.lock:
             entries = []
             for path in self.root.glob('*.json'):
                 d, reason = self._read(path)
-                if d.get('owner', owner) != owner:
+                if (d.get('owner') or owner) != owner:
                     continue
                 if reason:
-                    draft = d.get('draft') if isinstance(d.get('draft'), dict) else {}
-                    entries.append(dict(id=path.stem, name=draft.get('name') or path.stem, revision=d.get('revision'),
-                                        code_defined=False, review_reason=reason))
+                    draft = d.get('draft') if isinstance(d.get('draft'), dict) else None
+                    entries.append(dict(id=path.stem, name=(draft or {}).get('name') or path.stem, revision=d.get('revision'),
+                                        code_defined=bool((draft or {}).get('definition_file')), review_reason=reason,
+                                        openable=draft is not None))
                 elif not self.service.catalogue.published_draft(d['id'], owner):
                     entries.append(dict(id=d['id'], name=d['draft']['name'], revision=d['revision'],
-                                        code_defined=bool(d['draft'].get('definition_file')), review_reason=None))
+                                        code_defined=bool(d['draft'].get('definition_file')), review_reason=None, openable=True))
             return entries
 
     def save(self, draft, owner, key=None, revision=0):
@@ -274,8 +277,8 @@ class ReportAuthoring:
             if key:
                 if self.service.catalogue.published_draft(key, owner):
                     raise PackageError('This draft was published. Edit the installed tool to make another change.', 409)
-                current = self.get(key, owner)
-                if current['revision'] != revision:
+                current = self.get(key, owner, review=True)
+                if current.get('revision') != revision:
                     raise PackageError('This draft changed in another tab. Reopen it before saving.', 409)
                 if current['draft'].get('definition_file') and not draft.definition_file:
                     raise PackageError('Keep this tool definition with its Python.')

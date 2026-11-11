@@ -40,9 +40,17 @@ def check_email_settings(fields):
     if username is not None and not isinstance(username, str):
         raise ValueError('username must be a string if provided')
     sender = check_email_address(fields.get('sender'))
-    if fields.get('use_tls') and fields.get('use_ssl'):
-        raise ValueError('use_tls and use_ssl cannot both be on')
-    recipients = [check_email_address(value) for value in fields.get('manual_recovery_recipients') or [] if value.strip()]
+    recipients = fields.get('manual_recovery_recipients')
+    if isinstance(recipients, str):
+        recipients = recipients.split(',')
+    elif isinstance(recipients, list):
+        if not all(isinstance(value, str) for value in recipients):
+            raise ValueError('manual_recovery_recipients must contain strings')
+    elif recipients is not None:
+        raise ValueError('manual_recovery_recipients must be a string or list of strings')
+    recipients = [check_email_address(value) for value in recipients or [] if value.strip()]
+    # SSL replaces STARTTLS rather than conflicting with it.
+    use_ssl = bool(fields.get('use_ssl'))
     return NotificationSettings(**{**fields, 'host': host.strip(), 'port': port, 'username': (username or '').strip() or None,
-                                   'sender': sender, 'use_tls': bool(fields.get('use_tls')), 'use_ssl': bool(fields.get('use_ssl')),
+                                   'sender': sender, 'use_tls': bool(fields.get('use_tls', True)) and not use_ssl, 'use_ssl': use_ssl,
                                    'manual_recovery_recipients': list(dict.fromkeys(recipients)) or None, 'review_reason': None})

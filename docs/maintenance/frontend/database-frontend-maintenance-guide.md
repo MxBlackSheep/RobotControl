@@ -24,8 +24,9 @@ authoring steps are in [database_packages/README.md](../../../database_packages/
   inputs for installed tools and trials.
 - `DatabasePackages.tsx`: Manage packages. `ToolAuthoring.tsx` adds and edits Python-defined
   tools; `ReportWizard.tsx` only resumes older, non-code drafts and its endpoints stay compatible.
-  A saved draft with `review_reason` shows the Needs review chip and the reason in place of
-  Resume; Remove draft is its only action.
+  A saved draft with `review_reason` shows the Needs review chip and the reason (`ReviewReason`,
+  the Schedules list's review line). Resume shows only when the server marks it `openable`; a
+  file that does not read offers Remove draft alone.
 - `DatabaseSettings.tsx`: saved connections and their uses, the viewer database and Schedule
   preparation. `ReportConnections.tsx` is the single connection editor, reused by settings, packages and
   authoring. Its `SourceMappings` renders the **Reading connection** fields (read-only accounts;
