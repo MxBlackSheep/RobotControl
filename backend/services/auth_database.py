@@ -272,15 +272,25 @@ class AuthDatabase:
                 return False
             return cursor.rowcount > 0
 
-    def delete_user(self, username: str) -> bool:
+    # Saved only while the account making the change is still an active admin, checked in the
+    # same statement: of two admins changing each other at once, the second is refused, so an
+    # admin who can sign in always remains (the maker passed the sign-in check on this request).
+    _MAKER_IS_ADMIN = "EXISTS (SELECT 1 FROM users WHERE id = ? AND role = 'admin' AND is_active = 1)"
+
+    def set_user_role(self, username: str, role: str, actor_id: int) -> bool:
         with self._lock, self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT id FROM users WHERE username = ?", (username,))
-            row = cursor.fetchone()
-            if not row:
-                return False
-            user_id = row["id"]
-            cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
+            cursor.execute(
+                f"UPDATE users SET role = ?, updated_at = ? WHERE username = ? AND {self._MAKER_IS_ADMIN}",
+                (role, datetime.utcnow().isoformat(), username, actor_id),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def delete_user(self, username: str, actor_id: int) -> bool:
+        with self._lock, self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(f"DELETE FROM users WHERE username = ? AND {self._MAKER_IS_ADMIN}", (username, actor_id))
             conn.commit()
             return cursor.rowcount > 0
 

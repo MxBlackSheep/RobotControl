@@ -147,5 +147,7 @@ export const adminAPI = {
     }),
   updateUserEmail: (username: string, email: string) =>
     api.put(`/api/admin/users/${username}/email`, { email }),
+  setUserRole: (username: string, role: 'user' | 'admin') =>
+    api.put(`/api/admin/users/${username}/role`, { role }),
   deleteUser: (username: string) => api.delete(`/api/admin/users/${username}`),
 };

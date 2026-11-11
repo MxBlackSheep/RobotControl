@@ -11,6 +11,7 @@ import {
   List,
   ListItem,
   ListItemText,
+  MenuItem,
   Stack,
   TextField,
   Typography,
@@ -22,6 +23,8 @@ import {
   Delete as DeleteIcon,
 } from '@mui/icons-material';
 import { adminAPI } from '../services/api';
+import { useAuth } from '../context/AuthContext';
+import { requestErrorMessage } from '../services/requestError';
 import StatusChip from './StatusChip';
 import ReviewReason from './ReviewReason';
 import { columnHeading, fontMono, layout } from '../theme';
@@ -30,12 +33,13 @@ import { dayTime } from '../utils/displayTime';
 
 // Wide enough for the table columns; narrower cards stack each account.
 const userTable = '@container users (min-width: 720px)';
-const userColumns = 'minmax(140px, 1fr) minmax(0, 1.4fr) 110px 180px 96px';
+// The Role column fits the role select and a Needs review chip side by side.
+const userColumns = 'minmax(140px, 1fr) minmax(0, 1.4fr) 200px 180px 96px';
 
 interface UserSummary {
   username: string;
   email?: string;
-  role: string;
+  role: 'user' | 'admin';
   created_at?: string;
   last_login?: string;
   review_reason?: string | null;
@@ -81,6 +85,7 @@ const coerceArray = <T,>(payload: any): T[] => {
 };
 
 const UserManagement: React.FC<UserManagementProps> = ({ onError, section }) => {
+  const { user: signedIn } = useAuth();
   const [users, setUsers] = useState<UserSummary[]>([]);
   const [userQuery, setUserQuery] = useState('');
   const visibleUsers = users.filter(user => `${user.username} ${user.email ?? ''}`.toLowerCase().includes(userQuery.trim().toLowerCase()));
@@ -88,6 +93,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ onError, section }) => 
   const [resetRequests, setResetRequests] = useState<PasswordResetRequest[]>([]);
   const [requestsLoading, setRequestsLoading] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [roleRefusal, setRoleRefusal] = useState<{ username: string; message: string } | null>(null);
 
   const [emailDialog, setEmailDialog] = useState({
     open: false,
@@ -172,6 +178,17 @@ const UserManagement: React.FC<UserManagementProps> = ({ onError, section }) => 
       setFeedback(message);
       if (onError) onError(message);
       setEmailDialog((prev) => ({ ...prev, submitting: false }));
+    }
+  };
+
+  // The select always shows the stored role, so a refused change leaves it as it was.
+  const changeRole = async (username: string, role: UserSummary['role']) => {
+    setRoleRefusal(null);
+    try {
+      await adminAPI.setUserRole(username, role);
+      await loadUsers();
+    } catch (error) {
+      setRoleRefusal({ username, message: requestErrorMessage(error, 'Failed to change role') });
     }
   };
 
@@ -277,24 +294,32 @@ const UserManagement: React.FC<UserManagementProps> = ({ onError, section }) => 
                 <span>Username</span><span>Email</span><span>Role</span><span>Last login</span><span />
               </Box>
               {visibleUsers.map((user) => (
-                <Box role="listitem" key={user.username} sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', [userTable]: { gridTemplateColumns: userColumns }, columnGap: 2, rowGap: 0.25,
-                  alignItems: 'center', minHeight: layout.row, px: 2, py: 0.5, borderBottom: 1, borderColor: 'surface.rowLine', fontSize: 13, minWidth: 0 }}>
-                  <Box sx={{ minWidth: 0 }}>
+                // Phone cards get more room and a stronger divider; the desktop table keeps the 40px row rhythm.
+                <Box role="listitem" key={user.username} sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', columnGap: 2, rowGap: `${layout.unit * 2}px`,
+                  alignItems: 'center', minHeight: layout.row, px: `${layout.inset}px`, py: `${layout.gutter}px`, borderBottom: 1, borderColor: 'surface.headLine', fontSize: 13, minWidth: 0,
+                  [userTable]: { gridTemplateColumns: userColumns, rowGap: 0.25, py: 0.5, borderColor: 'surface.rowLine' } }}>
+                  {/* Narrow cards give the name its own full-width line; role and actions sit on the line below. */}
+                  <Box sx={{ minWidth: 0, gridColumn: '1 / -1', [userTable]: { gridColumn: 'auto' } }}>
                     <Typography sx={{ fontFamily: fontMono, fontSize: 13, fontWeight: 500, overflowWrap: 'anywhere' }}>{user.username}</Typography>
                     {user.review_reason && <ReviewReason reason={user.review_reason} />}
                     <Typography sx={{ fontSize: 13, color: 'text.secondary', overflowWrap: 'anywhere', [userTable]: { display: 'none' } }}>
-                      {user.email || 'No email'} · {user.role} · {user.last_login ? `Last login ${dayTime(user.last_login)}` : 'Never signed in'}
+                      {user.email || 'No email'} · {user.last_login ? `Last login ${dayTime(user.last_login)}` : 'Never signed in'}
                     </Typography>
                   </Box>
                   <Typography sx={{ display: 'none', [userTable]: { display: 'block' }, fontSize: 13, color: user.email ? 'text.primary' : 'text.secondary', overflowWrap: 'anywhere' }}>{user.email || '—'}</Typography>
-                  <Stack direction="row" flexWrap="wrap" gap={0.5} sx={{ display: 'none', [userTable]: { display: 'flex' } }}>
-                    <StatusChip tone={user.role === 'admin' ? 'running' : 'neutral'} label={user.role} />
+                  <Stack direction="row" alignItems="center" gap={1} sx={{ minWidth: 0 }}>
+                    {/* Saves at once; your own row is disabled so you cannot remove your own admin access. */}
+                    <TextField select size="small" value={user.role} disabled={user.username === signedIn?.username}
+                      onChange={event => changeRole(user.username, event.target.value as UserSummary['role'])}
+                      SelectProps={{ SelectDisplayProps: { 'aria-label': `Role for ${user.username}` } }}
+                      sx={{ width: 96, flexShrink: 0, '& .MuiSelect-select': { py: 0.5 } }}>
+                      <MenuItem value="user">User</MenuItem>
+                      <MenuItem value="admin">Admin</MenuItem>
+                    </TextField>
                     {user.review_reason && <StatusChip tone="attention" label="Needs review" />}
                   </Stack>
                   <Typography sx={{ display: 'none', [userTable]: { display: 'block' }, fontSize: 13, color: 'text.secondary' }} title={`Created ${formatTimestamp(user.created_at)}`}>{user.last_login ? dayTime(user.last_login) : 'Never'}</Typography>
                   <Stack direction="row" alignItems="center" justifyContent="flex-end">
-                    {/* Narrow cards have no Role column; the chip sits beside the actions. */}
-                    {user.review_reason && <Box sx={{ mr: 0.5, [userTable]: { display: 'none' } }}><StatusChip tone="attention" label="Needs review" /></Box>}
                     <Tooltip title="Edit email">
                       <IconButton size="small" onClick={() => openEmailEditor(user)} aria-label={`Edit email for ${user.username}`}>
                         <EditIcon fontSize="small" />
@@ -306,6 +331,9 @@ const UserManagement: React.FC<UserManagementProps> = ({ onError, section }) => 
                       </IconButton>
                     </Tooltip>
                   </Stack>
+                  {roleRefusal?.username === user.username && (
+                    <Typography role="alert" sx={{ gridColumn: '1 / -1', fontSize: 12, lineHeight: '16px', color: 'error.main', pb: 0.5, overflowWrap: 'anywhere' }}>{roleRefusal.message}</Typography>
+                  )}
                 </Box>
               ))}
 

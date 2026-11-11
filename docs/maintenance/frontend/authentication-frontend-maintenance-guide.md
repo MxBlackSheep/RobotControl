@@ -69,7 +69,11 @@ Login uses the same appearance control as the shell, and the choice survives log
 User and reset-request rows in Administration wrap their actions under long names on
 phones. Local administrators find storage previews and repairs at `/admin?section=storage`.
 A user with `review_reason` cannot sign in: its row shows the Needs review chip (Role column, or
-beside the actions on narrow cards) and the reason under the user name (`ReviewReason`). Reset & Resolve on that user's reset request, Edit email or Delete clears it.
+beside the role select) and the reason under the user name (`ReviewReason`). Reset & Resolve on that user's reset request, Edit email or Delete clears it.
+Each row's role select (User, Admin; `adminAPI.setUserRole`) saves at once and reloads the list; the
+signed-in admin's own row is disabled. A refusal shows the server's message under that row and the
+select keeps the stored role. On narrow cards the name takes the full width and the role, the review
+chip and the actions sit on the line below. Browser checks: `frontend/e2e/system-pages.spec.ts`.
 
 ## Troubleshooting
 

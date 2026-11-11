@@ -370,8 +370,16 @@ class AuthService:
             logger.info("Updated email for user '%s'", username)
         return success
 
-    def delete_user(self, username: str) -> bool:
-        success = self.db.delete_user(username)
+    def set_user_role(self, username: str, role: str, actor_id: int) -> bool:
+        """False when the account making the change is no longer an admin (see AuthDatabase)."""
+        success = self.db.set_user_role(username, role, actor_id)
+        if success:
+            logger.info("Changed role of user '%s' to %s", username, role)
+        return success
+
+    def delete_user(self, username: str, actor_id: int) -> bool:
+        """False when the account making the change is no longer an admin (see AuthDatabase)."""
+        success = self.db.delete_user(username, actor_id)
         if success:
             logger.info("Deleted user '%s'", username)
         return success

@@ -26,6 +26,14 @@ leaves the refresh token valid or the cookies set; /me drops a stored must_reset
 Folder list (/api/system/browse, used only by the restore picker): a remote plain user lists
 the RobotControl PC's folders; a local user or a remote admin (who may restore) is refused.
 
+Role change and delete (PUT /api/admin/users/{name}/role, DELETE /api/admin/users/{name}): a plain
+user changes a role; an admin changes their own role or deletes their own account; an unknown
+user is not 404; a promoted user's existing sign-in must sign in again before admin routes work,
+or a demoted admin's still passes them; two admins acting at the same instant (a demotion and a
+role change or delete of the other) leave no admin who can sign in, because the second change
+is saved although its maker lost the role (must be 403 "You are no longer an admin. Reload the
+page"); a change or refusal is missing from the audit log.
+
 Signing keys: a token signed with the old published key is accepted; the key file is missing
 after first start, holds a published text, or is regenerated on restart (signing everyone out);
 an unreadable key file is rewritten instead of stopping start-up; the key variables do not win.
@@ -39,6 +47,7 @@ refused like any wrong password; a wrong password's answer differs depending on 
 default is still in use (account oracle).
 """
 import json
+import logging
 import os
 import shutil
 import sqlite3
@@ -60,6 +69,7 @@ import jwt  # noqa: E402
 
 from backend.api import auth as auth_api  # noqa: E402
 from backend.api import system as system_api  # noqa: E402
+from backend.api import admin as admin_api  # noqa: E402
 from backend.services import auth as auth_module  # noqa: E402
 from backend.utils.data_paths import get_path_manager  # noqa: E402
 from backend.services.auth import (  # noqa: E402
@@ -90,6 +100,7 @@ def run():
     app.middleware('http')(require_request_header)
     app.include_router(auth_api.router)
     app.include_router(system_api.router)
+    app.include_router(admin_api.router, prefix='/api/admin')
 
     @app.get('/protected')
     def protected(user=Depends(get_current_user)):
@@ -316,6 +327,82 @@ def run():
                                     headers={**headers, 'Authorization': f'Bearer {token}'})
                 check(f'{name} {"lists" if allowed else "is refused"} folders',
                       response.status_code == (200 if allowed else 403), [response.status_code, response.text[:200]])
+
+            # Role changes and deletes (two real admins and a user, with their existing sign-ins).
+            audit = []
+            audit_handler = logging.Handler()
+            audit_handler.emit = lambda record: audit.append(record.msg)
+            logging.getLogger('pyrobot.audit').addHandler(audit_handler)
+            logging.getLogger('pyrobot.audit').setLevel(logging.INFO)
+            service.register_user('second', 'second@example.test', 'Second admin password 1')
+            second = bare.post('/api/auth/login', json={'username': 'second', 'password': 'Second admin password 1'},
+                               headers=PAGE).cookies['rc_access']
+
+            def as_user(token, method, path, body=None):
+                return bare.request(method, path, json=body, headers={'Authorization': f'Bearer {token}'})
+
+            def role_of(username):
+                row = service.db.get_user_by_username(username)
+                return row['role'] if row else None
+
+            def refused(response, status, message):
+                body = response.json()
+                return response.status_code == status and message in (body.get('detail'), (body.get('error') or {}).get('message'))
+
+            response = as_user(plain, 'PUT', '/api/admin/users/second/role', {'role': 'admin'})
+            check('a plain user cannot change a role (403)', refused(response, 403, 'Admin access required')
+                  and role_of('second') == 'user', response.text)
+            response = as_user(admin, 'PUT', f'/api/admin/users/{DEFAULT_ADMIN_USERNAME}/role', {'role': 'user'})
+            check('an admin cannot change their own role (400)', refused(response, 400, 'Cannot change your own role')
+                  and role_of(DEFAULT_ADMIN_USERNAME) == 'admin', response.text)
+            response = as_user(admin, 'PUT', '/api/admin/users/nobody/role', {'role': 'admin'})
+            check('an unknown user answers 404', refused(response, 404, 'User not found'), response.text)
+            response = as_user(admin, 'PUT', '/api/admin/users/second/role', {'role': 'owner'})
+            check('a role other than user or admin is refused', response.status_code == 422 and role_of('second') == 'user', response.text)
+
+            response = as_user(admin, 'PUT', '/api/admin/users/second/role', {'role': 'admin'})
+            check('an admin promotes a user (200 with username and role)', response.status_code == 200
+                  and response.json()['data'] == {'username': 'second', 'role': 'admin'}, response.text)
+            response = as_user(second, 'GET', '/api/admin/users')
+            check("the promoted user's existing sign-in passes an admin route at once", response.status_code == 200, response.text[:200])
+            response = as_user(second, 'PUT', '/api/admin/users/plain/role', {'role': 'admin'})
+            check('the new admin may change another account', response.status_code == 200 and role_of('plain') == 'admin', response.text)
+            response = as_user(second, 'PUT', '/api/admin/users/plain/role', {'role': 'user'})
+            check('an admin may demote another admin', response.status_code == 200 and role_of('plain') == 'user', response.text)
+            response = as_user(plain, 'GET', '/api/admin/users')
+            check("the demoted admin's existing sign-in is refused an admin route at once", response.status_code == 403, response.text)
+
+            # Two admins at the same instant: each passed the admin check before the other's change was saved.
+            lost = 'You are no longer an admin. Reload the page'
+            lookup = service.get_user_by_username
+
+            def demoted_meanwhile(username):
+                service.set_user_role('second', 'user', int(tokens['user']['user_id']))  # the first admin's change lands now
+                return lookup(username)
+
+            for name, method, path, body in [
+                ('a role change', 'PUT', f'/api/admin/users/{DEFAULT_ADMIN_USERNAME}/role', {'role': 'user'}),
+                ('a delete', 'DELETE', f'/api/admin/users/{DEFAULT_ADMIN_USERNAME}', None),
+            ]:
+                service.set_user_role('second', 'admin', int(tokens['user']['user_id']))
+                service.get_user_by_username = demoted_meanwhile
+                try:
+                    response = as_user(second, method, path, body)
+                finally:
+                    service.get_user_by_username = lookup
+                check(f'{name} by an admin demoted meanwhile is refused (403 "{lost}") and the other admin stays',
+                      refused(response, 403, lost) and role_of(DEFAULT_ADMIN_USERNAME) == 'admin' and role_of('second') == 'user',
+                      [response.status_code, response.text, role_of(DEFAULT_ADMIN_USERNAME)])
+            response = as_user(admin, 'DELETE', f'/api/admin/users/{DEFAULT_ADMIN_USERNAME}')
+            check('an admin cannot delete their own account (400)', response.status_code == 400
+                  and role_of(DEFAULT_ADMIN_USERNAME) == 'admin', response.text)
+            logging.getLogger('pyrobot.audit').removeHandler(audit_handler)
+            entries = [e for e in audit if isinstance(e, dict) and e.get('action') == 'change_user_role']
+            check('every role change and refusal is in the audit log with actor, target and role',
+                  any(e['success'] and e['actor'] == 'second' and e['details'] == {'target': 'plain', 'role': 'user'} for e in entries)
+                  and any(not e['success'] and e['details'].get('target') == DEFAULT_ADMIN_USERNAME for e in entries)
+                  and any(not e['success'] and e['details'].get('target') == 'nobody' for e in entries),
+                  entries)
 
             # Remote password guessing is limited; the RobotControl computer is never locked out.
             # The guesses come the way an attacker would: through the tunnel (loopback peer), with

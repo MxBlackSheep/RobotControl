@@ -69,10 +69,19 @@ export async function sampleData(page: Page, mode: string, local: boolean) {
     { folder_name: '2026-09-30_DailyTipWash', video_count: 3, total_size_bytes: 3.2e9, creation_time: ago(42) },
     { folder_name: '2026-09-30_CellFeeding2', video_count: 1, total_size_bytes: 9e8, creation_time: ago(255) },
     { folder_name: '2026-09-29_DailyTipWash', video_count: 3, total_size_bytes: 3e9, creation_time: ago(25 * 60) }] } } }));
+  // `operator` is the signed-in admin, so its role select is disabled.
   await page.route('**/api/admin/users', route => route.fulfill({ json: [
+    { username: 'operator', email: 'operator@example.org', role: 'admin', created_at: '2026-01-05T09:00:00', last_login: ago(5) },
     { username: 'admin', email: 'lab-admin@example.org', role: 'admin', created_at: '2026-01-10T09:00:00', last_login: ago(180) },
     { username: 'operator.day', email: 'day@example.org', role: 'user', created_at: '2026-02-01T09:00:00', last_login: ago(22 * 60) },
-    { username: 'viewer', email: 'viewer@example.org', role: 'viewer', created_at: '2026-03-01T09:00:00', last_login: null }] }));
+    { username: 'night.shift', email: 'night@example.org', role: 'user', created_at: '2026-03-01T09:00:00', last_login: ago(9 * 24 * 60),
+      review_reason: "The user's saved password cannot be checked" },
+    { username: 'cell.culture.overnight.operator.stack.02', email: 'cell.culture.overnight.operator.stack.02@research-lab.example.org', role: 'user',
+      created_at: '2026-04-01T09:00:00', last_login: null }] }));
+  // Changing `admin` stages the race a person can meet: another admin removed operator's admin role while the page was open.
+  await page.route('**/api/admin/users/*/role', route => route.request().url().includes('/users/admin/')
+    ? route.fulfill({ status: 403, json: { detail: 'You are no longer an admin. Reload the page' } })
+    : route.fulfill({ json: { success: true } }));
   // Methods section (local sessions): without this the section has no library to show.
   const method = (id: string, name: string, folder: string, schedules: number) => ({ method_id: id, method_name: name, file_path: `${folder}\\${name}.med`,
     containing_folder: folder, archived: false, revision: 1, path_status: 'available', schedule_count: schedules, references: [] });
