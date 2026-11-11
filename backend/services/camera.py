@@ -247,7 +247,10 @@ class CameraService:
 
     def cleanup_rolling_clips(self):
         from backend.services.storage_manager import get_storage_manager
-        return get_storage_manager().cleanup_rolling_clips(self.rolling_clips, self.clips_lock)
+        result = get_storage_manager().cleanup_rolling_clips(self.rolling_clips, self.clips_lock)
+        # A clip written but never accepted (helper stopped between rename and report) must still be archived.
+        self._sync_memory_with_filesystem()
+        return result
 
     def _sync_memory_with_filesystem(self):
         with self.clips_lock:

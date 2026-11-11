@@ -1,6 +1,6 @@
 ## 2026-11-11 Unify clip retention and identify run logs
 
-Removed the unused ZIP-member preview route; archives still use reader sessions. Rolling clips have one clean-up, which keeps the 120 newest by file name (the recording time), not by modified time, and holds the archive lock. Every log line of one run ends with `run=<first 8 of the execution ID>`, from the queue line to the alert email; a PyHSL run's start line also names its PyHSL run ID.
+Removed the unused ZIP-member preview route; archives still use reader sessions. Rolling clips have one clean-up, which keeps the 120 newest by file name (the recording time), not by modified time, and holds the archive lock. Lines the scheduler writes for one run, from the queue line to the alert email, end with `run=<first 8 of the execution ID>`; a PyHSL run's start line also names its PyHSL run ID. Lines from the process monitor, experiment monitor and automatic recording carry no tag.
 
 ## 2026-11-11 Remove unused service paths
 
