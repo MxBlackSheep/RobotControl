@@ -412,7 +412,7 @@ Examples:
     server = uvicorn.Server(uvicorn.Config(
         app=app, host=args.host, port=args.port, reload=False,
         log_level="info", access_log=False, proxy_headers=False,
-        use_colors=False, log_config=None,
+        use_colors=False, log_config=None, timeout_graceful_shutdown=5,
     ))
     tray = None
     if EMBEDDED_MODE:

@@ -1,3 +1,7 @@
+## 2026-11-11 Review fixes for scheduling, shutdown and log preview
+
+- Interrupted finalization keeps the occurrence reserved; stale queued occurrences are dropped before dispatch, VENUS edits repair ignored parameters, open requests have five seconds to finish before shutdown cleanup, and growing-log previews reuse their encoding decision.
+
 ## 2026-11-11 Stored schedules under review, simpler Schedules and Camera pages
 
 - Stored data has versions. The scheduling database, the sign-in database, `report-sources.json` and `installed.json`

@@ -23,8 +23,8 @@ versions, bundled tool details and authoring steps are owned by
   backup connection strings. `services/labware_connection.py` shares connection handling for
   tip tracking and Cytomat, including driver fallback. Saved report sources keep their own
   quoted connection strings and permission checks.
-- `services/workspace_database.py`: `WorkspaceDatabase` subclasses `DatabaseService` to browse
-  the selected viewer connection, never the native connection. Routes: `api/database.py`.
+- `services/workspace_database.py`: `WorkspaceDatabase` browses a captured viewer connection
+  and reuses `DatabaseService._format_row`; it never opens the native connection. Routes: `api/database.py`.
 - `services/report_sources.py`: `ReportSources` owns saved connections, encrypted passwords,
   the viewer choice, package connection assignments, the read-only permission check and
   dropdown (choice) queries. Stored in `data/database-tools/report-sources.json`.
@@ -90,7 +90,7 @@ All `/api/database` routes require sign-in. `/tables`, `/tables/{name}` and
 (`PUT /api/database/tools/viewer-source`). On upgrade, the first read-only connection is saved
 once as the viewer. With none chosen the routes return 409 with a setup message; they never
 fall back to the native or robot connection. A request whose `source_id` differs from the
-current viewer returns 409 ("refresh"). `/query` and `/execute-procedure` return 410.
+current viewer returns 409 ("refresh"). `/query` and `/execute-procedure` are removed (HTTP 404).
 
 - Table names come from `INFORMATION_SCHEMA` metadata and are quoted with their schema, so
   views and equal names in different schemas work. Column names are checked against metadata

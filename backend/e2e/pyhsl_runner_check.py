@@ -46,6 +46,8 @@ Failure cases (Run Control reply shapes recorded in Simulation, 9 November 2026)
     with a hold and alert without sending Start.
 25. Maintenance during database preparation blocks the first Start with a hold
     and alert; the occurrence is consumed and maintenance stays on.
+26. A failed receipt save keeps running ownership; resume finishes the same interval
+    occurrence with one Start and preparation, without queuing another occurrence.
 
 Only the Run Control service, database package, process and email boundaries are
 fixtures. No installed PyHSL, Hamilton, SQL Server or instrument is accessed.
@@ -827,12 +829,47 @@ def catalog_and_experiments():
                 assert {k: latest[k] for k in ('runner', 'protocol') if k in latest} == expected
 
 
+def interrupted_receipt():
+    from backend.services.sqlite_safety import StorageUnavailable
+    with fixture() as f:
+        s = schedule(f, 'interval', interval_hours=6)
+        failed, release = Event(), Event()
+        save = f.engine.pyhsl_runner._save
+        execute = f.engine._execute_job
+        interrupted = False
+        def fail_result(execution):
+            nonlocal interrupted
+            if execution.pyhsl.get('result') and not interrupted:
+                interrupted = True
+                raise StorageUnavailable('Fixture receipt save failure')
+            return save(execution)
+        def pause_after_failure(*args):
+            execute(*args)
+            if interrupted and not release.is_set():
+                failed.set()
+                assert release.wait(5), 'Check did not release the resume pass'
+        with patch.object(f.engine.pyhsl_runner, '_save', side_effect=fail_result), \
+                patch.object(f.engine, '_execute_job', side_effect=pause_after_failure):
+            eid = dispatch(f, s)
+            try:
+                assert failed.wait(5)
+                assert f.engine.run_log_monitor.store.execution(eid).status == 'running'
+                assert s.schedule_id in f.engine._running_jobs, 'Unfinished PyHSL occurrence lost running ownership'
+                assert not f.engine._find_due_jobs(f.now), 'Unfinished PyHSL occurrence became due again'
+            finally:
+                release.set()
+            assert finished(f, eid).status == 'completed'
+        assert len(f.server.posts) == len(f.prepared) == 1
+        assert len(f.storage.get_execution_history(s.schedule_id)) == 1
+        assert not f.engine._find_due_jobs(f.now) and f.engine._job_queue.empty()
+
+
 def run():
     logs = io.StringIO()
     handler = logging.StreamHandler(logs)
     logging.getLogger().addHandler(handler)
     try:
-        for check in (catalog_and_experiments, outcomes, slow_and_lost, runner_failures, maintenance_before_start, bounded_waits, relay_reads, revision_and_acknowledge, gates_and_following, restarts, saves_and_guards):
+        for check in (interrupted_receipt, catalog_and_experiments, outcomes, slow_and_lost, runner_failures, maintenance_before_start, bounded_waits, relay_reads, revision_and_acknowledge, gates_and_following, restarts, saves_and_guards):
             check()
             print(f'PASS {check.__name__}', flush=True)
         assert TOKEN not in logs.getvalue()

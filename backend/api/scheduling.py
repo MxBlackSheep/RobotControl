@@ -1016,6 +1016,8 @@ def update_schedule(
                 raise HTTPException(status_code=400, detail='Invalid start_time format')
         if fields.get('runner') == 'pyhsl':
             fields['experiment_path'] = 'pyhsl:' + str(fields.get('protocol_id', ''))
+        elif fields.get('runner') == 'venus':
+            fields['parameters'] = {}
         fields['preparation'] = _requested_preparation(update_data, current_user, base_schedule.preparation)
         if 'preparation' in update_data and current_user.get('role') == 'admin':
             fields['prerequisites'] = []

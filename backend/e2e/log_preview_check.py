@@ -1,4 +1,10 @@
-"""Disposable log-route contracts and reader/preview text parity."""
+"""Disposable log-route contracts and reader/preview text parity.
+
+Growing plain files reuse encoding decisions and read only the tail on the next
+poll, with or without an open reader. Truncation/replacement must redetect text;
+binary and compressed previews remain refused, and cut first lines are dropped.
+"""
+import builtins
 import tempfile
 import time
 from pathlib import Path
@@ -44,6 +50,47 @@ def run():
                 assert response.status_code==200,response.text
                 expected="last caf\xc3\xa9\n".encode("latin1").decode("cp1252")
                 assert response.json()["data"]["content"]==expected,response.text
+                # A ready reader's decision applies to the prefix of a growing file.
+                # Also cover previews without a reader (late bytes still choose cp1252).
+                original = path.read_bytes()
+                for followed in (path, root / 'preview-only.trc'):
+                    if followed != path:
+                        followed.write_bytes(original)
+                        response = client.get('/api/logfiles/preview', params={
+                            'source_id': 'check', 'relative_path': followed.name, 'max_bytes': 13})
+                        assert response.json()['data']['content'] == expected, response.text
+                    with followed.open('ab') as handle:
+                        handle.write(b'next caf\xc3\xa9\n')
+                    reads = []
+                    class TrackedFile:
+                        def __init__(self, handle): self.handle = handle
+                        def __enter__(self): return self
+                        def __exit__(self, *args): self.handle.close()
+                        def __getattr__(self, name): return getattr(self.handle, name)
+                        def read(self, size=-1):
+                            reads.append((self.handle.tell(), size))
+                            return self.handle.read(size)
+                    with patch.object(logfiles, 'open', side_effect=lambda *a, **k: TrackedFile(builtins.open(*a, **k)), create=True):
+                        response = client.get('/api/logfiles/preview', params={
+                            'source_id': 'check', 'relative_path': followed.name, 'max_bytes': 13})
+                    assert response.json()['data']['content'] == b'next caf\xc3\xa9\n'.decode('cp1252'), response.text
+                    assert reads and all(offset >= followed.stat().st_size - 13 for offset, _ in reads), f'Grown file reread its prefix: {reads}'
+                    # A shorter file at the same path is a new encoding decision.
+                    followed.write_bytes('fresh caf\u00e9\n'.encode('utf-8'))
+                    response = client.get('/api/logfiles/preview', params={
+                        'source_id': 'check', 'relative_path': followed.name, 'max_bytes': 100})
+                    assert response.json()['data']['content'] == 'fresh caf\u00e9\n', response.text
+                    followed.write_bytes(b'price \x80\n' + b' ' * 4)
+                    response = client.get('/api/logfiles/preview', params={
+                        'source_id': 'check', 'relative_path': followed.name, 'max_bytes': 100})
+                    assert response.json()['data']['content'] == 'price \u20ac\n' + ' ' * 4, response.text
+                print('grown-file preview reads only the tail; truncation/rewrite redetect encoding', flush=True)
+                for suffix in ('.gz', '.zip'):
+                    compressed = root / ('compressed' + suffix)
+                    compressed.write_bytes(b'not opened')
+                    response = client.get('/api/logfiles/preview', params={
+                        'source_id': 'check', 'relative_path': compressed.name})
+                    assert response.status_code == 400 and 'compressed' in response.text.lower(), response.text
                 (root/"binary.log").write_bytes(bytes(range(32))*100)
                 response=client.get("/api/logfiles/preview",params={"source_id":"check","relative_path":"binary.log"})
                 assert response.json()["data"]["is_binary"] is True,response.text

@@ -6,7 +6,8 @@ repeats a completed step, or writes a newer store; fresh and installed-copy sche
 diverge; a failed scheduling upgrade prevents construction or permits storage access.
 Installed files are copied and hashed, never opened for writing. No robot launch.
 Review rows remain listed/editable/deletable and protect package references; bad JSON
-does not hide other rows. List times must use the runtime next run and newest finished
+does not hide other rows; a VENUS form without parameters repairs unreadable JSON.
+List times must use the runtime next run and newest finished
 execution, with no next run for review/inactive/archived rows; queue reports engine state. Activation, archive, launch and path corrections refuse them.
 """
 from contextlib import closing, contextmanager
@@ -252,9 +253,12 @@ def review_checks(root):
         assert [s.schedule_id for s in scheduler._find_due_jobs(datetime.now())] == ['good']
         for key in ('cron', 'bad-json'):
             before = digest(db.db_path)
-            for payload in ({'is_active': True}, {'start_time': datetime.now().isoformat(), 'is_active': True}):
-                reply = client.put('/api/scheduling/' + key, json=payload)
-                assert reply.status_code == 400, reply.text
+            # VENUS parameters are ignored and repaired by any update; unsupported
+            # schedule types still refuse activation and every review row refuses archive.
+            if key == 'cron':
+                for payload in ({'is_active': True}, {'start_time': datetime.now().isoformat(), 'is_active': True}):
+                    reply = client.put('/api/scheduling/' + key, json=payload)
+                    assert reply.status_code == 400, reply.text
             reply = client.post('/api/scheduling/' + key + '/archive', json={'archived': True})
             assert reply.status_code == 400, reply.text
             assert digest(db.db_path) == before
@@ -268,9 +272,16 @@ def review_checks(root):
             else:
                 raise AssertionError('Review row must protect its package')
         original = rows['bad-json']
-        reply = client.put('/api/scheduling/bad-json', json={**original, 'parameters': {}})
+        # buildScheduleRequest sends parameters/protocol_id only for PyHSL.
+        body = {key: original[key] for key in (
+            'experiment_name', 'experiment_path', 'runner', 'schedule_type', 'start_time',
+            'estimated_duration', 'log_inactivity_threshold_minutes', 'mode', 'is_active',
+            'timeout_config', 'preparation', 'notification_contacts')}
+        body['expected_updated_at'] = original['updated_at']
+        reply = client.put('/api/scheduling/bad-json', json=body)
         assert reply.status_code == 200, reply.text
         repaired = db.get_schedule_by_id('bad-json')
+        assert not getattr(repaired, 'review_reason', None) and repaired.parameters == {}
         assert repaired.created_at.isoformat() == original['created_at']
         assert repaired.notification_contacts == original['notification_contacts'] == ['review-contact']
         assert db.get_execution_history('bad-json')[0]['execution_id'] == 'prior-run'

@@ -29,7 +29,7 @@ Use this document whenever you need to touch real-time monitoring, experiment tr
   instead of the last Connected rows. `checked_at` is the result's time.
 
 - `frontend/src/hooks/useMonitoring.ts`  
-  React hook that polls `/experiments`, `/system-health`, `/databases` and the camera streaming status through `useSerialPolling` (one request per owner, 20-second deadline) and normalises the response.
+  React hook that polls `/system-health`, `/databases` and the camera streaming status through `useSerialPolling` (one request per owner, 20-second deadline) and normalises the response.
 
 - `frontend/src/pages/MonitoringPage.tsx`  
   The System Status page: renders the data from `useMonitoring`, freshness chip and Refresh.
@@ -80,7 +80,7 @@ SQL status calls and blocking Database/Experiments API calls run in Starlette's 
 ## 4. REST Responses
 
 1. **Keep them cheap** – use the current experiment and the `health_sampler` snapshot so `/system-health` does not sample `psutil` per request.
-2. **Frontend expectations** – `useMonitoring` normalises `/experiments` and `/system-health`. If you rename fields, update its normaliser to avoid `undefined` values on the System Status page.
+2. **Frontend expectations** – `useMonitoring` normalises `/system-health`, `/databases` and camera streaming status. If you rename fields, update its normaliser to avoid `undefined` values on the System Status page.
 3. **Authentication** – every endpoint requires a Bearer token (`get_current_user`).
 
 ---

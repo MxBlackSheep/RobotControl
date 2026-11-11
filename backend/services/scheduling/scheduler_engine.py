@@ -762,6 +762,12 @@ class SchedulerEngine:
                 self._set_queue_waiting_reason(schedule_id, "Schedule deactivated before dispatch")
                 return None
 
+            if schedule.start_time and self._ensure_naive_datetime(schedule.start_time) > datetime.now():
+                reason = "Schedule next start is in the future; dropping stale queued occurrence"
+                logger.info("%s: %s", schedule.experiment_name, reason)
+                self._set_queue_waiting_reason(schedule_id, reason)
+                return None
+
             try:
                 reason = self._resolve_dispatch_block_reason(schedule)
             except Exception:
@@ -1007,7 +1013,6 @@ class SchedulerEngine:
                     logger.exception('Could not finalize execution %s', execution.execution_id)
             with self._jobs_lock:
                 self._owned_execution_ids.discard(execution.execution_id)
-                self._running_jobs.discard(experiment.schedule_id)
 
     def _finalize_execution(self, experiment, execution, terminate_schedule=False):
         if execution.start_time and execution.end_time:

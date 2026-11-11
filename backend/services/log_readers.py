@@ -87,6 +87,7 @@ class LogReaderManager:
         self.directory.mkdir()
         self.lock = threading.RLock()
         self.readers: dict[str, Reading] = {}
+        self.preview_encodings: dict[Path, tuple[tuple, str]] = {}
         self.total_bytes = 0
         self.slots = threading.BoundedSemaphore(2)
         self.pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix='log-reader')
@@ -116,6 +117,47 @@ class LogReaderManager:
                 self.release(ident, owner)
                 raise ReaderError('Reader expired. Reopen the selected file.', 404)
             return reading
+
+    def preview_encoding(self, path: Path, handle) -> str:
+        """Reuse a decoder chosen for an unchanged prefix of a growing plain file."""
+        stat = os.fstat(handle.fileno())
+        fingerprint = (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)
+        with self.lock:
+            decisions = []
+            if path in self.preview_encodings:
+                decisions.append(self.preview_encodings[path])
+            decisions.extend((reader.fingerprint, reader.encoding) for reader in self.readers.values()
+                             if reader.path == path and reader.entry is None and reader.state == 'ready')
+            compatible = [(prefix, encoding) for prefix, encoding in decisions
+                          if prefix[:2] == fingerprint[:2] and prefix[2] <= stat.st_size
+                          and (prefix[2] < stat.st_size or prefix[3] == stat.st_mtime_ns)]
+            if compatible:
+                prefix, encoding = max(compatible, key=lambda decision: decision[0][2])
+                if encoding == 'utf-16':
+                    handle.seek(0)
+                    encoding = 'utf-16-le' if handle.read(2) == codecs.BOM_UTF16_LE else 'utf-16-be'
+                self.preview_encodings[path] = (prefix, encoding)
+                return encoding
+
+        handle.seek(0)
+        sample = handle.read(65536)
+        encoding = encoding_for(sample)
+        if encoding in ('utf-8', 'utf-8-sig'):
+            # Without a reader, detect late Windows-1252 bytes once for this prefix.
+            decoder = codecs.getincrementaldecoder(encoding)()
+            block = sample
+            try:
+                while block:
+                    decoder.decode(block, final=False)
+                    block = handle.read(65536)
+                decoder.decode(b'', final=True)
+            except UnicodeDecodeError:
+                encoding = 'cp1252'
+        if encoding == 'utf-16':
+            encoding = 'utf-16-le' if sample.startswith(codecs.BOM_UTF16_LE) else 'utf-16-be'
+        with self.lock:
+            self.preview_encodings[path] = (fingerprint, encoding)
+        return encoding
 
     def status(self, reading: Reading) -> dict:
         with self.lock:
@@ -297,6 +339,7 @@ class LogReaderManager:
     def close(self):
         self.closed.set()
         with self.lock:
+            self.preview_encodings.clear()
             for reading in list(self.readers.values()):
                 self.release(reading.id, reading.owner)
         self.pool.shutdown(wait=True, cancel_futures=False)

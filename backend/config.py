@@ -70,7 +70,6 @@ AUTO_RECORDING_CONFIG = {
 
 # Live streaming configuration
 LIVE_STREAMING_CONFIG = {
-                           # Enable live streaming functionality
     "max_concurrent_sessions": 10,             # Maximum concurrent streaming sessions
     "session_timeout_seconds": 60,             # Session timeout after inactivity
     "cpu_soft_limit_percent": int(os.getenv("STREAMING_CPU_SOFT_LIMIT", "75")),  # CPU% to start degrading streams

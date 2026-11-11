@@ -221,8 +221,8 @@ the backend guide.
 - **Editor shows old values:** the page must mount the form with the schedule as listed when
   Edit is pressed.
 - **Edit returns 409:** someone else saved first; reopen after refresh.
-- **Archived list empty:** `loadArchivedSchedules` runs when the section first opens
-  (`archivedInitialized` prevents repeats).
+- **Archived list empty:** `loadArchivedSchedules` runs on mount, after archive, restore
+  or delete, and when Archived is refreshed; check `state.archivedError`.
 
 ## PyHSL schedules and the Run page
 

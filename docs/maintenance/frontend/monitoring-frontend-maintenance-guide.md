@@ -39,12 +39,9 @@ rows say so and the header has no chip. An
 incomplete reply (`normalizeDatabases`) is Unavailable, never an empty healthy list. After
 a failed read both cards keep the last state in neutral colour beside Stale data.
 
-Do not restore the old streaming utilization or bandwidth readouts. The backend
-`resource_usage_percent` is process CPU with a system-CPU fallback, not a streaming
-load percentage. `total_bandwidth_mbps` counts JPEG payload bytes and updates only
-when frames are sent, so it can remain unchanged after delivery stops. Neither
-belongs in this operator overview without a stronger metric contract. The regular
-CPU/memory/disk cards continue to use the system-health sampler.
+The streaming status no longer exposes utilization or bandwidth fields. The
+CPU/memory/disk cards use the system-health sampler; live-view status shows its
+availability and session count.
 
 A request that never answers is abandoned after 20 seconds and shown as
 "Request timed out" (see `polling-maintenance-guide.md`). Hidden pages keep the shared

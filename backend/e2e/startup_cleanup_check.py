@@ -1,5 +1,11 @@
-"""Disposable source static routes, unexpected errors, and failed-start cleanup."""
+"""Disposable static routes, errors and normal/failed-start cleanup.
+
+A held-open HTTP request must be cancelled so lifespan stop steps finish within
+the tray's ten-second deadline. Only service boundaries are fixtures.
+"""
 import asyncio
+import socket
+import sys
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -9,6 +15,49 @@ import threading
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from backend import main
+
+
+async def open_request_shutdown(config):
+    entered, cancelled, release = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    @config.app.get('/held-open')
+    async def held_open():
+        entered.set()
+        try:
+            await release.wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+        return {'released': True}
+
+    listener = socket.socket()
+    listener.bind(('127.0.0.1', 0))
+    listener.listen()
+    server = main.uvicorn.Server(config)
+    serving = asyncio.create_task(server.serve(sockets=[listener]))
+    writer = None
+    try:
+        async with asyncio.timeout(5):
+            while not server.started:
+                await asyncio.sleep(.01)
+            _, writer = await asyncio.open_connection('127.0.0.1', listener.getsockname()[1])
+            writer.write(b'GET /held-open HTTP/1.1\r\nHost: localhost\r\n\r\n')
+            await writer.drain()
+            await entered.wait()
+        server.should_exit = True
+        done, _ = await asyncio.wait([serving], timeout=8)
+        assert done, 'Open request prevented lifespan cleanup within the tray deadline'
+        await serving
+        assert cancelled.is_set(), 'Open request was not cancelled'
+        assert config.timeout_graceful_shutdown == 5
+        assert config.app.state.shutdown_complete.is_set()
+    finally:
+        release.set()
+        server.should_exit = True
+        await asyncio.wait_for(serving, 5)
+        if writer:
+            writer.close()
+            await writer.wait_closed()
+        listener.close()
 
 
 def run():
@@ -65,6 +114,17 @@ def run():
             stack.enter_context(patch.object(main,"_SCHEDULER_AUTOSTART_DELAY_SECONDS",None))
             stack.enter_context(patch.object(main,"_env_flag",return_value=False))
             asyncio.run(scenario())
+            if not fail_start:
+                stopped.clear()
+                fixture_app = FastAPI(lifespan=main.lifespan)
+                fixture_app.state.log_reader_cache = state.log_reader_cache
+                fixture_app.state.shutdown_complete = threading.Event()
+                # Exercise the configuration constructed by the application entry point.
+                with patch.object(main, 'app', fixture_app), patch.object(main, 'EMBEDDED_MODE', False), \
+                        patch.object(sys, 'argv', ['startup_cleanup_check']), \
+                        patch.object(main.uvicorn, 'Server') as constructor:
+                    main.main()
+                asyncio.run(open_request_shutdown(constructor.call_args.args[0]))
         assert sorted(stopped)==sorted(["PyHSL","Readers","Tools","Health","Recording","Streaming","Scheduler","Camera","Maintenance"]),stopped
         assert state.shutdown_complete.is_set()
     print("source static, unexpected-error and normal/failed-start cleanup checks passed")

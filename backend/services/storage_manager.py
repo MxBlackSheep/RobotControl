@@ -192,8 +192,6 @@ class StorageManager:
         Args:
             experiment_id: Unique experiment identifier (RunGUID)
             method_name: Name of the experimental method
-            rolling_clips: Deque of rolling clips from camera service
-            clips_lock: Thread lock for accessing rolling clips
             
         Returns:
             ArchiveResult with archiving statistics and outcome
@@ -218,7 +216,7 @@ class StorageManager:
             skipped_count = 0
             total_size = 0
             
-            with self.clips_lock:  # Use camera service's clips lock for thread safety
+            with self.clips_lock:  # Serialize archive selection/copying with retention and transcoding
                 clips_to_archive = []
                 
                 # Collect clips within archive window

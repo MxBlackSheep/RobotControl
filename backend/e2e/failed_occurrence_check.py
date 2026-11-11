@@ -21,6 +21,8 @@ Failure cases:
 14. Keyword abort emails describe the next run; noted aborts describe recovery only.
 15. Queue, worker and email-delivery logs share the run ID; subsequent runs and unrelated
     threads never inherit it.
+16. Failed finalization retains running ownership until reconciliation; stale queued
+    interval occurrences cannot launch before the schedule's next start.
 
 Exit-zero outcome cases:
 1. No SQL row, once: failed, one dispatch/email, schedule off, manual recovery.
@@ -478,6 +480,41 @@ def run():
         f.loops()
         f.assert_consumed(value)
         assert f.manager.get_manual_recovery_state().resume_required
+
+    @case('16 VENUS finalization failure cannot queue the occurrence again')
+    def finalize_failure(f):
+        value = f.schedule('interval', interval_hours=6)
+        from backend.services.sqlite_safety import StorageUnavailable
+        with patch.object(f.manager, 'finalize_job_execution', side_effect=StorageUnavailable('Fixture finalization failure')):
+            f.loops(1)
+        assert f.storage.get_execution_history(value.schedule_id)[0]['status'] == 'running'
+        assert value.schedule_id in f.engine._running_jobs, 'Unfinished occurrence lost running ownership'
+        assert not f.engine._find_due_jobs(f.now), 'Unfinished occurrence became due again'
+        f.engine._evaluate_active_executions(f.now)
+        f.loops()
+        f.assert_consumed(value)
+
+    @case('16 stale queued interval occurrence is dropped by the worker')
+    def stale_queue(f):
+        value = f.schedule('interval', interval_hours=6)
+        f.loops(1)
+        # A duplicate already in the queue must be refused even after ownership clears.
+        duplicate = JobExecution('', value.schedule_id, 'pending')
+        assert f.manager.store_job_execution(duplicate)
+        f.engine._job_queue.put((value, duplicate))
+        f.engine._running = True
+        worker = Thread(target=f.engine._job_worker_loop)
+        try:
+            worker.start()
+            f.engine._job_queue.join()
+        finally:
+            f.engine._running = False
+            f.engine._job_queue.put(None)
+            worker.join(5)
+        assert not worker.is_alive()
+        assert len(f.launched) == len(f.prepared) == 1, 'Stale queued occurrence launched'
+        saved = f.engine.run_log_monitor.store.execution(duplicate.execution_id)
+        assert saved.status == 'cancelled' and 'future' in saved.error_message.lower()
 
     @case('10 retry and in-flight edits')
     def retry(f):

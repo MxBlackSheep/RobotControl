@@ -24,7 +24,7 @@ The manifest declares `contract_version: 2`, a unique lowercase hyphenated packa
 tool has a globally unique `id`, `name`, `kind` (`operation`, `report` or `preparation`),
 `entrypoint` (`module:function`) and `inputs`. Input definitions use `name`, `label`,
 `type`, `required` and optionally `choices`. Types: `text`, `integer`, `number`,
-`boolean`, `choice`, `experiment`. Unknown inputs and invalid types are rejected.
+`boolean`, `choice`, `date`, `lookup`. Unknown inputs and invalid types are rejected.
 
 Both kinds implement `run(context, inputs)`. Operations receive the application
 `connection`; reports receive an explicitly assigned read-only connection and
@@ -154,11 +154,11 @@ no automatic retry of database changes. Temporary reports are removed on restart
 
 ## API
 
-The application exposes `/api/database/tools/catalogue`, `/experiments`, `/packages`,
+The application exposes `/api/database/tools/catalogue`, `/packages`,
 `/operations/{id}/preview`, `/operations/execute`, `/reports/{id}` (POST), and
 `/reports/{job_id}` / `/download` (GET). All require authentication. Installation,
 removal, preview and execution additionally require a local administrator. The
-former `/api/database/query` and `/execute-procedure` routes return HTTP 410.
+former `/api/database/query` and `/execute-procedure` routes are removed (HTTP 404).
 
 ## Culture history package
 

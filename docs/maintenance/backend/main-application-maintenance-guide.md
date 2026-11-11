@@ -56,6 +56,7 @@ This guide explains how the FastAPI entry point, logging, static assets, and bui
 5. **Signal & exit handling**  
    - Both modes pass the same app to `uvicorn.Server`. Lifespan owns cleanup, including failed startup; each stop step is attempted once.
    - In packaged builds the system-tray “Terminate” sets `server.should_exit`, waits up to ten seconds for cleanup, then forces exit.
+   - Uvicorn allows open requests five seconds to finish, then cancels them so lifespan cleanup can run before the tray deadline.
 
 6. **Shutdown block in lifespan**  
    - Cancels pending auto-start task and stops live streaming/auto-recording/scheduler/camera in a predictable order.

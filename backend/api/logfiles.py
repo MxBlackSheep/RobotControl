@@ -7,7 +7,6 @@ log directories. Plain-file tails and private reader sessions support text and c
 
 from __future__ import annotations
 
-import codecs
 import logging
 import time
 import zipfile
@@ -19,7 +18,7 @@ from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from fastapi import APIRouter, Depends, Query, Request, status
 from pydantic import BaseModel, Field
-from backend.services.log_readers import LogReaderManager, ReaderError, encoding_for
+from backend.services.log_readers import LogReaderManager, ReaderError
 
 from backend.api.dependencies import ConnectionContext, get_connection_context
 from backend.api.response_formatter import ResponseFormatter
@@ -318,31 +317,10 @@ def _sort_and_limit_items(items: List[Dict[str, Any]], *, search: str = "", file
 
 def _read_regular_file_preview(path: Path, max_bytes: int, manager: LogReaderManager):
     with open(path, "rb") as handle:
-        sample = handle.read(64 * 1024)
         try:
-            encoding = encoding_for(sample)
+            encoding = manager.preview_encoding(path, handle)
         except ReaderError:
             return None, True
-        current = path.stat()
-        fingerprint = (current.st_dev, current.st_ino, current.st_size, current.st_mtime_ns)
-        # Reuse only the same file version; a followed log may have rotated.
-        with manager.lock:
-            for reader in manager.readers.values():
-                if reader.path == path and reader.entry is None and reader.state == "ready" and reader.fingerprint == fingerprint and reader.encoding == "cp1252":
-                    encoding = reader.encoding
-                    break
-        if encoding in ("utf-8", "utf-8-sig"):
-            # Late Windows-1252 bytes must select the same decoder as the reader.
-            decoder = codecs.getincrementaldecoder(encoding)()
-            handle.seek(0)
-            try:
-                while chunk := handle.read(64 * 1024):
-                    decoder.decode(chunk, final=False)
-                decoder.decode(b"", final=True)
-            except UnicodeDecodeError:
-                encoding = "cp1252"
-        if encoding == "utf-16":
-            encoding = "utf-16-le" if sample.startswith(codecs.BOM_UTF16_LE) else "utf-16-be"
         handle.seek(0, 2)
         size = handle.tell()
         start = max(0, size - max_bytes)
