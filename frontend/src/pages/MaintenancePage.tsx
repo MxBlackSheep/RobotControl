@@ -1,5 +1,5 @@
 import { ListRow, PageContent, PageGrid, PageHeader, Panel, StatusDot } from '../components/PageLayout';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Box,
@@ -18,8 +18,8 @@ import {
 } from '@mui/material';
 import InfoOutlined from '@mui/icons-material/InfoOutlined';
 
-import { useAuth } from '../context/AuthContext';
 import { hxrunMaintenanceApi, HxRunMaintenanceState } from '../services/hxrunMaintenanceApi';
+import { requestErrorMessage } from '../services/requestError';
 import { robotAttention, useRobotStatusContext } from '../hooks/useRobotStatus';
 import { runTiming } from '../components/overview/NowRunning';
 import { layout, type StatusTone } from '../theme';
@@ -34,30 +34,16 @@ const formatTimestamp = (value?: string | null): string => {
 };
 
 const MaintenancePage: React.FC = () => {
-  const { user } = useAuth();
   const [state, setState] = useState<HxRunMaintenanceState | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reasonInput, setReasonInput] = useState('');
   const reasonEdited = useRef(false);
-  const [hxRunRunningDialogOpen, setHxRunRunningDialogOpen] = useState(false);
-  const [hxRunRunningDialogMessage, setHxRunRunningDialogMessage] = useState(
-    'HxRun is running. Please close the software before entering maintenance mode.',
-  );
-
-  const isLocalSession = useMemo(() => {
-    if (typeof user?.session_is_local === 'boolean') {
-      return user.session_is_local;
-    }
-    if (typeof window === 'undefined') {
-      return false;
-    }
-    const hostname = window.location.hostname.toLowerCase();
-    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '0.0.0.0';
-  }, [user?.session_is_local]);
-
-  const canEdit = Boolean(state?.permissions?.can_edit ?? isLocalSession);
+  // The server's refusal when HxRun is running; null while the dialog is closed.
+  const [hxRunRunningMessage, setHxRunRunningMessage] = useState<string | null>(null);
+  // Only the server decides; without a reply every control stays disabled.
+  const canEdit = state?.permissions.can_edit === true;
   // Shared robot state (no extra request): what would block or be affected by maintenance.
   const { status: robot, error: robotError } = useRobotStatusContext();
   const job = robot?.running[0];
@@ -85,8 +71,7 @@ const MaintenancePage: React.FC = () => {
       setState(payload);
       if (!reasonEdited.current) setReasonInput(payload.reason || '');
     } catch (err: any) {
-      const message = err?.response?.data?.message || err?.response?.data?.detail || err?.message || 'Failed to load maintenance state';
-      setError(message);
+      setError(requestErrorMessage(err, 'Failed to load maintenance state'));
     } finally {
       setLoading(false);
     }
@@ -109,11 +94,9 @@ const MaintenancePage: React.FC = () => {
         reasonEdited.current = false;
         setReasonInput(next.reason || "");
       } catch (err: any) {
-        const message = err?.response?.data?.message || err?.response?.data?.detail || err?.message || 'Failed to update maintenance state';
-        const statusCode = err?.response?.status;
-        if (enabled && statusCode === 409) {
-          setHxRunRunningDialogMessage(message);
-          setHxRunRunningDialogOpen(true);
+        const message = requestErrorMessage(err, 'Failed to update maintenance state');
+        if (enabled && err?.response?.status === 409) {
+          setHxRunRunningMessage(message);
           return;
         }
         setError(message);
@@ -197,17 +180,17 @@ const MaintenancePage: React.FC = () => {
       </PageGrid>
 
       <Dialog
-        open={hxRunRunningDialogOpen}
-        onClose={() => setHxRunRunningDialogOpen(false)}
+        open={hxRunRunningMessage !== null}
+        onClose={() => setHxRunRunningMessage(null)}
         maxWidth="sm"
         fullWidth
       >
         <DialogTitle>HxRun is running</DialogTitle>
         <DialogContent>
-          <DialogContentText>{hxRunRunningDialogMessage}</DialogContentText>
+          <DialogContentText>{hxRunRunningMessage}</DialogContentText>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setHxRunRunningDialogOpen(false)} autoFocus>
+          <Button onClick={() => setHxRunRunningMessage(null)} autoFocus>
             OK
           </Button>
         </DialogActions>

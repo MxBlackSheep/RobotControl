@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSerialPolling } from '../../hooks/useSerialPolling';
+import { requestErrorMessage } from '../../services/requestError';
 
 /** Keep the last good snapshot; hidden pages and unsaved edits suspend reads. */
 export function useLabwareSnapshot<T extends { auto_refresh_ms: number }>(read: () => Promise<T>, active: boolean, paused: boolean, validate: (value: T) => boolean) {
@@ -17,7 +18,7 @@ export function useLabwareSnapshot<T extends { auto_refresh_ms: number }>(read: 
         if (!validate(value)) throw new Error('Labware data unavailable. Retry.');
         return value;
       }
-      catch (cause: any) { throw new Error(cause?.response?.data?.error?.message || cause?.response?.data?.message || cause?.message || 'Unable to load labware.'); }
+      catch (cause) { throw new Error(requestErrorMessage(cause, 'Unable to load labware.')); }
     },
     onSuccess: setSnapshot,
     interval: Math.max(1000, snapshot?.auto_refresh_ms || 15000),

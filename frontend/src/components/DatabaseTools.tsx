@@ -4,11 +4,10 @@ import { Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, Dia
 import InspectionWorkspace from './InspectionWorkspace';
 export { default as DatabasePackages } from './DatabasePackages';
 import { api } from '../services/api';
-import ReportInputs, { changedInputs, ReportField } from './ReportInputs';
+import ReportInputs, { toolsBase, changedInputs, ReportField } from './ReportInputs';
 import { useAuth } from '../context/AuthContext';
 import { isLocalUser } from './navigation';
 
-const base = '/api/database/tools';
 type Tool = { id: string; name: string; kind: string; package_version: string; inputs: ReportField[]; setup_needed?: boolean; target?: string };
 type Preview = { token: string; confirmation: string; summary: string; details: Record<string, unknown>; target?: string };
 type Job = { id: string; status: string; filename?: string; error?: string; error_details?: string; package_version?: string };
@@ -34,7 +33,7 @@ export default function DatabaseTools({ kind, active }: { kind: 'operation' | 'r
   useEffect(() => {
     if (!active) return;
     const controller = new AbortController();
-    api.get(`${base}/catalogue`, { params: { kind }, signal: controller.signal }).then(({ data }) => {
+    api.get(`${toolsBase}/catalogue`, { params: { kind }, signal: controller.signal }).then(({ data }) => {
       setTools(data); setSelected(old => data.some((item: Tool) => item.id === old) ? old : data[0]?.id || '');
     }).catch(error => { if (!controller.signal.aborted) setError(message(error)); });
     return () => controller.abort();
@@ -46,7 +45,7 @@ export default function DatabaseTools({ kind, active }: { kind: 'operation' | 'r
     let timer: number;
     const poll = async () => {
       try {
-        const { data } = await api.get(`${base}/reports/${job.id}`);
+        const { data } = await api.get(`${toolsBase}/reports/${job.id}`);
         if (!stopped) { setJob(data); setError(''); }
       } catch (error) { if (!stopped) setError(message(error)); }
       if (!stopped) timer = window.setTimeout(poll, 1500);
@@ -63,7 +62,7 @@ export default function DatabaseTools({ kind, active }: { kind: 'operation' | 'r
     try {
       const inputs = { ...values };
       tool?.inputs.forEach(field => { if (field.type === 'boolean' && inputs[field.name] === undefined) inputs[field.name] = false; });
-      const { data } = await api.post(kind === 'operation' ? `${base}/operations/${selected}/preview` : `${base}/reports/${selected}`, { inputs }, { timeout: 40000 });
+      const { data } = await api.post(kind === 'operation' ? `${toolsBase}/operations/${selected}/preview` : `${toolsBase}/reports/${selected}`, { inputs }, { timeout: 40000 });
       if (generation.current !== id) return;
       if (kind === 'operation') { setPreview(data); setConfirmation(''); setUncertain(false); }
       else setJob(data);
@@ -74,7 +73,7 @@ export default function DatabaseTools({ kind, active }: { kind: 'operation' | 'r
     if (!preview) return;
     setBusy(true); setError('');
     try {
-      const { data } = await api.post(`${base}/operations/execute`, { token: preview.token, confirmation }, { timeout: 45000 });
+      const { data } = await api.post(`${toolsBase}/operations/execute`, { token: preview.token, confirmation }, { timeout: 45000 });
       if (data.status === 'unknown') { setUncertain(true); setError(data.message); }
       else {
         setPreview(null); setUncertain(false);
@@ -88,7 +87,7 @@ export default function DatabaseTools({ kind, active }: { kind: 'operation' | 'r
     if (!job) return;
     setBusy(true);
     try {
-      const { data } = await api.get(`${base}/reports/${job.id}/download`, { responseType: 'blob', timeout: 120000 });
+      const { data } = await api.get(`${toolsBase}/reports/${job.id}/download`, { responseType: 'blob', timeout: 120000 });
       const url = URL.createObjectURL(data); const anchor = document.createElement('a');
       anchor.href = url; anchor.download = job.filename || 'CultureHistory.xlsx'; anchor.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
@@ -118,7 +117,7 @@ export default function DatabaseTools({ kind, active }: { kind: 'operation' | 'r
             {!tools.length && <Typography color="text.secondary">No {kind === 'operation' ? 'operations' : 'reports'} installed.</Typography>}
             {!tool?.setup_needed && tool?.inputs.map(field => ['lookup', 'date'].includes(field.type)
               ? <ReportInputs key={`${tool.id}/${field.name}`} fields={[field]} allFields={tool.inputs} values={values} disabled={locked || !!tool.setup_needed}
-                  choiceBase={`${base}/${kind === 'operation' ? 'operations' : 'reports'}/${tool.id}/choices`} onChange={changeValue} />
+                  choiceBase={`${toolsBase}/${kind === 'operation' ? 'operations' : 'reports'}/${tool.id}/choices`} onChange={changeValue} />
               : field.type === 'boolean' ? <FormControlLabel key={field.name} label={field.label} control={<Checkbox disabled={locked} checked={values[field.name] === true} onChange={(_, value) => changeValue(field.name, value)} />} />
               : <TextField key={field.name} label={field.label} required={field.required} disabled={locked} select={field.type === 'choice'}
                 type={['integer', 'number'].includes(field.type) ? 'number' : 'text'} value={values[field.name] ?? ''}

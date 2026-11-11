@@ -30,7 +30,7 @@ it('defaults by width and remembers an explicit sidebar preference', () => {
 });
 
 it('preserves navigation shortcuts and leaves open dialogs in control', () => {
-  function Shortcuts() { useKeyboardNavigation({enabled: true}); return <RouteState />; }
+  function Shortcuts() { useKeyboardNavigation(admin); return <RouteState />; }
   render(<MemoryRouter><Shortcuts /></MemoryRouter>);
   fireEvent.keyDown(document, {key: '7', altKey: true});
   expect(screen.getByLabelText('Location').textContent).toBe('/scheduling');

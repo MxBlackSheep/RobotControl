@@ -12,7 +12,7 @@ export default function MonitoringPage() {
   const { monitoringData, systemHealth, databases, streamingStatus, isLoading, error, refreshData } = useMonitoring();
   // From md each metric card has room for its detail in the header band; narrower, it goes under the value.
   const wide = useMediaQuery((theme: Theme) => theme.breakpoints.up('md'), { noSsr: true });
-  const timestamp = systemHealth?.timestamp || monitoringData?.last_updated;
+  const timestamp = systemHealth?.timestamp;
   const sessionCount = streamingStatus?.active_session_count;
   const sessionLimit = streamingStatus?.max_sessions;
   const sessionSummary = Number.isInteger(sessionCount) && sessionCount! >= 0

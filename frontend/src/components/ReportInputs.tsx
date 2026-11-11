@@ -3,6 +3,9 @@ import { Alert, Autocomplete, Button, Checkbox, FormControlLabel, MenuItem, Stac
 import { api } from '../services/api';
 import { requestErrorMessage } from '../services/requestError';
 
+/** Every database tools route starts here. */
+export const toolsBase = '/api/database/tools';
+
 export type ReportField = { name: string; label: string; type: string; required: boolean; choices: string[];
   lookup?: { source?: string; query?: string; parameters: string[]; value_type: string } | null };
 export const requestMessage = (e: any): string => requestErrorMessage(e, 'Check the fields and try again.');

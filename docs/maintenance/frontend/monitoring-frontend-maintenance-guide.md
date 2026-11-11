@@ -13,8 +13,8 @@ failed streaming or databases read leaves only that card unavailable. The normal
 60 seconds; failed reads retry after 30 seconds. Unmount invalidates and aborts the
 owner. Manual Refresh joins an existing request. Reads go through the shared
 `api` client, so an expired access token is renewed; polling restarts only when the
-signed-in user changes. "Last reading" is the sample's `sampled_at`, else the reply's
-`metadata.timestamp`; a reply with neither shows no time rather than the browser's clock.
+signed-in user changes. "Last reading" is the sample's `sampled_at`; a reply without it shows no time rather than
+the browser's clock.
 
 Database connection and streaming availability are independent of CPU/memory/disk
 usage. Never infer service health from a low CPU reading. The CPU card's detail,

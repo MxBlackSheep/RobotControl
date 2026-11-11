@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useSyncExternalStore } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -9,7 +9,7 @@ import {
   Stack,
   Alert,
 } from '@mui/material';
-import { useMaintenanceMode } from '@/hooks/useMaintenanceMode';
+import { getMaintenanceExpiry, subscribeToMaintenance } from '@/utils/MaintenanceManager';
 
 const formatRemaining = (remainingMs: number) => {
   if (remainingMs <= 0) {
@@ -28,24 +28,25 @@ const formatRemaining = (remainingMs: number) => {
 };
 
 const MaintenanceDialog: React.FC = () => {
-  const { active, remainingMs, reason } = useMaintenanceMode();
-  const [dismissed, setDismissed] = useState(false);
+  const expiresAt = useSyncExternalStore(subscribeToMaintenance, getMaintenanceExpiry);
+  // "Got it" hides the dialog for this pause only; the next restore sets a new end time.
+  const [dismissedAt, setDismissedAt] = useState(0);
+  const [now, setNow] = useState(Date.now);
 
+  // The countdown ticks only while the dialog can be open and stops when the pause ends.
   useEffect(() => {
-    if (!active) {
-      setDismissed(false);
-    }
-  }, [active]);
+    if (expiresAt === dismissedAt) return;
+    const tick = () => {
+      const time = Date.now();
+      setNow(time);
+      if (time >= expiresAt) clearInterval(timer);
+    };
+    const timer = setInterval(tick, 1000);
+    tick();
+    return () => clearInterval(timer);
+  }, [expiresAt, dismissedAt]);
 
-  if (!active) {
-    return null;
-  }
-
-  const handleDismiss = () => {
-    setDismissed(true);
-  };
-
-  if (dismissed) {
+  if (expiresAt <= now || expiresAt === dismissedAt) {
     return null;
   }
 
@@ -54,16 +55,14 @@ const MaintenanceDialog: React.FC = () => {
       <DialogTitle>Database Maintenance In Progress</DialogTitle>
       <DialogContent dividers>
         <Stack spacing={2}>
-          <Alert severity="info">
-            {reason ?? 'A database restore is currently running. Some actions are temporarily paused.'}
-          </Alert>
+          <Alert severity="info">Database restore is finishing.</Alert>
           <Typography variant="body2">
-            Estimated remaining time: <strong>{formatRemaining(remainingMs)}</strong>
+            Estimated remaining time: <strong>{formatRemaining(expiresAt - now)}</strong>
           </Typography>
         </Stack>
       </DialogContent>
       <DialogActions>
-        <Button onClick={handleDismiss} variant="contained">
+        <Button onClick={() => setDismissedAt(expiresAt)} variant="contained">
           Got it
         </Button>
       </DialogActions>

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Box, Button, Link as MuiLink, Stack, Typography } from '@mui/material';
+import { Box, Button, Stack, Typography } from '@mui/material';
 import { Link } from 'react-router-dom';
-import { DetailTitle, PageContent, PageHeader, Panel } from '../components/PageLayout';
+import { DetailTitle, headerLink, PageContent, PageHeader, Panel, ReadProblem } from '../components/PageLayout';
 import StatusChip from '../components/StatusChip';
 import { isLocalUser } from '../components/navigation';
 import { useAuth } from '../context/AuthContext';
@@ -17,18 +17,6 @@ const TRACE_LINES = 20;
 const TRACE_BYTES = 16384;
 const mono = { fontFamily: fontMono, fontSize: 12, color: 'text.secondary' } as const;
 const attentionButton = { bgcolor: 'attentionSurface.action', color: 'attentionSurface.actionText', '&:hover': { bgcolor: 'attentionSurface.action', filter: 'brightness(0.94)' } } as const;
-
-// The pseudo-element gives the text link a 44px-high touch target without growing the 40px band.
-const headerLink = (to: string, text: string) => <MuiLink component={Link} to={to} underline="hover"
-  sx={{ fontSize: 13, position: 'relative', '&::after': { content: '""', position: 'absolute', inset: '-12px -8px' } }}>{text}</MuiLink>;
-
-/** A read failed: keep what was shown and offer a retry, without blanking the page. */
-function ReadProblem({ error, stale, onRetry, pending }: { error: string; stale: boolean; onRetry: () => void; pending: boolean }) {
-  return <Stack direction="row" alignItems="center" gap={1} role="alert" sx={{ minHeight: layout.row, px: `${layout.inset}px`, fontSize: 13, color: 'attentionSurface.text', borderBottom: 1, borderColor: 'surface.rowLine' }}>
-    <span>{stale ? 'Could not refresh. Showing earlier data.' : error}</span>
-    <Button size="small" onClick={onRetry} disabled={pending}>Retry</Button>
-  </Stack>;
-}
 
 function ago(date: Date) {
   const minutes = Math.max(0, Math.floor((Date.now() - date.getTime()) / 60000));

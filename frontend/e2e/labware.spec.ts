@@ -40,24 +40,24 @@ async function fixtures(page:Page, canUpdate=true, realDeck=false) {
     if(route.request().method()==='PUT') {
       const payload=route.request().postDataJSON();state.writes.push(payload);
       if(state.saveGate)await state.saveGate;
-      if(state.failSave)return route.fulfill({status:500,json:{message:'Save failed'}});
+      if(state.failSave)return route.fulfill({status:500,json:{success:false,message:'Save failed'}});
       const family=tips.families.find(f=>f.family_id===payload.family)!;
       for(const edit of payload.updates){(family.tips as any)[edit.labware_id] ||= {}; (family.tips as any)[edit.labware_id][edit.position_id]=edit.status;}
       return route.fulfill({json:{data:{family:payload.family,requested_count:payload.updates.length,updated_count:payload.updates.length}}});
     }
     state.reads++;
-    return state.failRead?route.fulfill({status:500,json:{message:'Tip service unavailable'}}):route.fulfill({json:{data:tips}});
+    return state.failRead?route.fulfill({status:500,json:{success:false,message:'Tip service unavailable'}}):route.fulfill({json:{data:tips}});
   });
   await page.route('**/api/labware/cytomat',async route=>{
     if(route.request().method()==='PUT'){
       const payload=route.request().postDataJSON();state.writes.push(payload);
       if(state.saveGate)await state.saveGate;
-      if(state.failSave)return route.fulfill({status:500,json:{message:'Save failed'}});
+      if(state.failSave)return route.fulfill({status:500,json:{success:false,message:'Save failed'}});
       for(const edit of payload.updates)cytomat.rows.find(row=>row.cytomat_pos===edit.cytomat_pos)!.plate_id=edit.plate_id;
       return route.fulfill({json:{data:{requested_count:payload.updates.length,updated_count:payload.updates.length}}});
     }
     state.reads++;
-    return state.failRead?route.fulfill({status:500,json:{message:'Cytomat service unavailable'}}):route.fulfill({json:{data:cytomat}});
+    return state.failRead?route.fulfill({status:500,json:{success:false,message:'Cytomat service unavailable'}}):route.fulfill({json:{data:cytomat}});
   });
   return state;
 }

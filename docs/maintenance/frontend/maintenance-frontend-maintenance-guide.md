@@ -15,7 +15,8 @@ from the temporary API pause used while restoring a database.
 The current state is Allowed or Blocked for maintenance. The last change shows its
 operator and time. A verified Allowed state offers Enter maintenance; a verified
 blocked state offers Allow HxRun launches. The optional Reason accompanies a
-change. Remote sessions can inspect; changes require backend local permission.
+change. Remote sessions can inspect; changes require backend local permission, and the page enables
+them only when the server's `permissions.can_edit` is true.
 
 Initial failure or malformed state displays State unavailable. A failed refresh also marks the state
 unavailable and disables changes, even if a previous reading remains. Loading and

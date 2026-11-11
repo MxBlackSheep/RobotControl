@@ -6,6 +6,7 @@ import { useLabwareSnapshot } from './useLabwareSnapshot';
 import { useLabwareWorkspace } from './useLabwareWorkspace';
 import TipDeckOverview from './TipDeckOverview';
 import TipRackEditor from './TipRackEditor';
+import { requestErrorMessage } from '../../services/requestError';
 import { clockTime } from '../../utils/displayTime';
 import { fontMono, layout } from '../../theme';
 
@@ -15,7 +16,6 @@ const keyFor = (rack: string, position: number) => JSON.stringify([rack, positio
 // The backend still stores and reports these (unknown values arrive as unclear), but users no
 // longer choose them. Tips that have one keep its colour, name, counts and legend entry.
 const hiddenFromEditing = ['reserved', 'unclear'];
-const message = (error: any) => error?.response?.data?.error?.message || error?.response?.data?.message || error?.message || 'Unable to save changes.';
 const stringArray = (value: unknown): value is string[] => Array.isArray(value) && value.every(item => typeof item === 'string');
 const validSnapshot = (value: TipTrackingSnapshot) => Boolean(value &&
   typeof value.permissions?.can_update === 'boolean' && value.grid &&
@@ -124,7 +124,7 @@ export default function TipTrackingPanel({ active = true }: { active?: boolean }
         return { ...previous, [submittedFamily]: remaining };
       });
       setHistory(previous => ({ ...previous, [submittedFamily]: [] })); setNotice('Changes saved.');
-    } catch (error) { setWriteError(message(error)); }
+    } catch (error) { setWriteError(requestErrorMessage(error, 'Unable to save changes.')); }
     finally { busyRef.current = false; setBusy(false); }
   };
   const reset = async () => {
@@ -132,7 +132,7 @@ export default function TipTrackingPanel({ active = true }: { active?: boolean }
     if (!family || !canUpdate || busyRef.current || totalPending || gesture || !window.confirm(`Reset ${family.display_name} to its default state?`)) return;
     suspend(); busyRef.current = true; setBusy(true); setWriteError(''); setNotice('');
     try { await labwareApi.resetTipTracking(family.family_id); setHistory(previous => ({ ...previous, [family.family_id]: [] })); setNotice('Family reset.'); }
-    catch (error) { setWriteError(message(error)); }
+    catch (error) { setWriteError(requestErrorMessage(error, 'Unable to save changes.')); }
     finally { busyRef.current = false; setBusy(false); }
   };
 

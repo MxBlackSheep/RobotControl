@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { Box, Button, Link as MuiLink, Stack, Typography } from '@mui/material';
+import { Box, Button, Link as MuiLink, Typography } from '@mui/material';
 import { Link } from 'react-router-dom';
 import StatusChip from '../StatusChip';
-import { ListRow, Panel, StatusDot } from '../PageLayout';
+import { headerLink, ListRow, Panel, ReadProblem, StatusDot } from '../PageLayout';
 import { cameraStateLabels } from '../CameraControls';
 import { api } from '../../services/api';
 import { schedulingService, schedulingAPI } from '../../services/schedulingApi';
@@ -35,18 +35,6 @@ const upNextFull = '@container list (min-width: 500px)';
 const recentStarted = '@container list (min-width: 464px)';
 const recentFull = '@container list (min-width: 544px)';
 const shownFrom = (query: string) => ({ display: 'none', [query]: { display: 'block' } });
-
-// The pseudo-element gives the 20px text link a 44px-high touch target without growing the 40px band.
-const headerLink = (to: string, text: string) => <MuiLink component={Link} to={to} underline="hover"
-  sx={{ fontSize: 13, position: 'relative', '&::after': { content: '""', position: 'absolute', inset: '-12px -8px' } }}>{text}</MuiLink>;
-
-/** A panel's read failed: keep what was shown and offer a retry, without blanking the page. */
-function ReadProblem({ error, stale, onRetry, pending }: { error: string; stale: boolean; onRetry: () => void; pending: boolean }) {
-  return <Stack direction="row" alignItems="center" gap={1} role="alert" sx={{ minHeight: layout.row, px: `${layout.inset}px`, fontSize: 13, color: 'attentionSurface.text', borderBottom: 1, borderColor: 'surface.rowLine' }}>
-    <span>{stale ? 'Could not refresh. Showing earlier data.' : error}</span>
-    <Button size="small" onClick={onRetry} disabled={pending}>Retry</Button>
-  </Stack>;
-}
 
 function EmptyRow({ children }: { children: React.ReactNode }) {
   return <Typography variant="body2" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', height: layout.row, px: `${layout.inset}px` }}>{children}</Typography>;

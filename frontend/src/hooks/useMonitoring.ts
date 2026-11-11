@@ -51,8 +51,6 @@ export interface StreamingServiceStatus {
 export interface MonitoringData {
   system_health: SystemHealth | null;
   databases: DatabaseConnections | null;
-  /** The reply's own time (`metadata.timestamp`); null when the reply has none. */
-  last_updated: string | null;
   streaming_status: StreamingServiceStatus | null;
 }
 
@@ -103,7 +101,6 @@ export const useMonitoring = () => {
     return {
       system_health: isRecord(system) ? { ...system, timestamp: typeof sampledAt === 'string' ? sampledAt : null } as SystemHealth : null,
       databases: normalizeDatabases(databasesData?.data),
-      last_updated: typeof systemHealthData?.metadata?.timestamp === 'string' ? systemHealthData.metadata.timestamp : null,
       streaming_status: isRecord(streamingStatusData?.data?.status) ? streamingStatusData.data.status as StreamingServiceStatus : null,
     };
   }, [token]);

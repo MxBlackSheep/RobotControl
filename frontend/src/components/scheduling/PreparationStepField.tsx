@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Alert, Box, MenuItem, Stack, TextField, Typography } from '@mui/material';
 import { api } from '../../services/api';
-import ReportInputs, { changedInputs, requestMessage, type ReportField } from '../ReportInputs';
+import ReportInputs, { changedInputs, requestMessage, toolsBase, type ReportField } from '../ReportInputs';
 import StatusChip from '../StatusChip';
 import type { PinnedPreparation, PreparationState, PreparationStep, ScheduledExperiment } from '../../types/scheduling';
 
@@ -39,7 +39,7 @@ export default function PreparationStepField({ saved, state, value, onChange, ed
   useEffect(() => {
     if (!editable) return;
     let live = true;
-    api.get('/api/database/tools/catalogue', { params: { kind: 'preparation' } })
+    api.get(`${toolsBase}/catalogue`, { params: { kind: 'preparation' } })
       .then(response => { if (live) { setTools(response.data); setError(''); } })
       .catch(cause => { if (live) setError(requestMessage(cause)); });
     return () => { live = false; };
@@ -83,7 +83,7 @@ export default function PreparationStepField({ saved, state, value, onChange, ed
       <>
         {tool.inputs.length > 0 && (
           <ReportInputs fields={tool.inputs} values={current.inputs as Record<string, any>} disabled={false}
-            choiceBase={`/api/database/tools/preparations/${tool.id}/choices`}
+            choiceBase={`${toolsBase}/preparations/${tool.id}/choices`}
             onChange={(name, next) => onChange({ tool_id: tool.id, inputs: changedInputs(tool.inputs, current.inputs as Record<string, any>, name, next) })} />
         )}
         <Typography variant="caption" color="text.secondary">

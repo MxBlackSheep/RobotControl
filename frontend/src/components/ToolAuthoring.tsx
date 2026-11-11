@@ -1,10 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, LinearProgress, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material';
 import { api } from '../services/api';
-import ReportInputs, { changedInputs, ReportField, requestMessage, saveBlob } from './ReportInputs';
+import ReportInputs, { toolsBase, changedInputs, ReportField, requestMessage, saveBlob } from './ReportInputs';
 import ReportConnections, { Source, SourceMappings } from './ReportConnections';
 
-const base = '/api/database/tools';
 type Draft = { name: string; kind: 'report' | 'operation'; package_id: string; version: string;
   definition_file: string; files: Record<string, string>; inputs: ReportField[]; sources: string[];
   mappings: Record<string, string>; operation_source?: string; libraries: string[]; change_note?: string };
@@ -25,10 +24,10 @@ export default function ToolAuthoring({ draftId, onClose }: { draftId?: string; 
   useEffect(() => {
     alive.current = true;
     const controller = new AbortController();
-    api.get(`${base}/sources`, { signal: controller.signal }).then(r => setSources(r.data)).catch(e => { if (!controller.signal.aborted) setError(requestMessage(e)); });
+    api.get(`${toolsBase}/sources`, { signal: controller.signal }).then(r => setSources(r.data)).catch(e => { if (!controller.signal.aborted) setError(requestMessage(e)); });
     if (draftId) {
       setBusy(true);
-      api.get(`${base}/drafts/${draftId}`, { signal: controller.signal }).then(r => { setSaved(r.data); setDraft(r.data.draft); })
+      api.get(`${toolsBase}/drafts/${draftId}`, { signal: controller.signal }).then(r => { setSaved(r.data); setDraft(r.data.draft); })
         .catch(e => { if (!controller.signal.aborted) setError(requestMessage(e)); }).finally(() => { if (!controller.signal.aborted) setBusy(false); });
     }
     return () => { alive.current = false; controller.abort(); };
@@ -37,7 +36,7 @@ export default function ToolAuthoring({ draftId, onClose }: { draftId?: string; 
     if (!running) return;
     const controller = new AbortController(); let timer: number;
     const poll = async () => {
-      try { const r = await api.get(`${base}/reports/${job.id}`, { signal: controller.signal }); if (!controller.signal.aborted) setJob(r.data); }
+      try { const r = await api.get(`${toolsBase}/reports/${job.id}`, { signal: controller.signal }); if (!controller.signal.aborted) setJob(r.data); }
       catch(e) { if (!controller.signal.aborted) setError(requestMessage(e)); }
       if (!controller.signal.aborted) timer = window.setTimeout(poll, 1000);
     };
@@ -54,7 +53,7 @@ export default function ToolAuthoring({ draftId, onClose }: { draftId?: string; 
   const persist = async () => {
     if (!saved || !draft) throw new Error('Add Python first.');
     if (JSON.stringify(saved.draft) === JSON.stringify(draft)) return saved;
-    const r = await api.put(`${base}/drafts/${saved.id}`, { draft, revision: saved.revision });
+    const r = await api.put(`${toolsBase}/drafts/${saved.id}`, { draft, revision: saved.revision });
     setSaved(r.data); setDraft(r.data.draft); return r.data as Saved;
   };
   const addFiles = (selected: FileList | null) => {
@@ -65,7 +64,7 @@ export default function ToolAuthoring({ draftId, onClose }: { draftId?: string; 
       const baseline = saved ? await persist() : undefined;
       const files: Record<string,string> = {};
       for (const f of incoming) files[f.name] = await f.text();
-      const r = await api.post(`${base}/authoring/import`, { files, key:baseline?.id, revision:baseline?.revision || 0, mode:uploadMode.current });
+      const r = await api.post(`${toolsBase}/authoring/import`, { files, key:baseline?.id, revision:baseline?.revision || 0, mode:uploadMode.current });
       setSaved(r.data); setDraft(r.data.draft); invalidate(); setValues({}); setNotice('Python added. It has not been run.');
     });
   };
@@ -91,12 +90,12 @@ export default function ToolAuthoring({ draftId, onClose }: { draftId?: string; 
         <Typography variant="h6">1. Python</Typography>
         <Stack direction="row" gap={1} flexWrap="wrap">
           <Button variant={draft ? 'outlined':'contained'} disabled={locked} onClick={() => {uploadMode.current=draft?'python':'all';upload.current?.click();}}>{draft ? 'Replace Python':'Add Python'}</Button>
-          {saved && <Button disabled={busy} onClick={() => work(() => download(`${base}/drafts/${saved.id}/source`,'source.zip'))}>Download source</Button>}
+          {saved && <Button disabled={busy} onClick={() => work(() => download(`${toolsBase}/drafts/${saved.id}/source`,'source.zip'))}>Download source</Button>}
         </Stack>
         <input ref={upload} hidden type="file" multiple accept=".py,.json,.md,.txt" aria-label="Tool Python files" onChange={e => { addFiles(e.target.files); e.target.value=''; }} />
         {!draft && <Stack direction="row" gap={1} flexWrap="wrap">
-          <Button disabled={busy} onClick={() => work(() => download(`${base}/authoring/examples/report`,'report.py'))}>Report example</Button>
-          <Button disabled={busy} onClick={() => work(() => download(`${base}/authoring/examples/operation`,'operation.py'))}>Operation example</Button>
+          <Button disabled={busy} onClick={() => work(() => download(`${toolsBase}/authoring/examples/report`,'report.py'))}>Report example</Button>
+          <Button disabled={busy} onClick={() => work(() => download(`${toolsBase}/authoring/examples/operation`,'operation.py'))}>Operation example</Button>
         </Stack>}
         {draft && <>
           <Typography variant="subtitle1">{draft.name}</Typography>
@@ -119,7 +118,7 @@ export default function ToolAuthoring({ draftId, onClose }: { draftId?: string; 
           {!draft.sources.length && draft.kind==='report' && <Typography variant="body2">No database connection needed.</Typography>}
           <Button disabled={locked} sx={{alignSelf:'flex-start'}} onClick={()=>setConnections(true)}>Manage connections</Button>
           <Button disabled={locked} variant="outlined" sx={{alignSelf:'flex-start'}} onClick={()=>work(async()=>{
-            const s=await persist(); await api.post(`${base}/drafts/${s.id}/check`,{}); setChecked(true); setNotice('Files, libraries and connections checked. Python has not been run.');
+            const s=await persist(); await api.post(`${toolsBase}/drafts/${s.id}/check`,{}); setChecked(true); setNotice('Files, libraries and connections checked. Python has not been run.');
           })}>Check setup</Button>
         </>}
       </Stack></Paper>
@@ -128,16 +127,16 @@ export default function ToolAuthoring({ draftId, onClose }: { draftId?: string; 
         {draft && <>
           {!checked && <Typography variant="body2" color="text.secondary">Check setup to try this form.</Typography>}
           <ReportInputs key={`${saved?.id}-${saved?.revision}`} fields={draft.inputs} values={values} disabled={locked || !checked}
-            choiceBase={`${base}/drafts/${saved?.id}/choices`} onChange={(name,value)=>{setValues(changedInputs(draft.inputs,values,name,value));setJob(undefined);setPreview(undefined);setReviewed(false);}} />
+            choiceBase={`${toolsBase}/drafts/${saved?.id}/choices`} onChange={(name,value)=>{setValues(changedInputs(draft.inputs,values,name,value));setJob(undefined);setPreview(undefined);setReviewed(false);}} />
           <Typography variant="caption" color="text.secondary">{draft.kind==='report' ? 'Trying runs the uploaded Python using the selected read-only connections.' : 'Trying runs preview only. Execution stays in Operations.'}</Typography>
           <Button variant="contained" sx={{alignSelf:'flex-start'}} disabled={locked || !checked || !ready} onClick={()=>work(async()=>{
             setReviewed(false);setJob(undefined);setPreview(undefined);
-            const s=await persist(), r=await api.post(`${base}/drafts/${s.id}/try`,{inputs:values,revision:s.revision},{timeout:120000});
+            const s=await persist(), r=await api.post(`${toolsBase}/drafts/${s.id}/try`,{inputs:values,revision:s.revision},{timeout:120000});
             if(draft.kind==='report')setJob(r.data);else setPreview(r.data);
           })}>{running ? 'Generating…' : draft.kind==='report' ? 'Try report':'Try preview'}</Button>
           {running && <LinearProgress />}
           {job?.status==='error' && <Alert severity="error">{job.error}{job.error_details && <Box component="details"><summary>Details</summary>{job.error_details}</Box>}</Alert>}
-          {job?.status==='ready' && <Stack spacing={1}><Typography sx={{overflowWrap:'anywhere'}}>{job.filename}</Typography><Button sx={{alignSelf:'flex-start'}} onClick={()=>work(()=>download(`${base}/reports/${job.id}/download`,job.filename))}>Download Excel</Button></Stack>}
+          {job?.status==='ready' && <Stack spacing={1}><Typography sx={{overflowWrap:'anywhere'}}>{job.filename}</Typography><Button sx={{alignSelf:'flex-start'}} onClick={()=>work(()=>download(`${toolsBase}/reports/${job.id}/download`,job.filename))}>Download Excel</Button></Stack>}
           {preview && <Paper variant="outlined" sx={{p:2}}><Typography>{preview.summary}</Typography><Typography variant="body2" color="text.secondary">{preview.target}</Typography>
             <Box component="dl" sx={{display:'grid',gridTemplateColumns:'minmax(0,1fr) minmax(0,1fr)',gap:1,m:0,mt:1}}>{Object.entries(preview.details || {}).map(([key,value])=><React.Fragment key={key}><Box component="dt" sx={{overflowWrap:'anywhere'}}>{key}</Box><Box component="dd" sx={{m:0,overflowWrap:'anywhere'}}>{typeof value==='object'?JSON.stringify(value):String(value)}</Box></React.Fragment>)}</Box>
           </Paper>}
@@ -147,10 +146,10 @@ export default function ToolAuthoring({ draftId, onClose }: { draftId?: string; 
           <Stack direction="row" gap={1} flexWrap="wrap">
             <Button variant="contained" disabled={locked || !success || !reviewed} onClick={()=>work(async()=>{
               if(!publication.current || publication.current.revision!==saved!.revision){
-                const r=await api.get(`${base}/drafts/${saved!.id}/review`);
+                const r=await api.get(`${toolsBase}/drafts/${saved!.id}/review`);
                 publication.current={revision:saved!.revision,expected_current:r.data.current_sha256,reviewed:true,change_note:draft.change_note || ''};
               }
-              try { await api.post(`${base}/drafts/${saved!.id}/install`,publication.current); }
+              try { await api.post(`${toolsBase}/drafts/${saved!.id}/install`,publication.current); }
               catch(e:any){
                 if(!e.response) throw {response:{data:{detail:'Publication could not be confirmed. Press Enable or Publish again; it will not create a second update.'}}};
                 if(e.response.status<500)publication.current=undefined;
@@ -158,14 +157,14 @@ export default function ToolAuthoring({ draftId, onClose }: { draftId?: string; 
               }
               setEnabled(true);onClose(`${draft.name} ${saved?.base?'updated to':'enabled at'} ${draft.version}. Available in ${draft.kind==='report'?'Data retrieval':'Operations'}.`);
             })}>{saved?.base?'Publish update':`Enable ${draft.kind}`}</Button>
-            {saved && <Button disabled={busy || !!running} onClick={()=>work(async()=>{const s=await persist();await download(`${base}/drafts/${s.id}/package`,`${draft.package_id}.zip`);})}>Export package</Button>}
+            {saved && <Button disabled={busy || !!running} onClick={()=>work(async()=>{const s=await persist();await download(`${toolsBase}/drafts/${s.id}/package`,`${draft.package_id}.zip`);})}>Export package</Button>}
           </Stack>
         </>}
       </Stack></Paper>
     </Box>
-    <ReportConnections open={connections} onClose={()=>{setConnections(false);invalidate();void api.get(`${base}/sources`).then(r=>setSources(r.data)).catch(e=>setError(requestMessage(e)));}} />
+    <ReportConnections open={connections} onClose={()=>{setConnections(false);invalidate();void api.get(`${toolsBase}/sources`).then(r=>setSources(r.data)).catch(e=>setError(requestMessage(e)));}} />
     <Dialog open={discard} onClose={()=>!busy&&setDiscard(false)}><DialogTitle>Discard this draft?</DialogTitle><DialogContent>The installed tool will be kept.</DialogContent><DialogActions>
-      <Button disabled={busy} onClick={()=>setDiscard(false)}>Keep editing</Button><Button color="error" disabled={busy} onClick={()=>work(async()=>{await api.delete(`${base}/drafts/${saved!.id}`);onClose();})}>Discard and close</Button>
+      <Button disabled={busy} onClick={()=>setDiscard(false)}>Keep editing</Button><Button color="error" disabled={busy} onClick={()=>work(async()=>{await api.delete(`${toolsBase}/drafts/${saved!.id}`);onClose();})}>Discard and close</Button>
     </DialogActions></Dialog>
   </Stack>;
 }

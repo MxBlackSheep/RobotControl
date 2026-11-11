@@ -32,7 +32,8 @@ palette. Keep full paths and capture metadata in Details.
 
 ## Components and ownership
 
-`LogFilePage` resolves sources and sidebar sections. `LogSourceBrowser` retains
+`LogFilePage` resolves sources and sidebar sections; each `/logfile` entry in `sectionRegistry`
+names its `source`. `LogSourceBrowser` retains
 folder/filter/page/selection state and uses `InspectionWorkspace` for the 300px
 catalogue and 900-pixel content-width desktop/phone transition. `LogReader` owns its
 reading session, section requests, Find, follow polling and expanded dialog.

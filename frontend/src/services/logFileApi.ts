@@ -1,4 +1,4 @@
-import { api } from "./api";
+import { api, unwrapData } from "./api";
 
 export type BrowseOptions = {
   search?: string;
@@ -79,9 +79,6 @@ export interface LogFilePreview {
   file_path: string;
   modified_date?: string | null;
 }
-const unwrapData = <T>(response: any): T =>
-  (response?.data?.data ?? response?.data) as T;
-
 export const logFileApi = {
   openReader: async (
     sourceId: string,
