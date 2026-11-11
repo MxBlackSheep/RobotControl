@@ -20,6 +20,10 @@ its dot-less email above all, fails the check (a lockout); a user under review i
 from the Admin list or hides its reason, signs in, keeps a working access or refresh token,
 cannot request a password reset, stays under review after the admin's reset or email edit,
 or cannot be deleted; another user cannot sign in. No email or hash is printed.
+Report drafts: one unreadable draft file hides the others or fails the list; a truncated file
+or a draft the model refuses is missing from the list, opens, tries, checks or installs, is
+rewritten (its bytes change before Delete) or cannot be deleted; another owner sees a
+readable draft.
 """
 from contextlib import closing, contextmanager
 import hashlib
@@ -673,6 +677,54 @@ def user_review_checks(root):
     print('PASS: installed users pass the user check; a user under review is listed, refused sign-in and tokens, reset, edited and deleted')
 
 
+def draft_review_checks(root):
+    from contextlib import nullcontext
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from backend.api import database_tools as api
+    from backend.services.auth import get_current_user
+    from backend.services.database_tools import DatabaseTools
+    from backend.services.report_authoring import ReportDraft
+
+    service = DatabaseTools(root / 'tools', Path(__file__).resolve().parents[2] / 'database_packages', guard=nullcontext)
+    authoring = service.authoring
+    good, truncated, nameless = (authoring.save(ReportDraft(name=name), 'admin')['id'] for name in ('Good', 'Truncated', 'Nameless'))
+    path = authoring._path(truncated)
+    path.write_bytes(path.read_bytes()[:40])
+    kept = digest(path)
+    record = json.loads(authoring._path(nameless).read_text('utf-8'))
+    record['draft']['name'] = ''
+    authoring._path(nameless).write_text(json.dumps(record), 'utf-8')
+    app = FastAPI()
+    app.include_router(api.router)
+    user = {'username': 'admin', 'role': 'admin'}
+    app.dependency_overrides[get_current_user] = lambda: user
+    app.dependency_overrides[api.get_database_tools] = lambda: service
+    with TestClient(app, client=('127.0.0.1', 1)) as client:
+        reply = client.get('/api/database/tools/drafts')
+        assert reply.status_code == 200, reply.text
+        listed = {entry['id']: entry for entry in reply.json()}
+        assert set(listed) == {good, truncated, nameless}, reply.text
+        assert listed[good]['review_reason'] is None and listed[truncated]['review_reason'] and listed[nameless]['review_reason'], reply.text
+        assert client.get(f'/api/database/tools/drafts/{good}').status_code == 200
+        for key in (truncated, nameless):
+            for method, suffix, body in (('get', '', None), ('post', '/try', {'inputs': {}}), ('post', '/check', None),
+                                         ('post', '/install', {'expected_current': '', 'revision': 1})):
+                reply = client.request(method.upper(), f'/api/database/tools/drafts/{key}{suffix}', json=body)
+                assert reply.status_code == 400 and 'Needs review' in reply.json()['detail'], (suffix, reply.text)
+            reply = client.put(f'/api/database/tools/drafts/{key}', json={'draft': {'name': 'Repaired'}, 'revision': 1})
+            assert reply.status_code == 400 and 'Needs review' in reply.json()['detail'], reply.text
+        assert digest(path) == kept
+        user['username'] = 'other'
+        assert [entry['id'] for entry in client.get('/api/database/tools/drafts').json()] == [truncated]
+        user['username'] = 'admin'
+        for key in (truncated, nameless):
+            assert client.delete(f'/api/database/tools/drafts/{key}').status_code == 200
+        assert [entry['id'] for entry in client.get('/api/database/tools/drafts').json()] == [good]
+        assert not path.exists()
+    print('PASS: draft review entries listed beside a good draft, refused for open/try/check/install/save, bytes kept, deleted')
+
+
 def run():
     with tempfile.TemporaryDirectory(prefix='rc-stored-data-') as folder:
         root = Path(folder)
@@ -686,6 +738,7 @@ def run():
         contact_review_checks(root)
         email_settings_review_checks(root)
         user_review_checks(root)
+        draft_review_checks(root)
 
 
 if __name__ == '__main__':

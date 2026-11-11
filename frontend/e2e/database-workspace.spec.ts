@@ -16,6 +16,8 @@ import { mkdirSync } from 'node:fs';
  *   the dialog or loses the selection.
  * - A remote administrator (e.g. through the tunnel) sees local-only sections or requests
  *   them, or is not told those sections exist on the RobotControl computer.
+ * - A saved draft under review (review_reason) hides its chip or reason, offers Resume, cannot
+ *   be removed, or hides the other drafts (server side: backend/e2e/stored_data_check.py).
  * Server-side cases are in backend/e2e/database_workspace_check.py.
  */
 const evidence = process.env.ROBOTCONTROL_E2E_EVIDENCE || '../test-output/database-workspace-verification';
@@ -226,4 +228,31 @@ test('assigning package connections offers matching accounts and saves only decl
   await expect(plates).toHaveCount(0);
   expect(saved).toEqual([{ mappings: { primary: 'reader' }, operation_source: 'writer' }, { mappings: { primary: 'reader' }, operation_source: 'writer' },
     { mappings: { plates: 'reader', results: 'reader' }, operation_source: null }]);
+});
+
+test('a saved draft under review offers Remove only and leaves the other drafts usable', async ({ page }) => {
+  await login(page);
+  const reason = 'the file is not readable JSON';
+  let drafts = [{ id: 'a'.repeat(32), name: 'Plate summary', revision: 2, code_defined: false, review_reason: null },
+    { id: 'b'.repeat(32), name: 'b'.repeat(32), revision: null, code_defined: false, review_reason: reason }];
+  const removed: string[] = [];
+  await page.route('**/api/database/tools/viewer-sources', r => r.fulfill({ json: [] }));
+  await page.route('**/api/database/tools/packages', r => r.fulfill({ json: [] }));
+  await page.route('**/api/database/tools/drafts', r => r.fulfill({ json: drafts }));
+  await page.route('**/api/database/tools/drafts/*', r => {
+    removed.push(r.request().method() + ' ' + r.request().url().split('/drafts/')[1]);
+    drafts = drafts.filter(d => d.id !== 'b'.repeat(32));
+    return r.fulfill({ json: { message: 'Draft removed.' } });
+  });
+  await page.goto('/database?section=packages');
+  const good = page.getByText('Plate summary', { exact: true }).locator('xpath=ancestor::div[contains(@class, "MuiStack")][1]');
+  const review = page.getByText(reason, { exact: true }).locator('xpath=ancestor::div[contains(@class, "MuiStack")][1]');
+  await expect(good.getByRole('button', { name: 'Resume', exact: true })).toBeVisible();
+  await expect(review).toContainText('Needs review');
+  await expect(review.getByRole('button', { name: 'Resume', exact: true })).toHaveCount(0);
+  await review.getByRole('button', { name: 'Remove draft', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Remove draft?' }).getByRole('button', { name: 'Remove draft', exact: true }).click();
+  await expect(page.getByText(reason, { exact: true })).toHaveCount(0);
+  expect(removed).toEqual(['DELETE ' + 'b'.repeat(32)]);
+  await expect(good.getByRole('button', { name: 'Resume', exact: true })).toBeVisible();
 });

@@ -10,7 +10,7 @@ import zipfile
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from backend.services.database_packages import Manifest, PackageCatalogue, PackageError, changelog_with_note, inspect_archive, SUPPORTED_LIBRARIES
 from backend.utils.filesystem import replace_file
 
@@ -96,6 +96,23 @@ class ReportDraft(BaseModel):
         elif self.kind != 'report':
             raise PackageError('Add operations from Python containing a TOOL definition.')
         return self
+
+
+def check_draft(record):
+    """Return a stored draft record or raise ValueError; reads only the record."""
+    if not isinstance(record, dict):
+        raise ValueError('the file does not hold a draft')
+    for name in ('id', 'owner'):
+        if not isinstance(record.get(name), str) or not record[name]:
+            raise ValueError(f'{name} is missing')
+    if type(record.get('revision')) is not int:
+        raise ValueError('revision is missing')
+    try:
+        ReportDraft.model_validate(record.get('draft'))
+    except ValidationError as exc:
+        error = exc.errors()[0]
+        raise ValueError(f"{'.'.join(map(str, error['loc'])) or 'draft'}: {error['msg']}") from None
+    return record
 
 
 class ReportAuthoring:
@@ -206,22 +223,50 @@ class ReportAuthoring:
             raise PackageError('Draft not found', 404)
         return self.root / (key + '.json')
 
+    @staticmethod
+    def _read(path):
+        """(record, None) for a checked file, else (what reads, reason). Never rewrites the file."""
+        try:
+            data = json.loads(path.read_text('utf-8'))
+        except (UnicodeDecodeError, ValueError):
+            return {}, 'the file is not readable JSON'
+        try:
+            return check_draft(data), None
+        except ValueError as exc:
+            return data if isinstance(data, dict) else {}, str(exc)
+
+    def _owned(self, key, owner):
+        """A file without a readable owner is shown to every owner, so any administrator can delete it."""
+        path = self._path(key)
+        if not path.exists():
+            raise PackageError('Draft not found', 404)
+        data, reason = self._read(path)
+        if data.get('owner', owner) != owner:
+            raise PackageError('Draft not found', 404)
+        return data, reason
+
     def get(self, key, owner):
         with self.lock:
-            path = self._path(key)
-            if not path.exists():
-                raise PackageError('Draft not found', 404)
-            data = json.loads(path.read_text('utf-8'))
-            if data['owner'] != owner:
-                raise PackageError('Draft not found', 404)
+            data, reason = self._owned(key, owner)
+            if reason:
+                raise PackageError(f'Needs review: {reason}')
             return {k: v for k, v in data.items() if k != 'owner'}
 
     def list(self, owner):
         with self.lock:
-            return [dict(id=d['id'], name=d['draft']['name'], revision=d['revision'], code_defined=bool(d['draft'].get('definition_file')))
-                    for path in self.root.glob('*.json')
-                    if (d := json.loads(path.read_text('utf-8')))['owner'] == owner
-                    and not self.service.catalogue.published_draft(d['id'], owner)]
+            entries = []
+            for path in self.root.glob('*.json'):
+                d, reason = self._read(path)
+                if d.get('owner', owner) != owner:
+                    continue
+                if reason:
+                    draft = d.get('draft') if isinstance(d.get('draft'), dict) else {}
+                    entries.append(dict(id=path.stem, name=draft.get('name') or path.stem, revision=d.get('revision'),
+                                        code_defined=False, review_reason=reason))
+                elif not self.service.catalogue.published_draft(d['id'], owner):
+                    entries.append(dict(id=d['id'], name=d['draft']['name'], revision=d['revision'],
+                                        code_defined=bool(d['draft'].get('definition_file')), review_reason=None))
+            return entries
 
     def save(self, draft, owner, key=None, revision=0):
         with self.lock:
@@ -252,7 +297,7 @@ class ReportAuthoring:
                 record['verification'] = {**current['verification'], 'revision':revision+1}
             if revision and current.get('base'):
                 record['base'] = current['base']
-            self._write(self._path(key), record)
+            self._write(self._path(key), check_draft(record))
             return self.get(key, owner)
 
     def import_files(self, files, owner, key=None, revision=0, mode='all'):
@@ -302,7 +347,7 @@ class ReportAuthoring:
 
     def remove(self, key, owner):
         with self.lock:
-            self.get(key, owner)
+            self._owned(key, owner)
             try:
                 self.trials.remove('draft-' + key)
             except PackageError as exc:
