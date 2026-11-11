@@ -59,7 +59,7 @@ class ReportDraft(BaseModel):
 DRAFT_SETTING_NAMES = {
     'name': 'name', 'package_id': 'package ID', 'version': 'version number', 'libraries': 'library list',
     'original': 'original Python', 'handler': 'report Python', 'sources': 'connection list',
-    'mappings': 'connection choices', 'inputs': 'input list', 'step': 'wizard step', 'tool_id': 'tool ID',
+    'mappings': 'connection choices', 'inputs': 'input list', 'step': 'step', 'tool_id': 'tool ID',
     'entrypoint': 'starting function', 'kind': 'tool type', 'preview': 'preview setting',
     'confirmation_field': 'confirmation input', 'definition_file': 'defining Python file', 'files': 'file list',
     'operation_source': 'writing connection', 'change_note': 'change note',
@@ -285,19 +285,17 @@ class ReportAuthoring:
                 current = self.get(key, owner, review=True)
                 if current.get('revision') != revision:
                     raise PackageError('This draft changed in another tab. Reopen it before saving.', 409)
-                if current['draft'].get('definition_file') and not draft.definition_file:
+                if not draft.definition_file:
                     raise PackageError('Keep this tool definition with its Python.')
             else:
                 if len(list(self.root.glob('*.json'))) >= 100:
                     raise PackageError('The 100-draft limit is reached. Remove an unused draft.', 409)
                 key = uuid.uuid4().hex
-            for name in ('original', 'handler'):
-                source = getattr(draft, name)
-                if source:
-                    try:
-                        ast.parse(source)
-                    except SyntaxError as exc:
-                        raise PackageError(f'{name}: Python syntax error on line {exc.lineno}: {exc.msg}') from exc
+            if draft.handler:
+                try:
+                    ast.parse(draft.handler)
+                except SyntaxError as exc:
+                    raise PackageError(f'handler: Python syntax error on line {exc.lineno}: {exc.msg}') from exc
             record = dict(id=key, owner=owner, revision=revision+1, draft=draft.model_dump())
             if revision and current.get('verification') and (
                     {k:v for k,v in current['draft'].items() if k != 'change_note'} ==

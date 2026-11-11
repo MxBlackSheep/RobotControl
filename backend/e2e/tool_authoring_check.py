@@ -156,13 +156,15 @@ def run():
                             else:
                                 raise AssertionError('SQL Server allowed a write')
                     # Permission drift is rechecked on open; a saved connection is not a certificate.
-                    admin.execute(f"USE [{fixture['names'][1]}]; GRANT UPDATE ON dbo.Plates TO [{fixture['login']}]")
+                    admin.execute(f"USE [{fixture['names'][1]}]")
+                    admin.execute(f"GRANT UPDATE ON dbo.Plates TO [{fixture['login']}]")
                     try:
                         with service.sources.open(snapshot['primary']):
                             raise AssertionError('Cross-database write grant accepted')
                     except ValueError as exc:
                         assert 'UPDATE' in str(exc)
-                    admin.execute(f"REVOKE UPDATE ON dbo.Plates FROM [{fixture['login']}]; USE [{fixture['names'][0]}]")
+                    admin.execute(f"REVOKE UPDATE ON dbo.Plates FROM [{fixture['login']}]")
+                    admin.execute(f"USE [{fixture['names'][0]}]")
                     result['checks'].append('Unassigned report refused; passwords stored encrypted; INSERT/UPDATE/DELETE/DDL denied by SQL Server; cross-database write grant rejected')
                     files={'report.py':REPORT,'helper.py':"heading = 'Plate'\n"}
                     for bad in ({'x.py':'raise RuntimeError("must not run")'}, {'x.py':REPORT.replace("'Plate export'",'str(42)')},

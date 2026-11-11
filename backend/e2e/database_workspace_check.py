@@ -224,7 +224,7 @@ def run():
                     edited=call('POST',BASE+'/authoring/report/editable-report/edit',{})
                     assert edited['draft']['version']=='2.1.5' and edited['draft']['tool_id']=='editable-report'
                     # The installed handler gains its TOOL definition below the unchanged code.
-                    assert edited['draft']['handler'].startswith(export_script.rstrip()) and edited['draft']['mappings']=={'primary':'lab-a'}
+                    assert edited['draft']['handler'].startswith(export_script.rstrip()+'\n\nTOOL = ') and edited['draft']['mappings']=={'primary':'lab-a'}
                     key=edited['id']
                     options=call('POST',BASE+'/drafts/'+key+'/choices/plate',dict(inputs={'project':1}))
                     assert {x['value'] for x in options['options']}=={11,12}

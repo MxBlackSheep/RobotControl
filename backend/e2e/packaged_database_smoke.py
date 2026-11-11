@@ -22,8 +22,10 @@ Failure cases:
   or its Excel output (bundled pandas/openpyxl) is wrong.
 - Removing a package leaves it listed, or data is not kept beside the relocated copy.
 - --authoring: DPAPI connection storage, read-only login creation, duplicate-login
-  conflicts, private drafts, dependent inputs, trial/installed generation and prepared
-  Python with pandas or relative helpers fail in the packaged process.
+  conflicts, private drafts, trial/installed generation and prepared Python with pandas
+  or relative helpers fail in the packaged process; a second connection's input that
+  depends on the first offers the wrong choices, accepts a forged pair or writes wrong
+  workbook values.
 """
 import argparse
 import hashlib
@@ -86,12 +88,16 @@ def authoring_check(request, token, result, evidence):
         result['checks'].append('Packaged read-only account provisioning and schema-qualified viewer passed')
         source = '''import pandas as pd
 TOOL = {'name': 'Portable SQL report', 'kind': 'report', 'connections': ['primary', 'plates'], 'inputs': {
-    'project': {'label': 'Project', 'type': 'integer', 'query': 'SELECT id AS value, label FROM dbo.Projects'}}}
+    'project': {'label': 'Project', 'type': 'integer', 'query': 'SELECT id AS value, label FROM dbo.Projects'},
+    'plate': {'label': 'Plate', 'type': 'integer', 'source': 'plates', 'depends_on': ['project'],
+              'query': 'SELECT id AS value, label FROM dbo.Plates WHERE project = ?'}}}
 def run(context, inputs):
     rows = []
     for source in ('primary', 'plates'):
         row = context.connections[source].cursor().execute('SELECT label FROM dbo.Projects WHERE id=?', inputs['project']).fetchone()
         rows.append([source, row[0]])
+    plate = context.connections['plates'].cursor().execute('SELECT label FROM dbo.Plates WHERE id=?', inputs['plate']).fetchone()
+    rows.append(['plate', plate[0]])
     pd.DataFrame(rows).to_excel(context.output_dir / 'portable.xlsx', engine='openpyxl', index=False, header=False)
     return 'portable.xlsx'
 '''
@@ -101,23 +107,31 @@ def run(context, inputs):
         saved = request(prefix, {'draft': {**saved['draft'], 'mappings': mappings}, 'revision': saved['revision']}, token, method='PUT')
         choices = request(prefix+'/choices/project', {'inputs':{}}, token)
         assert {x['value'] for x in choices['options']} == {1,2}
-        def finished(job):
+        # The plate list comes from the plates connection, filtered by the chosen project.
+        plates = request(prefix+'/choices/plate', {'inputs':{'project':1}}, token)
+        assert [x['value'] for x in plates['options']] == [11,12] and {x['label'] for x in plates['options']} == {'Same name'}, plates
+        assert [x['value'] for x in request(prefix+'/choices/plate', {'inputs':{'project':2}}, token)['options']] == [21]
+        def finished(job, status='ready'):
             deadline=time.monotonic()+60
             while job['status'] in {'pending','running'}:
                 assert time.monotonic()<deadline,job
                 time.sleep(.1);job=request('/api/database/tools/reports/'+job['id'],token=token)
-            assert job['status']=='ready',job
+            assert job['status']==status,job
             return job
-        job=finished(request(prefix+'/try', {'inputs':{'project':1},'revision':saved['revision']},token))
+        forged=finished(request(prefix+'/try', {'inputs':{'project':2,'plate':11},'revision':saved['revision']},token), 'error')
+        assert 'no longer available' in forged['error'], forged
+        job=finished(request(prefix+'/try', {'inputs':{'project':1,'plate':12},'revision':saved['revision']},token))
         content=request('/api/database/tools/reports/'+job['id']+'/download',token=token)
-        assert list(openpyxl.load_workbook(io.BytesIO(content)).active.values)==[('primary','Yeast Ω'),('plates','Yeast Ω')]
+        assert list(openpyxl.load_workbook(io.BytesIO(content)).active.values)==[('primary','Yeast Ω'),('plates','Yeast Ω'),('plate','Same name')]
         (evidence/'packaged-two-source.xlsx').write_bytes(content)
         package=request(prefix+'/package',token=token)
         request('/api/database/tools/packages',token=token,upload=package)
         assert request('/api/database/tools/packages/portable-sql-report/export',token=token) == package
         request('/api/database/tools/packages/portable-sql-report/sources',{'mappings':mappings},token,method='PUT')
-        finished(request('/api/database/tools/reports/portable-sql-report',{'inputs':{'project':2}},token))
-        result['checks'].append('Relocated executable: DPAPI source storage, SQL permission checks, prepared Python with pandas over two connections, dependent input API, trial workbook, exported ZIP upload and installed generation passed')
+        job=finished(request('/api/database/tools/reports/portable-sql-report',{'inputs':{'project':2,'plate':21}},token))
+        installed=request('/api/database/tools/reports/'+job['id']+'/download',token=token)
+        assert list(openpyxl.load_workbook(io.BytesIO(installed)).active.values)==[('primary','Other'),('plates','Other'),('plate','Other plate')]
+        result['checks'].append('Relocated executable: DPAPI source storage, SQL permission checks, prepared Python with pandas over two connections, a dependent input from the second connection, trial workbook, exported ZIP upload and installed generation passed')
         result['workbook_sha256']=hashlib.sha256(content).hexdigest()
         result['package_sha256']=hashlib.sha256(package).hexdigest()
         request(prefix,token=token,method='DELETE')
