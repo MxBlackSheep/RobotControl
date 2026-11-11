@@ -2,7 +2,7 @@
 
 - The page could no longer start a wizard report; Resume on an older draft still opened it, and such a draft could be installed without the trial that Add tool requires. The wizard screen and its five routes are gone (new draft, Python inspection, starter handler, editing files, ZIP-path edit of an installed report). Add tool and Edit are the only way to make or change a tool, and every install now needs a successful trial and the review checkbox.
 - A draft the old wizard saved is listed as "Needs review: This draft was made with the old report wizard, which has been removed" with Remove draft only. It cannot be opened, tried, checked or installed, and its file stays unchanged on disk until someone removes it.
-- Checks: `report_wizard_check` is gone. Its SQL permission, saved-password and lookup order cases moved into `tool_authoring_check`; its shared fixture is now `backend/e2e/sql_server_fixture.py`. `database_workspace_check`, `draft_replace_check` and `packaged_database_smoke --authoring` (was `--wizard`) use Python-defined tools instead of wizard drafts.
+- Checks: `report_wizard_check` is gone. Its SQL permission, saved-password, lookup order and publish-replay-after-a-newer-version (409, newer version kept) cases moved into `tool_authoring_check`; its shared fixture is now `backend/e2e/sql_server_fixture.py`. `database_workspace_check`, `draft_replace_check` and `packaged_database_smoke --authoring` (was `--wizard`) use Python-defined tools instead of wizard drafts.
 
 ## 2026-11-11 Sign-in kept out of page scripts, ended at sign out, and role switching
 

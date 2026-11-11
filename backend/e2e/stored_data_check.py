@@ -819,10 +819,10 @@ def draft_review_checks(root):
         reply = client.get(f'/api/database/tools/drafts/{nameless}')
         assert reply.status_code == 200 and reply.json()['review_reason'], reply.text
         opened = reply.json()
-        reply = client.put(f'/api/database/tools/drafts/{nameless}', json={'draft': {**opened['draft'], 'name': 'Repaired'}, 'revision': opened['revision']})
+        # Its missing name is the refused field, so the save supplies the name its Python defines.
+        reply = client.put(f'/api/database/tools/drafts/{nameless}', json={'draft': {**opened['draft'], 'name': 'Nameless'}, 'revision': opened['revision']})
         assert reply.status_code == 200, reply.text
         listed = {entry['id']: entry for entry in client.get('/api/database/tools/drafts').json()}
-        # The name comes from the draft's Python, so the save restores it.
         assert listed[nameless]['review_reason'] is None and listed[nameless]['name'] == 'Nameless', listed[nameless]
         user['username'] = 'other'
         assert sorted(entry['id'] for entry in client.get('/api/database/tools/drafts').json()) == sorted([truncated, ownerless])

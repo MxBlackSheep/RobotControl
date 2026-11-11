@@ -25,8 +25,9 @@ Failure cases:
   restarts cannot reuse old readiness.
 - Publishing replaces a renamed defining file without losing helpers, rejects a second
   TOOL among supporting files, retires only its draft, survives a lost response or
-  repeated submission, and leaves failed updates editable. History (publisher,
-  version, note, file changes) is saved atomically with activation.
+  repeated submission, and leaves failed updates editable. Replaying a publish after a
+  newer version is installed returns 409 and keeps the newer version and its history.
+  History (publisher, version, note, file changes) is saved atomically with activation.
 - Export carries code and definitions, never local credentials, mappings or history.
 - A published change note becomes the new version's section at the top of CHANGELOG.md:
   the file is created when missing, kept when Replace all files omits it, earlier sections
@@ -196,11 +197,13 @@ def run():
                             assert time.monotonic()<deadline,job
                             time.sleep(.1);job=call('GET','/reports/'+job['id'])
                         return job
+                    published={}  # Each draft's successful install request, to replay after a lost response.
                     def enable(s,status=200,reviewed=True):
                         review=call('GET',f"/drafts/{s['id']}/review")
                         payload=dict(revision=s['revision'],expected_current=review['current_sha256'],reviewed=reviewed)
                         result=call('POST',f"/drafts/{s['id']}/install",payload,status)
                         if status==200:
+                            published[s['id']]=payload
                             assert call('POST',f"/drafts/{s['id']}/install",payload)==result
                             assert not any(d['id']==s['id'] for d in call('GET','/drafts'))
                         return result
@@ -249,6 +252,11 @@ def run():
                     assert any(d['id']==parallel['id'] for d in call('GET','/drafts'))
                     history=call('GET','/packages/plate-export/history')
                     assert len(history)==2 and history[0]['actor']=='admin'
+                    # Replaying the first publish once a newer version is installed must not report success over it.
+                    newer=service.catalogue.index['plate-export']['sha256']
+                    call('POST',f'/drafts/{key}/install',published[key],409)
+                    assert service.catalogue.index['plate-export']['sha256']==newer
+                    assert call('GET','/packages/plate-export/history')==history
                     assert history[0]['note']=='Use Updated heading; remove obsolete helper.'
                     assert history[0]['files']['removed']==['helper.py','report.py']
                     assert history[0]['files']['added']==['CHANGELOG.md','export.py']
