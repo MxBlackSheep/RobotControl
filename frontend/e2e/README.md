@@ -22,6 +22,9 @@ boundary when it changes whether critical controls are usable. Do not set a quot
 screen: two cases can miss a destructive-action race, while several may prove the same
 thing. A bug need not occur twice before an essential regression is worth keeping.
 
+Specs sign in with `signIn(page)` from `sign-in.ts`: the HttpOnly `rc_access` cookie the app
+uses, naming a fixture user that `backend/e2e/viewer_server.py` answers as.
+
 `page.route` fixtures cover browser behavior, including request ordering, selection
 and timeouts. They do not validate real SQL or hardware; use `backend/e2e` for that.
 Keep fixtures aligned with the actual API envelope. Existing focused tests may remain
