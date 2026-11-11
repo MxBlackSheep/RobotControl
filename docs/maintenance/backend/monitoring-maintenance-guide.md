@@ -1,6 +1,6 @@
 # Monitoring & Notifications Maintenance Guide
 
-Hamilton status uses the shared mapping: 1 = Running, 2 = Paused, 64 = Aborted, 128 = Complete. `ExperimentState.is_running` is strict; `is_in_progress` includes Running and Paused. Both retain the existing 50% placeholder in the monitoring API. Pause/resume never fires recording completion callbacks. Original SQL status is retained separately for diagnostics.
+Hamilton status uses the shared mapping: 1 = Running, 2 = Paused, 64 = Aborted, 128 = Complete. `ExperimentState.is_running` is strict; `is_in_progress` includes Running and Paused. The duplicate monitoring experiment route is removed. Pause/resume never fires recording completion callbacks. Original SQL status is retained separately for diagnostics.
 
 Use this document whenever you need to touch real-time monitoring, experiment tracking, or email notifications. The goal is to keep polling and alerts predictable even if you have never built a monitoring system before.
 
@@ -18,7 +18,7 @@ Use this document whenever you need to touch real-time monitoring, experiment tr
   Email delivery helpers: `EmailNotificationService` (SMTP client) and `SchedulingNotificationService` (formats schedule alerts, manual recovery emails, TRC attachments).
 
 - `backend/api/monitoring.py`  
-  REST endpoints. Wraps the services in `ResponseFormatter`, enforces auth, and exposes `/system-health`, `/databases` and `/experiments`.
+  REST endpoints. Wraps the services in `ResponseFormatter`, enforces auth, and exposes `/system-health` and `/databases`; latest-run data comes from `/api/experiments/latest`.
   `/databases` reports the built-in connection's `get_status` and `DatabaseTools.connection_health`:
   every saved connection opened as its users open it (a reader's read-only check included),
   in parallel, with its uses. A result under 90 seconds old (`HEALTH_STALE_SECONDS`) returns
@@ -36,7 +36,7 @@ Use this document whenever you need to touch real-time monitoring, experiment tr
 
 SQL status calls and blocking Database/Experiments API calls run in Starlette's bounded worker pool. These display paths never cache scheduler dispatch decisions or Hamilton terminal state.
 
-**Rule of thumb:** Let the service singletons (`health_sampler`, `get_experiment_monitor()`) own their threads. Do not start extra loops somewhere else, or you will double-poll the database and spam clients.
+**Rule of thumb:** Let the service singletons (`health_sampler`, the automatic-recording-owned `ExperimentMonitor`) own their threads. Do not start extra loops somewhere else, or you will double-poll the database and spam clients.
 
 ---
 
@@ -45,7 +45,7 @@ SQL status calls and blocking Database/Experiments API calls run in Starlette's 
 1. **PC samples**: application lifespan starts and stops `health_sampler`. The API reads its
    snapshot; `sampled_at` is the sample time. The first CPU sample is a warm-up value.
 2. **Experiment monitor thread**  
-   - Automatic recording starts the monitor and registers its completion callback. The monitor keeps its current
+   - Automatic recording supplies the completion callback at construction and starts the monitor after recording succeeds. The monitor keeps its current
      experiment and the time of its last check.  
    - `_monitoring_worker` polls SQL (`SELECT TOP 1 … FROM HamiltonVectorDB.dbo.HxRun`).  
    - `ExperimentState` is created, state transitions detected, and `is_newly_completed` set when a run goes to `COMPLETE`/`ABORTED`.  

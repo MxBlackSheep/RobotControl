@@ -5,7 +5,7 @@ import threading
 import traceback
 
 from backend.services.database_packages import PackageCatalogue, ToolDefinition
-from backend.services.report_sources import ReportSources, lookup_rows
+from backend.services.report_sources import ReportSources, validate_choices
 
 
 def _runtime(package_root):
@@ -19,20 +19,12 @@ def _runtime(package_root):
     return sources, catalogue
 
 
-def _check_choices(tool, inputs, connections):
-    for field in tool.inputs:
-        if field.lookup and field.name in inputs:
-            options = lookup_rows(connections[field.lookup.source], field, inputs, selected=inputs[field.name])['options']
-            if not any(x['value'] == inputs[field.name] for x in options):
-                raise ValueError(f'{field.label} is no longer available. Choose it again.')
-
-
 def run_report(channel, package_root, entry, definition, inputs, snapshot, folder):
     try:
         sources, catalogue = _runtime(package_root)
         tool = ToolDefinition.model_validate(definition)
         with sources.connections(snapshot) as connections:
-            _check_choices(tool, inputs, connections)
+            validate_choices(tool, inputs, connections)
             for conn in connections.values():
                 conn.timeout = 120
             context = SimpleNamespace(connection=connections.get('primary', next(iter(connections.values()), None)),
@@ -114,7 +106,7 @@ def run_preparation(channel, package_root, entry, definition, inputs, snapshot, 
             cursor.execute("SET XACT_ABORT ON; SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
             cursor.close()
             try:
-                _check_choices(tool, inputs, connections)
+                validate_choices(tool, inputs, connections)
                 context = SimpleNamespace(connection=_HostOwned(conn), connections=connections, run=SimpleNamespace(**run))
                 result = catalogue.function(entry, tool.entrypoint)(context, inputs)
                 if result is not None and not isinstance(result, dict):

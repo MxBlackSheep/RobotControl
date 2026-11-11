@@ -114,7 +114,6 @@ def run():
             storage = SQLiteSchedulingDatabase(str(root / 'scheduler.db'))
             manager = SchedulingDatabaseManager.__new__(SchedulingDatabaseManager)
             manager.sqlite_db = storage
-            manager.should_block_due_to_abort = lambda _: None
             manager.main_db_service = None
             method = root / 'fixture.med'
             method.write_text('fixture')
@@ -143,7 +142,10 @@ def run():
             notification._hamilton_log_dir.mkdir()
             unrelated_trace = notification._hamilton_log_dir / 'unrelated-run.trc'
             unrelated_trace.write_text('Trace from another run')
-            notification._rolling_clips_dir = root / 'rolling_clips'
+            from backend.services import storage_manager
+            stack.enter_context(patch.object(storage_manager, 'VIDEO_PATH', root / 'videos'))
+            video_store = storage_manager.StorageManager()
+            stack.enter_context(patch.object(storage_manager, 'get_storage_manager', return_value=video_store))
             def deliver(*args, **kwargs):
                 delivered.append(kwargs)
                 return True

@@ -26,6 +26,7 @@ Failure cases:
 - filename retention follows modification times instead, or cleanup races an archive copy;
 - the download route serves the MP4 with the wrong type.
 """
+from types import SimpleNamespace
 import argparse
 import json
 import os
@@ -127,7 +128,7 @@ import sys, threading, time
 from pathlib import Path
 sys.path.insert(0, sys.argv[2])
 from backend.services.clip_transcoder import ClipTranscoder
-transcoder = ClipTranscoder(Path(sys.argv[1]), threading.Lock(), lambda old, new: None, 1000)
+transcoder = ClipTranscoder(Path(sys.argv[1]), threading.Lock(), 1000)
 transcoder.wake()
 time.sleep(600)
 """
@@ -152,14 +153,13 @@ def run(real_clips: Path = None):
         from backend.services.clip_transcoder import TEMPORARY_SUFFIX, finalized_clips
         from backend.services.storage_manager import StorageManager
 
-        with patch("backend.services.camera.VIDEO_PATH", str(videos)), \
-                patch("backend.services.camera_runtime.enumerate_devices", return_value=DEVICES):
+        with patch("backend.services.storage_manager.VIDEO_PATH", str(videos)):
+            store = StorageManager()
+        storage_patch = patch("backend.services.storage_manager.get_storage_manager", return_value=store)
+        storage_patch.start()
+        with patch("backend.services.camera_runtime.enumerate_devices", return_value=DEVICES):
             CameraService._instance = None
             service = CameraService()
-        with patch("backend.services.storage_manager.VIDEO_PATH", str(videos)):
-            service._storage_manager = StorageManager()
-        storage_patch = patch("backend.services.storage_manager.get_storage_manager", return_value=service._storage_manager)
-        storage_patch.start()
         transcoder = service.clip_transcoder
         now = datetime.now() - timedelta(minutes=5)
 
@@ -171,7 +171,6 @@ def run(real_clips: Path = None):
         stale.write_bytes(b"left by a killed transcode")
         backlog = [write_clip(rolling, now + timedelta(seconds=10 + i), 60) for i in range(3)]
         mtimes = {path.stem: path.stat().st_mtime for path in backlog}
-        service._sync_memory_with_filesystem()
 
         # One at a time, at BelowNormal, while the backlog runs.
         samples, stop_sampling = [], threading.Event()
@@ -209,7 +208,7 @@ def run(real_clips: Path = None):
                   for p in backlog + [newest]), [round(frame_rate(p.with_suffix(".mp4")), 2) for p in backlog + [newest]])
         check("MP4 keeps the AVI's modification time",
               all(abs(path.with_suffix(".mp4").stat().st_mtime - mtimes[path.stem]) < 1 for path in backlog))
-        listed = [Path(clip["path"]).name for clip in service.rolling_clips]
+        listed = [Path(clip["path"]).name for clip in service._storage_manager._read_finalized_clips()]
         check("clip list names the MP4s once each", sorted(listed) == sorted(p.name for p in finalized_clips(rolling))
               and not any(name.endswith(".avi") and "partial" not in name and name != legacy.name for name in listed), listed)
 
@@ -221,8 +220,7 @@ def run(real_clips: Path = None):
         app = FastAPI()
         app.include_router(camera_api.router, prefix="/api")
         app.dependency_overrides[get_current_user] = lambda: {"username": "check", "role": "admin", "user_id": "check"}
-        with patch.object(camera_api, "ROLLING_CLIPS_PATH", rolling), \
-                patch.object(camera_api, "EXPERIMENTS_PATH", videos / "experiments"), TestClient(app) as client:
+        with patch.object(camera_api, "get_storage_manager", return_value=SimpleNamespace(rolling_clips_path=rolling, experiments_path=videos / "experiments")), TestClient(app) as client:
             response = client.get(f"/api/camera/recording/{newest.with_suffix('.mp4').name}")
         check("download serves video/mp4", response.status_code == 200 and response.headers["content-type"] == "video/mp4",
               response.status_code)
@@ -267,13 +265,11 @@ def run(real_clips: Path = None):
         check("no temporary file after a crash", not list(rolling.glob(f"*{TEMPORARY_SUFFIX}")))
         crash.unlink()
         crash.with_suffix(".json").unlink()
-        service._sync_memory_with_filesystem()
 
         # A clip rotated out while its verified MP4 waits for the clip lock.
         rotated = write_clip(rolling, now + timedelta(seconds=60), 30)
         with service.clips_lock:
             accept_thread = threading.Thread(target=transcoder.wake)
-            service.rolling_clips.append({"path": str(rotated), "timestamp": now, "camera_id": 0, "frame_count": 30})
             accept_thread.start()
             waiting = wait_for(lambda: list(rolling.glob(f"*{TEMPORARY_SUFFIX}")) and not ffmpeg_children(), 60)
             rotated.unlink()
@@ -281,7 +277,6 @@ def run(real_clips: Path = None):
         settled(transcoder, 8)
         check("rotated-out clip leaves no MP4 or temporary file", bool(waiting) and not rotated.with_suffix(".mp4").exists()
               and not list(rolling.glob(f"*{TEMPORARY_SUFFIX}")))
-        service._sync_memory_with_filesystem()
 
         # AVI held open (a download) when the MP4 is published: both kept, one listed; removed later.
         held = write_clip(rolling, now + timedelta(seconds=70), 30)
@@ -289,13 +284,12 @@ def run(real_clips: Path = None):
         accept(service, held)
         settled(transcoder, 9)
         both = held.exists() and held.with_suffix(".mp4").exists()
-        names = [Path(clip["path"]).name for clip in service.rolling_clips]
-        service._sync_memory_with_filesystem()
-        names_after_sync = [Path(clip["path"]).name for clip in service.rolling_clips]
+        names = [Path(clip["path"]).name for clip in service._storage_manager._read_finalized_clips()]
+        names_after_sync = [Path(clip["path"]).name for clip in service._storage_manager._read_finalized_clips()]
         check("held AVI: both files kept, the clip listed once as MP4", both and held.name not in names
               and names_after_sync.count(held.with_suffix(".mp4").name) == 1 and held.name not in names_after_sync,
               names_after_sync)
-        archive = service._storage_manager.archive_experiment_videos("check", "Check", service.rolling_clips, service.clips_lock)
+        archive = service._storage_manager.archive_experiment_videos("check", "Check")
         archived = sorted(p.name for p in Path(archive.archive_path).iterdir())
         check("archive copies each clip once, MP4s included", archive.success and len(archived) == len(set(
             n.split("_", 2)[2].rsplit(".", 1)[0] for n in archived)) and any(n.endswith(".mp4") for n in archived), archived)
@@ -320,7 +314,7 @@ def run(real_clips: Path = None):
         archives = []
         with patch("backend.services.storage_manager.shutil.copy2", side_effect=copy_while_locked):
             archive_thread = threading.Thread(target=lambda: archives.append(
-                service._storage_manager.archive_experiment_videos("concurrent", "Check", service.rolling_clips, service.clips_lock)))
+                service._storage_manager.archive_experiment_videos("concurrent", "Check")))
             archive_thread.start()
             try:
                 assert copying.wait(5), "Archive never reached the copy boundary"
@@ -343,10 +337,10 @@ def run(real_clips: Path = None):
             os.utime(old_file, (day_ago, day_ago))
         before = len(finalized_clips(rolling))
         service._storage_manager.rolling_clips_limit = before - 1
-        result = service._storage_manager.cleanup_rolling_clips(service.rolling_clips, service.clips_lock)
+        result = service._storage_manager.cleanup_rolling_clips()
         check("storage cleanup removes every file of the oldest clip", not both_old.exists()
               and not both_old.with_suffix(".mp4").exists() and not both_old.with_suffix(".json").exists()
-              and len(finalized_clips(rolling)) == before - 1 and result.rolling_clips_removed == 1, result.rolling_clips_removed)
+              and len(finalized_clips(rolling)) == before - 1 and result == 1, result)
         kept = finalized_clips(rolling)
         check("every kept clip still has its sidecar or is legacy",
               all(p.with_suffix(".json").exists() or p == legacy for p in kept), [p.name for p in kept])

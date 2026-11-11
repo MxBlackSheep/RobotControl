@@ -107,9 +107,6 @@ class StreamingSessionHandler:
 
         # Statistics
         self.start_time = time.time()
-        self.last_stats_time = time.time()
-        self.frames_in_period = 0
-        self.bytes_in_period = 0
 
         # Control flags
         self.is_running = False
@@ -151,18 +148,15 @@ class StreamingSessionHandler:
             # Accept WebSocket connection
             await self.websocket.accept()
             self.session.websocket_state = "connected"
-            self.session.is_active = True  # CRITICAL: Mark session as active for frame distribution
             self.is_running = True
 
             # Send initial status
-            await self._send_status()
 
             logger.info(f"Streaming session {self.session.session_id} started and marked as active")
 
         except Exception as e:
             logger.error(f"Error starting session {self.session.session_id}: {e}")
             self.session.last_error = str(e)
-            self.session.is_active = False  # Ensure not marked as active on failure
             raise
 
     async def stop(self) -> None:
@@ -174,7 +168,6 @@ class StreamingSessionHandler:
             return
         self._stopped = True
         self.is_running = False
-        self.session.is_active = False
         self.session.websocket_state = "disconnected"
         self.pending.clear()
 
@@ -189,7 +182,7 @@ class StreamingSessionHandler:
     @property
     def watching(self) -> bool:
         """Connected and visible: wants frames from the encoder."""
-        return self.is_running and self.session.is_active and not self.is_paused
+        return self.is_running and not self.is_paused
 
     def offer(self, unit: AccessUnit) -> bool:
         """Take a frame from the shared encoder; True when it now waits to be sent."""
@@ -256,10 +249,8 @@ class StreamingSessionHandler:
 
             # Update statistics
             self.session.frames_sent += 1
-            self.frames_in_period += 1
             frame_size = FRAME_HEADER.size + len(unit.data)
             self.session.bytes_sent += frame_size
-            self.bytes_in_period += frame_size
             self.session.update_activity()
             delivery = self.delivery
             delivery.sent += 1
@@ -271,8 +262,6 @@ class StreamingSessionHandler:
             if self._last_sent_at is not None:
                 delivery.send_gaps.append(now - self._last_sent_at)
             self._last_sent_at = now
-            if time.time() - self.last_stats_time >= 1.0:
-                await self._update_statistics()
             return True
 
         except Exception as e:
@@ -304,7 +293,6 @@ class StreamingSessionHandler:
                 self._last_sent_at = self._last_ack_at = None
                 self._window_open.set()
                 self.session.update_activity()
-                await self._send_status()
 
             logger.debug(f"Handled control message: {control.type} for session {self.session.session_id}")
 
@@ -380,38 +368,6 @@ class StreamingSessionHandler:
         except Exception as e:
             logger.debug(f"Error receiving control for session {self.session.session_id}: {e}")
             return None
-
-    async def _update_statistics(self) -> None:
-        """Update session statistics (FPS, bandwidth, etc.)."""
-        current_time = time.time()
-        time_delta = current_time - self.last_stats_time
-
-        if time_delta > 0:
-            # Calculate actual FPS
-            self.session.actual_fps = self.frames_in_period / time_delta
-
-            # Calculate bandwidth (Mbps)
-            self.session.bandwidth_usage_mbps = (self.bytes_in_period * 8) / (time_delta * 1_000_000)
-
-            # Reset period counters
-            self.frames_in_period = 0
-            self.bytes_in_period = 0
-            self.last_stats_time = current_time
-
-    async def _send_status(self) -> None:
-        """Send status update to client."""
-        try:
-            status = {
-                "fps": self.session.actual_fps,
-                "bandwidth_mbps": self.session.bandwidth_usage_mbps,
-                "recording_active": True,  # Would get from camera service
-                "is_paused": self.is_paused
-            }
-
-            await self.websocket.send_json({"type": "status", "status": status})
-
-        except Exception as e:
-            logger.error(f"Error sending status for session {self.session.session_id}: {e}")
 
     async def send_error(self, error_message: str) -> None:
         """Show an error in this viewer's live view (JSON text message)."""

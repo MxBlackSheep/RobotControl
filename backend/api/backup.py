@@ -26,7 +26,7 @@ from backend.api.dependencies import ConnectionContext, require_local_access, ge
 from backend.utils.audit import log_action
 
 # Import standardized response formatter
-from backend.api.response_formatter import ResponseFormatter, ResponseMetadata
+from backend.api.response_formatter import ResponseFormatter
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -54,35 +54,6 @@ class CreateBackupRequest(BaseModel):
         description="Description for the backup"
     )
 
-# Helper function to ensure consistent API response format (DEPRECATED - use ResponseFormatter)
-# This function is maintained for backward compatibility but should use ResponseFormatter
-def create_api_response(success: bool, data: Any = None, message: str = "", metadata: Dict[str, Any] = None) -> Dict[str, Any]:
-    """
-    DEPRECATED: Use ResponseFormatter.success() or ResponseFormatter.error() instead
-    
-    Create standardized API response format to prevent axios response.data vs response.data.data issues
-    
-    Args:
-        success: Operation success status
-        data: Response data
-        message: Response message
-        metadata: Optional metadata
-    
-    Returns:
-        Standardized response dictionary
-    """
-    response = {
-        "success": success,
-        "data": data,
-        "message": message
-    }
-    
-    if metadata:
-        response["metadata"] = metadata
-    
-    return response
-
-
 @router.post("/create", response_model=Dict[str, Any])
 async def create_backup(
     request: CreateBackupRequest,
@@ -99,7 +70,6 @@ async def create_backup(
     Returns:
         Standardized API response with backup creation result
     """
-    start_time = time.time()
     
     actor = current_user.get("username", "unknown")
     try:
@@ -110,16 +80,9 @@ async def create_backup(
         result = await run_in_threadpool(backup_service.create_backup, request.description)
         
         # Create metadata
-        metadata = ResponseMetadata()
-        metadata.set_execution_time(start_time)
-        metadata.add_metadata("operation", "create_backup")
-        metadata.add_metadata("requested_by", current_user['username'])
-        metadata.add_metadata("description", request.description)
         
         if result.success:
             logger.info(f"Backup created successfully: {result.filename}")
-            metadata.add_metadata("filename", result.filename)
-            metadata.add_metadata("backup_successful", True)
             log_action(
                 actor=actor,
                 action="create_backup",
@@ -131,12 +94,10 @@ async def create_backup(
             
             return ResponseFormatter.success(
                 data=result.to_dict(),
-                metadata=metadata,
                 message="Backup created successfully"
             )
         else:
             logger.warning(f"Backup creation failed: {result.message}")
-            metadata.add_metadata("backup_successful", False)
             log_action(
                 actor=actor,
                 action="create_backup",
@@ -150,7 +111,6 @@ async def create_backup(
                 message=result.message,
                 details="Backup creation failed",
                 data=result.to_dict(),
-                metadata=metadata
             )
             
     except Exception as e:
@@ -183,7 +143,6 @@ async def list_backups(
     Returns:
         Standardized API response with list of backup information
     """
-    start_time = time.time()
     
     try:
         _ensure_backup_permission(current_user, connection)
@@ -198,18 +157,14 @@ async def list_backups(
         logger.info(f"Found {len(backups)} backup files")
         
         # Create metadata
-        metadata = ResponseMetadata()
-        metadata.set_execution_time(start_time)
-        metadata.add_metadata("operation", "list_backups")
-        metadata.add_metadata("requested_by", current_user['username'])
-        metadata.add_metadata("backup_count", len(backups))
         
         return ResponseFormatter.success(
             data=backup_data,
-            metadata=metadata,
             message=f"Found {len(backups)} backup files"
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Unexpected error listing backups: {e}")
         return ResponseFormatter.server_error(
@@ -256,25 +211,25 @@ async def restore_backup(
                 detail="Provide either filename or file_path, not both"
             )
         restore_source = request.filename or request.file_path
-        is_admin = current_user.get("role") == "admin"
-        is_local_user = connection.is_local and current_user.get("role") in {"user", "admin"}
-        if not (is_admin or is_local_user):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Admin role required"
-            )
+        _ensure_backup_permission(current_user, connection)
         logger.warning(f"Database restore from {restore_source} requested by user: {current_user['username']}")
         
         backup_service = get_backup_service()
         
-        # sqlcmd can run for RESTORE_TIMEOUT (600 s); a worker thread keeps the server answering.
-        if request.filename:
-            # Use existing restore_backup method for managed .bak files
-            result = await run_in_threadpool(backup_service.restore_backup, request.filename)
-        else:
-            # Use new restore_from_path method for .bck files
-            result = await run_in_threadpool(backup_service.restore_backup_from_path, request.file_path)
-        
+        def restore():
+            from backend.services.scheduling.scheduler_engine import get_scheduler_engine
+            from backend.services.sqlite_safety import SafetyConflict, StorageUnavailable
+            try:
+                with get_scheduler_engine().database_restore_guard():
+                    return (backup_service.restore_backup(request.filename) if request.filename
+                            else backup_service.restore_backup_from_path(request.file_path))
+            except SafetyConflict as exc:
+                raise HTTPException(409, str(exc)) from exc
+            except StorageUnavailable:
+                raise HTTPException(503, "Scheduler safety storage is unavailable.") from None
+
+        result = await run_in_threadpool(restore)
+
         if result.success:
             logger.info(f"Database restored successfully from: {restore_source}")
             log_action(
@@ -285,8 +240,7 @@ async def restore_backup(
                 success=True,
                 details={"source": restore_source},
             )
-            return create_api_response(
-                success=True,
+            return ResponseFormatter.success(
                 data=result.to_dict(),
                 message="Database restored successfully"
             )
@@ -300,8 +254,8 @@ async def restore_backup(
                 success=False,
                 details={"source": restore_source, "message": result.message},
             )
-            return create_api_response(
-                success=False,
+            return ResponseFormatter.error(
+                status_code=200,
                 data=result.to_dict(),
                 message=result.message
             )
@@ -366,8 +320,7 @@ async def delete_backup(
                 success=True,
                 details={"filename": filename},
             )
-            return create_api_response(
-                success=True,
+            return ResponseFormatter.success(
                 data=result,
                 message=result["message"]
             )
@@ -381,8 +334,8 @@ async def delete_backup(
                 success=False,
                 details={"filename": filename, "error": result['message']},
             )
-            return create_api_response(
-                success=False,
+            return ResponseFormatter.error(
+                status_code=200,
                 data=result,
                 message=result["message"]
             )
@@ -400,77 +353,4 @@ async def delete_backup(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred while deleting backup"
-        )
-
-
-@router.get("/health", response_model=Dict[str, Any])
-async def get_backup_health(current_user: dict = Depends(get_current_admin_user)):
-    """
-    Get backup service health status
-    
-    Args:
-        current_user: Current authenticated admin user
-        
-    Returns:
-        Standardized API response with backup service health information
-    """
-    start_time = time.time()
-    
-    try:
-        backup_service = get_backup_service()
-        
-        # Basic health check - list backups to verify service is working
-        backups = backup_service.list_backups()
-        backup_count = len(backups)
-        
-        # Check backup directory accessibility
-        import os
-        backup_dir_exists = os.path.exists(backup_service.backup_dir)
-        backup_dir_writable = os.access(backup_service.backup_dir, os.W_OK)
-        
-        health_data = {
-            "service_status": "operational",
-            "backup_directory": {
-                "path": backup_service.backup_dir,
-                "exists": backup_dir_exists,
-                "writable": backup_dir_writable
-            },
-            "database_config": {
-                "server": backup_service.sql_server,
-                "database": backup_service.database_name
-            },
-            "backup_count": backup_count,
-            "last_check": datetime.now().isoformat()
-        }
-        
-        is_healthy = backup_dir_exists and backup_dir_writable
-        
-        # Create metadata
-        metadata = ResponseMetadata()
-        metadata.set_execution_time(start_time)
-        metadata.add_metadata("operation", "backup_health_check")
-        metadata.add_metadata("admin_user", current_user['username'])
-        metadata.add_metadata("is_healthy", is_healthy)
-        metadata.add_metadata("backup_count", backup_count)
-        metadata.add_metadata("directory_accessible", backup_dir_exists and backup_dir_writable)
-        
-        if is_healthy:
-            return ResponseFormatter.success(
-                data=health_data,
-                metadata=metadata,
-                message="Backup service health check completed - Service is healthy"
-            )
-        else:
-            return ResponseFormatter.service_unavailable(
-                message="Backup service health check completed - Service is unhealthy",
-                details="Backup directory is not accessible or writable",
-                data=health_data,
-                metadata=metadata
-            )
-        
-    except Exception as e:
-        logger.error(f"Error checking backup service health: {e}")
-        return ResponseFormatter.server_error(
-            message="Error checking backup service health",
-            details=str(e)
         )

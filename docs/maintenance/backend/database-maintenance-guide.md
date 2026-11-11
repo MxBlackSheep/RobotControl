@@ -14,7 +14,7 @@ versions, bundled tool details and authoring steps are owned by
 
 - `services/backup.py`: `BackupService` is the entry point for backup, restore and
   delete. Creation, both restore paths and deletion take `_operation_lock`. `SqlCommandExecutor` runs `sqlcmd -E`;
-  `BackupMetadataStore` owns the `.json` file beside each `.bak`. API routes and new code
+  `BackupService` owns each pair; `metadata_path` and `read_metadata` locate and read the `.json` beside each `.bak`. API routes and new code
   must not call the executor or write metadata directly. Routes: `api/backup.py`.
 - `services/database.py`: `DatabaseService` (singleton `get_database_service()`) opens its
   own pyodbc connections to the native SQL Server in `settings.DB_CONFIG_PRIMARY`. Monitoring
@@ -73,13 +73,11 @@ and path restore use `RESTORE_TIMEOUT` (600 seconds). Recovery commands keep the
   same operation lock. If SQL Server rejects it, `MULTI_USER` is set again. It does not
   confine the path to the backup folder; SQL Server must be able to read the file.
   After either restore succeeds, `_recover_database_connections` retries `SELECT 1`
-  through `open_restore_connection` with a 30-second retry window; a timeout becomes a warning.
-  Each attempt opens and closes a direct connection, trying Windows authentication to
-  `LOCALHOST\HAMILTON` first, then the configured `VM_SQL_*` login. There is no shared pool to
-  reset. Requests handled by the restore route are audit-logged. Restore does **not** take the
-  scheduler's `database_change_guard`, so it does not check for an active run; the operator must.
+  through the same sqlcmd executor within thirty seconds; failure becomes a warning.
+  The route audits requests and reserves `database_restore_guard`: run/recovery refusals
+  match database changes, new launches wait until restore ends, and schedule edits remain responsive.
 - **Delete** (`DELETE /api/backup/{filename}`, local admin): removes `.bak` and `.json` and
-  reports partial success if one remains. **Health** (`GET /api/backup/health`): admin.
+  reports partial success if one remains. The list route replaces the removed backup health endpoint.
 
 Backups contain laboratory data; keep `BACKUP_DIR` and any share restricted.
 

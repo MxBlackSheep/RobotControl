@@ -152,10 +152,6 @@ def build_with_pyinstaller(layout: str = "onedir", console: bool = False, output
         "--hidden-import", "backend.services.database",
         "--hidden-import", "backend.services.auth",
         
-        # Include passlib handlers
-        "--hidden-import", "passlib.handlers.bcrypt",
-        "--hidden-import", "passlib.handlers",
-        "--hidden-import", "passlib.hash",
         
         # Include other commonly missing modules
         "--hidden-import", "pyodbc",

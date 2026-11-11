@@ -81,14 +81,13 @@ def _frame_count(sidecar: Path) -> Optional[int]:
 class ClipTranscoder:
     """One worker thread, started by the first wake(); one ffmpeg child at a time.
 
-    on_replaced(avi, mp4) runs with `lock` held, right after the MP4 is published.
+    MP4 replacement holds the video store lock used by archives and retention.
     """
 
-    def __init__(self, folder: Path, lock, on_replaced: Callable[[Path, Path], None], bitrate_kbps: int,
+    def __init__(self, folder: Path, lock, bitrate_kbps: int,
                  denoise_filter: str = ""):
         self.folder = Path(folder)
         self.lock = lock
-        self.on_replaced = on_replaced
         self.bitrate_kbps = bitrate_kbps
         self.denoise_filter = denoise_filter
         self._wake = threading.Event()
@@ -208,7 +207,6 @@ class ClipTranscoder:
                 # whereas a published MP4 the clip list does not know would be missed by an archive.
                 self._update_sidecar(sidecar, target)
                 replace_file(temporary, target)
-                self.on_replaced(avi, target)
             self._transcoded += 1
             logger.info("Rolling clip stored as H.264 | %s | %.1f MB -> %.1f MB | %.1f s", target.name,
                         source.st_size / 2**20, target.stat().st_size / 2**20, time.monotonic() - started)

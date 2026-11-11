@@ -60,8 +60,8 @@ def run():
                 functions=lambda tree: {n.name:ast.dump(n) for n in tree.body if isinstance(n,ast.FunctionDef)}
                 assert functions(old)==functions(new), 'Calculation/operation functions changed'
             db=DatabaseFixture(temp)
-            service=DatabaseTools(temp/'tools',defaults,db,db.guard)
-            configure_fixture_report_sources(service)
+            service=DatabaseTools(temp/'tools',defaults,guard=db.guard)
+            configure_fixture_report_sources(service, db)
             app=FastAPI(); app.include_router(router)
             app.dependency_overrides[get_current_user]=lambda:dict(username='fixture-admin',role='admin')
             app.dependency_overrides[get_database_tools]=lambda:service

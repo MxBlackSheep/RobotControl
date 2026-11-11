@@ -1,4 +1,5 @@
 """Camera tests use isolated storage and never enumerate or open physical devices."""
+import json
 from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -17,15 +18,14 @@ class TestCameraService:
 
     @pytest.fixture
     def camera_service(self, temp_video_path):
-        with patch("backend.services.camera.VIDEO_PATH", str(temp_video_path)), patch(
+        from backend.services.storage_manager import StorageManager
+        with patch("backend.services.storage_manager.VIDEO_PATH", str(temp_video_path)):
+            store = StorageManager()
+        with patch("backend.services.storage_manager.get_storage_manager", return_value=store), patch(
                 "backend.services.camera_runtime.enumerate_devices", return_value=DEVICES):
             CameraService._instance = None
             service = CameraService()
-            from backend.services.storage_manager import StorageManager
-            with patch("backend.services.storage_manager.VIDEO_PATH", str(temp_video_path)):
-                service._storage_manager = StorageManager()
-            with patch("backend.services.storage_manager.get_storage_manager", return_value=service._storage_manager):
-                yield service
+            yield service
             service.shutdown()
             CameraService._instance = None
 
@@ -40,16 +40,16 @@ class TestExperimentArchiving(TestCameraService):
             clip_path = camera_service.rolling_clips_path / f"clip_{i}.mp4"
             clip_path.touch()
             
-            camera_service.rolling_clips.append({
+            clip_path.with_suffix(".json").write_text(json.dumps({
                 "path": str(clip_path),
-                "timestamp": now - timedelta(minutes=i),
+                "timestamp": (now - timedelta(minutes=i)).isoformat(),
                 "camera_id": 0,
                 "frame_count": 100
-            })
+            }))
         
         # Archive experiment
         archive_path = camera_service._storage_manager.archive_experiment_videos(
-            "123", "TestMethod", camera_service.rolling_clips, camera_service.clips_lock).archive_path
+            "123", "TestMethod").archive_path
         
         # Verify archive directory was created
         archive_dir = Path(archive_path)
@@ -68,15 +68,15 @@ class TestExperimentArchiving(TestCameraService):
             # Make some clips older than archive duration
             timestamp = now - timedelta(minutes=i * 10)
             
-            camera_service.rolling_clips.append({
+            clip_path.with_suffix(".json").write_text(json.dumps({
                 "path": str(clip_path),
-                "timestamp": timestamp,
+                "timestamp": timestamp.isoformat(),
                 "camera_id": 0,
                 "frame_count": 100
-            })
+            }))
         
         archive_path = camera_service._storage_manager.archive_experiment_videos(
-            "123", "TestMethod", camera_service.rolling_clips, camera_service.clips_lock).archive_path
+            "123", "TestMethod").archive_path
         
         # Verify only recent clips were archived
         archive_dir = Path(archive_path)
@@ -92,7 +92,7 @@ class TestCameraLifecycle(TestCameraService):
             assert len(camera_service.detect_cameras()) == 2
             with patch("backend.services.camera_runtime.enumerate_devices", return_value=[]):
                 assert camera_service.detect_cameras() == []
-            assert camera_service.cameras == {}
+            assert camera_service.get_camera_status()["cameras"] == []
             capture.assert_not_called()
 
     def test_selected_identity_survives_index_changes(self, camera_service):
@@ -136,7 +136,7 @@ class TestCameraLifecycle(TestCameraService):
     def test_failed_start_never_reports_recording(self, camera_service):
         with patch.object(camera_service.runtime, "connect", side_effect=RuntimeError("open failed")):
             assert not camera_service.start_recording(0)
-        assert camera_service.get_camera_status()["cameras_recording"] == 0
+        assert camera_service.get_camera_status()["health"]["recording_state"] != "recording"
 
     def test_second_camera_rejected_without_changing_intent(self, camera_service):
         runtime = camera_service.runtime
@@ -213,17 +213,15 @@ class TestCameraLifecycle(TestCameraService):
             "camera_id": 3, "frame_count": 42, "actual_duration": 7, "device_identity": "usb:b"}))
         partial = folder / "clip_failed.partial.avi"
         partial.write_bytes(b"partial")
-        camera_service._sync_memory_with_filesystem()
-        assert len(camera_service.rolling_clips) == 1
-        assert camera_service.rolling_clips[0]["frame_count"] == 42
-        assert camera_service.rolling_clips[0]["camera_id"] == 3
+        assert len(camera_service._storage_manager._read_finalized_clips()) == 1
+        assert camera_service._storage_manager._read_finalized_clips()[0]["frame_count"] == 42
+        assert camera_service._storage_manager._read_finalized_clips()[0]["camera_id"] == 3
         camera_service.cleanup_rolling_clips()
         assert partial.exists()
 
     def test_legacy_metadata_is_unknown(self, camera_service):
         (camera_service.rolling_clips_path / "clip_20260101_120000.avi").touch()
-        camera_service._sync_memory_with_filesystem()
-        assert camera_service.rolling_clips[0]["frame_count"] is None
+        assert camera_service._storage_manager._read_finalized_clips()[0]["frame_count"] is None
 
     def test_health_when_disconnected_is_not_healthy(self, camera_service):
         assert camera_service.get_camera_status()["health"]["capture_state"] == "disconnected"

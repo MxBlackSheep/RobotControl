@@ -103,6 +103,7 @@ class SchedulerEngine:
         from backend.services.scheduling.pyhsl_runner import PyHslRunner
         self.pyhsl_runner = PyHslRunner(self)
         self._owned_execution_ids: Set[str] = set()
+        self._database_restore_active = False
         self._pyhsl_unavailable_since: Dict[str, float] = {}
         
         logger.info("Scheduler engine initialized")
@@ -580,6 +581,8 @@ class SchedulerEngine:
         from backend.services.scheduling.pyhsl_runner import require_no_active_run
         require_no_active_run()
         with self._schedules_lock, self._jobs_lock:
+            if self._database_restore_active:
+                raise SafetyConflict('Database restore is in progress.')
             state = self._refresh_manual_recovery_state(force=True)
             if not state.storage_healthy:
                 raise StorageUnavailable('Scheduler safety state unavailable')
@@ -589,9 +592,22 @@ class SchedulerEngine:
             yield
 
     @contextmanager
+    def database_restore_guard(self):
+        """Reserve database access without holding scheduler locks during SQL restore."""
+        with self.database_change_guard():
+            self._database_restore_active = True
+        try:
+            yield
+        finally:
+            with self._schedules_lock, self._jobs_lock:
+                self._database_restore_active = False
+
+    @contextmanager
     def launch_guard(self, experiment, execution):
         # Hold these only for the final state check, durable write and Popen, never the run.
         with self._schedules_lock, self._jobs_lock:
+            if self._database_restore_active:
+                raise SafetyConflict('Database restore is in progress.')
             state = self._refresh_manual_recovery_state(force=True)
             if not state.storage_healthy:
                 raise StorageUnavailable('Scheduler safety state unavailable')
@@ -1012,8 +1028,6 @@ class SchedulerEngine:
             if observation:
                 if observation.run_state in {"Aborted", "Error"}:
                     note = f"Hamilton reported run {observation.run_guid} as {observation.run_state}"
-            else:
-                note = self.db_manager.should_block_due_to_abort(experiment)
         except Exception as exc:
             logger.debug("Abort state lookup failed for %s: %s", experiment.experiment_name, exc)
         message = (execution.error_message or "").lower()

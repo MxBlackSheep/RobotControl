@@ -10,7 +10,6 @@ Replaces the in-memory user store with a SQLite-backed implementation so that:
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import hashlib
-import ipaddress
 import logging
 import os
 import secrets
@@ -20,15 +19,13 @@ from typing import Any, Dict, List, Optional
 import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from passlib.context import CryptContext
+import bcrypt
 
 from backend.services.auth_database import get_auth_database, AuthDatabase
 from backend.services.sqlite_safety import StorageUnavailable
 
 logger = logging.getLogger(__name__)
 
-# Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 # Configuration (environment overrides supported for deployments)
@@ -80,18 +77,6 @@ class User:
             "last_login_ip_type": self.last_login_ip_type,
         }
 
-    @classmethod
-    def from_payload(cls, payload: Dict[str, Any]) -> "User":
-        return cls(
-            id=int(payload["user_id"]),
-            username=payload["username"],
-            email=payload.get("email", ""),
-            role=payload["role"],
-            is_active=payload.get("is_active", True),
-            must_reset=payload.get("must_reset", False),
-            last_login_ip=payload.get("last_login_ip"),
-            last_login_ip_type=payload.get("last_login_ip_type"),
-        )
 
 
 class AuthService:
@@ -112,7 +97,7 @@ class AuthService:
         self.db.ensure_admin(
             username=DEFAULT_ADMIN_USERNAME,
             email=DEFAULT_ADMIN_EMAIL,
-            password_hash=pwd_context.hash(DEFAULT_ADMIN_PASSWORD),
+            password_hash=self.get_password_hash(DEFAULT_ADMIN_PASSWORD),
         )
 
         # Cache configuration values locally for quick access
@@ -128,11 +113,11 @@ class AuthService:
     # Password helpers
     # ------------------------------------------------------------------
     def get_password_hash(self, password: str) -> str:
-        return pwd_context.hash(password)
+        return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("ascii")
 
     def verify_password(self, plain_password: str, hashed_password: str) -> bool:
         try:
-            return pwd_context.verify(plain_password, hashed_password)
+            return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("ascii"))
         except Exception as exc:
             logger.error("Password verification error: %s", exc)
             return False
@@ -213,17 +198,17 @@ class AuthService:
         logger.info("Password reset for user '%s'", username)
         return True
 
-    def change_password(self, user: User, current_password: str, new_password: str) -> bool:
-        row = self.db.get_user_by_id(user.id)
+    def change_password(self, user_id: str, current_password: str, new_password: str) -> bool:
+        row = self.db.get_user_by_id(int(user_id))
         if not row:
             return False
         if not self.verify_password(current_password, row["password_hash"]):
             return False
 
         password_hash = self.get_password_hash(new_password)
-        self.db.update_password(user.id, password_hash, must_reset=False)
-        self.db.revoke_tokens_for_user(user.id)
-        logger.info("User '%s' changed password", user.username)
+        self.db.update_password(int(user_id), password_hash, must_reset=False)
+        self.db.revoke_tokens_for_user(int(user_id))
+        logger.info("User '%s' changed password", row["username"])
         return True
 
     def request_password_reset(
@@ -287,13 +272,12 @@ class AuthService:
             user = self._row_to_user(row)
             users.append(
                 {
-                    "user_id": user.to_dict()["user_id"],
                     "username": user.username,
                     "email": user.email,
                     "role": user.role,
                     "is_active": user.is_active,
                     "must_reset": user.must_reset,
-                    "last_login_at": row.get("last_login_at"),
+                    "last_login": row.get("last_login_at"),
                     "last_login_ip": user.last_login_ip,
                     "last_login_ip_type": user.last_login_ip_type,
                     "created_at": row.get("created_at"),
@@ -320,12 +304,6 @@ class AuthService:
             resolution_note=resolution_note,
         )
 
-
-    def toggle_user_active(self, username: str) -> bool:
-        success = self.db.toggle_user_active(username)
-        if success:
-            logger.info("Toggled active state for user '%s'", username)
-        return success
 
     def update_user_email(self, username: str, email: str) -> bool:
         normalized_email = (email or "").strip()
@@ -354,19 +332,7 @@ class AuthService:
         expires_delta: Optional[timedelta] = None,
     ) -> str:
         expire = datetime.utcnow() + (expires_delta or self.access_token_expiry)
-        payload = {
-            "user_id": user.to_dict()["user_id"],
-            "username": user.username,
-            "email": user.email,
-            "role": user.role,
-            "is_active": user.is_active,
-            "must_reset": user.must_reset,
-            "last_login_ip": user.last_login_ip,
-            "last_login_ip_type": user.last_login_ip_type,
-            "exp": expire,
-            "iat": datetime.utcnow(),
-            "type": "access",
-        }
+        payload = {"user_id": str(user.id), "type": "access", "exp": expire, "iat": datetime.utcnow()}
         token = jwt.encode(payload, ACCESS_TOKEN_SECRET, algorithm=ALGORITHM)
         logger.debug("Access token issued for %s (expires %s)", user.username, expire)
         return token
@@ -398,8 +364,7 @@ class AuthService:
                 logger.warning("Invalid token type encountered during verification")
                 return None
 
-            user = User.from_payload(payload)
-            row = self.db.get_user_by_id(user.id)
+            row = self.db.get_user_by_id(int(payload["user_id"]))
             if not row or not row["is_active"]:
                 logger.warning("Token verification failed: user inactive or missing")
                 return None
@@ -409,7 +374,7 @@ class AuthService:
         except jwt.ExpiredSignatureError:
             logger.debug("Access token expired")
             return None
-        except jwt.InvalidTokenError as exc:
+        except (jwt.InvalidTokenError, KeyError, ValueError, TypeError) as exc:
             logger.warning("Invalid access token: %s", exc)
             return None
 
@@ -473,20 +438,6 @@ class AuthService:
         token_hash = self._hash_token(refresh_token)
         self.db.revoke_refresh_token(token_hash)
 
-    def get_auth_stats(self) -> Dict[str, Any]:
-        users = self.db.list_users()
-        active_users = [u for u in users if u["is_active"]]
-        admin_users = [u for u in users if u["role"] == "admin"]
-        return {
-            "total_users": len(users),
-            "active_users": len(active_users),
-            "admin_users": len(admin_users),
-            "user_list": [u["username"] for u in active_users],
-        }
-
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
     def _row_to_user(self, row: Dict[str, Any]) -> User:
         return User(
             id=row["id"],
@@ -508,20 +459,8 @@ class AuthService:
         client_info: Dict[str, Any],
     ) -> None:
         ip_address = client_info.get("ip")
-        ip_type = self._classify_ip(ip_address)
+        ip_type = client_info.get("ip_classification")
         self.db.update_last_login(user.id, ip_address, ip_type)
-
-    def _classify_ip(self, ip_address: Optional[str]) -> Optional[str]:
-        if not ip_address:
-            return None
-        try:
-            ip_obj = ipaddress.ip_address(ip_address)
-            if ip_obj.is_loopback or ip_obj.is_private:
-                return "local"
-            return "remote"
-        except ValueError:
-            return "unknown"
-
 
 # Global service instance
 _auth_service: Optional[AuthService] = None
@@ -570,33 +509,3 @@ def get_current_admin_user(
             detail="Admin access required",
         )
     return current_user
-
-
-# Convenience wrappers for legacy imports
-def authenticate_user(username: str, password: str) -> Optional[User]:
-    service = get_auth_service()
-    return service.authenticate_user(username, password)
-
-
-def create_access_token(user: User, expires_delta: Optional[timedelta] = None) -> str:
-    service = get_auth_service()
-    return service.create_access_token(user, expires_delta)
-
-
-def verify_token(token: str) -> Optional[User]:
-    service = get_auth_service()
-    return service.verify_token(token)
-
-
-if __name__ == "__main__":
-    service = get_auth_service()
-    print("=== RobotControl Authentication Service ===")
-
-    demo_user = service.authenticate_user("admin", DEFAULT_ADMIN_PASSWORD)
-    if demo_user:
-        login_payload = service.login("admin", DEFAULT_ADMIN_PASSWORD)
-        print(f"Login successful: {login_payload['user']['username']}")
-        print(f"Access token: {login_payload['access_token'][:32]}…")
-
-    stats = service.get_auth_stats()
-    print(f"Users: total={stats['total_users']} active={stats['active_users']}")

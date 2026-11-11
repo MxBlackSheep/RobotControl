@@ -50,7 +50,7 @@ def run():
             admin.execute('CREATE PROCEDURE dbo.sp_helpdiagrams AS SELECT 1 AS value')
             admin.execute('GRANT EXECUTE ON dbo.sp_helpdiagrams TO public')
             admin.execute('USE master')
-            service = DatabaseTools(Path(temp)/'tools', ROOT/'database_packages', database=object(), guard=nullcontext)
+            service = DatabaseTools(Path(temp)/'tools', ROOT/'database_packages', guard=nullcontext)
             app = FastAPI(); app.include_router(router); app.include_router(viewer_router)
             def user(request: Request):
                 name = request.headers.get('authorization')

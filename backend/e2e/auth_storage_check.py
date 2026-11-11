@@ -55,7 +55,9 @@ def run():
     def check(name, ok, detail=None):
         checks.append({'check': name, 'passed': bool(ok), 'detail': detail})
 
+    from backend.main import global_exception_handler
     app = FastAPI()
+    app.add_exception_handler(Exception, global_exception_handler)
     app.include_router(auth_api.router)
 
     @app.get('/protected')
@@ -65,7 +67,7 @@ def run():
     service = get_auth_service()
     lock = None
     try:
-        with TestClient(app, client=('127.0.0.1', 1234)) as client:
+        with TestClient(app, raise_server_exceptions=False, client=('127.0.0.1', 1234)) as client:
             tokens = service.login(DEFAULT_ADMIN_USERNAME, BUILT_IN_ADMIN_PASSWORD)
             access, refresh = tokens['access_token'], tokens['refresh_token']
             bearer = {'Authorization': f'Bearer {access}'}
@@ -124,7 +126,7 @@ def run():
             check('a refused sign-in issues no tokens and records no last login',
                   not any('access_token' in r.text or 'refresh_token' in r.text for r in refused)
                   and last_login() == login_before, [login_before, last_login()])
-            with TestClient(app, client=('192.168.1.20', 1234)) as lan:
+            with TestClient(app, raise_server_exceptions=False, client=('192.168.1.20', 1234)) as lan:
                 response = lan.post('/api/auth/login', json=built_in)
                 check('a LAN sign-in with the built-in password answers 403', response.status_code == 403, answer(response))
             wrong_while_default = client.post('/api/auth/login', json=wrong, headers=tunnel)

@@ -225,6 +225,10 @@ def test_schedule_alert_uses_rolling_clip_fallback(monkeypatch, tmp_path):
     logs_dir.mkdir(parents=True, exist_ok=True)
 
     monkeypatch.setattr("backend.services.notifications.VIDEO_PATH", str(video_root))
+    from backend.services import storage_manager
+    monkeypatch.setattr(storage_manager, "VIDEO_PATH", str(video_root))
+    store = storage_manager.StorageManager()
+    monkeypatch.setattr(storage_manager, "get_storage_manager", lambda: store)
     monkeypatch.setenv("ROBOTCONTROL_HAMILTON_LOG_PATH", str(logs_dir))
 
     service = SchedulingNotificationService()
@@ -293,47 +297,3 @@ def test_manual_recovery_prefers_configured_recipients():
 
     assert stub_email.calls, "Expected manual recovery email to be sent"
     assert stub_email.calls[0]["recipients"] == ["manual@test"]
-
-
-def test_should_block_due_to_abort_detects_abort(monkeypatch):
-    from backend.services import scheduling as scheduling_services
-
-    class StubSQLiteDB:
-        pass
-
-    class StubDBService:
-        def __init__(self, rows):
-            self.rows = rows
-
-        def execute_query(self, query, params):
-            return {"rows": self.rows}
-
-    stub_rows = [{"RunState": "64"}]
-    stub_db = StubDBService(stub_rows)
-
-    monkeypatch.setattr(
-        scheduling_services.database_manager,  # type: ignore[attr-defined]
-        "get_sqlite_scheduling_database",
-        lambda: StubSQLiteDB(),
-    )
-    monkeypatch.setattr(
-        scheduling_services.database_manager,
-        "get_database_service",
-        lambda: stub_db,
-    )
-
-    manager = SchedulingDatabaseManager()
-    manager._hamilton_db_available = True
-    manager.main_db_service = stub_db
-
-    experiment = ScheduledExperiment(
-        schedule_id="demo",
-        experiment_name="SampleRun",
-        experiment_path=r"C:\\Methods\\SampleRun.med",
-        schedule_type="once",
-        estimated_duration=30,
-    )
-
-    note = manager.should_block_due_to_abort(experiment)
-    assert note is not None
-    assert "Aborted" in note

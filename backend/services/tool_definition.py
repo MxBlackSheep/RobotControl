@@ -121,10 +121,6 @@ def with_definition(source, tool):
                          source=field.lookup.source, depends_on=field.lookup.parameters)
             if field.lookup.order != 'label':
                 value['order'] = field.lookup.order
-        elif field.type == 'experiment':
-            value.update(type='integer', query='SELECT ExperimentID AS value, UserDefinedID AS label FROM dbo.Experiments', source='primary')
-            if 'primary' not in config['connections']:
-                config['connections'] = [*config['connections'], 'primary']
         config['inputs'][field.name] = value
     import pprint
     # Append so module docstrings and __future__ imports retain their positions.

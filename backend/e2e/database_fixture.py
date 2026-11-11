@@ -142,22 +142,21 @@ def run_fixture_report(channel, package_root, entry, definition, inputs, snapsho
     _production_report_worker(channel, package_root, entry, definition, inputs, snapshot, folder)
 
 
-def configure_fixture_report_sources(service):
+def configure_fixture_report_sources(service, database):
     """Legacy workflow fixture only. SQL Server permission checks use a real fixture."""
     @contextmanager
     def open_source(source):
-        with service.database.get_connection() as conn:
+        with database.get_connection() as conn:
             if source.get('access') != 'operation':
                 conn.raw.execute('PRAGMA query_only=ON')
             yield conn
     service.sources.open = open_source
-    service.sources.snapshot = lambda package_id, aliases, mapping=None: {alias: {'id': 'fixture', 'fixture_path':str(service.database.path)} for alias in aliases}
+    service.sources.snapshot = lambda package_id, aliases, mapping=None: {alias: {'id': 'fixture', 'fixture_path':str(database.path)} for alias in aliases}
     import backend.services.report_worker as worker
     worker.run_report = run_fixture_report
     service.sources.state['sources'] = {name: dict(id=name, name=name.title(), server='fixture', database='disposable',
-        username='fixture', driver='fixture', trust_certificate=False) for name in ('primary', 'plates')}
+        username='fixture', driver='fixture', trust_certificate=False, access='read') for name in ('primary', 'plates')}
 
     target = dict(id='operation', name='Disposable fixture', server='fixture', database='disposable', access='operation', revision='1')
     service.sources.state['sources']['operation'] = target
     service.sources.operation_target = lambda package_id: dict(target)
-    service.operation_experiments = lambda tool_id, search, page: vars(service.database.get_table_data('Experiments', limit=25, offset=(page-1)*25, search=search))

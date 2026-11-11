@@ -16,7 +16,7 @@ from typing import Dict, Optional, Any, Deque
 from fastapi import WebSocket
 
 from backend.services.h264_encoder import AccessUnit, EncoderSettings, EncoderUnavailable, H264Encoder, find_ffmpeg
-from backend.services.streaming_types import StreamingSession, StreamingStatus
+from backend.services.streaming_types import StreamingSession
 from backend.services.streaming_session import ACK_TIMEOUT_SECONDS, BROWSER_SILENCE_SECONDS, StreamingSessionHandler
 from backend.services.shared_frame_buffer import get_shared_frame_buffer
 from backend.config import LIVE_STREAMING_CONFIG
@@ -43,16 +43,6 @@ class LiveStreamingService:
     Singleton pattern to ensure single instance.
     """
 
-    _instance = None
-    _lock = threading.Lock()
-
-    def __new__(cls):
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
-                    cls._instance = super().__new__(cls)
-        return cls._instance
-
     def __init__(self):
         """Initialize the live streaming service."""
         # Skip initialization if already done
@@ -60,7 +50,6 @@ class LiveStreamingService:
             return
 
         self.config = LIVE_STREAMING_CONFIG
-        self.enabled = self.config["enabled"]
 
         # Session management
         self.sessions: Dict[str, StreamingSessionHandler] = {}
@@ -69,10 +58,9 @@ class LiveStreamingService:
         self._service_lock = asyncio.Lock()
 
         # Service components
-        self.frame_buffer = get_shared_frame_buffer(self.config["frame_buffer_size"])
+        self.frame_buffer = get_shared_frame_buffer()
 
         # Hook camera recording into shared buffer for streaming
-        self._ensure_camera_integration()
 
         # Service state
         self.service_started_at = datetime.now()
@@ -110,33 +98,16 @@ class LiveStreamingService:
             self._process.cpu_percent(interval=None)
         except Exception:
             psutil.cpu_percent(interval=None)
-        self._cpu_samples: Deque[float] = deque(maxlen=5)
         self._consecutive_soft_limit_hits = 0
         self._consecutive_hard_limit_hits = 0
         self._consecutive_calm_samples = 0
         self._resource_state = "normal"
-        self._recording_impact = "none"
 
         self._initialized = True
-        logger.info("Streaming | event=service_init | enabled=%s", self.enabled)
-
-    def _ensure_camera_integration(self) -> None:
-        """Ensure camera recording publishes frames into the shared buffer."""
-        try:
-            from backend.services.camera import get_camera_service
-            camera_service = get_camera_service()
-            if getattr(camera_service, 'streaming_integration_enabled', False):
-                logger.debug("Streaming | event=camera_integration_ready")
-                return
-            camera_service.enable_streaming_integration()
-            logger.info("Streaming | event=camera_integration_enabled")
-        except Exception as exc:
-            logger.warning("Streaming | event=camera_integration_failed | error=%s", exc)
+        logger.info("Streaming | event=service_init")
 
     async def ensure_service_started(self) -> None:
         """Ensure the streaming service is active before handling sessions."""
-        if not self.enabled:
-            return
         if self.distribution_active:
             return
         await self.start_service()
@@ -145,9 +116,6 @@ class LiveStreamingService:
         """
         Start the live streaming service.
         Called during application startup."""
-        if not self.enabled:
-            logger.info("Streaming | event=start_skipped | reason=disabled")
-            return
 
         async with self._service_lock:
             if self.distribution_active:
@@ -205,8 +173,7 @@ class LiveStreamingService:
 
         async with self.session_lock:
             # Check if service can accept new session
-            status = self.get_status()
-            if not status.can_accept_new_session():
+            if len(self.sessions) >= self.config["max_concurrent_sessions"] or self._resource_state == "emergency":
                 logger.warning("Streaming | event=session_rejected | reason=capacity | user=%s", user_id)
                 return None
 
@@ -233,7 +200,6 @@ class LiveStreamingService:
                 user_name=user_name,
                 created_at=datetime.now(),
                 last_activity=datetime.now(),
-                is_active=False,  # Starts inactive until WebSocket connects
                 client_ip=client_ip,
                 websocket_state="connecting"
             )
@@ -386,7 +352,7 @@ class LiveStreamingService:
                 self._frame_event.clear()
                 await self._apply_resource_guard()
                 await self._update_encoder()
-                frame = self.frame_buffer.get_frame_for_streaming(timeout=0)
+                frame = self.frame_buffer.get_frame_for_streaming()
                 if frame is not None and frame is not last_frame:
                     last_frame = frame
                     self._submit_frame(frame)
@@ -531,7 +497,6 @@ class LiveStreamingService:
             cpu_percent = psutil.cpu_percent(interval=0.0)
         cpu_percent += self._encoder_cpu()
         self._last_cpu_percent = cpu_percent
-        self._cpu_samples.append(cpu_percent)
         return cpu_percent
 
     def _encoder_cpu(self) -> float:
@@ -575,11 +540,9 @@ class LiveStreamingService:
 
         if not self.sessions:
             self._resource_state = "normal"
-            self._recording_impact = "none"
             self._consecutive_soft_limit_hits = 0
             self._consecutive_hard_limit_hits = 0
             self._consecutive_calm_samples = 0
-            self._cpu_samples.clear()
             return
 
         soft_limit = self.cpu_soft_limit
@@ -600,7 +563,6 @@ class LiveStreamingService:
                 if self._resource_state != "blocked":
                     logger.warning("Streaming | event=resource_guard_emergency | cpu=%.1f", cpu_percent)
                 self._resource_state = "emergency"
-                self._recording_impact = "degraded"
                 await self._terminate_all_sessions("CPU limit reached")
                 return
         elif cpu_percent >= self.cpu_soft_limit:
@@ -608,11 +570,9 @@ class LiveStreamingService:
                 if self._resource_state != "protected":
                     logger.info("Streaming | event=resource_guard_protected | cpu=%.1f", cpu_percent)
                 self._resource_state = "protected"
-                self._recording_impact = "minimal"
                 await self._degrade_active_sessions()
         else:
             self._resource_state = "normal"
-            self._recording_impact = "none"
             self._consecutive_soft_limit_hits = 0
             self._consecutive_hard_limit_hits = 0
 
@@ -626,41 +586,15 @@ class LiveStreamingService:
         else:
             self._consecutive_calm_samples = 0
 
-    def get_status(self) -> StreamingStatus:
-        """
-        Get current streaming service status.
-
-        Returns:
-            StreamingStatus object
-        """
-        # Get active sessions
-        active_sessions = []
-        total_bandwidth = 0.0
-
-        for handler in self.sessions.values():
-            active_sessions.append(handler.session)
-            total_bandwidth += handler.session.bandwidth_usage_mbps
-
-        cpu_percent = self._sample_cpu()
-        uptime = (datetime.now() - self.service_started_at).total_seconds()
+    def get_status(self) -> dict:
         settings = ENCODER_LEVELS[self._encoder_level]
-
-        return StreamingStatus(
-            enabled=self.enabled,
-            active_sessions=active_sessions,
-            max_sessions=self.config["max_concurrent_sessions"],
-            total_bandwidth_mbps=total_bandwidth,
-            available_bandwidth_mbps=max(0, self.config["total_bandwidth_limit_mbps"] - total_bandwidth),
-            resource_usage_percent=cpu_percent,
-            recording_impact=self._recording_impact if active_sessions else "none",
-            priority_mode=self._resource_state,
-            frames_distributed=self.total_frames_distributed,
-            bytes_distributed=self.total_bytes_distributed,
-            service_uptime_seconds=uptime,
-            last_error=self._encoder_error,
-            encoder={"running": self._encoder is not None, "level": self._encoder_level,
-                     "fps": settings.fps, "bitrate_kbps": settings.bitrate_kbps},
-        )
+        return {
+            "active_session_count": len(self.sessions),
+            "max_sessions": self.config["max_concurrent_sessions"],
+            "last_error": self._encoder_error,
+            "encoder": {"running": self._encoder is not None, "level": self._encoder_level,
+                        "fps": settings.fps, "bitrate_kbps": settings.bitrate_kbps},
+        }
 
 
 # Global instance access

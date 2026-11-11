@@ -1,4 +1,4 @@
-"""Service-unavailable answers over HTTP for the latest experiment and backup health.
+"""Service-unavailable answers over HTTP for the latest experiment and backup list.
 
 Run: .venv/Scripts/python.exe -m backend.e2e.service_unavailable_check
 Needs no SQL Server: the HamiltonVectorDB query is replaced, the backup service is real and
@@ -79,24 +79,11 @@ def run():
 
             service.backup_dir = str(folder)
             with patch.object(backup_api, 'get_backup_service', return_value=service):
-                response = client.get('/api/admin/backup/health')
-                check('writable backup folder answers 200',
-                      response.status_code == 200 and response.json()['data']['backup_directory']['writable'],
-                      response.json())
-
-                missing = folder / 'missing'
-                service.backup_dir = str(missing)
-                response = client.get('/api/admin/backup/health')
-            body = response.json()
-            check('missing backup folder answers 503', response.status_code == 503, body)
-            report = body.get('data') or {}
-            check('backup 503 carries the health report',
-                  report.get('backup_directory') == {'path': str(missing), 'exists': False, 'writable': False}
-                  and report.get('backup_count') == 0, body)
-            check('backup 503 keeps the standard error shape with metadata',
-                  body.get('success') is False and body.get('error', {}).get('code') == 'SERVICE_UNAVAILABLE'
-                  and body.get('metadata', {}).get('is_healthy') is False
-                  and 'AttributeError' not in json.dumps(body), body)
+                response = client.get('/api/admin/backup/list')
+                check('writable backup folder lists successfully', response.status_code == 200 and response.json()['data'] == [], response.json())
+                service.backup_dir = str(folder / 'missing')
+                response = client.get('/api/admin/backup/list')
+                check('missing backup folder keeps the list contract', response.status_code == 200 and response.json()['data'] == [], response.json())
 
         other = json.loads(ResponseFormatter.bad_request('Fixture').body)
         check('other error helpers still send data: null', other.get('data') is None and 'data' in other, other)

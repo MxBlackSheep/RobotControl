@@ -18,7 +18,7 @@ def runtime_counts():
     counts = {"python_threads": threading.active_count()}
     targets = (
         ("backend.services.live_streaming", "_service_instance", "streaming", ("sessions", "sessions_by_user")),
-        ("backend.services.shared_frame_buffer", "_shared_buffer_instance", "frames", ("buffer",)),
+        ("backend.services.shared_frame_buffer", "_shared_buffer_instance", "frames", ()),
         ("backend.services.database", "_service_instance", "database", ("_table_columns_cache",)),
         ("backend.services.embedded_resources", "_resource_manager", "static", ("_cache",)),
     )
@@ -32,7 +32,7 @@ def runtime_counts():
                 counts[f"{prefix}.{field}"] = len(value)
         if prefix == "frames":
             with service.streaming_lock:
-                counts["frames.bytes"] = sum(frame.size_bytes for frame in service.buffer)
+                counts["frames.bytes"] = service.latest_frame.frame.nbytes if service.latest_frame else 0
         if prefix == "streaming":
             counts["streaming.delivery_tasks"] = len(getattr(service, "_delivery_tasks", {}))
     camera = getattr(sys.modules.get("backend.services.camera"), "_camera_service", None)

@@ -46,20 +46,18 @@ Legacy DBs are auto-migrated during startup.
 
 ---
 
-## 3. Enforcement Strategy (Event + Fallback)
+## 3. Enforcement Strategy (Polling)
 
-`HxRunMaintenanceService` uses two mechanisms at the same time:
-
-1. Event watcher (preferred)  
-   WMI process-start watcher for `HxRun.exe`.
-
-2. Fallback poll (safety net)  
-   Polls process status every 1 second if events fail or miss.
+`HxRunMaintenanceService` polls process status every second while enabled.
+The shared process monitor uses psutil with tasklist fallback; failed detection
+counts as running. Polling and termination are best effort, not a guaranteed
+one-second termination deadline.
 
 If HxRun is detected while mode is enabled:
 
-1. Service terminates `HxRun.exe` (`WMI Terminate` first, then `taskkill` fallback).
-2. Service shows a Windows popup explaining maintenance mode is blocking launch.
+1. Service asks `taskkill /F /IM HxRun.exe` to terminate it.
+2. After taskkill reports success, the service shows a Windows popup explaining
+   maintenance mode is blocking launch.
 
 ---
 
@@ -87,10 +85,9 @@ Do not remove this startup hook unless you intentionally want to disable externa
 
 | Task | Where | What to do |
 |------|-------|------------|
-| Change fallback frequency | `HxRunMaintenanceConfig.fallback_poll_seconds` | Keep it low (default `1.0`) to reduce miss windows. |
-| Change popup spam behavior | `HxRunMaintenanceConfig.popup_cooldown_seconds` | Increase if users complain about repeated popups. |
+| Change polling frequency | `hxrun_maintenance.POLL_SECONDS` | Keep it low (default `1.0`) to reduce miss windows. |
+| Change popup spam behavior | `hxrun_maintenance.POPUP_COOLDOWN_SECONDS` | Increase if users complain about repeated popups. |
 | Add more audit fields | `backend/api/maintenance.py` | Extend `log_action(...details=...)` payload. |
-| Disable event watcher temporarily | `HxRunMaintenanceService._build_process_start_watcher` | Return `None` to force poll-only mode. |
 
 ---
 
@@ -98,7 +95,7 @@ Do not remove this startup hook unless you intentionally want to disable externa
 
 1. Flag toggles in API but no enforcement happens:
    - Check startup logs for `HxRun maintenance enforcer started`.
-   - Confirm app is running on Windows (event+kill paths are Windows-only).
+   - Confirm app is running on Windows (taskkill is Windows-only).
 
 2. Remote user can toggle (should not happen):
    - Verify endpoint still depends on `require_local_access`.

@@ -311,13 +311,11 @@ def review_draft(key: str, user=Depends(local_admin), service=Depends(get_databa
 def draft_choices(key: str, field_name: str, payload: ChoiceRequest, user=Depends(local_admin), service=Depends(get_database_tools)):
     draft = service.authoring.draft(key, owner(user))
     tool = draft.manifest().tools[0]
-    values = tool.validate_values(payload.inputs, partial=True)
-    field = next((x for x in tool.inputs if x.name == field_name and x.lookup), None)
-    if not field:
+    # Preserve the draft's existing missing-choice refusal.
+    if not any(x.name == field_name and x.lookup for x in tool.inputs):
         raise HTTPException(404, 'Choice not found')
-    snapshot = service.sources.snapshot(draft.package_id, tool.sources, draft.mappings)
-    with service.sources.open(snapshot[field.lookup.source]) as conn:
-        return lookup_rows(conn, field, values, payload.search, payload.page)
+    return service._tool_choices(draft.package_id, tool, field_name, payload.inputs,
+                                 payload.search, payload.page, draft.mappings)
 
 
 class DraftTrial(Inputs):
@@ -370,78 +368,10 @@ class DraftInstall(BaseModel):
 
 @router.post('/drafts/{key}/install')
 def install_draft(key: str, payload: DraftInstall, user=Depends(local_admin), service=Depends(get_database_tools)):
-    with service.authoring.lock, service.lock, service.catalogue.lock, service.sources.lock:
-        published = service.catalogue.published_draft(key, owner(user))
-        if published:
-            entry, receipt = published
-            if receipt['draft']['revision'] != payload.revision or entry['sha256'] != receipt['sha256']:
-                raise PackageError('This draft was already published; the installed version has since changed.', 409)
-            return entry['manifest']
-        if service.authoring.get(key, owner(user))['revision'] != payload.revision:
-            raise HTTPException(409, 'Draft changed. Review it again.')
-        draft = service.authoring.draft(key, owner(user))
-        if draft.definition_file:
-            if not payload.reviewed:
-                raise PackageError('Review the trial result before enabling this tool.', 409)
-            service.authoring.require_trial(key, owner(user))
-        baseline = service.authoring.check_base(key, owner(user))
-        note = payload.change_note if payload.change_note is not None else draft.change_note
-        content = service.authoring.archive(draft, key, owner(user), note=note)
-        from backend.services.database_packages import inspect_archive
-        manifest, _ = inspect_archive(content)
-        aliases = service.sources.aliases(manifest.model_dump())
-        mappings = {**(baseline['mappings'] if baseline else {}), **draft.mappings}
-        mappings = {name:mappings[name] for name in aliases if name in mappings}
-        service.sources.snapshot(draft.package_id, aliases, mappings)
-        if set(mappings) != set(aliases):
-            raise HTTPException(400, 'Map exactly the declared source aliases.')
-        operation_source = draft.operation_source
-        if any(t.kind == 'operation' for t in manifest.tools):
-            operation_source = operation_source or service.sources.state['operation_bindings'].get(draft.package_id)
-            if draft.definition_file:
-                service.sources.get(operation_source, 'operation')
-        # Save connection assignments first under both locks; restore on failure.
-        # The package index remains the single activation point. No reader can
-        # observe a half-enabled tool in this process.
-        import copy
-        old_sources = copy.deepcopy(service.sources.state)
-        service.authoring.begin_activation(draft.package_id, content)
-        try:
-            service.sources.bind(draft.package_id, aliases, mappings)
-            if operation_source:
-                service.sources.bind_operation(draft.package_id, operation_source)
-            result = service.catalogue.install(content, expected_current=payload.expected_current, actor=owner(user),
-                note=note,
-                draft=dict(id=key, revision=payload.revision))
-        except Exception:
-            service.sources._save(old_sources)
-            service.authoring.finish_activation()
-            raise
-        service.authoring.finish_activation()
-        try:
-            service.authoring.remove(key, owner(user))
-        except Exception:
-            # The history receipt already hides this completed draft and prevents
-            # publishing twice, even if cleanup cannot finish or the response is lost.
-            import logging
-            logging.getLogger(__name__).exception('Published draft cleanup failed: %s', key)
+    result = service.authoring.publish(key, payload, owner(user))
     log_action(actor=owner(user), action='install_report_draft', scope='database', client_ip=None, success=True,
                details={'package': result['id'], 'version': result['version']})
     return result
-
-
-@router.get('/experiments')
-def experiments(search: str = Query('', max_length=200), page: int = Query(1, ge=1), report_id: str | None = None,
-                operation_id: str | None = None, user=Depends(get_current_user),
-                connection: ConnectionContext=Depends(get_connection_context),
-                service=Depends(get_database_tools)):
-    if report_id:
-        return service.report_experiments(report_id, search, page)
-    if not operation_id:
-        raise HTTPException(400, 'Choose an operation or report first')
-    if user.get('role') != 'admin' or not connection.is_local:
-        raise HTTPException(403, 'Local administrator required')
-    return service.operation_experiments(operation_id, search, page)
 
 
 @router.get('/packages')

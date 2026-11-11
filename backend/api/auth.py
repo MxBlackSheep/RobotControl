@@ -6,7 +6,6 @@ Consolidates functionality from web_app/api/v1/auth.py into a simplified interfa
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr, Field
 from typing import Optional, Dict, Any
 import logging
@@ -14,19 +13,18 @@ import time
 from datetime import datetime
 
 # Import our simplified authentication service
-from backend.services.auth import AUTH_STORAGE_ERRORS, AuthService, User, get_auth_service
+from backend.services.auth import AUTH_STORAGE_ERRORS, AuthService, get_auth_service, get_current_user
 
 # Import standardized response formatter
 from backend.api.response_formatter import (
     ResponseFormatter,
-    ResponseMetadata,
 )
 from backend.api.dependencies import ConnectionContext, get_connection_context
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/auth", tags=["authentication"])
-security = HTTPBearer()
+
 
 
 # Request/Response Models
@@ -104,62 +102,13 @@ class RefreshTokenRequest(BaseModel):
     refresh_token: str
 
 
-# Dependency to get auth service
-async def get_auth_service_dep() -> AuthService:
-    """FastAPI dependency function to get the auth service"""
-    return get_auth_service()
-
-
-# Dependency to get current user from token
-async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-    auth_service: AuthService = Depends(get_auth_service_dep)
-) -> User:
-    """
-    FastAPI dependency to get current authenticated user from JWT token
-    
-    Args:
-        credentials: HTTP Bearer token credentials
-        auth_service: Authentication service
-        
-    Returns:
-        User object if token is valid
-        
-    Raises:
-        HTTPException: If token is invalid or expired
-    """
-    if not credentials:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing authentication token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
-    try:
-        user = auth_service.verify_token(credentials.credentials)
-    except AUTH_STORAGE_ERRORS as exc:
-        logger.error("Sign-in storage unavailable during token verification: %s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Sign-in storage is temporarily unavailable",
-        )
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
-    return user
-
-
 # Authentication Endpoints
 
 @router.post("/login")
 async def login(
     request: LoginRequest,
     http_request: Request,
-    auth_service: AuthService = Depends(get_auth_service_dep),
+    auth_service: AuthService = Depends(get_auth_service),
     connection: ConnectionContext = Depends(get_connection_context),
 ):
     """
@@ -172,7 +121,6 @@ async def login(
     Returns:
         Access token, refresh token, and user information
     """
-    start_time = time.time()
     throttled = not connection.is_local
 
     if throttled:
@@ -187,84 +135,64 @@ async def login(
             response.headers["Retry-After"] = str(wait)
             return response
 
-    try:
-        # Attempt login
-        # The built-in password is public. Refused before tokens or last-login are recorded,
-        # and not counted as a failure: the password was right, and counting it would lock
-        # the owner out while they read the message. A wrong password never gets here.
-        if not connection.is_local and auth_service.has_built_in_password(request.username, request.password):
-            logger.warning(
-                "Refused remote sign-in for %s with the built-in default password (from %s)",
-                request.username,
-                connection.client_ip,
-            )
-            return ResponseFormatter.error(
-                message="Change the default password on the robot PC before signing in remotely.",
-                error_code="DEFAULT_PASSWORD_REMOTE",
-                status_code=403,
-            )
-
-        client_info = {
-            "ip": connection.client_ip,
-            "user_agent": http_request.headers.get("user-agent"),
-        }
-        result = auth_service.login(request.username, request.password, client_info=client_info)
-
-        if not result:
-            logger.warning(f"Failed login attempt for username: {request.username}")
-            if throttled:
-                login_throttle.failed(request.username, connection.client_ip)
-            return ResponseFormatter.unauthorized(
-                message="Invalid username or password",
-                details={"username": request.username}
-            )
-        if throttled:
-            login_throttle.succeeded(request.username)
-        
-        # Create metadata
-        metadata = ResponseMetadata()
-        metadata.set_execution_time(start_time)
-        metadata.add_metadata("operation", "login")
-        metadata.add_metadata("username", request.username)
-        
-        if result:
-            result["session"] = {
-                "is_local": connection.is_local,
-                "ip_classification": connection.ip_classification,
-            }
-            # Opens the existing required change-password dialog; nothing is stored.
-            if auth_service.is_built_in_password(request.password):
-                result["user"]["must_reset"] = True
-
-        logger.info(
-            "Successful login for user: %s (connection=%s)",
+    if not connection.is_local and auth_service.has_built_in_password(request.username, request.password):
+        logger.warning(
+            "Refused remote sign-in for %s with the built-in default password (from %s)",
             request.username,
-            connection.ip_classification,
+            connection.client_ip,
         )
-        return ResponseFormatter.success(data=result, metadata=metadata)
-        
-    except Exception as e:
-        logger.error(f"Login error for user '{request.username}': {e}")
-        return ResponseFormatter.server_error(
-            message="Login failed due to server error",
-            details=str(e)
+        return ResponseFormatter.error(
+            message="Change the default password on the robot PC before signing in remotely.",
+            error_code="DEFAULT_PASSWORD_REMOTE",
+            status_code=403,
         )
+    client_info = {
+        "ip": connection.client_ip,
+        "ip_classification": connection.ip_classification,
+        "user_agent": http_request.headers.get("user-agent"),
+    }
+    result = auth_service.login(request.username, request.password, client_info=client_info)
+    if not result:
+        logger.warning(f"Failed login attempt for username: {request.username}")
+        if throttled:
+            login_throttle.failed(request.username, connection.client_ip)
+        return ResponseFormatter.unauthorized(
+            message="Invalid username or password",
+            details={"username": request.username}
+        )
+    if throttled:
+        login_throttle.succeeded(request.username)
+
+
+    result["session"] = {
+        "is_local": connection.is_local,
+        "ip_classification": connection.ip_classification,
+    }
+    # Opens the existing required change-password dialog; nothing is stored.
+    if auth_service.is_built_in_password(request.password):
+        result["user"]["must_reset"] = True
+    logger.info(
+        "Successful login for user: %s (connection=%s)",
+        request.username,
+        connection.ip_classification,
+    )
+    return ResponseFormatter.success(data=result)
 
 @router.post("/register")
 async def register(
     request: RegisterRequest,
     http_request: Request,
-    auth_service: AuthService = Depends(get_auth_service_dep),
+    auth_service: AuthService = Depends(get_auth_service),
     connection: ConnectionContext = Depends(get_connection_context),
 ):
     """
     Register a new user account and issue tokens.
     """
-    start_time = time.time()
     try:
         auth_service.register_user(request.username.strip(), request.email.lower(), request.password)
         client_info = {
             "ip": connection.client_ip,
+            "ip_classification": connection.ip_classification,
             "user_agent": http_request.headers.get("user-agent"),
         }
         result = auth_service.login(request.username, request.password, client_info=client_info)
@@ -274,12 +202,8 @@ async def register(
                 "ip_classification": connection.ip_classification,
             }
 
-        metadata = ResponseMetadata()
-        metadata.set_execution_time(start_time)
-        metadata.add_metadata("operation", "register")
-        metadata.add_metadata("username", request.username)
 
-        return ResponseFormatter.success(data=result, metadata=metadata, status_code=201, message="Registration successful")
+        return ResponseFormatter.success(data=result, status_code=201, message="Registration successful")
 
     except ValueError as exc:
         logger.warning(f"Registration failed for '{request.username}': {exc}")
@@ -287,24 +211,17 @@ async def register(
             message=str(exc),
             details={"username": request.username, "email": request.email}
         )
-    except Exception as exc:
-        logger.error(f"Registration error for '{request.username}': {exc}")
-        return ResponseFormatter.server_error(
-            message="Registration failed due to server error",
-            details=str(exc)
-        )
 
 @router.post("/password-reset/request")
 async def password_reset_request(
     request: PasswordResetRequestBody,
     http_request: Request,
-    auth_service: AuthService = Depends(get_auth_service_dep),
+    auth_service: AuthService = Depends(get_auth_service),
     connection: ConnectionContext = Depends(get_connection_context),
 ):
     """
     Allow a user to request an administrator-assisted password reset.
     """
-    start_time = time.time()
 
     try:
         if not request.username and not request.email:
@@ -314,6 +231,7 @@ async def password_reset_request(
 
         client_info = {
             "ip": connection.client_ip,
+            "ip_classification": connection.ip_classification,
             "user_agent": http_request.headers.get("user-agent"),
         }
 
@@ -324,11 +242,6 @@ async def password_reset_request(
             client_info=client_info,
         )
 
-        metadata = ResponseMetadata()
-        metadata.set_execution_time(start_time)
-        metadata.add_metadata("operation", "password_reset_request")
-        if request.username:
-            metadata.add_metadata("username", request.username)
 
         response_payload: Dict[str, Any] = {"status": "queued"}
         if result:
@@ -342,7 +255,7 @@ async def password_reset_request(
         message = "If the account exists, an administrator has been notified."
         return ResponseFormatter.success(
             data=response_payload,
-            metadata=metadata,
+
             status_code=202,
             message=message,
         )
@@ -350,62 +263,39 @@ async def password_reset_request(
     except ValueError as exc:
         logger.warning("Password reset request rejected: %s", exc)
         return ResponseFormatter.validation_error(message=str(exc))
-    except Exception as exc:
-        logger.error("Password reset request error: %s", exc)
-        return ResponseFormatter.server_error(
-            message="Unable to submit password reset request",
-            details=str(exc),
-        )
 
 @router.post("/change-password")
 async def change_password(
     request: ChangePasswordRequest,
-    current_user: User = Depends(get_current_user),
-    auth_service: AuthService = Depends(get_auth_service_dep)
+    current_user: dict = Depends(get_current_user),
+    auth_service: AuthService = Depends(get_auth_service)
 ):
     """
     Allow an authenticated user to change their password.
     """
-    start_time = time.time()
 
-    try:
-        success = auth_service.change_password(
-            current_user,
-            request.current_password,
-            request.new_password,
+    success = auth_service.change_password(
+        current_user["user_id"],
+        request.current_password,
+        request.new_password,
+    )
+    if not success:
+        # 400, not 401: the session is valid, and the frontend treats 401 as a
+        # lost session and signs the user out.
+        return ResponseFormatter.bad_request(
+            message="Current password is incorrect",
+            details={"username": current_user["username"]}
         )
-
-        if not success:
-            # 400, not 401: the session is valid, and the frontend treats 401 as a
-            # lost session and signs the user out.
-            return ResponseFormatter.bad_request(
-                message="Current password is incorrect",
-                details={"username": current_user.username}
-            )
-
-        metadata = ResponseMetadata()
-        metadata.set_execution_time(start_time)
-        metadata.add_metadata("operation", "change_password")
-        metadata.add_metadata("username", current_user.username)
-
-        return ResponseFormatter.success(
-            data={"message": "Password changed successfully"},
-            metadata=metadata,
-            message="Password changed successfully"
-        )
-
-    except Exception as exc:
-        logger.error(f"Password change error for '{current_user.username}': {exc}")
-        return ResponseFormatter.server_error(
-            message="Password change failed due to server error",
-            details=str(exc)
-        )
+    return ResponseFormatter.success(
+        data={"message": "Password changed successfully"},
+        message="Password changed successfully"
+    )
 
 
 @router.post("/refresh")
 async def refresh_token(
     request: RefreshTokenRequest,
-    auth_service: AuthService = Depends(get_auth_service_dep)
+    auth_service: AuthService = Depends(get_auth_service)
 ):
     """
     Refresh access token using refresh token
@@ -417,7 +307,6 @@ async def refresh_token(
     Returns:
         New access token
     """
-    start_time = time.time()
     
     try:
         new_access_token = auth_service.refresh_access_token(request.refresh_token)
@@ -428,18 +317,14 @@ async def refresh_token(
                 message="Invalid or expired refresh token"
             )
         
-        # Create metadata
-        metadata = ResponseMetadata()
-        metadata.set_execution_time(start_time)
-        metadata.add_metadata("operation", "token_refresh")
-        
+
         logger.info("Token refreshed successfully")
         return ResponseFormatter.success(
             data={
                 "access_token": new_access_token,
                 "token_type": "bearer"
             },
-            metadata=metadata
+
         )
 
     except AUTH_STORAGE_ERRORS as e:
@@ -448,116 +333,15 @@ async def refresh_token(
             message="Sign-in storage is temporarily unavailable",
             details=str(e)
         )
-    except Exception as e:
-        logger.error(f"Token refresh error: {e}")
-        return ResponseFormatter.server_error(
-            message="Token refresh failed due to server error",
-            details=str(e)
-        )
 
 
 @router.get("/me")
 async def get_current_user_info(
-    current_user: User = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user),
     connection: ConnectionContext = Depends(get_connection_context),
 ):
-    """
-    Get current user information
-    
-    Args:
-        current_user: Current authenticated user
-        
-    Returns:
-        User information
-    """
-    start_time = time.time()
-    
-    try:
-        user_id = str(current_user.id)
-        user_data = {
-            "user_id": user_id,
-            "username": current_user.username,
-            "role": current_user.role,
-            "is_active": current_user.is_active,
-            "session": {
-                "is_local": connection.is_local,
-                "ip_classification": connection.ip_classification,
-                "client_ip": connection.client_ip,
-            },
-        }
-        
-        # Create metadata
-        metadata = ResponseMetadata()
-        metadata.set_execution_time(start_time)
-        metadata.add_metadata("operation", "get_user_info")
-        metadata.add_metadata("user_id", user_id)
-        metadata.add_metadata("connection", connection.ip_classification)
-        
-        return ResponseFormatter.success(data=user_data, metadata=metadata)
-        
-    except Exception as e:
-        logger.error(f"Error getting user info for '{current_user.username}': {e}")
-        return ResponseFormatter.server_error(
-            message="Failed to get user information",
-            details=str(e)
-        )
-
-
-@router.get("/status")
-async def get_auth_status():
-    """
-    Get authentication service status (public endpoint)
-    
-    Returns:
-        Authentication service status and statistics
-    """
-    start_time = time.time()
-    
-    try:
-        auth_service = get_auth_service()
-        stats = auth_service.get_auth_stats()
-        
-        data = {
-            "service": "authentication",
-            "status": "healthy",
-            "timestamp": datetime.now().isoformat(),
-            "statistics": {
-                "total_users": stats["total_users"],
-                "active_users": stats["active_users"],
-                "admin_users": stats["admin_users"]
-            },
-            "endpoints": [
-                "/api/auth/login",
-                "/api/auth/refresh", 
-                "/api/auth/logout",
-                "/api/auth/me",
-                "/api/auth/users",
-                "/api/auth/status"
-            ]
-        }
-        
-        # Create metadata
-        metadata = ResponseMetadata()
-        metadata.set_execution_time(start_time)
-        metadata.add_metadata("operation", "status_check")
-        metadata.set_cache_used(False)
-        
-        return ResponseFormatter.success(data=data, metadata=metadata)
-        
-    except Exception as e:
-        logger.error(f"Auth status error: {e}")
-        return ResponseFormatter.server_error(
-            message="Authentication service status check failed",
-            details=str(e)
-        )
-
-
-if __name__ == "__main__":
-    # For testing purposes
-    import uvicorn
-    from fastapi import FastAPI
-    
-    app = FastAPI(title="RobotControl Authentication API", version="1.0.0")
-    app.include_router(router)
-    
-    uvicorn.run(app, host="0.0.0.0", port=8002)
+    return ResponseFormatter.success(data={
+        **{key: current_user[key] for key in ("user_id", "username", "role", "is_active")},
+        "session": {"is_local": connection.is_local, "ip_classification": connection.ip_classification,
+                    "client_ip": connection.client_ip},
+    })

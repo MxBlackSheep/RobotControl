@@ -17,9 +17,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 
-from backend.services.database import get_database_service
 from backend.services.database_packages import PackageCatalogue, PackageError
-from backend.services.report_sources import ReportSources, lookup_rows
+from backend.services.report_sources import ReportSources, lookup_rows, validate_choices
 from backend.utils.audit import log_action
 from backend.utils.data_paths import get_path_manager
 
@@ -47,11 +46,10 @@ def digest(value):
 
 
 class DatabaseTools:
-    def __init__(self, root, defaults, database=None, guard=None):
+    def __init__(self, root, defaults, guard=None):
         self.root = Path(root)
         self.catalogue = PackageCatalogue(self.root / "packages", defaults)
         self.catalogue.in_use = self.schedules_using
-        self.database = database or get_database_service()
         self.sources = ReportSources(self.root)
         from backend.services.database_access import DatabaseAccess
         self.access = DatabaseAccess(self.sources)
@@ -240,48 +238,21 @@ class DatabaseTools:
                     field['lookup'] = {k: v for k, v in field['lookup'].items() if k in {'parameters', 'value_type'}}
         return tools
 
-    @staticmethod
-    def validate_choices(tool, inputs, connections):
-        for field in tool.inputs:
-            if field.lookup and field.name in inputs:
-                options = lookup_rows(connections[field.lookup.source], field, inputs, selected=inputs[field.name])['options']
-                if not any(x['value'] == inputs[field.name] for x in options):
-                    raise PackageError(f'{field.label} is no longer available. Choose it again.')
+    validate_choices = staticmethod(validate_choices)
 
     def choices(self, tool_id, field_name, inputs, search, page, catalogue=None, mapping=None, kind='report'):
         catalogue = catalogue or self.catalogue
         with catalogue.reserve(tool_id, kind) as (entry, tool):
-            values = tool.validate_values(inputs, partial=True)
-            field = next((x for x in tool.inputs if x.name == field_name and x.lookup), None)
-            if field is None:
-                raise PackageError('Database choice not found', 404)
-            snapshot = self.sources.snapshot(entry['manifest']['id'], tool.sources if entry['manifest']['contract_version'] == 2 else ['primary'], mapping)
-            with self.sources.open(snapshot[field.lookup.source]) as conn:
-                return lookup_rows(conn, field, values, search, page)
+            return self._tool_choices(entry['manifest']['id'], tool, field_name, inputs, search, page, mapping)
 
-    def report_experiments(self, tool_id, search, page):
-        with self.catalogue.reserve(tool_id, 'report') as (entry, tool):
-            if not any(x.type == 'experiment' for x in tool.inputs):
-                raise PackageError('Report has no experiment input', 404)
-            snapshot = self.sources.snapshot(entry['manifest']['id'], tool.sources if entry['manifest']['contract_version'] == 2 else ['primary'])
-            with self.sources.open(snapshot.get('primary', next(iter(snapshot.values())))) as conn, conn.cursor() as cursor:
-                pattern = '%' + search.replace('[', '[[]').replace('%', '[%]').replace('_', '[_]') + '%'
-                where = '(CAST(ExperimentID AS nvarchar(40)) LIKE ? OR UserDefinedID LIKE ? OR Note LIKE ?)'
-                params = [pattern] * 3
-                total = cursor.execute('SELECT COUNT(*) FROM dbo.Experiments WHERE ' + where, params).fetchone()[0]
-                rows = cursor.execute('SELECT ExperimentID, UserDefinedID, Note FROM (SELECT ExperimentID, UserDefinedID, Note, ROW_NUMBER() OVER (ORDER BY ExperimentID DESC) AS rn FROM dbo.Experiments WHERE ' + where + ') AS numbered WHERE rn>? AND rn<=? ORDER BY rn', params + [(page-1)*25, page*25]).fetchall()
-                return dict(rows=[dict(zip(('ExperimentID', 'UserDefinedID', 'Note'), row)) for row in rows], total_count=total)
-
-    def operation_experiments(self, tool_id, search, page):
-        from backend.services.workspace_database import WorkspaceDatabase
-        with self.catalogue.reserve(tool_id, 'operation') as (entry, tool):
-            if not any(x.type == 'experiment' for x in tool.inputs):
-                raise PackageError('Operation has no experiment input', 404)
-            target = self.sources.operation_target(entry['manifest']['id'])
-            db = WorkspaceDatabase(self.sources, target)
-            result = db.get_table_data('[dbo].[Experiments]', limit=25, offset=(page-1)*25,
-                                       search=search, order_by='ExperimentID', sort_direction='desc')
-            return dict(rows=result.rows, total_count=result.total_count)
+    def _tool_choices(self, package_id, tool, field_name, inputs, search, page, mapping=None):
+        values = tool.validate_values(inputs, partial=True)
+        field = next((x for x in tool.inputs if x.name == field_name and x.lookup), None)
+        if field is None:
+            raise PackageError('Database choice not found', 404)
+        snapshot = self.sources.snapshot(package_id, tool.sources, mapping)
+        with self.sources.open(snapshot[field.lookup.source]) as conn:
+            return lookup_rows(conn, field, values, search, page)
 
     def start_report(self, tool_id, inputs, owner, catalogue=None, mapping=None):
         catalogue = catalogue or self.catalogue
@@ -293,7 +264,7 @@ class DatabaseTools:
             entry, tool = reservation.__enter__()
             entered = True
             inputs = tool.validate_values(inputs)
-            snapshot = self.sources.snapshot(entry['manifest']['id'], tool.sources if entry['manifest']['contract_version'] == 2 else ['primary'], mapping)
+            snapshot = self.sources.snapshot(entry['manifest']['id'], tool.sources, mapping)
             key = uuid.uuid4().hex
             folder = self.temp / key
             folder.mkdir()

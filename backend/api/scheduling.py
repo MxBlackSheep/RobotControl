@@ -1360,8 +1360,6 @@ def get_queue_status(
     # Get queue status from scheduler runtime (single-worker queue)
     queue_status = scheduler.get_runtime_queue_status()
 
-    # Get Hamilton status
-    hamilton_status = proc_mon.get_status()
 
     manual_state = scheduler.get_manual_recovery_state()
 
@@ -1370,12 +1368,7 @@ def get_queue_status(
         message="Queue status retrieved successfully",
         data={
             "queue": queue_status,
-            "hamilton": {
-                "is_running": hamilton_status.is_running,
-                "process_count": hamilton_status.process_count,
-                "availability": hamilton_status.availability,
-                "last_check": hamilton_status.last_check.isoformat()
-            },
+            "hamilton": {"is_running": not queue_status["hamilton_available"]},
             "manual_recovery": manual_state.to_dict() if manual_state else None,
         }
     )

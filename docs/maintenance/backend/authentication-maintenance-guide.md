@@ -136,7 +136,7 @@ This guide walks through the authentication stack so you always know **which fil
 | `AuthService.refresh_access_token(refresh_token)` | Rotate access token | Validates hashed refresh token, returns new access token string. |
 | `AuthService.change_password(user, current_password, new_password)` | User-driven password change | Revokes old refresh tokens to kick other sessions. |
 | `AuthService.request_password_reset(...)` | Queue manual reset | Logs request for admin follow-up; returns ticket if user exists. |
-| `AuthService.get_auth_stats()` | Dashboard numbers | Used by `/api/auth/status` and admin UI. |
+| `get_auth_service()` | Shared sign-in owner | Authentication and admin routes use the same service. |
 | `AuthDatabase.list_users()` | Raw rows | Prefer `AuthService.get_user_list()` which formats data for responses. |
 
 ---

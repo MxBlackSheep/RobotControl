@@ -161,7 +161,11 @@ class RunLogMonitor:
 
     def restore(self):
         for data in self.store.restore():
-            state = RunObservation(**data)
+            try:
+                state = RunObservation(**data)
+            except TypeError as exc:
+                logger.warning("Saved run observation needs review: %s", exc)
+                continue
             # Monotonic readings cannot be carried across an application restart.
             state.active_alert_id = None
             self._states[state.execution_id] = state

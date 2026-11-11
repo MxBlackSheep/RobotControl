@@ -80,7 +80,7 @@ def run():
             result['fixture'] = dict(database=database, reader=fixture['login'], writer=writer, sqlite='temporary scheduler.db',
                                      rows='Experiments 41 (flagged), 42, 43 twice, 44; no hardware')
 
-            tools = DatabaseTools(root / 'tools', ROOT / 'database_packages', database=object())
+            tools = DatabaseTools(root / 'tools', ROOT / 'database_packages')
             storage = SQLiteSchedulingDatabase(str(root / 'scheduler.db'))
             tools.catalogue.in_use = lambda package_id: [s.experiment_name for s in storage.get_schedules(active_only=True, archived_only=False)
                                                          if (s.preparation or {}).get('package_id') == package_id]
@@ -90,7 +90,7 @@ def run():
             tools.sources.bind(TOOL, ['primary'], {'primary': 'reader'})
             tools.sources.bind_operation(TOOL, 'writer')
 
-            manager = SimpleNamespace(sqlite_db=storage, should_block_due_to_abort=lambda _: None)
+            manager = SimpleNamespace(sqlite_db=storage)
             scheduler = SimpleNamespace(add_schedule=storage.create_schedule, get_schedule=storage.get_schedule_by_id, _schedules_lock=threading.RLock(),
                                         update_schedule=lambda s, expected_updated_at=None: storage.update_schedule(s, expected_updated_at=expected_updated_at),
                                         invalidate_schedule=lambda _: None)

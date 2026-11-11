@@ -6,6 +6,7 @@ Provides access to experiment data from Hamilton Vector database
 
 from fastapi import APIRouter, Depends
 from backend.services.database import get_database_service
+from backend.services.experiment_monitor import query_latest_experiment
 from backend.services.pyhsl_monitor import experiment_runner
 from backend.services.auth import get_current_user
 import logging
@@ -29,14 +30,8 @@ async def get_latest_experiment(current_user: dict = Depends(get_current_user)):
     try:
         db = get_database_service()  # Lazy-loaded database service
         
-        query = """
-            SELECT TOP 1 RunGUID, MethodName, StartTime, EndTime, RunState
-            FROM HamiltonVectorDB.dbo.HxRun
-            ORDER BY StartTime DESC
-        """
-        
-        result = await run_in_threadpool(db.execute_query, query)
-        
+        result = await run_in_threadpool(query_latest_experiment, db)
+
         if result.get("error"):
             # Database connection failed - return graceful fallback
             logger.warning(f"Database query failed: {result['error']}")

@@ -22,12 +22,10 @@ from backend.services.database import get_database_service
 from backend.services.scheduling.sqlite_database import get_sqlite_scheduling_database
 from backend.services.scheduling.schedule_review import ScheduleReview
 from backend.models import HxRunMaintenanceState, ScheduledExperiment, JobExecution, NotificationContact, NotificationLogEntry, NotificationSettings
-from backend.constants import HAMILTON_STATE_MAPPING
 
 
 logger = logging.getLogger(__name__)
 
-ABORT_STATES = {"Aborted", "Error"}
 
 
 class SchedulingDatabaseManager:
@@ -360,119 +358,6 @@ class SchedulingDatabaseManager:
         except Exception as exc:  # pragma: no cover - log only
             logger.error("Error storing job execution: %s", exc)
             return False
-
-    def get_latest_hamilton_run_state_by_name(
-        self,
-        method_name: str,
-        experiment_path: Optional[str] = None,
-    ) -> Optional[str]:
-        """Return the most recent Hamilton run state for the given method name."""
-        if not method_name and not experiment_path:
-            return None
-        if not self._hamilton_db_available or not self.main_db_service:
-            return None
-
-        search_terms: List[str] = []
-
-        def add_term(value: Optional[str]) -> None:
-            if not value:
-                return
-            norm = value.strip()
-            if not norm:
-                return
-            if norm not in search_terms:
-                search_terms.append(norm)
-
-        add_term(method_name)
-        if method_name:
-            method_path = Path(method_name)
-            add_term(method_path.name)
-            add_term(method_path.stem)
-            add_term(f"{method_path.stem}.med")
-            add_term(f"{method_path.stem}.hsl")
-
-        if experiment_path:
-            exp_path = Path(experiment_path)
-            add_term(str(exp_path))
-            add_term(exp_path.as_posix())
-            add_term(exp_path.name)
-            add_term(exp_path.stem)
-            add_term(f"{exp_path.stem}.med")
-            add_term(f"{exp_path.stem}.hsl")
-            if exp_path.suffix.lower() == '.med':
-                hsl_variant = str(exp_path.with_suffix('.hsl'))
-                add_term(hsl_variant)
-                add_term(Path(hsl_variant).as_posix())
-
-        def query_run_state(value: str, exact: bool) -> Optional[str]:
-            comparator = '=' if exact else 'LIKE'
-            clause = value if exact else f"%{value}%"
-            sql = (
-                "SELECT TOP 1 RunState FROM HamiltonVectorDB.dbo.HxRun "
-                f"WHERE MethodName {comparator} ? ORDER BY StartTime DESC"
-            )
-            try:
-                result = self.main_db_service.execute_query(sql, (clause,))
-            except Exception as exc:  # pragma: no cover - log only
-                logger.debug(
-                    "Run state query failed for %s (%s): %s",
-                    value,
-                    'exact' if exact else 'like',
-                    exc,
-                )
-                return None
-
-            rows = result.get('rows') if isinstance(result, dict) else None
-            if not rows:
-                return None
-
-            state = rows[0].get('RunState')
-            if state is None:
-                return None
-
-            return HAMILTON_STATE_MAPPING.get(str(state), str(state))
-
-        for term in search_terms:
-            state = query_run_state(term, exact=True)
-            if state:
-                return state
-
-        for term in search_terms:
-            if len(term) < 3:
-                continue
-            state = query_run_state(term, exact=False)
-            if state:
-                return state
-
-        return None
-
-    def should_block_due_to_abort(self, experiment: ScheduledExperiment) -> Optional[str]:
-        """Check latest Hamilton run state and return a note if manual recovery is required."""
-        try:
-            candidates: List[str] = []
-            if experiment.experiment_name:
-                candidates.append(experiment.experiment_name)
-            if experiment.experiment_path:
-                base = os.path.basename(experiment.experiment_path)
-                if base:
-                    stem, _ = os.path.splitext(base)
-                    if stem and stem not in candidates:
-                        candidates.append(stem)
-
-            for candidate in candidates:
-                state = self.get_latest_hamilton_run_state_by_name(
-                    candidate,
-                    experiment.experiment_path,
-                )
-                if not state:
-                    continue
-                if state in ABORT_STATES:
-                    return f"Hamilton reported last run as {state}"
-
-            return None
-        except Exception as exc:  # pragma: no cover - log only
-            logger.debug("Abort state check failed for %s: %s", experiment.experiment_name, exc)
-            return None
 
 # Singleton instance management
 _db_manager_instance: Optional[SchedulingDatabaseManager] = None

@@ -18,8 +18,7 @@ class StubPreExecutionPipeline:
 
 
 class StubDBManager:
-    def should_block_due_to_abort(self, _experiment):
-        return None
+    pass
 
 
 def _make_schedule(timeout_config: TimeoutConfig) -> ScheduledExperiment:

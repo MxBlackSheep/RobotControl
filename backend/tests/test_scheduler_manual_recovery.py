@@ -91,8 +91,6 @@ class StubDBManager:
     def get_manual_recovery_state(self) -> ManualRecoveryState:
         return self.manual_state
 
-    def should_block_due_to_abort(self, experiment: ScheduledExperiment) -> Optional[str]:
-        return self.abort_note
 
     # Scheduling persistence stubs --------------------------------------
     def finalize_job_execution(self, execution, schedule, *, touch_updated_at=False):

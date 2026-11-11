@@ -83,8 +83,6 @@ class Fixture:
             self.waits.append(seconds)
             self.after_wait()
         stack.enter_context(patch.object(ex, 'time', SimpleNamespace(time=ex.time.time, sleep=sleep)))
-        self.note = None
-        self.manager.should_block_due_to_abort = lambda _: self.note
         executable = sample_config(root)
         executable.write_text('Never executed')
         config = ex.ExecutionConfig(hxrun_path=str(executable), method_base_path=str(root))
@@ -374,7 +372,6 @@ def run():
     @case('5 noted abort and cancelled recovery')
     def noted(f):
         value = f.schedule()
-        f.note = 'Hamilton reported last run as aborted'
         f.returncode = 64
         f.loops()
         stored = f.storage.get_schedule_by_id(value.schedule_id)

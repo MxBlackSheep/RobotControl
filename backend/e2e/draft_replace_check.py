@@ -52,7 +52,7 @@ def run(stress):
                   checks=[], passed=False)
     try:
         with tempfile.TemporaryDirectory(prefix='rc-draft-replace-') as temp:
-            service = DatabaseTools(Path(temp)/'tools', ROOT/'database_packages', database=object(), guard=nullcontext)
+            service = DatabaseTools(Path(temp)/'tools', ROOT/'database_packages', guard=nullcontext)
             try:
                 authoring = service.authoring
                 def save(record, **patch):

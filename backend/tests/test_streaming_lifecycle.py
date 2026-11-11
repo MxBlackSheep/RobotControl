@@ -19,8 +19,7 @@ def encoder_present():
 def test_stream_sessions_release_capacity_on_failure_and_abandonment():
     async def scenario():
         LiveStreamingService._instance = None
-        with patch.object(LiveStreamingService, "_ensure_camera_integration"):
-            service = LiveStreamingService()
+        service = LiveStreamingService()
         with patch.object(service, "ensure_service_started", new=AsyncMock()):
             for _ in range(100):
                 session = await service.create_session("user", "User", "local")
@@ -42,8 +41,7 @@ def test_stream_sessions_release_capacity_on_failure_and_abandonment():
 def test_second_socket_cannot_replace_live_session_or_cleanup_it():
     async def scenario():
         LiveStreamingService._instance = None
-        with patch.object(LiveStreamingService, "_ensure_camera_integration"):
-            service = LiveStreamingService()
+        service = LiveStreamingService()
         with patch.object(service, "ensure_service_started", new=AsyncMock()):
             session = await service.create_session("user", "User", "local")
             first, second = AsyncMock(), AsyncMock()

@@ -100,7 +100,7 @@ def run():
             result['fixture'] = dict(database=database, login=fixture['login'], sqlite='temporary scheduler.db')
 
             (root / 'no-defaults').mkdir()
-            tools = DatabaseTools(root / 'tools', root / 'no-defaults', database=object())
+            tools = DatabaseTools(root / 'tools', root / 'no-defaults')
             def guard():
                 raise AssertionError('Preparation must not take the manual-operation guard (scheduler locks)')
             tools.guard = guard
@@ -112,7 +112,7 @@ def run():
             tools.catalogue.install(package('1.0.0'))
             tools.sources.bind_operation(PACKAGE, 'writer')
 
-            manager = SimpleNamespace(sqlite_db=storage, should_block_due_to_abort=lambda _: None)
+            manager = SimpleNamespace(sqlite_db=storage)
             scheduler = SimpleNamespace(add_schedule=storage.create_schedule, get_schedule=storage.get_schedule_by_id, _schedules_lock=threading.RLock(),
                                         update_schedule=lambda s, expected_updated_at=None: storage.update_schedule(s, expected_updated_at=expected_updated_at),
                                         invalidate_schedule=lambda _: None)

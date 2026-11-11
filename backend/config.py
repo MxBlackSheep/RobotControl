@@ -8,15 +8,8 @@ from pathlib import Path
 from backend.utils.data_paths import get_path_manager
 
 
-# Load environment variables from .env file
-try:
-    from dotenv import load_dotenv
-    env_file = os.path.join(os.path.dirname(__file__), '.env')
-    if os.path.exists(env_file):
-        load_dotenv(env_file)
-        print(f"Loaded environment from {env_file}")
-except ImportError:
-    print("python-dotenv not available, using system environment variables only")
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).with_name(".env"))
 
 class Settings:
     """Simplified settings configuration"""
@@ -41,11 +34,6 @@ class Settings:
         "timeout": 5
     }
     
-    # Security settings
-    SECRET_KEY: str = os.getenv("SECRET_KEY", "robotcontrol-simplified-secret-key-2025")
-    ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
-    
     # File paths
     _path_manager = get_path_manager()
     VIDEO_PATH: Path = _path_manager.videos_path
@@ -55,7 +43,6 @@ CAMERA_CONFIG = {
     "no_frame_seconds": 10,
     "startup_seconds": 20,
     "recording_duration_minutes": 1,        # Duration of each video segment in minutes
-    "archive_duration_minutes": 15,         # Minutes of clips to archive per experiment
     # Frame rate requested from the camera; a hint only (live view paces itself to at most 15, recording
     # measures its rate and keeps at most 7.5). The production camera delivers YUY2 at 30 whatever is
     # requested, so 30 matches what arrives (docs/plans/live-view-denoise.md). LIVE_STREAMING_CONFIG
@@ -77,19 +64,15 @@ AUTO_RECORDING_CONFIG = {
     "primary_camera_id": 0,                 # Default camera to use for automatic recording
     "rolling_clips_limit": 120,             # Maximum rolling clips to maintain
     "experiment_folders_limit": 20,         # Maximum experiment folders to keep
-    "archive_duration_minutes": 15,         # Minutes of clips to archive per experiment (mirrors CAMERA_CONFIG)
+    "archive_duration_minutes": 15,         # Minutes of clips to archive per experiment
     "experiment_check_interval_seconds": 5,   # Seconds between experiment state checks (reduced to catch short experiments)
-    "cleanup_interval_minutes": 30,         # Minutes between periodic cleanup checks
-    "cleanup_threshold_buffer": 10          # Buffer above rolling_clips_limit before triggering cleanup
 }
 
 # Live streaming configuration
 LIVE_STREAMING_CONFIG = {
-    "enabled": True,                           # Enable live streaming functionality
+                           # Enable live streaming functionality
     "max_concurrent_sessions": 10,             # Maximum concurrent streaming sessions
     "session_timeout_seconds": 60,             # Session timeout after inactivity
-    "total_bandwidth_limit_mbps": 15.0,        # Total bandwidth limit for all streams
-    "frame_buffer_size": 30,                   # Frame buffer size (~1 second at 30fps)
     "cpu_soft_limit_percent": int(os.getenv("STREAMING_CPU_SOFT_LIMIT", "75")),  # CPU% to start degrading streams
     "cpu_hard_limit_percent": int(os.getenv("STREAMING_CPU_HARD_LIMIT", "90")),  # CPU% to stop streaming sessions
     # Temporal denoise before encoding (ffmpeg filter on the encoder's thread budget): each pixel is

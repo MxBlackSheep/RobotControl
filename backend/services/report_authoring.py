@@ -110,6 +110,65 @@ class ReportAuthoring:
         (self.root / 'empty').mkdir(exist_ok=True)
         self.trials = PackageCatalogue(self.root / 'trials', self.root / 'empty')
 
+    def publish(self, key, payload, owner):
+        service = self.service
+        with self.lock, service.lock, service.catalogue.lock, service.sources.lock:
+            published = service.catalogue.published_draft(key, owner)
+            if published:
+                entry, receipt = published
+                if receipt['draft']['revision'] != payload.revision or entry['sha256'] != receipt['sha256']:
+                    raise PackageError('This draft was already published; the installed version has since changed.', 409)
+                return entry['manifest']
+            if self.get(key, owner)['revision'] != payload.revision:
+                raise PackageError('Draft changed. Review it again.', 409)
+            draft = self.draft(key, owner)
+            if draft.definition_file:
+                if not payload.reviewed:
+                    raise PackageError('Review the trial result before enabling this tool.', 409)
+                self.require_trial(key, owner)
+            baseline = self.check_base(key, owner)
+            note = payload.change_note if payload.change_note is not None else draft.change_note
+            content = self.archive(draft, key, owner, note=note)
+            from backend.services.database_packages import inspect_archive
+            manifest, _ = inspect_archive(content)
+            aliases = service.sources.aliases(manifest.model_dump())
+            mappings = {**(baseline['mappings'] if baseline else {}), **draft.mappings}
+            mappings = {name:mappings[name] for name in aliases if name in mappings}
+            service.sources.snapshot(draft.package_id, aliases, mappings)
+            if set(mappings) != set(aliases):
+                raise PackageError('Map exactly the declared source aliases.', 400)
+            operation_source = draft.operation_source
+            if any(t.kind == 'operation' for t in manifest.tools):
+                operation_source = operation_source or service.sources.state['operation_bindings'].get(draft.package_id)
+                if draft.definition_file:
+                    service.sources.get(operation_source, 'operation')
+            # Save connection assignments first under both locks; restore on failure.
+            # The package index remains the single activation point. No reader can
+            # observe a half-enabled tool in this process.
+            import copy
+            old_sources = copy.deepcopy(service.sources.state)
+            self.begin_activation(draft.package_id, content)
+            try:
+                service.sources.bind(draft.package_id, aliases, mappings)
+                if operation_source:
+                    service.sources.bind_operation(draft.package_id, operation_source)
+                result = service.catalogue.install(content, expected_current=payload.expected_current, actor=owner,
+                    note=note,
+                    draft=dict(id=key, revision=payload.revision))
+            except Exception:
+                service.sources._save(old_sources)
+                self.finish_activation()
+                raise
+            self.finish_activation()
+            try:
+                self.remove(key, owner)
+            except Exception:
+                # The history receipt already hides this completed draft and prevents
+                # publishing twice, even if cleanup cannot finish or the response is lost.
+                import logging
+                logging.getLogger(__name__).exception('Published draft cleanup failed: %s', key)
+        return result
+
     def begin_activation(self, package_id, content):
         import hashlib
         state = self.service.sources.state
@@ -262,12 +321,10 @@ class ReportAuthoring:
             major, minor, patch = map(int, manifest.version.split('.'))
             if code_defined and tool.preview and tool.preview != tool.entrypoint.replace(':run', ':preview'):
                 raise PackageError('This operation has custom preview wiring. Download its package to edit it.')
-            if manifest.contract_version == 1 and kind == 'report':
-                tool = tool.model_copy(update={'sources':['primary']})
             draft = ReportDraft(name=tool.name, package_id=package_id, tool_id=tool.id, entrypoint=tool.entrypoint,
                 version=f'{major}.{minor}.{patch+1}', libraries=manifest.libraries,
                 handler=files[tool.entrypoint.split(':')[0]+'.py'].decode('utf-8-sig'),
-                sources=tool.sources if manifest.contract_version == 2 else ['primary'],
+                sources=tool.sources,
                 mappings=self.service.sources.bindings(package_id), inputs=[x.model_dump() for x in tool.inputs], step=2,
                 kind=kind, preview=tool.preview, confirmation_field=tool.confirmation_field,
                 operation_source=self.service.sources.state['operation_bindings'].get(package_id))
@@ -331,9 +388,6 @@ class ReportAuthoring:
                 raise PackageError('An update cannot change a report into an operation or vice versa.')
             original, files = inspect_archive(self._path(key).with_suffix('.zip').read_bytes())
             combined = original.model_dump()
-            for item in combined['tools']:
-                if original.contract_version == 1 and item['kind'] == 'report':
-                    item['sources'] = ['primary']
             combined.update(contract_version=2, version=draft.version, libraries=sorted(set(original.libraries + draft.libraries)))
             combined['tools'] = [manifest.tools[0].model_dump() if t['id'] == draft.tool_id else t for t in combined['tools']]
             manifest = Manifest.model_validate(combined)

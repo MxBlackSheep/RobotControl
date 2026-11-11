@@ -19,7 +19,7 @@ as in the [README](README.md). Upload through **Database → Manage packages**.
 Build a starter package with the `build` command in the [README](README.md#existing-projects-and-drafts);
 no manual ZIP assembly is needed.
 
-The manifest declares `contract_version: 1`, a unique lowercase hyphenated package
+The manifest declares `contract_version: 2`, a unique lowercase hyphenated package
 `id`, display `name`, three-part `version`, `libraries`, and a `tools` array. Each
 tool has a globally unique `id`, `name`, `kind` (`operation`, `report` or `preparation`),
 `entrypoint` (`module:function`) and `inputs`. Input definitions use `name`, `label`,

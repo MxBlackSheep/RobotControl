@@ -82,7 +82,7 @@ class Sink:
 
 
 def add_viewer(service, name, rtt, kbps):
-    session = StreamingSession(name, name, "probe", datetime.now(), datetime.now(), True)
+    session = StreamingSession(name, name, "probe", datetime.now(), datetime.now())
     sink = Sink(rtt, kbps)
     handler = StreamingSessionHandler(session, sink)
     sink.handler = handler
@@ -104,14 +104,12 @@ def ms(values, share):
 
 async def trial(seconds, viewers, rtt=0.0, kbps=None, clip_frames=None, join_every=None):
     LiveStreamingService._instance = None
-    with patch.object(LiveStreamingService, "_ensure_camera_integration"):
-        service = LiveStreamingService()
+    service = LiveStreamingService()
     service.frame_buffer.clear()
     service.cpu_soft_limit = service.cpu_hard_limit = 10000
     base = np.random.default_rng(42).integers(0, 256, (480, 640, 3), dtype=np.uint8)
     handlers = [add_viewer(service, str(number), rtt, kbps) for number in range(viewers)]
     joins, joiner, next_join = [], None, 3.0
-    reads_before = service.frame_buffer.frames_read_streaming
     cpu_start = time.process_time()
     started = time.monotonic()
     with patch.object(streaming_session, "DELIVERY_REPORT_SECONDS", float("inf")):  # one period: the whole trial
@@ -176,7 +174,6 @@ async def trial(seconds, viewers, rtt=0.0, kbps=None, clip_frames=None, join_eve
             "join_ms_max": ms(join_waits, 1),
             "sent_frames": sends, "bytes_per_frame": round(sent_bytes / sends) if sends else None, "cpu_seconds": round(time.process_time() - cpu_start, 3),
             "encoder_cpu_seconds": round(encoder_cpu, 3),
-            "buffer_reads": service.frame_buffer.frames_read_streaming - reads_before,
             "event_loop_delay_p95_ms": round(sorted(delays)[int(len(delays) * .95)] * 1000, 2),
             "working_set_bytes": memory.rss, "private_bytes": getattr(memory, "private", None)}
 

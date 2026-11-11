@@ -42,9 +42,10 @@ GET `/api/logfiles/sources`, `/browse` and `/preview` remain available.
 `/archive/browse` lists ZIP members; reader sessions read their contents. Browse supports
 filename search, file type/date filters, name/modified/size sorting and paging
 (default 200, maximum 200; UI default 50). Filtering happens before pagination.
-The legacy preview API supports head/tail with approximately 1 MiB returned;
-compressed tail previews scan the compressed stream. Existing encoding detection
-and locked-file errors are retained for those endpoints.
+Preview returns a plain-file tail of at most 1 MiB and drops a cut-off first line.
+Compressed files return 400 and must use reader sessions. A completed reader's Windows-1252
+choice is reused; otherwise UTF-8 is validated through the file before decoding the tail.
+UTF-16 offsets remain aligned, and binary detection and locked-file errors remain.
 
 Complete-file reading uses these routes:
 

@@ -14,7 +14,7 @@ import json
 
 # Import our simplified database service
 from backend.services.auth import get_current_user
-from backend.services.database import DatabaseService
+from backend.services.workspace_database import WorkspaceDatabase
 from backend.services.database_tools import get_database_tools
 
 # Import standardized response formatter
@@ -41,7 +41,7 @@ def get_viewer_service(source_id: str | None = Query(None, max_length=64),
 
 @router.get("/tables")
 async def get_tables(
-    db_service: DatabaseService = Depends(get_viewer_service)
+    db_service: WorkspaceDatabase = Depends(get_viewer_service)
 ):
     """
     Get the available database tables in alphabetical order
@@ -89,7 +89,7 @@ async def get_table_data(
     search: Optional[str] = Query(None, max_length=200, description="Literal search across supported scalar columns"),
     sort_direction: str = Query("asc", pattern="^(asc|desc)$"),
     filters: Optional[str] = Query(None, description="JSON string of column filters"),
-    db_service: DatabaseService = Depends(get_viewer_service)
+    db_service: WorkspaceDatabase = Depends(get_viewer_service)
 ):
     """
     Get paginated data from a specific database table
@@ -165,15 +165,9 @@ async def get_table_data(
         )
 
 
-@router.post("/query")
-@router.post("/execute-procedure")
-def retired_execution_route(current_user=Depends(get_current_user)):
-    raise HTTPException(status_code=410, detail="Use an installed database operation or report.")
-
-
 @router.get("/stored-procedures")
 async def get_stored_procedures(
-    db_service: DatabaseService = Depends(get_viewer_service)
+    db_service: WorkspaceDatabase = Depends(get_viewer_service)
 ):
     """
     Get all stored procedures and functions from the database
@@ -204,14 +198,3 @@ async def get_stored_procedures(
             message="Failed to get stored procedures",
             details=str(e)
         )
-
-
-if __name__ == "__main__":
-    # For testing purposes
-    import uvicorn
-    from fastapi import FastAPI
-    
-    app = FastAPI(title="RobotControl Database API", version="1.0.0")
-    app.include_router(router)
-    
-    uvicorn.run(app, host="0.0.0.0", port=8001)
