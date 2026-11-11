@@ -16,7 +16,6 @@ import logging
 from contextlib import nullcontext
 import subprocess
 import time
-import threading
 import os
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
@@ -80,6 +79,39 @@ def resolve_experiment_path(raw_path: str, config: Optional[ExecutionConfig] = N
     return (methods_root / candidate).resolve(strict=False)
 
 
+def resolve_timeout_context(experiment: ScheduledExperiment, current_time: datetime) -> Dict[str, Any]:
+    """Calculate the late-start action at dispatch and again immediately before launch."""
+    timeout_config = experiment.timeout_config
+    action = "continue"
+    cleanup_experiment_name = None
+    cleanup_experiment_path = None
+    timeout_minutes: Optional[int] = None
+    if timeout_config:
+        action = timeout_config.action or "continue"
+        if action not in {"continue", "run_cleanup_and_terminate"}:
+            action = "continue"
+        cleanup_experiment_name = timeout_config.cleanup_experiment_name
+        cleanup_experiment_path = timeout_config.cleanup_experiment_path
+        timeout_minutes = timeout_config.timeout_minutes
+
+    timed_out = False
+    lateness_minutes = 0
+    if timeout_minutes and timeout_minutes > 0 and experiment.start_time:
+        deadline = experiment.start_time + timedelta(minutes=timeout_minutes)
+        timed_out = current_time > deadline
+        if timed_out:
+            lateness_minutes = max(0, int((current_time - deadline).total_seconds() / 60))
+
+    return {
+        "timed_out": timed_out,
+        "action": action,
+        "terminate_schedule": timed_out and action == "run_cleanup_and_terminate",
+        "lateness_minutes": lateness_minutes if timed_out else 0,
+        "cleanup_experiment_path": cleanup_experiment_path,
+        "cleanup_experiment_name": cleanup_experiment_name,
+    }
+
+
 class ExperimentExecutor:
     """Service for executing scheduled experiments"""
     
@@ -93,8 +125,6 @@ class ExperimentExecutor:
         self.config = config or ExecutionConfig()
         self.db_manager = get_scheduling_database_manager()
         self.pre_execution = PreExecutionPipeline(self.db_manager)
-        self._active_executions: Dict[str, subprocess.Popen] = {}
-        self._execution_lock = threading.RLock()
         self.run_log_monitor = None
         self._monitor_schedule = None
         self._monitor_terminate_schedule = False
@@ -103,7 +133,6 @@ class ExperimentExecutor:
         if not os.path.exists(self.config.hxrun_path):
             logger.warning(f"Hamilton executable not found at {self.config.hxrun_path}")
         
-        logger.info("Experiment executor initialized")
     
     def execute_experiment(
         self,
@@ -121,7 +150,6 @@ class ExperimentExecutor:
         Returns:
             bool: True if execution succeeded, False otherwise
         """
-        pre_run = None
         try:
             logger.info(f"Starting experiment execution: {experiment.experiment_name}")
             effective_timeout_context = self._refresh_timeout_context(
@@ -220,46 +248,13 @@ class ExperimentExecutor:
             execution.error_message = f"Execution error: {exc}"
             return False
 
-        finally:
-            if pre_run and pre_run.cleanup_required:
-                self.pre_execution.cleanup(pre_run.steps)
-
     def _refresh_timeout_context(
         self,
         experiment: ScheduledExperiment,
         timeout_context: Optional[Dict[str, Any]],
     ) -> Dict[str, Any]:
         """Recompute timeout state at launch time, including any queue/wait delays."""
-        timeout_config = experiment.timeout_config
-        action = "continue"
-        cleanup_experiment_name = None
-        cleanup_experiment_path = None
-        timeout_minutes: Optional[int] = None
-        if timeout_config:
-            action = timeout_config.action or "continue"
-            if action not in {"continue", "run_cleanup_and_terminate"}:
-                action = "continue"
-            cleanup_experiment_name = timeout_config.cleanup_experiment_name
-            cleanup_experiment_path = timeout_config.cleanup_experiment_path
-            timeout_minutes = timeout_config.timeout_minutes
-
-        timed_out = False
-        lateness_minutes = 0
-        if timeout_minutes and timeout_minutes > 0 and experiment.start_time:
-            deadline = experiment.start_time + timedelta(minutes=timeout_minutes)
-            now = datetime.now()
-            timed_out = now > deadline
-            if timed_out:
-                lateness_minutes = max(0, int((now - deadline).total_seconds() / 60))
-
-        refreshed = {
-            "timed_out": timed_out,
-            "action": action,
-            "terminate_schedule": timed_out and action == "run_cleanup_and_terminate",
-            "lateness_minutes": lateness_minutes if timed_out else 0,
-            "cleanup_experiment_path": cleanup_experiment_path,
-            "cleanup_experiment_name": cleanup_experiment_name,
-        }
+        refreshed = resolve_timeout_context(experiment, datetime.now())
         if timeout_context is not None:
             timeout_context.clear()
             timeout_context.update(refreshed)
@@ -341,28 +336,18 @@ class ExperimentExecutor:
                     creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == 'nt' else 0
                 )
             
-            # Track active execution
-            with self._execution_lock:
-                self._active_executions[experiment.schedule_id] = process
-            
-            try:
-                if self.run_log_monitor:
-                    try:
-                        self.run_log_monitor.launched(execution.execution_id, process.pid)
-                    except Exception:
-                        # The process already exists. Continue owning/waiting for it;
-                        # the observer retries persistence during its next check.
-                        logger.exception("Could not persist the process launch observation")
-                # Log inactivity alerts are advisory; runtime never kills HxRun.
-                stdout, stderr = process.communicate()
-                return_code = process.returncode
-                logger.info("HxRun exited with return code %s", return_code)
-                
-            finally:
-                # Remove from active executions
-                with self._execution_lock:
-                    self._active_executions.pop(experiment.schedule_id, None)
-            
+            if self.run_log_monitor:
+                try:
+                    self.run_log_monitor.launched(execution.execution_id, process.pid)
+                except Exception:
+                    # The process already exists. Continue owning/waiting for it;
+                    # the observer retries persistence during its next check.
+                    logger.exception("Could not persist the process launch observation")
+            # Log inactivity alerts are advisory; runtime never kills HxRun.
+            stdout, stderr = process.communicate()
+            return_code = process.returncode
+            logger.info("HxRun exited with return code %s", return_code)
+
             execution_time = time.time() - start_time
             success = return_code == 0
             
@@ -406,25 +391,3 @@ class ExperimentExecutor:
                 command_executed="",
                 error_message=f"Process execution error: {str(e)}"
             )
-    
-
-
-# Singleton instance management
-_experiment_executor_instance = None
-_experiment_executor_lock = threading.Lock()
-
-
-def get_experiment_executor() -> ExperimentExecutor:
-    """
-    Get the singleton ExperimentExecutor instance
-    
-    Returns:
-        ExperimentExecutor: The experiment executor instance
-    """
-    global _experiment_executor_instance
-    
-    with _experiment_executor_lock:
-        if _experiment_executor_instance is None:
-            _experiment_executor_instance = ExperimentExecutor()
-            
-    return _experiment_executor_instance

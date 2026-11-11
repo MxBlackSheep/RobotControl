@@ -34,7 +34,8 @@ All paths are under `backend/services/scheduling/` unless stated.
   schedules, executions, contacts and notification logs. `sqlite_database.py` holds all SQL and
   the schema migration (`_initialize_database`). The launch guard and laboratory settings use
   its connection lock and transactions directly because their checks must share the write.
-- `method_library.py`, `experiment_discovery.py`: method catalogue, path changes and import.
+- `method_library.py`, `experiment_discovery.py`: method catalogue, path changes and explicit import.
+  Available methods are read from the catalogue; there is no background filesystem scan or JSON cache.
 - `backend/services/notifications.py` sends email; `notification_delivery.py` records
   manual, test and recovery sends.
 - `backend/api/scheduling.py`: `/api/scheduling` routes. Database settings routes are in
@@ -432,7 +433,7 @@ their saved paths.
   deployed schedule's preparation on the VM.
 
 To inspect requests, start the backend with
-`uv run --locked python backend/main.py --host 127.0.0.1 --port 8005 --no-browser` and open
+`uv run --locked python backend/main.py --host 127.0.0.1 --port 8005` and open
 `http://127.0.0.1:8005/docs`. Scripts must sign in (`POST /api/auth/login`), run locally for
 writes and send `expected_updated_at` from the latest schedule.
 

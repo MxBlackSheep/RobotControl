@@ -2,7 +2,7 @@
 Experiment Discovery Service
 
 Discovers and manages available Hamilton .med experiment files.
-Provides both local file system scanning and database tracking for remote access.
+Provides explicit method import and database catalogue access.
 """
 
 import os
@@ -10,49 +10,14 @@ import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from pathlib import Path
-import json
 from backend.services.scheduling.sqlite_database import get_sqlite_scheduling_database
 
-from backend.utils.datetime import parse_iso_datetime_to_local
 
 logger = logging.getLogger(__name__)
 
 
-class ExperimentFile:
-    """Represents a discovered experiment file"""
-    
-    def __init__(self, name: str, path: str, category: str = "general", 
-                 description: str = "", last_modified: Optional[datetime] = None):
-        self.name = name
-        self.path = path
-        self.category = category
-        self.description = description
-        self.last_modified = last_modified or datetime.now()
-        self.file_size = 0
-        
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "name": self.name,
-            "path": self.path,
-            "category": self.category,
-            "description": self.description,
-            "last_modified": self.last_modified.isoformat() if self.last_modified else None,
-            "file_size": self.file_size
-        }
-
-
 class ExperimentDiscoveryService:
     """Service for discovering and managing available Hamilton experiments"""
-    
-    # Common Hamilton experiment paths
-    DEFAULT_SEARCH_PATHS = [
-        r"C:\Program Files (x86)\HAMILTON\Methods",
-        r"C:\Program Files\HAMILTON\Methods",
-        r"C:\Hamilton\Methods",
-        r"D:\Hamilton\Methods",
-        r".\methods",  # Local methods folder
-        r".\experiments"  # Alternative local folder
-    ]
     
     # Known experiment categories based on naming patterns
     EXPERIMENT_CATEGORIES = {
@@ -64,95 +29,16 @@ class ExperimentDiscoveryService:
         "Custom": "Custom User Protocols"
     }
     
-    # Common database flags used as prerequisites
-    AVAILABLE_PREREQUISITES = [
-        {
-            "flag": "ScheduledToRun",
-            "description": "Reset ScheduledToRun flags and mark this experiment prior to execution",
-            "table": "Experiments"
-        },
-        {
-            "flag": "ResetHamiltonTables",
-            "description": "Reset Hamilton SQL Server tables for the selected experiment before running",
-            "table": "HamiltonProcedures"
-        }
-    ]
-    
     def __init__(self):
         """Initialize the experiment discovery service"""
-        self.discovered_experiments: List[ExperimentFile] = []
-        self._cache_file = "data/experiment_cache.json"
-        self._last_scan = None
         self.db = get_sqlite_scheduling_database()
-        
-    def scan_for_experiments(self, custom_paths: Optional[List[str]] = None) -> List[ExperimentFile]:
-        """
-        Scan file system for .med experiment files
-        
-        Args:
-            custom_paths: Optional list of additional paths to search
-            
-        Returns:
-            List of discovered ExperimentFile objects
-        """
-        search_paths = self.DEFAULT_SEARCH_PATHS.copy()
-        if custom_paths:
-            search_paths.extend(custom_paths)
-            
-        discovered = []
-        
-        for search_path in search_paths:
-            try:
-                path = Path(search_path)
-                if not path.exists():
-                    continue
-                    
-                # Search for .med files
-                for med_file in path.rglob("*.med"):
-                    try:
-                        # Extract experiment info
-                        experiment_name = med_file.stem
-                        full_path = str(med_file.absolute())
-                        
-                        # Determine category based on name
-                        category = self._determine_category(experiment_name)
-                        
-                        # Get file metadata
-                        stat = med_file.stat()
-                        
-                        experiment = ExperimentFile(
-                            name=experiment_name,
-                            path=full_path,
-                            category=category,
-                            description=f"Hamilton method file from {search_path}",
-                            last_modified=datetime.fromtimestamp(stat.st_mtime)
-                        )
-                        experiment.file_size = stat.st_size
-                        
-                        discovered.append(experiment)
-                        logger.debug(f"Discovered experiment: {experiment_name} at {full_path}")
-                        
-                    except Exception as e:
-                        logger.warning(f"Error processing {med_file}: {e}")
-                        
-            except Exception as e:
-                logger.warning(f"Error scanning path {search_path}: {e}")
-                
-        self.discovered_experiments = discovered
-        self._last_scan = datetime.now()
-        
-        # Cache the results for remote access
-        self._save_cache()
-        
-        logger.info(f"Discovered {len(discovered)} experiment files")
-        return discovered
         
     @staticmethod
     def _method_key(path: str) -> str:
         return os.path.normcase(str(Path(path).resolve())).casefold()
 
     def preview_methods(self, folder_path: str, relative_paths: Optional[List[str]] = None) -> Dict[str, Any]:
-        """Read host metadata only. Never change the catalogue or discovery cache."""
+        """Read host metadata only. Never change the catalogue."""
         folder = Path(folder_path.strip().strip('"')).expanduser()
         if not folder.is_absolute():
             raise ValueError("Enter an absolute folder path on the RobotControl computer.")
@@ -234,9 +120,6 @@ class ExperimentDiscoveryService:
             row["reason"] = outcome["reason"] if outcome else row["reason"] or "Method was not imported."
         result = self.import_summary(preview["methods"])
         result.update(folder=preview["folder"], imported_by=imported_by, imported_at=datetime.now().isoformat())
-        if result["new_methods"] or result["updated_methods"]:
-            self.discovered_experiments = []
-            self._last_scan = None
         return result
 
     @staticmethod
@@ -249,47 +132,28 @@ class ExperimentDiscoveryService:
                 "errors": [f"{row.get('relative_path') or row.get('path')}: {row['reason']}"
                            for row in methods if row["status"] == "failed"]}
 
-    def get_available_experiments(self, use_cache: bool = True, use_database: bool = True) -> List[Dict[str, Any]]:
-        """
-        Get list of available experiments
-        
-        Args:
-            use_cache: If True, use cached results if available
-            use_database: If True, load from database instead of file scan
-            
-        Returns:
-            List of experiment dictionaries
-        """
-        if use_database:
-            # Get experiments from database (preferred method)
-            db_experiments = self.db.get_experiment_methods()
-            
-            # Convert database format to expected format
-            experiments = []
-            for exp in db_experiments:
-                experiments.append({
-                    "name": exp.get("method_name", ""),
-                    "path": exp.get("file_path", ""),
-                    "category": exp.get("category", "Custom"),
-                    "description": exp.get("description", ""),
-                    "last_modified": exp.get("file_modified"),
-                    "file_size": exp.get("file_size", 0),
-                    "imported_at": exp.get("imported_at"),
-                    "imported_by": exp.get("imported_by"),
-                    "use_count": exp.get("use_count", 0),
-                    "last_used": exp.get("last_used")
-                })
-            
-            return experiments
-            
-        # Fall back to file system scan
-        if use_cache and self._load_cache():
-            return [exp.to_dict() for exp in self.discovered_experiments]
-            
-        # Perform fresh scan
-        self.scan_for_experiments()
-        return [exp.to_dict() for exp in self.discovered_experiments]
-        
+    def get_available_experiments(self) -> List[Dict[str, Any]]:
+        """Read available methods from the catalogue."""
+        db_experiments = self.db.get_experiment_methods()
+
+        # Convert database format to expected format
+        experiments = []
+        for exp in db_experiments:
+            experiments.append({
+                "name": exp.get("method_name", ""),
+                "path": exp.get("file_path", ""),
+                "category": exp.get("category", "Custom"),
+                "description": exp.get("description", ""),
+                "last_modified": exp.get("file_modified"),
+                "file_size": exp.get("file_size", 0),
+                "imported_at": exp.get("imported_at"),
+                "imported_by": exp.get("imported_by"),
+                "use_count": exp.get("use_count", 0),
+                "last_used": exp.get("last_used")
+            })
+
+        return experiments
+
     def _determine_category(self, experiment_name: str) -> str:
         """
         Determine experiment category based on name patterns
@@ -308,69 +172,6 @@ class ExperimentDiscoveryService:
                 
         return "Custom User Protocols"
         
-    def _save_cache(self):
-        """Save discovered experiments to cache file"""
-        try:
-            cache_data = {
-                "last_scan": self._last_scan.isoformat() if self._last_scan else None,
-                "experiments": [exp.to_dict() for exp in self.discovered_experiments]
-            }
-            
-            # Ensure data directory exists
-            os.makedirs(os.path.dirname(self._cache_file), exist_ok=True)
-            
-            with open(self._cache_file, 'w') as f:
-                json.dump(cache_data, f, indent=2)
-                
-            logger.debug(f"Saved {len(self.discovered_experiments)} experiments to cache")
-            
-        except Exception as e:
-            logger.warning(f"Failed to save experiment cache: {e}")
-            
-    def _load_cache(self) -> bool:
-        """
-        Load experiments from cache file
-        
-        Returns:
-            True if cache loaded successfully, False otherwise
-        """
-        try:
-            if not os.path.exists(self._cache_file):
-                return False
-                
-            with open(self._cache_file, 'r') as f:
-                cache_data = json.load(f)
-                
-            # Check cache age (refresh if older than 1 hour)
-            last_scan = None
-            if cache_data.get("last_scan"):
-                last_scan = parse_iso_datetime_to_local(cache_data["last_scan"])
-                if (datetime.now() - last_scan).total_seconds() > 3600:
-                    logger.debug("Cache is older than 1 hour, refreshing")
-                    return False
-                    
-            # Load experiments from cache
-            self.discovered_experiments = []
-            for exp_data in cache_data.get("experiments", []):
-                experiment = ExperimentFile(
-                    name=exp_data["name"],
-                    path=exp_data["path"],
-                    category=exp_data.get("category", "Custom"),
-                    description=exp_data.get("description", ""),
-                    last_modified=parse_iso_datetime_to_local(exp_data.get("last_modified"))
-                )
-                experiment.file_size = exp_data.get("file_size", 0)
-                self.discovered_experiments.append(experiment)
-                
-            self._last_scan = last_scan
-            logger.debug(f"Loaded {len(self.discovered_experiments)} experiments from cache")
-            return True
-            
-        except Exception as e:
-            logger.warning(f"Failed to load experiment cache: {e}")
-            return False
-            
-
 # Singleton instance
 _discovery_service = None
 

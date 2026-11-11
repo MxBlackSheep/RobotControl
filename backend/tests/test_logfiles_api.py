@@ -176,7 +176,7 @@ def test_logfiles_preview_utf16_trc_tail_not_marked_binary(monkeypatch, tmp_path
     assert "row 079" in payload["data"]["content"]
 
 
-def test_logfiles_zip_archive_browse_and_preview(monkeypatch, tmp_path):
+def test_logfiles_zip_archive_browse(monkeypatch, tmp_path):
     roots = _set_test_sources(monkeypatch, tmp_path)
     zip_path = roots["primary"] / "history.zip"
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
@@ -195,22 +195,6 @@ def test_logfiles_zip_archive_browse_and_preview(monkeypatch, tmp_path):
     assert "run1.txt" in items
     assert "sub" in items
     assert items["sub"]["is_directory"] is True
-
-    preview_response = client.get(
-        "/api/logfiles/archive/preview",
-        params={
-            "source_id": "primary",
-            "archive_relative_path": "history.zip",
-            "entry_path": "today/run1.txt",
-            "mode": "head",
-        },
-        headers={"x-forwarded-for": "127.0.0.1"},
-    )
-
-    assert preview_response.status_code == 200
-    preview_payload = preview_response.json()
-    assert preview_payload["data"]["archive_type"] == "zip"
-    assert "hello" in preview_payload["data"]["content"]
 
 
 def test_logfiles_preview_locked_file_returns_423(monkeypatch, tmp_path):
@@ -353,6 +337,6 @@ def test_archive_routes_preserve_source_extension_restrictions(monkeypatch, tmp_
     roots = _set_test_sources(monkeypatch, tmp_path)
     with zipfile.ZipFile(roots["primary"] / "hidden.zip", "w") as archive: archive.writestr("secret.txt", "not a trace")
     logfiles_api.LOGFILE_SOURCES["primary"]["allowed_extensions"] = [".trc"]
-    for endpoint in ["browse", "preview"]:
+    for endpoint in ["browse"]:
         response = client.get(f"/api/logfiles/archive/{endpoint}", params={"source_id":"primary","archive_relative_path":"hidden.zip","entry_path":"secret.txt"}, headers={"x-forwarded-for":"127.0.0.1"})
         assert response.status_code == 400

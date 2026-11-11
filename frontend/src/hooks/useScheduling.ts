@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { AxiosError, isAxiosError } from 'axios';
 import { schedulingAPI, schedulingService, normalizeManualRecovery } from '../services/schedulingApi';
 import {
-  CalendarEvent,
   CreateScheduleFormData,
   UpdateScheduleRequest,
   HamiltonStatus,
@@ -48,8 +47,6 @@ const useScheduling = () => {
   const [operationStatus, setOperationStatus] = useState<SchedulingOperationStatus>(
     SchedulingOperationStatus.Idle,
   );
-  const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
-  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
   const [queueStatus, setQueueStatus] = useState<QueueStatus | null>(null);
   const [hamiltonStatus, setHamiltonStatus] = useState<HamiltonStatus | null>(null);
   const [schedulerRunning, setSchedulerRunning] = useState<boolean>(false);
@@ -90,24 +87,6 @@ const useScheduling = () => {
 
         const fetchedSchedules = result.schedules;
         setSchedules(fetchedSchedules);
-        setCalendarEvents(
-          fetchedSchedules
-            .filter((schedule) => schedule.is_active && Boolean(schedule.next_run))
-            .map((schedule) => ({
-              event_id: `${schedule.schedule_id}-${schedule.next_run}`,
-              schedule_id: schedule.schedule_id,
-              title: schedule.experiment_name,
-              description: schedule.experiment_path,
-              start_time: schedule.next_run as string,
-              end_time: schedule.next_run as string,
-              event_type: 'scheduled',
-              experiment_name: schedule.experiment_name,
-              estimated_duration: schedule.estimated_duration,
-              status: schedule.is_active ? 'scheduled' : 'inactive',
-              created_by: schedule.created_by,
-            })),
-        );
-        setLastRefresh(new Date());
         setSelectedSchedule((previous) => {
           if (focusScheduleId === null) {
             return null;
@@ -445,32 +424,6 @@ const useScheduling = () => {
     }
   }, [applyManualRecovery]);
 
-  const getCalendarData = useCallback(
-    async (startDate?: Date, endDate?: Date): Promise<{ events: CalendarEvent[]; error?: string }> => {
-      const result = await schedulingService.getCalendarData(startDate, endDate);
-      if (!result.error) {
-        setCalendarEvents(result.events);
-      }
-      return result;
-    },
-    [],
-  );
-
-  const getExecutionHistory = useCallback(
-    async (scheduleId?: string, limit = 50): Promise<any[]> => {
-      try {
-        const { data } = await schedulingAPI.getExecutionHistory(scheduleId, limit);
-        if (!data.success) {
-          throw new Error(data.message || 'Failed to load execution history');
-        }
-        return (data.data as any[]) ?? [];
-      } catch (err) {
-        throw new Error(extractErrorMessage(err));
-      }
-    },
-    [],
-  );
-
   const selectSchedule = useCallback((schedule: ScheduledExperiment | null) => {
     setSelectedSchedule(schedule);
   }, []);
@@ -488,8 +441,7 @@ const useScheduling = () => {
     loadArchivedSchedules();
     getQueueStatus();
     getSchedulerStatus();
-    getCalendarData();
-  }, [loadSchedules, loadArchivedSchedules, getQueueStatus, getSchedulerStatus, getCalendarData]);
+  }, [loadSchedules, loadArchivedSchedules, getQueueStatus, getSchedulerStatus]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -510,8 +462,6 @@ const useScheduling = () => {
       error,
       archivedError,
       archivedInitialized,
-      lastRefresh,
-      calendarEvents,
       queueStatus,
       hamiltonStatus,
       schedulerRunning,
@@ -534,8 +484,6 @@ const useScheduling = () => {
       error,
       archivedError,
       archivedInitialized,
-      lastRefresh,
-      calendarEvents,
       queueStatus,
       hamiltonStatus,
       schedulerRunning,
@@ -568,8 +516,6 @@ const useScheduling = () => {
       loadNotificationLogs,
       getQueueStatus,
       getSchedulerStatus,
-      getCalendarData,
-      getExecutionHistory,
       selectSchedule,
       clearError,
     }),
@@ -590,8 +536,6 @@ const useScheduling = () => {
       loadNotificationLogs,
       getQueueStatus,
       getSchedulerStatus,
-      getCalendarData,
-      getExecutionHistory,
       selectSchedule,
       clearError,
     ],

@@ -81,15 +81,12 @@ from backend.api.maintenance import router as maintenance_router
 from backend.api.logfiles import router as logfiles_router
 
 # Import services for initialization
-from backend.services.database import get_database_service
-from backend.services.monitoring import get_monitoring_service
 from backend.services.hxrun_maintenance import get_hxrun_maintenance_service
 
 # Import embedded resource manager
 # Only use embedded mode when running as compiled executable
 import sys
 is_compiled = getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS')
-SERVE_FRONTEND_FROM_BACKEND = True  # Always serve static frontend assets from backend
 
 try:
     from backend.services.embedded_resources import get_resource_manager
@@ -101,26 +98,15 @@ if not EMBEDDED_MODE:
     logger = logging.getLogger(__name__)
     logger.info("Running in development mode - serving from filesystem")
 
-# Configure comprehensive logging with rotation and rate limiting
+# Configure the application logs
 from backend.utils.data_paths import DataPathManager
 
-from backend.utils.logging_setup import apply_rate_limit_filters, setup_logging
+from backend.utils.logging_setup import setup_logging
 
 
 def _env_flag(name: str, default: str = "0") -> bool:
     value = os.getenv(name, default)
     return value.lower() in {"1", "true", "yes", "on"}
-
-
-def _env_int(name: str, default: int) -> int:
-    raw = os.getenv(name)
-    if not raw:
-        return default
-    try:
-        parsed = int(raw)
-        return parsed if parsed > 0 else default
-    except ValueError:
-        return default
 
 
 def _env_scheduler_autostart_delay(name: str, default: int) -> Optional[int]:
@@ -149,16 +135,9 @@ log_level = getattr(logging, log_level_name, logging.INFO)
 console_level_name = os.getenv("ROBOTCONTROL_CONSOLE_LOG_LEVEL", log_level_name).upper()
 console_level = getattr(logging, console_level_name, log_level)
 
-retention_days = _env_int("ROBOTCONTROL_LOG_RETENTION_DAYS", 14)
-error_retention_days = _env_int("ROBOTCONTROL_LOG_ERROR_RETENTION_DAYS", 30)
-use_json_logs = _env_flag("ROBOTCONTROL_LOG_JSON")
-
 logging_handlers = setup_logging(
     logs_dir,
     log_level=log_level,
-    retention_days=retention_days,
-    error_retention_days=error_retention_days,
-    use_json=use_json_logs,
     console_level=console_level,
 )
 
@@ -171,7 +150,6 @@ backend_loggers = [
     "backend.services.camera",
     "backend.services.shared_frame_buffer",
     "backend.services.experiment_monitor",
-    "backend.services.monitoring",
     "backend.services.scheduling",
     "backend.services.scheduling.scheduler_engine",
     "backend.services.scheduling.experiment_executor",
@@ -184,16 +162,12 @@ backend_loggers = [
 
 verbosity_overrides = {
     "backend.services.automatic_recording": logging.WARNING,
-    "backend.services.monitoring": logging.WARNING,
     "backend.services.camera": logging.WARNING,
     "backend.services.storage_manager": logging.WARNING,
     "backend.services.experiment_monitor": logging.WARNING,
     "backend.services.shared_frame_buffer": logging.WARNING,
     "backend.services": logging.INFO,
     "backend.utils.data_paths": logging.WARNING,
-    "uvicorn": logging.WARNING,
-    "uvicorn.error": logging.WARNING,
-    "uvicorn.access": logging.WARNING,
 }
 
 for logger_name in backend_loggers:
@@ -205,50 +179,21 @@ for logger_name in backend_loggers:
     target_logger.setLevel(target_level)
     target_logger.propagate = True
 
-rate_limit_config = {
-    "backend.services.automatic_recording": os.getenv("ROBOTCONTROL_LOG_RATE_LIMIT_AUTOMATION", "60"),
-    "backend.services.monitoring": os.getenv("ROBOTCONTROL_LOG_RATE_LIMIT_MONITORING", "30"),
-}
-rate_limit_config = {k: v for k, v in rate_limit_config.items() if v not in {None, ""}}
-apply_rate_limit_filters(rate_limit_config, exempt_level=logging.WARNING)
-
 _SCHEDULER_AUTOSTART_DELAY_SECONDS: Optional[int] = _env_scheduler_autostart_delay(
     "ROBOTCONTROL_SCHEDULER_AUTOSTART_DELAY_SECONDS",
     60,
 )
 _scheduler_autostart_task: Optional[asyncio.Task] = None
-STATIC_ACCESS_PATH_PREFIXES = ("/assets/", "/favicon.ico")
-
-
-class SuppressStaticAccessFilter(logging.Filter):
-    """Filter uvicorn access log entries that represent static asset hits."""
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        request_line = ""
-        if isinstance(record.args, dict):
-            request_line = record.args.get("request_line") or ""
-        elif isinstance(record.args, tuple) and record.args:
-            request_line = record.args[1] if len(record.args) > 1 else ""
-
-        if any(prefix in request_line for prefix in STATIC_ACCESS_PATH_PREFIXES):
-            return False
-
-        message = record.getMessage()
-        return not any(prefix in message for prefix in STATIC_ACCESS_PATH_PREFIXES)
 
 
 def configure_uvicorn_logging(handlers=logging_handlers) -> None:
-    """Configure uvicorn loggers to use our handlers and filters."""
+    """Configure uvicorn loggers to use our handlers."""
     uvicorn_logger = logging.getLogger("uvicorn")
     uvicorn_access_logger = logging.getLogger("uvicorn.access")
     uvicorn_error_logger = logging.getLogger("uvicorn.error")
 
-    if not any(isinstance(f, SuppressStaticAccessFilter) for f in uvicorn_access_logger.filters):
-        uvicorn_access_logger.addFilter(SuppressStaticAccessFilter())
-
     for uv_logger in (uvicorn_logger, uvicorn_access_logger, uvicorn_error_logger):
         uv_logger.handlers = []
-        uv_logger.setLevel(max(logging.WARNING, log_level))
         uv_logger.propagate = False
         uv_logger.addHandler(handlers.console)
         uv_logger.addHandler(handlers.application)
@@ -295,26 +240,11 @@ async def _auto_start_scheduler_after_delay(delay_seconds: int) -> None:
 # Get logger for this module
 logger = logging.getLogger(__name__)
 
-logger.info(
-    "Backend logging initialized | file=%s | alias=%s | retention_days=%s | error_file=%s | error_alias=%s | json=%s",
-    logging_handlers.application.baseFilename,
-    getattr(logging_handlers.application, "alias_path", None) or "alias-disabled",
-    retention_days,
-    getattr(logging_handlers.error, "baseFilename", None),
-    getattr(logging_handlers.error, "alias_path", None) or "alias-disabled",
-    use_json_logs,
-)
-
 # Lifespan context manager for startup/shutdown
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application startup and shutdown sequences."""
-    session_marker = "=" * 72
-    logger.info("")
-    logger.info(session_marker)
-    logger.info("Backend session starting | pid=%s", os.getpid())
-
-    logger.info("Starting RobotControl Backend...")
+    logger.info("Starting RobotControl %s; data folder=%s", __version__, data_paths.base_path)
     from backend.services.log_readers import LogReaderManager
     try:
         app.state.log_readers = await asyncio.to_thread(LogReaderManager, app.state.log_reader_cache)
@@ -338,13 +268,6 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             logger.warning("Resource diagnostics unavailable: %s", exc)
 
-    logger.info("All services configured for lazy loading")
-    logger.info("Authentication: ready (will initialize on first login)")
-    logger.info("Database: ready (will connect on first query)")
-    logger.info("Camera: ready (will initialize on first access)")
-    logger.info("Monitoring: ready (will start on first request)")
-    logger.info("Streaming: ready (will activate on first connection)")
-    logger.info("Scheduling: ready (will load on first scheduler access)")
     
     global _scheduler_autostart_task
     if _SCHEDULER_AUTOSTART_DELAY_SECONDS is not None:
@@ -386,7 +309,6 @@ async def lifespan(app: FastAPI):
         logger.warning("Failed to start HxRun maintenance enforcer: %s", exc)
 
     get_pyhsl_monitor().start()
-    logger.info("RobotControl Backend startup complete - all services ready for lazy loading!")
     try:
         yield
     finally:
@@ -412,12 +334,6 @@ async def lifespan(app: FastAPI):
             _scheduler_autostart_task = None
         
         try:
-            db_service = get_database_service()
-            db_service.clear_connection_pool()
-
-            monitoring_service = get_monitoring_service()
-            monitoring_service.stop_monitoring()
-
             try:
                 from backend.services.live_streaming import get_live_streaming_service
                 streaming_service = get_live_streaming_service()
@@ -526,15 +442,6 @@ def graceful_shutdown(signum=None, frame=None):
         except Exception as e:
             logger.warning(f"Error stopping automatic recording service: {e}")
             
-        # Stop monitoring service
-        try:
-            from backend.services.monitoring import get_monitoring_service
-            monitoring_service = get_monitoring_service()
-            monitoring_service.stop_monitoring()
-            logger.info("Monitoring service stopped")
-        except Exception as e:
-            logger.warning(f"Error stopping monitoring service: {e}")
-
         try:
             hxrun_maintenance_service = get_hxrun_maintenance_service()
             hxrun_maintenance_service.stop()
@@ -630,9 +537,9 @@ if EMBEDDED_MODE:
         return Response(content=content, headers=headers, media_type=mime_type)
 
 else:
-    # Development mode - optionally serve from filesystem if explicitly enabled
+    # Development mode serves the built frontend from the filesystem
     frontend_dist = Path(project_root) / "frontend" / "dist"
-    if SERVE_FRONTEND_FROM_BACKEND and frontend_dist.exists():
+    if frontend_dist.exists():
         # Use manual route for development mode to avoid catching API routes
         @app.get("/{path:path}", response_class=HTMLResponse, include_in_schema=False)
         async def serve_static_dev(request: Request, path: str):
@@ -677,8 +584,6 @@ else:
             return Response(content=content, media_type=mime_type)
             
         logger.info(f"Development mode: serving static files from {frontend_dist}")
-    elif not SERVE_FRONTEND_FROM_BACKEND:
-        logger.info("Static asset serving disabled; expecting external web server (set ROBOTCONTROL_SERVE_FRONTEND=1 to re-enable backend asset serving)")
     else:
         logger.info("No frontend build found - API only mode")
 
@@ -718,8 +623,6 @@ async def root():
             "health": "/health"
         }
     }
-
-
 
 
 # API info endpoint
@@ -795,15 +698,12 @@ Examples:
   RobotControl.exe                    # Start server on default port 8005
   RobotControl.exe --port 8080        # Start server on port 8080
   RobotControl.exe --host 127.0.0.1   # Start server on localhost only
-  RobotControl.exe --no-browser       # Start without opening browser
         """
     )
     parser.add_argument('--port', type=int, default=8005, 
                        help='Port to run the server on (default: 8005)')
     parser.add_argument('--host', type=str, default="0.0.0.0",
                        help='Host to bind the server to (default: 0.0.0.0)')
-    parser.add_argument('--no-browser', action='store_true',
-                       help='Do not automatically open browser')
     parser.add_argument('--version', action='version', version=f"RobotControl {__version__}")
     
     args = parser.parse_args()
@@ -814,7 +714,6 @@ Examples:
     signal.signal(signal.SIGTERM, graceful_shutdown)
     atexit.register(graceful_shutdown)
     
-    logger.info("Starting RobotControl Backend Server...")
     
     # Detect if running as compiled executable
     is_compiled = getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS')
@@ -825,7 +724,6 @@ Examples:
     reload = False  # Auto-reload disabled to keep sessions clean
     
     logger.info(f"Running mode: {'Compiled executable' if is_compiled else 'Development'}")
-    logger.info("Auto-reload: Disabled")
     logger.info(f"Server will start on http://{host}:{port}")
     
     # Initialize system tray (only in compiled mode for now)
@@ -873,7 +771,7 @@ Examples:
                 port=port,
                 reload=False,
                 log_level="info",
-                access_log=True,
+                access_log=False,
                 proxy_headers=False,  # Access checks must retain the actual socket peer.
                 use_colors=False,  # Disable colors in compiled mode
                 log_config=None,  # Use existing logger configuration
@@ -918,5 +816,3 @@ Examples:
 
 if __name__ == "__main__":
     main()
-
-

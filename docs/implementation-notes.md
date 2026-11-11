@@ -1,3 +1,11 @@
+## 2026-11-11 Unify clip retention and identify run logs
+
+Removed the unused ZIP-member preview route; archives still use reader sessions. Rolling clips have one clean-up, which keeps the 120 newest by file name (the recording time), not by modified time, and holds the archive lock. Lines the scheduler writes for one run, from the queue line to the alert email, end with `run=<first 8 of the execution ID>`; a PyHSL run's start line also names its PyHSL run ID. Lines from the process monitor, experiment monitor and automatic recording carry no tag.
+
+## 2026-11-11 Remove unused service paths
+
+Removed unused scheduler, monitoring, camera, database and startup code. Scheduling no longer fetches unread calendar data and database browsing uses one paging path. Backup messages now go to the main log; `backup_service.log` is no longer written (old copies stay). `RobotControl.exe --no-browser` is no longer accepted, so a shortcut that passes it stops the app from starting. Logs omit request lines and routine polling, and keep compressed history indefinitely.
+
 ## 2026-11-10 PyHSL Start safety checks
 
 - Scheduled PyHSL runs recheck launch safety immediately before every Start send,

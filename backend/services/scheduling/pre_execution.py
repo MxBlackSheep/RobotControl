@@ -4,7 +4,7 @@ A schedule's preparation is its pinned database package step (kind "preparation"
 DatabaseTools runs in a separate, time-limited process. Tokens of the retired built-in
 adapters refuse the run until an administrator reviews them (legacy_preparation).
 """
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 import json
 import logging
@@ -19,9 +19,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class PreExecutionRun:
     success: bool
-    steps: list = field(default_factory=list)
     failure_reason: Optional[str] = None
-    cleanup_required: bool = False
 
 
 class PreExecutionPipeline:
@@ -87,8 +85,3 @@ class PreExecutionPipeline:
         with self._db_manager.sqlite_db._get_connection() as conn:
             conn.execute('UPDATE LabPreparation SET status=?, message=? WHERE execution_id=?', (status, message, execution_id))
             conn.commit()
-
-    def cleanup(self, results):
-        # The EvoYeast selection remains active after a run. Do not invent a shared
-        # post-run reset: the previous marker cleanup performed no SQL.
-        pass

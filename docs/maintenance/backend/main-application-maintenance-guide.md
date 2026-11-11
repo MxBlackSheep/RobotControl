@@ -13,7 +13,7 @@ This guide explains how the FastAPI entry point, logging, static assets, and bui
   `DataPathManager` decides where logs, backups, and videos live (`project_root/data/*` in dev, executable folder in compiled mode).
 
 - `backend/utils/logging_setup.py`  
-  Builds rotating file handlers, optional JSON logs, and log rate limiting. Imported early in `main.py`.
+  Builds plain-text handlers for the main log and warnings-and-errors log. Imported early in `main.py`.
 
 - API routers included by `main.py`:
   - `backend/api/auth`, `backend/api/database`, `backend/api/camera`, `backend/api/monitoring`, `backend/api/scheduling`, `backend/api/labware`, `backend/api/maintenance`, `backend/api/admin`, `backend/api/system`, `backend/api/experiments`.
@@ -37,11 +37,15 @@ This guide explains how the FastAPI entry point, logging, static assets, and bui
    - Project root is added to `sys.path` before routers import, allowing relative imports inside packaged builds.
 
 2. **Logging**  
-   - `setup_logging(...)` builds handlers under `data/logs/`.  
-   - `configure_uvicorn_logging()` replaces uvicorn’s default handlers and filters out static-file access noise.
+   - `setup_logging(...)` builds handlers under `data/logs/`. All handlers share a
+     filter that appends `run=<first 8 of execution_id>` while an execution context
+     is active. Queueing, the job worker, restart reconciliation and run-log email
+     delivery set and reset that context; unrelated lines have no tag. PyHSL start
+     lines also include `pyhsl_run=<id>`.
+   - `configure_uvicorn_logging()` uses the application handlers; Uvicorn access logging is disabled.
 
 3. **Lifespan context** (`@asynccontextmanager lifespan`)  
-   - Logs startup banner.  
+   - Logs the version and data folder.
    - Schedules scheduler auto-start after `_SCHEDULER_AUTOSTART_DELAY_SECONDS` (default 60) unless env disables it (`ROBOTCONTROL_SCHEDULER_AUTOSTART_DELAY_SECONDS=disable`).  
    - Starts automatic recording if enabled.
    - Starts the HxRun maintenance enforcer service so external HxRun launches are blocked whenever the persistent flag is enabled.
@@ -55,7 +59,7 @@ This guide explains how the FastAPI entry point, logging, static assets, and bui
    - In packaged builds the system-tray “Terminate” now toggles `server.should_exit`; avoid calling `sys.exit()` there or pystray will log a handler error.
 
 6. **Shutdown block in lifespan**  
-   - Cancels pending auto-start task, clears DB pool, stops monitoring/live streaming/auto-recording/scheduler/camera in a predictable order.
+   - Cancels pending auto-start task and stops live streaming/auto-recording/scheduler/camera in a predictable order.
    - Stops the HxRun maintenance enforcer thread.
 
 ---
@@ -91,10 +95,9 @@ This guide explains how the FastAPI entry point, logging, static assets, and bui
 - Shutdown sequence order matters:  
   1. Stop camera (saves clips).  
   2. Stop auto-recording (releases watchers).  
-  3. Stop monitoring (ends WebSockets).  
-  4. Stop live streaming, scheduler, and clear DB pools.
+  3. Stop live streaming and scheduler.
 
-- Startup logs show readiness for each service (lazy loading). If a service fails to import, check logs right after “Backend session starting” for stack traces.
+- Startup logs show the version, mode, address, data folder and scheduler startup. Service failures retain warnings and errors.
 
 - Set `ROBOTCONTROL_AUTO_RECORDING_ENABLED=0` before startup to disable automatic recordings during interface development. Combine it with the scheduler flag above. Recording remains enabled by default; `1`, `true`, `yes`, and `on` enable it explicitly.
 
@@ -108,13 +111,11 @@ This guide explains how the FastAPI entry point, logging, static assets, and bui
 
 - **Folders it ensures** (`data/` under base path): `backups`, `videos`, `logs`, `config`, `temp`.
 
-- **Log retention**  
-  - `ROBOTCONTROL_LOG_RETENTION_DAYS` (default 14).  
-  - `ROBOTCONTROL_LOG_ERROR_RETENTION_DAYS` (default 30).  
-  - Logs rotate daily, old files compress straight into `data/logs/history`, and only the live `robotcontrol_backend.log`/`robotcontrol_backend_error.log` stay in `data/logs/`.
-
-- **JSON logs**  
-  - Set `ROBOTCONTROL_LOG_JSON=1` for structured output (makes log ingestion easier).
+- **Log history**
+  - Main and warnings-and-errors logs rotate daily into `data/logs/history` as gzip files and are kept indefinitely.
+  - Only the live `robotcontrol_backend.log` and `robotcontrol_backend_error.log` stay in `data/logs/`.
+  - Backup messages use the main log. Existing `backup_service.log` files are left in place.
+  - Routine requests and expired access tokens do not fill the normal log; invalid tokens and failures remain visible.
 
 ---
 
@@ -150,8 +151,6 @@ This guide explains how the FastAPI entry point, logging, static assets, and bui
 | Update LogFile allowlisted folders | `backend/api/logfiles.py` (`LOGFILE_SOURCES`) | Add/edit source IDs + Windows paths. Keep IDs stable because frontend stores selected source by ID. |
 | Update allowed CORS origins | `app.add_middleware(CORSMiddleware, allow_origins=[...])` | Add your host or port, redeploy backend, confirm browser requests include it. |
 | Change default port | `backend/main.py:main()` | Run `uv run --locked python backend/main.py --port 9000` (dev) or package with `--port`. For service installs, wrap command in a shortcut/batch file. |
-| Disable static serving (reverse proxy handles it) | Set `SERVE_FRONTEND_FROM_BACKEND = False` | Remove or comment out route, ensure proxy serves `frontend/dist`. |
-| Adjust log retention | Env vars | Set `ROBOTCONTROL_LOG_RETENTION_DAYS` / `ROBOTCONTROL_LOG_ERROR_RETENTION_DAYS`, restart backend, verify new numbers in startup log. |
 | Force scheduler to stay off | `ROBOTCONTROL_SCHEDULER_AUTOSTART_DELAY_SECONDS=disable` | Set the env var, restart backend, confirm logs say “Scheduler auto-start disabled by configuration.” |
 
 ---

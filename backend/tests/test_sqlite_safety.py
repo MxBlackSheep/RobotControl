@@ -54,7 +54,6 @@ def engine(db):
     value.run_log_monitor = SimpleNamespace(snapshots=lambda: [])
     value.db_manager = SchedulingDatabaseManager.__new__(SchedulingDatabaseManager)
     value.db_manager.sqlite_db = db
-    value._emit_event = Mock()
     return value
 
 

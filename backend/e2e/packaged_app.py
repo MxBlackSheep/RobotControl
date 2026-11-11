@@ -63,8 +63,7 @@ def launch(relocated, environment, number):
                 _refuse(f'Port {number} is already in use ({error.strerror}).', number)
     else:
         _refuse(f'Port {number} is already in use by {_describe(holders)}.', number)
-    return subprocess.Popen([str(relocated / 'RobotControl.exe'), '--host', '127.0.0.1', '--port', str(number),
-                             '--no-browser'], cwd=relocated, env=environment, creationflags=subprocess.CREATE_NO_WINDOW)
+    return subprocess.Popen([str(relocated / 'RobotControl.exe'), '--host', '127.0.0.1', '--port', str(number)], cwd=relocated, env=environment, creationflags=subprocess.CREATE_NO_WINDOW)
 
 
 def wait_until_serving(process, number, health, seconds=90):
@@ -92,4 +91,3 @@ def wait_until_serving(process, number, health, seconds=90):
             if process.poll() is not None or time.monotonic() > deadline:
                 raise
             time.sleep(.5)
-

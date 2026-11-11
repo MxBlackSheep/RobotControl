@@ -24,7 +24,8 @@ class TestCameraService:
             from backend.services.storage_manager import StorageManager
             with patch("backend.services.storage_manager.VIDEO_PATH", str(temp_video_path)):
                 service._storage_manager = StorageManager()
-            yield service
+            with patch("backend.services.storage_manager.get_storage_manager", return_value=service._storage_manager):
+                yield service
             service.shutdown()
             CameraService._instance = None
 
@@ -47,7 +48,8 @@ class TestExperimentArchiving(TestCameraService):
             })
         
         # Archive experiment
-        archive_path = camera_service.archive_experiment_videos(123, "TestMethod")
+        archive_path = camera_service._storage_manager.archive_experiment_videos(
+            "123", "TestMethod", camera_service.rolling_clips, camera_service.clips_lock).archive_path
         
         # Verify archive directory was created
         archive_dir = Path(archive_path)
@@ -73,7 +75,8 @@ class TestExperimentArchiving(TestCameraService):
                 "frame_count": 100
             })
         
-        archive_path = camera_service.archive_experiment_videos(123, "TestMethod")
+        archive_path = camera_service._storage_manager.archive_experiment_videos(
+            "123", "TestMethod", camera_service.rolling_clips, camera_service.clips_lock).archive_path
         
         # Verify only recent clips were archived
         archive_dir = Path(archive_path)
@@ -81,7 +84,6 @@ class TestExperimentArchiving(TestCameraService):
         
         # Should have fewer files than total clips due to age filtering
         assert len(archived_files) < 5
-
 
 
 class TestCameraLifecycle(TestCameraService):
@@ -215,7 +217,7 @@ class TestCameraLifecycle(TestCameraService):
         assert len(camera_service.rolling_clips) == 1
         assert camera_service.rolling_clips[0]["frame_count"] == 42
         assert camera_service.rolling_clips[0]["camera_id"] == 3
-        camera_service._cleanup_orphaned_files()
+        camera_service.cleanup_rolling_clips()
         assert partial.exists()
 
     def test_legacy_metadata_is_unknown(self, camera_service):
@@ -224,4 +226,4 @@ class TestCameraLifecycle(TestCameraService):
         assert camera_service.rolling_clips[0]["frame_count"] is None
 
     def test_health_when_disconnected_is_not_healthy(self, camera_service):
-        assert not camera_service.health_check()["healthy"]
+        assert camera_service.get_camera_status()["health"]["capture_state"] == "disconnected"

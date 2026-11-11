@@ -18,6 +18,8 @@ Failure cases:
 12. Ended occurrences reject stale edits; fresh/list tokens and in-flight edits work.
 13. Finalization serializes a concurrent edit; restart cannot repeat the occurrence.
 14. Keyword abort emails describe the next run; noted aborts describe recovery only.
+15. Queue, worker and email-delivery logs share the run ID; subsequent runs and unrelated
+    threads never inherit it.
 
 Exit-zero outcome cases:
 1. No SQL row, once: failed, one dispatch/email, schedule off, manual recovery.
@@ -175,7 +177,7 @@ class Fixture:
             estimated_duration=schedule.estimated_duration, recorded_minutes=execution.duration_minutes,
             context=context, attached=[], clip_attached=False, now=self.now)
         self.sent.append((trigger, context, alert))
-        return SimpleNamespace(sent=True, delivery_status='sent', error=None,
+        return SimpleNamespace(sent=True, cancelled=False, delivery_status='sent', error=None,
             recipients=['fixture@example.invalid'], attachments=[], attachment_notes=[],
             subject=alert.subject, body=alert.text())
 
@@ -249,6 +251,80 @@ def run():
             cases.append((name, function))
             return function
         return register
+
+    @case('run log context across queue, worker and delivery threads')
+    def run_logging(f):
+        import io
+        from backend.utils.logging_setup import setup_logging
+        root_logger = logging.getLogger()
+        previous_handlers, previous_level = root_logger.handlers[:], root_logger.level
+        handlers = setup_logging(f.root / 'logs', log_level=logging.DEBUG, console_level=logging.CRITICAL)
+        captured = io.StringIO()
+        capture = logging.StreamHandler(captured)
+        capture.setFormatter(handlers.application.formatter)
+        capture.addFilter(handlers.application.filters[0])
+        root_logger.addHandler(capture)
+        log = logging.getLogger('fixture.notification')
+        original_send = f.engine._notification_service.schedule_alert
+        def send(*args, **kwargs):
+            log.info('Notification delivery')
+            return original_send(*args, **kwargs)
+        f.engine._notification_service.schedule_alert = send
+        try:
+            for index in range(2):
+                schedule = f.schedule()
+                monitor = f.engine.run_log_monitor
+                delivery_done = Event()
+                def during_run():
+                    outside = Thread(target=lambda: log.info('Outside run thread'))
+                    outside.start()
+                    outside.join()
+                    if index == 0:
+                        monitor.clock = lambda: 0
+                        execution_id = f.prepared[-1]
+                        monitor.check(execution_id)
+                        monitor.clock = lambda: 301
+                        monitor.check(execution_id)
+                        original_deliver = monitor.deliver_pending
+                        def deliver(service_getter):
+                            try:
+                                original_deliver(service_getter)
+                            finally:
+                                log.info('Outside delivery context')
+                                delivery_done.set()
+                        monitor.deliver_pending = deliver
+                        monitor.start_delivery(lambda: SimpleNamespace(schedule_alert=send))
+                        assert delivery_done.wait(5), 'Email delivery thread did not finish'
+                        monitor.stop_delivery()
+                    f.engine._running = False
+                f.during_run = during_run
+                f.engine._running = True
+                f.engine.pyhsl_runner.unfinished = lambda: []
+                f.engine._process_due_job(schedule, f.now)
+                worker = Thread(target=f.engine._job_worker_loop)
+                worker.start()
+                worker.join(10)
+                assert not worker.is_alive(), 'Job worker did not finish'
+                execution_id = f.storage.get_execution_history(schedule.schedule_id)[0]['execution_id']
+                lines = captured.getvalue().splitlines()
+                run_lines = [line for line in lines if f'run={execution_id[:8]}' in line]
+                for message in ('Queued due job', 'Starting experiment execution', 'Executing Hamilton command',
+                                'HxRun exited', 'Experiment failed', 'Notification delivery'):
+                    assert any(message in line for line in run_lines), (message, run_lines)
+                assert all(line.count('run=') == 1 for line in run_lines)
+                log.info('Outside queue context')
+            lines = captured.getvalue().splitlines()
+            outside = [line for line in lines if 'Outside ' in line or 'worker loop stopped' in line]
+            assert outside and all('run=' not in line for line in outside), outside
+            assert sum('Notification delivery' in line for line in lines) == 3, lines
+            report['run_log'] = lines
+        finally:
+            f.engine._running = False
+            f.engine.run_log_monitor.stop_delivery()
+            for handler in root_logger.handlers:
+                handler.close()
+            root_logger.handlers = previous_handlers
+            root_logger.setLevel(previous_level)
 
     @case('1 fast once')
     def fast(f):

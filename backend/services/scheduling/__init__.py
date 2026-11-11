@@ -11,7 +11,7 @@ Contains all scheduling-related services:
 from .database_manager import SchedulingDatabaseManager, get_scheduling_database_manager
 from .process_monitor import HamiltonProcessMonitor, get_hamilton_process_monitor, is_hamilton_available
 from .scheduler_engine import SchedulerEngine, get_scheduler_engine
-from .experiment_executor import ExperimentExecutor, get_experiment_executor
+from .experiment_executor import ExperimentExecutor
 
 __all__ = [
     'SchedulingDatabaseManager',
@@ -22,5 +22,4 @@ __all__ = [
     'SchedulerEngine',
     'get_scheduler_engine',
     'ExperimentExecutor',
-    'get_experiment_executor'
 ]

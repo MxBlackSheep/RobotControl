@@ -85,67 +85,39 @@ class StorageManager:
             logger.error(f"Failed to create storage directories: {e}")
             raise
     
-    def cleanup_rolling_clips(self, max_clips: Optional[int] = None) -> StorageCleanupResult:
-        """
-        Clean up old rolling clips to maintain storage limits
-        
-        Args:
-            max_clips: Maximum clips to keep (uses config default if None)
-            
-        Returns:
-            StorageCleanupResult with cleanup statistics and any errors
-        """
+    def cleanup_rolling_clips(self, rolling_clips: deque, clips_lock: threading.Lock) -> StorageCleanupResult:
+        """Keep the newest finalized clip names under the archive/transcode lock."""
         cleanup_start = time.time()
         result = StorageCleanupResult()
-        
-        if max_clips is None:
-            max_clips = self.rolling_clips_limit
-        
         try:
-            with self.storage_lock:
-                # Get all rolling clips sorted by modification time (oldest first)
-                clips = []
-                if self.rolling_clips_path.exists():
-                    # One entry per clip: while it is stored as H.264 it may briefly have both formats.
-                    for clip_file in finalized_clips(self.rolling_clips_path):
-                        try:
-                            stat = clip_file.stat()
-                            clips.append((clip_file, stat.st_mtime, sum(f.stat().st_size for f in clip_files(clip_file))))
-                        except (OSError, FileNotFoundError) as e:
-                            logger.warning(f"Could not stat rolling clip {clip_file}: {e}")
-                
-                # Sort by modification time (oldest first)
-                clips.sort(key=lambda x: x[1])
-                
-                # Remove excess clips
-                clips_to_remove = len(clips) - max_clips
-                if clips_to_remove > 0:
-                    logger.info(f"Cleaning up {clips_to_remove} old rolling clips (limit: {max_clips})")
-                    
-                    for clip_file, _, size_bytes in clips[:clips_to_remove]:
-                        try:
-                            for format_file in clip_files(clip_file):
-                                format_file.unlink()
-                            clip_file.with_suffix(".json").unlink(missing_ok=True)
-                            result.rolling_clips_removed += 1
-                            result.storage_freed_bytes += size_bytes
-                            logger.debug(f"Removed old rolling clip: {clip_file.name}")
-                        except Exception as e:
-                            error_msg = f"Failed to remove rolling clip {clip_file}: {e}"
-                            logger.warning(error_msg)
-                            result.rolling_clips_errors.append(error_msg)
-                
-        except Exception as e:
-            error_msg = f"Error during rolling clips cleanup: {e}"
+            with clips_lock:
+                clips = finalized_clips(self.rolling_clips_path)
+                clips_to_remove = max(0, len(clips) - self.rolling_clips_limit)
+                for clip_file in clips[:clips_to_remove]:
+                    try:
+                        files = clip_files(clip_file)
+                        size_bytes = sum(path.stat().st_size for path in files)
+                        for path in files:
+                            path.unlink()
+                        clip_file.with_suffix(".json").unlink(missing_ok=True)
+                        result.rolling_clips_removed += 1
+                        result.storage_freed_bytes += size_bytes
+                    except OSError as exc:
+                        error_msg = f"Failed to remove rolling clip {clip_file}: {exc}"
+                        logger.warning(error_msg)
+                        result.rolling_clips_errors.append(error_msg)
+                kept = [clip for clip in rolling_clips if Path(clip["path"]).exists()]
+                rolling_clips.clear()
+                rolling_clips.extend(kept)
+        except Exception as exc:
+            error_msg = f"Error during rolling clips cleanup: {exc}"
             logger.error(error_msg)
             result.rolling_clips_errors.append(error_msg)
-        
         result.cleanup_duration_seconds = time.time() - cleanup_start
-        logger.info(f"Rolling clips cleanup completed - Removed: {result.rolling_clips_removed}, "
-                   f"Freed: {result.storage_freed_bytes / (1024*1024):.1f}MB")
-        
+        logger.info("Rolling clips cleanup completed - Removed: %s, Freed: %.1fMB",
+                    result.rolling_clips_removed, result.storage_freed_bytes / (1024 * 1024))
         return result
-    
+
     def cleanup_experiment_folders(self, max_folders: Optional[int] = None) -> StorageCleanupResult:
         """
         Clean up old experiment folders to maintain storage limits
@@ -390,7 +362,7 @@ class StorageManager:
         
         return stats
     
-    def cleanup_all_storage(self) -> StorageCleanupResult:
+    def cleanup_all_storage(self, rolling_clips: deque, clips_lock: threading.Lock) -> StorageCleanupResult:
         """
         Perform complete storage cleanup (rolling clips + experiment folders)
         
@@ -401,7 +373,7 @@ class StorageManager:
         cleanup_start = time.time()
         
         # Cleanup rolling clips
-        rolling_result = self.cleanup_rolling_clips()
+        rolling_result = self.cleanup_rolling_clips(rolling_clips, clips_lock)
         
         # Cleanup experiment folders
         folders_result = self.cleanup_experiment_folders()

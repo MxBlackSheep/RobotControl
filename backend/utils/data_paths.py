@@ -91,9 +91,6 @@ class DataPathManager:
         """Get the temp directory path"""
         return self._data_dirs['temp']
     
-    def get_backup_file_path(self, filename: str) -> Path:
-        """Get full path for a backup file"""
-        return self.backups_path / filename
     
     def is_compiled_mode(self) -> bool:
         """Check if running in compiled executable mode"""
@@ -126,9 +123,6 @@ def get_logs_path() -> Path:
     """Get the logs directory path"""
     return get_path_manager().logs_path
 
-def get_backup_file_path(filename: str) -> Path:
-    """Get full path for a backup file"""
-    return get_path_manager().get_backup_file_path(filename)
 
 def is_compiled_mode() -> bool:
     """Check if running in compiled executable mode"""

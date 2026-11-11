@@ -30,7 +30,7 @@ from backend.api.dependencies import ConnectionContext, get_connection_context
 from backend.services.camera import get_camera_service
 
 # Import types and config with proper package resolution
-from backend.models import UserModel, ApiResponse
+from backend.models import ApiResponse
 
 from backend.config import VIDEO_PATH, CAMERA_CONFIG
 
@@ -58,38 +58,38 @@ def _camera_operation(action, **kwargs):
 
 
 @router.get("/control-status")
-async def camera_control_status(current_user: UserModel = Depends(get_current_user)):
+async def camera_control_status(current_user: dict = Depends(get_current_user)):
     # Read cached state only: status polling never opens or reconnects hardware.
     return {"success": True, "data": get_camera_service().get_camera_status()}
 
 
 @router.post("/devices/refresh", status_code=202)
-async def refresh_camera_devices(current_user: UserModel = Depends(get_current_admin_user)):
+async def refresh_camera_devices(current_user: dict = Depends(get_current_admin_user)):
     return _camera_operation("refresh")
 
 
 @router.patch("/selection", status_code=202)
-async def select_camera(body: CameraSelectionRequest, current_user: UserModel = Depends(get_current_admin_user)):
+async def select_camera(body: CameraSelectionRequest, current_user: dict = Depends(get_current_admin_user)):
     return _camera_operation("select", identity=body.device_identity)
 
 
 @router.post("/connect", status_code=202)
-async def connect_camera(current_user: UserModel = Depends(get_current_admin_user)):
+async def connect_camera(current_user: dict = Depends(get_current_admin_user)):
     return _camera_operation("connect")
 
 
 @router.post("/reconnect", status_code=202)
-async def reconnect_camera(current_user: UserModel = Depends(get_current_admin_user)):
+async def reconnect_camera(current_user: dict = Depends(get_current_admin_user)):
     return _camera_operation("reconnect")
 
 
 @router.post("/recording/start", status_code=202)
-async def start_selected_camera(current_user: UserModel = Depends(get_current_admin_user)):
+async def start_selected_camera(current_user: dict = Depends(get_current_admin_user)):
     return _camera_operation("start")
 
 
 @router.post("/recording/stop", status_code=202)
-async def stop_selected_camera(current_user: UserModel = Depends(get_current_admin_user)):
+async def stop_selected_camera(current_user: dict = Depends(get_current_admin_user)):
     return _camera_operation("stop")
 
 # Camera system paths
@@ -232,7 +232,7 @@ async def list_recordings(
     camera_id: Optional[int] = None,
     recording_type: Optional[str] = None,
     limit: int = 50,
-    current_user: UserModel = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user)
 ):
     """
     Get list of camera recordings with optional filtering
@@ -348,7 +348,7 @@ async def download_recording(
     range_header: Optional[str] = Header(default=None, alias="Range"),
     if_range: Optional[str] = Header(default=None, alias="If-Range"),
     if_none_match: Optional[str] = Header(default=None, alias="If-None-Match"),
-    current_user: UserModel = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user)
 ):
     """
     Download a specific recording file
@@ -454,7 +454,7 @@ async def download_recording(
 @router.delete("/recording/{recording_id}")
 async def delete_recording(
     recording_id: str,
-    current_user: UserModel = Depends(get_current_admin_user)
+    current_user: dict = Depends(get_current_admin_user)
 ):
     """
     Delete a specific recording file (Admin only)
@@ -599,7 +599,7 @@ async def streaming_websocket(websocket: WebSocket, session_id: str):
 
 @router.get("/streaming/status")
 async def get_streaming_status(
-    current_user: UserModel = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user)
 ):
     """
     Get overall streaming service status.
@@ -615,7 +615,13 @@ async def get_streaming_status(
         service_status = streaming_service.get_status()
         
         # Include additional system information
-        resource_usage = streaming_service.get_resource_usage()
+        resource_usage = {
+            "active_sessions": len(service_status.active_sessions),
+            "total_bandwidth_mbps": service_status.total_bandwidth_mbps,
+            "resource_usage_percent": service_status.resource_usage_percent,
+            "priority_mode": service_status.priority_mode,
+            "recording_impact": service_status.recording_impact,
+        }
         
         return ApiResponse(
             success=True,

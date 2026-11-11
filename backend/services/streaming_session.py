@@ -13,7 +13,7 @@ from typing import Deque, Dict, Optional, Tuple
 from fastapi import WebSocket
 
 from backend.services.h264_encoder import AccessUnit
-from backend.services.streaming_types import StreamingSession, StreamControl, StreamFrame
+from backend.services.streaming_types import StreamingSession, StreamControl
 from backend.config import LIVE_STREAMING_CONFIG
 
 logger = logging.getLogger(__name__)
@@ -408,12 +408,7 @@ class StreamingSessionHandler:
                 "is_paused": self.is_paused
             }
 
-            message = StreamFrame(
-                type="status",
-                status=status
-            )
-
-            await self.websocket.send_json(message.to_dict())
+            await self.websocket.send_json({"type": "status", "status": status})
 
         except Exception as e:
             logger.error(f"Error sending status for session {self.session.session_id}: {e}")
@@ -421,29 +416,7 @@ class StreamingSessionHandler:
     async def send_error(self, error_message: str) -> None:
         """Show an error in this viewer's live view (JSON text message)."""
         try:
-            message = StreamFrame(
-                type="error",
-                error=error_message
-            )
-
-            await self.websocket.send_json(message.to_dict())
+            await self.websocket.send_json({"type": "error", "error": error_message})
 
         except Exception as e:
             logger.error(f"Error sending error message for session {self.session.session_id}: {e}")
-
-    def is_healthy(self) -> bool:
-        """
-        Check if session is healthy.
-
-        Returns:
-            True if session is operating normally
-        """
-        # Check if session is active
-        if not self.is_running or not self.session.is_active:
-            return True  # Not active is OK
-
-        # Check timeout
-        if self.session.is_timed_out(self.config["session_timeout_seconds"]):
-            return False
-
-        return True

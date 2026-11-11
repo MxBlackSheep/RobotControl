@@ -391,20 +391,6 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
 
 
   const renderMobileScheduleCards = () => {
-    if (sortedSchedules.length === 0) {
-      return (
-        <Box sx={{ p: 2 }}>
-          <Card variant="outlined">
-            <CardContent>
-              <Typography color="textSecondary" align="center">
-                {archivedView ? 'No archived schedules found' : 'No scheduled experiments found'}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Box>
-      );
-    }
-
     return (
       <Box sx={{ p: 2 }}>
         <Stack spacing={1}>
@@ -645,15 +631,7 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
             <Table stickyHeader>
               {renderTableHeader()}
               <TableBody>
-                {sortedSchedules.length === 0 ? (
-                  <TableRow>
-                  <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
-                    <Typography color="textSecondary">
-                      {archivedView ? 'No archived schedules found' : 'No scheduled experiments found'}
-                    </Typography>
-                    </TableCell>
-                  </TableRow>
-                ) : (
+                {
                   sortedSchedules.map((schedule) => {
                     const nextRun = getNextExecutionTime(schedule);
                     return (
@@ -734,7 +712,7 @@ const ScheduleList: React.FC<ScheduleListProps> = ({
                       </TableRow>
                     );
                   })
-                )}
+                }
               </TableBody>
             </Table>
           </TableContainer>

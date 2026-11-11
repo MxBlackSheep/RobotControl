@@ -18,7 +18,7 @@ def engine():
     engine = SchedulerEngine.__new__(SchedulerEngine)
     engine._jobs_lock = RLock(); engine._schedules_lock = RLock()
     engine._running_jobs = set(); engine._queued_backlog = set(); engine._active_schedules = {}
-    engine._queue_runtime = {}; engine._job_queue = Queue(); engine._emit_event = Mock()
+    engine._queue_runtime = {}; engine._job_queue = Queue()
     engine.config = SimpleNamespace(check_interval_seconds=30)
     return engine
 

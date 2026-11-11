@@ -16,227 +16,18 @@ Features:
 import os
 import json
 import logging
-import logging.handlers
 import subprocess
 import threading
 import time
-import traceback
 from datetime import datetime
 from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass, asdict
 from pathlib import Path
-from contextlib import contextmanager
 
 from backend.utils.data_paths import get_path_manager, get_backups_path
 from backend.utils.odbc_driver import build_connection_string, resolve_driver_clause
 
-project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-# Enhanced Logging Configuration
-def setup_backup_logging():
-    """
-    Setup comprehensive logging for backup operations.
-    Creates dedicated backup log file with detailed formatting and rotation.
-    """
-    backup_logger = logging.getLogger(__name__)
-    
-    # Prevent duplicate handlers
-    if backup_logger.handlers:
-        return backup_logger
-    
-    backup_logger.setLevel(logging.DEBUG)
-    
-    # Use data path manager for logs directory
-    try:
-        from backend.utils.data_paths import get_logs_path
-        log_file = get_logs_path() / "backup_service.log"
-    except ImportError:
-        # Fallback to traditional approach
-        log_dir = os.path.join(project_root, "logs")
-        os.makedirs(log_dir, exist_ok=True)
-        log_file = os.path.join(log_dir, "backup_service.log")
-    
-    # File handler with rotation (10MB max, keep 5 files)
-    file_handler = logging.handlers.RotatingFileHandler(
-        log_file, 
-        maxBytes=10*1024*1024,  # 10MB
-        backupCount=5
-    )
-    file_handler.setLevel(logging.DEBUG)
-    
-    # Console handler for immediate feedback
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
-    
-    # Detailed formatter with operation context
-    detailed_formatter = logging.Formatter(
-        '%(asctime)s | %(levelname)-8s | %(name)s | %(funcName)s:%(lineno)d | %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-    
-    # Simple formatter for console
-    simple_formatter = logging.Formatter(
-        '%(asctime)s - %(levelname)s - Backup: %(message)s',
-        datefmt='%H:%M:%S'
-    )
-    
-    file_handler.setFormatter(detailed_formatter)
-    console_handler.setFormatter(simple_formatter)
-    
-    backup_logger.addHandler(file_handler)
-    backup_logger.addHandler(console_handler)
-    
-    return backup_logger
-
-# Initialize enhanced logger
-logger = setup_backup_logging()
-
-# Performance and Operation Tracking
-@dataclass
-class OperationMetrics:
-    """Track detailed metrics for backup operations"""
-    operation_type: str
-    start_time: datetime
-    end_time: Optional[datetime] = None
-    duration_ms: Optional[int] = None
-    success: bool = False
-    file_size_bytes: Optional[int] = None
-    error_message: Optional[str] = None
-    recovery_suggestions: List[str] = None
-    
-    def __post_init__(self):
-        if self.recovery_suggestions is None:
-            self.recovery_suggestions = []
-    
-    def complete(self, success: bool = True, error_message: Optional[str] = None):
-        """Mark operation as complete and calculate duration"""
-        self.end_time = datetime.now()
-        self.duration_ms = int((self.end_time - self.start_time).total_seconds() * 1000)
-        self.success = success
-        self.error_message = error_message
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for logging"""
-        return {
-            'operation_type': self.operation_type,
-            'start_time': self.start_time.isoformat(),
-            'end_time': self.end_time.isoformat() if self.end_time else None,
-            'duration_ms': self.duration_ms,
-            'success': self.success,
-            'file_size_bytes': self.file_size_bytes,
-            'file_size_mb': round(self.file_size_bytes / (1024*1024), 2) if self.file_size_bytes else None,
-            'error_message': self.error_message,
-            'recovery_suggestions': self.recovery_suggestions
-        }
-
-@contextmanager
-def operation_tracker(operation_type: str, context: Dict[str, Any] = None):
-    """
-    Context manager for tracking backup operations with comprehensive logging
-    
-    Usage:
-        with operation_tracker('backup_create', {'filename': 'backup.bak'}) as metrics:
-            # perform operation
-            metrics.file_size_bytes = file_size
-    """
-    metrics = OperationMetrics(operation_type, datetime.now())
-    operation_id = f"{operation_type}_{int(time.time())}"
-    
-    try:
-        logger.info(f"Starting {operation_type} operation", 
-                   extra={'operation_id': operation_id, 'context': context or {}})
-        yield metrics
-        
-        # Success path
-        metrics.complete(success=True)
-        logger.info(f"{operation_type} completed successfully in {metrics.duration_ms}ms",
-                   extra={'operation_id': operation_id, 'metrics': metrics.to_dict()})
-        
-    except Exception as e:
-        # Error path with recovery suggestions
-        error_msg = str(e)
-        recovery_suggestions = _get_recovery_suggestions(operation_type, e)
-        
-        metrics.complete(success=False, error_message=error_msg)
-        metrics.recovery_suggestions = recovery_suggestions
-        
-        logger.error(f"{operation_type} failed after {metrics.duration_ms}ms: {error_msg}",
-                    extra={
-                        'operation_id': operation_id, 
-                        'metrics': metrics.to_dict(),
-                        'traceback': traceback.format_exc()
-                    })
-        
-        # Log recovery suggestions
-        if recovery_suggestions:
-            logger.info(f"Recovery suggestions for {operation_type}:",
-                       extra={'recovery_suggestions': recovery_suggestions})
-        
-        raise
-
-def _get_recovery_suggestions(operation_type: str, error: Exception) -> List[str]:
-    """Generate contextual recovery suggestions based on operation type and error"""
-    suggestions = []
-    error_msg = str(error).lower()
-    
-    # Common suggestions based on error patterns
-    if "timeout" in error_msg:
-        suggestions.extend([
-            "Increase operation timeout in configuration",
-            "Check for database locks or long-running queries",
-            "Verify SQL Server performance and resource availability",
-            "Consider running operation during low-activity periods"
-        ])
-    
-    if "permission" in error_msg or "access" in error_msg:
-        suggestions.extend([
-            "Verify SQL Server service account has backup privileges",
-            "Check file system permissions on backup directory",
-            "Ensure backup directory exists and is writable",
-            "Verify SQL Server can access backup file path"
-        ])
-    
-    if "connection" in error_msg or "network" in error_msg:
-        suggestions.extend([
-            "Verify SQL Server instance is running and accessible",
-            "Check network connectivity to database server",
-            "Verify connection string and authentication credentials",
-            "Check firewall settings for SQL Server port (1433)"
-        ])
-    
-    if "space" in error_msg or "disk" in error_msg:
-        suggestions.extend([
-            "Free up disk space on backup destination drive",
-            "Clean up old backup files to make room",
-            "Check available disk space before starting operations",
-            "Consider using compression for backup files"
-        ])
-    
-    # Operation-specific suggestions
-    if operation_type == 'backup_create':
-        suggestions.extend([
-            "Verify database is online and accessible",
-            "Check for exclusive database locks",
-            "Ensure backup directory has sufficient space",
-            "Consider differential backup for large databases"
-        ])
-    
-    elif operation_type == 'backup_restore':
-        suggestions.extend([
-            "Verify backup file integrity before restore",
-            "Ensure exclusive access to target database",
-            "Check database compatibility between backup and target",
-            "Verify sufficient space in database data directory"
-        ])
-    
-    elif operation_type == 'backup_delete':
-        suggestions.extend([
-            "Check if backup file is in use by another process",
-            "Verify file permissions allow deletion",
-            "Ensure backup file exists at expected location"
-        ])
-    
-    return suggestions
+logger = logging.getLogger(__name__)
 
 def get_available_disk_space(path: str) -> int:
     """Get available disk space for given path in bytes"""
@@ -433,7 +224,6 @@ class SqlCommandExecutor:
             return False, "Backup file was not created"
         except OSError as exc:
             return False, f"Could not verify backup file: {exc}"
-
 
 
 def open_restore_connection(timeout: int):
@@ -766,25 +556,6 @@ class BackupService:
         
         logger.info(f"BackupService initialized - Database: {self.database_name}, Server: {self.sql_server}")
     
-    def _estimate_backup_size(self) -> Optional[int]:
-        """
-        Estimate backup size based on database size (rough approximation)
-        Returns None if estimation fails
-        """
-        try:
-            # This is a rough estimation - actual backup size varies based on compression
-            # and database content. In practice, backups are often 10-50% of database size.
-            # For safety, we'll assume 30% of database size
-            
-            # You could implement actual database size querying here:
-            # sql_command = f"SELECT SUM(size) * 8 * 1024 FROM sys.master_files WHERE database_id = DB_ID('{self.database_name}')"
-            
-            # For now, return None to skip size estimation if it fails
-            return None
-        except Exception as e:
-            logger.debug(f"Could not estimate backup size: {e}")
-            return None
-
     def _recover_database_connections(self, timeout_seconds: int = 30) -> Optional[str]:
         """Verify the database is reachable after a restore."""
         deadline = time.time() + timeout_seconds
@@ -845,86 +616,74 @@ class BackupService:
         
         backup_file_path = None
 
-        # Use comprehensive operation tracking
-        with operation_tracker('backup_create', {
-            'database': self.database_name,
-            'server': self.sql_server,
-            'description_length': len(description)
-        }) as metrics:
+        start_time = time.perf_counter()
+        logger.info("Starting backup creation for %s", self.database_name)
+        try:
+            with self._operation_lock:
+                # Chosen under the lock, when the backup starts: overlapping creates must not share a name.
+                backup_filename = self._unused_backup_filename()
+                backup_file_path = validate_file_path(os.path.join(self.backup_dir, backup_filename))
+                validate_file_path(backup_file_path.replace('.bak', '.json'))
+                logger.debug(f"Backup paths validated - File: {backup_file_path}")
 
-            try:
-                with self._operation_lock:
-                    # Chosen under the lock, when the backup starts: overlapping creates must not share a name.
-                    backup_filename = self._unused_backup_filename()
-                    backup_file_path = validate_file_path(os.path.join(self.backup_dir, backup_filename))
-                    validate_file_path(backup_file_path.replace('.bak', '.json'))
-                    logger.debug(f"Backup paths validated - File: {backup_file_path}")
-
-                    # Check available disk space
-                    try:
-                        available_space = get_available_disk_space(self.backup_dir)
-                        logger.info(f"Available disk space: {format_file_size(available_space)}")
-                        
-                        # Estimate backup size (rough estimate: 10-30% of data size)
-                        estimated_size = self._estimate_backup_size()
-                        if estimated_size and available_space < (estimated_size * 1.5):  # 50% buffer
-                            raise BackupOperationError(
-                                "Insufficient disk space for backup operation",
-                                "LOW_DISK_SPACE"
-                            )
-                            
-                        logger.debug(f"Estimated backup size: {format_file_size(estimated_size) if estimated_size else 'unknown'}")
-                    except Exception as e:
-                        logger.warning(f"WARNING: Could not check disk space: {e}")
+                # Check available disk space
+                try:
+                    available_space = get_available_disk_space(self.backup_dir)
+                    logger.info(f"Available disk space: {format_file_size(available_space)}")
                     
-                    # SQL Server writes to the same path RobotControl reads, so it must
-                    # run on this machine or see BACKUP_DIR under the same name.
-                    success, message = self._sql_executor.perform_backup(backup_file_path)
-                    if not success:
-                        raise BackupOperationError(
-                            f"SQL Server backup failed: {message}",
-                            "SQL_BACKUP_FAILED"
-                        )
-                    
-                    logger.debug("Backup command executed successfully via sqlcmd: %s", message)
-                    
-                    # Verify backup file was created and get size
-                    if not os.path.exists(backup_file_path):
-                        raise BackupOperationError("Backup file was not created by SQL Server", "FILE_NOT_CREATED")
+                except Exception as e:
+                    logger.warning(f"WARNING: Could not check disk space: {e}")
 
-                    # Get file size and update metrics
-                    file_size = os.path.getsize(backup_file_path)
-                    metrics.file_size_bytes = file_size
-
-                    logger.info("Backup file created: %s (%s)", backup_filename, format_file_size(file_size))
-
-                    # Save metadata alongside the backup, still under the lock so a delete cannot
-                    # run between the .bak and its .json.
-                    self._metadata_store.save(
-                        backup_filename,
-                        description.strip(),
-                        self.database_name,
-                        self.sql_server,
-                        file_size
+                # SQL Server writes to the same path RobotControl reads, so it must
+                # run on this machine or see BACKUP_DIR under the same name.
+                success, message = self._sql_executor.perform_backup(backup_file_path)
+                if not success:
+                    raise BackupOperationError(
+                        f"SQL Server backup failed: {message}",
+                        "SQL_BACKUP_FAILED"
                     )
 
-                # operation_tracker will log success automatically
-                return BackupResult(
-                    success=True,
-                    message="Backup created successfully",
-                    filename=backup_filename,
-                    file_size=file_size,
-                    duration_ms=metrics.duration_ms
+                logger.debug("Backup command executed successfully via sqlcmd: %s", message)
+
+                # Verify backup file was created and get size
+                if not os.path.exists(backup_file_path):
+                    raise BackupOperationError("Backup file was not created by SQL Server", "FILE_NOT_CREATED")
+
+                # Get the completed backup size
+                file_size = os.path.getsize(backup_file_path)
+
+                logger.info("Backup file created: %s (%s)", backup_filename, format_file_size(file_size))
+
+                # Save metadata alongside the backup, still under the lock so a delete cannot
+                # run between the .bak and its .json.
+                self._metadata_store.save(
+                    backup_filename,
+                    description.strip(),
+                    self.database_name,
+                    self.sql_server,
+                    file_size
                 )
-                
-            except (BackupValidationError, BackupSecurityError) as e:
-                raise BackupOperationError(str(e), "VALIDATION_ERROR")
-                
-            except Exception as e:
-                # Log additional context for unexpected errors
-                logger.debug(f"Backup operation context - File: {backup_file_path}, Description length: {len(description)}")
-                raise BackupOperationError(f"Unexpected error during backup: {str(e)}", "UNEXPECTED_ERROR")
-    
+
+            duration_ms = int((time.perf_counter() - start_time) * 1000)
+            logger.info("Backup created in %sms", duration_ms)
+            return BackupResult(
+                success=True,
+                message="Backup created successfully",
+                filename=backup_filename,
+                file_size=file_size,
+                duration_ms=duration_ms
+            )
+
+        except (BackupValidationError, BackupSecurityError) as e:
+            logger.exception("Backup creation failed after %sms", int((time.perf_counter() - start_time) * 1000))
+            raise BackupOperationError(str(e), "VALIDATION_ERROR")
+
+        except Exception as e:
+            logger.exception("Backup creation failed after %sms", int((time.perf_counter() - start_time) * 1000))
+            # Log additional context for unexpected errors
+            logger.debug(f"Backup operation context - File: {backup_file_path}, Description length: {len(description)}")
+            raise BackupOperationError(f"Unexpected error during backup: {str(e)}", "UNEXPECTED_ERROR")
+
     def _unused_backup_filename(self) -> str:
         """Call under _operation_lock. Names are per second and BACKUP ... WITH INIT overwrites,
         so a name already on disk gets a _2, _3, ... suffix instead."""
@@ -1089,14 +848,12 @@ class BackupService:
             
             logger.info(f"Starting database restore from path: {backup_path}")
             
-            with self._operation_lock, operation_tracker('restore_from_path', {'file_path': str(backup_path)}) as metrics:
+            with self._operation_lock:
                 success, message = self._restore_database(str(backup_path), warnings)
                 if not success:
                     raise BackupError(f"Database restore failed: {message}")
 
-                logger.info("Database restore completed successfully")
-                metrics.file_size_bytes = file_size
-                metrics.success = True
+                logger.info("Database restore completed in %sms", int((datetime.now() - start_time).total_seconds() * 1000))
 
             # Create successful result
             execution_time = (datetime.now() - start_time).total_seconds()
@@ -1117,7 +874,7 @@ class BackupService:
             )
             
         except Exception as e:
-            logger.error(f"Restore from path failed: {e}")
+            logger.exception("Restore from path failed after %sms: %s", int((datetime.now() - start_time).total_seconds() * 1000), e)
             execution_time = (datetime.now() - start_time).total_seconds()
             
             return RestoreResult(

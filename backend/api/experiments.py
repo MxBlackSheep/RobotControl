@@ -35,7 +35,6 @@ async def get_latest_experiment(current_user: dict = Depends(get_current_user)):
             ORDER BY StartTime DESC
         """
         
-        logger.info("Fetching latest experiment from HamiltonVectorDB")
         result = await run_in_threadpool(db.execute_query, query)
         
         if result.get("error"):
@@ -67,7 +66,6 @@ async def get_latest_experiment(current_user: dict = Depends(get_current_user)):
             metadata.add_metadata("method_name", experiment_data["method_name"])
             metadata.add_metadata("run_state", experiment_data["run_state"])
             
-            logger.info(f"Latest experiment: {experiment_data['method_name']} ({experiment_data['run_state']})")
             return ResponseFormatter.success(
                 data=experiment_data,
                 metadata=metadata,
@@ -81,7 +79,6 @@ async def get_latest_experiment(current_user: dict = Depends(get_current_user)):
             metadata.add_metadata("user_id", current_user.get("user_id"))
             metadata.add_metadata("experiment_found", False)
             
-            logger.info("No experiments found in HamiltonVectorDB")
             return ResponseFormatter.success(
                 data=None,
                 metadata=metadata,
@@ -95,4 +92,3 @@ async def get_latest_experiment(current_user: dict = Depends(get_current_user)):
             message="Experiment data unavailable",
             details=str(e) if logger.level <= logging.DEBUG else None
         )
-

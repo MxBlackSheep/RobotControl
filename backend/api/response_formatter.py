@@ -31,7 +31,7 @@ This ensures consistent response handling in the frontend:
 
 from typing import Any, Dict, Optional
 from datetime import datetime
-from fastapi import HTTPException, status
+from fastapi import status
 from fastapi.responses import JSONResponse
 import time
 import logging
@@ -350,35 +350,3 @@ class ResponseFormatter:
             data=data,
             metadata=metadata
         )
-    
-    @staticmethod
-    def from_exception(exception: Exception, metadata: Optional[ResponseMetadata] = None) -> JSONResponse:
-        """
-        Convert an exception to a standardized error response.
-        
-        Args:
-            exception: The exception to convert
-            metadata: Optional response metadata
-            
-        Returns:
-            JSONResponse with error format
-        """
-        if isinstance(exception, HTTPException):
-            # FastAPI HTTPException
-            return ResponseFormatter.error(
-                message=exception.detail,
-                error_code=f"HTTP_{exception.status_code}",
-                status_code=exception.status_code,
-                metadata=metadata
-            )
-        
-        # Generic exception
-        logger.error(f"Unhandled exception in API: {exception}", exc_info=True)
-        
-        return ResponseFormatter.server_error(
-            message="An unexpected error occurred",
-            details=str(exception),
-            metadata=metadata
-        )
-
-

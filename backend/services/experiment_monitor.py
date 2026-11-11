@@ -11,7 +11,6 @@ import logging
 import time
 from datetime import datetime
 from typing import Dict, Any, Optional, Callable, List
-from dataclasses import dataclass, field
 
 from backend.config import AUTO_RECORDING_CONFIG
 from backend.services.automatic_recording_types import (
@@ -23,59 +22,6 @@ from backend.utils.datetime import parse_iso_datetime_to_local
 
 # Configure logging
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class ExperimentMonitorStats:
-    """Statistics for experiment monitoring operations"""
-    
-    # Monitoring statistics
-    total_checks_performed: int = 0
-    successful_checks: int = 0
-    failed_checks: int = 0
-    experiments_detected: int = 0
-    completions_detected: int = 0
-    
-    # Timing information
-    monitor_start_time: Optional[datetime] = None
-    last_check_time: Optional[datetime] = None
-    last_success_time: Optional[datetime] = None
-    last_error_time: Optional[datetime] = None
-    
-    # Error tracking
-    consecutive_failures: int = 0
-    error_messages: List[str] = field(default_factory=list)
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for API responses"""
-        return {
-            "total_checks_performed": self.total_checks_performed,
-            "successful_checks": self.successful_checks,
-            "failed_checks": self.failed_checks,
-            "experiments_detected": self.experiments_detected,
-            "completions_detected": self.completions_detected,
-            "monitor_start_time": self.monitor_start_time.isoformat() if self.monitor_start_time else None,
-            "last_check_time": self.last_check_time.isoformat() if self.last_check_time else None,
-            "last_success_time": self.last_success_time.isoformat() if self.last_success_time else None,
-            "last_error_time": self.last_error_time.isoformat() if self.last_error_time else None,
-            "consecutive_failures": self.consecutive_failures,
-            "recent_errors": self.error_messages[-5:]  # Last 5 errors only
-        }
-    
-    @property
-    def success_rate(self) -> float:
-        """Calculate success rate as percentage"""
-        if self.total_checks_performed == 0:
-            return 0.0
-        return (self.successful_checks / self.total_checks_performed) * 100.0
-    
-    @property
-    def is_healthy(self) -> bool:
-        """Check if monitor is in healthy state"""
-        return (
-            self.consecutive_failures < 5 and  # Less than 5 consecutive failures
-            self.success_rate >= 70.0          # At least 70% success rate
-        )
 
 
 class ExperimentMonitor:
@@ -107,13 +53,11 @@ class ExperimentMonitor:
         
         # Experiment state tracking
         self.current_experiment: Optional[ExperimentState] = None
-        self.experiment_history: Dict[str, ExperimentState] = {}  # run_guid -> ExperimentState
         
         # Event callbacks
         self.completion_callbacks: List[Callable[[ExperimentState], None]] = []
         
-        # Statistics and health monitoring
-        self.stats = ExperimentMonitorStats()
+        self.last_check_time: Optional[datetime] = None
         
         # Thread safety
         self.monitor_lock = threading.Lock()
@@ -129,9 +73,9 @@ class ExperimentMonitor:
             
             logger.info("Starting experiment monitoring thread")
             
-            # Reset stop event and stats
+            # Reset the check time when monitoring restarts
             self.stop_event.clear()
-            self.stats = ExperimentMonitorStats(monitor_start_time=datetime.now())
+            self.last_check_time = None
             
             # Start monitoring thread
             self.monitor_thread = threading.Thread(
@@ -184,10 +128,10 @@ class ExperimentMonitor:
         with self.monitor_lock:
             return self.current_experiment
     
-    def get_monitor_stats(self) -> ExperimentMonitorStats:
-        """Get monitoring statistics (thread-safe)"""
+    def get_last_check_time(self) -> Optional[datetime]:
+        """Get the last check time under the monitor lock."""
         with self.monitor_lock:
-            return self.stats
+            return self.last_check_time
     
     def _monitoring_worker(self):
         """Main monitoring loop running in background thread"""
@@ -214,10 +158,9 @@ class ExperimentMonitor:
         check_start_time = datetime.now()
         
         try:
-            # Update check statistics
+            # Record attempts even when the query fails.
             with self.monitor_lock:
-                self.stats.total_checks_performed += 1
-                self.stats.last_check_time = check_start_time
+                self.last_check_time = check_start_time
             
             # Query latest experiment from database
             experiment_data = self._query_latest_experiment()
@@ -239,14 +182,12 @@ class ExperimentMonitor:
                     # First experiment detected
                     logger.info(f"First experiment detected: {new_experiment.method_name} ({new_experiment.run_state.value})")
                     state_changed = True
-                    self.stats.experiments_detected += 1
                     
                 elif self.current_experiment.run_guid != new_experiment.run_guid:
                     # New experiment started
                     logger.info(f"New experiment detected: {new_experiment.method_name} "
                                f"(was: {self.current_experiment.method_name})")
                     state_changed = True
-                    self.stats.experiments_detected += 1
                     
                 elif self.current_experiment.run_state != new_experiment.run_state:
                     # Same experiment, state changed
@@ -261,18 +202,12 @@ class ExperimentMonitor:
                         self.current_experiment.run_state not in [ExperimentStateType.COMPLETE, ExperimentStateType.ABORTED]):
                         completion_detected = True
                         new_experiment.is_newly_completed = True
-                        self.stats.completions_detected += 1
                         logger.info(f"Experiment completion detected: {new_experiment.method_name} (state: {new_experiment.run_state.value})")
                 
                 # Update current experiment if changed
                 if state_changed:
                     self.current_experiment = new_experiment
-                    self.experiment_history[new_experiment.run_guid] = new_experiment
                 
-                # Update success statistics
-                self.stats.successful_checks += 1
-                self.stats.last_success_time = check_start_time
-                self.stats.consecutive_failures = 0
             
             # Fire completion callbacks (outside of lock to prevent deadlock)
             if completion_detected:
@@ -281,19 +216,6 @@ class ExperimentMonitor:
             logger.debug(f"Experiment check completed successfully - State: {new_experiment.run_state.value}")
             
         except Exception as e:
-            # Handle check failure
-            with self.monitor_lock:
-                self.stats.failed_checks += 1
-                self.stats.last_error_time = check_start_time
-                self.stats.consecutive_failures += 1
-                
-                error_msg = f"Experiment check failed: {e}"
-                self.stats.error_messages.append(error_msg)
-                
-                # Keep only last 10 error messages
-                if len(self.stats.error_messages) > 10:
-                    self.stats.error_messages = self.stats.error_messages[-10:]
-            
             logger.warning(f"Failed to check experiment state: {e}")
     
     def _query_latest_experiment(self) -> Optional[Dict[str, Any]]:

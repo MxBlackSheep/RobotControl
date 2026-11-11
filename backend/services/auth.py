@@ -223,7 +223,6 @@ class AuthService:
         password_hash = self.get_password_hash(new_password)
         self.db.update_password(user.id, password_hash, must_reset=False)
         self.db.revoke_tokens_for_user(user.id)
-        self.db.clear_must_reset(user.id)
         logger.info("User '%s' changed password", user.username)
         return True
 
@@ -277,8 +276,6 @@ class AuthService:
         """Compatibility helper returning raw database row."""
         return self.db.get_user_by_username(username)
 
-    def clear_must_reset(self, user_id: int) -> None:
-        self.db.clear_must_reset(user_id)
 
     def get_user_by_id(self, user_id: str) -> Optional[User]:
         row = self.db.get_user_by_id(int(user_id))
@@ -304,9 +301,6 @@ class AuthService:
         )
         return users
 
-    def get_all_users(self) -> List[Dict[str, Any]]:
-        """Backward-compatible alias for admin API."""
-        return self.get_user_list()
 
     def get_password_reset_requests(
         self,
@@ -326,8 +320,6 @@ class AuthService:
             resolution_note=resolution_note,
         )
 
-    def delete_password_reset_request(self, request_id: int) -> None:
-        self.db.delete_password_reset_request(request_id)
 
     def toggle_user_active(self, username: str) -> bool:
         success = self.db.toggle_user_active(username)
@@ -415,7 +407,7 @@ class AuthService:
             return self._row_to_user(row)
 
         except jwt.ExpiredSignatureError:
-            logger.warning("Access token expired")
+            logger.debug("Access token expired")
             return None
         except jwt.InvalidTokenError as exc:
             logger.warning("Invalid access token: %s", exc)

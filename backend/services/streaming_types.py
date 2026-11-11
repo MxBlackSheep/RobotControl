@@ -148,31 +148,3 @@ class StreamControl:
             'type': self.type,
             'parameters': self.parameters
         }
-
-
-@dataclass
-class StreamFrame:
-    """Serialized frame/control payload sent over WebSocket."""
-    type: str
-    data: Optional[str] = None
-    frame: Optional[str] = None
-    status: Optional[Dict[str, Any]] = None
-    error: Optional[str] = None
-    timestamp: Optional[float] = None
-    frame_number: Optional[int] = None
-
-    def to_dict(self) -> Dict[str, Any]:
-        payload: Dict[str, Any] = {'type': self.type}
-        if self.data is not None:
-            payload['data'] = self.data
-        if self.frame is not None:
-            payload['frame'] = self.frame
-        if self.status is not None:
-            payload['status'] = self.status
-        if self.error is not None:
-            payload['error'] = self.error
-        if self.timestamp is not None:
-            payload['timestamp'] = self.timestamp
-        if self.frame_number is not None:
-            payload['frame_number'] = self.frame_number
-        return payload

@@ -9,7 +9,7 @@ import { expect, test } from '@playwright/test';
  */
 test.beforeEach(async ({page}) => {
   await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));
-  await page.route('**/api/database/tables?*', route => route.fulfill({json:{success:true,data:{table_details:[{name:'PageSamples',has_data:true,is_important:true}]}}}));
+  await page.route('**/api/database/tables?*', route => route.fulfill({json:{success:true,data:{table_details:[{name:'PageSamples',has_data:true}]}}}));
   await page.route('**/api/database/tables/PageSamples?*', route => {
     const params = new URL(route.request().url()).searchParams;
     const offset = (Number(params.get('page') || 1)-1)*Number(params.get('limit') || 25);

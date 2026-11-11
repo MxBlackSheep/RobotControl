@@ -30,7 +30,6 @@ class AutomaticRecordingService:
     - Automatic recording startup with configurable delay
     - Integration with camera service for recording management
     - Experiment completion detection and video archiving
-    - Manual override support for user control
     - Comprehensive status tracking and error handling
     """
     
@@ -62,7 +61,6 @@ class AutomaticRecordingService:
         self.recording_camera_id: Optional[int] = None
         self.automation_start_time: Optional[datetime] = None
         self.last_experiment_check: Optional[datetime] = None
-        self.manual_override_active = False
         
         # Error tracking
         self.error_message: Optional[str] = None
@@ -138,7 +136,6 @@ class AutomaticRecordingService:
                 self.current_state = AutomationState.STARTING
                 self.automation_start_time = datetime.now()
                 self.stop_event.clear()
-                self.manual_override_active = False
                 self.error_message = None
                 
                 # Start delayed startup thread
@@ -167,13 +164,10 @@ class AutomaticRecordingService:
             self._handle_error(error_msg)
             return False
     
-    def stop_automatic_recording(self, manual_stop: bool = False) -> bool:
+    def stop_automatic_recording(self) -> bool:
         """
         Stop automatic recording and cleanup
         
-        Args:
-            manual_stop: Whether this is a manual stop (user-initiated)
-            
         Returns:
             True if stop was successful
         """
@@ -183,14 +177,12 @@ class AutomaticRecordingService:
                     logger.info("AutoRecording | event=stop_ignored | reason=already_stopped")
                     return True
                 
-                logger.info("AutoRecording | event=stop_requested | manual=%s", manual_stop)
+                logger.info("Automatic recording stop requested")
                 
                 # Update state
                 self.current_state = AutomationState.STOPPING
                 self.stop_event.set()
                 
-                if manual_stop:
-                    self.manual_override_active = True
             
             # Stop experiment monitoring
             if self.experiment_monitor and self.experiment_monitor.is_monitoring_active():
@@ -243,13 +235,13 @@ class AutomaticRecordingService:
             except Exception as e:
                 logger.debug(f"Could not get storage statistics: {e}")
             
-            # Get experiment monitor statistics
-            monitor_stats = None
+            # Get the last experiment check time
+            last_experiment_check = None
             try:
                 if self.experiment_monitor:
-                    monitor_stats = self.experiment_monitor.get_monitor_stats()
+                    last_experiment_check = self.experiment_monitor.get_last_check_time()
             except Exception as e:
-                logger.debug(f"Could not get monitor statistics: {e}")
+                logger.debug(f"Could not get last experiment check time: {e}")
             
             status = AutomationStatus(
                 is_active=(self.current_state == AutomationState.ACTIVE),
@@ -259,7 +251,7 @@ class AutomaticRecordingService:
                 rolling_clips_limit=AUTO_RECORDING_CONFIG["rolling_clips_limit"],
                 experiment_folders_limit=AUTO_RECORDING_CONFIG["experiment_folders_limit"],
                 archive_duration_minutes=AUTO_RECORDING_CONFIG["archive_duration_minutes"],
-                last_experiment_check=monitor_stats.last_check_time if monitor_stats else None,
+                last_experiment_check=last_experiment_check,
                 rolling_clips_count=storage_stats.get("rolling_clips_count", 0),
                 experiment_folders_count=storage_stats.get("experiment_folders_count", 0),
                 total_experiments_archived=self.total_experiments_archived,
@@ -270,82 +262,6 @@ class AutomaticRecordingService:
             
             return status
     
-    def handle_manual_override(self, action: str, camera_id: Optional[int] = None) -> Dict[str, Any]:
-        """
-        Handle manual recording override actions
-        
-        Args:
-            action: "start" or "stop"
-            camera_id: Camera ID for manual start (uses primary if None)
-            
-        Returns:
-            Dictionary with operation result
-        """
-        try:
-            if action == "stop":
-                # Manual stop - disable automatic restart
-                success = self.stop_automatic_recording(manual_stop=True)
-                return {
-                    "success": success,
-                    "action": "stop",
-                    "message": "Automatic recording stopped manually" if success else "Failed to stop recording",
-                    "manual_override": True
-                }
-                
-            elif action == "start":
-                # Manual start - override delay and start immediately
-                target_camera_id = self.primary_camera_id if camera_id is None else camera_id
-                
-                with self.state_lock:
-                    if self.current_state == AutomationState.ACTIVE:
-                        return {
-                            "success": False,
-                            "action": "start",
-                            "message": "Automatic recording is already active",
-                            "camera_id": self.recording_camera_id
-                        }
-                    
-                    # Reset override flag and start immediately
-                    self.manual_override_active = False
-                
-                success = self._start_camera_recording(target_camera_id)
-                
-                if success:
-                    # Start experiment monitoring
-                    self._setup_experiment_monitoring()
-                    
-                    with self.state_lock:
-                        self.current_state = AutomationState.ACTIVE
-                    
-                    return {
-                        "success": True,
-                        "action": "start",
-                        "message": f"Manual recording started on camera {target_camera_id}",
-                        "camera_id": target_camera_id,
-                        "manual_override": True
-                    }
-                else:
-                    return {
-                        "success": False,
-                        "action": "start", 
-                        "message": f"Failed to start manual recording on camera {target_camera_id}",
-                        "camera_id": target_camera_id
-                    }
-            
-            else:
-                return {
-                    "success": False,
-                    "message": f"Unknown manual override action: {action}"
-                }
-                
-        except Exception as e:
-            error_msg = f"Manual override error: {e}"
-            logger.error(error_msg)
-            self._handle_error(error_msg)
-            return {
-                "success": False,
-                "message": error_msg
-            }
     
     def _delayed_startup_worker(self):
         """Worker thread that handles delayed automatic recording startup"""
@@ -359,9 +275,9 @@ class AutomaticRecordingService:
                     self.current_state = AutomationState.STOPPED
                 return
             
-            # Check if we should still start (no manual override)
+            # Check whether startup was cancelled
             with self.state_lock:
-                if self.manual_override_active or self.current_state != AutomationState.STARTING:
+                if self.current_state != AutomationState.STARTING:
                     logger.info("AutoRecording | event=start_cancelled | reason=state_change")
                     self.current_state = AutomationState.STOPPED
                     return
@@ -541,7 +457,7 @@ class AutomaticRecordingService:
         """Schedule storage cleanup in background thread"""
         def cleanup_worker():
             try:
-                cleanup_result = self.storage_manager.cleanup_all_storage()
+                cleanup_result = self.storage_manager.cleanup_all_storage(self.camera_service.rolling_clips, self.camera_service.clips_lock)
                 logger.info("AutoRecording | event=storage_cleanup | removed=%s | freed_mb=%.1f", cleanup_result.total_items_removed, cleanup_result.storage_freed_bytes / (1024*1024))
             except Exception as e:
                 logger.error("AutoRecording | event=storage_cleanup_error | error=%s", e)
@@ -554,11 +470,11 @@ class AutomaticRecordingService:
         try:
             stats = self.storage_manager.get_storage_statistics()
             rolling_clips_count = stats["rolling_clips_count"]
-            rolling_clips_limit = AUTO_RECORDING_CONFIG["rolling_clips_limit"]
+            rolling_clips_limit = self.storage_manager.rolling_clips_limit
             
             if rolling_clips_count > rolling_clips_limit:
                 logger.info("AutoRecording | event=startup_cleanup_needed | clips=%s | limit=%s", rolling_clips_count, rolling_clips_limit)
-                cleanup_result = self.storage_manager.cleanup_rolling_clips()
+                cleanup_result = self.storage_manager.cleanup_rolling_clips(self.camera_service.rolling_clips, self.camera_service.clips_lock)
                 logger.info("AutoRecording | event=startup_cleanup_done | removed=%s | freed_mb=%.1f", cleanup_result.rolling_clips_removed, cleanup_result.storage_freed_bytes / (1024*1024))
             else:
                 logger.info("AutoRecording | event=startup_cleanup_skipped | clips=%s | limit=%s", rolling_clips_count, rolling_clips_limit)
@@ -584,7 +500,7 @@ class AutomaticRecordingService:
                     # Get current storage statistics
                     stats = self.storage_manager.get_storage_statistics()
                     rolling_clips_count = stats["rolling_clips_count"]
-                    rolling_clips_limit = AUTO_RECORDING_CONFIG["rolling_clips_limit"]
+                    rolling_clips_limit = self.storage_manager.rolling_clips_limit
                     
                     # Check if we're exceeding the threshold
                     if rolling_clips_count > rolling_clips_limit + self.cleanup_threshold_buffer:
@@ -603,7 +519,7 @@ class AutomaticRecordingService:
                 # Perform cleanup if needed
                 if should_cleanup:
                     try:
-                        cleanup_result = self.storage_manager.cleanup_rolling_clips()
+                        cleanup_result = self.storage_manager.cleanup_rolling_clips(self.camera_service.rolling_clips, self.camera_service.clips_lock)
                         logger.info("AutoRecording | event=cleanup_periodic | removed=%s | freed_mb=%.1f", cleanup_result.rolling_clips_removed, cleanup_result.storage_freed_bytes / (1024*1024))
                     except Exception as e:
                         logger.error("AutoRecording | event=cleanup_periodic_error | error=%s", e)
