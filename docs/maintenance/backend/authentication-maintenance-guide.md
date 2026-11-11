@@ -58,6 +58,8 @@ This guide walks through the authentication stack so you always know **which fil
 7. **Admin resolves reset** (`POST /api/admin/password-reset/requests/{id}/resolve`).  
    Admin sets a new password (bcrypt hash), optionally requires `must_reset`, and previous refresh tokens are revoked so old sessions die.
 
+8. **User under review.** `check_user` (`backend/services/auth.py`) checks the stored fields: user name of 1 to 100 characters, role admin or user, a bcrypt hash, and an email containing "@" (only that: the built-in `admin@localhost` must pass; the register and email forms keep their stricter rule). Register, the bootstrap admin and the email change call it; `_row_to_user` derives `review_reason` from it on every read, so nothing is stored. `authenticate_user`, `verify_token` and `refresh_access_token` refuse a user under review with the usual 401; `request_password_reset` accepts one. The Admin user list returns `review_reason`. The way out is the admin's reset password (clears a hash reason), Edit email (clears an email reason) or Delete. Check: `backend/e2e/stored_data_check.py`, which also proves every user of a copy of this PC's installed sign-in database passes.
+
 ---
 
 ## 3. Storage, Secrets, and Configuration

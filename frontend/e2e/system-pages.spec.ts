@@ -14,6 +14,9 @@ import { test, expect } from '@playwright/test';
 // - On a 390x844 phone the Databases state ("1 cannot connect") is below the first screen.
 // - An expired access token makes System Status reads fail with 401 forever instead of
 //   renewing the sign-in once.
+// Admin users:
+// - A user under review (review_reason) hides its chip or reason; a refused Reset & Resolve
+//   clears the chip; a successful one leaves it.
 // Keyboard shortcuts:
 // - Alt+number stops navigating, or navigates while a dialog is open.
 // - ? no longer opens the help list, or the list disagrees with the shortcuts that work.
@@ -472,3 +475,42 @@ test('keyboard shortcuts navigate, show their help and yield to dialogs', async 
   await page.keyboard.press('Alt+8');
   await expect(page).toHaveURL(/\/about$/);
 });
+
+for (const accepted of [true, false]) {
+  test(`a user under review: ${accepted ? 'Reset & Resolve clears the chip' : 'a refused reset keeps the chip'}`, async ({ page }) => {
+    await page.route('**/api/auth/me', route => route.fulfill({ json: { success: true, data: { user_id: 'viewer-admin', username: 'admin', role: 'admin', session_is_local: true, session: { is_local: true } } } }));
+    const reason = 'password hash is not recognised';
+    let current: string | null = reason;
+    await page.route('**/api/admin/users', route => route.fulfill({ json: { success: true, data: [
+      { username: 'admin', email: 'admin@localhost', role: 'admin', review_reason: null },
+      { username: 'night', email: 'night@example.com', role: 'user', review_reason: current }] } }));
+    await page.route('**/api/admin/password-reset/requests', route => route.fulfill({ json: { success: true, data: [
+      { id: 7, username: 'night', email: 'night@example.com', status: 'pending', requested_at: '2026-11-11T09:00:00' }] } }));
+    await page.route('**/api/admin/users/night/reset-password', route => {
+      if (!accepted) return route.fulfill({ status: 404, json: { success: false, detail: 'User not found' } });
+      current = null;
+      return route.fulfill({ json: { success: true, data: { username: 'night', must_reset: true } } });
+    });
+    await page.route('**/api/admin/password-reset/requests/7/resolve', route => route.fulfill({ json: { success: true, data: { id: 7, status: 'resolved' } } }));
+    await page.goto('/admin');
+    const row = page.getByRole('listitem').filter({ hasText: 'night@example.com' });
+    await expect(row).toContainText('Needs review');
+    await expect(row).toContainText(reason);
+    await expect(page.getByRole('listitem').filter({ hasText: 'admin@localhost' })).not.toContainText('Needs review');
+    await page.getByRole('tab', { name: 'Password reset requests', exact: true }).click();
+    await page.getByRole('button', { name: 'Reset password', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Reset password for night', exact: true });
+    await dialog.getByLabel('Temporary password').fill('temporary-123');
+    await dialog.getByRole('button', { name: 'Reset & Resolve', exact: true }).click();
+    if (accepted) {
+      await expect(dialog).toHaveCount(0);
+    } else {
+      await page.getByRole('dialog', { name: 'Server Error', exact: true }).getByRole('button', { name: 'Close', exact: true }).click();
+      await expect(dialog).toContainText('User not found');
+      await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    }
+    await page.getByRole('tab', { name: 'User accounts', exact: true }).click();
+    if (accepted) await expect(row).not.toContainText('Needs review');
+    else await expect(row).toContainText(reason);
+  });
+}

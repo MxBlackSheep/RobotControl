@@ -56,6 +56,8 @@ process changes.
 Login uses the same appearance control as the shell, and the choice survives logout.
 User and reset-request rows in Administration wrap their actions under long names on
 phones. Local administrators find storage previews and repairs at `/admin?section=storage`.
+A user with `review_reason` cannot sign in: its row shows the Needs review chip and the reason
+under the row. Reset & Resolve on that user's reset request, Edit email or Delete clears it.
 
 ## Troubleshooting
 

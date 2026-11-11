@@ -37,6 +37,7 @@ interface UserSummary {
   role: string;
   created_at?: string;
   last_login?: string;
+  review_reason?: string | null;
 }
 
 interface PasswordResetRequest {
@@ -298,6 +299,12 @@ const UserManagement: React.FC<UserManagementProps> = ({ onError, section }) => 
                       </IconButton>
                     </Tooltip>
                   </Stack>
+                  {user.review_reason && (
+                    <Stack direction="row" alignItems="center" spacing={1} sx={{ gridColumn: '1 / -1', minWidth: 0, pb: 0.5 }}>
+                      <StatusChip tone="attention" label="Needs review" />
+                      <Typography sx={{ fontSize: 13, color: 'text.secondary', overflowWrap: 'anywhere' }}>{user.review_reason}</Typography>
+                    </Stack>
+                  )}
                 </Box>
               ))}
 

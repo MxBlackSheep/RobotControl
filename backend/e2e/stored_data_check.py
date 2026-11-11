@@ -15,6 +15,11 @@ edited back or deleted; an alert whose every recipient is under review leaves no
 Email settings: a stored row that fails the settings check reads as unconfigured (defaults),
 hides its values or reason, returns the password, still sends (test or alert), or stays
 under review after a valid save; a database that never had settings reads as under review.
+Users: any user of a copy of this PC's installed sign-in database, the administrator with
+its dot-less email above all, fails the check (a lockout); a user under review is missing
+from the Admin list or hides its reason, signs in, keeps a working access or refresh token,
+cannot request a password reset, stays under review after the admin's reset or email edit,
+or cannot be deleted; another user cannot sign in. No email or hash is printed.
 """
 from contextlib import closing, contextmanager
 import hashlib
@@ -594,6 +599,80 @@ def email_settings_review_checks(root):
     print('PASS: email settings review keeps stored values, sends nothing, clears on save; a fresh database is not under review')
 
 
+def user_review_checks(root):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from backend.api import admin as admin_api, auth as auth_api
+    from backend.services import auth as module
+    from backend.services.auth_database import AuthDatabase
+
+    installed = Path.home() / 'Documents/RobotControl/data/robotcontrol_auth.db'
+    assert installed.is_file(), f'Installed fixture missing: {installed}'
+    before = digest(installed)
+    copied = root / 'installed-auth.db'
+    shutil.copyfile(installed, copied)
+    with patch.object(module, 'get_auth_database', return_value=AuthDatabase(str(copied))):
+        service = module.AuthService()
+    rows = service.db.list_users()
+    reasons = [service._row_to_user(row).review_reason for row in rows]
+    assert len(rows) == 4 and reasons == [None] * 4, f'{len(rows)} users, reasons {reasons}'
+    assert any(row['role'] == 'admin' and '.' not in row['email'].split('@', 1)[1] for row in rows), 'Dot-less administrator email missing from the fixture'
+    assert digest(installed) == before
+
+    with patch.object(module, 'get_auth_database', return_value=AuthDatabase(str(root / 'users.db'))):
+        service = module.AuthService()
+    app = FastAPI()
+    app.include_router(auth_api.router)
+    app.include_router(admin_api.router, prefix='/api/admin')
+    app.dependency_overrides[module.get_auth_service] = lambda: service
+    with patch.object(module, 'get_auth_service', return_value=service), \
+         patch.object(admin_api, 'get_auth_service', return_value=service), \
+         TestClient(app, client=('127.0.0.1', 1)) as client:
+        def sign_in(username, password):
+            return client.post('/api/auth/login', json={'username': username, 'password': password})
+        for name in ('broken', 'other'):
+            service.register_user(name, f'{name}@example.test', 'first-password')
+        admin = sign_in(module.DEFAULT_ADMIN_USERNAME, module.DEFAULT_ADMIN_PASSWORD)
+        assert admin.status_code == 200, admin.text
+        bearer = {'Authorization': f"Bearer {admin.json()['data']['access_token']}"}
+        tokens = sign_in('broken', 'first-password').json()['data']
+        with service.db._get_connection() as conn:
+            conn.execute("UPDATE users SET password_hash='' WHERE username='broken'")
+            conn.commit()
+
+        def listed():
+            reply = client.get('/api/admin/users', headers=bearer)
+            assert reply.status_code == 200, reply.text
+            return {row['username']: row.get('review_reason', 'missing') for row in reply.json()['data']}
+        users = listed()
+        assert users['broken'] and users['broken'] != 'missing' and users['other'] is None and users['admin'] is None, users
+        assert sign_in('broken', 'first-password').status_code == 401
+        assert client.get('/api/auth/me', headers={'Authorization': f"Bearer {tokens['access_token']}"}).status_code == 401
+        assert client.post('/api/auth/refresh', json={'refresh_token': tokens['refresh_token']}).status_code == 401
+        assert sign_in('other', 'first-password').status_code == 200
+        reply = client.post('/api/auth/password-reset/request', json={'username': 'broken', 'note': 'locked out'})
+        assert reply.status_code == 202 and reply.json()['data'].get('request_id'), reply.text
+        reply = client.post('/api/admin/users/broken/reset-password', headers=bearer, json={'new_password': 'second-password', 'must_reset': False})
+        assert reply.status_code == 200, reply.text
+        assert listed()['broken'] is None and sign_in('broken', 'second-password').status_code == 200
+
+        with service.db._get_connection() as conn:
+            conn.execute("UPDATE users SET email='other-without-at' WHERE username='other'")
+            conn.commit()
+        assert listed()['other'] and sign_in('other', 'first-password').status_code == 401
+        reply = client.put('/api/admin/users/other/email', headers=bearer, json={'email': 'other@example.com'})
+        assert reply.status_code == 200, reply.text
+        assert listed()['other'] is None and sign_in('other', 'first-password').status_code == 200
+
+        with service.db._get_connection() as conn:
+            conn.execute("UPDATE users SET password_hash='not a hash' WHERE username='other'")
+            conn.commit()
+        assert listed()['other']
+        assert client.delete('/api/admin/users/other', headers=bearer).status_code == 200
+        assert 'other' not in listed()
+    print('PASS: installed users pass the user check; a user under review is listed, refused sign-in and tokens, reset, edited and deleted')
+
+
 def run():
     with tempfile.TemporaryDirectory(prefix='rc-stored-data-') as folder:
         root = Path(folder)
@@ -606,6 +685,7 @@ def run():
         existing_run_review_checks(root)
         contact_review_checks(root)
         email_settings_review_checks(root)
+        user_review_checks(root)
 
 
 if __name__ == '__main__':
