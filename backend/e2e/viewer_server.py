@@ -345,7 +345,7 @@ def queue_status():
         is_running=True,
         queue=dict(queue_size=0, queued_jobs=0, running_jobs=0, max_parallel_jobs=1, capacity_available=True,
                    running_job_details=[], queued_job_details=[], execution_windows=[], hamilton_available=True),
-        hamilton=dict(is_running=False, process_count=0, availability='available', last_check='2026-09-30T12:00:00'),
+        hamilton=dict(is_running=False),
         manual_recovery=dict(active=False, safety_revision=1, storage_healthy=True, pending_recoveries=[])))
 
 

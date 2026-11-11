@@ -7,7 +7,7 @@ license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.14,<3.15"
 dependencies = [
-    # Preserve existing password hashes and Passlib's bcrypt backend compatibility.
+    # Preserve existing hashes and password behaviour, including passwords over 72 bytes.
     "bcrypt==4.3.0",
     "fastapi>=0.141.1",
     "uvicorn[standard]>=0.52.4",

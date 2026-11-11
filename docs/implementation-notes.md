@@ -1,12 +1,31 @@
-2026-11-11: Schedule lists read last-run times through the database manager; SQL workflow fixtures supply the scheduler read contract and explicitly select their viewer database.
+## 2026-11-11 Stored schedules under review, simpler Schedules and Camera pages
 
-2026-11-11: Schedule lists report the latest finished run and engine-owned next run; queue status includes scheduler running state, replacing the separate scheduler status route.
-
-2026-11-11: Monitoring uses live process reads and one recording watcher; finalized clips share one storage owner. Database restores reserve launch admission, saved settings upgrade at read boundaries, log tails share reader decoding, and lifespan owns shutdown. Sign-in uses bcrypt directly and checks current account state for every token.
-
-2026-11-11: Invalid stored schedules remain available for review and repair without dispatch; hourly schedules upgrade to one-hour intervals, old preparation suggestions are removed, and both runners wait in queue order through the same execution owner.
-
-2026-11-11: Scheduling storage now runs backed-up, numbered upgrades; failed upgrades hold dispatch and explain the failure in Storage health, paused deletions use the engine locks, and refused updates write nothing.
+- Stored data has versions. The scheduling database, the sign-in database, `report-sources.json` and `installed.json`
+  each record a version and upgrade in numbered steps, with a backup first. A step that fails leaves the data, its
+  version and the backup as they were; RobotControl still starts, the scheduler holds, and Storage health names the
+  step, the reason and the backup. A store from a newer build is refused unchanged.
+- A schedule that fails its check is no longer read as if it were valid, and one bad row no longer stops the whole
+  scheduler. It is listed as "Needs review" with the reason, offers only Edit and Delete, and never runs. Saving it
+  with valid fields clears it. Hourly schedules become Interval 1 h; cron schedules, schedules with an old write
+  token and timeout schedules without a cleanup method go under review. Alerts about a run that already started
+  still reach their contacts, and a package used by a schedule under review stays protected.
+- A blocked job of either runner waits in its place in the queue. A schedule that comes due during a database
+  restore waits until the restore ends; a restore is refused during a run or an unresolved recovery. A refused
+  schedule update writes nothing.
+- The Schedules page: Archived uses the same list and detail as Schedules (Restore and Delete, no Edit); the detail
+  shows Last run, Created by and Created; Next run and Last run come from the server (before, a repeating schedule
+  showed its stored start time as Next run). The Latest notification line is gone.
+- The Camera page keeps live view, camera choice and health, the archive list and downloads. Zoom and pan, Recent
+  recordings and archive search and paging are gone; Connect and Reconnect camera are one button; a download resumes
+  from the byte it reached; a failed download shows its own dialog. A run that ends without clips creates no archive
+  folder, and alert emails attach the three newest finished clips once.
+- Maintenance mode checks for HxRun every second and ends it with taskkill (WMI is gone). Tray Terminate asks the
+  server to stop, waits up to 10 s for the stop steps, then exits; each stop step runs once in every exit, including a
+  failed start. The public `/api/auth/status` route, the endpoint lists and passlib are gone; sign-in tokens still read
+  the account's current role and active state on every request.
+- On a fresh setup an administrator chooses the viewer database in Database settings; before, the first saved
+  connection was chosen silently. An upgraded settings file still picks it the old way.
+- Log preview shows only the tail of a plain file, in the reader's encoding; compressed files open in the reader.
 
 ## 2026-11-11 Unify clip retention and identify run logs
 

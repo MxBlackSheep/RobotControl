@@ -704,6 +704,8 @@ class SchedulerEngine:
 
     def _resolve_dispatch_block_reason(self, schedule: ScheduledExperiment) -> Optional[str]:
         """Return a human-readable reason when worker dispatch should pause."""
+        if self._database_restore_active:
+            return 'Database restore is in progress'
         manual_state = self._refresh_manual_recovery_state(force=True)
         if not manual_state.storage_healthy:
             return 'Scheduler safety state unavailable'

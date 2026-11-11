@@ -105,12 +105,11 @@ SQL status calls and blocking Database/Experiments API calls run in Starlette's 
 4. Update the frontend dashboard to render it (chip or chart).
 
 ### 6.2 Triggering alerts on experiment completion
-1. Register a completion callback:  
+1. Supply the completion callback when automatic recording constructs its monitor in `backend/services/automatic_recording.py`:
    ```python
-   monitor = get_experiment_monitor()
-   monitor.add_completion_callback(my_callback)
+   self.experiment_monitor = ExperimentMonitor(on_complete=self._on_experiment_complete)
    ```  
-2. In `my_callback`, call downstream services (storage, notifications). Remember callbacks run in the monitor thread—keep them quick or offload to an async task queue.
+2. Extend `_on_experiment_complete` to call downstream services (storage, notifications). The callback runs in the monitor thread—keep it quick or offload to an async task queue.
 
 ### 6.3 Changing email templates
 1. Edit `_render_alert_subject` / `_render_alert_body` in `SchedulingNotificationService`.  
@@ -124,7 +123,7 @@ SQL status calls and blocking Database/Experiments API calls run in Starlette's 
 | Function / Method | Purpose | Notes |
 |-------------------|---------|-------|
 | `ExperimentMonitor.start_monitoring()` | Begin polling Hamilton DB | Thread-safe; sets up `stop_event` and `monitor_thread`. |
-| `ExperimentMonitor.add_completion_callback(fn)` | Register completion handler | Use for archiving triggers or alerts. |
+| `ExperimentMonitor(on_complete=fn)` | Supply the completion handler | Automatic recording owns the monitor and its callback. |
 | `SchedulingNotificationService.schedule_alert(...)` | Send email with optional TRC/video attachments | Returns `ScheduleAlertResult` for logging/inspection. |
 | `EmailNotificationService.send(subject, body, to, attachments)` | Raw SMTP send helper | Retries `_smtp_retries` times with `_smtp_retry_delay` seconds between tries. |
 

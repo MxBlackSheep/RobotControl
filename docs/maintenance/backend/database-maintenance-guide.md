@@ -75,7 +75,9 @@ and path restore use `RESTORE_TIMEOUT` (600 seconds). Recovery commands keep the
   After either restore succeeds, `_recover_database_connections` retries `SELECT 1`
   through the same sqlcmd executor within thirty seconds; failure becomes a warning.
   The route audits requests and reserves `database_restore_guard`: run/recovery refusals
-  match database changes, new launches wait until restore ends, and schedule edits remain responsive.
+  match database changes. Schedules due during restore stay queued with "Database restore is in progress",
+  without consuming the occurrence or sending a failure email, and start after restore ends.
+  The final launch check still refuses during restore, and schedule edits remain responsive.
 - **Delete** (`DELETE /api/backup/{filename}`, local admin): removes `.bak` and `.json` and
   reports partial success if one remains. The list route replaces the removed backup health endpoint.
 
