@@ -14,6 +14,10 @@ password guessing is unlimited (including through the tunnel with a spoofed firs
 X-Forwarded-For entry), remote guessing locks the RobotControl computer out, or an auth storage
 outage counts as wrong passwords.
 
+Signing keys: a token signed with the old published key is accepted; the key file is missing
+after first start, holds a published text, or is regenerated on restart (signing everyone out);
+an unreadable key file is rewritten instead of stopping start-up; the key variables do not win.
+
 Built-in admin password (public in the repository): a remote sign-in with it (tunnel, spoofed
 first X-Forwarded-For, LAN peer) gets tokens or records a last login instead of 403 "Change the
 default password on the robot PC before signing in remotely."; refused attempts count toward the
@@ -28,16 +32,23 @@ import shutil
 import sqlite3
 import tempfile
 import traceback
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 FOLDER = Path(tempfile.mkdtemp(prefix='rc-auth-storage-'))
 os.environ['ROBOTCONTROL_AUTH_DB_FILENAME'] = str(FOLDER / 'auth.db')
+# No key variables: the check proves the per-installation key file (in the disposable folder).
+for name in ('ROBOTCONTROL_ACCESS_TOKEN_SECRET', 'ROBOTCONTROL_REFRESH_TOKEN_SECRET'):
+    os.environ.pop(name, None)
 
 from fastapi import Depends, FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
+import jwt  # noqa: E402
+
 from backend.api import auth as auth_api  # noqa: E402
+from backend.services import auth as auth_module  # noqa: E402
+from backend.utils.data_paths import get_path_manager  # noqa: E402
 from backend.services.auth import (  # noqa: E402
     BUILT_IN_ADMIN_PASSWORD,
     DEFAULT_ADMIN_USERNAME,
@@ -47,6 +58,10 @@ from backend.services.auth import (  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 EVIDENCE = ROOT / 'test-output/auth-storage-verification'
+get_path_manager().config_path = FOLDER / 'config'
+KEY_FILE = FOLDER / 'config' / 'token-secrets.json'
+# The texts that signed every installation's tokens before per-installation keys.
+OLD_PUBLISHED_KEYS = ('RobotControl_Access_Secret_2025', 'RobotControl_Refresh_Secret_2025')
 
 
 def run():
@@ -97,6 +112,42 @@ def run():
                 check(f'{name} token answers 401', response.status_code == 401, [response.status_code, response.text])
                 response = client.get('/api/auth/me', headers={'Authorization': f'Bearer {token}'})
                 check(f'{name} token on /me answers 401', response.status_code == 401, [response.status_code, response.text])
+
+            # Signing keys belong to this installation; the old published texts sign nothing.
+            claims = {'user_id': tokens['user']['user_id'], 'iat': datetime.utcnow(),
+                      'exp': datetime.utcnow() + timedelta(minutes=5)}
+            forged = jwt.encode({**claims, 'type': 'access'}, OLD_PUBLISHED_KEYS[0], algorithm='HS256')
+            for route in ('/protected', '/api/auth/me'):
+                response = client.get(route, headers={'Authorization': f'Bearer {forged}'})
+                check(f'a token signed with the old published key answers 401 on {route}',
+                      response.status_code == 401, [response.status_code, response.text])
+            stored = json.loads(KEY_FILE.read_text(encoding='utf-8')) if KEY_FILE.is_file() else {}
+            check('first start writes two random keys to data/config/token-secrets.json',
+                  len(stored.get('access', '')) >= 64 and len(stored.get('refresh', '')) >= 64
+                  and stored['access'] != stored['refresh'] and not set(stored.values()) & set(OLD_PUBLISHED_KEYS),
+                  sorted(stored))
+            auth_module._token_secrets = None  # what a restart does
+            response = client.get('/protected', headers=bearer)
+            check('after a restart the same key file keeps sessions valid',
+                  response.status_code == 200 and json.loads(KEY_FILE.read_text(encoding='utf-8')) == stored,
+                  [response.status_code])
+            KEY_FILE.write_text('{', encoding='utf-8')
+            auth_module._token_secrets = None
+            try:
+                auth_module.token_secrets()
+                stopped = False
+            except RuntimeError:
+                stopped = True
+            check('an unreadable key file stops start-up and is not rewritten',
+                  stopped and KEY_FILE.read_text(encoding='utf-8') == '{', KEY_FILE.read_text(encoding='utf-8'))
+            KEY_FILE.write_text(json.dumps(stored), encoding='utf-8')
+            os.environ['ROBOTCONTROL_ACCESS_TOKEN_SECRET'] = 'a' * 64
+            os.environ['ROBOTCONTROL_REFRESH_TOKEN_SECRET'] = 'b' * 64
+            auth_module._token_secrets = None
+            check('both key variables win over the file', auth_module.token_secrets() == ('a' * 64, 'b' * 64))
+            for name in ('ROBOTCONTROL_ACCESS_TOKEN_SECRET', 'ROBOTCONTROL_REFRESH_TOKEN_SECRET'):
+                os.environ.pop(name)
+            auth_module._token_secrets = None
 
             response = client.post('/api/auth/refresh', json={'refresh_token': access})
             check('access token used as refresh answers 401', response.status_code == 401, [response.status_code, response.text])

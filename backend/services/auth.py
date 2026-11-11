@@ -10,12 +10,13 @@ Replaces the in-memory user store with a SQLite-backed implementation so that:
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import hashlib
+import json
 import logging
 import os
 import re
 import secrets
 import sqlite3
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import jwt
 from fastapi import Depends, HTTPException, status
@@ -24,6 +25,7 @@ import bcrypt
 
 from backend.services.auth_database import get_auth_database, AuthDatabase
 from backend.services.sqlite_safety import StorageUnavailable
+from backend.utils.data_paths import get_path_manager
 from backend.utils.record_check import CheckError
 
 logger = logging.getLogger(__name__)
@@ -41,13 +43,39 @@ DEFAULT_ADMIN_EMAIL = os.getenv("ROBOTCONTROL_ADMIN_EMAIL", "admin@localhost")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ROBOTCONTROL_ACCESS_TOKEN_MINUTES", "240"))
 REFRESH_TOKEN_EXPIRE_HOURS = int(os.getenv("ROBOTCONTROL_REFRESH_TOKEN_HOURS", "168"))
 
-ACCESS_TOKEN_SECRET = os.getenv(
-    "ROBOTCONTROL_ACCESS_TOKEN_SECRET", "RobotControl_Access_Secret_2025"
-)
-REFRESH_TOKEN_SECRET = os.getenv(
-    "ROBOTCONTROL_REFRESH_TOKEN_SECRET", "RobotControl_Refresh_Secret_2025"
-)
 ALGORITHM = "HS256"
+_token_secrets: Optional[Tuple[str, str]] = None
+
+
+def token_secrets() -> Tuple[str, str]:
+    """The (access, refresh) signing keys of this installation.
+
+    Both environment variables win; otherwise data/config/token-secrets.json, created with
+    random keys at first start. A file that cannot be read stops start-up: writing new keys
+    would sign everyone out and hide the fault.
+    """
+    global _token_secrets
+    if _token_secrets is None:
+        access = os.getenv("ROBOTCONTROL_ACCESS_TOKEN_SECRET")
+        refresh = os.getenv("ROBOTCONTROL_REFRESH_TOKEN_SECRET")
+        if access and refresh:
+            _token_secrets = (access, refresh)
+            return _token_secrets
+        path = get_path_manager().config_path / "token-secrets.json"
+        if not path.exists():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            keys = {"access": secrets.token_urlsafe(48), "refresh": secrets.token_urlsafe(48)}
+            with open(path, "x", encoding="utf-8") as file:  # "x": never overwrite
+                json.dump(keys, file)
+            logger.info("Created sign-in keys in %s", path)
+        try:
+            keys = json.loads(path.read_text(encoding="utf-8"))
+            _token_secrets = (str(keys["access"]), str(keys["refresh"]))
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            logger.critical("Sign-in keys in %s cannot be read (%s); fix or delete the file, then start again", path, exc)
+            raise RuntimeError(f"Sign-in keys in {path} cannot be read") from exc
+    return _token_secrets
+
 
 # A storage failure says nothing about the token: answering 401 would make the browser
 # delete a valid sign-in, so these answer 503 and the client keeps its tokens.
@@ -362,7 +390,7 @@ class AuthService:
     ) -> str:
         expire = datetime.utcnow() + (expires_delta or self.access_token_expiry)
         payload = {"user_id": str(user.id), "type": "access", "exp": expire, "iat": datetime.utcnow()}
-        token = jwt.encode(payload, ACCESS_TOKEN_SECRET, algorithm=ALGORITHM)
+        token = jwt.encode(payload, token_secrets()[0], algorithm=ALGORITHM)
         logger.debug("Access token issued for %s (expires %s)", user.username, expire)
         return token
 
@@ -378,7 +406,7 @@ class AuthService:
             "exp": expire,
             "iat": datetime.utcnow(),
         }
-        token = jwt.encode(payload, REFRESH_TOKEN_SECRET, algorithm=ALGORITHM)
+        token = jwt.encode(payload, token_secrets()[1], algorithm=ALGORITHM)
         token_hash = self._hash_token(token)
         self.db.store_refresh_token(user.id, token_hash, expire)
         # Keep only the most recent token active
@@ -388,7 +416,7 @@ class AuthService:
 
     def verify_token(self, token: str) -> Optional[User]:
         try:
-            payload = jwt.decode(token, ACCESS_TOKEN_SECRET, algorithms=[ALGORITHM])
+            payload = jwt.decode(token, token_secrets()[0], algorithms=[ALGORITHM])
             if payload.get("type") != "access":
                 logger.warning("Invalid token type encountered during verification")
                 return None
@@ -413,9 +441,7 @@ class AuthService:
 
     def refresh_access_token(self, refresh_token: str) -> Optional[str]:
         try:
-            payload = jwt.decode(
-                refresh_token, REFRESH_TOKEN_SECRET, algorithms=[ALGORITHM]
-            )
+            payload = jwt.decode(refresh_token, token_secrets()[1], algorithms=[ALGORITHM])
             if payload.get("type") != "refresh":
                 logger.warning("Refresh attempt with incorrect token type")
                 return None

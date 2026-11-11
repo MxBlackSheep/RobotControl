@@ -206,12 +206,14 @@ async def lifespan(app: FastAPI):
     from backend.services.live_streaming import get_live_streaming_service
     from backend.services.scheduling import get_scheduler_engine
     from backend.services.camera import get_camera_service
+    from backend.services.auth import token_secrets
 
     scheduler_task = None
     diagnostics = None
     app.state.shutdown_complete.clear()
     try:
         logger.info("Starting RobotControl %s; data folder=%s", __version__, data_paths.base_path)
+        token_secrets()  # an unreadable key file stops start-up here, not at the first sign-in
         try:
             app.state.log_readers = await asyncio.to_thread(LogReaderManager, app.state.log_reader_cache)
         except OSError as exc:

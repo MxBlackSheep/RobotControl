@@ -72,7 +72,9 @@ This guide walks through the authentication stack so you always know **which fil
 - **Environment variables** (read at import time in `AuthService`):
   - `ROBOTCONTROL_ADMIN_USERNAME`, `ROBOTCONTROL_ADMIN_PASSWORD`, `ROBOTCONTROL_ADMIN_EMAIL` – one-time bootstrap admin. Without `ROBOTCONTROL_ADMIN_PASSWORD` the admin gets `BUILT_IN_ADMIN_PASSWORD`, which works only on the RobotControl computer until changed (Admin → User accounts, or the account menu's Change password).
   - `ROBOTCONTROL_ACCESS_TOKEN_MINUTES` (default 240) & `ROBOTCONTROL_REFRESH_TOKEN_HOURS` (default 168) – expiry windows.
-  - `ROBOTCONTROL_ACCESS_TOKEN_SECRET`, `ROBOTCONTROL_REFRESH_TOKEN_SECRET` – must be long random strings; update in tandem.
+  - `ROBOTCONTROL_ACCESS_TOKEN_SECRET`, `ROBOTCONTROL_REFRESH_TOKEN_SECRET` – optional; used only when both are set (long random strings).
+
+- **Signing keys** (`token_secrets()` in `backend/services/auth.py`): without both variables, the keys live in `data/config/token-secrets.json`, created with two random keys at first start and reused after every restart and upgrade. The source holds no key. A key file that cannot be read stops start-up with a log line naming the file; it is never rewritten. Deleting the file signs everyone out and nothing else; never copy it to another PC. Check: `backend/e2e/auth_storage_check.py` (a token signed with the old published key answers 401; a restart keeps sessions).
   - `ROBOTCONTROL_AUTH_DB_FILENAME` – override database filename/location (useful for testing).
 
 - **Hashing + token safety:**  
@@ -147,7 +149,7 @@ This guide walks through the authentication stack so you always know **which fil
 
 1. **“Invalid username or password” even for admin**  
    - Check `data/robotcontrol_auth.db` exists and contains the bootstrap user (`sqlite3 ... "SELECT username FROM users"`).  
-   - Confirm env secrets match the ones used when the tokens were issued—changing `ROBOTCONTROL_ACCESS_TOKEN_SECRET` immediately invalidates existing cookies.
+   - Changing the signing keys (the key variables or `data/config/token-secrets.json`) signs everyone out; they sign in again.
 
 2. **"Change the default password on the robot PC before signing in remotely."**  
    - The account still has the built-in password. Sign in on the RobotControl computer itself (`http://localhost:8005`), set a new password in the dialog that opens, then sign in remotely with it.
@@ -166,7 +168,7 @@ This guide walks through the authentication stack so you always know **which fil
 
 6. **JWT verification fails after deployment**  
    - Double-check system clocks (access tokens include `exp`/`iat`).  
-   - Ensure new environment sets both `ROBOTCONTROL_ACCESS_TOKEN_SECRET` and `ROBOTCONTROL_REFRESH_TOKEN_SECRET`; mismatched secrets break verification.
+   - A new PC creates its own `data/config/token-secrets.json`; earlier sign-ins end there, which is expected.
 
 Stay methodical: keep changes inside the service layer, respect hashing/token helpers, and always update both backend and frontend when you add or rename fields.
 

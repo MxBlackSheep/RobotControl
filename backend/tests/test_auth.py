@@ -15,6 +15,10 @@ client = TestClient(app, client=("127.0.0.1", 50000))
 @pytest.fixture(autouse=True)
 def reset_auth_service(tmp_path, monkeypatch):
     monkeypatch.setenv("ROBOTCONTROL_AUTH_DB_FILENAME", str(tmp_path / "auth.db"))
+    # Keys from the environment, so no key file is written to the real data folder.
+    monkeypatch.setenv("ROBOTCONTROL_ACCESS_TOKEN_SECRET", "test-access-key-" + "a" * 48)
+    monkeypatch.setenv("ROBOTCONTROL_REFRESH_TOKEN_SECRET", "test-refresh-key-" + "b" * 48)
+    monkeypatch.setattr(auth_module, "_token_secrets", None)
     monkeypatch.setattr(auth_module, "_auth_service", None)
     monkeypatch.setattr(auth_database, "_auth_db_instance", None)
     yield
