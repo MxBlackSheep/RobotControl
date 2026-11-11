@@ -110,6 +110,9 @@ class SchedulingDatabaseManager:
             logger.error("Error getting schedules: %s", exc)
             return []
 
+    def get_last_run_times(self) -> Dict[str, str]:
+        return self.sqlite_db.get_last_run_times()
+
     def update_scheduled_experiment(
         self,
         experiment: ScheduledExperiment,

@@ -890,7 +890,7 @@ def list_schedules(
     schedules = db_mgr.get_schedules(active_only=active_only, archived_only=archived_only)
 
     next_run_times = scheduler.get_next_run_times()
-    last_run_times = db_mgr.sqlite_db.get_last_run_times()
+    last_run_times = db_mgr.get_last_run_times()
     schedule_list = []
     for schedule in schedules:
         payload = _schedule_payload(schedule)

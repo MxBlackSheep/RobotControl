@@ -116,6 +116,10 @@ def run():
                     result['checks'].append('Duplicate name, insufficient SQL authority, rejected sign-in and missing database have distinct actionable HTTP errors; passwords are absent')
                     result['checks'].append('Reviewed create-account HTTP flow; no creation on review; owner/replay enforced; SELECT works and writes/DDL denied')
                     call('POST',BASE+'/sources',dict(source,id='lab-b',name='Lab B',database=fixture['names'][1],username=fixture['login'],password=fixture['password']))
+                    # New settings require a viewer choice; only legacy files migrate a default.
+                    call('GET','/api/database/tables',status=409)
+                    call('GET','/api/database/tables?source_id=lab-a',status=409)
+                    call('PUT',BASE+'/viewer-source',{'source_id':'lab-a'})
                     a=call('GET','/api/database/tables?source_id=lab-a')['data']['tables']
                     call('GET','/api/database/tables?source_id=lab-b',status=409)
                     call('PUT',BASE+'/viewer-source',{'source_id':'lab-b'})

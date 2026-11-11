@@ -93,7 +93,7 @@ def run():
             manager = SimpleNamespace(sqlite_db=storage)
             scheduler = SimpleNamespace(add_schedule=storage.create_schedule, get_schedule=storage.get_schedule_by_id, _schedules_lock=threading.RLock(),
                                         update_schedule=lambda s, expected_updated_at=None: storage.update_schedule(s, expected_updated_at=expected_updated_at),
-                                        invalidate_schedule=lambda _: None)
+                                        invalidate_schedule=lambda _: None, get_next_run_times=lambda: {})
             method = root / 'Reference method.med'
             method.write_text('fixture')
             launched = []

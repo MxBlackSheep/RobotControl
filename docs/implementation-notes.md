@@ -1,3 +1,5 @@
+2026-11-11: Schedule lists read last-run times through the database manager; SQL workflow fixtures supply the scheduler read contract and explicitly select their viewer database.
+
 2026-11-11: Schedule lists report the latest finished run and engine-owned next run; queue status includes scheduler running state, replacing the separate scheduler status route.
 
 2026-11-11: Monitoring uses live process reads and one recording watcher; finalized clips share one storage owner. Database restores reserve launch admission, saved settings upgrade at read boundaries, log tails share reader decoding, and lifespan owns shutdown. Sign-in uses bcrypt directly and checks current account state for every token.
