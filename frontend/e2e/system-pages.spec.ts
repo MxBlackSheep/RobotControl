@@ -2,8 +2,7 @@ import { test, expect } from '@playwright/test';
 
 // System status (connection facts are shown in cards, not a collapsed disclosure):
 // - Process CPU or cached JPEG throughput is presented as live-view utilization/health.
-// - Enabled configuration is mistaken for a connected camera or recording state.
-// - A missing/non-boolean enabled field is mislabeled as disabled or enabled.
+// - A missing or non-integer session count prints a number, or a readable count still gets a chip.
 // - RobotControl's own CPU share reads 0 % or disappears while it is unknown (first sample).
 // - Incomplete database/size fields imply disconnection or print undefined capacity; an
 //   incomplete connection reply looks like an empty, healthy list.
@@ -47,13 +46,11 @@ test.beforeEach(async ({ page }) => { await page.addInitScript(() => localStorag
 
 test('monitoring has one refresh owner and shows stale and unknown services accurately', async ({ page }, info) => {
   let healthRequests = 0, failed = false;
-  await page.route('**/api/monitoring/experiments', route => route.fulfill({ json: { data: [] } }));
   await page.route('**/api/camera/streaming/status', route => route.fulfill({ status: 503, json: {} }));
   await page.route('**/api/monitoring/system-health', route => {
     healthRequests++;
     return route.fulfill(failed ? { status: 503, json: {} } : { json: { data: {
       sampled_at: new Date().toISOString(), system: { cpu_percent: 4, memory_percent: 12, disk_percent: 25 },
-      database: { is_connected: false, mode: 'primary', database_name: 'Fixture DB', server_name: 'Fixture server' },
     } } });
   });
   // One connection fails and one reports a state this screen does not know: neither is healthy.
@@ -330,16 +327,14 @@ test('System Status renews an expired sign-in', async ({ page }) => {
     refreshes++;
     return route.fulfill({ json: { success: true, data: { access_token: 'e2e-admin' } } });
   });
-  await page.route('**/api/monitoring/experiments', route => route.fulfill({ json: { data: [] } }));
-  await page.route('**/api/camera/streaming/status', route => route.fulfill({ json: { data: { status: { enabled: true } } } }));
+  await page.route('**/api/camera/streaming/status', route => route.fulfill({ json: { data: { status: { active_session_count: 0, max_sessions: 4 } } } }));
   await page.route('**/api/monitoring/system-health', route => {
     if (expired && route.request().headers().authorization === 'Bearer viewer-admin') {
       rejected++;
       return route.fulfill({ status: 401, json: { detail: 'Expired' } });
     }
     return route.fulfill({ json: { data: { sampled_at: new Date().toISOString(),
-      system: { cpu_percent: 4, memory_percent: 12, disk_percent: 25 },
-      database: { is_connected: true, mode: 'primary', database_name: 'Fixture DB', server_name: 'Fixture server' } } } });
+      system: { cpu_percent: 4, memory_percent: 12, disk_percent: 25 } } } });
   });
   await page.goto('/system-status');
   await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
@@ -356,16 +351,13 @@ for (const width of [320, 1280]) {
   test(`connection details stay compact and report only supported facts at ${width}px`, async ({ page }, info) => {
     await page.setViewportSize({ width, height: 740 });
     let healthRequests = 0;
-    await page.route('**/api/monitoring/experiments', route => route.fulfill({ json: { data: [] } }));
     await page.route('**/api/camera/streaming/status', route => route.fulfill({ json: { data: { status: {
-      enabled: true, active_session_count: 2, max_sessions: 4,
-      resource_usage_percent: 137, total_bandwidth_mbps: 12.3,
+      active_session_count: 2, max_sessions: 4,
     } } } }));
     await page.route('**/api/monitoring/system-health', route => {
       healthRequests++;
       return route.fulfill({ json: { data: {
         sampled_at: new Date().toISOString(), system: { cpu_percent: 4, robotcontrol_cpu_percent: 2.6, memory_percent: 12, disk_percent: 25 },
-        database: { is_connected: false, mode: 'primary', database_name: 'EvoYeast', server_name: 'LOCALHOST\\HAMILTON' },
       } } });
     });
     await page.route('**/api/monitoring/databases', route => route.fulfill({ json: { data: {
@@ -379,7 +371,9 @@ for (const width of [320, 1280]) {
           uses: ['Tables and Stored procedures', 'Culture history', 'Select EvoYeast experiment'], state: 'connected', message: null }],
       checked_at: new Date().toISOString() } } }));
     await page.goto('/system-status');
-    await expect(page.getByRole('region', { name: 'Live view', exact: true }).getByTitle('Enabled', { exact: true })).toBeVisible();
+    // A readable slot count needs no chip.
+    await expect(page.getByText('2 of 4 slots in use', { exact: true })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Live view', exact: true }).getByTitle(/^(Unavailable|Enabled|Disabled)$/)).toHaveCount(0);
     await expect(page.getByRole('progressbar', { name: 'CPU usage', exact: true })).toHaveAttribute('aria-valuenow', '4');
     await expect(page.getByRole('region', { name: 'CPU', exact: true }).getByText('RobotControl 3%', { exact: true })).toBeVisible();
     // Connection facts are shown in their cards, as in the approved mock (no disclosure).
@@ -398,12 +392,10 @@ for (const width of [320, 1280]) {
   });
 }
 
-test('live view configuration stays unknown when the status contract is incomplete', async ({ page }) => {
+test('live view slots stay unknown when the status contract is incomplete', async ({ page }) => {
   let status: Record<string, unknown> = {};
-  await page.route('**/api/monitoring/experiments', route => route.fulfill({ json: { data: [] } }));
   await page.route('**/api/monitoring/system-health', route => route.fulfill({ json: { data: {
     sampled_at: new Date().toISOString(), system: { cpu_percent: 4, memory_percent: 12, disk_percent: 25, memory_total_gb: 16, disk_total_gb: 500 },
-    database: {},
   } } }));
   await page.route('**/api/monitoring/databases', route => route.fulfill({ json: { data: {} } }));
   await page.route('**/api/camera/streaming/status', route => route.fulfill({ json: { data: { status } } }));
@@ -412,12 +404,12 @@ test('live view configuration stays unknown when the status contract is incomple
   await expect(page.getByRole('region', { name: 'Databases', exact: true }).getByTitle('Unavailable', { exact: true })).toBeVisible();
   await expect(page.getByRole('region', { name: 'CPU', exact: true }).getByText('RobotControl —', { exact: true })).toBeVisible();
   await expect(page.getByText(/undefined|NaN/)).toHaveCount(0);
-  status = { enabled: 'true' };
+  status = { active_session_count: '2', max_sessions: 4 };
   // A good reading shows no header chip, so wait for the refreshed status itself.
   await Promise.all([page.waitForResponse('**/api/camera/streaming/status'), page.getByRole('button', { name: 'Refresh', exact: true }).click()]);
   await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
   await expect(page.getByRole('region', { name: 'Live view', exact: true }).getByTitle('Unavailable', { exact: true })).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Live view', exact: true }).getByTitle(/^(Enabled|Disabled)$/)).toHaveCount(0);
+  await expect(page.getByText(/slots in use/)).toHaveCount(0);
 });
 
 test('administration gives storage health its own local section', async ({ page }) => {
@@ -460,7 +452,7 @@ test('camera and scheduler 503s show their own errors without database maintenan
 
 test('keyboard shortcuts navigate, show their help and yield to dialogs', async ({ page }) => {
   await page.route('**/api/monitoring/**', route => route.fulfill({ json: { data: [] } }));
-  await page.route('**/api/camera/streaming/status', route => route.fulfill({ json: { data: { status: { enabled: false } } } }));
+  await page.route('**/api/camera/streaming/status', route => route.fulfill({ json: { data: { status: { active_session_count: 0, max_sessions: 4 } } } }));
   await page.goto('/about');
   // Navigation keys are registered only after saved sign-in is verified.
   await expect(page.getByRole('heading', { name: 'About', exact: true })).toBeVisible();

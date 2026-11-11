@@ -125,10 +125,9 @@ ignores results after the section becomes inactive.
 
 ## Operations and Data retrieval
 
-- One experiment input gives a 40/60 experiment-list/task layout; below 900 pixels of
-  container width the same mounted panes use Back. Experiment search and paging are
-  server-side. Returning to the same experiment keeps its result; another clears it. One tool
-  shows its name; several show a chooser.
+- A tool's inputs are one form; an experiment is chosen like any other value, through a
+  lookup (the experiment input type and its browser were retired in November 2026; old manifests are
+  converted to integer lookups by the backend). One tool shows its name; several show a chooser.
 - A report without its connections shows "Connection setup needed"; local admins get
   Configure. Reports run in the background and poll only while their section is active.
   Changing inputs clears the previous download. Changing a parent input clears dependent

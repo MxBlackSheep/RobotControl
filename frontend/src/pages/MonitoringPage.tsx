@@ -40,7 +40,8 @@ export default function MonitoringPage() {
   const database: [string, StatusTone] | null = !databases ? ['Unavailable', 'neutral']
     : failing ? [`${failing} cannot connect`, error ? 'neutral' : 'fault']
     : allKnown ? null : ['Partly unknown', 'neutral'];
-  const liveView: [string, StatusTone] = streamingStatus?.enabled === true ? ['Enabled', 'completed'] : streamingStatus?.enabled === false ? ['Disabled', 'neutral'] : ['Unavailable', 'neutral'];
+  // Like Databases, only a problem earns a chip; the slot count says the rest.
+  const liveView: [string, StatusTone] | null = sessionSummary === 'Unavailable' ? ['Unavailable', 'neutral'] : null;
   return <PageContent variant="overview">
     <PageHeader title="System status" actions={<>
       {/* A good reading needs no chip ("Last reading" says when) and a routine poll shows the
@@ -82,8 +83,8 @@ export default function MonitoringPage() {
   </PageContent>;
 }
 
-function ServiceCard({ title, span, state: [label, tone], rows, children }: { title: string; span: number; state: [string, StatusTone]; rows: [string, string][]; children?: React.ReactNode }) {
-  return <Panel title={title} span={span} inset={false} actions={<StatusChip tone={tone} label={label} />}>
+function ServiceCard({ title, span, state, rows, children }: { title: string; span: number; state: [string, StatusTone] | null; rows: [string, string][]; children?: React.ReactNode }) {
+  return <Panel title={title} span={span} inset={false} actions={state && <StatusChip tone={state[1]} label={state[0]} />}>
     <Box component="dl" sx={{ m: 0 }}>
       {/* Identifiers can be long (server names); these rows grow rather than clip. */}
       {rows.map(([name, value]) => <ListRow key={name} columns={{ xs: '112px minmax(0, 1fr)', sm: '160px minmax(0, 1fr)' }} sx={{ height: 'auto', minHeight: layout.row, py: 1, '& > *': { whiteSpace: 'normal', overflowWrap: 'anywhere' } }}>

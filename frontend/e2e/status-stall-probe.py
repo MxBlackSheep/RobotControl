@@ -124,12 +124,10 @@ class Handler(BaseHTTPRequestHandler):
         else:
             if path == '/api/auth/me':
                 data = {'user_id': 'probe', 'username': 'probe', 'role': 'user', 'session': {'is_local': False}}
-            elif path == '/api/monitoring/experiments':
-                data = []
             elif path == '/api/monitoring/system-health':
-                data = {'sampled_at': now(), 'system': {'cpu_percent': 5, 'memory_percent': 20, 'memory_used_gb': 2, 'memory_total_gb': 12, 'disk_percent': 20, 'disk_used_gb': 20, 'disk_total_gb': 100}, 'database': {'is_connected': True, 'mode': 'mock', 'database_name': 'Disposable fixture', 'server_name': 'loopback'}, 'connections': {'active': 1}}
+                data = {'sampled_at': now(), 'system': {'cpu_percent': 5, 'memory_percent': 20, 'memory_used_gb': 2, 'memory_total_gb': 12, 'disk_percent': 20, 'disk_used_gb': 20, 'disk_total_gb': 100}}
             elif path == '/api/camera/streaming/status':
-                data = {'status': {'enabled': True, 'active_session_count': 0, 'max_sessions': 10, 'total_bandwidth_mbps': 0, 'resource_usage_percent': 5}}
+                data = {'status': {'active_session_count': 0, 'max_sessions': 10}}
             else:
                 data = {}
             self.reply({'success': True, 'data': data, 'metadata': {'timestamp': now()}})

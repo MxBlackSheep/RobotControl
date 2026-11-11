@@ -114,7 +114,7 @@ test('phone archive opens files with readable rows and returns to folders', asyn
   await page.setViewportSize({ width: 390, height: 844 });
   await operations(page);
   const name = 'a-long-recording-name-that-must-remain-readable-without-overlapping-controls.mp4';
-  await page.route('**/api/camera/recordings?**', route => route.fulfill({ json: { data: { experiment_folders: [{
+  await page.route('**/api/camera/recordings', route => route.fulfill({ json: { data: { experiment_folders: [{
     folder_name: 'Experiment recordings', video_count: 2, total_size_bytes: 2048, creation_time: '2026-09-25T10:00:00Z',
     videos: [0, 1].map(index => ({ filename: `${index}-${name}`, timestamp: '2026-09-25T10:00:00Z', size_bytes: 1024 })),
   }] } } }));

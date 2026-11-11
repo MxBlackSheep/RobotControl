@@ -29,6 +29,7 @@ import {
   LogReaderStatus,
 } from "../services/logFileApi";
 import { fontMono } from "../theme";
+import { requestErrorMessage } from "../services/requestError";
 
 export type LogSelection = {
   name: string;
@@ -36,8 +37,7 @@ export type LogSelection = {
   archive: string;
   entry: string;
 };
-const errorMessage = (error: any) =>
-  error.response?.data?.error?.message || error.message || "Unable to read log";
+const errorMessage = (error: unknown) => requestErrorMessage(error, "Unable to read log");
 export default function LogReader({
   sourceId,
   selected,
@@ -233,7 +233,6 @@ export default function LogReader({
         const result = await logFileApi.preview(
           sourceId,
           selected.relative,
-          "tail",
           1024 * 1024,
           abort.signal,
         );

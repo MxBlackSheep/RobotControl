@@ -44,8 +44,8 @@ function tableRoute(rows: Record<string, unknown>[]) {
 
 export async function routeDatabaseViewer(page: Page) {
   await page.route('**/api/database/tables?*', route => route.fulfill({ json: { success: true, data: {
-    table_details: [{ name: 'ViewerSamples', has_data: true }, { name: 'EmptyTable', has_data: false },
-      { name: 'dbo.ActivePlateView', has_data: true }],
+    table_details: [{ name: 'ViewerSamples' }, { name: 'EmptyTable' },
+      { name: 'dbo.ActivePlateView' }],
   } } }));
   await page.route('**/api/database/tables/ViewerSamples?*', tableRoute(viewerRows));
   await page.route('**/api/database/tables/dbo.ActivePlateView?*', tableRoute(activePlateRows));

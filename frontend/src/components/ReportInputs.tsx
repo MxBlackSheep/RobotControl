@@ -70,8 +70,8 @@ export default function ReportInputs({ fields, values, onChange, disabled, choic
         ? <FormControlLabel key={field.name} label={field.label} control={<Checkbox checked={values[field.name] === true} disabled={disabled} onChange={(_, v) => onChange(field.name, v)} />} />
         : <TextField key={field.name} label={field.label} required={field.required} disabled={disabled} size="small"
           select={field.type === 'choice'} InputLabelProps={field.type === 'date' ? { shrink: true } : undefined}
-          type={field.type === 'date' ? 'date' : ['integer', 'number', 'experiment'].includes(field.type) ? 'number' : 'text'}
-          value={values[field.name] ?? ''} onChange={e => onChange(field.name, ['integer', 'number', 'experiment'].includes(field.type) && e.target.value !== '' ? Number(e.target.value) : e.target.value)}>
+          type={field.type === 'date' ? 'date' : ['integer', 'number'].includes(field.type) ? 'number' : 'text'}
+          value={values[field.name] ?? ''} onChange={e => onChange(field.name, ['integer', 'number'].includes(field.type) && e.target.value !== '' ? Number(e.target.value) : e.target.value)}>
           {(field.choices || []).map(x => <MenuItem key={x} value={x}>{x}</MenuItem>)}
         </TextField>)}
   </Stack>;

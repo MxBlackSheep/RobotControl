@@ -156,6 +156,8 @@ def configure_fixture_report_sources(service, database):
     worker.run_report = run_fixture_report
     service.sources.state['sources'] = {name: dict(id=name, name=name.title(), server='fixture', database='disposable',
         username='fixture', driver='fixture', trust_certificate=False, access='read') for name in ('primary', 'plates')}
+    # Only an upgraded settings file picks a viewer by itself; a fresh one needs an administrator's choice.
+    service.sources.state['viewer_source'] = 'primary'
 
     target = dict(id='operation', name='Disposable fixture', server='fixture', database='disposable', access='operation', revision='1')
     service.sources.state['sources']['operation'] = target

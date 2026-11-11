@@ -9,7 +9,7 @@ import { expect, test } from '@playwright/test';
  */
 test.beforeEach(async ({page}) => {
   await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));
-  await page.route('**/api/database/tables?*', route => route.fulfill({json:{success:true,data:{table_details:[{name:'PageSamples',has_data:true}]}}}));
+  await page.route('**/api/database/tables?*', route => route.fulfill({json:{success:true,data:{table_details:[{name:'PageSamples'}]}}}));
   await page.route('**/api/database/tables/PageSamples?*', route => {
     const params = new URL(route.request().url()).searchParams;
     const offset = (Number(params.get('page') || 1)-1)*Number(params.get('limit') || 25);
@@ -20,7 +20,7 @@ test.beforeEach(async ({page}) => {
 
 test('table First, Last and Next retain correct data after a failed request', async ({page}, info) => {
   await page.goto('/database');
-  await page.getByRole('button',{name:/PageSamples Has data/}).click();
+  await page.getByRole('button',{name:'PageSamples',exact:true}).click();
   await expect(page.getByRole('button',{name:'Inspect row 1',exact:true})).toBeVisible();
   await page.getByRole('button',{name:'Go to last page'}).click();
   await expect(page.getByRole('button',{name:'Inspect row 57',exact:true})).toBeVisible();
@@ -40,7 +40,7 @@ test('table First, Last and Next retain correct data after a failed request', as
 test('phone paging bar and Page and rows reach every page', async ({page}, info) => {
   await page.setViewportSize({width:375,height:667});
   await page.goto('/database');
-  await page.getByRole('button',{name:/PageSamples Has data/}).click();
+  await page.getByRole('button',{name:'PageSamples',exact:true}).click();
   await page.getByRole('button',{name:'Go to last page'}).click();
   await expect(page.getByText('51–57 of 57',{exact:true})).toBeVisible();
   await expect(page.getByRole('button',{name:'Inspect row 51',exact:true})).toBeInViewport();

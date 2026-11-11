@@ -26,7 +26,7 @@ const widths = list('VISUAL_WIDTHS', ['1440', '1280', '390', '375']).map(Number)
 const modes = list('VISUAL_MODES', ['light', 'dark']);
 const localSession = (width: number) => process.env.VISUAL_SESSION ? process.env.VISUAL_SESSION !== 'remote' : width >= 900;
 const heights: Record<number, number> = { 390: 844, 375: 667, 320: 568 };
-const recordings = Array.from({ length: 40 }, (_, index) => ({ filename: `DailyTipWash_${String(index + 1).padStart(3, '0')}.mp4`,
+const recordings = Array.from({ length: 15 }, (_, index) => ({ filename: `DailyTipWash_${String(index + 1).padStart(3, '0')}.mp4`,
   timestamp: '2026-09-30T13:00:00', size_bytes: 8.1e7 + index * 1e6, duration: 300 }));
 const opened: Record<string, (page: Page) => Promise<void>> = {
   '/database': page => page.getByRole('button', { name: /dbo\.ActivePlateView/ }).click(),
@@ -36,7 +36,7 @@ const opened: Record<string, (page: Page) => Promise<void>> = {
     await page.getByRole('button', { name: /robotcontrol_1999\.log/ }).waitFor();
   },
   '/camera?section=archive': async page => {
-    await page.route('**/api/camera/recordings?**', route => route.fulfill({ json: { data: { experiment_folders: [
+    await page.route('**/api/camera/recordings', route => route.fulfill({ json: { data: { experiment_folders: [
       { folder_name: '2026-09-30_DailyTipWash', video_count: recordings.length, total_size_bytes: 3.2e9, creation_time: ago(42), videos: recordings }] } } }));
     await page.reload();
     await page.getByRole('button', { name: /Open folder 2026-09-30_DailyTipWash/ }).click();

@@ -36,7 +36,10 @@ palette. Keep full paths and capture metadata in Details.
 folder/filter/page/selection state and uses `InspectionWorkspace` for the 300px
 catalogue and 900-pixel content-width desktop/phone transition. `LogReader` owns its
 reading session, section requests, Find, follow polling and expanded dialog.
-`services/logFileApi.ts` contains the typed old/new endpoint wrappers.
+`services/logFileApi.ts` contains the typed endpoint wrappers; their types hold only the
+fields a screen reads (items and total for a listing; content, binary flag, path and modified
+time for a preview). Request errors are worded by `requestErrorMessage`: the server's message,
+else a connection explanation; a message the screen made itself is kept.
 
 The shared workspace measures available height below the app header and controls.
 Do not reintroduce hardcoded viewport deductions or stack the entire catalogue
@@ -54,8 +57,9 @@ above content on phones. All viewer actions have labelled, 44px touch targets.
   completed snapshot without renewing its lease; preparation/follow is stopped.
   Returning restores its section. Expired readers offer an explicit Reopen.
 - Follow latest is explicit and only available for active plain files outside
-  `history`. It uses the legacy bounded tail API every 5 seconds after the previous
-  request settles. Archives never follow. Hiding the document pauses requests;
+  `history`. It uses `/preview` (the tail of a plain file, decoded like the reader and
+  without the cut first line) every 5 seconds after the previous request settles; the
+  server refuses a `.gz` or `.zip` with "open compressed files in the reader". Archives never follow. Hiding the document pauses requests;
   leaving the reader stops following. Cancel aborts polling. Errors retain the
   last displayed preview and stop following.
 - Beginning/Older leave follow mode and prepare a snapshot. Latest does not enable

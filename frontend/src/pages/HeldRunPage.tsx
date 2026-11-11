@@ -68,10 +68,10 @@ function NewestTrace() {
       const item = listing.items?.find(entry => !entry.is_directory);
       if (!item) return 'none';
       // `path` is absolute; the browser joins the listed folder (here the source root) and the name.
-      const preview = await logFileApi.preview('hamilton_logfiles', item.name, 'tail', TRACE_BYTES, signal);
+      const preview = await logFileApi.preview('hamilton_logfiles', item.name, TRACE_BYTES, signal);
       if (preview.content === null) throw new Error('No readable text');
       const lines = preview.content.split(/\r?\n/).filter(line => line.trim()).slice(-TRACE_LINES);
-      return { name: item.name, modified: item.modified_date ?? preview.modified_date, lines };
+      return { name: item.name, modified: item.modified_date ?? preview.modified_date ?? undefined, lines };
     },
     onSuccess: setTrace,
   });

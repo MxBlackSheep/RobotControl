@@ -44,7 +44,7 @@ for (const size of [{ width: 390, height: 844 }, { width: 1920, height: 1080 }])
     const writes: string[] = [];
     page.on('request', request => { if (request.url().includes('/api/database/') && request.method() !== 'GET') writes.push(request.url()); });
     await page.goto('/database?section=tables');
-    await page.getByRole('button', { name: /ViewerSamples Has data/ }).click();
+    await page.getByRole('button', { name: 'ViewerSamples', exact: true }).click();
     await expect(count(57)).toBeVisible();
     await assertNoPageOverflow(page);
     await page.getByRole('button', { name: 'Inspect row 1', exact: true }).click();
@@ -64,7 +64,7 @@ for (const size of [{ width: 390, height: 844 }, { width: 1920, height: 1080 }])
     await expect(page.getByRole('button', { name: phone ? 'More table options' : 'Expand table' })).toBeFocused();
     if (size.width < 900) {
       await page.getByRole('button', { name: 'Back to tables' }).click();
-      await page.getByRole('button', { name: /ViewerSamples Has data/ }).click();
+      await page.getByRole('button', { name: 'ViewerSamples', exact: true }).click();
       await expect(page.getByRole('textbox', { name: 'Search all supported columns' })).toHaveValue('Sample 02');
     }
     await testInfo.attach(`table-${size.width}`, { body: await page.screenshot(), contentType: 'image/png' });
@@ -97,7 +97,7 @@ for (const size of [{ width: 390, height: 844 }, { width: 1920, height: 1080 }])
 
 test('failed refresh retains table data and SQL copy failure is explained', async ({ page }, testInfo) => {
   await page.goto('/database?section=tables');
-  await page.getByRole('button', { name: /ViewerSamples Has data/ }).click();
+  await page.getByRole('button', { name: 'ViewerSamples', exact: true }).click();
   await expect(page.getByText('1–25 of 57', { exact: true })).toBeVisible();
   // A plain read error, so the check is about retained rows rather than service outages.
   await page.route('**/api/database/tables/ViewerSamples?*', route => route.fulfill({ status: 500, json: { detail: 'Fixture read unavailable' } }));
@@ -115,7 +115,7 @@ test('failed refresh retains table data and SQL copy failure is explained', asyn
 test('short narrow windows keep reading and close controls reachable', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 320, height: 390 });
   await page.goto('/database?section=tables');
-  await page.getByRole('button', { name: /ViewerSamples Has data/ }).click();
+  await page.getByRole('button', { name: 'ViewerSamples', exact: true }).click();
   await expect(page.getByText('1–25 of 57', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'More table options' }).click();
   await page.getByRole('menuitem', { name: 'Expand table' }).click();

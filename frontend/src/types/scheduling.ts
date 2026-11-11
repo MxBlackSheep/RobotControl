@@ -272,12 +272,9 @@ export interface ExecutionWindow {
   is_running: boolean;
 }
 
-// Hamilton process monitoring
+/** HxRun process seen on this PC, read live with the queue status. */
 export interface HamiltonStatus {
   is_running: boolean;
-  process_count: number;
-  availability: 'available' | 'busy' | 'unknown';
-  last_check: string; // ISO format
 }
 
 // API Request types
