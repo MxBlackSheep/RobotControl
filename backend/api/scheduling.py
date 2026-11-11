@@ -4,7 +4,6 @@ import sqlite3
 from fastapi.routing import APIRoute
 from fastapi.exceptions import RequestValidationError
 from backend.services.sqlite_safety import SafetyConflict, StorageUnavailable
-import re
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -23,7 +22,8 @@ from backend.services.scheduling.experiment_discovery import get_experiment_disc
 from backend.services.scheduling.experiment_executor import resolve_experiment_path
 from backend.services.scheduling.schedule_check import check_schedule
 from backend.services.scheduling.schedule_review import ScheduleReview
-from backend.models import ScheduledExperiment, CalendarEvent, ApiResponse, NotificationContact, NotificationSettings
+from backend.services.scheduling.notification_check import check_contact, check_email_address, check_email_settings
+from backend.models import ScheduledExperiment, CalendarEvent, ApiResponse, NotificationContact
 from backend.api.dependencies import ConnectionContext, require_local_access
 from backend.utils.audit import log_action
 from backend.services.database_packages import PackageError
@@ -57,7 +57,6 @@ class SafetyRoute(APIRoute):
 
 router = APIRouter(prefix="/api/scheduling", tags=["scheduling"], route_class=SafetyRoute)
 
-EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 def _runner_fields(data):
@@ -150,7 +149,7 @@ def _normalize_contact_ids(contact_ids: Optional[Any], db_mgr) -> List[str]:
         return []
 
     available_ids = {
-        contact.contact_id for contact in db_mgr.get_notification_contacts(include_inactive=True)
+        contact.contact_id for contact in db_mgr.get_notification_contacts(include_inactive=True, include_review=True)
     }
     missing = [contact_id for contact_id in cleaned if contact_id not in available_ids]
     if missing:
@@ -161,14 +160,18 @@ def _normalize_contact_ids(contact_ids: Optional[Any], db_mgr) -> List[str]:
     return cleaned
 
 
-def _validate_email_address(value: Any) -> str:
-    """Simple email validation."""
-    if not isinstance(value, str):
-        raise HTTPException(status_code=400, detail="Email address must be a string")
-    email = value.strip()
-    if not EMAIL_REGEX.fullmatch(email):
-        raise HTTPException(status_code=400, detail="Invalid email address format")
-    return email
+def _checked(check, value):
+    """Run a stored-field check for a request; its reason is the 400 text."""
+    try:
+        return check(value)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _requested_contact(contact_id: str, contact_data: Dict[str, Any]) -> NotificationContact:
+    return _checked(check_contact, {"contact_id": contact_id, "display_name": contact_data.get("display_name"),
+                                    "email_address": contact_data.get("email_address"),
+                                    "is_active": contact_data.get("is_active", True)})
 
 
 def _collect_schedule_contact_recipients(
@@ -286,48 +289,17 @@ def update_notification_settings_endpoint(
         raise HTTPException(status_code=403, detail="Admin role required to manage notification settings")
     actor = current_user.get("username", "unknown")
 
-    host_value = payload.get("host")
-    if not isinstance(host_value, str) or not host_value.strip():
-        raise HTTPException(status_code=400, detail="host is required")
-    host = host_value.strip()
+    settings = _checked(check_email_settings, {
+        "host": payload.get("host"),
+        "port": payload.get("port", 587),
+        "username": payload.get("username"),
+        "sender": payload.get("sender"),
+        "use_tls": payload.get("use_tls", True),
+        "use_ssl": payload.get("use_ssl", False),
+        "manual_recovery_recipients": payload.get("manual_recovery_recipients", []),
+        "updated_by": current_user.get("username"),
+    })
 
-    port_value = payload.get("port", 587)
-    try:
-        port = int(port_value)
-    except (TypeError, ValueError):
-        raise HTTPException(status_code=400, detail="port must be an integer")
-    if port < 1 or port > 65535:
-        raise HTTPException(status_code=400, detail="port must be between 1 and 65535")
-
-    username_value = payload.get("username")
-    if username_value is not None and not isinstance(username_value, str):
-        raise HTTPException(status_code=400, detail="username must be a string if provided")
-    username = username_value.strip() if isinstance(username_value, str) and username_value.strip() else None
-
-    sender_value = payload.get("sender")
-    sender = _validate_email_address(sender_value)
-
-    use_tls = bool(payload.get("use_tls", True))
-    use_ssl = bool(payload.get("use_ssl", False))
-    if use_ssl and use_tls:
-        # If SSL is requested, disable STARTTLS to avoid conflicting settings.
-        use_tls = False
-
-    manual_recipients_input = payload.get("manual_recovery_recipients", [])
-    manual_recipients: List[str] = []
-    if isinstance(manual_recipients_input, str):
-        for value in manual_recipients_input.split(","):
-            if value.strip():
-                manual_recipients.append(_validate_email_address(value))
-    elif isinstance(manual_recipients_input, list):
-        for value in manual_recipients_input:
-            if not isinstance(value, str):
-                raise HTTPException(status_code=400, detail="manual_recovery_recipients must contain strings")
-            trimmed = value.strip()
-            if trimmed:
-                manual_recipients.append(_validate_email_address(trimmed))
-    elif manual_recipients_input not in (None, []):
-        raise HTTPException(status_code=400, detail="manual_recovery_recipients must be a string or list of strings")
     update_password = "password" in payload
     encrypted_password: Optional[str] = None
     if update_password:
@@ -341,18 +313,6 @@ def update_notification_settings_endpoint(
                 encrypted_password = encrypt_secret(raw_password)
             except SecretCipherError as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
-    manual_recipients = list(dict.fromkeys(manual_recipients))
-
-    settings = NotificationSettings(
-        host=host,
-        port=port,
-        username=username,
-        sender=sender,
-        use_tls=use_tls,
-        use_ssl=use_ssl,
-        updated_by=current_user.get("username"),
-        manual_recovery_recipients=manual_recipients or None,
-    )
 
     scheduler, db_mgr, _ = get_services()
     updated = db_mgr.update_notification_settings(
@@ -394,7 +354,7 @@ def test_notification_settings_endpoint(
         raise HTTPException(status_code=403, detail="Admin role required to manage notification settings")
 
     recipient_value = payload.get("recipient")
-    recipient = _validate_email_address(recipient_value)
+    recipient = _checked(check_email_address, recipient_value)
 
     email_service = EmailNotificationService()
     if not email_service.config.is_enabled:
@@ -554,7 +514,7 @@ def list_notification_contacts(
     """List notification contacts for scheduling."""
     try:
         _, db_mgr, _ = get_services()
-        contacts = db_mgr.get_notification_contacts(include_inactive=include_inactive)
+        contacts = db_mgr.get_notification_contacts(include_inactive=include_inactive, include_review=True)
         response = ApiResponse(
             success=True,
             message="Notification contacts retrieved",
@@ -578,22 +538,10 @@ def create_notification_contact_endpoint(
     if current_user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin role required to manage contacts")
 
-    display_name = contact_data.get("display_name")
-    if not isinstance(display_name, str) or not display_name.strip():
-        raise HTTPException(status_code=400, detail="display_name is required")
-    email_address = _validate_email_address(contact_data.get("email_address"))
-    is_active = bool(contact_data.get("is_active", True))
-
+    contact = _requested_contact("", contact_data)
     actor = current_user.get("username", "unknown")
 
     scheduler, db_mgr, _ = get_services()
-
-    contact = NotificationContact(
-        contact_id="",
-        display_name=display_name.strip(),
-        email_address=email_address,
-        is_active=is_active,
-    )
     created = db_mgr.create_notification_contact(contact)
     if not created:
         raise HTTPException(status_code=500, detail="Failed to create contact")
@@ -628,21 +576,10 @@ def update_notification_contact_endpoint(
     if current_user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin role required to manage contacts")
 
-    display_name = contact_data.get("display_name")
-    if not isinstance(display_name, str) or not display_name.strip():
-        raise HTTPException(status_code=400, detail="display_name is required")
-    email_address = _validate_email_address(contact_data.get("email_address"))
-    is_active = bool(contact_data.get("is_active", True))
-
+    contact = _requested_contact(contact_id, contact_data)
     actor = current_user.get("username", "unknown")
 
     scheduler, db_mgr, _ = get_services()
-    contact = NotificationContact(
-        contact_id=contact_id,
-        display_name=display_name.strip(),
-        email_address=email_address,
-        is_active=is_active,
-    )
     updated = db_mgr.update_notification_contact(contact)
     if not updated:
         log_action(

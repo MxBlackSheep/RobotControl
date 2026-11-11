@@ -139,6 +139,7 @@ const normalizeNotificationContact = (payload: any): NotificationContact => ({
   is_active: Boolean(payload?.is_active ?? true),
   created_at: coerceOptionalString(payload?.created_at),
   updated_at: coerceOptionalString(payload?.updated_at),
+  review_reason: coerceOptionalString(payload?.review_reason),
 });
 
 
@@ -155,6 +156,7 @@ const normalizeNotificationSettings = (payload: any): NotificationSettings => ({
   manual_recovery_recipients: Array.isArray(payload?.manual_recovery_recipients)
     ? payload.manual_recovery_recipients.map((value: unknown) => coerceString(value))
     : [],
+  review_reason: coerceOptionalString(payload?.review_reason),
 });
 
 const normalizeNotificationLog = (payload: any): NotificationLogEntry => ({

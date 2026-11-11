@@ -121,6 +121,7 @@ export default function NotificationEmailSettingsPanel({ settings, loading, onRe
       <Divider />
       <CardContent>
         <Stack component="form" spacing={3} onSubmit={save} autoComplete="off">
+          {saved?.review_reason && <Alert severity="warning">Needs review: {saved.review_reason}</Alert>}
           <Stack direction="row" alignItems="center" spacing={1}>
             <Typography variant="h6">Sending account</Typography>
             {dirty && <Chip size="small" color="warning" label="Unsaved changes" />}

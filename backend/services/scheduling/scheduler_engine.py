@@ -1295,6 +1295,12 @@ class SchedulerEngine:
                 experiment.schedule_id,
                 missing,
             )
+            reviews = self.db_manager.contact_reviews(missing)
+            if reviews:
+                self.db_manager.create_notification_log(NotificationLogEntry(
+                    log_id="", schedule_id=experiment.schedule_id, execution_id=execution.execution_id,
+                    event_type=event_type, status="error", error_message="; ".join(reviews),
+                    processed_at=datetime.now(), metadata={"context": context, "missing_contacts": missing}))
             return
 
         log_entry = NotificationLogEntry(

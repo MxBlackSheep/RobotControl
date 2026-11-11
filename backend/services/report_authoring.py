@@ -10,7 +10,7 @@ import zipfile
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from backend.services.database_packages import Manifest, PackageCatalogue, PackageError, changelog_with_note, inspect_archive, SUPPORTED_LIBRARIES
 from backend.utils.filesystem import replace_file
 
@@ -96,6 +96,51 @@ class ReportDraft(BaseModel):
         elif self.kind != 'report':
             raise PackageError('Add operations from Python containing a TOOL definition.')
         return self
+
+
+DRAFT_SETTING_NAMES = {
+    'name': 'name', 'package_id': 'package ID', 'version': 'version number', 'libraries': 'library list',
+    'original': 'original Python', 'handler': 'report Python', 'sources': 'connection list',
+    'mappings': 'connection choices', 'inputs': 'input list', 'step': 'wizard step', 'tool_id': 'tool ID',
+    'entrypoint': 'starting function', 'kind': 'tool type', 'preview': 'preview setting',
+    'confirmation_field': 'confirmation input', 'definition_file': 'defining Python file', 'files': 'file list',
+    'operation_source': 'writing connection', 'change_note': 'change note',
+}
+
+
+def _plain_draft_error(error):
+    """One validation error as a sentence a lab member reads after "Needs review"."""
+    kind, loc = error['type'], error['loc']
+    if not loc:
+        return 'The file holds no draft settings'
+    if kind == 'extra_forbidden':
+        return 'The draft has a setting this version no longer uses'
+    setting = DRAFT_SETTING_NAMES.get(loc[0], 'settings')
+    if kind in ('missing', 'string_too_short'):
+        return f'The draft has no {setting}'
+    if kind in ('string_too_long', 'too_long'):
+        return f"The draft's {setting} is too long"
+    if kind == 'string_pattern_mismatch':
+        return f"The draft's {setting} is not in the expected form"
+    if kind.endswith(('_type', '_parsing')):
+        return f"The draft's {setting} is the wrong kind of value"
+    return f"The draft's {setting} is not valid"
+
+
+def check_draft(record):
+    """Return a stored draft record or raise ValueError with a plain reason; reads only the record."""
+    if not isinstance(record, dict):
+        raise ValueError('The file does not hold a draft')
+    for name, missing in (('id', 'The draft has no ID'), ('owner', 'The draft has no owner')):
+        if not isinstance(record.get(name), str) or not record[name]:
+            raise ValueError(missing)
+    if type(record.get('revision')) is not int:
+        raise ValueError('The draft has no saved revision number')
+    try:
+        ReportDraft.model_validate(record.get('draft'))
+    except ValidationError as exc:
+        raise ValueError(_plain_draft_error(exc.errors()[0])) from None
+    return record
 
 
 class ReportAuthoring:
@@ -206,22 +251,70 @@ class ReportAuthoring:
             raise PackageError('Draft not found', 404)
         return self.root / (key + '.json')
 
-    def get(self, key, owner):
+    @staticmethod
+    def _read(path):
+        """(record, None) for a checked file, else (what reads, reason). Never rewrites the file."""
+        try:
+            text = path.read_text('utf-8')
+        except UnicodeDecodeError:
+            return {}, 'The draft file is damaged'
+        except OSError:  # held by another program, or not a file
+            return {}, 'The draft file cannot be opened; another program may be using it'
+        try:
+            data = json.loads(text)
+        except ValueError:
+            return {}, 'The draft file is damaged'
+        try:
+            return check_draft(data), None
+        except ValueError as exc:
+            return data if isinstance(data, dict) else {}, str(exc)
+
+    def _owned(self, key, owner):
+        """A file without a readable owner is shown to every owner, so any administrator can delete it."""
+        path = self._path(key)
+        if not path.exists():
+            raise PackageError('Draft not found', 404)
+        data, reason = self._read(path)
+        if (data.get('owner') or owner) != owner:
+            raise PackageError('Draft not found', 404)
+        return data, reason
+
+    @staticmethod
+    def _openable(data, owner):
+        """A draft under review opens in Edit only for its stored owner and only when the file holds a draft object."""
+        return isinstance(data.get('draft'), dict) and data.get('owner') == owner
+
+    def get(self, key, owner, review=False):
+        """review=True opens a draft under review for Edit; acting paths never pass it. The file is untouched until saved."""
         with self.lock:
-            path = self._path(key)
-            if not path.exists():
-                raise PackageError('Draft not found', 404)
-            data = json.loads(path.read_text('utf-8'))
-            if data['owner'] != owner:
-                raise PackageError('Draft not found', 404)
-            return {k: v for k, v in data.items() if k != 'owner'}
+            data, reason = self._owned(key, owner)
+            if reason and not (review and self._openable(data, owner)):
+                raise PackageError(f'Needs review: {reason}')
+            record = {k: v for k, v in data.items() if k != 'owner'}
+            if not review:
+                return record
+            if reason:
+                # Offer only what the current model accepts, so the save can succeed.
+                record['draft'] = {k: v for k, v in record['draft'].items() if k in ReportDraft.model_fields}
+                record['revision'] = record.get('revision') if type(record.get('revision')) is int else 0
+            return {**record, 'review_reason': reason}
 
     def list(self, owner):
         with self.lock:
-            return [dict(id=d['id'], name=d['draft']['name'], revision=d['revision'], code_defined=bool(d['draft'].get('definition_file')))
-                    for path in self.root.glob('*.json')
-                    if (d := json.loads(path.read_text('utf-8')))['owner'] == owner
-                    and not self.service.catalogue.published_draft(d['id'], owner)]
+            entries = []
+            for path in self.root.glob('*.json'):
+                d, reason = self._read(path)
+                if (d.get('owner') or owner) != owner:
+                    continue
+                if reason:
+                    draft = d.get('draft') if isinstance(d.get('draft'), dict) else None
+                    entries.append(dict(id=path.stem, name=(draft or {}).get('name') or path.stem, revision=d.get('revision'),
+                                        code_defined=bool((draft or {}).get('definition_file')), review_reason=reason,
+                                        openable=self._openable(d, owner)))
+                elif not self.service.catalogue.published_draft(d['id'], owner):
+                    entries.append(dict(id=d['id'], name=d['draft']['name'], revision=d['revision'],
+                                        code_defined=bool(d['draft'].get('definition_file')), review_reason=None, openable=True))
+            return entries
 
     def save(self, draft, owner, key=None, revision=0):
         with self.lock:
@@ -229,8 +322,8 @@ class ReportAuthoring:
             if key:
                 if self.service.catalogue.published_draft(key, owner):
                     raise PackageError('This draft was published. Edit the installed tool to make another change.', 409)
-                current = self.get(key, owner)
-                if current['revision'] != revision:
+                current = self.get(key, owner, review=True)
+                if current.get('revision') != revision:
                     raise PackageError('This draft changed in another tab. Reopen it before saving.', 409)
                 if current['draft'].get('definition_file') and not draft.definition_file:
                     raise PackageError('Keep this tool definition with its Python.')
@@ -252,7 +345,7 @@ class ReportAuthoring:
                 record['verification'] = {**current['verification'], 'revision':revision+1}
             if revision and current.get('base'):
                 record['base'] = current['base']
-            self._write(self._path(key), record)
+            self._write(self._path(key), check_draft(record))
             return self.get(key, owner)
 
     def import_files(self, files, owner, key=None, revision=0, mode='all'):
@@ -302,7 +395,7 @@ class ReportAuthoring:
 
     def remove(self, key, owner):
         with self.lock:
-            self.get(key, owner)
+            self._owned(key, owner)
             try:
                 self.trials.remove('draft-' + key)
             except PackageError as exc:

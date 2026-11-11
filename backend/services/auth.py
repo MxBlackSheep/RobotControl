@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 import hashlib
 import logging
 import os
+import re
 import secrets
 import sqlite3
 from typing import Any, Dict, List, Optional
@@ -23,6 +24,7 @@ import bcrypt
 
 from backend.services.auth_database import get_auth_database, AuthDatabase
 from backend.services.sqlite_safety import StorageUnavailable
+from backend.utils.record_check import CheckError
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +53,22 @@ ALGORITHM = "HS256"
 # delete a valid sign-in, so these answer 503 and the client keeps its tokens.
 AUTH_STORAGE_ERRORS = (sqlite3.Error, StorageUnavailable)
 
+BCRYPT_HASH = re.compile(r"\$2[abxy]\$\d{2}\$[./A-Za-z0-9]{53}")
+
+
+def check_user_email(email: Any) -> None:
+    # Stored addresses need only "@": the built-in admin@localhost must pass. The forms keep
+    # their stricter rule for what a person types.
+    if not isinstance(email, str) or "@" not in email:
+        raise CheckError('email has no "@"', "The user's email address has no @")
+
+
+def check_user(fields: Dict[str, Any]) -> None:
+    """Raise CheckError for a stored password hash or email that reset or Edit email must fix; read no files or network."""
+    if not isinstance(fields.get("password_hash"), str) or not BCRYPT_HASH.fullmatch(fields["password_hash"]):
+        raise CheckError("password hash is not recognised", "The user's saved password cannot be checked")
+    check_user_email(fields.get("email"))
+
 
 @dataclass
 class User:
@@ -64,6 +82,7 @@ class User:
     must_reset: bool = False
     last_login_ip: Optional[str] = None
     last_login_ip_type: Optional[str] = None
+    review_reason: Optional[str] = None  # derived from the stored row on every read, never stored
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -93,12 +112,16 @@ class AuthService:
     def __init__(self) -> None:
         self.db: AuthDatabase = get_auth_database()
 
-        # One-time bootstrap for the default admin account
-        self.db.ensure_admin(
-            username=DEFAULT_ADMIN_USERNAME,
-            email=DEFAULT_ADMIN_EMAIL,
-            password_hash=self.get_password_hash(DEFAULT_ADMIN_PASSWORD),
-        )
+        # One-time bootstrap for the default admin account. Checked only when it would be written,
+        # so a later bad ROBOTCONTROL_ADMIN_EMAIL never stops an existing installation.
+        if not self.db.get_user_by_username(DEFAULT_ADMIN_USERNAME):
+            admin = {"username": DEFAULT_ADMIN_USERNAME, "email": DEFAULT_ADMIN_EMAIL,
+                     "password_hash": self.get_password_hash(DEFAULT_ADMIN_PASSWORD)}
+            try:
+                check_user(admin)
+            except ValueError:
+                raise ValueError('ROBOTCONTROL_ADMIN_EMAIL has no "@"') from None
+            self.db.ensure_admin(**admin)
 
         # Cache configuration values locally for quick access
         self.access_token_expiry = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -149,6 +172,7 @@ class AuthService:
             raise ValueError("Email already registered")
 
         password_hash = self.get_password_hash(password)
+        check_user({"email": email, "password_hash": password_hash})
         user_row = self.db.create_user(
             username=username,
             email=email,
@@ -173,11 +197,14 @@ class AuthService:
             logger.warning("Authentication failed: user '%s' inactive", username)
             return None
 
+        user = self._row_to_user(user_row)
+        if user.review_reason:
+            logger.warning("Authentication failed: user '%s' needs review: %s", username, user.review_reason)
+            return None
+
         if not self.verify_password(password, user_row["password_hash"]):
             logger.warning("Authentication failed: invalid password for '%s'", username)
             return None
-
-        user = self._row_to_user(user_row)
 
         if client_info:
             self._record_successful_login(user, client_info)
@@ -281,6 +308,7 @@ class AuthService:
                     "last_login_ip": user.last_login_ip,
                     "last_login_ip_type": user.last_login_ip_type,
                     "created_at": row.get("created_at"),
+                    "review_reason": user.review_reason,
                 }
         )
         return users
@@ -309,6 +337,7 @@ class AuthService:
         normalized_email = (email or "").strip()
         if not normalized_email:
             raise ValueError("Email address is required")
+        check_user_email(normalized_email)
         success = self.db.update_user_email(username, normalized_email)
         if success:
             logger.info("Updated email for user '%s'", username)
@@ -369,7 +398,11 @@ class AuthService:
                 logger.warning("Token verification failed: user inactive or missing")
                 return None
 
-            return self._row_to_user(row)
+            user = self._row_to_user(row)
+            if user.review_reason:
+                logger.warning("Token verification failed: user '%s' needs review", user.username)
+                return None
+            return user
 
         except jwt.ExpiredSignatureError:
             logger.debug("Access token expired")
@@ -400,8 +433,8 @@ class AuthService:
                 return None
 
             user = self.get_user_by_id(payload["user_id"])
-            if not user or not user.is_active:
-                logger.warning("Refresh attempt for inactive user")
+            if not user or not user.is_active or user.review_reason:
+                logger.warning("Refresh attempt for inactive user or user under review")
                 return None
 
             return self.create_access_token(user)
@@ -439,7 +472,13 @@ class AuthService:
         self.db.revoke_refresh_token(token_hash)
 
     def _row_to_user(self, row: Dict[str, Any]) -> User:
+        try:
+            check_user(row)
+            review_reason = None
+        except CheckError as exc:
+            review_reason = exc.review_reason
         return User(
+            review_reason=review_reason,
             id=row["id"],
             username=row["username"],
             email=row["email"],

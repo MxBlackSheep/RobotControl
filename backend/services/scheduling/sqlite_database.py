@@ -32,6 +32,8 @@ logger = logging.getLogger(__name__)
 
 from backend.services.scheduling.safety_store import SchedulerSafetyStore
 from backend.services.scheduling.schedule_check import check_schedule
+from backend.services.scheduling.notification_check import check_contact, check_email_settings
+from backend.utils.record_check import review_reason
 from backend.services.scheduling.schedule_review import ScheduleReview
 from backend.services.sqlite_safety import SafetyConflict, StorageUnavailable, configure_connection, check_timestamp
 
@@ -679,10 +681,22 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                 cursor.execute("SELECT * FROM NotificationSettings WHERE id = 1")
                 row = cursor.fetchone()
                 if row:
-                    return NotificationSettings.from_row(row)
+                    return self._row_to_notification_settings(row)
         except Exception as exc:
             logger.error("Failed to load notification settings: %s", exc)
         return NotificationSettings()
+
+    @staticmethod
+    def _row_to_notification_settings(row) -> NotificationSettings:
+        """The stored row; one that fails check_email_settings keeps its values with review_reason."""
+        settings = NotificationSettings.from_row(row)
+        if not (settings.host or settings.username or settings.sender or settings.manual_recovery_recipients):
+            return settings  # the row every database starts with: not set, not under review
+        try:
+            return check_email_settings({**vars(settings), 'manual_recovery_recipients': row['manual_recovery_recipients']})
+        except ValueError as exc:
+            settings.review_reason = review_reason(exc, 'The email settings cannot be read')
+            return settings
 
     def update_notification_settings(
         self,
@@ -748,7 +762,7 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                 cursor.execute("SELECT * FROM NotificationSettings WHERE id = 1")
                 row = cursor.fetchone()
                 if row:
-                    return NotificationSettings.from_row(row)
+                    return self._row_to_notification_settings(row)
         except Exception as exc:
             logger.error("Failed to update notification settings: %s", exc)
         return NotificationSettings()
@@ -757,7 +771,8 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
     # Notification contacts
     # ------------------------------------------------------------------
 
-    def get_notification_contacts(self, include_inactive: bool = False) -> List[NotificationContact]:
+    def get_notification_contacts(self, include_inactive: bool = False, include_review: bool = False) -> List[NotificationContact]:
+        """Checked contacts; a row that fails check_contact only with include_review, never for mail."""
         contacts: List[NotificationContact] = []
         try:
             with self._get_connection() as conn:
@@ -770,20 +785,18 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                     cursor.execute(
                         "SELECT * FROM NotificationContacts WHERE is_active = 1 ORDER BY display_name ASC"
                     )
-                rows = cursor.fetchall()
-                for row in rows:
-                    contacts.append(
-                        NotificationContact.from_dict(
-                            {
-                                "contact_id": row["contact_id"],
-                                "display_name": row["display_name"],
-                                "email_address": row["email_address"],
-                                "is_active": bool(row["is_active"]),
-                                "created_at": row["created_at"],
-                                "updated_at": row["updated_at"],
-                            }
-                        )
-                    )
+                for row in cursor.fetchall():
+                    fields = {**dict(row), "is_active": bool(row["is_active"])}
+                    try:
+                        contacts.append(check_contact(fields))
+                    except ValueError as exc:
+                        if include_review:
+                            # Only a saved date can fail outside check_contact's own wording.
+                            review = {**fields, "review_reason": review_reason(exc, "The contact's saved date cannot be read")}
+                            try:
+                                contacts.append(NotificationContact.from_dict(review))
+                            except ValueError:  # its timestamps do not parse; list it without them
+                                contacts.append(NotificationContact.from_dict({**review, "created_at": None, "updated_at": None}))
         except Exception as exc:
             logger.error(f"Failed to load notification contacts: {exc}")
         return contacts
@@ -1534,12 +1547,14 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
         }
         fields['notification_contacts'] = self._get_schedule_contact_ids(fields['schedule_id'], conn)
         reason = None
-        for name in ('parameters', 'prerequisites', 'preparation'):
+        for name, unreadable in (('parameters', 'The protocol parameters cannot be read'),
+                                 ('prerequisites', 'The old preparation steps cannot be read'),
+                                 ('preparation', 'The database step cannot be read')):
             if fields[name] is not None:
                 try:
                     fields[name] = json.loads(fields[name])
                 except (TypeError, ValueError):
-                    reason = reason or f'{name} contains unreadable JSON'
+                    reason = reason or unreadable
         for name in ('is_active', 'archived', 'recovery_required'):
             fields[name] = bool(fields[name])
         if reason is None:
@@ -1549,7 +1564,7 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                 schedule.timeout_config = TimeoutConfig.from_dict(fields['timeout_config'])
                 return schedule
             except (ValueError, TypeError) as exc:
-                reason = str(exc)
+                reason = review_reason(exc, 'A saved value of the schedule cannot be read')
         return ScheduleReview(fields, reason)
 
     def _row_to_notification_log(self, row: sqlite3.Row) -> NotificationLogEntry:

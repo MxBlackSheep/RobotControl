@@ -9,6 +9,8 @@ from datetime import datetime
 import uuid
 import json
 
+from backend.utils.record_check import CheckError
+
 from backend.utils.datetime import (
     parse_iso_datetime_to_local,
     utc_now_as_local_naive,
@@ -123,14 +125,14 @@ class ScheduledExperiment:
     def __post_init__(self):
         """Initialize default values after creation"""
         if self.runner not in ('venus', 'pyhsl'):
-            raise ValueError('Runner must be venus or pyhsl')
+            raise CheckError('Runner must be venus or pyhsl', "The schedule's runner is not VENUS or PyHSL")
         if self.parameters is None:
             self.parameters = {}
         modes = ('real', 'simulation', 'test') if self.runner == 'pyhsl' else ('real', 'simulation')
         if self.mode not in modes:
-            raise ValueError('Mode must be ' + ' or '.join(modes))
+            raise CheckError('Mode must be ' + ' or '.join(modes), 'The run mode is not one this runner supports')
         if type(self.log_inactivity_threshold_minutes) is not int or self.log_inactivity_threshold_minutes <= 0:
-            raise ValueError("Log inactivity threshold must be a positive whole number of minutes")
+            raise CheckError("Log inactivity threshold must be a positive whole number of minutes")
         if self.prerequisites is None:
             self.prerequisites = []
         if self.notification_contacts is None:
@@ -249,6 +251,7 @@ class NotificationContact:
     is_active: bool = True
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    review_reason: Optional[str] = None  # set by the reader for a stored row that fails check_contact
 
     def __post_init__(self):
         if not self.contact_id:
@@ -266,6 +269,7 @@ class NotificationContact:
             "is_active": self.is_active,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "review_reason": self.review_reason,
         }
 
     @classmethod
@@ -277,6 +281,7 @@ class NotificationContact:
             is_active=bool(data.get("is_active", True)),
             created_at=parse_iso_datetime_to_local(data.get("created_at")),
             updated_at=parse_iso_datetime_to_local(data.get("updated_at")),
+            review_reason=data.get("review_reason"),
         )
 
 
@@ -357,6 +362,7 @@ class NotificationSettings:
     updated_at: Optional[datetime] = None
     updated_by: Optional[str] = None
     manual_recovery_recipients: Optional[List[str]] = None
+    review_reason: Optional[str] = None  # set by the reader for a stored row that fails check_email_settings
 
     def to_public_dict(self) -> Dict[str, Any]:
         """Serialize without exposing the encrypted password."""
@@ -371,13 +377,15 @@ class NotificationSettings:
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             "updated_by": self.updated_by,
             "manual_recovery_recipients": self.manual_recovery_recipients or [],
+            "review_reason": self.review_reason,
         }
 
     @classmethod
     def from_row(cls, row: Any) -> "NotificationSettings":
         data = dict(row)
-        recipients_raw = data.get("manual_recovery_recipients") or ""
-        recipients = [email.strip() for email in recipients_raw.split(",") if email and email.strip()]
+        recipients_raw = data.get("manual_recovery_recipients")
+        # A column that is not text reads as no recipients here; check_email_settings reports it.
+        recipients = [email.strip() for email in recipients_raw.split(",") if email.strip()] if isinstance(recipients_raw, str) else []
         return cls(
             host=data.get("smtp_host"),
             port=data.get("smtp_port", 587),

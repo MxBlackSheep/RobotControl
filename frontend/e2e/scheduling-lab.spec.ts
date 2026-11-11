@@ -12,6 +12,9 @@ import { mkdirSync } from 'node:fs';
  *   read-only; an administrator's change sends tool and inputs; a rejected save keeps them.
  * - The Simulation switch: it opens with the saved mode, an edit sends the mode shown, and a
  *   rejected save keeps it. A queued schedule shows why it is waiting.
+ * - A contact under review reads as Active or hides its reason; Edit opens without its stored
+ *   values; a successful save keeps the chip, a refused save drops the draft or the chip.
+ *   In the schedule form it counts as an alert recipient (no warning) or hides its review.
  * Server-side review cases are in backend/e2e/stored_data_check.py; preparation cases in
  * backend/e2e/scheduling_lab_check.py and backend/e2e/preparation_step_check.py; mode cases in
  * backend/e2e/simulation_mode_check.py.
@@ -23,7 +26,7 @@ const stored = (extra: Record<string, unknown>) => ({ schedule_type: 'once', est
 
 /** A local session and the Scheduling routes; a write goes to `write` (default: 409, the draft stays open). */
 async function scheduling(page: Page, options: { role?: 'admin' | 'user'; list: () => object[]; queued?: object[];
-  write?: (route: Route) => Promise<void> }) {
+  contacts?: () => object[]; write?: (route: Route) => Promise<void> }) {
   await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));
   await page.route('**/api/auth/me', route => route.fulfill({ json: { success: true, data: {
     user_id: 'operator', username: 'operator', role: options.role ?? 'admin', session_is_local: true, session: { is_local: true } } } }));
@@ -38,11 +41,12 @@ async function scheduling(page: Page, options: { role?: 'admin' | 'user'; list: 
       manual_recovery: { active: false, storage_healthy: true, pending_recoveries: [] } };
     else if (path.endsWith('/experiments/available')) data = { experiments: options.list().map((item: any) => ({ name: item.experiment_name, path: item.experiment_path })) };
     else if (path.endsWith('/experiments/library')) data = { methods: [] };
+    else if (path.endsWith('/contacts')) data = options.contacts?.() ?? [];
     return route.fulfill({ json: { success: true, data } });
   });
 }
 
-const reason = "schedule type 'cron' is no longer supported";
+const reason = "The schedule type 'cron' is no longer supported";
 // A stored next run must still not read as a coming run.
 const review = stored({ schedule_id: 'old-cron', experiment_name: 'Old cron method', experiment_path: 'C:\\Methods\\old-cron.med',
   schedule_type: 'cron', estimated_duration: 25, next_run: '2026-12-01T10:00:00', review_reason: reason });
@@ -195,3 +199,60 @@ for (const [saved, sent] of [['real', 'simulation'], ['simulation', 'real']] as 
     await expect(toggle).toBeChecked({ checked: sent === 'simulation' });
   });
 }
+
+const contactReason = "The contact's address is not a valid email address";
+const contactRefusal = 'Invalid email address format';
+const reviewContact = { contact_id: 'night', display_name: 'Night shift', email_address: 'night shift', is_active: true,
+  created_at: '2026-09-25T10:00:00', updated_at: '2026-09-25T10:00:00', review_reason: contactReason };
+for (const accepted of [true, false]) {
+  test(`a contact under review: ${accepted ? 'saving an address clears the chip' : 'a refused save keeps the draft and the chip'}`, async ({ page }) => {
+    mkdirSync(evidence, { recursive: true });
+    let current: Record<string, unknown> = reviewContact;
+    const writes: any[] = [];
+    await scheduling(page, { list: () => [], contacts: () => [current], write: async route => {
+      writes.push(route.request().postDataJSON());
+      if (!accepted) return route.fulfill({ status: 400, json: { detail: contactRefusal } });
+      current = { ...reviewContact, ...writes[0], review_reason: null };
+      await route.fulfill({ json: { success: true, data: current } });
+    } });
+    await page.goto('/scheduling?section=notifications');
+    const row = page.getByRole('row', { name: /Night shift/ });
+    await expect(row).toContainText('Needs review');
+    await expect(row).toContainText(contactReason);
+    await expect(row).not.toContainText('Active');
+    await row.getByRole('button', { name: 'Edit contact', exact: true }).click();
+    const editor = page.getByRole('dialog', { name: 'Edit Contact', exact: true });
+    await expect(editor.getByLabel('Email Address')).toHaveValue('night shift');
+    await editor.getByLabel('Email Address').fill('night@example.test');
+    await editor.getByRole('button', { name: 'Save Changes', exact: true }).click();
+    await expect.poll(() => writes.length).toBe(1);
+    expect(writes[0]).toMatchObject({ display_name: 'Night shift', email_address: 'night@example.test', is_active: true });
+    if (accepted) {
+      await expect(editor).toHaveCount(0);
+      await expect(row).toContainText('Active');
+      await expect(row).not.toContainText('Needs review');
+      return;
+    }
+    const refusal = page.getByRole('dialog', { name: 'Update failed', exact: true });
+    await expect(refusal).toContainText(contactRefusal);
+    await refusal.getByRole('button', { name: 'Close', exact: true }).click();
+    // The app-wide error dialog for a refused request sits on top as well.
+    await page.getByRole('dialog', { name: 'Server Error', exact: true }).getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(editor.getByLabel('Email Address')).toHaveValue('night@example.test');
+    await editor.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(row).toContainText('Needs review');
+  });
+}
+test('a contact under review is not an alert recipient in the schedule form', async ({ page }) => {
+  const schedule = stored({ schedule_id: 'alerted', experiment_name: 'Alerted method', experiment_path: 'C:\\Methods\\alerted.med',
+    notification_contacts: ['night'] });
+  await page.route('**/api/database/tools/catalogue?kind=preparation', route => route.fulfill({ json: [] }));
+  await scheduling(page, { list: () => [schedule], contacts: () => [reviewContact] });
+  await page.goto('/scheduling?section=schedules');
+  await page.getByRole('button', { name: 'Open Alerted method', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit schedule', exact: true }).click();
+  const editor = page.getByRole('dialog', { name: 'Edit schedule', exact: true });
+  await expect(editor.getByText('Log monitoring will continue, but no alert emails will be sent.')).toBeVisible();
+  await editor.getByRole('combobox', { name: 'Email alert recipients' }).click();
+  await expect(page.getByRole('option', { name: /Night shift/ })).toContainText('Needs review');
+});

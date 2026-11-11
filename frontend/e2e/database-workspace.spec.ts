@@ -16,6 +16,9 @@ import { mkdirSync } from 'node:fs';
  *   the dialog or loses the selection.
  * - A remote administrator (e.g. through the tunnel) sees local-only sections or requests
  *   them, or is not told those sections exist on the RobotControl computer.
+ * - A saved draft under review (review_reason) hides its chip or reason, cannot be removed, or
+ *   hides the other drafts; one whose file reads as JSON does not open in Edit (Resume); an
+ *   unreadable one offers Resume (server side: backend/e2e/stored_data_check.py).
  * Server-side cases are in backend/e2e/database_workspace_check.py.
  */
 const evidence = process.env.ROBOTCONTROL_E2E_EVIDENCE || '../test-output/database-workspace-verification';
@@ -226,4 +229,37 @@ test('assigning package connections offers matching accounts and saves only decl
   await expect(plates).toHaveCount(0);
   expect(saved).toEqual([{ mappings: { primary: 'reader' }, operation_source: 'writer' }, { mappings: { primary: 'reader' }, operation_source: 'writer' },
     { mappings: { plates: 'reader', results: 'reader' }, operation_source: null }]);
+});
+
+test('a saved draft under review: a readable one opens in Edit, an unreadable one offers Remove only', async ({ page }) => {
+  await login(page);
+  const unreadable = 'The draft file is damaged', invalid = 'The draft has no name';
+  const [good, readable, broken] = ['a', 'c', 'b'].map(c => c.repeat(32));
+  let drafts = [{ id: good, name: 'Plate summary', revision: 2, code_defined: false, review_reason: null, openable: true },
+    { id: readable, name: readable, revision: 3, code_defined: false, review_reason: invalid, openable: true },
+    { id: broken, name: broken, revision: null, code_defined: false, review_reason: unreadable, openable: false }];
+  const requests: string[] = [];
+  await page.route('**/api/database/tools/viewer-sources', r => r.fulfill({ json: [] }));
+  await page.route('**/api/database/tools/packages', r => r.fulfill({ json: [] }));
+  await page.route('**/api/database/tools/drafts', r => r.fulfill({ json: drafts }));
+  await page.route('**/api/database/tools/drafts/*', r => {
+    const id = r.request().url().split('/drafts/')[1];
+    requests.push(r.request().method() + ' ' + id);
+    if (r.request().method() === 'GET') return r.fulfill({ json: { id, revision: 3, review_reason: invalid, draft: { name: '', package_id: 'growth-curve',
+      version: '1.0.0', libraries: [], original: '', handler: '', sources: ['primary'], mappings: {}, inputs: [], step: 0, kind: 'report', files: {} } } });
+    drafts = drafts.filter(d => d.id !== broken);
+    return r.fulfill({ json: { message: 'Draft removed.' } });
+  });
+  await page.goto('/database?section=packages');
+  const row = (text: string) => page.getByText(text, { exact: true }).locator('xpath=ancestor::div[contains(@class, "MuiStack")][1]');
+  await expect(row('Plate summary').getByRole('button', { name: 'Resume', exact: true })).toBeVisible();
+  await expect(row(unreadable)).toContainText('Needs review');
+  await expect(row(unreadable).getByRole('button', { name: 'Resume', exact: true })).toHaveCount(0);
+  await row(unreadable).getByRole('button', { name: 'Remove draft', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Remove draft?' }).getByRole('button', { name: 'Remove draft', exact: true }).click();
+  await expect(page.getByText(unreadable, { exact: true })).toHaveCount(0);
+  expect(requests).toEqual(['DELETE ' + broken]);
+  await expect(row(invalid)).toContainText('Needs review');
+  await row(invalid).getByRole('button', { name: 'Resume', exact: true }).click();
+  await expect.poll(() => requests).toContain('GET ' + readable);
 });

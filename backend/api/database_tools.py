@@ -273,7 +273,7 @@ def new_draft(payload: DraftSave, user=Depends(local_admin), service=Depends(get
 
 @router.get('/drafts/{key}')
 def get_draft(key: str, user=Depends(local_admin), service=Depends(get_database_tools)):
-    return service.authoring.get(key, owner(user))
+    return service.authoring.get(key, owner(user), review=True)
 
 
 @router.put('/drafts/{key}')

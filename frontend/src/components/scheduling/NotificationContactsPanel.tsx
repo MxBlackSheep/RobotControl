@@ -31,6 +31,8 @@ import {
 } from '@mui/icons-material';
 import { NotificationContact, NotificationContactPayload } from '../../types/scheduling';
 import StatusDialog, { StatusMessage } from '../StatusDialog';
+import StatusChip from '../StatusChip';
+import ReviewReason from '../ReviewReason';
 
 interface NotificationContactsPanelProps {
   contacts: NotificationContact[];
@@ -207,7 +209,7 @@ const NotificationContactsPanel: React.FC<NotificationContactsPanelProps> = ({
 
   const handleDelete = async (contact: NotificationContact) => {
     const confirmed = window.confirm(
-      `Delete contact "${contact.display_name}"? They will no longer receive scheduling alerts.`,
+      `Delete contact "${contact.display_name || contact.email_address}"? They will no longer receive scheduling alerts.`,
     );
     if (!confirmed) {
       return;
@@ -296,6 +298,7 @@ const NotificationContactsPanel: React.FC<NotificationContactsPanelProps> = ({
                     <TableRow key={contact.contact_id} hover>
                       <TableCell>
                         <Typography variant="body2">{contact.display_name}</Typography>
+                        {contact.review_reason && <ReviewReason reason={contact.review_reason} />}
                       </TableCell>
                       <TableCell>
                         <Typography variant="body2" color="text.secondary">
@@ -303,11 +306,13 @@ const NotificationContactsPanel: React.FC<NotificationContactsPanelProps> = ({
                         </Typography>
                       </TableCell>
                       <TableCell>
-                        <Chip
-                          label={contact.is_active ? 'Active' : 'Inactive'}
-                          color={contact.is_active ? 'success' : 'default'}
-                          size="small"
-                        />
+                        {contact.review_reason ? <StatusChip tone="attention" label="Needs review" /> : (
+                          <Chip
+                            label={contact.is_active ? 'Active' : 'Inactive'}
+                            color={contact.is_active ? 'success' : 'default'}
+                            size="small"
+                          />
+                        )}
                       </TableCell>
                       <TableCell align="right">
                         <Stack direction="row" spacing={0.75} justifyContent="flex-end">

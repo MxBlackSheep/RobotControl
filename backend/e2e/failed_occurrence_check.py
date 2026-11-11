@@ -544,7 +544,7 @@ def run():
         f.engine._load_schedules_from_database()
         before = f.storage.get_schedule_by_id(value.schedule_id).to_dict()
         listed = f.api.list_schedules(active_only=True, archived_only=False, current_user={'role': 'user'})['data']
-        assert listed[0]['review_reason'] == 'interval_hours is required for interval schedules'
+        assert listed[0]['review_reason'] == 'The interval schedule has no number of hours'
         f.loops()
         assert not f.launched and not f.prepared
         assert not f.storage.get_execution_history(value.schedule_id)

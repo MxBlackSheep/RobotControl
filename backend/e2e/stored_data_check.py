@@ -9,6 +9,30 @@ Review rows remain listed/editable/deletable and protect package references; bad
 does not hide other rows; a VENUS form without parameters repairs unreadable JSON.
 List times must use the runtime next run and newest finished
 execution, with no next run for review/inactive/archived rows; queue reports engine state. Activation, archive, launch and path corrections refuse them.
+Contacts: a stored contact that fails the route check hides the others or the list, gets
+mail (alone or with checked contacts), drops from a schedule's contacts, or cannot be
+edited back or deleted; an alert whose every recipient is under review leaves no record; a
+row whose timestamp does not parse cuts off the contacts after it.
+Email settings: a stored row that fails the settings check reads as unconfigured (defaults),
+hides its values or reason, returns the password, still sends (test or alert), or stays
+under review after a valid save; a database that never had settings reads as under review;
+a row with both STARTTLS and SSL stops sending (it reads as SSL); a stored recipient that is
+not text reads as defaults; the route's 400 order changes.
+Users: any user of a copy of this PC's installed sign-in database, the administrator with
+its dot-less email above all, fails the check (a lockout); a user under review is missing
+from the Admin list or hides its reason, signs in, keeps a working access or refresh token,
+cannot request a password reset, stays under review after the admin's reset or email edit,
+or cannot be deleted; another user cannot sign in. A bad ROBOTCONTROL_ADMIN_EMAIL stops an
+installation whose administrator exists, or writes an administrator into a fresh database.
+No email or hash is printed.
+Report drafts: one unreadable draft file hides the others or fails the list; a truncated file
+or a draft the model refuses is missing from the list, tries, checks or installs, or cannot
+be deleted; a truncated file opens or is rewritten (its bytes change before Delete); a readable
+draft under review cannot be opened or its save leaves the review; another owner sees a readable
+draft; a draft whose owner is null is hidden, opens or cannot be deleted; another administrator
+opens or saves a draft under review; a draft with a field the model no longer has, or a
+revision that is not a number, opens but can never be saved; a file that cannot be read fails
+the whole list.
 """
 from contextlib import closing, contextmanager
 import hashlib
@@ -227,7 +251,8 @@ def review_checks(root):
         assert reply.status_code == 200, reply.text
         rows = {row['schedule_id']: row for row in reply.json()['data']}
         assert set(rows) == {'good', 'cron', 'bad-json'}, reply.text
-        assert rows['cron']['review_reason'] and rows['bad-json']['review_reason']
+        assert rows['cron']['review_reason'] == "The schedule type 'cron' is no longer supported", rows['cron']
+        assert rows['bad-json']['review_reason'] == 'The protocol parameters cannot be read', rows['bad-json']
         assert rows['good']['review_reason'] is None
         assert rows['bad-json']['parameters'] == '{'
         from backend.services.scheduling.method_library import prepare_path_change, check_method_path
@@ -471,6 +496,324 @@ def schedule_status_checks(root):
     print('PASS: HTTP list runtime next run, latest finished run and queue scheduler state')
 
 
+def contact_review_checks(root):
+    import threading
+    from datetime import datetime
+    from types import SimpleNamespace
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from backend.api import scheduling as api
+    from backend.models import ScheduledExperiment, JobExecution, NotificationContact
+    from backend.services.auth import get_current_user
+    from backend.services.scheduling import sqlite_database as module
+    from backend.tests.test_sqlite_safety import engine
+
+    with patch.object(module, 'get_data_path', return_value=root):
+        db = module.SQLiteSchedulingDatabase('contacts.db')
+    for key in ('nameless', 'unaddressed', 'checked'):
+        assert db.create_notification_contact(NotificationContact(key, key.title(), f'{key}@example.test'))
+    with db._get_connection() as conn:
+        conn.execute("UPDATE NotificationContacts SET display_name='' WHERE contact_id='nameless'")
+        conn.execute("UPDATE NotificationContacts SET email_address='not an address' WHERE contact_id='unaddressed'")
+        conn.commit()
+    for key, contacts in (('mixed', ['nameless', 'unaddressed', 'checked']), ('reviewed', ['nameless', 'unaddressed'])):
+        assert db.create_schedule(ScheduledExperiment(key, key, 'fixture.med', 'once', notification_contacts=contacts))
+    scheduler = engine(db)
+    scheduler._contacts_lock = threading.RLock()
+    scheduler.config.enable_notifications = True
+    scheduler.run_log_monitor = SimpleNamespace(snapshot=lambda execution_id: None)
+    sent = []
+    def alert(schedule, execution, **kwargs):
+        sent.append((schedule.schedule_id, [c.contact_id for c in kwargs['contacts']]))
+        return SimpleNamespace(sent=True, delivery_status='sent', error=None, recipients=['checked@example.test'],
+                               attachments=[], subject='Alert', body='Alert', attachment_notes=[])
+    scheduler._notification_service = SimpleNamespace(schedule_alert=alert)
+    scheduler.refresh_notification_contacts(include_inactive=True)
+    for key in ('mixed', 'reviewed'):
+        execution = JobExecution(f'{key}-run', key, 'failed', end_time=datetime.now())
+        assert db.create_job_execution(execution)
+        scheduler._notify_execution_event(db.get_schedule_by_id(key), execution, 'execution_failed')
+    assert sent == [('mixed', ['checked'])], sent
+    logged = {entry.schedule_id: entry for entry in db.get_notification_logs()}
+    assert logged['reviewed'].status != 'sent' and 'Needs review' in (logged['reviewed'].error_message or ''), logged['reviewed']
+    assert db.get_schedule_by_id('reviewed').notification_contacts == ['nameless', 'unaddressed']
+
+    app = FastAPI()
+    app.include_router(api.router)
+    app.dependency_overrides[get_current_user] = lambda: {'username': 'admin', 'role': 'admin'}
+    with patch.object(api, 'get_services', return_value=(scheduler, scheduler.db_manager, None)), \
+         patch.object(api, 'log_action'), TestClient(app, client=('127.0.0.1', 1)) as client:
+        reply = client.get('/api/scheduling/contacts', params={'include_inactive': True})
+        assert reply.status_code == 200, reply.text
+        rows = {row['contact_id']: row for row in reply.json()['data']}
+        assert set(rows) == {'nameless', 'unaddressed', 'checked'}, reply.text
+        assert rows['nameless']['review_reason'] == 'The contact has no name', reply.text
+        assert rows['unaddressed']['review_reason'] == "The contact's address is not a valid email address", reply.text
+        assert rows['checked']['review_reason'] is None and rows['unaddressed']['email_address'] == 'not an address'
+        reply = client.put('/api/scheduling/reviewed', json={'notification_contacts': ['nameless', 'unaddressed']})
+        assert reply.status_code == 200, reply.text
+        before = digest(db.db_path)
+        reply = client.put('/api/scheduling/contacts/unaddressed', json={'display_name': 'Unaddressed', 'email_address': 'still wrong'})
+        assert reply.status_code == 400 and reply.json()['detail'] == 'Invalid email address format', reply.text
+        assert digest(db.db_path) == before
+        reply = client.put('/api/scheduling/contacts/unaddressed', json={'display_name': 'Unaddressed', 'email_address': 'fixed@example.test'})
+        assert reply.status_code == 200, reply.text
+        assert reply.json()['data']['review_reason'] is None, reply.text
+        assert scheduler.get_notification_contact('unaddressed').email_address == 'fixed@example.test'
+        reply = client.delete('/api/scheduling/contacts/nameless')
+        assert reply.status_code == 200, reply.text
+        reply = client.get('/api/scheduling/contacts', params={'include_inactive': True})
+        assert {row['contact_id']: row['review_reason'] for row in reply.json()['data']} == {'unaddressed': None, 'checked': None}
+    # A timestamp that does not parse is a review of that row only; the contacts after it still read.
+    with patch.object(module, 'get_data_path', return_value=root):
+        timed = module.SQLiteSchedulingDatabase('contact-times.db')
+    for key in ('a-first', 'b-untimed', 'c-last'):
+        assert timed.create_notification_contact(NotificationContact(key, key, f'{key}@example.test'))
+    with timed._get_connection() as conn:
+        conn.execute("UPDATE NotificationContacts SET created_at='not a time' WHERE contact_id='b-untimed'")
+        conn.commit()
+    listed = {c.contact_id: c.review_reason for c in timed.get_notification_contacts(include_inactive=True, include_review=True)}
+    assert list(listed) == ['a-first', 'b-untimed', 'c-last'] and not listed['c-last'], listed
+    assert listed['b-untimed'] == "The contact's saved date cannot be read", listed
+    assert [c.contact_id for c in timed.get_notification_contacts(include_inactive=True)] == ['a-first', 'c-last']
+    print('PASS: contact review listing, checked-only mail, review-only alert record, repair and delete')
+
+
+def email_settings_review_checks(root):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from backend.api import scheduling as api
+    from backend.services import notifications
+    from backend.services.auth import get_current_user
+    from backend.services.scheduling import sqlite_database as module
+    from backend.tests.test_sqlite_safety import engine
+
+    with patch.object(module, 'get_data_path', return_value=root):
+        db = module.SQLiteSchedulingDatabase('email-settings.db')
+    scheduler = engine(db)
+    scheduler.refresh_notification_service = lambda: None
+    app = FastAPI()
+    app.include_router(api.router)
+    app.dependency_overrides[get_current_user] = lambda: {'username': 'admin', 'role': 'admin'}
+    valid = {'host': 'smtp.example.test', 'port': 587, 'sender': 'robot@example.test', 'use_tls': True, 'use_ssl': False,
+             'manual_recovery_recipients': ['operator@example.test']}
+    with patch.object(api, 'get_services', return_value=(scheduler, scheduler.db_manager, None)), \
+         patch.object(api, 'log_action'), \
+         patch.object(notifications, '_load_notification_settings', side_effect=db.get_notification_settings), \
+         TestClient(app, client=('127.0.0.1', 1)) as client:
+        reply = client.get('/api/scheduling/notifications/settings')
+        assert reply.status_code == 200 and reply.json()['data']['review_reason'] is None, reply.text
+        assert reply.json()['data']['host'] is None
+        for column, value, shown, reason in (('smtp_port', 0, 'port', 'The mail server port 0 is not between 1 and 65535'),
+                                             ('smtp_sender', 'not an address', 'sender', 'The From address is not a valid email address')):
+            assert client.put('/api/scheduling/notifications/settings', json=valid).status_code == 200
+            with db._get_connection() as conn:
+                conn.execute(f"UPDATE NotificationSettings SET {column}=?, smtp_password_encrypted='stored secret'", (value,))
+                conn.commit()
+            reply = client.get('/api/scheduling/notifications/settings')
+            data = reply.json()['data']
+            assert data['review_reason'] == reason and data[shown] == value and data['host'] == valid['host'], reply.text
+            assert 'stored secret' not in reply.text and data['has_password'], reply.text
+            service = notifications.EmailNotificationService()
+            assert not service.send('Alert', 'Alert', to=['operator@example.test'])
+            assert 'Needs review' in service.last_error, service.last_error
+            reply = client.post('/api/scheduling/notifications/settings/test', json={'recipient': 'operator@example.test'})
+            assert reply.status_code == 400 and data['review_reason'] in reply.json()['detail'], reply.text
+            reply = client.put('/api/scheduling/notifications/settings', json=valid)
+            assert reply.status_code == 200 and reply.json()['data']['review_reason'] is None, reply.text
+            assert client.get('/api/scheduling/notifications/settings').json()['data']['review_reason'] is None
+        reply = client.put('/api/scheduling/notifications/settings', json={**valid, 'port': 0})
+        assert reply.status_code == 400 and reply.json()['detail'] == 'port must be between 1 and 65535', reply.text
+        reply = client.put('/api/scheduling/notifications/settings', json={**valid, 'host': '', 'manual_recovery_recipients': 5})
+        assert reply.status_code == 400 and reply.json()['detail'] == 'host is required', reply.text
+        # Both encryption flags stored: read as SSL and keep sending, as before the check existed.
+        with db._get_connection() as conn:
+            conn.execute("UPDATE NotificationSettings SET use_tls=1, use_ssl=1, smtp_password_encrypted=NULL")
+            conn.commit()
+        data = client.get('/api/scheduling/notifications/settings').json()['data']
+        assert data['review_reason'] is None and data['use_ssl'] and not data['use_tls'], data
+        assert notifications.EmailNotificationService().config.is_enabled
+        with db._get_connection() as conn:
+            conn.execute("UPDATE NotificationSettings SET manual_recovery_recipients=X'35'")  # a BLOB keeps its type in a TEXT column
+            conn.commit()
+        data = client.get('/api/scheduling/notifications/settings').json()['data']
+        assert data['review_reason'] == 'A recovery recipient is not an email address', data
+    print('PASS: email settings review keeps stored values, sends nothing, clears on save; a fresh database is not under review')
+
+
+def user_review_checks(root):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from backend.api import admin as admin_api, auth as auth_api
+    from backend.services import auth as module
+    from backend.services.auth_database import AuthDatabase
+
+    installed = Path.home() / 'Documents/RobotControl/data/robotcontrol_auth.db'
+    assert installed.is_file(), f'Installed fixture missing: {installed}'
+    before = digest(installed)
+    copied = root / 'installed-auth.db'
+    shutil.copyfile(installed, copied)
+    with patch.object(module, 'get_auth_database', return_value=AuthDatabase(str(copied))):
+        service = module.AuthService()
+    rows = service.db.list_users()
+    reasons = [service._row_to_user(row).review_reason for row in rows]
+    assert len(rows) == 4 and reasons == [None] * 4, f'{len(rows)} users, reasons {reasons}'
+    assert any(row['role'] == 'admin' and '.' not in row['email'].split('@', 1)[1] for row in rows), 'Dot-less administrator email missing from the fixture'
+    assert digest(installed) == before
+
+    with patch.object(module, 'get_auth_database', return_value=AuthDatabase(str(root / 'users.db'))):
+        service = module.AuthService()
+    # A bad bootstrap email is refused only when the administrator row would be written.
+    with patch.object(module, 'DEFAULT_ADMIN_EMAIL', 'admin-without-at'):
+        with patch.object(module, 'get_auth_database', return_value=AuthDatabase(str(root / 'users.db'))):
+            restarted = module.AuthService()
+        assert restarted.login(module.DEFAULT_ADMIN_USERNAME, module.DEFAULT_ADMIN_PASSWORD)
+        fresh = AuthDatabase(str(root / 'fresh-users.db'))
+        try:
+            with patch.object(module, 'get_auth_database', return_value=fresh):
+                module.AuthService()
+        except ValueError as exc:
+            assert 'ROBOTCONTROL_ADMIN_EMAIL' in str(exc), str(exc)
+        else:
+            raise AssertionError('A bootstrap administrator that fails the user check must not be written')
+        assert fresh.list_users() == []
+    app = FastAPI()
+    app.include_router(auth_api.router)
+    app.include_router(admin_api.router, prefix='/api/admin')
+    app.dependency_overrides[module.get_auth_service] = lambda: service
+    with patch.object(module, 'get_auth_service', return_value=service), \
+         patch.object(admin_api, 'get_auth_service', return_value=service), \
+         TestClient(app, client=('127.0.0.1', 1)) as client:
+        def sign_in(username, password):
+            return client.post('/api/auth/login', json={'username': username, 'password': password})
+        for name in ('broken', 'other'):
+            service.register_user(name, f'{name}@example.test', 'first-password')
+        admin = sign_in(module.DEFAULT_ADMIN_USERNAME, module.DEFAULT_ADMIN_PASSWORD)
+        assert admin.status_code == 200, admin.text
+        bearer = {'Authorization': f"Bearer {admin.json()['data']['access_token']}"}
+        tokens = sign_in('broken', 'first-password').json()['data']
+        with service.db._get_connection() as conn:
+            conn.execute("UPDATE users SET password_hash='' WHERE username='broken'")
+            conn.commit()
+
+        def listed():
+            reply = client.get('/api/admin/users', headers=bearer)
+            assert reply.status_code == 200, reply.text
+            return {row['username']: row.get('review_reason', 'missing') for row in reply.json()['data']}
+        users = listed()
+        assert users['broken'] == "The user's saved password cannot be checked" and users['other'] is None and users['admin'] is None, users
+        assert sign_in('broken', 'first-password').status_code == 401
+        assert client.get('/api/auth/me', headers={'Authorization': f"Bearer {tokens['access_token']}"}).status_code == 401
+        assert client.post('/api/auth/refresh', json={'refresh_token': tokens['refresh_token']}).status_code == 401
+        assert sign_in('other', 'first-password').status_code == 200
+        reply = client.post('/api/auth/password-reset/request', json={'username': 'broken', 'note': 'locked out'})
+        assert reply.status_code == 202 and reply.json()['data'].get('request_id'), reply.text
+        reply = client.post('/api/admin/users/broken/reset-password', headers=bearer, json={'new_password': 'second-password', 'must_reset': False})
+        assert reply.status_code == 200, reply.text
+        assert listed()['broken'] is None and sign_in('broken', 'second-password').status_code == 200
+
+        with service.db._get_connection() as conn:
+            conn.execute("UPDATE users SET email='other-without-at' WHERE username='other'")
+            conn.commit()
+        assert listed()['other'] == "The user's email address has no @" and sign_in('other', 'first-password').status_code == 401
+        reply = client.put('/api/admin/users/other/email', headers=bearer, json={'email': 'other@example.com'})
+        assert reply.status_code == 200, reply.text
+        assert listed()['other'] is None and sign_in('other', 'first-password').status_code == 200
+
+        with service.db._get_connection() as conn:
+            conn.execute("UPDATE users SET password_hash='not a hash' WHERE username='other'")
+            conn.commit()
+        assert listed()['other']
+        assert client.delete('/api/admin/users/other', headers=bearer).status_code == 200
+        assert 'other' not in listed()
+    print('PASS: installed users pass the user check; a user under review is listed, refused sign-in and tokens, reset, edited and deleted')
+
+
+def draft_review_checks(root):
+    from contextlib import nullcontext
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from backend.api import database_tools as api
+    from backend.services.auth import get_current_user
+    from backend.services.database_tools import DatabaseTools
+    from backend.services.report_authoring import ReportDraft
+
+    service = DatabaseTools(root / 'tools', Path(__file__).resolve().parents[2] / 'database_packages', guard=nullcontext)
+    authoring = service.authoring
+    good, truncated, nameless, ownerless, retired, unnumbered = (authoring.save(ReportDraft(name=name), 'admin')['id']
+        for name in ('Good', 'Truncated', 'Nameless', 'Ownerless', 'Retired field', 'Unnumbered'))
+    path = authoring._path(truncated)
+    path.write_bytes(path.read_bytes()[:40])
+    kept = digest(path)
+    for key, change in ((nameless, lambda r: r['draft'].update(name='')), (ownerless, lambda r: r.update(owner=None)),
+                        (retired, lambda r: r['draft'].update(retired_field=1)), (unnumbered, lambda r: r.update(revision='two'))):
+        record = json.loads(authoring._path(key).read_text('utf-8'))
+        change(record)
+        authoring._path(key).write_text(json.dumps(record), 'utf-8')
+    locked = authoring.root / ('d' * 32 + '.json')
+    locked.mkdir()  # reading a directory raises OSError, like a file another program holds
+    app = FastAPI()
+    app.include_router(api.router)
+    user = {'username': 'admin', 'role': 'admin'}
+    app.dependency_overrides[get_current_user] = lambda: user
+    app.dependency_overrides[api.get_database_tools] = lambda: service
+    with TestClient(app, client=('127.0.0.1', 1)) as client:
+        reply = client.get('/api/database/tools/drafts')
+        assert reply.status_code == 200, reply.text
+        listed = {entry['id']: entry for entry in reply.json()}
+        assert set(listed) == {good, truncated, nameless, ownerless, retired, unnumbered, locked.stem}, reply.text
+        assert listed[good]['review_reason'] is None and all(listed[key]['review_reason'] for key in (truncated, nameless, ownerless)), reply.text
+        assert listed[locked.stem]['review_reason'] == 'The draft file cannot be opened; another program may be using it', listed[locked.stem]
+        assert {key: listed[key]['review_reason'] for key in (truncated, nameless, ownerless, retired, unnumbered)} == {
+            truncated: 'The draft file is damaged', nameless: 'The draft has no name', ownerless: 'The draft has no owner',
+            retired: 'The draft has a setting this version no longer uses', unnumbered: 'The draft has no saved revision number'}, listed
+        locked.rmdir()
+        assert listed[nameless]['openable'] and not listed[truncated]['openable'] and not listed[ownerless]['openable'], reply.text
+        # A key the model no longer has, or a revision that is not a number, still opens and saves.
+        for key in (retired, unnumbered):
+            opened = client.get(f'/api/database/tools/drafts/{key}').json()
+            reply = client.put(f'/api/database/tools/drafts/{key}', json={'draft': opened['draft'], 'revision': opened['revision']})
+            assert reply.status_code == 200, (key, reply.text)
+            assert client.get(f'/api/database/tools/drafts/{key}').json()['review_reason'] is None
+            assert client.delete(f'/api/database/tools/drafts/{key}').status_code == 200
+        # Only its owner opens a draft under review; one without a readable owner offers Delete only.
+        reply = client.get(f'/api/database/tools/drafts/{ownerless}')
+        assert reply.status_code == 400 and 'Needs review' in reply.json()['detail'], reply.text
+        assert client.get(f'/api/database/tools/drafts/{good}').status_code == 200
+        for key in (truncated, nameless):
+            for method, suffix, body in (('post', '/try', {'inputs': {}}), ('post', '/check', None),
+                                         ('post', '/install', {'expected_current': '', 'revision': 1})):
+                reply = client.request(method.upper(), f'/api/database/tools/drafts/{key}{suffix}', json=body)
+                assert reply.status_code == 400 and 'Needs review' in reply.json()['detail'], (suffix, reply.text)
+        # A file that does not read as JSON offers Delete only; its bytes stay.
+        reply = client.get(f'/api/database/tools/drafts/{truncated}')
+        assert reply.status_code == 400 and 'Needs review' in reply.json()['detail'], reply.text
+        reply = client.put(f'/api/database/tools/drafts/{truncated}', json={'draft': {'name': 'Repaired'}, 'revision': 1})
+        assert reply.status_code == 400 and 'Needs review' in reply.json()['detail'], reply.text
+        assert digest(path) == kept
+        # A readable draft under review opens in Edit; saving it through the check clears the review.
+        reply = client.get(f'/api/database/tools/drafts/{nameless}')
+        assert reply.status_code == 200 and reply.json()['review_reason'], reply.text
+        opened = reply.json()
+        reply = client.put(f'/api/database/tools/drafts/{nameless}', json={'draft': {**opened['draft'], 'name': 'Repaired'}, 'revision': opened['revision']})
+        assert reply.status_code == 200, reply.text
+        listed = {entry['id']: entry for entry in client.get('/api/database/tools/drafts').json()}
+        assert listed[nameless]['review_reason'] is None and listed[nameless]['name'] == 'Repaired', listed[nameless]
+        user['username'] = 'other'
+        assert sorted(entry['id'] for entry in client.get('/api/database/tools/drafts').json()) == sorted([truncated, ownerless])
+        reply = client.get(f'/api/database/tools/drafts/{ownerless}')
+        assert reply.status_code == 400 and 'Needs review' in reply.json()['detail'], reply.text
+        reply = client.put(f'/api/database/tools/drafts/{ownerless}', json={'draft': {'name': 'Taken'}, 'revision': 1})
+        assert reply.status_code == 400 and 'Needs review' in reply.json()['detail'], reply.text
+        assert client.delete(f'/api/database/tools/drafts/{ownerless}').status_code == 200
+        user['username'] = 'admin'
+        for key in (truncated, nameless):
+            assert client.delete(f'/api/database/tools/drafts/{key}').status_code == 200
+        assert [entry['id'] for entry in client.get('/api/database/tools/drafts').json()] == [good]
+        assert not path.exists()
+    print('PASS: draft review entries listed beside a good draft; a readable one opens and its save clears it; try/check/install refused; unreadable bytes kept; ownerless listed for all; deleted')
+
+
 def run():
     with tempfile.TemporaryDirectory(prefix='rc-stored-data-') as folder:
         root = Path(folder)
@@ -481,6 +824,10 @@ def run():
         schedule_upgrade_checks(root)
         route_error_checks()
         existing_run_review_checks(root)
+        contact_review_checks(root)
+        email_settings_review_checks(root)
+        user_review_checks(root)
+        draft_review_checks(root)
 
 
 if __name__ == '__main__':

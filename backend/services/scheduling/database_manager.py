@@ -219,13 +219,20 @@ class SchedulingDatabaseManager:
     # Notification contacts
     # ------------------------------------------------------------------
 
-    def get_notification_contacts(self, include_inactive: bool = False) -> List[NotificationContact]:
+    def get_notification_contacts(self, include_inactive: bool = False, include_review: bool = False) -> List[NotificationContact]:
         """Return notification contacts from the scheduling database."""
         try:
-            return self.sqlite_db.get_notification_contacts(include_inactive=include_inactive)
+            return self.sqlite_db.get_notification_contacts(include_inactive=include_inactive, include_review=include_review)
         except Exception as exc:  # pragma: no cover - log only
             logger.error("Failed to load notification contacts: %s", exc)
             return []
+
+    def contact_reviews(self, contact_ids) -> List[str]:
+        """Why the active contacts among contact_ids that are under review get no mail."""
+        wanted = set(contact_ids or [])
+        return [f"{contact.display_name or contact.contact_id}: Needs review: {contact.review_reason}"
+                for contact in self.get_notification_contacts(include_review=True)
+                if contact.review_reason and contact.contact_id in wanted]
 
     def get_notification_contact(self, contact_id: str) -> Optional[NotificationContact]:
         """Return a single notification contact by ID."""

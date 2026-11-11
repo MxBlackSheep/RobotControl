@@ -145,6 +145,8 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
   const intervalMinutes = Math.round(formData.interval_hours * 60);
   const checkboxIcon = <CheckBoxOutlineBlankIcon fontSize="small" />;
   const checkboxCheckedIcon = <CheckBoxIcon fontSize="small" />;
+  // A contact under review gets no mail, so it does not count as a recipient.
+  const receivesAlerts = (contact: NotificationContact) => contact.is_active && !contact.review_reason;
   const selectedContacts = useMemo(
     () => contacts.filter((contact) => formData.notification_contacts.includes(contact.contact_id)),
     [contacts, formData.notification_contacts],
@@ -565,7 +567,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                         <Box>
                           <Typography variant="body2">{option.display_name}</Typography>
                           <Typography variant="caption" color="text.secondary">
-                            {option.email_address}
+                            {option.email_address}{option.review_reason ? ' · Needs review' : ''}
                           </Typography>
                         </Box>
                       </li>
@@ -575,7 +577,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                         {...params}
                         label="Email alert recipients"
                         placeholder={contacts.length ? 'Select contacts' : 'No contacts available'}
-                        helperText={selectedContacts.some((contact) => contact.is_active)
+                        helperText={selectedContacts.some(receivesAlerts)
                           ? 'Contacts receive alerts for log inactivity, unavailable monitoring, or aborted runs'
                           : 'Select an active contact to receive email alerts. Monitoring continues without email recipients.'}
                       />
@@ -584,7 +586,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                   />
                 </Grid>
 
-                {selectedContacts.filter(contact => contact.is_active).length === 0 && (
+                {!selectedContacts.some(receivesAlerts) && (
                   <Grid item xs={12}>
                     <Alert severity="warning">Log monitoring will continue, but no alert emails will be sent.</Alert>
                   </Grid>
