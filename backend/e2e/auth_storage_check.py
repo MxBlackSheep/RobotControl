@@ -23,6 +23,8 @@ Bearer program or a request with the header is refused; refresh does not renew r
 rc_refresh, a rejected refresh keeps the cookies, or an outage (503) clears them; logout
 leaves the refresh token valid or the cookies set; /me drops a stored must_reset.
 
+Folder list (/api/system/browse, used only by the restore picker): a remote plain user lists
+the RobotControl PC's folders; a local user or a remote admin (who may restore) is refused.
 
 Signing keys: a token signed with the old published key is accepted; the key file is missing
 after first start, holds a published text, or is regenerated on restart (signing everyone out);
@@ -57,6 +59,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 import jwt  # noqa: E402
 
 from backend.api import auth as auth_api  # noqa: E402
+from backend.api import system as system_api  # noqa: E402
 from backend.services import auth as auth_module  # noqa: E402
 from backend.utils.data_paths import get_path_manager  # noqa: E402
 from backend.services.auth import (  # noqa: E402
@@ -86,6 +89,7 @@ def run():
     app.add_exception_handler(Exception, global_exception_handler)
     app.middleware('http')(require_request_header)
     app.include_router(auth_api.router)
+    app.include_router(system_api.router)
 
     @app.get('/protected')
     def protected(user=Depends(get_current_user)):
@@ -297,6 +301,21 @@ def run():
             client.cookies.clear()
             response = client.post('/api/auth/logout')
             check('logout without a sign-in still answers 200', response.status_code == 200, [response.status_code])
+
+            # The folder list follows the restore rule: an admin, or a user on this computer.
+            service.register_user('plain', 'plain@example.test', 'Plain user password 1')
+            plain = bare.post('/api/auth/login', json={'username': 'plain', 'password': 'Plain user password 1'},
+                              headers=PAGE).cookies['rc_access']
+            admin = bare.post('/api/auth/login', json=credentials, headers=PAGE).cookies['rc_access']
+            for name, token, headers, allowed in [
+                ('a remote plain user', plain, tunnel, False),
+                ('a local plain user', plain, {}, True),
+                ('a remote admin', admin, tunnel, True),
+            ]:
+                response = bare.get('/api/system/browse', params={'path': str(FOLDER)},
+                                    headers={**headers, 'Authorization': f'Bearer {token}'})
+                check(f'{name} {"lists" if allowed else "is refused"} folders',
+                      response.status_code == (200 if allowed else 403), [response.status_code, response.text[:200]])
 
             # Remote password guessing is limited; the RobotControl computer is never locked out.
             # The guesses come the way an attacker would: through the tunnel (loopback peer), with

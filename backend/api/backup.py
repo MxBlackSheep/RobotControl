@@ -22,7 +22,7 @@ import time
 
 from backend.services.auth import get_current_admin_user, get_current_user
 from backend.services.backup import get_backup_service
-from backend.api.dependencies import ConnectionContext, require_local_access, get_connection_context
+from backend.api.dependencies import ConnectionContext, ensure_backup_permission, require_local_access, get_connection_context
 from backend.utils.audit import log_action
 
 # Import standardized response formatter
@@ -31,18 +31,6 @@ from backend.api.response_formatter import ResponseFormatter
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-
-def _ensure_backup_permission(current_user: Dict[str, Any], connection: ConnectionContext) -> None:
-    """Allow admins or local users to perform backup operations."""
-    role = current_user.get("role")
-    if role == "admin":
-        return
-    if connection.is_local and role in {"user", "admin"}:
-        return
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Admin role required",
-    )
 
 # Request/Response Models
 class CreateBackupRequest(BaseModel):
@@ -145,7 +133,7 @@ async def list_backups(
     """
     
     try:
-        _ensure_backup_permission(current_user, connection)
+        ensure_backup_permission(current_user, connection)
         logger.info(f"Listing backups requested by user: {current_user['username']}")
         
         backup_service = get_backup_service()
@@ -211,7 +199,7 @@ async def restore_backup(
                 detail="Provide either filename or file_path, not both"
             )
         restore_source = request.filename or request.file_path
-        _ensure_backup_permission(current_user, connection)
+        ensure_backup_permission(current_user, connection)
         logger.warning(f"Database restore from {restore_source} requested by user: {current_user['username']}")
         
         backup_service = get_backup_service()
