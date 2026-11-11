@@ -1,9 +1,9 @@
 """Relocated executable check with no Python/UV on its PATH and disposable SQL rows.
 
 Usage: packaged_database_smoke.py dist/<candidate>/RobotControl [--report-package ZIP]
-[--evidence DIR] [--wizard]. Port: 8018, or PACKAGED_E2E_PORT; it refuses a port already
+[--evidence DIR] [--authoring]. Port: 8018, or PACKAGED_E2E_PORT; it refuses a port already
 in use (see packaged_app.py). Needs local .\\HAMILTON with Windows administrator access
-to create and drop a UUID-named database and login (report_wizard_check.sql_fixture).
+to create and drop a UUID-named database and login (sql_server_fixture.sql_fixture).
 
 Reports run in a spawned process that opens only configured read-only connections,
 and installing a package never imports it. So the check configures the report
@@ -21,9 +21,9 @@ Failure cases:
 - The installed culture-history report cannot read through the read-only connection,
   or its Excel output (bundled pandas/openpyxl) is wrong.
 - Removing a package leaves it listed, or data is not kept beside the relocated copy.
-- --wizard: DPAPI connection storage, read-only login creation, duplicate-login
+- --authoring: DPAPI connection storage, read-only login creation, duplicate-login
   conflicts, private drafts, dependent inputs, trial/installed generation and prepared
-  Python with relative helpers fail in the packaged process.
+  Python with pandas or relative helpers fail in the packaged process.
 """
 import argparse
 import hashlib
@@ -52,7 +52,7 @@ from backend.e2e import packaged_app
 PORT = packaged_app.port(8018)
 
 
-def wizard_check(request, token, result, evidence):
+def authoring_check(request, token, result, evidence):
     from backend.e2e.sql_server_fixture import sql_fixture
     with sql_fixture() as fixture:
         created_login = fixture['login'] + '_packaged'
@@ -83,10 +83,10 @@ def wizard_check(request, token, result, evidence):
         fixture['admin'].execute('USE ['+fixture['names'][0]+']; REVOKE EXECUTE ON dbo.sp_helpdiagrams FROM public; USE master')
         result['checks'].append('Packaged account creation succeeds with inherited public EXECUTE while retaining read-only verification')
         request('/api/database/stored-procedures?source_id=created-reader',token=token)
-        scan = request('/api/database/tools/authoring/inspect-python',{'source':'def example():\n    import openpyxl\n'},token)
-        assert scan['available']==['openpyxl']
-        result['checks'].append('Packaged read-only account provisioning, schema-qualified viewer and upload import detection passed')
-        handler = '''import pandas as pd
+        result['checks'].append('Packaged read-only account provisioning and schema-qualified viewer passed')
+        source = '''import pandas as pd
+TOOL = {'name': 'Portable SQL report', 'kind': 'report', 'connections': ['primary', 'plates'], 'inputs': {
+    'project': {'label': 'Project', 'type': 'integer', 'query': 'SELECT id AS value, label FROM dbo.Projects'}}}
 def run(context, inputs):
     rows = []
     for source in ('primary', 'plates'):
@@ -95,16 +95,10 @@ def run(context, inputs):
     pd.DataFrame(rows).to_excel(context.output_dir / 'portable.xlsx', engine='openpyxl', index=False, header=False)
     return 'portable.xlsx'
 '''
-        draft = dict(name='Portable SQL report', package_id='portable-sql-report', version='1.0.0',
-            libraries=['pandas','openpyxl'], original='raise RuntimeError("reference only")', handler=handler,
-            sources=['primary','plates'], mappings={'primary':'primary','plates':'plates'}, step=2,
-            inputs=[dict(name='project',label='Project',type='lookup',required=True,choices=[],
-                lookup=dict(source='primary',query='SELECT id AS value, label FROM dbo.Projects',parameters=[],value_type='integer'))])
-        saved = request('/api/database/tools/drafts', {'draft': draft}, token)
+        mappings = {'primary':'primary','plates':'plates'}
+        saved = request('/api/database/tools/authoring/import', {'files': {'portable.py': source}}, token)
         prefix = '/api/database/tools/drafts/' + saved['id']
-        with zipfile.ZipFile(io.BytesIO(request(prefix+'/editing-files',token=token))) as editing:
-            assert editing.read('original.py').decode() == draft['original']
-            assert 'EDITING.md' in editing.namelist()
+        saved = request(prefix, {'draft': {**saved['draft'], 'mappings': mappings}, 'revision': saved['revision']}, token, method='PUT')
         choices = request(prefix+'/choices/project', {'inputs':{}}, token)
         assert {x['value'] for x in choices['options']} == {1,2}
         def finished(job):
@@ -114,16 +108,16 @@ def run(context, inputs):
                 time.sleep(.1);job=request('/api/database/tools/reports/'+job['id'],token=token)
             assert job['status']=='ready',job
             return job
-        job=finished(request(prefix+'/try', {'inputs':{'project':1}},token))
+        job=finished(request(prefix+'/try', {'inputs':{'project':1},'revision':saved['revision']},token))
         content=request('/api/database/tools/reports/'+job['id']+'/download',token=token)
         assert list(openpyxl.load_workbook(io.BytesIO(content)).active.values)==[('primary','Yeast Ω'),('plates','Yeast Ω')]
         (evidence/'packaged-two-source.xlsx').write_bytes(content)
         package=request(prefix+'/package',token=token)
         request('/api/database/tools/packages',token=token,upload=package)
         assert request('/api/database/tools/packages/portable-sql-report/export',token=token) == package
-        request('/api/database/tools/packages/portable-sql-report/sources',{'mappings':draft['mappings']},token,method='PUT')
+        request('/api/database/tools/packages/portable-sql-report/sources',{'mappings':mappings},token,method='PUT')
         finished(request('/api/database/tools/reports/portable-sql-report',{'inputs':{'project':2}},token))
-        result['checks'].append('Relocated executable: DPAPI source storage, SQL permission checks, private draft, dependent input API, trial workbook, exported ZIP upload and installed generation passed')
+        result['checks'].append('Relocated executable: DPAPI source storage, SQL permission checks, prepared Python with pandas over two connections, dependent input API, trial workbook, exported ZIP upload and installed generation passed')
         result['workbook_sha256']=hashlib.sha256(content).hexdigest()
         result['package_sha256']=hashlib.sha256(package).hexdigest()
         request(prefix,token=token,method='DELETE')
@@ -181,7 +175,7 @@ def copy_fixture_rows(admin, database, extra_culture):
         cursor.close()
 
 
-def run(candidate, report_package=None, evidence=ROOT/'test-output/database-verification', wizard=False):
+def run(candidate, report_package=None, evidence=ROOT/'test-output/database-verification', authoring=False):
     evidence.mkdir(parents=True, exist_ok=True)
     result = dict(candidate=str(candidate), checks=[], passed=False)
     from PyInstaller.archive.readers import CArchiveReader
@@ -223,8 +217,8 @@ def run(candidate, report_package=None, evidence=ROOT/'test-output/database-veri
             assert {p['id'] for p in packages}=={'culture-history','delete-experiment','evoyeast-experiment','plate-data-export'}
             assert {f.name for f in (candidate/'starter-packages').iterdir()}=={'culture-history.zip','delete-experiment.zip','evoyeast-experiment.zip','plate-data-export.zip'}
             result['checks'].append('Relocated executable loads the three starter packages with Python/UV absent from PATH; their ZIPs ship beside it')
-            if wizard:
-                wizard_check(request, token, result, evidence)
+            if authoring:
+                authoring_check(request, token, result, evidence)
                 return
             from backend.e2e.sql_server_fixture import sql_fixture
             def report(package_id, inputs):
@@ -280,7 +274,7 @@ def run(candidate, report_package=None, evidence=ROOT/'test-output/database-veri
             try: process.wait(timeout=15)
             except subprocess.TimeoutExpired: process.kill(); process.wait(timeout=10)
             result['process_stopped']=True
-            result['limit']='Real SQL Server uses disposable databases; actual VM data and hardware are not exercised.' if wizard else 'Culture history reads a disposable local SQL Server copy of the fixture rows; VM data, dbo.DeleteExperiment execution and hardware are not exercised.'
+            result['limit']='Real SQL Server uses disposable databases; actual VM data and hardware are not exercised.' if authoring else 'Culture history reads a disposable local SQL Server copy of the fixture rows; VM data, dbo.DeleteExperiment execution and hardware are not exercised.'
             (evidence/'packaged-results.json').write_text(json.dumps(result,indent=2))
     print(json.dumps(result,indent=2))
 
@@ -289,6 +283,6 @@ if __name__=='__main__':
     parser=argparse.ArgumentParser(); parser.add_argument('candidate',type=Path)
     parser.add_argument('--report-package',type=Path)
     parser.add_argument('--evidence',type=Path,default=ROOT/'test-output/database-verification')
-    parser.add_argument('--wizard',action='store_true')
+    parser.add_argument('--authoring',action='store_true')
     args=parser.parse_args()
-    run(args.candidate.resolve(),args.report_package,args.evidence.resolve(),args.wizard)
+    run(args.candidate.resolve(),args.report_package,args.evidence.resolve(),args.authoring)

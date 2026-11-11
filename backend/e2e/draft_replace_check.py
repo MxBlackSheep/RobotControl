@@ -58,17 +58,17 @@ def run(stress):
                 def save(record, **patch):
                     draft = ReportDraft.model_validate({**record['draft'], **patch})
                     return authoring.save(draft, 'admin', record['id'], record['revision'])
-                saved = authoring.save(ReportDraft(name='Replace check'), 'admin')
+                saved = authoring.import_files({'tool.py': "TOOL = {'name': 'Replace check', 'kind': 'report', 'connections': []}\ndef run(context, inputs):\n    pass\n"}, 'admin')
                 path = authoring._path(saved['id'])
                 with held(path, SHARE_ALL):
-                    saved = save(saved, name='Saved while scanned')
+                    saved = save(saved, change_note='Saved while scanned')
                     authoring.clear_trial(saved['id'], 'admin')
                 current = authoring.get(saved['id'], 'admin')
-                assert current['revision'] == 2 and current['draft']['name'] == 'Saved while scanned', current
+                assert current['revision'] == 2 and current['draft']['change_note'] == 'Saved while scanned', current
                 result['checks'].append('Save and trial reset succeed while another program has the draft open sharing delete')
                 with held(path, SHARE_READ_WRITE):
                     try:
-                        save(saved, name='Must not replace')
+                        save(saved, change_note='Must not replace')
                         raise AssertionError('A draft held without sharing delete was replaced')
                     except OSError as exc:
                         result['exclusive_holder_error'] = str(exc)

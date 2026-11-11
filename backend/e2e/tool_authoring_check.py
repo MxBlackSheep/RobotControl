@@ -10,6 +10,13 @@ Failure cases:
 - The same Add flow reaches a real report download and an operation preview without a
   manifest or ZIP. Selecting another experiment clears its plate; forged values fail
   on the server. Relative helper imports work.
+- A report with no assigned connection refuses instead of falling back. SQL Server
+  permissions, not a successful SELECT, decide eligibility: writes and DDL are denied,
+  and a write grant in another database of the same login is rejected. Saved passwords
+  never appear in replies or the settings file.
+- A lookup's order (value_desc) holds across pages, search and the membership check; a
+  lookup without one stays alphabetical by label; an unknown order is refused in a
+  Python TOOL and in a manifest.
 - Only the draft owner or a local administrator can configure, try or enable. Report
   mappings cannot use writers. Operation trials use the robot safety gate and roll
   back, create no execution token and never call the execution function.
@@ -39,6 +46,7 @@ import traceback
 import zipfile
 
 import openpyxl
+import pyodbc
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.testclient import TestClient
 from backend.e2e.sql_server_fixture import sql_fixture, ROOT, BASE
@@ -57,6 +65,50 @@ def run(context, inputs):
     b=Workbook(); b.active.append([heading, row[0], inputs['plate']]); b.save(context.output_dir/'plate.xlsx')
     return 'plate.xlsx'
 '''
+
+
+ORDERED_TOOL = """import openpyxl
+TOOL = {'name': 'Ordered runs', 'kind': 'report', 'inputs': {'run': {
+    'type': 'integer', 'query': 'SELECT id AS value, label FROM dbo.Runs', 'order': %r}}}
+def run(context, inputs):
+    book = openpyxl.Workbook()
+    book.active.append([inputs['run']])
+    book.save(context.output_dir / 'runs.xlsx')
+    return 'runs.xlsx'
+"""
+
+
+def lookup_order(call, client, wait):
+    """A package's lookup order holds across pages, search and the membership check."""
+    bad = client.post(BASE+'/authoring/import', json=dict(files={'ordered.py': ORDERED_TOOL % 'newest'}))
+    assert bad.status_code == 400 and 'order' in bad.text and 'value_desc' in bad.text, bad.text
+    imported = call('POST', '/authoring/import', dict(files={'ordered.py': ORDERED_TOOL % 'value_desc'}))
+    key = imported['id']
+    saved = call('PUT', f'/drafts/{key}', dict(draft={**imported['draft'], 'mappings': {'primary': 'reader'}}, revision=imported['revision']))
+    first, second = (call('POST', f'/drafts/{key}/choices/run', dict(inputs={}, page=page)) for page in (1, 2))
+    assert [x['value'] for x in first['options']] == list(range(30, 5, -1)) and first['has_more'], first
+    assert [x['value'] for x in second['options']] == list(range(5, 0, -1)) and not second['has_more'], second
+    label = {n: f'{n * 7 % 31:02d}' for n in range(1, 31)}
+    assert all(x['label'] == label[x['value']] for x in first['options'] + second['options'])
+    searched = call('POST', f'/drafts/{key}/choices/run', dict(inputs={}, search='1'))
+    assert [x['value'] for x in searched['options']] == [n for n in range(30, 0, -1) if '1' in label[n]], searched
+    # Membership looks up the selected value directly, so one from the second page still passes.
+    job = wait(call('POST', f'/drafts/{key}/try', dict(inputs={'run': 3}, revision=saved['revision'])))
+    assert job['status'] == 'ready', job
+    missing = wait(call('POST', f'/drafts/{key}/try', dict(inputs={'run': 31}, revision=saved['revision'])))
+    assert 'no longer available' in missing['error'], missing
+    call('DELETE', f'/drafts/{key}')
+    # The manifest route refuses an unknown order before anything is installed.
+    lookup = dict(source='primary', query='SELECT id AS value, label FROM dbo.Runs', parameters=[], value_type='integer', order='newest')
+    manifest = dict(contract_version=2, id='ordered-runs', name='Ordered runs', version='1.0.0', libraries=[], tools=[dict(
+        id='ordered-runs', name='Ordered runs', kind='report', entrypoint='handler:run', sources=['primary'],
+        inputs=[dict(name='run', label='Run', type='lookup', lookup=lookup)])])
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, 'w') as package:
+        package.writestr('manifest.json', json.dumps(manifest))
+        package.writestr('handler.py', 'def run(context, inputs):\n    return None\n')
+    refused = client.post(BASE+'/packages/inspect', files={'file': ('ordered.zip', archive.getvalue(), 'application/zip')})
+    assert refused.status_code == 400 and 'order' in refused.text, refused.text
 
 
 def run():
@@ -84,9 +136,33 @@ def run():
                         r = client.request(method,BASE+path,json=body) if body is not None else client.request(method,BASE+path)
                         assert r.status_code == status, (path,r.status_code,r.text)
                         return r.json() if 'application/json' in r.headers.get('content-type','') else r.content
+                    # No connection is assigned yet; a report must refuse, never fall back to another database.
+                    call('POST','/reports/culture-history',{'inputs':{'experiment_id':42}},409)
                     read = dict(id='reader',name='Reader',server=fixture['server'],database=fixture['names'][0],username=fixture['login'],password=fixture['password'],trust_certificate=True)
                     call('POST','/sources',read)
                     call('POST','/sources',dict(read,id='writer',name='Writer',username=writer,access='operation'))
+                    assert fixture['password'] not in json.dumps(call('GET','/sources'))
+                    assert fixture['password'] not in service.sources.path.read_text()
+                    # SQL Server denies direct writes, whatever query the tool would send.
+                    snapshot = service.sources.snapshot('unused', ['primary'], {'primary': 'reader'})
+                    for sql in ("INSERT dbo.Projects VALUES (3,'bad')", 'DELETE FROM dbo.Projects',
+                                "UPDATE dbo.Projects SET label='bad'", 'CREATE TABLE dbo.Bad (id int)'):
+                        with service.sources.open(snapshot['primary']) as conn:
+                            try:
+                                conn.execute(sql)
+                            except pyodbc.Error:
+                                conn.rollback()
+                            else:
+                                raise AssertionError('SQL Server allowed a write')
+                    # Permission drift is rechecked on open; a saved connection is not a certificate.
+                    admin.execute(f"USE [{fixture['names'][1]}]; GRANT UPDATE ON dbo.Plates TO [{fixture['login']}]")
+                    try:
+                        with service.sources.open(snapshot['primary']):
+                            raise AssertionError('Cross-database write grant accepted')
+                    except ValueError as exc:
+                        assert 'UPDATE' in str(exc)
+                    admin.execute(f"REVOKE UPDATE ON dbo.Plates FROM [{fixture['login']}]; USE [{fixture['names'][0]}]")
+                    result['checks'].append('Unassigned report refused; passwords stored encrypted; INSERT/UPDATE/DELETE/DDL denied by SQL Server; cross-database write grant rejected')
                     files={'report.py':REPORT,'helper.py':"heading = 'Plate'\n"}
                     for bad in ({'x.py':'raise RuntimeError("must not run")'}, {'x.py':REPORT.replace("'Plate export'",'str(42)')},
                                 {'../report.py':REPORT}, {'report.py':REPORT+'\nimport missing_library'}, {'report.py':REPORT}):
@@ -110,6 +186,9 @@ def run():
                     call('POST',f'/drafts/{key}/check',{})
                     choices=call('POST',f'/drafts/{key}/choices/plate',dict(inputs={'experiment':1}))
                     assert {r['value'] for r in choices['options']}=={11,12}
+                    # Without an order setting, choices stay alphabetical by label ('Other' before 'Yeast Ω').
+                    assert [r['value'] for r in call('POST',f'/drafts/{key}/choices/experiment',dict(inputs={}))['options']]==[2,1]
+                    assert call('POST',f'/drafts/{key}/choices/experiment',dict(inputs={},search="x' OR 1=1--"))['options']==[]
                     def trial(s,inputs): return call('POST',f"/drafts/{s['id']}/try",dict(inputs=inputs,revision=s['revision']))
                     def finish(job):
                         deadline=time.monotonic()+40
@@ -212,6 +291,8 @@ def run():
                     assert len(history)==4 and history[0]['note']=='Third release:\n- reviewed in RobotControl'
                     result['checks'].append('Edit retains source files and identity; complete replacement renames entry file/removes helper; version, readiness and stale-base checks passed')
                     result['checks'].append('Published notes head CHANGELOG.md (created, kept through Replace all, no duplicate version); import review shows its version section; exports are byte-identical to the installed ZIP')
+                    lookup_order(call, client, finish)
+                    result['checks'].append('Lookup order: value_desc pages 30..6 then 5..1, search and membership in that order; an unknown order is refused in Python and in a manifest')
                     op=call('POST','/authoring/import',dict(files={'operation.py':(ROOT/'database_packages/examples/operation.py').read_text('utf-8')}))
                     op=save(op,operation_source='writer')
                     call('POST',f"/drafts/{op['id']}/check",{})

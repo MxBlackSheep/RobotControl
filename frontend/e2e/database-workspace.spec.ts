@@ -19,7 +19,8 @@ import { mkdirSync } from 'node:fs';
  *   them, or is not told those sections exist on the RobotControl computer.
  * - A saved draft under review (review_reason) hides its chip or reason, cannot be removed, or
  *   hides the other drafts; one whose file reads as JSON does not open in Edit (Resume); an
- *   unreadable one offers Resume (server side: backend/e2e/stored_data_check.py).
+ *   unreadable one or one from the removed report wizard offers Resume (server side:
+ *   backend/e2e/stored_data_check.py).
  * Server-side cases are in backend/e2e/database_workspace_check.py.
  */
 const evidence = process.env.ROBOTCONTROL_E2E_EVIDENCE || '../test-output/database-workspace-verification';
@@ -232,13 +233,15 @@ test('assigning package connections offers matching accounts and saves only decl
     { mappings: { plates: 'reader', results: 'reader' }, operation_source: null }]);
 });
 
-test('a saved draft under review: a readable one opens in Edit, an unreadable one offers Remove only', async ({ page }) => {
+test('a saved draft under review: a readable one opens in Edit, an unreadable or old wizard one offers Remove only', async ({ page }) => {
   await login(page);
   const unreadable = 'The draft file is damaged', invalid = 'The draft has no name';
-  const [good, readable, broken] = ['a', 'c', 'b'].map(c => c.repeat(32));
-  let drafts = [{ id: good, name: 'Plate summary', revision: 2, code_defined: false, review_reason: null, openable: true },
-    { id: readable, name: readable, revision: 3, code_defined: false, review_reason: invalid, openable: true },
-    { id: broken, name: broken, revision: null, code_defined: false, review_reason: unreadable, openable: false }];
+  const wizard = 'This draft was made with the old report wizard, which has been removed';
+  const [good, readable, broken, old] = ['a', 'c', 'b', 'e'].map(c => c.repeat(32));
+  let drafts = [{ id: good, name: 'Plate summary', revision: 2, review_reason: null, openable: true },
+    { id: readable, name: readable, revision: 3, review_reason: invalid, openable: true },
+    { id: broken, name: broken, revision: null, review_reason: unreadable, openable: false },
+    { id: old, name: 'Old wizard report', revision: 2, review_reason: wizard, openable: false }];
   const requests: string[] = [];
   await page.route('**/api/database/tools/viewer-sources', r => r.fulfill({ json: [] }));
   await page.route('**/api/database/tools/packages', r => r.fulfill({ json: [] }));
@@ -247,7 +250,8 @@ test('a saved draft under review: a readable one opens in Edit, an unreadable on
     const id = r.request().url().split('/drafts/')[1];
     requests.push(r.request().method() + ' ' + id);
     if (r.request().method() === 'GET') return r.fulfill({ json: { id, revision: 3, review_reason: invalid, draft: { name: '', package_id: 'growth-curve',
-      version: '1.0.0', libraries: [], original: '', handler: '', sources: ['primary'], mappings: {}, inputs: [], step: 0, kind: 'report', files: {} } } });
+      version: '1.0.0', libraries: [], original: '', handler: '', sources: ['primary'], mappings: {}, inputs: [], step: 0, kind: 'report',
+      definition_file: 'growth.py', files: { 'growth.py': '' } } } });
     drafts = drafts.filter(d => d.id !== broken);
     return r.fulfill({ json: { message: 'Draft removed.' } });
   });
@@ -256,6 +260,9 @@ test('a saved draft under review: a readable one opens in Edit, an unreadable on
   await expect(row('Plate summary').getByRole('button', { name: 'Resume', exact: true })).toBeVisible();
   await expect(row(unreadable)).toContainText('Needs review');
   await expect(row(unreadable).getByRole('button', { name: 'Resume', exact: true })).toHaveCount(0);
+  await expect(row(wizard)).toContainText('Needs review');
+  await expect(row(wizard).getByRole('button', { name: 'Resume', exact: true })).toHaveCount(0);
+  await expect(row(wizard).getByRole('button', { name: 'Remove draft', exact: true })).toBeVisible();
   await row(unreadable).getByRole('button', { name: 'Remove draft', exact: true }).click();
   await page.getByRole('dialog', { name: 'Remove draft?' }).getByRole('button', { name: 'Remove draft', exact: true }).click();
   await expect(page.getByText(unreadable, { exact: true })).toHaveCount(0);
