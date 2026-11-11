@@ -226,13 +226,14 @@ catalogue → connections; publication takes catalogue then connections.
   was never activated. Trials store connection fingerprints, not credentials; a restart
   invalidates readiness. Note-only edits keep the trial; code or connection edits clear it.
 - Every draft file passes `check_draft` (JSON with `id`, `owner`, `revision` and a `draft` that
-  `ReportDraft` accepts) on save, get and list. The list reads each file on its own; one that
+  `ReportDraft` accepts) on save, get and list. Its reasons are plain sentences ("The draft has no name"),
+  never the validation library's message. The list reads each file on its own; one that
   fails is listed with `review_reason` and `openable`. Try, check and install refuse it with
   "Needs review: <reason>". When its file holds a draft object it opens in Edit for its stored
   owner only (`GET /drafts/{key}` returns `review_reason`, the draft limited to the fields
   `ReportDraft` has and a revision that is not a number as 0), and a save through the check
-  clears it. A file that does not read ("is not readable JSON" or, when the file cannot be
-  opened, "cannot be read") offers Delete only and is never rewritten, so its bytes stay until
+  clears it. A file that does not read ("The draft file is damaged" or, when it cannot be
+  opened, "The draft file cannot be opened; another program may be using it") offers Delete only and is never rewritten, so its bytes stay until
   then. A file without a readable owner (missing or null) is listed for every administrator,
   who can delete it but not open it.
 - A publication receipt in the history hides the completed draft. Repeating the same request

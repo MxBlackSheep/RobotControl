@@ -24,6 +24,7 @@ import bcrypt
 
 from backend.services.auth_database import get_auth_database, AuthDatabase
 from backend.services.sqlite_safety import StorageUnavailable
+from backend.utils.record_check import CheckError
 
 logger = logging.getLogger(__name__)
 
@@ -59,13 +60,13 @@ def check_user_email(email: Any) -> None:
     # Stored addresses need only "@": the built-in admin@localhost must pass. The forms keep
     # their stricter rule for what a person types.
     if not isinstance(email, str) or "@" not in email:
-        raise ValueError('email has no "@"')
+        raise CheckError('email has no "@"', "The user's email address has no @")
 
 
 def check_user(fields: Dict[str, Any]) -> None:
-    """Raise ValueError for a stored password hash or email that reset or Edit email must fix; read no files or network."""
+    """Raise CheckError for a stored password hash or email that reset or Edit email must fix; read no files or network."""
     if not isinstance(fields.get("password_hash"), str) or not BCRYPT_HASH.fullmatch(fields["password_hash"]):
-        raise ValueError("password hash is not recognised")
+        raise CheckError("password hash is not recognised", "The user's saved password cannot be checked")
     check_user_email(fields.get("email"))
 
 
@@ -474,8 +475,8 @@ class AuthService:
         try:
             check_user(row)
             review_reason = None
-        except ValueError as exc:
-            review_reason = str(exc)
+        except CheckError as exc:
+            review_reason = exc.review_reason
         return User(
             review_reason=review_reason,
             id=row["id"],

@@ -251,7 +251,8 @@ def review_checks(root):
         assert reply.status_code == 200, reply.text
         rows = {row['schedule_id']: row for row in reply.json()['data']}
         assert set(rows) == {'good', 'cron', 'bad-json'}, reply.text
-        assert rows['cron']['review_reason'] and rows['bad-json']['review_reason']
+        assert rows['cron']['review_reason'] == "The schedule type 'cron' is no longer supported", rows['cron']
+        assert rows['bad-json']['review_reason'] == 'The protocol parameters cannot be read', rows['bad-json']
         assert rows['good']['review_reason'] is None
         assert rows['bad-json']['parameters'] == '{'
         from backend.services.scheduling.method_library import prepare_path_change, check_method_path
@@ -546,7 +547,8 @@ def contact_review_checks(root):
         assert reply.status_code == 200, reply.text
         rows = {row['contact_id']: row for row in reply.json()['data']}
         assert set(rows) == {'nameless', 'unaddressed', 'checked'}, reply.text
-        assert rows['nameless']['review_reason'] and rows['unaddressed']['review_reason'], reply.text
+        assert rows['nameless']['review_reason'] == 'The contact has no name', reply.text
+        assert rows['unaddressed']['review_reason'] == "The contact's address is not a valid email address", reply.text
         assert rows['checked']['review_reason'] is None and rows['unaddressed']['email_address'] == 'not an address'
         reply = client.put('/api/scheduling/reviewed', json={'notification_contacts': ['nameless', 'unaddressed']})
         assert reply.status_code == 200, reply.text
@@ -571,7 +573,8 @@ def contact_review_checks(root):
         conn.execute("UPDATE NotificationContacts SET created_at='not a time' WHERE contact_id='b-untimed'")
         conn.commit()
     listed = {c.contact_id: c.review_reason for c in timed.get_notification_contacts(include_inactive=True, include_review=True)}
-    assert list(listed) == ['a-first', 'b-untimed', 'c-last'] and listed['b-untimed'] and not listed['c-last'], listed
+    assert list(listed) == ['a-first', 'b-untimed', 'c-last'] and not listed['c-last'], listed
+    assert listed['b-untimed'] == "The contact's saved date cannot be read", listed
     assert [c.contact_id for c in timed.get_notification_contacts(include_inactive=True)] == ['a-first', 'c-last']
     print('PASS: contact review listing, checked-only mail, review-only alert record, repair and delete')
 
@@ -601,14 +604,15 @@ def email_settings_review_checks(root):
         reply = client.get('/api/scheduling/notifications/settings')
         assert reply.status_code == 200 and reply.json()['data']['review_reason'] is None, reply.text
         assert reply.json()['data']['host'] is None
-        for column, value, shown in (('smtp_port', 0, 'port'), ('smtp_sender', 'not an address', 'sender')):
+        for column, value, shown, reason in (('smtp_port', 0, 'port', 'The mail server port 0 is not between 1 and 65535'),
+                                             ('smtp_sender', 'not an address', 'sender', 'The From address is not a valid email address')):
             assert client.put('/api/scheduling/notifications/settings', json=valid).status_code == 200
             with db._get_connection() as conn:
                 conn.execute(f"UPDATE NotificationSettings SET {column}=?, smtp_password_encrypted='stored secret'", (value,))
                 conn.commit()
             reply = client.get('/api/scheduling/notifications/settings')
             data = reply.json()['data']
-            assert data['review_reason'] and data[shown] == value and data['host'] == valid['host'], reply.text
+            assert data['review_reason'] == reason and data[shown] == value and data['host'] == valid['host'], reply.text
             assert 'stored secret' not in reply.text and data['has_password'], reply.text
             service = notifications.EmailNotificationService()
             assert not service.send('Alert', 'Alert', to=['operator@example.test'])
@@ -633,7 +637,7 @@ def email_settings_review_checks(root):
             conn.execute("UPDATE NotificationSettings SET manual_recovery_recipients=X'35'")  # a BLOB keeps its type in a TEXT column
             conn.commit()
         data = client.get('/api/scheduling/notifications/settings').json()['data']
-        assert data['review_reason'] == 'manual_recovery_recipients must be a string or list of strings', data
+        assert data['review_reason'] == 'A recovery recipient is not an email address', data
     print('PASS: email settings review keeps stored values, sends nothing, clears on save; a fresh database is not under review')
 
 
@@ -697,7 +701,7 @@ def user_review_checks(root):
             assert reply.status_code == 200, reply.text
             return {row['username']: row.get('review_reason', 'missing') for row in reply.json()['data']}
         users = listed()
-        assert users['broken'] and users['broken'] != 'missing' and users['other'] is None and users['admin'] is None, users
+        assert users['broken'] == "The user's saved password cannot be checked" and users['other'] is None and users['admin'] is None, users
         assert sign_in('broken', 'first-password').status_code == 401
         assert client.get('/api/auth/me', headers={'Authorization': f"Bearer {tokens['access_token']}"}).status_code == 401
         assert client.post('/api/auth/refresh', json={'refresh_token': tokens['refresh_token']}).status_code == 401
@@ -711,7 +715,7 @@ def user_review_checks(root):
         with service.db._get_connection() as conn:
             conn.execute("UPDATE users SET email='other-without-at' WHERE username='other'")
             conn.commit()
-        assert listed()['other'] and sign_in('other', 'first-password').status_code == 401
+        assert listed()['other'] == "The user's email address has no @" and sign_in('other', 'first-password').status_code == 401
         reply = client.put('/api/admin/users/other/email', headers=bearer, json={'email': 'other@example.com'})
         assert reply.status_code == 200, reply.text
         assert listed()['other'] is None and sign_in('other', 'first-password').status_code == 200
@@ -759,7 +763,10 @@ def draft_review_checks(root):
         listed = {entry['id']: entry for entry in reply.json()}
         assert set(listed) == {good, truncated, nameless, ownerless, retired, unnumbered, locked.stem}, reply.text
         assert listed[good]['review_reason'] is None and all(listed[key]['review_reason'] for key in (truncated, nameless, ownerless)), reply.text
-        assert listed[locked.stem]['review_reason'] == 'the file cannot be read', listed[locked.stem]
+        assert listed[locked.stem]['review_reason'] == 'The draft file cannot be opened; another program may be using it', listed[locked.stem]
+        assert {key: listed[key]['review_reason'] for key in (truncated, nameless, ownerless, retired, unnumbered)} == {
+            truncated: 'The draft file is damaged', nameless: 'The draft has no name', ownerless: 'The draft has no owner',
+            retired: 'The draft has a setting this version no longer uses', unnumbered: 'The draft has no saved revision number'}, listed
         locked.rmdir()
         assert listed[nameless]['openable'] and not listed[truncated]['openable'] and not listed[ownerless]['openable'], reply.text
         # A key the model no longer has, or a revision that is not a number, still opens and saves.

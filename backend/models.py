@@ -9,6 +9,8 @@ from datetime import datetime
 import uuid
 import json
 
+from backend.utils.record_check import CheckError
+
 from backend.utils.datetime import (
     parse_iso_datetime_to_local,
     utc_now_as_local_naive,
@@ -123,14 +125,14 @@ class ScheduledExperiment:
     def __post_init__(self):
         """Initialize default values after creation"""
         if self.runner not in ('venus', 'pyhsl'):
-            raise ValueError('Runner must be venus or pyhsl')
+            raise CheckError('Runner must be venus or pyhsl', "The schedule's runner is not VENUS or PyHSL")
         if self.parameters is None:
             self.parameters = {}
         modes = ('real', 'simulation', 'test') if self.runner == 'pyhsl' else ('real', 'simulation')
         if self.mode not in modes:
-            raise ValueError('Mode must be ' + ' or '.join(modes))
+            raise CheckError('Mode must be ' + ' or '.join(modes), 'The run mode is not one this runner supports')
         if type(self.log_inactivity_threshold_minutes) is not int or self.log_inactivity_threshold_minutes <= 0:
-            raise ValueError("Log inactivity threshold must be a positive whole number of minutes")
+            raise CheckError("Log inactivity threshold must be a positive whole number of minutes")
         if self.prerequisites is None:
             self.prerequisites = []
         if self.notification_contacts is None:

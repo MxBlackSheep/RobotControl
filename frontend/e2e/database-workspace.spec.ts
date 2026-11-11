@@ -233,7 +233,7 @@ test('assigning package connections offers matching accounts and saves only decl
 
 test('a saved draft under review: a readable one opens in Edit, an unreadable one offers Remove only', async ({ page }) => {
   await login(page);
-  const unreadable = 'the file is not readable JSON', invalid = 'name: String should have at least 1 character';
+  const unreadable = 'The draft file is damaged', invalid = 'The draft has no name';
   const [good, readable, broken] = ['a', 'c', 'b'].map(c => c.repeat(32));
   let drafts = [{ id: good, name: 'Plate summary', revision: 2, code_defined: false, review_reason: null, openable: true },
     { id: readable, name: readable, revision: 3, code_defined: false, review_reason: invalid, openable: true },

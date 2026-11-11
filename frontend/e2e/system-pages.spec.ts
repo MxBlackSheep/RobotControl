@@ -479,7 +479,7 @@ test('keyboard shortcuts navigate, show their help and yield to dialogs', async 
 for (const accepted of [true, false]) {
   test(`a user under review: ${accepted ? 'Reset & Resolve clears the chip' : 'a refused reset keeps the chip'}`, async ({ page }) => {
     await page.route('**/api/auth/me', route => route.fulfill({ json: { success: true, data: { user_id: 'viewer-admin', username: 'admin', role: 'admin', session_is_local: true, session: { is_local: true } } } }));
-    const reason = 'password hash is not recognised';
+    const reason = "The user's saved password cannot be checked";
     let current: string | null = reason;
     await page.route('**/api/admin/users', route => route.fulfill({ json: { success: true, data: [
       { username: 'admin', email: 'admin@localhost', role: 'admin', review_reason: null },

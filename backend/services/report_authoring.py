@@ -98,20 +98,48 @@ class ReportDraft(BaseModel):
         return self
 
 
+DRAFT_SETTING_NAMES = {
+    'name': 'name', 'package_id': 'package ID', 'version': 'version number', 'libraries': 'library list',
+    'original': 'original Python', 'handler': 'report Python', 'sources': 'connection list',
+    'mappings': 'connection choices', 'inputs': 'input list', 'step': 'wizard step', 'tool_id': 'tool ID',
+    'entrypoint': 'starting function', 'kind': 'tool type', 'preview': 'preview setting',
+    'confirmation_field': 'confirmation input', 'definition_file': 'defining Python file', 'files': 'file list',
+    'operation_source': 'writing connection', 'change_note': 'change note',
+}
+
+
+def _plain_draft_error(error):
+    """One validation error as a sentence a lab member reads after "Needs review"."""
+    kind, loc = error['type'], error['loc']
+    if not loc:
+        return 'The file holds no draft settings'
+    if kind == 'extra_forbidden':
+        return 'The draft has a setting this version no longer uses'
+    setting = DRAFT_SETTING_NAMES.get(loc[0], 'settings')
+    if kind in ('missing', 'string_too_short'):
+        return f'The draft has no {setting}'
+    if kind in ('string_too_long', 'too_long'):
+        return f"The draft's {setting} is too long"
+    if kind == 'string_pattern_mismatch':
+        return f"The draft's {setting} is not in the expected form"
+    if kind.endswith(('_type', '_parsing')):
+        return f"The draft's {setting} is the wrong kind of value"
+    return f"The draft's {setting} is not valid"
+
+
 def check_draft(record):
-    """Return a stored draft record or raise ValueError; reads only the record."""
+    """Return a stored draft record or raise ValueError with a plain reason; reads only the record."""
     if not isinstance(record, dict):
-        raise ValueError('the file does not hold a draft')
-    for name in ('id', 'owner'):
+        raise ValueError('The file does not hold a draft')
+    for name, missing in (('id', 'The draft has no ID'), ('owner', 'The draft has no owner')):
         if not isinstance(record.get(name), str) or not record[name]:
-            raise ValueError(f'{name} is missing')
+            raise ValueError(missing)
     if type(record.get('revision')) is not int:
-        raise ValueError('revision is missing')
+        raise ValueError('The draft has no saved revision number')
     try:
         ReportDraft.model_validate(record.get('draft'))
     except ValidationError as exc:
-        error = exc.errors()[0]
-        raise ValueError(f"{'.'.join(map(str, error['loc'])) or 'draft'}: {error['msg']}") from None
+        raise ValueError(_plain_draft_error(exc.errors()[0])) from None
     return record
 
 
@@ -229,13 +257,13 @@ class ReportAuthoring:
         try:
             text = path.read_text('utf-8')
         except UnicodeDecodeError:
-            return {}, 'the file is not readable JSON'
+            return {}, 'The draft file is damaged'
         except OSError:  # held by another program, or not a file
-            return {}, 'the file cannot be read'
+            return {}, 'The draft file cannot be opened; another program may be using it'
         try:
             data = json.loads(text)
         except ValueError:
-            return {}, 'the file is not readable JSON'
+            return {}, 'The draft file is damaged'
         try:
             return check_draft(data), None
         except ValueError as exc:

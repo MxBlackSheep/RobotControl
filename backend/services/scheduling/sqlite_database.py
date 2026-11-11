@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 from backend.services.scheduling.safety_store import SchedulerSafetyStore
 from backend.services.scheduling.schedule_check import check_schedule
 from backend.services.scheduling.notification_check import check_contact, check_email_settings
+from backend.utils.record_check import review_reason
 from backend.services.scheduling.schedule_review import ScheduleReview
 from backend.services.sqlite_safety import SafetyConflict, StorageUnavailable, configure_connection, check_timestamp
 
@@ -694,7 +695,7 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
         try:
             return check_email_settings({**vars(settings), 'manual_recovery_recipients': row['manual_recovery_recipients']})
         except ValueError as exc:
-            settings.review_reason = str(exc)
+            settings.review_reason = review_reason(exc, 'The email settings cannot be read')
             return settings
 
     def update_notification_settings(
@@ -790,7 +791,8 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                         contacts.append(check_contact(fields))
                     except ValueError as exc:
                         if include_review:
-                            review = {**fields, "review_reason": str(exc)}
+                            # Only a saved date can fail outside check_contact's own wording.
+                            review = {**fields, "review_reason": review_reason(exc, "The contact's saved date cannot be read")}
                             try:
                                 contacts.append(NotificationContact.from_dict(review))
                             except ValueError:  # its timestamps do not parse; list it without them
@@ -1545,12 +1547,14 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
         }
         fields['notification_contacts'] = self._get_schedule_contact_ids(fields['schedule_id'], conn)
         reason = None
-        for name in ('parameters', 'prerequisites', 'preparation'):
+        for name, unreadable in (('parameters', 'The protocol parameters cannot be read'),
+                                 ('prerequisites', 'The old preparation steps cannot be read'),
+                                 ('preparation', 'The database step cannot be read')):
             if fields[name] is not None:
                 try:
                     fields[name] = json.loads(fields[name])
                 except (TypeError, ValueError):
-                    reason = reason or f'{name} contains unreadable JSON'
+                    reason = reason or unreadable
         for name in ('is_active', 'archived', 'recovery_required'):
             fields[name] = bool(fields[name])
         if reason is None:
@@ -1560,7 +1564,7 @@ class SQLiteSchedulingDatabase(SchedulerSafetyStore):
                 schedule.timeout_config = TimeoutConfig.from_dict(fields['timeout_config'])
                 return schedule
             except (ValueError, TypeError) as exc:
-                reason = str(exc)
+                reason = review_reason(exc, 'A saved value of the schedule cannot be read')
         return ScheduleReview(fields, reason)
 
     def _row_to_notification_log(self, row: sqlite3.Row) -> NotificationLogEntry:

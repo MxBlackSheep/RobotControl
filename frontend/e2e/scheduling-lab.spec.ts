@@ -46,7 +46,7 @@ async function scheduling(page: Page, options: { role?: 'admin' | 'user'; list: 
   });
 }
 
-const reason = "schedule type 'cron' is no longer supported";
+const reason = "The schedule type 'cron' is no longer supported";
 // A stored next run must still not read as a coming run.
 const review = stored({ schedule_id: 'old-cron', experiment_name: 'Old cron method', experiment_path: 'C:\\Methods\\old-cron.med',
   schedule_type: 'cron', estimated_duration: 25, next_run: '2026-12-01T10:00:00', review_reason: reason });
@@ -200,7 +200,8 @@ for (const [saved, sent] of [['real', 'simulation'], ['simulation', 'real']] as 
   });
 }
 
-const contactReason = 'Invalid email address format';
+const contactReason = "The contact's address is not a valid email address";
+const contactRefusal = 'Invalid email address format';
 const reviewContact = { contact_id: 'night', display_name: 'Night shift', email_address: 'night shift', is_active: true,
   created_at: '2026-09-25T10:00:00', updated_at: '2026-09-25T10:00:00', review_reason: contactReason };
 for (const accepted of [true, false]) {
@@ -210,7 +211,7 @@ for (const accepted of [true, false]) {
     const writes: any[] = [];
     await scheduling(page, { list: () => [], contacts: () => [current], write: async route => {
       writes.push(route.request().postDataJSON());
-      if (!accepted) return route.fulfill({ status: 400, json: { detail: contactReason } });
+      if (!accepted) return route.fulfill({ status: 400, json: { detail: contactRefusal } });
       current = { ...reviewContact, ...writes[0], review_reason: null };
       await route.fulfill({ json: { success: true, data: current } });
     } });
@@ -233,7 +234,7 @@ for (const accepted of [true, false]) {
       return;
     }
     const refusal = page.getByRole('dialog', { name: 'Update failed', exact: true });
-    await expect(refusal).toContainText(contactReason);
+    await expect(refusal).toContainText(contactRefusal);
     await refusal.getByRole('button', { name: 'Close', exact: true }).click();
     // The app-wide error dialog for a refused request sits on top as well.
     await page.getByRole('dialog', { name: 'Server Error', exact: true }).getByRole('button', { name: 'Close', exact: true }).click();
