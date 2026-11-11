@@ -23,14 +23,14 @@ const pause = (ms: number, signal: AbortSignal) => new Promise<void>(resolve => 
 
 /** Streamed with fetch for progress and resume, so an expired sign-in is renewed here once per request. */
 async function request(filename: string, from: number, signal: AbortSignal) {
-  // no-store: the resume below is this hook's, not the browser cache's.
-  const send = (token: string | null) => fetch(buildApiUrl(`/api/camera/recording/${filename}`), {
-    cache: 'no-store', signal, headers: { Authorization: `Bearer ${token}`, ...(from > 0 && { Range: `bytes=${from}-` }) },
+  // no-store: the resume below is this hook's, not the browser cache's. The sign-in cookie goes with it.
+  const send = () => fetch(buildApiUrl(`/api/camera/recording/${filename}`), {
+    cache: 'no-store', signal, headers: from > 0 ? { Range: `bytes=${from}-` } : undefined,
   });
-  const response = await send(localStorage.getItem('access_token'));
+  const response = await send();
   if (response.status !== 401) return response;
-  const renewed = await attemptTokenRefresh().catch(() => null);
-  return renewed ? send(renewed) : response;
+  const renewed = await attemptTokenRefresh().catch(() => false);
+  return renewed ? send() : response;
 }
 
 /**

@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { signIn } from './sign-in';
 import { mkdirSync } from 'node:fs';
 
 /** Failure cases for the Database Restore dialog, against faked API answers. The restore
@@ -27,7 +28,7 @@ const bckPath = 'C:\\Backups\\nightly.bck';
 async function openRestore(page: any, answer: any) {
   mkdirSync(evidence, { recursive: true });
   const sent: any[] = [];
-  await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));
+  await signIn(page);
   await page.route('**/api/auth/me', (r: any) => r.fulfill({ json: { success: true, data: { user_id: 'viewer-admin', username: 'Fixture', role: 'admin', session_is_local: true } } }));
   await page.route('**/api/admin/backup/list', (r: any) => r.fulfill({ json: { success: true, data: [bak] } }));
   await page.route('**/api/system/browse?*', (r: any) => r.fulfill({ json: { success: true, data: { items: [{ name: 'nightly.bck', path: bckPath, is_directory: false }] } } }));

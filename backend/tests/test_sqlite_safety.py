@@ -262,7 +262,8 @@ def test_auth_foreign_keys_cleanup_and_no_secret_preview(tmp_path, monkeypatch):
         user_id = conn.execute('SELECT id FROM users').fetchone()[0]
         conn.execute("INSERT INTO refresh_tokens(user_id, token_hash, issued_at, expires_at) VALUES (?, 'secret-token', 'now', 'later')", (user_id,))
         conn.commit()
-    assert db.delete_user('operator')
+    admin = db.create_user('lead', 'lead@example.org', 'secret-hash', 'admin')
+    assert db.delete_user('operator', admin['id'])
     with db._get_connection() as conn:
         assert conn.execute('PRAGMA foreign_keys').fetchone()[0] == 1
         assert conn.execute('SELECT COUNT(*) FROM refresh_tokens').fetchone()[0] == 0

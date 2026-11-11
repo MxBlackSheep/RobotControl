@@ -5,7 +5,7 @@ Common FastAPI dependencies shared across RobotControl API routers.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from fastapi import Depends, HTTPException, Request, status
 
@@ -79,3 +79,16 @@ async def require_local_access(
             detail="Local network access required for this operation",
         )
     return context
+
+
+def ensure_backup_permission(current_user: Dict[str, Any], connection: ConnectionContext) -> None:
+    """Restore and its folder list: an admin, or any user on this computer."""
+    role = current_user.get("role")
+    if role == "admin":
+        return
+    if connection.is_local and role in {"user", "admin"}:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Admin role required",
+    )

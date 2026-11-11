@@ -33,7 +33,6 @@ HTML = '''<!doctype html><html><head><meta charset="utf-8"><title>Remote connect
 <button onclick="control('fail')">Fail next health response</button>
 <pre id="probe-state"></pre><div id="root"></div>
 <script>
-localStorage.setItem('access_token','local-disposable-probe');
 async function control(mode){await fetch('/control?mode='+mode,{method:'POST'});}
 setInterval(async()=>{
  const root=document.getElementById('root');

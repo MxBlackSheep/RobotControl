@@ -80,11 +80,10 @@ const normalizeDatabases = (raw: unknown): DatabaseConnections | null => {
 export const useMonitoring = () => {
   const [monitoringData, setMonitoringData] = useState<MonitoringData | null>(null);
   // Polling restarts for a different user, not for a renewed access token.
-  const { token, user } = useAuth();
+  const { user } = useAuth();
 
   // Through the shared client, which renews an expired token.
   const fetchMonitoringData = useCallback(async (signal: AbortSignal): Promise<MonitoringData> => {
-    if (!token) throw new Error('Authentication required for monitoring data');
     const [systemHealthData, streamingStatusData, databasesData] = await Promise.all([
       api.get('/api/monitoring/system-health', { signal }).then(response => response.data),
       // Live-view status is optional here; its failure shows as "unavailable".
@@ -103,13 +102,13 @@ export const useMonitoring = () => {
       databases: normalizeDatabases(databasesData?.data),
       streaming_status: isRecord(streamingStatusData?.data?.status) ? streamingStatusData.data.status as StreamingServiceStatus : null,
     };
-  }, [token]);
+  }, []);
 
   const polling = useSerialPolling({
     request: fetchMonitoringData,
     onSuccess: setMonitoringData,
     identity: user?.user_id ?? null,
-    enabled: Boolean(token),
+    enabled: Boolean(user),
     interval: 60000,
     retryInterval: 30000,
   });

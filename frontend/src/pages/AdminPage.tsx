@@ -2,14 +2,14 @@ import { useModuleSection } from '../components/navigation';
 import { PageContent, PageHeader } from '../components/PageLayout';
 import React, { useState } from 'react';
 
-import { useAuthContext } from '../context/AuthContext';
+import { useAuth } from '../context/AuthContext';
 import StatusDialog from '../components/StatusDialog';
 import UserManagement from '../components/UserManagement';
 import SQLiteHealthPanel from '../components/SQLiteHealthPanel';
 import { isLocalUser } from '../components/navigation';
 
 const AdminPage: React.FC = () => {
-  const { user } = useAuthContext();
+  const { user } = useAuth();
   const [section] = useModuleSection('/admin', user);
   const [error, setError] = useState<string | null>(null);
 

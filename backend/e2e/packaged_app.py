@@ -1,6 +1,7 @@
 """Start a relocated packaged RobotControl on a port nobody else holds, and prove it answers.
 
-Used by packaged_viewer_smoke.py, packaged_walkthrough.py and packaged_database_smoke.py.
+Used by packaged_viewer_smoke.py, packaged_walkthrough.py, packaged_database_smoke.py and
+packaged_shutdown_check.py.
 PACKAGED_E2E_PORT overrides each check's port (default 8017; the database smoke 8018), so
 two worktrees can run packaged checks at once, for example $env:PACKAGED_E2E_PORT='8027'.
 
@@ -13,10 +14,13 @@ identity, and no production route is added for tests. Failure cases:
 Each caller stops only the process it started (in its finally block); nothing here stops
 or calls a shutdown route on a server it did not start.
 """
+from http.cookies import SimpleCookie
+import json
 import os
 import socket
 import subprocess
 import time
+import urllib.request
 
 import psutil
 
@@ -91,3 +95,15 @@ def wait_until_serving(process, number, health, seconds=90):
             if process.poll() is not None or time.monotonic() > deadline:
                 raise
             time.sleep(.5)
+
+
+def sign_in(number, username, password):
+    """Sign in like the page (the request header) and return the rc_access cookie's token for Bearer use."""
+    req = urllib.request.Request(f'http://127.0.0.1:{number}/api/auth/login',
+                                 data=json.dumps(dict(username=username, password=password)).encode(),
+                                 headers={'Content-Type': 'application/json', 'X-Requested-With': 'RobotControl'})
+    cookies = SimpleCookie()
+    with urllib.request.urlopen(req, timeout=30) as response:
+        for header in response.headers.get_all('Set-Cookie') or []:
+            cookies.load(header)
+    return cookies['rc_access'].value

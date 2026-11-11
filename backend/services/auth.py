@@ -10,20 +10,21 @@ Replaces the in-memory user store with a SQLite-backed implementation so that:
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import hashlib
+import json
 import logging
 import os
 import re
 import secrets
 import sqlite3
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import jwt
-from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import Depends, HTTPException, Request, Response, status
 import bcrypt
 
 from backend.services.auth_database import get_auth_database, AuthDatabase
 from backend.services.sqlite_safety import StorageUnavailable
+from backend.utils.data_paths import get_path_manager
 from backend.utils.record_check import CheckError
 
 logger = logging.getLogger(__name__)
@@ -41,13 +42,48 @@ DEFAULT_ADMIN_EMAIL = os.getenv("ROBOTCONTROL_ADMIN_EMAIL", "admin@localhost")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ROBOTCONTROL_ACCESS_TOKEN_MINUTES", "240"))
 REFRESH_TOKEN_EXPIRE_HOURS = int(os.getenv("ROBOTCONTROL_REFRESH_TOKEN_HOURS", "168"))
 
-ACCESS_TOKEN_SECRET = os.getenv(
-    "ROBOTCONTROL_ACCESS_TOKEN_SECRET", "RobotControl_Access_Secret_2025"
-)
-REFRESH_TOKEN_SECRET = os.getenv(
-    "ROBOTCONTROL_REFRESH_TOKEN_SECRET", "RobotControl_Refresh_Secret_2025"
-)
 ALGORITHM = "HS256"
+_token_secrets: Optional[Tuple[str, str]] = None
+
+
+def _key_file() -> Tuple[str, str]:
+    path = get_path_manager().config_path / "token-secrets.json"
+    try:
+        if not path.exists():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            # Written beside it, flushed to disk, then renamed: a crash leaves no half-written file
+            # to stop the next start, and on Windows the rename refuses an existing file, so keys
+            # are never replaced.
+            temp = path.with_suffix(".tmp")
+            try:
+                with open(temp, "w", encoding="utf-8") as file:
+                    json.dump({"access": secrets.token_urlsafe(48), "refresh": secrets.token_urlsafe(48)}, file)
+                    file.flush()
+                    os.fsync(file.fileno())
+                temp.rename(path)
+            finally:
+                temp.unlink(missing_ok=True)
+            logger.info("Created sign-in keys in %s", path)
+        keys = json.loads(path.read_text(encoding="utf-8"))
+        return str(keys["access"]), str(keys["refresh"])
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        logger.critical("Sign-in keys in %s cannot be read or created (%s); fix or delete the file, then start again", path, exc)
+        raise RuntimeError(f"Sign-in keys in {path} cannot be read or created") from exc
+
+
+def token_secrets() -> Tuple[str, str]:
+    """The (access, refresh) signing keys of this installation.
+
+    Both environment variables win; otherwise data/config/token-secrets.json, created with
+    random keys at first start. A file that cannot be read stops start-up: writing new keys
+    would sign everyone out and hide the fault.
+    """
+    global _token_secrets
+    if _token_secrets is None:
+        variables = (os.getenv("ROBOTCONTROL_ACCESS_TOKEN_SECRET"), os.getenv("ROBOTCONTROL_REFRESH_TOKEN_SECRET"))
+        _token_secrets = variables if all(variables) else _key_file()
+    return _token_secrets
+
 
 # A storage failure says nothing about the token: answering 401 would make the browser
 # delete a valid sign-in, so these answer 503 and the client keeps its tokens.
@@ -343,8 +379,16 @@ class AuthService:
             logger.info("Updated email for user '%s'", username)
         return success
 
-    def delete_user(self, username: str) -> bool:
-        success = self.db.delete_user(username)
+    def set_user_role(self, username: str, role: str, actor_id: int) -> bool:
+        """False when the account making the change is no longer an admin (see AuthDatabase)."""
+        success = self.db.set_user_role(username, role, actor_id)
+        if success:
+            logger.info("Changed role of user '%s' to %s", username, role)
+        return success
+
+    def delete_user(self, username: str, actor_id: int) -> bool:
+        """False when the account making the change is no longer an admin (see AuthDatabase)."""
+        success = self.db.delete_user(username, actor_id)
         if success:
             logger.info("Deleted user '%s'", username)
         return success
@@ -362,7 +406,7 @@ class AuthService:
     ) -> str:
         expire = datetime.utcnow() + (expires_delta or self.access_token_expiry)
         payload = {"user_id": str(user.id), "type": "access", "exp": expire, "iat": datetime.utcnow()}
-        token = jwt.encode(payload, ACCESS_TOKEN_SECRET, algorithm=ALGORITHM)
+        token = jwt.encode(payload, token_secrets()[0], algorithm=ALGORITHM)
         logger.debug("Access token issued for %s (expires %s)", user.username, expire)
         return token
 
@@ -371,14 +415,12 @@ class AuthService:
         jti = secrets.token_hex(16)
         payload = {
             "user_id": user.to_dict()["user_id"],
-            "username": user.username,
-            "role": user.role,
             "jti": jti,
             "type": "refresh",
             "exp": expire,
             "iat": datetime.utcnow(),
         }
-        token = jwt.encode(payload, REFRESH_TOKEN_SECRET, algorithm=ALGORITHM)
+        token = jwt.encode(payload, token_secrets()[1], algorithm=ALGORITHM)
         token_hash = self._hash_token(token)
         self.db.store_refresh_token(user.id, token_hash, expire)
         # Keep only the most recent token active
@@ -388,7 +430,7 @@ class AuthService:
 
     def verify_token(self, token: str) -> Optional[User]:
         try:
-            payload = jwt.decode(token, ACCESS_TOKEN_SECRET, algorithms=[ALGORITHM])
+            payload = jwt.decode(token, token_secrets()[0], algorithms=[ALGORITHM])
             if payload.get("type") != "access":
                 logger.warning("Invalid token type encountered during verification")
                 return None
@@ -413,9 +455,7 @@ class AuthService:
 
     def refresh_access_token(self, refresh_token: str) -> Optional[str]:
         try:
-            payload = jwt.decode(
-                refresh_token, REFRESH_TOKEN_SECRET, algorithms=[ALGORITHM]
-            )
+            payload = jwt.decode(refresh_token, token_secrets()[1], algorithms=[ALGORITHM])
             if payload.get("type") != "refresh":
                 logger.warning("Refresh attempt with incorrect token type")
                 return None
@@ -503,7 +543,51 @@ class AuthService:
 
 # Global service instance
 _auth_service: Optional[AuthService] = None
-security = HTTPBearer()
+
+# Browsers keep the sign-in in two HttpOnly cookies, out of reach of page scripts.
+ACCESS_COOKIE = "rc_access"
+REFRESH_COOKIE = "rc_refresh"
+_COOKIE_PATHS = {ACCESS_COOKIE: "/api", REFRESH_COOKIE: "/api/auth"}
+
+
+def request_token(request: Request) -> str:
+    """The access token: a Bearer header (programs) wins, else the rc_access cookie (browsers).
+
+    A Bearer header never falls back to the cookie, even when empty: the request-header rule
+    exempts Bearer requests, so a cookie must not ride on one.
+    """
+    scheme, _, token = request.headers.get("authorization", "").partition(" ")
+    if scheme.lower() == "bearer":
+        token = token.strip()
+    else:
+        token = request.cookies.get(ACCESS_COOKIE, "")
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return token
+
+
+def _secure(request: Request) -> bool:
+    # The tunnel serves HTTPS and forwards plain http; the lab PC opens http://localhost,
+    # where a Secure cookie would not be kept by every browser.
+    return request.url.scheme == "https" or "https" in request.headers.get("x-forwarded-proto", "").lower()
+
+
+def set_sign_in_cookies(response: Response, request: Request, access_token: str,
+                        refresh_token: Optional[str] = None) -> None:
+    lifetimes = {ACCESS_COOKIE: ACCESS_TOKEN_EXPIRE_MINUTES * 60, REFRESH_COOKIE: REFRESH_TOKEN_EXPIRE_HOURS * 3600}
+    for name, value in ((ACCESS_COOKIE, access_token), (REFRESH_COOKIE, refresh_token)):
+        if value:
+            response.set_cookie(name, value, max_age=lifetimes[name], path=_COOKIE_PATHS[name],
+                                httponly=True, samesite="strict", secure=_secure(request))
+
+
+def clear_sign_in_cookies(response: Response, request: Request) -> None:
+    for name, path in _COOKIE_PATHS.items():
+        response.delete_cookie(name, path=path, httponly=True, samesite="strict", secure=_secure(request))
 
 
 def get_auth_service() -> AuthService:
@@ -514,12 +598,10 @@ def get_auth_service() -> AuthService:
     return _auth_service
 
 
-def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-) -> Dict[str, Any]:
+def get_current_user(token: str = Depends(request_token)) -> Dict[str, Any]:
     service = get_auth_service()
     try:
-        user = service.verify_token(credentials.credentials)
+        user = service.verify_token(token)
     except AUTH_STORAGE_ERRORS as exc:
         logger.error("Sign-in storage unavailable during token verification: %s", exc)
         raise HTTPException(
@@ -537,14 +619,26 @@ def get_current_user(
     return user.to_dict()
 
 
-def get_current_admin_user(
-    current_user: Dict[str, Any] = Depends(get_current_user),
-) -> Dict[str, Any]:
+def _require_admin(current_user: Dict[str, Any], refusal: str) -> Dict[str, Any]:
     service = get_auth_service()
     user = service.get_user_by_id(current_user["user_id"])
     if not user or not service.is_admin(user):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required",
-        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=refusal)
     return current_user
+
+
+def get_current_admin_user(
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    return _require_admin(current_user, "Admin access required")
+
+
+# Role change and delete: the person most likely refused here is an admin whom another admin
+# demoted while their Users page stayed open, so the refusal tells them why.
+NO_LONGER_ADMIN = "You are no longer an admin. Reload the page"
+
+
+def get_current_admin_for_account_change(
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    return _require_admin(current_user, NO_LONGER_ADMIN)

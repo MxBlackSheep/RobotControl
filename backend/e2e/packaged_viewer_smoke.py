@@ -96,7 +96,7 @@ with tempfile.TemporaryDirectory(prefix='relocated-viewer-',dir=ROOT/'test-outpu
                 assert error.code==404,(hidden,error.code)
         assert 'assets/' in request('/scheduling').decode()
         result['checks'].append('no API docs, source maps or bundle report; missing assets 404, page routes serve the app')
-        token=request('/api/auth/login',dict(username='viewer-smoke',password=password))['data']['access_token']
+        token=packaged_app.sign_in(PORT,'viewer-smoke',password)
         request('/api/auth/change-password',dict(current_password=password,new_password=secrets.token_urlsafe(24)),token)
         sources=request('/api/logfiles/sources',token=token)['data']
         root=Path(next(s['path'] for s in sources if s['id']=='robotcontrol_logs'))

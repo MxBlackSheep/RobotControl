@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { signIn } from './sign-in';
 import { mkdirSync } from 'node:fs';
 
 /** Failure cases for database settings screens:
@@ -23,7 +24,7 @@ import { mkdirSync } from 'node:fs';
  */
 const evidence = process.env.ROBOTCONTROL_E2E_EVIDENCE || '../test-output/database-workspace-verification';
 async function login(page: any) {
-  await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));
+  await signIn(page);
   await page.route('**/api/auth/me', (route: any) => route.fulfill({ json: { success: true, data: { user_id: 'viewer-admin', username: 'Fixture', role: 'admin', session_is_local: true } } }));
 }
 
@@ -43,7 +44,7 @@ test('simplified settings show one viewer and no scheduling adapter setup', asyn
 
 test('a remote administrator is told which sections need the RobotControl computer', async ({page}) => {
   mkdirSync(evidence,{recursive:true});
-  await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));
+  await signIn(page);
   // The app reads data.session.is_local (backend/api/auth.py); without it, 127.0.0.1 counts as local.
   await page.route('**/api/auth/me', r => r.fulfill({ json: { success: true, data: { user_id: 'viewer-admin', username: 'Fixture', role: 'admin', session: { is_local: false } } } }));
   const localOnlyRequests: string[] = [];

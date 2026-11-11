@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { signIn } from './sign-in';
 import { createHash } from 'node:crypto';
 
 /** Failure cases for log readers (real log HTTP routes, disposable files):
@@ -18,7 +19,7 @@ import { createHash } from 'node:crypto';
  *   Load more appends the next API page without duplicates, Refresh and a folder change
  *   start again from the first page, and sizes read "537 B", not "537.0 B".
  */
-test.beforeEach(async ({ page }) => { await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin')); });
+test.beforeEach(async ({ page }) => { await signIn(page); });
 const headers = { Authorization: 'Bearer viewer-admin' };
 test('real log HTTP routes reconstruct every archived section and enforce reader ownership', async ({ request }) => {
   const manifest = await (await request.get('/__e2e/manifest')).json();

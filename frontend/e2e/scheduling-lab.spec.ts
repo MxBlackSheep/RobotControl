@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
+import { signIn } from './sign-in';
 import { mkdirSync } from 'node:fs';
 
 /** Failure cases for a schedule's stored fields and its "Before this run" step:
@@ -27,7 +28,7 @@ const stored = (extra: Record<string, unknown>) => ({ schedule_type: 'once', est
 /** A local session and the Scheduling routes; a write goes to `write` (default: 409, the draft stays open). */
 async function scheduling(page: Page, options: { role?: 'admin' | 'user'; list: () => object[]; queued?: object[];
   contacts?: () => object[]; write?: (route: Route) => Promise<void> }) {
-  await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));
+  await signIn(page);
   await page.route('**/api/auth/me', route => route.fulfill({ json: { success: true, data: {
     user_id: 'operator', username: 'operator', role: options.role ?? 'admin', session_is_local: true, session: { is_local: true } } } }));
   await page.route('**/api/scheduling/**', async route => {

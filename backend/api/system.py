@@ -10,6 +10,7 @@ from pathlib import Path
 from backend.utils.filesystem import restricted_directory, visible_children
 
 from backend.services.auth import get_current_user
+from backend.api.dependencies import ConnectionContext, ensure_backup_permission, get_connection_context
 
 # Import standardized response formatter
 from backend.api.response_formatter import ResponseFormatter, ResponseMetadata
@@ -32,10 +33,11 @@ def format_file_size(size_bytes: int) -> str:
 async def browse_directory(
     path: str = Query(..., description="Directory path to browse"),
     filter: str = Query(None, description="File extension filter (e.g., '.bck')"),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    connection: ConnectionContext = Depends(get_connection_context),
 ):
     """
-    Browse file system directory with optional filtering
+    Browse file system directory with optional filtering (the restore picker's folder list)
     
     Args:
         path: Directory path to browse
@@ -46,7 +48,8 @@ async def browse_directory(
         Dictionary containing directory items
     """
     start_time = time.time()
-    
+    ensure_backup_permission(current_user, connection)
+
     try:
         # Validate and sanitize path
         browse_path = Path(path).resolve()

@@ -11,7 +11,7 @@ const base = `http://127.0.0.1:${process.env.PACKAGED_E2E_PORT}`;
   const browser = await chromium.launch({ channel: 'msedge' });
   const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
   await context.tracing.start({ screenshots: true, snapshots: true });
-  await context.addInitScript(token => localStorage.setItem('access_token', token), process.env.VIEWER_SMOKE_TOKEN);
+  await context.addCookies([{ name: 'rc_access', value: process.env.VIEWER_SMOKE_TOKEN, domain: '127.0.0.1', path: '/api', httpOnly: true, sameSite: 'Strict' }]);
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));

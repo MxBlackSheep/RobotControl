@@ -52,6 +52,11 @@ a loopback peer carrying `cf-connecting-ip`, `cf-ray`, `true-client-ip`, `x-real
   PC before signing in remotely." Sign in on the RobotControl computer, where the app asks for
   a new password, then sign in remotely with that. A wrong password still gets the usual
   "Invalid username or password". Details: authentication guide, lifecycle step 1.
+- The sign-in lives in two HttpOnly cookies (`rc_access`, `rc_refresh`; authentication guide,
+  lifecycle steps 2-5). Through the tunnel they are Secure, so the page and the API must share
+  one HTTPS hostname, as above. Private browsing or blocked cookies lose the sign-in on reload.
+  After the upgrade that brought them, and whenever `data/config/token-secrets.json` is
+  replaced, everyone signs in once more; schedules and runs are not affected.
 - The packaged app does not publish `/docs`, `/openapi.json`, source maps or the bundle
   report. Development builds keep `/docs`; set `SOURCEMAP=1` for a build with source maps,
   or run `npm --prefix frontend run bundle-analyze` for the bundle report. Never package

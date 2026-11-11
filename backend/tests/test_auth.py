@@ -9,12 +9,19 @@ from backend.main import app
 
 # Loopback peer: the admin signs in with the built-in password, which only the RobotControl
 # computer may use (remote refusal: backend/e2e/auth_storage_check.py).
-client = TestClient(app, client=("127.0.0.1", 50000))
+# Programs sign in like the page: the request header on every unsafe request, the token from
+# the rc_access cookie, then Bearer.
+client = TestClient(app, client=("127.0.0.1", 50000), headers={"X-Requested-With": "RobotControl"})
 
 
 @pytest.fixture(autouse=True)
 def reset_auth_service(tmp_path, monkeypatch):
     monkeypatch.setenv("ROBOTCONTROL_AUTH_DB_FILENAME", str(tmp_path / "auth.db"))
+    # Keys from the environment, so no key file is written to the real data folder.
+    monkeypatch.setenv("ROBOTCONTROL_ACCESS_TOKEN_SECRET", "test-access-key-" + "a" * 48)
+    monkeypatch.setenv("ROBOTCONTROL_REFRESH_TOKEN_SECRET", "test-refresh-key-" + "b" * 48)
+    monkeypatch.setattr(auth_module, "_token_secrets", None)
+    client.cookies.clear()
     monkeypatch.setattr(auth_module, "_auth_service", None)
     monkeypatch.setattr(auth_database, "_auth_db_instance", None)
     yield
@@ -97,6 +104,9 @@ def test_api_registration_and_login():
     login_data = login_response.json()
     assert login_data["success"] is True
     assert login_data["data"]["user"]["username"] == "erin"
+    # The tokens travel only in HttpOnly cookies, never in the body page scripts read.
+    assert "access_token" not in login_data["data"] and "refresh_token" not in login_data["data"]
+    assert login_response.cookies.get("rc_access") and login_response.cookies.get("rc_refresh")
 
 
 def test_api_change_password_and_refresh():
@@ -109,9 +119,10 @@ def test_api_change_password_and_refresh():
         },
     )
     assert register_response.status_code == 201
-    tokens = register_response.json()["data"]
+    access, refresh = register_response.cookies["rc_access"], register_response.cookies["rc_refresh"]
+    client.cookies.clear()
 
-    headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+    headers = {"Authorization": f"Bearer {access}"}
 
     # A wrong current password is a form error, not an expired session: 401 would
     # make the frontend sign the user out.
@@ -138,10 +149,7 @@ def test_api_change_password_and_refresh():
     assert change_response.status_code == 200
 
     # Existing refresh token should be invalidated
-    refresh_response = client.post(
-        "/api/auth/refresh",
-        json={"refresh_token": tokens["refresh_token"]},
-    )
+    refresh_response = client.post("/api/auth/refresh", headers={"Cookie": f"rc_refresh={refresh}"})
     assert refresh_response.status_code == 401
 
     # Login with new password works
@@ -170,7 +178,7 @@ def test_password_reset_request_flow():
         json={"username": "admin", "password": DEFAULT_ADMIN_PASSWORD},
     )
     assert admin_login.status_code == 200
-    admin_token = admin_login.json()["data"]["access_token"]
+    admin_token = admin_login.cookies["rc_access"]
     admin_headers = {"Authorization": f"Bearer {admin_token}"}
 
     list_response = client.get(

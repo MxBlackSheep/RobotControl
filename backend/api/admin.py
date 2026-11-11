@@ -5,11 +5,13 @@ Basic admin endpoints for user management and system monitoring
 
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, EmailStr, Field
-from typing import Optional
+from typing import Literal, Optional
 import logging
 import time
 
-from backend.services.auth import get_current_admin_user, get_auth_service
+from backend.api.dependencies import ConnectionContext, get_connection_context
+from backend.services.auth import NO_LONGER_ADMIN, get_current_admin_for_account_change, get_current_admin_user, get_auth_service
+from backend.utils.audit import log_action
 
 # Import standardized response formatter
 from backend.api.response_formatter import ResponseFormatter
@@ -20,6 +22,10 @@ logger = logging.getLogger(__name__)
 
 class UpdateUserEmailRequest(BaseModel):
     email: EmailStr
+
+
+class SetUserRoleRequest(BaseModel):
+    role: Literal["user", "admin"]
 
 
 class ResetPasswordRequest(BaseModel):
@@ -164,10 +170,34 @@ async def update_user_email(
         message="User email updated successfully",
     )
 
+@router.put("/users/{username}/role")
+async def set_user_role(
+    username: str,
+    request: SetUserRoleRequest,
+    current_user: dict = Depends(get_current_admin_for_account_change),
+    connection: ConnectionContext = Depends(get_connection_context),
+):
+    """Switch another account between user and admin; it applies on that account's next request."""
+
+    auth_service = get_auth_service()
+    if username == current_user.get("username"):
+        response = ResponseFormatter.bad_request(message="Cannot change your own role", details={"username": username})
+    elif not auth_service.get_user_by_username(username):
+        response = ResponseFormatter.not_found(message="User not found", details={"username": username})
+    elif not auth_service.set_user_role(username, request.role, int(current_user["user_id"])):
+        response = ResponseFormatter.forbidden(message=NO_LONGER_ADMIN, details={"username": username})
+    else:
+        response = ResponseFormatter.success(data={"username": username, "role": request.role},
+                                             message="User role updated successfully")
+    log_action(actor=current_user["username"], action="change_user_role", scope="users", client_ip=connection.client_ip,
+               success=response.status_code == 200, details={"target": username, "role": request.role})
+    return response
+
+
 @router.delete("/users/{username}")
 async def delete_user(
     username: str,
-    current_user: dict = Depends(get_current_admin_user),
+    current_user: dict = Depends(get_current_admin_for_account_change),
 ):
     """Delete a user account."""
 
@@ -183,12 +213,8 @@ async def delete_user(
             message="User not found",
             details={"username": username},
         )
-    success = auth_service.delete_user(username)
-    if not success:
-        return ResponseFormatter.server_error(
-            message="Failed to delete user",
-            details={"username": username},
-        )
+    if not auth_service.delete_user(username, int(current_user["user_id"])):
+        return ResponseFormatter.forbidden(message=NO_LONGER_ADMIN, details={"username": username})
     return ResponseFormatter.success(
         data={"username": username},
         message="User deleted successfully",

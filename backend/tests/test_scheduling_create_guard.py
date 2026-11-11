@@ -89,7 +89,8 @@ class FakeDB:
 
 
 # Local access is decided by the socket peer; x-forwarded-for can only restrict it.
-client = TestClient(app, client=("127.0.0.1", 50000))
+# Requests come like the page's: the header the server requires for a change without a Bearer token.
+client = TestClient(app, client=("127.0.0.1", 50000), headers={"X-Requested-With": "RobotControl"})
 
 
 def _override_user() -> Dict[str, Any]:

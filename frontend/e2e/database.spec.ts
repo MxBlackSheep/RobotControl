@@ -1,4 +1,5 @@
 import { expect, Page, test } from '@playwright/test';
+import { signIn } from './sign-in';
 import { routeDatabaseViewer, viewerRows as rows } from './database-fixture';
 
 /** Failure cases for the read-only table and SQL viewer:
@@ -27,7 +28,7 @@ async function assertNoPageOverflow(page: Page) {
 }
 
 test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));
+  await signIn(page);
   await routeDatabaseViewer(page);
 });
 
@@ -202,7 +203,7 @@ for (const size of [{ width: 390, height: 844 }, { width: 375, height: 667 }]) {
 }
 
 test('restore messages stay inline instead of stacking dialogs', async ({ page }, testInfo) => {
-  await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));
+  await signIn(page);
   await page.route('**/api/admin/backup/list', route => route.fulfill({ json: { success: true, data: [] } }));
   await page.route('**/api/admin/backup/create', route => route.fulfill({ status: 500, json: { detail: 'Backup folder is not writable' } }));
   await page.goto('/database?section=restore');

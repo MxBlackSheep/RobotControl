@@ -19,7 +19,7 @@ sys.path.insert(0, str(ROOT))
 from fastapi import FastAPI, Request, WebSocket, HTTPException
 from fastapi.responses import FileResponse
 from backend.api import logfiles
-from backend.services.auth import get_current_user
+from backend.services.auth import get_current_user, request_token
 from backend.services.h264_encoder import find_ffmpeg, read_flv_packets
 from backend.services.streaming_session import FLAG_KEYFRAME, FRAME_HEADER, FRAME_VERSION
 
@@ -76,7 +76,8 @@ logfiles.LOGFILE_SOURCES['hamilton_logfiles']['path'] = str(logs)
 
 
 def user(request: Request):
-    token = request.headers.get('authorization', '').removeprefix('Bearer ')
+    # The specs sign in with an rc_access cookie naming the user; programs may send Bearer.
+    token = request_token(request)
     if token not in {'viewer-admin', 'other-admin', 'viewer-user', 'e2e-admin'}:
         raise HTTPException(401)
     return dict(user_id=token, username=token, role='user' if token == 'viewer-user' else 'admin', session=dict(is_local=False))
@@ -97,6 +98,17 @@ async def fixture_peer(request: Request, call_next):
 @app.get('/api/auth/me')
 def me(request: Request):
     return dict(success=True, data=user(request))
+
+
+# A browser without a sign-in: the real server answers refresh 401 and logout 200.
+@app.post('/api/auth/refresh')
+def refresh():
+    raise HTTPException(401, 'Invalid or expired refresh token')
+
+
+@app.post('/api/auth/logout')
+def logout():
+    return dict(success=True, data={})
 
 
 @app.get('/__e2e/health')

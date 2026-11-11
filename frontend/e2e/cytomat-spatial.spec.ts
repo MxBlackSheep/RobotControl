@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { signIn } from './sign-in';
 
 /** Failure cases for Cytomat shelves:
  * - Shelves stay in physical order 1 (top) to 7 whatever the database order. Positions
@@ -18,7 +19,7 @@ import { expect, test, type Page } from '@playwright/test';
  *   scale uses the same CSS layout, with no whole-page zoom or transform.
  */
 async function fixture(page: Page, canUpdate = true, duplicates = false, extraPositions = true) {
-  await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));
+  await signIn(page);
   const rows = [9, 8, 7, 6, 5, 3, 2, 1].map(position => ({ cytomat_pos: String(position), plate_id: position === 2 ? '' : `P${position}00` }));
   if (extraPositions) rows.push({ cytomat_pos: '01', plate_id: 'P010' }, { cytomat_pos: 'SPARE', plate_id: 'a-very-long-plate-identifier-that-must-wrap-inside-the-shelf-without-page-overflow' });
   if (duplicates) rows.push({ cytomat_pos: '1', plate_id: 'CONFLICT' }, { cytomat_pos: 'SPARE', plate_id: 'CONFLICT' });

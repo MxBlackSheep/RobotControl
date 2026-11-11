@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { signIn } from './sign-in';
 
 // System status (connection facts are shown in cards, not a collapsed disclosure):
 // - Process CPU or cached JPEG throughput is presented as live-view utilization/health.
@@ -17,6 +18,9 @@ import { test, expect } from '@playwright/test';
 // Admin users:
 // - A user under review (review_reason) hides its chip or reason; a refused Reset & Resolve
 //   clears the chip; a successful one leaves it.
+// - The role select does not save the chosen role, or the list keeps the old role after a save;
+//   the signed-in admin's own row can be changed; a refused change (403 "You are no longer an
+//   admin. Reload the page") is not shown on its row or leaves the select on the refused role.
 // Keyboard shortcuts:
 // - Alt+number stops navigating, or navigates while a dialog is open.
 // - ? no longer opens the help list, or the list disagrees with the shortcuts that work.
@@ -45,7 +49,7 @@ import { test, expect } from '@playwright/test';
 // - A camera or scheduler 503 opens "Database Maintenance In Progress", blocks later
 //   requests or Alt+number, or hides the caller's own message.
 
-test.beforeEach(async ({ page }) => { await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin')); });
+test.beforeEach(async ({ page }) => { await signIn(page); });
 
 test('monitoring has one refresh owner and shows stale and unknown services accurately', async ({ page }, info) => {
   let healthRequests = 0, failed = false;
@@ -324,15 +328,15 @@ test('a remote phone gets what happened instead of a recovery dead end', async (
 });
 
 test('System Status renews an expired sign-in', async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem('refresh_token', 'saved-refresh'));
   let expired = false, refreshes = 0, rejected = 0;
-  await page.route('**/api/auth/refresh', route => {
+  await page.route('**/api/auth/refresh', async route => {
     refreshes++;
-    return route.fulfill({ json: { success: true, data: { access_token: 'e2e-admin' } } });
+    await signIn(page, 'e2e-admin');
+    return route.fulfill({ json: { success: true, data: {} } });
   });
   await page.route('**/api/camera/streaming/status', route => route.fulfill({ json: { data: { status: { active_session_count: 0, max_sessions: 4 } } } }));
-  await page.route('**/api/monitoring/system-health', route => {
-    if (expired && route.request().headers().authorization === 'Bearer viewer-admin') {
+  await page.route('**/api/monitoring/system-health', async route => {
+    if (expired && (await route.request().headerValue('cookie'))?.includes('rc_access=viewer-admin')) {
       rejected++;
       return route.fulfill({ status: 401, json: { detail: 'Expired' } });
     }
@@ -344,7 +348,7 @@ test('System Status renews an expired sign-in', async ({ page }) => {
   expired = true;
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
   await expect.poll(() => rejected).toBe(1);
-  await expect.poll(() => page.evaluate(() => localStorage.getItem('access_token'))).toBe('e2e-admin');
+  await expect.poll(async () => (await page.context().cookies()).find(c => c.name === 'rc_access')?.value).toBe('e2e-admin');
   await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
   await expect(page.getByText('Stale data', { exact: true })).toHaveCount(0);
   expect(refreshes).toBe(1);
@@ -512,5 +516,38 @@ for (const accepted of [true, false]) {
     await page.getByRole('tab', { name: 'User accounts', exact: true }).click();
     if (accepted) await expect(row).not.toContainText('Needs review');
     else await expect(row).toContainText(reason);
+  });
+}
+for (const accepted of [true, false]) {
+  test(`role select ${accepted ? 'saves the role and reloads the list' : 'shows a refusal and keeps the stored role'}`, async ({ page }) => {
+    await page.route('**/api/auth/me', route => route.fulfill({ json: { success: true, data: { user_id: 'viewer-admin', username: 'admin', role: 'admin', session_is_local: true, session: { is_local: true } } } }));
+    let role = 'user';
+    const saved: unknown[] = [];
+    await page.route('**/api/admin/users', route => route.fulfill({ json: { success: true, data: [
+      { username: 'admin', email: 'admin@localhost', role: 'admin', review_reason: null },
+      { username: 'day', email: 'day@example.com', role, review_reason: null }] } }));
+    await page.route('**/api/admin/password-reset/requests', route => route.fulfill({ json: { success: true, data: [] } }));
+    await page.route('**/api/admin/users/day/role', route => {
+      saved.push({ method: route.request().method(), body: route.request().postDataJSON() });
+      if (!accepted) return route.fulfill({ status: 403, json: { success: false, message: 'You are no longer an admin. Reload the page',
+        error: { message: 'You are no longer an admin. Reload the page', code: 'FORBIDDEN' } } });
+      role = 'admin';
+      return route.fulfill({ json: { success: true, data: { username: 'day', role: 'admin' } } });
+    });
+    await page.goto('/admin');
+    await expect(page.getByRole('combobox', { name: 'Role for admin' })).toHaveAttribute('aria-disabled', 'true');
+    const select = page.getByRole('combobox', { name: 'Role for day' });
+    await expect(select).toHaveText('User');
+    await select.click();
+    await page.getByRole('option', { name: 'Admin', exact: true }).click();
+    await expect.poll(() => saved).toEqual([{ method: 'PUT', body: { role: 'admin' } }]);
+    const row = page.getByRole('listitem').filter({ hasText: 'day@example.com' });
+    if (accepted) {
+      await expect(select).toHaveText('Admin');
+      await expect(row.getByRole('alert')).toHaveCount(0);
+    } else {
+      await expect(row.getByRole('alert')).toHaveText('You are no longer an admin. Reload the page');
+      await expect(select).toHaveText('User');
+    }
   });
 }

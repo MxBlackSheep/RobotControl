@@ -217,7 +217,7 @@ def run(candidate, report_package=None, evidence=ROOT/'test-output/database-veri
         process=packaged_app.launch(relocated, environment, PORT)
         try:
             packaged_app.wait_until_serving(process, PORT, lambda: request('/health'))
-            token=request('/api/auth/login',dict(username='package-smoke',password=password))['data']['access_token']
+            token=packaged_app.sign_in(PORT,'package-smoke',password)
             request('/api/auth/change-password',dict(current_password=password,new_password=secrets.token_urlsafe(24)),token)
             packages=request('/api/database/tools/packages',token=token)
             assert {p['id'] for p in packages}=={'culture-history','delete-experiment','evoyeast-experiment','plate-data-export'}
