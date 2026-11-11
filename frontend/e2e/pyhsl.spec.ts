@@ -48,8 +48,7 @@ async function openPyHslForm(page: Page, writes: unknown[]) {
       return route.fulfill({ status: 409, json: { detail: 'Fixture keeps this draft open.' } });
     }
     let data: unknown = [];
-    if (path.endsWith('/status/scheduler')) data = { is_running: true };
-    else if (path.endsWith('/status/queue')) data = { queue: { running_jobs: 0, queued_jobs: 0 }, manual_recovery: { active: false, storage_healthy: true, pending_recoveries: [] } };
+    if (path.endsWith('/status/queue')) data = { is_running: true, queue: { running_jobs: 0, queued_jobs: 0 }, manual_recovery: { active: false, storage_healthy: true, pending_recoveries: [] } };
     else if (path.endsWith('/experiments/available')) data = { experiments: [] };
     else if (path.endsWith('/experiments/library')) data = { methods: [] };
     return route.fulfill({ json: { success: true, data } });

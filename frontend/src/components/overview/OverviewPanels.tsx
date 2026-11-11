@@ -93,7 +93,7 @@ export function UpNext({ canOpenScheduling, span, rows = LIST_ROWS }: { canOpenS
     onSuccess: setSchedules,
   });
   const upcoming = (schedules ?? [])
-    .filter(schedule => schedule.is_active && !schedule.archived && schedule.next_run && !Number.isNaN(new Date(schedule.next_run).getTime()))
+    .filter(schedule => schedule.is_active && !schedule.archived && !schedule.review_reason && schedule.next_run && !Number.isNaN(new Date(schedule.next_run).getTime()))
     .sort((a, b) => new Date(a.next_run!).getTime() - new Date(b.next_run!).getTime())
     .slice(0, rows);
   return <Panel title="Up next" span={span} inset={false} fill sx={listPanel} actions={canOpenScheduling && headerLink('/scheduling', 'All schedules')}>

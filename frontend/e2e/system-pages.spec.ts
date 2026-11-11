@@ -21,9 +21,8 @@ import { test, expect } from '@playwright/test';
 // Robot attention banner (every page; hidden while all is well and status is current):
 // - An active recovery is missing from pages other than Scheduling (banner link and rail badge).
 // - A failed read hides the last known recovery; the banner must say how old its data is.
-// - A failed or malformed first read looks like "all clear" instead of "Robot status unavailable".
-// - The queue reply is older than the scheduler reply and hides its recovery (the higher
-//   safety revision must win); a reply without recovery state clears the other's.
+// - A failed or malformed first read looks like "all clear" instead of "Robot status unavailable";
+//   a reply without the scheduler's is_running is malformed. One reply (/status/queue) is read.
 // - An acknowledged recovery whose queued jobs still wait for Resume shows as all clear.
 // Overview:
 // - A failed PyHSL status read keeps showing PyHSL as running or idle instead of Unknown.
@@ -88,7 +87,7 @@ test('robot status keeps a recovery visible on every page and never reads a fail
   let reply: 'recovery' | 'fail' | 'malformed' = 'recovery';
   // Same envelope as GET /api/scheduling/status/queue.
   await page.route('**/api/scheduling/status/queue', route => reply === 'recovery'
-    ? route.fulfill({ json: { success: true, data: {
+    ? route.fulfill({ json: { success: true, data: { is_running: true,
         queue: { queued_jobs: 0, running_job_details: [{ schedule_id: 'wash', experiment_name: 'Daily tip wash' }] },
         manual_recovery: { active: true, storage_healthy: true, safety_revision: 4, pending_recoveries: [{ schedule_id: 'feed-2', experiment_name: 'Cell feeding stack 2' }] } } } })
     : reply === 'fail'
@@ -123,14 +122,14 @@ test('robot status keeps a recovery visible on every page and never reads a fail
   await expect(page.getByText('Nothing running')).toHaveCount(0);
 });
 
-test('robot status takes the newer recovery from either reply and keeps a Resume hold visible', async ({ page }, info) => {
+test('robot status keeps a Resume hold visible and clears only when the reply does', async ({ page }) => {
   await page.clock.install();
   const clear = (revision: number) => ({ active: false, storage_healthy: true, safety_revision: revision, resume_required: false, pending_recoveries: [] });
-  let queue: object = clear(8);
-  let scheduler: object | undefined = { active: true, storage_healthy: true, safety_revision: 9, pending_recoveries: [{ schedule_id: 'feed-2', experiment_name: 'Cell feeding stack 2' }] };
-  await page.route('**/api/scheduling/status/queue', route => route.fulfill({ json: { success: true, data: { queue: { queued_jobs: 1, running_job_details: [] }, manual_recovery: queue } } }));
-  await page.route('**/api/scheduling/status/scheduler', route => route.fulfill({ json: { success: true,
-    data: scheduler === undefined ? { is_running: true } : { is_running: true, manual_recovery: scheduler } } }));
+  let recovery: object = { active: true, storage_healthy: true, safety_revision: 9, pending_recoveries: [{ schedule_id: 'feed-2', experiment_name: 'Cell feeding stack 2' }] };
+  const reads: string[] = [];
+  page.on('request', request => { if (request.url().includes('/api/scheduling/status/')) reads.push(new URL(request.url()).pathname); });
+  await page.route('**/api/scheduling/status/queue', route => route.fulfill({ json: { success: true,
+    data: { is_running: true, queue: { queued_jobs: 1, running_job_details: [] }, manual_recovery: recovery } } }));
   const banner = page.getByRole('region', { name: 'Robot status' });
   const rail = page.getByRole('link', { name: 'Scheduling, recovery requires attention' });
 
@@ -139,23 +138,18 @@ test('robot status takes the newer recovery from either reply and keeps a Resume
   await expect(rail).toBeVisible();
 
   // Acknowledged: no pending run, but queued jobs wait for Resume.
-  queue = { ...clear(10), resume_required: true };
-  scheduler = { ...clear(10), resume_required: true };
+  recovery = { ...clear(10), resume_required: true };
   await page.clock.fastForward(16000);
   await expect(banner.getByRole('link', { name: 'Queued jobs paused until Resume' })).toBeVisible();
   await expect(rail).toBeVisible();
-  await page.screenshot({ path: info.outputPath('status-resume-hold.png'), animations: 'disabled' });
+  await page.screenshot({ path: test.info().outputPath('status-resume-hold.png'), animations: 'disabled' });
 
-  // A scheduler reply without recovery state does not clear the queue's.
-  scheduler = undefined;
-  await page.clock.fastForward(16000);
-  await expect(banner.getByRole('link', { name: 'Queued jobs paused until Resume' })).toBeVisible();
-
-  queue = clear(11);
+  recovery = clear(11);
   await page.clock.fastForward(16000);
   await expect(rail).toHaveCount(0);
   await expect(banner).toHaveCount(0);
   await expect(page.getByRole('link', { name: 'Scheduling', exact: true })).toBeVisible();
+  expect(new Set(reads)).toEqual(new Set(['/api/scheduling/status/queue']));
 });
 
 test('Overview shows elapsed time against the estimate and keeps other panels when one read fails', async ({ page }, info) => {
@@ -163,7 +157,7 @@ test('Overview shows elapsed time against the estimate and keeps other panels wh
   // Schedule dates are local; the monitor's launched_at includes a UTC offset.
   const local = (date: Date) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 19);
   await page.clock.install({ time: now });
-  await page.route('**/api/scheduling/status/queue', route => route.fulfill({ json: { success: true, data: {
+  await page.route('**/api/scheduling/status/queue', route => route.fulfill({ json: { success: true, data: { is_running: true,
     queue: { queued_jobs: 1, running_job_details: [{ schedule_id: 'wash', experiment_name: 'Daily tip wash', experiment_path: 'Methods\\Wash\\DailyTipWash.hsl',
       estimated_duration: 60, monitoring: { state: 'monitoring', launched_at: new Date(now.getTime() - 42 * 60000).toISOString(), inactivity_seconds: 18, threshold_minutes: 3 } }] },
     hamilton: { is_running: true }, manual_recovery: { active: false, storage_healthy: true, safety_revision: 3, pending_recoveries: [] } } } }));
@@ -223,7 +217,7 @@ test('Overview shows elapsed time against the estimate and keeps other panels wh
   await page.screenshot({ path: info.outputPath('overview-phone.png'), animations: 'disabled' });
 
   // With runs held the hold comes first, with the run still on the first screen.
-  await page.route('**/api/scheduling/status/queue', route => route.fulfill({ json: { success: true, data: {
+  await page.route('**/api/scheduling/status/queue', route => route.fulfill({ json: { success: true, data: { is_running: true,
     queue: { queued_jobs: 1, running_job_details: [{ schedule_id: 'wash', experiment_name: 'Daily tip wash', estimated_duration: 60,
       monitoring: { state: 'monitoring', launched_at: new Date(now.getTime() - 42 * 60000).toISOString(), inactivity_seconds: 18, threshold_minutes: 3 } }] },
     hamilton: { is_running: true }, manual_recovery: { active: true, storage_healthy: true, safety_revision: 4,
@@ -275,7 +269,7 @@ test('a remote phone gets what happened instead of a recovery dead end', async (
   await page.setViewportSize({ width: 390, height: 844 });
   await page.route('**/api/auth/me', route => route.fulfill({ json: { success: true, data: {
     user_id: 'viewer-admin', username: 'operator', role: 'admin', session_is_local: false, session: { is_local: false } } } }));
-  await page.route('**/api/scheduling/status/queue', route => route.fulfill({ json: { success: true, data: {
+  await page.route('**/api/scheduling/status/queue', route => route.fulfill({ json: { success: true, data: { is_running: true,
     queue: { queued_jobs: 0, running_job_details: [] }, hamilton: { is_running: false },
     manual_recovery: { active: true, storage_healthy: true, safety_revision: 4, pending_recoveries: [{ schedule_id: 'feed2',
       experiment_name: 'Cell feeding · stack 2', note: 'No log activity for 3 min.', triggered_at: new Date(now.getTime() - 208 * 60000).toISOString(), triggered_by: 'scheduler' }] } } } }));

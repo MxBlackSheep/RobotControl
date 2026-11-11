@@ -6,33 +6,37 @@ method library, notifications and history. Backend behavior is in
 
 ## Ownership
 
-- `pages/SchedulingPage.tsx` owns selection, dialogs, permissions and the queue/recovery
-  view. Its `InspectionWorkspace` keeps list and details mounted; narrow containers show
-  one pane with Back.
-- `hooks/useScheduling.ts` owns schedule and archive loading, queue and scheduler status,
-  contacts and notification settings and history. Recovery, method-library and protocol
-  components make their own requests through `services/schedulingApi.ts`; the calendar
-  derives its entries from loaded schedules. The hook refreshes scheduler and queue status every 30 seconds. Each status read owns its error
-  (`queueError`, `schedulerError`), shown inline and cleared by that read's next success;
-  the shared `error` dialog is for schedule loads and edits only. Both reads carry
-  `manualRecovery` and can answer out of order; freshness is the server's
-  `safety_revision`, not request order. Older revisions are rejected regardless of request
-  order; request order only breaks ties. Unhealthy storage reports are always shown,
-  while their cached revision cannot lower the remembered revision. After deliberately
-  restoring the scheduler store, leave and reopen Scheduling to reset this history. Mutations reload what they change;
-  `updateSchedule` adds `expected_updated_at` so a stale edit returns 409.
+- `pages/SchedulingPage.tsx` owns the open form (`{ schedule?, method? } | null`), dialogs,
+  permissions and the queue/recovery view. Schedules and Archived share one
+  `InspectionWorkspace` with `ScheduleCollection` and the same detail; each shows the
+  selection only when it lists it. Narrow containers show one pane with Back.
+- `hooks/useScheduling.ts` owns schedule and archive loading, the one selection (Schedules,
+  Archived, History and the delete dialog; a reload drops it when neither list holds it),
+  contacts and notification settings. Recovery, delivery-log, method-library and protocol
+  components make their own requests through `services/schedulingApi.ts`, whose `call`
+  helper turns every reply into data or the server's message; the calendar derives its
+  entries from loaded schedules. The shared `error` dialog is for schedule loads and edits
+  only. Mutations reload what they change; a failed delete reloads both lists. An update
+  sends the version the form opened as `expected_updated_at` (body only), so a stale edit
+  returns 409.
+- Queue, scheduler and recovery state come from the frame's one status read
+  (`useRobotStatusContext`, `/status/queue` with the scheduler's `is_running`). The page shows
+  its failure inline ("Status not updated"), cleared by the next successful read; Refresh
+  queue and recovery actions call its `refresh`. A reply without `is_running` or
+  `manual_recovery` is a failed read, never an idle scheduler.
 - `ExecutionHistory` polls history itself through `useSerialPolling` and must not create
-  another `useScheduling` (that would start a second scheduler poller); see the polling guide.
+  another `useScheduling`; see the polling guide.
 - `services/schedulingApi.ts` normalizes responses (older payloads get defaults, for
-  example a 3-minute log inactivity threshold).
+  example a 3-minute log inactivity threshold) and builds the create and update body from
+  the form's `ScheduleFormValues` (`buildScheduleRequest`).
 
 `ScheduleCollection` searches, filters (All/Active/Inactive/Recovery, with counts) and
 sorts the loaded list. In `InspectionWorkspace`'s `layout="table"` it is the wide side and
 the details are a 400px panel; from 640px of its own width (a container query) it shows the
 table columns Experiment, Repeats, Next run, Last run and Status, otherwise one stacked row
 per schedule. On a phone (under 600px) opening a schedule scrolls its details to the top and
-focuses the name; a Next run block shows the stored next run large (an inactive, archived or
-held schedule says it will not run and labels the stored time), and Edit / Archive / Delete sit
+focuses the name; a Next run block shows the stored next run large (an inactive, archived,
+held or under-review schedule says it will not run), and the schedule's actions sit
 in a bar pinned above the page bar (`pinnedBarSx`), with the same permission and disabled rules;
 remote users see the read-only line there. A **remote** session on a phone does not get this page
 for Schedules and History: `SchedulingRoute` shows `PhoneRuns`, the read-only Runs tab with an
@@ -42,14 +46,23 @@ first, active schedules, and held ones (fetched with `active_only=false`, becaus
 last 50 executions by day; only problems get a chip, and a failed run expands to its error.
 The workstation's own browser keeps the full page at any width, so narrowing it never unmounts
 an open draft. Checks: `phone-runs.spec.ts`. Back from details on a phone focuses the open row (`aria-current`), not the
-selected filter button, which is also `.Mui-selected`; `ScheduleList` remains the
-archived table. `scheduleState` (exported from `ScheduleCollection`) is the one mapping
-from a schedule to its label and tone: Recovery required is amber (needs action), Active
-green, Inactive and Archived grey. The list and detail panel use it through `StatusChip`.
-The calendar shows the chip only for entries that are not plain Active (an inactive schedule
-still has a `next_run`, so it must not read as a run that will happen); the Archived list adds
-none, since every entry there is archived. Calendar groups derive from the current schedule array. Use the
-backend's `next_run`/`start_time`; never recalculate run times in the browser.
+selected filter button, which is also `.Mui-selected`. Archived uses the same list without
+the status filter. `scheduleState` (exported from `ScheduleCollection`) is the one mapping
+from a schedule to its label and tone: Needs review and Recovery required are amber (needs
+action), Active green, Inactive and Archived grey. The list and detail panel use it through
+`StatusChip`. The calendar shows the chip only for entries that are not plain Active (an
+inactive schedule still has a `next_run`, so it must not read as a run that will happen).
+Calendar groups derive from the current schedule array. Show the backend's `next_run` and
+`last_run` only (never `start_time` as a next run) and never recalculate run times in the
+browser. The detail shows dates with `dayTime`, the list's format ("Sun 27 Sep 14:30"),
+and adds Last run, Created by and Created.
+
+A schedule with `review_reason` failed the server's check of its stored fields and never
+runs: the list shows Needs review with the reason as the row's second line, the detail an
+alert with the reason, and the calendar, Overview's Up next and the phone agenda leave it
+out. It offers Edit and Delete only. An archived schedule offers Restore and Delete only:
+restore it first, then edit. Notification history in the detail opens the Notifications
+section; the page keeps no copy of delivery rows.
 
 ## Layout and sections
 
@@ -73,14 +86,20 @@ resizing any view never starts, resumes, archives or deletes a schedule.
 
 `isLocalUser(user)` uses the server's `session_is_local`, falling back to a localhost
 hostname only when the flag is absent. Remote sessions get no Create, Edit, Delete,
-Archive, Import, recovery or archived-delete controls; handlers also return early. The
+Archive, Restore, Import or recovery controls; handlers also return early. The
 backend enforces the same rules and is authoritative.
 
 ## Schedule editor
 
-`ImprovedScheduleForm` is full screen below the medium breakpoint. A draft starts once per
-opening; background refreshes of method choices or props must keep focus, cursor, scroll,
-expanded sections and values, and must not reapply initial focus (MUI Dialog owns focus).
+`ImprovedScheduleForm` is full screen below the medium breakpoint. The page mounts it per
+opening with the stored schedule (edit), a library method or nothing (create); its draft
+starts once from that snapshot and the form derives create or edit, the saved database step
+and its state from it. Background refreshes of method choices or props must keep focus,
+cursor, scroll, expanded sections and values, and must not reapply initial focus (MUI Dialog
+owns focus). A schedule under review opens with no schedule type chosen (the stored one may
+no longer be offered) and Save is refused until one is picked. The interval is kept once as
+`interval_hours`; the preset choice and the custom hours and minutes are derived from it, so
+a custom value equal to a preset stays custom.
 Cancel, Escape and the backdrop ask before discarding edits, and reload/close is guarded
 while dirty. A failed save keeps the values and shows the error inline; a 409 asks the
 operator to cancel, refresh and reopen. Create and update each reload the list once.
@@ -101,7 +120,7 @@ operator to cancel, refresh and reopen. Create and update each reload the list o
   removes it. `preparation_state` from the schedule shows Ready / Needs review / Not
   installed; `schedulingApi.normalizeSchedule` passes it through (unknown values show as
   unknown, never ready). The schedule detail, list and Archive show `preparationSummary`.
-- The retired `legacy_preparation` field and automatic preparation suggestions are removed. The form no longer prefills a database step from tokens and never sends `prerequisites`. A local administrator must choose the database step explicitly. The backend now supplies `review_reason`; the Scheduling page's review-row presentation is a separate change.
+- The retired `legacy_preparation` field and automatic preparation suggestions are removed. The form no longer prefills a database step from tokens and never sends `prerequisites`. A local administrator must choose the database step explicitly; a schedule with old tokens arrives with `review_reason` naming them.
 
 ## Runtime queue and recovery
 
@@ -168,9 +187,11 @@ detailed connection/TLS/authentication errors. Manual-recovery recipient overrid
 separate from a schedule's alert recipients. Contacts help explains that email needs an
 active contact.
 
-Delivery logs show all statuses by default (sent, pending, error, partial, unknown,
-cancelled), refresh serially every five seconds while visible and stop when hidden;
-request generations stop an old filter's response replacing a newer one. `long_running`
+Delivery logs (`NotificationLogPanel`) own their filters, rows and poll. They show all
+statuses by default (sent, pending, error, partial, unknown, cancelled), refresh serially
+every five seconds while visible and stop when hidden; the panel stays mounted, so filters
+survive a section switch, and a request counter stops an old filter's response replacing a
+newer one. `long_running`
 entries remain for history; new events are `log_inactive` and `monitoring_unavailable`.
 `cancelled` means the condition cleared before sending. A sent pause is not repeated
 after restart. SMTP-test log-storage warnings appear even when the email was sent.
@@ -197,7 +218,8 @@ the backend guide.
 
 - **Schedules never load:** check `/api/scheduling/list` in the network tab;
   the hook's `state.error` must be displayed.
-- **Editor shows old values:** the page must pass the current initial data when opening.
+- **Editor shows old values:** the page must mount the form with the schedule as listed when
+  Edit is pressed.
 - **Edit returns 409:** someone else saved first; reopen after refresh.
 - **Archived list empty:** `loadArchivedSchedules` runs when the section first opens
   (`archivedInitialized` prevents repeats).

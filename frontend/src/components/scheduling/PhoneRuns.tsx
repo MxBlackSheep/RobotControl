@@ -93,7 +93,7 @@ function Agenda() {
   const runningSchedule = running && schedules?.find(schedule => schedule.schedule_id === running.schedule_id);
   const today = dayStart(new Date());
   // Inactive schedules will not run; a held one stays listed so a hold is never hidden.
-  const candidates = (schedules ?? []).filter(schedule => !schedule.archived && (schedule.is_active || schedule.recovery_required)
+  const candidates = (schedules ?? []).filter(schedule => !schedule.archived && !schedule.review_reason && (schedule.is_active || schedule.recovery_required)
     && schedule.schedule_id !== running?.schedule_id);
   const byTime = (a: ScheduledExperiment, b: ScheduledExperiment) => (validTime(a.next_run) ?? -Infinity) - (validTime(b.next_run) ?? -Infinity);
   const dayOf = (schedule: ScheduledExperiment) => { const time = validTime(schedule.next_run); return time === null ? null : dayStart(new Date(time)); };

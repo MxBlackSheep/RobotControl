@@ -20,7 +20,7 @@ test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('access_token', 'viewer-admin'));
   await page.setViewportSize({ width: 390, height: 844 });
   await page.route('**/api/scheduling/status/queue', route => route.fulfill({ json: { success: true, data: {
-    queue: { queued_jobs: 0, running_job_details: [{ schedule_id: 'wash', experiment_name: 'Daily tip wash', estimated_duration: 60,
+    is_running: true, queue: { queued_jobs: 0, running_job_details: [{ schedule_id: 'wash', experiment_name: 'Daily tip wash', estimated_duration: 60,
       monitoring: { state: 'monitoring', launched_at: new Date(now.getTime() - 42 * 60000).toISOString(), inactivity_seconds: 18, threshold_minutes: 3 } }] },
     hamilton: { is_running: true }, manual_recovery: { active: false, storage_healthy: true, safety_revision: 3, pending_recoveries: [] } } } }));
   await page.route('**/api/scheduling/list?*', route => route.fulfill({ json: { success: true, data: [
