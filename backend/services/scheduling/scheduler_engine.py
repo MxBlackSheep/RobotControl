@@ -40,18 +40,11 @@ from backend.services.hxrun_maintenance import get_hxrun_maintenance_service
 from backend.services.scheduling.simulation_mode import (
     is_simulation_reason, simulation_block_reason,
 )
+from backend.services.scheduling.schedule_check import check_schedule, INTERVAL_TYPE_DEFAULT_HOURS
 
 from backend.utils.datetime import ensure_local_naive
 
 logger = logging.getLogger(__name__)
-
-INTERVAL_SCHEDULE_TYPES = {"interval", "hourly", "daily", "weekly"}
-INTERVAL_TYPE_DEFAULT_HOURS: Dict[str, float] = {
-    "hourly": 1.0,
-    "daily": 24.0,
-    "weekly": 24.0 * 7,
-}
-
 
 @dataclass
 class SchedulerConfig:
@@ -286,13 +279,8 @@ class SchedulerEngine:
         """
         try:
             with self._schedules_lock, self._jobs_lock:
-                # Check if schedule exists
-                if schedule_id not in self._active_schedules:
-                    logger.warning(f"Schedule not found: {schedule_id}")
-                    return False
-                
-                experiment = self._active_schedules[schedule_id]
-                
+                experiment = self._active_schedules.get(schedule_id)
+
                 # Remove from database
                 if not self.db_manager.delete_scheduled_experiment(
                     schedule_id,
@@ -303,9 +291,9 @@ class SchedulerEngine:
                     return False
                 
                 # Remove from active schedules
-                del self._active_schedules[schedule_id]
+                self._active_schedules.pop(schedule_id, None)
                 
-                logger.info(f"Removed schedule: {experiment.experiment_name} ({schedule_id})")
+                logger.info("Removed schedule: %s", schedule_id)
                 return True
                 
         except (SafetyConflict, StorageUnavailable, sqlite3.Error):
@@ -406,7 +394,7 @@ class SchedulerEngine:
         except Exception:
             status['hxrun_maintenance'] = None
             status['manual_recovery']['storage_healthy'] = False
-            status['manual_recovery']['storage_error'] = 'Scheduler safety state unavailable'
+            status['manual_recovery']['storage_error'] = status['manual_recovery']['storage_error'] or 'Scheduler safety state unavailable'
         return status
 
     def get_runtime_queue_status(self) -> Dict[str, Any]:
@@ -497,7 +485,7 @@ class SchedulerEngine:
                     self.db_manager.sqlite_db._safety_fault = True
                 from dataclasses import replace
                 state = replace(self._manual_recovery_cache, storage_healthy=False,
-                                storage_error='Scheduler safety state unavailable', resume_required=True)
+                                storage_error=str(exc) if isinstance(exc, StorageUnavailable) else 'Scheduler safety state unavailable', resume_required=True)
             self._manual_recovery_cache = state
             self._manual_state_last_check = time.time()
             if state.active and not self._manual_state_logged_active:
@@ -1120,33 +1108,16 @@ class SchedulerEngine:
             return current_time
     
     def _validate_experiment(self, experiment: ScheduledExperiment) -> bool:
-        """Validate experiment configuration"""
-        if not experiment.experiment_name:
-            logger.error("Experiment name is required")
+        """Use the same stored-field rules as API writes."""
+        try:
+            checked = check_schedule(experiment.to_dict())
+            experiment.schedule_type = checked.schedule_type
+            experiment.interval_hours = checked.interval_hours
+            return True
+        except ValueError as exc:
+            logger.error('Experiment validation failed: %s', exc)
             return False
-        
-        if not experiment.experiment_path:
-            logger.error("Experiment path is required")
-            return False
-        
-        allowed_types = INTERVAL_SCHEDULE_TYPES | {"once", "cron"}
-        if experiment.schedule_type not in allowed_types:
-            logger.error(f"Invalid schedule type: {experiment.schedule_type}")
-            return False
-        
-        interval_hours = self._resolve_interval_hours(experiment)
-        if experiment.schedule_type in INTERVAL_SCHEDULE_TYPES:
-            if not interval_hours:
-                logger.error("Interval hours required for interval-style schedules")
-                return False
-            experiment.interval_hours = interval_hours
-        
-        if experiment.estimated_duration <= 0:
-            logger.error("Estimated duration must be positive")
-            return False
-        
-        return True
-    
+
     def _load_schedules_from_database(self):
         """Load active schedules from database on startup"""
         try:

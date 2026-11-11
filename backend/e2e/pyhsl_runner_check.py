@@ -774,6 +774,8 @@ def saves_and_guards():
                 conn.execute(f'ALTER TABLE ScheduledExperiments DROP COLUMN {name}')
             for table in ('JobExecutions', 'JobExecutionsArchive'):
                 conn.execute(f'ALTER TABLE {table} DROP COLUMN pyhsl')
+            # The fixture represents a pre-upgrade store, including its version.
+            conn.execute('DELETE FROM SchemaMigrations WHERE version > 1')
             conn.commit()
         migrated = SQLiteSchedulingDatabase(str(f.root / 'old.db')).get_schedule_by_id(venus.schedule_id)
         assert migrated.runner == 'venus' and migrated.parameters == {} and migrated.mode == 'simulation'

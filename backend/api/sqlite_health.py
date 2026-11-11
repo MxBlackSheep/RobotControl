@@ -19,7 +19,11 @@ DatabaseKind = Literal['scheduling', 'authentication']
 
 def service(database):
     name = 'robotcontrol_scheduling.db' if database == 'scheduling' else os.getenv('ROBOTCONTROL_AUTH_DB_FILENAME', 'robotcontrol_auth.db')
-    return SQLiteHealthService(get_data_path() / name, database, get_backups_path() / 'sqlite-safety')
+    storage_error = None
+    if database == 'scheduling':
+        from backend.services.scheduling import get_scheduling_database_manager
+        storage_error = get_scheduling_database_manager().sqlite_db._upgrade_error
+    return SQLiteHealthService(get_data_path() / name, database, get_backups_path() / 'sqlite-safety', storage_error)
 
 
 def administrator(user=Depends(get_current_user)):

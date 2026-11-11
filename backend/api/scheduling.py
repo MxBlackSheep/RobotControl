@@ -21,7 +21,8 @@ from backend.services.notification_delivery import send_recorded
 from backend.services.scheduling.experiment_discovery import get_experiment_discovery_service
 from backend.services.scheduling.experiment_executor import resolve_experiment_path
 from backend.services.scheduling.legacy_preparation import legacy_review
-from backend.models import ScheduledExperiment, TimeoutConfig, CalendarEvent, ApiResponse, NotificationContact, NotificationSettings
+from backend.services.scheduling.schedule_check import check_schedule
+from backend.models import ScheduledExperiment, CalendarEvent, ApiResponse, NotificationContact, NotificationSettings
 from backend.api.dependencies import ConnectionContext, require_local_access
 from backend.utils.audit import log_action
 from backend.services.database_packages import PackageError
@@ -53,41 +54,17 @@ router = APIRouter(prefix="/api/scheduling", tags=["scheduling"], route_class=Sa
 EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
-def _schedule_mode(value: Any, runner: str = 'venus') -> str:
-    modes = ('real', 'simulation', 'test') if runner == 'pyhsl' else ('real', 'simulation')
-    if value not in modes:
-        raise HTTPException(status_code=400, detail='Mode must be ' + ' or '.join(modes))
-    return value
-
-
-def _runner_fields(data, timeout_config):
+def _runner_fields(data):
     runner = data.get('runner', 'venus')
-    if runner not in ('venus', 'pyhsl'):
-        raise HTTPException(status_code=400, detail='Runner must be venus or pyhsl')
-    _schedule_mode(data.get('mode', 'real'), runner)
     if runner == 'venus':
         return dict(runner=runner, protocol_id=None, parameters={}, protocol_revision=None,
                     experiment_path=data['experiment_path'])
-    if timeout_config.action != 'continue':
-        raise HTTPException(status_code=400, detail='PyHSL schedules cannot run a cleanup method')
     from backend.api.pyhsl import validate_request
     validated = validate_request(data)
     return dict(runner=runner, protocol_id=data['protocol_id'], parameters=data.get('parameters', {}),
                 protocol_revision=validated['protocol']['revision'], experiment_path='pyhsl:' + data['protocol_id'])
 
 
-def _log_inactivity_threshold(value: Any) -> int:
-    if type(value) is not int or value <= 0:
-        raise HTTPException(status_code=400, detail="Log inactivity threshold must be a positive whole number of minutes")
-    return value
-
-SCHEDULE_INTERVAL_ALIASES: Dict[str, float] = {
-    "hourly": 1.0,
-    "daily": 24.0,
-    "weekly": 24.0 * 7,
-}
-SUPPORTED_SCHEDULE_TYPES = {"once", "interval", "cron"} | set(SCHEDULE_INTERVAL_ALIASES.keys())
-SUPPORTED_TIMEOUT_ACTIONS = {"continue", "run_cleanup_and_terminate"}
 PREREQUISITES_RETIRED = ("Preparation tokens are retired. A local administrator attaches a database step "
                          "(for example Select EvoYeast experiment) under Before this run.")
 
@@ -239,46 +216,21 @@ def _timestamps_match(expected: Optional[str], actual: Optional[datetime]) -> bo
     return expected_dt == actual
 
 
-def _normalize_schedule_request(
-    schedule_type: Any,
-    interval_hours: Optional[Any],
-) -> Tuple[str, Optional[float]]:
-    """Validate and normalize schedule type + interval combination."""
-    if not isinstance(schedule_type, str):
-        raise HTTPException(status_code=400, detail="schedule_type must be a string")
-    normalized_type = schedule_type.strip().lower()
-    if normalized_type not in SUPPORTED_SCHEDULE_TYPES:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported schedule_type '{schedule_type}'",
-        )
+def _check_schedule_request(fields, failure_message):
+    try:
+        return check_schedule(fields)
+    except ValueError as exc:
+        reason = str(exc)
+        if reason in {'Experiment name is required', 'Experiment path is required', 'Estimated duration must be positive'}:
+            reason = failure_message
+        raise HTTPException(status_code=400, detail=reason) from exc
 
-    if normalized_type == "interval":
-        if interval_hours is None:
-            raise HTTPException(
-                status_code=400,
-                detail="interval_hours is required for interval schedules",
-            )
-        try:
-            hours_value = float(interval_hours)
-        except (TypeError, ValueError):
-            raise HTTPException(
-                status_code=400,
-                detail="interval_hours must be a numeric value",
-            )
-        if hours_value <= 0:
-            raise HTTPException(
-                status_code=400,
-                detail="interval_hours must be greater than zero",
-            )
-        return normalized_type, hours_value
 
-    alias_hours = SCHEDULE_INTERVAL_ALIASES.get(normalized_type)
-    if alias_hours is not None:
-        return normalized_type, alias_hours
-
-    # For types like "once" or "cron" we do not enforce interval hours.
-    return normalized_type, None
+def _resolve_schedule_paths(schedule):
+    if schedule.runner == 'venus':
+        schedule.experiment_path = str(resolve_experiment_path(schedule.experiment_path))
+    if schedule.timeout_config.cleanup_experiment_path:
+        schedule.timeout_config.cleanup_experiment_path = str(resolve_experiment_path(schedule.timeout_config.cleanup_experiment_path))
 
 
 def _load_current_schedule(schedule_id: str, db_mgr, expected_timestamp: Optional[str]) -> ScheduledExperiment:
@@ -298,54 +250,6 @@ def _load_current_schedule(schedule_id: str, db_mgr, expected_timestamp: Optiona
             detail="Schedule was modified by another user. Refresh and try again.",
         )
     return schedule
-
-
-def _normalize_timeout_config(raw_timeout: Optional[Any]) -> TimeoutConfig:
-    """Validate and normalize timeout configuration payload."""
-    if raw_timeout is None:
-        return TimeoutConfig()
-    if not isinstance(raw_timeout, dict):
-        raise HTTPException(status_code=400, detail="timeout_config must be an object")
-
-    timeout_minutes_raw = raw_timeout.get("timeout_minutes")
-    timeout_minutes: Optional[int] = None
-    if timeout_minutes_raw not in (None, ""):
-        try:
-            timeout_minutes = int(timeout_minutes_raw)
-        except (TypeError, ValueError):
-            raise HTTPException(status_code=400, detail="timeout_minutes must be an integer")
-        if timeout_minutes <= 0:
-            raise HTTPException(status_code=400, detail="timeout_minutes must be greater than zero")
-
-    action = str(raw_timeout.get("action", "continue")).strip().lower() or "continue"
-    if action not in SUPPORTED_TIMEOUT_ACTIONS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported timeout action '{action}'",
-        )
-
-    cleanup_experiment_path: Optional[str] = None
-    cleanup_experiment_name: Optional[str] = None
-    if action == "run_cleanup_and_terminate":
-        raw_cleanup_path = raw_timeout.get("cleanup_experiment_path")
-        if not isinstance(raw_cleanup_path, str) or not raw_cleanup_path.strip():
-            raise HTTPException(
-                status_code=400,
-                detail="cleanup_experiment_path is required when timeout action is run_cleanup_and_terminate",
-            )
-        cleanup_experiment_path = str(resolve_experiment_path(raw_cleanup_path))
-        raw_cleanup_name = raw_timeout.get("cleanup_experiment_name")
-        if isinstance(raw_cleanup_name, str) and raw_cleanup_name.strip():
-            cleanup_experiment_name = raw_cleanup_name.strip()
-        else:
-            cleanup_experiment_name = Path(cleanup_experiment_path).stem
-
-    return TimeoutConfig(
-        timeout_minutes=timeout_minutes,
-        action=action,
-        cleanup_experiment_path=cleanup_experiment_path,
-        cleanup_experiment_name=cleanup_experiment_name,
-    )
 
 
 @router.get("/notifications/settings")
@@ -899,36 +803,21 @@ def create_schedule(
                     detail="start_time cannot be in the past",
                 )
 
-        timeout_config = _normalize_timeout_config(schedule_data.get("timeout_config"))
-        runner_fields = _runner_fields(schedule_data, timeout_config)
-        if runner_fields['runner'] == 'venus':
-            runner_fields['experiment_path'] = str(resolve_experiment_path(runner_fields['experiment_path']))
-        
-        normalized_type, normalized_interval_hours = _normalize_schedule_request(
-            schedule_data["schedule_type"],
-            schedule_data.get("interval_hours"),
-        )
-        
-        # Create scheduled experiment
-        experiment = ScheduledExperiment(
-            schedule_id="",  # Will be auto-generated
-            experiment_name=schedule_data["experiment_name"],
-            **runner_fields,
-            schedule_type=normalized_type,
-            interval_hours=normalized_interval_hours,
-            start_time=start_time,
-            estimated_duration=schedule_data.get("estimated_duration", 60),
-            log_inactivity_threshold_minutes=_log_inactivity_threshold(schedule_data.get("log_inactivity_threshold_minutes", 3)),
-            mode=schedule_data.get('mode', 'real'),
-            created_by=current_user.get("username", "unknown"),
-            is_active=schedule_data.get("is_active", True),
-            timeout_config=timeout_config,
-            preparation=_requested_preparation(schedule_data, current_user),
-            notification_contacts=notification_contact_ids,
-            created_at=None,  # Will be set in __post_init__
-            updated_at=None   # Will be set in __post_init__
-        )
-        
+        fields = {name: schedule_data[name] for name in (
+            'experiment_name', 'experiment_path', 'schedule_type', 'interval_hours',
+            'estimated_duration', 'log_inactivity_threshold_minutes', 'mode', 'is_active',
+            'timeout_config', 'runner', 'protocol_id', 'parameters') if name in schedule_data}
+        fields.update(schedule_id='', created_by=actor,
+                      start_time=start_time.isoformat() if start_time else None,
+                      notification_contacts=notification_contact_ids)
+        if fields.get('runner') == 'pyhsl':
+            fields['experiment_path'] = 'pyhsl:' + str(fields.get('protocol_id', ''))
+        experiment = _check_schedule_request(fields, 'Failed to create schedule')
+        for name, value in _runner_fields(experiment.to_dict()).items():
+            setattr(experiment, name, value)
+        _resolve_schedule_paths(experiment)
+        experiment.preparation = _requested_preparation(schedule_data, current_user)
+
         # Add to scheduler
         success = scheduler.add_schedule(experiment)
         
@@ -1163,61 +1052,40 @@ def update_schedule(
         expected_token = update_data.pop("expected_updated_at", None) or if_unmodified_since
         base_schedule = _load_current_schedule(schedule_id, db_mgr, expected_token)
 
-        # Work on a fresh copy so we don't mutate cached instances prematurely
-        updated_schedule = ScheduledExperiment.from_dict(base_schedule.to_dict())
         if base_schedule.runner == 'pyhsl' and update_data.get('runner') == 'venus' and not update_data.get('experiment_path'):
             raise HTTPException(status_code=400, detail='Choose a VENUS method')
-
-        if "experiment_name" in update_data:
-            updated_schedule.experiment_name = update_data["experiment_name"]
-        if "experiment_path" in update_data and update_data.get('runner', updated_schedule.runner) == 'venus':
-            updated_schedule.experiment_path = str(resolve_experiment_path(update_data["experiment_path"]))
-        if "schedule_type" in update_data:
-            updated_schedule.schedule_type = update_data["schedule_type"]
-        if "interval_hours" in update_data:
-            updated_schedule.interval_hours = update_data["interval_hours"]
-        if "start_time" in update_data:
-            try:
-                updated_schedule.start_time = parse_iso_datetime_to_local(update_data["start_time"])
-            except ValueError:
-                raise HTTPException(status_code=400, detail="Invalid start_time format")
-        if "estimated_duration" in update_data:
-            updated_schedule.estimated_duration = update_data["estimated_duration"]
-        if "log_inactivity_threshold_minutes" in update_data:
-            updated_schedule.log_inactivity_threshold_minutes = _log_inactivity_threshold(update_data["log_inactivity_threshold_minutes"])
-        if 'mode' in update_data:
-            updated_schedule.mode = _schedule_mode(update_data['mode'], update_data.get('runner', updated_schedule.runner))
-        if "is_active" in update_data:
-            updated_schedule.is_active = update_data["is_active"]
-        if update_data.get("prerequisites", base_schedule.prerequisites) != base_schedule.prerequisites:
+        if update_data.get('prerequisites', base_schedule.prerequisites) != base_schedule.prerequisites:
             raise HTTPException(status_code=400, detail=PREREQUISITES_RETIRED)
-        # Outside the scheduler lock: pinning re-checks lookup choices against the database.
+        fields = base_schedule.to_dict()
+        for name in ('experiment_name', 'experiment_path', 'schedule_type', 'interval_hours', 'start_time',
+                     'estimated_duration', 'log_inactivity_threshold_minutes', 'mode', 'is_active',
+                     'timeout_config', 'runner', 'protocol_id', 'parameters'):
+            if name in update_data:
+                fields[name] = update_data[name]
+        if 'start_time' in update_data:
+            try:
+                start_time = parse_iso_datetime_to_local(update_data['start_time'])
+                fields['start_time'] = start_time.isoformat() if start_time else None
+            except ValueError:
+                raise HTTPException(status_code=400, detail='Invalid start_time format')
+        if fields.get('runner') == 'pyhsl':
+            fields['experiment_path'] = 'pyhsl:' + str(fields.get('protocol_id', ''))
+        updated_schedule = _check_schedule_request(fields, 'Failed to update schedule')
         updated_schedule.preparation = _requested_preparation(update_data, current_user, base_schedule.preparation)
-        if "preparation" in update_data and current_user.get("role") == "admin":
-            # The administrator reviewed the old adapter tokens shown with this step.
+        if 'preparation' in update_data and current_user.get('role') == 'admin':
             updated_schedule.prerequisites = []
-        if "timeout_config" in update_data:
-            updated_schedule.timeout_config = _normalize_timeout_config(update_data["timeout_config"])
-        if "notification_contacts" in update_data:
-            updated_schedule.notification_contacts = _normalize_contact_ids(
-                update_data["notification_contacts"],
-                db_mgr
-            )
-
-        normalized_type, normalized_interval_hours = _normalize_schedule_request(
-            updated_schedule.schedule_type,
-            updated_schedule.interval_hours,
-        )
-        updated_schedule.schedule_type = normalized_type
-        updated_schedule.interval_hours = normalized_interval_hours
-
-        runner_data = {**updated_schedule.to_dict(),
-                       **{key: update_data[key] for key in ('runner', 'protocol_id', 'parameters') if key in update_data}}
-        unchanged = all(runner_data[key] == getattr(base_schedule, key) for key in ('runner', 'protocol_id', 'parameters', 'mode'))
-        # Turning a schedule off or editing a stopped one must not need Run Control open.
-        if updated_schedule.is_active or not unchanged or runner_data['runner'] == 'venus':
-            for name, value in _runner_fields(runner_data, updated_schedule.timeout_config).items():
+        if 'notification_contacts' in update_data:
+            updated_schedule.notification_contacts = _normalize_contact_ids(update_data['notification_contacts'], db_mgr)
+        unchanged = all(getattr(updated_schedule, key) == getattr(base_schedule, key)
+                        for key in ('runner', 'protocol_id', 'parameters', 'mode'))
+        # Stopping or editing an unchanged stopped protocol does not need Run Control.
+        if updated_schedule.is_active or not unchanged or updated_schedule.runner == 'venus':
+            for name, value in _runner_fields(updated_schedule.to_dict()).items():
                 setattr(updated_schedule, name, value)
+        if 'experiment_path' in update_data and updated_schedule.runner == 'venus':
+            updated_schedule.experiment_path = str(resolve_experiment_path(updated_schedule.experiment_path))
+        if 'timeout_config' in update_data and updated_schedule.timeout_config.cleanup_experiment_path:
+            updated_schedule.timeout_config.cleanup_experiment_path = str(resolve_experiment_path(updated_schedule.timeout_config.cleanup_experiment_path))
 
         updated_schedule.updated_at = utc_now_as_local_naive()
 
@@ -1227,10 +1095,7 @@ def update_schedule(
             _load_current_schedule(schedule_id, db_mgr, base_schedule.updated_at.isoformat())
             success = scheduler.update_schedule(updated_schedule, expected_updated_at=base_schedule.updated_at.isoformat())
             if not success:
-                # Scheduler offline or cache missing; persist directly then clear cache.
-                if not db_mgr.update_scheduled_experiment(updated_schedule, expected_updated_at=base_schedule.updated_at.isoformat()):
-                    raise HTTPException(status_code=400, detail="Failed to update schedule")
-                scheduler.invalidate_schedule(schedule_id)
+                raise HTTPException(status_code=400, detail="Failed to update schedule")
 
         refreshed = db_mgr.get_schedule_by_id(schedule_id) or updated_schedule
 
@@ -1427,35 +1292,14 @@ def delete_schedule(
         expected_token = if_unmodified_since
         authoritative_schedule = _load_current_schedule(schedule_id, db_mgr, expected_token)
 
-        scheduler_schedule = scheduler.get_schedule(schedule_id)
-        schedule_from_engine = scheduler_schedule is not None
-        schedule = scheduler_schedule or authoritative_schedule
-        
-        fallback_used = False
-        success = False
-
-        if schedule_from_engine:
-            success = scheduler.remove_schedule(schedule_id, expected_updated_at=expected_token)
-
-        if not success:
-            # Either the scheduler is not running or removal failed; fall back to direct DB removal
-            fallback_deleted = db_mgr.delete_scheduled_experiment(
-                schedule_id,
-                schedule=existing_schedule,
-                expected_updated_at=expected_token,
-            )
-            if not fallback_deleted:
-                raise HTTPException(status_code=400, detail="Failed to delete schedule")
-            fallback_used = True
-            scheduler.invalidate_schedule(schedule_id)
-            success = True
+        if not scheduler.remove_schedule(schedule_id, expected_updated_at=expected_token):
+            raise HTTPException(status_code=400, detail="Failed to delete schedule")
 
         response = ApiResponse(
             success=True,
             message=f"Schedule deleted: {authoritative_schedule.experiment_name}",
             data={
                 "schedule_id": schedule_id,
-                "deleted_via": "database_fallback" if fallback_used else "scheduler",
             }
         )
         
@@ -1467,7 +1311,6 @@ def delete_schedule(
             success=True,
             details={
                 "schedule_id": schedule_id,
-                "deleted_via": "database_fallback" if fallback_used else "scheduler",
             },
         )
         return response.to_dict()

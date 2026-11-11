@@ -123,6 +123,7 @@ def run():
             assert storage.create_schedule(old)
             with storage._get_connection() as conn:
                 conn.execute('ALTER TABLE ScheduledExperiments DROP COLUMN mode')
+                conn.execute('DELETE FROM SchemaMigrations WHERE version > 1')
                 conn.commit()
             storage = SQLiteSchedulingDatabase(str(root / 'scheduler.db'))
             manager.sqlite_db = storage

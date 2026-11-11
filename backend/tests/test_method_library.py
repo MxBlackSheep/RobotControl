@@ -99,6 +99,7 @@ def test_existing_catalogue_migration_preserves_validity(service):
         conn.execute('UPDATE ExperimentMethods SET is_valid = 0')
         for name in ('archived', 'revision', 'path_status', 'last_checked_at', 'validation_reason'):
             conn.execute(f'ALTER TABLE ExperimentMethods DROP COLUMN {name}')
+            conn.execute('DELETE FROM SchemaMigrations WHERE version > 1')
         conn.commit()
     migrated = SQLiteSchedulingDatabase(str(service.db.db_path))
     row = migrated.get_experiment_methods(valid_only=False)[0]

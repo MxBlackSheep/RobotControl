@@ -32,7 +32,7 @@ All paths are under `backend/services/scheduling/` unless stated.
 - `safety_store.py`: `SchedulerSafetyStore`, the only code that changes recovery columns.
 - `database_manager.py`: `SchedulingDatabaseManager`, the façade the API and engine use for
   schedules, executions, contacts and notification logs. `sqlite_database.py` holds all SQL and
-  the schema migration (`_initialize_database`). The launch guard and laboratory settings use
+  the numbered schema upgrades (`_initialize_database`). The launch guard and laboratory settings use
   its connection lock and transactions directly because their checks must share the write.
 - `method_library.py`, `experiment_discovery.py`: method catalogue, path changes and explicit import.
   Available methods are read from the catalogue; there is no background filesystem scan or JSON cache.
@@ -40,6 +40,7 @@ All paths are under `backend/services/scheduling/` unless stated.
   manual, test and recovery sends.
 - `backend/api/scheduling.py`: `/api/scheduling` routes. Database settings routes are in
   `backend/api/database_tools.py`. Models are in `backend/models.py`.
+- `schedule_check.py`: stored-field rules used by create, update and engine admission; live protocol, preparation and contact checks remain in the routes. Refused engine updates return 400 without a second write. Schedule deletion always takes both engine locks, including for paused schedules absent from its cache.
 
 ## Permissions
 

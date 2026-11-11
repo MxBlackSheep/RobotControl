@@ -344,6 +344,7 @@ def test_schedule_migration_and_atomic_finalization(rig):
     r = rig
     with r.db._get_connection() as conn:
         conn.execute("ALTER TABLE ScheduledExperiments DROP COLUMN log_inactivity_threshold_minutes")
+        conn.execute('DELETE FROM SchemaMigrations WHERE version > 1')
         conn.commit()
     reopened = SQLiteSchedulingDatabase(str(r.db.db_path))
     assert reopened.get_schedule_by_id("schedule").log_inactivity_threshold_minutes == 3
