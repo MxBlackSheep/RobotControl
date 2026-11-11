@@ -251,14 +251,16 @@ async def lifespan(app: FastAPI):
                 await scheduler_task
             except asyncio.CancelledError:
                 pass
+        # Recording first: Terminate exits after ten seconds, and a later step (a running
+        # preparation step holds database tools) must not leave the last clip unfinished.
         steps = [
+            ("Automatic recording service", lambda: get_automatic_recording_service().stop_automatic_recording()),
             ("PyHSL monitor", lambda: get_pyhsl_monitor().stop()),
             ("Log readers", lambda: app.state.log_readers.close() if getattr(app.state, "log_readers", None) else None),
             ("Health sampler", health_sampler.stop),
             ("Database tools", close_database_tools),
             ("Resource diagnostics", lambda: diagnostics.stop() if diagnostics else None),
             ("Live streaming service", lambda: get_live_streaming_service().stop_service()),
-            ("Automatic recording service", lambda: get_automatic_recording_service().stop_automatic_recording()),
             ("Scheduling service", lambda: get_scheduler_engine().stop()),
             ("HxRun maintenance enforcer", lambda: get_hxrun_maintenance_service().stop()),
             ("Camera service", lambda: get_camera_service().shutdown()),

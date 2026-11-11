@@ -54,7 +54,7 @@ This guide explains how the FastAPI entry point, logging, static assets, and bui
    - CORS allows localhost ports used by Vite (`5173`), CRA (`3000`), and packaged app (`8005`).
 
 5. **Signal & exit handling**  
-   - Both modes pass the same app to `uvicorn.Server`. Lifespan owns cleanup, including failed startup; each stop step is attempted once.
+   - Both modes pass the same app to `uvicorn.Server`. Lifespan owns cleanup, including failed startup; each stop step is attempted once. Recording stops first, so the last clip is finished before Terminate's ten-second exit can cut a slower step short.
    - In packaged builds the system-tray “Terminate” sets `server.should_exit`, waits up to ten seconds for cleanup, then forces exit.
    - Uvicorn allows open requests five seconds to finish, then cancels them so lifespan cleanup can run before the tray deadline.
 

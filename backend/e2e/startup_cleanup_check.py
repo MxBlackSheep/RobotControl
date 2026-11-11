@@ -1,7 +1,9 @@
 """Disposable static routes, errors and normal/failed-start cleanup.
 
 A held-open HTTP request must be cancelled so lifespan stop steps finish within
-the tray's ten-second deadline. Only service boundaries are fixtures.
+the tray's ten-second deadline. Recording stops first, so a slow later step
+(a preparation step can hold database tools for two minutes) cannot leave the
+last clip unfinished when Terminate exits. Only service boundaries are fixtures.
 """
 import asyncio
 import socket
@@ -126,6 +128,7 @@ def run():
                     main.main()
                 asyncio.run(open_request_shutdown(constructor.call_args.args[0]))
         assert sorted(stopped)==sorted(["PyHSL","Readers","Tools","Health","Recording","Streaming","Scheduler","Camera","Maintenance"]),stopped
+        assert stopped[0]=="Recording",stopped
         assert state.shutdown_complete.is_set()
     print("source static, unexpected-error and normal/failed-start cleanup checks passed")
 
