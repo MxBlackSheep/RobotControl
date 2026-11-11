@@ -141,7 +141,7 @@ release evidence, not in this current run guide. Existing reports are preserved.
 
 ## Database tools, packages and notifications
 
-Browser checks for package authoring, the report wizard and tool authoring were
+Browser checks for package authoring and tool authoring were
 removed on 29 September 2026 because they no longer matched the screens; add cases to
 the existing spec files when those screens next change. The HTTP and packaged checks
 below remain. Run them from the repository root; each check's header lists its failure cases.
@@ -149,18 +149,16 @@ below remain. Run them from the repository root; each check's header lists its f
 | Check | Data it uses | What it covers |
 | --- | --- | --- |
 | `backend.e2e.database_tools_check` | Disposable SQLite-backed SQL rows | Authoring from an existing script, rejecting an unfinished adapter, ZIP build, update review/activation, workbook parity with the original script |
-| `backend.e2e.tool_authoring_check` | Disposable SQL Server databases and logins | Python-defined tool addition and editing |
-| `backend.e2e.report_wizard_check` | Disposable SQL Server databases and a SELECT-only login | Report creation; real SQL permission denial |
+| `backend.e2e.tool_authoring_check` | Disposable SQL Server databases and logins (`sql_server_fixture.py`) | Python-defined tool addition and editing; real SQL permission denial; lookup order |
 | `backend.e2e.draft_replace_check` | A temporary data folder; no SQL Server | Draft saves while another program has the draft open (Windows); `--stress N` repeats saves |
-| `backend.e2e.database_workspace_check` | The report-wizard SQL fixture plus a reader created through the API | Provisioning rollback, existing-login rejection, write denial, schema-qualified browsing, operation target revision, rollback/deduplication, nested import inspection, the zero-database example |
+| `backend.e2e.database_workspace_check` | The SQL Server fixture plus a reader created through the API | Provisioning rollback, existing-login rejection, write denial, schema-qualified browsing, operation target revision, rollback/deduplication, installed report edit, the zero-database example, report crash and timeout |
 | `backend.e2e.notification_delivery_check` | Local mail sink, disposable storage | Notification email delivery and alert email layout |
 | `database-tools.spec.ts`, `database-workspace.spec.ts` | Disposable package APIs, synthetic viewer data | Browser flows (the account flow stops at review) |
-| `backend.e2e.packaged_database_smoke` | A relocated copy of the candidate, Python/UV removed from PATH; the report-wizard SQL fixture holding the `DatabaseFixture` rows | Package upload, connection assignment and Excel output from the executable; `--wizard` adds DPAPI storage, a reader and browsing of the real SQL fixture |
+| `backend.e2e.packaged_database_smoke` | A relocated copy of the candidate, Python/UV removed from PATH; the SQL Server fixture holding the `DatabaseFixture` rows | Package upload, connection assignment and Excel output from the executable; `--authoring` adds DPAPI storage, a reader, browsing of the real SQL fixture and prepared Python tools |
 
 ```powershell
 .venv/Scripts/python.exe -X utf8 -W ignore::UserWarning -m backend.e2e.database_tools_check --evidence test-output/database-verification
 .venv/Scripts/python.exe -m backend.e2e.tool_authoring_check
-.venv/Scripts/python.exe -m backend.e2e.report_wizard_check
 .venv/Scripts/python.exe -m backend.e2e.draft_replace_check --stress 5000
 .venv/Scripts/python.exe -m backend.e2e.database_workspace_check
 .venv/Scripts/python.exe -W ignore::UserWarning -m backend.e2e.notification_delivery_check
@@ -169,7 +167,7 @@ npx playwright test database-tools.spec.ts --trace on
 $env:ROBOTCONTROL_E2E_EVIDENCE='../test-output/database-workspace-verification'
 npx playwright test database-workspace.spec.ts --trace retain-on-failure
 Set-Location ..
-.venv/Scripts/python.exe -m backend.e2e.packaged_database_smoke dist/<candidate>/RobotControl --wizard --evidence test-output/database-verification
+.venv/Scripts/python.exe -m backend.e2e.packaged_database_smoke dist/<candidate>/RobotControl --authoring --evidence test-output/database-verification
 ```
 
 Run only the rows that match the change. Before a workbook comparison, download the

@@ -117,11 +117,10 @@ be scoped by the database administrator to the tables/views the reports need.
 
 ## Saved authoring drafts
 
-Local-admin drafts retain the original Python, edited handler, inputs, aliases and
-local source mappings under `data/database-tools/report-drafts`. Saving and exporting
-do not import Python. Explicit trial/report execution imports the handler in a child process.
-Original reference scripts are never included in the runnable ZIP. Inspection is
-not calculation validation. Draft saves carry a revision; stale saves return 409.
+Local-admin drafts retain the tool's Python files, inputs, aliases and local source
+mappings under `data/database-tools/report-drafts`. Saving and exporting do not import
+Python. Explicit trial/report execution imports the handler in a child process. Package
+checks are not calculation validation. Draft saves carry a revision; stale saves return 409.
 Drafts are private to the author, capped at 100 with 1 MiB per Python file. Removing
 a draft removes its trial package but does not remove the installed report.
 

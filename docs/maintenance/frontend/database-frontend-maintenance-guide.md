@@ -23,7 +23,8 @@ authoring steps are in [database_packages/README.md](../../../database_packages/
 - `DatabaseTools.tsx`: Operations and Data retrieval task forms; `ReportInputs.tsx` renders
   inputs for installed tools and trials.
 - `DatabasePackages.tsx`: Manage packages. `ToolAuthoring.tsx` adds and edits Python-defined
-  tools; `ReportWizard.tsx` only resumes older, non-code drafts and its endpoints stay compatible.
+  tools and is the only draft editor. A draft left by the removed report wizard is listed under
+  review with Remove draft only.
   A saved draft with `review_reason` shows the Needs review chip and the reason (`ReviewReason`,
   the Schedules list's review line). Resume shows only when the server marks it `openable`; a
   file that does not read offers Remove draft alone.
@@ -159,9 +160,7 @@ ignores results after the section becomes inactive.
   expose no execution token. Publishing needs the review checkbox. The optional change note
   appears in History and heads the published package's CHANGELOG.md. Success returns to the list with a versioned message; after a lost
   response the exact publication request is kept so Retry works although the draft was retired.
-- `ReportWizard` offers Save and close, and Discard and close (confirmed; deletes only the
-  draft). Busy work or a running trial blocks both; Keep editing, Escape or the backdrop dismiss
-  the confirmation. Removing a draft from the list also asks first.
+- Removing a draft from the list asks first.
 
 ## Database settings
 
@@ -190,7 +189,7 @@ Build with `npm --prefix frontend run build`; commands and evidence folders are 
   choices, operation choices, certificate trust.
 - `database-tools.spec.ts`: delivery log statuses.
 
-Manage packages, `ToolAuthoring` and `ReportWizard` have no browser check; their server
+Manage packages and `ToolAuthoring` have no browser check; their server
 workflows are covered by the HTTP checks in the backend guide. Vitest: `DatabaseTable.test.tsx`
 (`npx vitest run` from `frontend`).
 
