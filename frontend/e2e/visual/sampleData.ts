@@ -80,8 +80,9 @@ export async function sampleData(page: Page, mode: string, local: boolean) {
       created_at: '2026-04-01T09:00:00', last_login: null }] }));
   // Changing `admin` stages the race a person can meet: another admin removed operator's admin role while the page was open.
   await page.route('**/api/admin/users/*/role', route => route.request().url().includes('/users/admin/')
-    ? route.fulfill({ status: 403, json: { detail: 'You are no longer an admin. Reload the page' } })
-    : route.fulfill({ json: { success: true } }));
+    ? route.fulfill({ status: 403, json: { success: false, message: 'You are no longer an admin. Reload the page', data: null,
+        error: { message: 'You are no longer an admin. Reload the page', code: 'FORBIDDEN' } } })
+    : route.fulfill({ json: { success: true, data: {} } }));
   // Methods section (local sessions): without this the section has no library to show.
   const method = (id: string, name: string, folder: string, schedules: number) => ({ method_id: id, method_name: name, file_path: `${folder}\\${name}.med`,
     containing_folder: folder, archived: false, revision: 1, path_status: 'available', schedule_count: schedules, references: [] });

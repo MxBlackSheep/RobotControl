@@ -50,8 +50,15 @@ def _key_file() -> Tuple[str, str]:
     path = get_path_manager().config_path / "token-secrets.json"
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "x", encoding="utf-8") as file:  # "x": never overwrite
-            json.dump({"access": secrets.token_urlsafe(48), "refresh": secrets.token_urlsafe(48)}, file)
+        # Written beside it, then renamed: a crash leaves no half-written file to stop the next
+        # start, and on Windows the rename refuses an existing file, so keys are never replaced.
+        temp = path.with_suffix(".tmp")
+        try:
+            with open(temp, "w", encoding="utf-8") as file:
+                json.dump({"access": secrets.token_urlsafe(48), "refresh": secrets.token_urlsafe(48)}, file)
+            temp.rename(path)
+        finally:
+            temp.unlink(missing_ok=True)
         logger.info("Created sign-in keys in %s", path)
     try:
         keys = json.loads(path.read_text(encoding="utf-8"))
@@ -541,10 +548,16 @@ _COOKIE_PATHS = {ACCESS_COOKIE: "/api", REFRESH_COOKIE: "/api/auth"}
 
 
 def request_token(request: Request) -> str:
-    """The access token: a Bearer header (programs) wins, else the rc_access cookie (browsers)."""
+    """The access token: a Bearer header (programs) wins, else the rc_access cookie (browsers).
+
+    A Bearer header never falls back to the cookie, even when empty: the request-header rule
+    exempts Bearer requests, so a cookie must not ride on one.
+    """
     scheme, _, token = request.headers.get("authorization", "").partition(" ")
-    token = token.strip() if scheme.lower() == "bearer" else ""
-    token = token or request.cookies.get(ACCESS_COOKIE, "")
+    if scheme.lower() == "bearer":
+        token = token.strip()
+    else:
+        token = request.cookies.get(ACCESS_COOKIE, "")
     if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

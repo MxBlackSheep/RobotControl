@@ -106,7 +106,8 @@ export const authAPI = {
 
   me: () => api.get('/api/auth/me', { headers: { 'X-Allow-Maintenance': 'true' } }),
 
-  logout: () => api.post('/api/auth/logout'),
+  // Sign out must reach the server during the restore pause too, or both cookies stay.
+  logout: () => api.post('/api/auth/logout', undefined, { headers: { 'X-Allow-Maintenance': 'true' } }),
 
   changePassword: (currentPassword: string, newPassword: string) =>
     api.post('/api/auth/change-password', {

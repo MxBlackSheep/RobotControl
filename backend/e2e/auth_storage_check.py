@@ -36,7 +36,9 @@ page"); a change or refusal is missing from the audit log.
 
 Signing keys: a token signed with the old published key is accepted; the key file is missing
 after first start, holds a published text, or is regenerated on restart (signing everyone out);
-an unreadable key file is rewritten instead of stopping start-up; the key variables do not win.
+an unreadable key file is rewritten instead of stopping start-up; a crash while the first file is
+written leaves a file that stops the next start; the key variables do not win. An empty Bearer
+header falls back to the cookie (and so skips the request-header rule).
 
 Built-in admin password (public in the repository): a remote sign-in with it (tunnel, spoofed
 first X-Forwarded-For, LAN peer) gets tokens or records a last login instead of 403 "Change the
@@ -53,6 +55,7 @@ import shutil
 import sqlite3
 import tempfile
 import traceback
+from unittest.mock import patch
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -189,6 +192,25 @@ def run():
             check('both key variables win over the file', auth_module.token_secrets() == ('a' * 64, 'b' * 64))
             for name in ('ROBOTCONTROL_ACCESS_TOKEN_SECRET', 'ROBOTCONTROL_REFRESH_TOKEN_SECRET'):
                 os.environ.pop(name)
+            # A crash while the first key file is written leaves no file, so the next start creates one.
+            crash_folder = FOLDER / 'crash-config'
+            get_path_manager().config_path = crash_folder
+
+            def crash(keys, file):
+                file.write('{"acc')
+                raise OSError('power lost')
+
+            auth_module._token_secrets = None
+            with patch.object(auth_module.json, 'dump', crash):
+                try:
+                    auth_module.token_secrets()
+                except OSError:
+                    pass
+            left = sorted(p.name for p in crash_folder.iterdir()) if crash_folder.exists() else []
+            auth_module._token_secrets = None
+            check('a crash while writing the first key file leaves nothing that stops the next start',
+                  left == [] and len(auth_module.token_secrets()[0]) >= 64, left)
+            get_path_manager().config_path = FOLDER / 'config'
             auth_module._token_secrets = None
 
             response = refresh_with(access)
@@ -294,6 +316,13 @@ def run():
             response = bare.post('/api/auth/change-password', json=wrong_change,
                                  headers={'Authorization': f"Bearer {signed_in.cookies['rc_access']}"})
             check('a Bearer program needs no request header (400)', response.status_code == 400, response.text)
+            # An empty Bearer header is not a sign-in, and it cannot borrow the cookie past the header rule.
+            empty = {**jar, 'Authorization': 'Bearer '}
+            response = bare.get('/api/auth/me', headers=empty)
+            check('an empty Bearer header with the cookie answers 401', response.status_code == 401, [response.status_code, response.text])
+            response = bare.post('/api/auth/change-password', json=wrong_change, headers=empty)
+            check('an empty Bearer header with the cookie does not reach a change (401 or 403)',
+                  response.status_code in (401, 403), [response.status_code, response.text])
             service.reset_password(DEFAULT_ADMIN_USERNAME, changed, must_reset=True)
             client.cookies.clear()
             client.post('/api/auth/login', json=credentials)

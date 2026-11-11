@@ -6,7 +6,7 @@ import { test, expect } from '@playwright/test';
  * a token where scripts can read it (localStorage or a reply body) or leaves the old stored
  * tokens behind; a refresh or other change is sent without X-Requested-With: RobotControl or
  * with a token in its body; Sign out never reaches the server, or reaches it while a refresh is
- * still in flight (the late refresh would sign the browser in again); a 503 from /me starts the
+ * still in flight (the late refresh would sign the browser in again) or is held by the restore pause; a 503 from /me starts the
  * maintenance window and blocks the recovered page; a tunnel's HTML 403 challenge page signs the
  * user out; sign-in reports an unreachable server or tunnel error page as a wrong password; the
  * sign-in page prints the default admin credentials; a refused remote default-password sign-in
@@ -185,4 +185,29 @@ test('Sign out waits for a refresh in flight, then ends the sign-in on the serve
   release();
   await expect.poll(() => events).toEqual(['refresh answered', 'logout POST RobotControl']);
   await page.screenshot({ path: testInfo.outputPath('logout-during-refresh.png') });
+});
+
+test('Sign out during the restore pause still ends the sign-in on the server', async ({ page }) => {
+  const backup = { filename: 'EvoYeast_20260101_120000.bak', file_size: 2048, file_size_formatted: '2 KB', created_date: '2026-01-01T12:00:00', is_valid: true };
+  await page.route('**/api/auth/me', route => route.fulfill({ json: { success: true, data: { user_id: 'fixture', username: 'Fixture', role: 'admin', session: { is_local: true } } } }));
+  await page.route('**/api/admin/backup/list', route => route.fulfill({ json: { success: true, data: [backup] } }));
+  await page.route('**/api/admin/backup/restore', route => route.fulfill({ json: { success: true, message: 'Database restored successfully', data: { warnings: [] } } }));
+  // The server is still restarting, so the pause holds.
+  await page.route('**/health', route => route.fulfill({ status: 503, json: {} }));
+  const signOuts: string[] = [];
+  await page.route('**/api/auth/logout', route => { signOuts.push(route.request().method()); return route.fulfill({ json: { success: true, data: {} } }); });
+  await page.goto('/database?section=restore');
+  await page.getByRole('main').getByRole('combobox').click();
+  await page.getByRole('option', { name: backup.filename, exact: false }).click();
+  await page.getByRole('button', { name: 'Restore Database', exact: true }).click();
+  const confirm = page.getByRole('dialog').filter({ hasText: 'Confirmation Required' });
+  await confirm.getByRole('checkbox').nth(0).check();
+  await confirm.getByRole('checkbox').nth(1).check();
+  await confirm.getByRole('button', { name: 'Restore Database', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Restore Completed' }).getByRole('button', { name: 'Close' }).click();
+  await page.getByRole('button', { name: 'Got it' }).click();
+  await page.getByRole('button', { name: 'Account menu' }).click();
+  await page.getByRole('menuitem', { name: 'Log out' }).click();
+  await expect(page.getByLabel('Username', { exact: true })).toBeVisible();
+  await expect.poll(() => signOuts).toEqual(['POST']);
 });

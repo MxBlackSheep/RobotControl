@@ -53,7 +53,7 @@ This guide walks through the authentication stack so you always know **which fil
    Refresh fails, the cookies are cleared, and the browser returns to `/login`.
 
 5a. **Sign out** (`POST /api/auth/logout`, no sign-in needed).
-   Revokes the refresh token from the cookie if present, clears both cookies and always answers 200. Other tabs of that browser are signed out on their next request.
+   Revokes the refresh token from the cookie if present, clears both cookies and always answers 200. Other tabs of that browser are signed out on their next request. The refresh token ends at once; an access token already copied stays valid until it expires (access lifetime, 4 hours by default), because access tokens are not stored.
 
 6. **Password reset request** (`POST /api/auth/password-reset/request`).  
    `AuthService.request_password_reset` logs the request in `password_reset_requests` (no email delivered automatically; admins review via `/api/admin/password-reset/*`).
