@@ -19,7 +19,7 @@ from backend.services.sqlite_safety import SafetyConflict, StorageUnavailable
 from backend.utils.datetime import parse_iso_datetime_to_local
 
 logger = logging.getLogger(__name__)
-UNAVAILABLE_REASON = 'PyHSL Run Control is not running'
+UNAVAILABLE_REASON = 'PyHSL is not running'
 
 
 def validate_protocol(protocol_id, parameters, mode):
@@ -40,7 +40,7 @@ def dispatch_reason():
     if reading['state'] == 'not_running':
         return UNAVAILABLE_REASON
     if reading['state'] != 'running':
-        return reading.get('reason') or 'PyHSL Run Control state is unknown'
+        return reading.get('reason') or 'PyHSL state is unknown'
     if reading['run']:
         return 'A PyHSL run is active'
     if not reading['reviews'].get('known'):
@@ -57,7 +57,7 @@ def require_no_active_run():
         return
     if reading['state'] == 'running' and reading['reviews']['known'] and not reading['run']:
         return
-    raise SafetyConflict('A PyHSL run is active' if reading['run'] else 'PyHSL Run Control state is unknown')
+    raise SafetyConflict('A PyHSL run is active' if reading['run'] else 'PyHSL state is unknown')
 
 
 def review_state(reading, run_id):
@@ -176,7 +176,7 @@ class PyHslRunner:
         if time.monotonic() - since >= self.unavailable_seconds:
             try:
                 self.engine._notify_execution_event(schedule, execution, 'monitoring_unavailable',
-                    {'note': 'Cannot reach PyHSL Run Control; RobotControl keeps trying'})
+                    {'note': 'Cannot reach PyHSL; RobotControl keeps trying'})
             except Exception:
                 logger.exception('PyHSL monitoring notification failed')
         return since

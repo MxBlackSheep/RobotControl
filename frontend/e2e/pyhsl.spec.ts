@@ -100,11 +100,11 @@ test('an unreadable list or a refused protocol shows the reason and nothing is s
   let listUp = false;
   await page.route('**/api/pyhsl/protocols', route => listUp
     ? route.fulfill({ json: protocols })
-    : route.fulfill({ status: 503, json: { detail: 'Run Control is not running' } }));
+    : route.fulfill({ status: 503, json: { detail: 'PyHSL is not running' } }));
   await page.route('**/api/pyhsl/validate', route => route.fulfill({ status: 400, json: { detail: 'Water Transfer needs its lab folder; nothing was started' } }));
   const editor = await openPyHslForm(page, writes);
 
-  await expect(editor.getByText('Run Control is not running')).toBeVisible();
+  await expect(editor.getByText('PyHSL is not running')).toBeVisible();
   listUp = true;
   await editor.getByRole('button', { name: 'Retry' }).click();
   await editor.getByRole('combobox', { name: 'Protocol' }).fill('water');
@@ -229,7 +229,7 @@ test('an ended run offers Show report, and the report runs no script', async ({ 
 test('without a run the page says why, and before the first reading the view says Loading', async ({ page }) => {
   await signIn(page);
   const fake = await runControl(page);
-  for (const [state, text] of [['running', 'No run is active.'], ['not_running', 'Run Control is not running.'], ['unknown', 'Run Control state unknown.']]) {
+  for (const [state, text] of [['running', 'No run is active.'], ['not_running', 'PyHSL is not running.'], ['unknown', 'PyHSL state is unknown.']]) {
     fake.status = { ...fake.status, state, run: null };
     await page.goto('/pyhsl');
     await expect(page.getByText(text, { exact: true })).toBeVisible();
