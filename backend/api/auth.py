@@ -156,7 +156,7 @@ async def login(
             connection.client_ip,
         )
         return ResponseFormatter.error(
-            message="Change the default password on the robot PC before signing in remotely.",
+            message="Change the default password on the workstation before signing in remotely.",
             error_code="DEFAULT_PASSWORD_REMOTE",
             status_code=403,
         )

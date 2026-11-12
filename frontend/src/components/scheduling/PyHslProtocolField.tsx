@@ -62,7 +62,7 @@ export default function PyHslProtocolField({ protocolId, parameters, mode, disab
     } catch (err: any) {
       if (mine !== latestCheck.current) return;
       setChecked(null);
-      setError(err?.response?.data?.detail || 'Could not check the protocol');
+      setError(err?.response?.data?.detail || 'Could not validate the protocol');
       changed(listed.id, values, null);
     }
   }, []);
