@@ -14,7 +14,7 @@ interface Props {
   onClose: () => void;
   onImportComplete?: () => void;
   onCreateSchedule?: () => void;
-  isLocalClient: boolean;
+  isLocal: boolean;
 }
 
 const errorMessage = (error: unknown) => {
@@ -26,7 +26,7 @@ const errorMessage = (error: unknown) => {
   return error instanceof Error ? error.message : 'The request failed. Please try again.';
 };
 
-export default function FolderImportDialog({ open, onClose, onImportComplete, onCreateSchedule, isLocalClient }: Props) {
+export default function FolderImportDialog({ open, onClose, onImportComplete, onCreateSchedule, isLocal }: Props) {
   const [source, setSource] = useState<'browser' | 'manual'>('browser');
   const [folder, setFolder] = useState('');
   const [preview, setPreview] = useState<MethodImportPreview | null>(null);
@@ -49,7 +49,7 @@ export default function FolderImportDialog({ open, onClose, onImportComplete, on
   const validRows = preview?.methods.filter(row => row.action !== 'invalid') || [];
 
   const scan = async (chosenFolder = folder) => {
-    if (!isLocalClient || busy) return;
+    if (!isLocal || busy) return;
     setFolder(chosenFolder); setBusy(true); setError(null);
     try {
       const response = await schedulingAPI.previewExperimentImport({ folder_path: chosenFolder.trim() });
@@ -62,7 +62,7 @@ export default function FolderImportDialog({ open, onClose, onImportComplete, on
   };
 
   const importSelected = async () => {
-    if (!isLocalClient || busy || !preview || !selected.length) return;
+    if (!isLocal || busy || !preview || !selected.length) return;
     setBusy(true); setError(null);
     try {
       const response = await schedulingAPI.importExperimentFolder(preview.folder, selected);
@@ -89,17 +89,17 @@ export default function FolderImportDialog({ open, onClose, onImportComplete, on
           <Stepper activeStep={stage} alternativeLabel>
             {['Choose folder', 'Review methods', 'Import results'].map(label => <Step key={label}><StepLabel>{label}</StepLabel></Step>)}
           </Stepper>
-          {!isLocalClient && <Alert severity="warning">Open RobotControl locally on the robot computer to import methods.</Alert>}
+          {!isLocal && <Alert severity="warning">Open RobotControl locally on the robot computer to import methods.</Alert>}
           {stage === 0 && <>
-            <FormControl ref={initialFocus} disabled={busy || !isLocalClient}>
+            <FormControl ref={initialFocus} disabled={busy || !isLocal}>
               <FormLabel id="method-source-label">Choose how to select the folder</FormLabel>
               <RadioGroup aria-labelledby="method-source-label" value={source} onChange={event => { setSource(event.target.value as 'browser' | 'manual'); setError(null); }}>
                 <FormControlLabel value="browser" control={<Radio />} label="Browse RobotControl folders" />
                 <FormControlLabel value="manual" control={<Radio />} label="Enter a folder path" />
               </RadioGroup>
             </FormControl>
-            {source === 'browser' ? <HostMethodBrowser initialPath={folder || undefined} disabled={busy || !isLocalClient} onSelect={path => { void scan(path); }} /> :
-              <TextField fullWidth required label="Folder path on RobotControl computer" value={folder} disabled={busy || !isLocalClient}
+            {source === 'browser' ? <HostMethodBrowser initialPath={folder || undefined} disabled={busy || !isLocal} onSelect={path => { void scan(path); }} /> :
+              <TextField fullWidth required label="Folder path on RobotControl computer" value={folder} disabled={busy || !isLocal}
                 onChange={event => { setFolder(event.target.value); setError(null); }}
                 placeholder={'C:\\Program Files\\HAMILTON\\Methods'} />}
 
@@ -142,8 +142,8 @@ export default function FolderImportDialog({ open, onClose, onImportComplete, on
       <DialogActions sx={{ flexWrap: 'wrap', gap: 1 }}>
         <Button onClick={close} disabled={busy}>{stage === 2 ? 'Close' : 'Cancel'}</Button>
         {stage === 1 && <Button onClick={() => { setStage(0); setError(null); }} disabled={busy}>Back</Button>}
-        {stage === 0 && source === 'manual' && <Button variant="contained" onClick={() => scan()} disabled={busy || !isLocalClient || !folder.trim()}>Review methods</Button>}
-        {stage === 1 && <Button variant="contained" onClick={importSelected} disabled={busy || !isLocalClient || !selected.length}>Import {selected.length} selected</Button>}
+        {stage === 0 && source === 'manual' && <Button variant="contained" onClick={() => scan()} disabled={busy || !isLocal || !folder.trim()}>Review methods</Button>}
+        {stage === 1 && <Button variant="contained" onClick={importSelected} disabled={busy || !isLocal || !selected.length}>Import {selected.length} selected</Button>}
         {stage === 2 && <Button onClick={reset}>Import another folder</Button>}
         {stage === 2 && result && result.new_methods + result.updated_methods > 0 && onCreateSchedule &&
           <Button variant="contained" onClick={() => { close(); onCreateSchedule(); }}>Create a schedule</Button>}

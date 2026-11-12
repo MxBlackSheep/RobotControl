@@ -14,7 +14,7 @@ import {
   Typography,
 } from "@mui/material";
 import { EmptyPanel, PageContent, PageHeader, Panel } from "../components/PageLayout";
-import { useModuleSection, isLocalUser } from "../components/navigation";
+import { useModuleSection } from "../components/navigation";
 import SectionPanel from "../components/SectionPanel";
 import InspectionWorkspace from "../components/InspectionWorkspace";
 import { useAuth } from "../context/AuthContext";
@@ -162,20 +162,18 @@ export default function DatabasePage() {
         <StoredProcedures key={sourceKey} sourceId={sourceId} active={section === 1 && !!sourceId} />
       </SectionPanel>
       <SectionPanel active={section === 2}>
-        {user?.role === "admin" || isLocalUser(user) ? (
-          <DatabaseRestore onError={setError} />
-        ) : null}
+        <DatabaseRestore onError={setError} />
       </SectionPanel>
       <SectionPanel active={section === 3}>
-        {isLocalUser(user) && user?.role === "admin" ? <DatabaseTools kind="operation" active={section === 3} /> : null}
+        <DatabaseTools kind="operation" active={section === 3} />
       </SectionPanel>
       <SectionPanel active={section === 4}>
         <DatabaseTools kind="report" active={section === 4} />
       </SectionPanel>
       <SectionPanel active={section === 5}>
-        {isLocalUser(user) && user?.role === "admin" ? <DatabasePackages active={section === 5} /> : null}
+        <DatabasePackages active={section === 5} />
       </SectionPanel>
-      <SectionPanel active={section === 6}>{isLocalUser(user) && user?.role === "admin" ? <DatabaseSettings active={section === 6} /> : null}</SectionPanel>
+      <SectionPanel active={section === 6}><DatabaseSettings active={section === 6} /></SectionPanel>
     </PageContent>
   );
 }

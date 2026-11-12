@@ -55,6 +55,28 @@ def test_refused_update_writes_nothing(stored_schedule, monkeypatch):
     assert storage.get_schedule_by_id('paused').to_dict() == schedule.to_dict()
 
 
+def test_delete_and_archive_need_the_lab_pc_and_the_owner_or_an_admin(stored_schedule):
+    storage, scheduler, schedule = stored_schedule
+    version = {'If-Unmodified-Since': schedule.updated_at.isoformat()}
+    remote = {'x-forwarded-for': '8.8.8.8'}
+    for response in (client.delete('/api/scheduling/paused', headers={**version, **remote}),
+                     client.post('/api/scheduling/paused/archive', json={'archived': True}, headers=remote)):
+        assert response.status_code == 403, response.text
+        assert response.json()['detail'] == 'Local network access required for this operation'
+    app.dependency_overrides[get_current_user] = lambda: {'user_id': '2', 'username': 'other', 'role': 'user'}
+    try:
+        for response in (client.delete('/api/scheduling/paused', headers=version),
+                         client.post('/api/scheduling/paused/archive', json={'archived': True})):
+            assert response.status_code == 403, response.text
+            assert response.json()['detail'] == 'Admin role required'
+    finally:
+        app.dependency_overrides[get_current_user] = _override_user
+    assert storage.get_schedule_by_id('paused').to_dict() == schedule.to_dict()
+    response = client.post('/api/scheduling/paused/archive', json={'archived': True})
+    assert response.status_code == 200, response.text
+    assert storage.get_schedule_by_id('paused').archived
+
+
 class FakeScheduler:
     def __init__(self):
         self._schedules_lock = RLock()

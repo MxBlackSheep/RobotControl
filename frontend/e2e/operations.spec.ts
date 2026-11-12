@@ -33,7 +33,7 @@ async function operations(page: Page, local = true) {
   const writes: string[] = [];
   await signIn(page);
   await page.route('**/api/auth/me', route => route.fulfill({ json: { success: true, data: {
-    user_id: 'viewer-admin', username: 'operator', role: 'admin', session_is_local: local, session: { is_local: local },
+    user_id: 'viewer-admin', username: 'operator', role: 'admin', session: { is_local: local },
   } } }));
   await page.route('**/api/scheduling/**', async route => {
     const path = new URL(route.request().url()).pathname;

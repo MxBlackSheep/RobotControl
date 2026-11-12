@@ -72,8 +72,7 @@ const SchedulingPage: React.FC = () => {
   // The frame owns the one status read; the page shows it and asks it to refresh.
   const robot = useRobotStatusContext();
   const status = robot.status;
-  const isLocalSession = isLocalUser(user);
-  const isLocalClient = isLocalSession;
+  const isLocal = isLocalUser(user);
   const phone = usePhoneWorkspace();
   const workspaceTop = useRef<HTMLDivElement>(null);
   const detailHeading = useRef<HTMLDivElement>(null);
@@ -94,9 +93,6 @@ const SchedulingPage: React.FC = () => {
   const openNotificationsTab = () => setCurrentTab(5);
 
   useEffect(() => {
-    if (user?.role !== 'admin') {
-      return;
-    }
     if (currentTab !== 5 || notificationsTab !== 0) {
       return;
     }
@@ -104,12 +100,9 @@ const SchedulingPage: React.FC = () => {
       setContactsRequested(true);
       actions.loadContacts(true);
     }
-  }, [user?.role, currentTab, notificationsTab, contactsRequested, actions]);
+  }, [currentTab, notificationsTab, contactsRequested, actions]);
 
   useEffect(() => {
-    if (user?.role !== 'admin') {
-      return;
-    }
     if (currentTab !== 5 || notificationsTab !== 2) {
       return;
     }
@@ -117,7 +110,7 @@ const SchedulingPage: React.FC = () => {
       setEmailSettingsRequested(true);
       actions.loadNotificationSettings();
     }
-  }, [user?.role, currentTab, notificationsTab, emailSettingsRequested, actions]);
+  }, [currentTab, notificationsTab, emailSettingsRequested, actions]);
 
   const handleNotificationsTabChange = (_event: React.SyntheticEvent, newValue: number) => {
     setNotificationsTab(newValue);
@@ -205,7 +198,7 @@ const SchedulingPage: React.FC = () => {
     const actionLabel = (full: string) => phone ? { 'aria-label': full, children: full.split(' ')[0] } : { children: full };
     const archiveLabel = schedule.archived ? 'Restore schedule' : 'Archive schedule';
     // Archived: restore before editing. Under review: edit or delete only (the server refuses the rest).
-    const scheduleActions = isLocalSession
+    const scheduleActions = isLocal
       ? <Stack direction="row" gap={1} flexWrap={phone ? 'nowrap' : 'wrap'} aria-label="Schedule actions" sx={phone ? { '& > *': { flex: '1 1 0', minHeight: 44 } } : undefined}>
         {!schedule.archived && <Button variant="contained" onClick={() => setForm({ schedule })} disabled={state.loading} {...actionLabel('Edit schedule')} />}
         {!schedule.review_reason && <Button variant={schedule.archived ? 'contained' : 'outlined'} disabled={state.loading || schedule.recovery_required}
@@ -275,7 +268,7 @@ const SchedulingPage: React.FC = () => {
   const recovery = status?.recovery;
   return (
     <PageContent variant={currentTab === 5 && notificationsTab === 2 ? "task" : "inspection"}>
-      <PageHeader title="Scheduling" actions={isLocalSession && <>
+      <PageHeader title="Scheduling" actions={isLocal && <>
         <Button variant="contained" onClick={() => setForm({})} disabled={state.loading}>Create schedule</Button>
         <Button variant="outlined" onClick={() => setFolderImportOpen(true)} disabled={state.loading}>Import methods</Button>
       </>} />
@@ -304,7 +297,7 @@ const SchedulingPage: React.FC = () => {
         </TabPanel>
 
         <TabPanel value={currentTab} index={1}>
-          <RecoverySafetyPanel state={recovery ?? null} isLocal={isLocalSession}
+          <RecoverySafetyPanel state={recovery ?? null} isLocal={isLocal}
             onChanged={async () => { await robot.refresh(); await actions.loadSchedules(); }} />
         </TabPanel>
 
@@ -321,7 +314,7 @@ const SchedulingPage: React.FC = () => {
 
         <TabPanel value={currentTab} index={4}>
           {scheduleWorkspace('Archived', state.archivedSchedules, () => void actions.loadArchivedSchedules(), state.archivedLoading, state.archivedError, false)}
-          {!isLocalSession && (
+          {!isLocal && (
             <Typography
               variant="caption"
               color="text.secondary"
@@ -332,63 +325,61 @@ const SchedulingPage: React.FC = () => {
           )}
         </TabPanel>
 
-        {user?.role === 'admin' && (
-          <TabPanel value={currentTab} index={5}>
-            <Stack spacing={3}>
-              <Box sx={{ borderBottom: 1, borderColor: 'divider', px: { xs: 0.5, md: 1 } }}>
-                <Tabs
-                  value={notificationsTab}
-                  onChange={handleNotificationsTabChange}
-                  variant="scrollable"
-                  scrollButtons="auto"
-                  allowScrollButtonsMobile
-                  aria-label="notification configuration tabs"
-                  sx={{
-                    minHeight: { xs: 42, md: 46 },
-                    '& .MuiTabs-indicator': {
-                      height: 3,
-                      borderRadius: 2,
-                    },
-                  }}
-                >
-                  <Tab label="Contacts" sx={{ minHeight: 0 }} />
-                  <Tab label="Delivery Logs" sx={{ minHeight: 0 }} />
-                  <Tab label="Email Settings" sx={{ minHeight: 0 }} />
-                </Tabs>
-              </Box>
+        <TabPanel value={currentTab} index={5}>
+          <Stack spacing={3}>
+            <Box sx={{ borderBottom: 1, borderColor: 'divider', px: { xs: 0.5, md: 1 } }}>
+              <Tabs
+                value={notificationsTab}
+                onChange={handleNotificationsTabChange}
+                variant="scrollable"
+                scrollButtons="auto"
+                allowScrollButtonsMobile
+                aria-label="notification configuration tabs"
+                sx={{
+                  minHeight: { xs: 42, md: 46 },
+                  '& .MuiTabs-indicator': {
+                    height: 3,
+                    borderRadius: 2,
+                  },
+                }}
+              >
+                <Tab label="Contacts" sx={{ minHeight: 0 }} />
+                <Tab label="Delivery Logs" sx={{ minHeight: 0 }} />
+                <Tab label="Email Settings" sx={{ minHeight: 0 }} />
+              </Tabs>
+            </Box>
 
-              {notificationsTab === 0 && (
-                <NotificationContactsPanel
-                  contacts={state.contacts}
-                  onRefresh={(includeInactive) => actions.loadContacts(includeInactive)}
-                  onCreate={actions.createContact}
-                  onUpdate={actions.updateContact}
-                  onDelete={actions.deleteContact}
-                />
-              )}
+            {notificationsTab === 0 && (
+              <NotificationContactsPanel
+                contacts={state.contacts}
+                onRefresh={(includeInactive) => actions.loadContacts(includeInactive)}
+                onCreate={actions.createContact}
+                onUpdate={actions.updateContact}
+                onDelete={actions.deleteContact}
+              />
+            )}
 
-              <SectionPanel active={notificationsTab === 1}>
-                <NotificationLogPanel active={currentTab === 5 && notificationsTab === 1} />
-              </SectionPanel>
+            <SectionPanel active={notificationsTab === 1}>
+              <NotificationLogPanel active={currentTab === 5 && notificationsTab === 1} />
+            </SectionPanel>
 
-              <SectionPanel active={notificationsTab === 2}>
-              <NotificationEmailSettingsPanel
-                  settings={state.notificationSettings}
-                  loading={state.notificationSettingsLoading}
-                  onRefresh={actions.loadNotificationSettings}
-                  onSave={actions.updateNotificationSettings}
-                  onSendTest={actions.sendNotificationTestEmail}
-                  contacts={state.contacts}
-                />
-              </SectionPanel>
-            </Stack>
-          </TabPanel>
-        )}
-        {isLocalClient && <TabPanel value={currentTab} index={6}>
+            <SectionPanel active={notificationsTab === 2}>
+            <NotificationEmailSettingsPanel
+                settings={state.notificationSettings}
+                loading={state.notificationSettingsLoading}
+                onRefresh={actions.loadNotificationSettings}
+                onSave={actions.updateNotificationSettings}
+                onSendTest={actions.sendNotificationTestEmail}
+                contacts={state.contacts}
+              />
+            </SectionPanel>
+          </Stack>
+        </TabPanel>
+        <TabPanel value={currentTab} index={6}>
           <MethodLibraryPanel showImportAction={false} version={catalogueVersion} onChanged={() => setCatalogueVersion(value => value + 1)}
             onChangePath={setMethodToRelink}
             onImport={() => setFolderImportOpen(true)} onCreateSchedule={method => setForm({ method })} />
-        </TabPanel>}
+        </TabPanel>
       </Box>
 
       {methodToRelink && <MethodPathDialog method={methodToRelink} onClose={() => setMethodToRelink(null)} onChanged={() => {
@@ -416,7 +407,7 @@ const SchedulingPage: React.FC = () => {
         onClose={() => setFolderImportOpen(false)}
         onImportComplete={() => setCatalogueVersion(version => version + 1)}
         onCreateSchedule={() => setForm({})}
-        isLocalClient={isLocalClient}
+        isLocal={isLocal}
       />
     </PageContent>
   );

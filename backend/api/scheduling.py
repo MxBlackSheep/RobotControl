@@ -1156,12 +1156,8 @@ def delete_schedule(
             raise HTTPException(status_code=404, detail="Schedule not found")
 
         is_admin = current_user.get("role") == "admin"
-        is_local_owner = (
-            connection.is_local
-            and existing_schedule.created_by
-            and existing_schedule.created_by == current_user.get("username")
-        )
-        if not (is_admin or is_local_owner):
+        is_owner = bool(existing_schedule.created_by) and existing_schedule.created_by == current_user.get("username")
+        if not (is_admin or is_owner):
             raise HTTPException(status_code=403, detail="Admin role required")
 
         # Check concurrency against authoritative record
@@ -1236,12 +1232,8 @@ def set_schedule_archived(
             raise HTTPException(status_code=404, detail="Schedule not found")
 
         is_admin = current_user.get("role") == "admin"
-        is_local_owner = (
-            connection.is_local
-            and schedule.created_by
-            and schedule.created_by == current_user.get("username")
-        )
-        if not (is_admin or is_local_owner):
+        is_owner = bool(schedule.created_by) and schedule.created_by == current_user.get("username")
+        if not (is_admin or is_owner):
             raise HTTPException(status_code=403, detail="Admin role required")
 
         if isinstance(schedule, ScheduleReview):
