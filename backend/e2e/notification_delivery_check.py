@@ -95,7 +95,7 @@ def alert_samples(now):
                             end_time=now - timedelta(minutes=ended) if ended is not None else None, **fields)
     return [
         ('pyhsl_unavailable', 'pyhsl_unavailable', schedule(), execution(started=None),
-            {'note': 'PyHSL Run Control is not running'}),
+            {'note': 'PyHSL is not running'}),
         ('scheduled_pyhsl_review', 'pyhsl_review_required', schedule(), execution(),
             {'note': 'Save the Run review in Run Control'}),
         ('simulation_mode_mismatch', 'simulation_mode_mismatch', schedule(), execution(started=None),

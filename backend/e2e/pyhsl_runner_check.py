@@ -574,7 +574,7 @@ def gates_and_following():
     with fixture(allow_venus=True) as f:
         s = schedule(f)
         for reading, expected in (
-            (dict(state='not_running', run=None, reviews={}), 'PyHSL Run Control is not running'),
+            (dict(state='not_running', run=None, reviews={}), 'PyHSL is not running'),
             (dict(state='running', run={'run_id': 'other'}, reviews={}), 'A PyHSL run is active'),
             (dict(state='running', run=None, reviews={'known': True, 'blocked': True}), 'PyHSL runs wait for a Run review'),
             (dict(state='unknown', reason='Unreadable', run=None, reviews={}), 'Unreadable')):
@@ -583,7 +583,7 @@ def gates_and_following():
         f.app_dir.joinpath('instance.json').unlink()
         f.monitor.poll()
         eid = dispatch(f, s)
-        until(lambda: f.engine._get_queue_waiting_reason(s.schedule_id) == 'PyHSL Run Control is not running')
+        until(lambda: f.engine._get_queue_waiting_reason(s.schedule_id) == 'PyHSL is not running')
         venus = f.schedule(mode='real')
         f.returncode, f.stderr, f.sql_state = 0, '', 'Complete'
         venus_id = dispatch(f, venus)

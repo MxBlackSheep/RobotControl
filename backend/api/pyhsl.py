@@ -78,7 +78,7 @@ def validate_request(data):
     try:
         return validate_protocol(data.get('protocol_id'), data.get('parameters', {}), data.get('mode'))
     except PyHslUnavailable:
-        raise HTTPException(status_code=400, detail='PyHSL Run Control is not running') from None
+        raise HTTPException(status_code=400, detail='PyHSL is not running') from None
     except PyHslError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
 

@@ -71,7 +71,7 @@ export default function PyHslRunPage() {
 
   if (!runId) return <PageContent>
     <PageHeader title="PyHSL run" />
-    <EmptyPanel title="Run">{status?.state === 'running' ? 'No run is active.' : status?.state === 'not_running' ? 'Run Control is not running.' : 'Run Control state unknown.'}</EmptyPanel>
+    <EmptyPanel title="Run">{status?.state === 'running' ? 'No run is active.' : status?.state === 'not_running' ? 'PyHSL is not running.' : 'PyHSL state is unknown.'}</EmptyPanel>
   </PageContent>;
 
   const ended = !!run && ENDED.includes(run.status);
