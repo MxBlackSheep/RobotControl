@@ -331,58 +331,56 @@ const SchedulingPage: React.FC = () => {
           )}
         </TabPanel>
 
-        {user?.role === 'admin' && (
-          <TabPanel value={currentTab} index={5}>
-            <Stack spacing={3}>
-              <Box sx={{ borderBottom: 1, borderColor: 'divider', px: { xs: 0.5, md: 1 } }}>
-                <Tabs
-                  value={notificationsTab}
-                  onChange={handleNotificationsTabChange}
-                  variant="scrollable"
-                  scrollButtons="auto"
-                  allowScrollButtonsMobile
-                  aria-label="notification configuration tabs"
-                  sx={{
-                    minHeight: { xs: 42, md: 46 },
-                    '& .MuiTabs-indicator': {
-                      height: 3,
-                      borderRadius: 2,
-                    },
-                  }}
-                >
-                  <Tab label="Contacts" sx={{ minHeight: 0 }} />
-                  <Tab label="Delivery Logs" sx={{ minHeight: 0 }} />
-                  <Tab label="Email Settings" sx={{ minHeight: 0 }} />
-                </Tabs>
-              </Box>
+        <TabPanel value={currentTab} index={5}>
+          <Stack spacing={3}>
+            <Box sx={{ borderBottom: 1, borderColor: 'divider', px: { xs: 0.5, md: 1 } }}>
+              <Tabs
+                value={notificationsTab}
+                onChange={handleNotificationsTabChange}
+                variant="scrollable"
+                scrollButtons="auto"
+                allowScrollButtonsMobile
+                aria-label="notification configuration tabs"
+                sx={{
+                  minHeight: { xs: 42, md: 46 },
+                  '& .MuiTabs-indicator': {
+                    height: 3,
+                    borderRadius: 2,
+                  },
+                }}
+              >
+                <Tab label="Contacts" sx={{ minHeight: 0 }} />
+                <Tab label="Delivery Logs" sx={{ minHeight: 0 }} />
+                <Tab label="Email Settings" sx={{ minHeight: 0 }} />
+              </Tabs>
+            </Box>
 
-              {notificationsTab === 0 && (
-                <NotificationContactsPanel
-                  contacts={state.contacts}
-                  onRefresh={(includeInactive) => actions.loadContacts(includeInactive)}
-                  onCreate={actions.createContact}
-                  onUpdate={actions.updateContact}
-                  onDelete={actions.deleteContact}
-                />
-              )}
+            {notificationsTab === 0 && (
+              <NotificationContactsPanel
+                contacts={state.contacts}
+                onRefresh={(includeInactive) => actions.loadContacts(includeInactive)}
+                onCreate={actions.createContact}
+                onUpdate={actions.updateContact}
+                onDelete={actions.deleteContact}
+              />
+            )}
 
-              <SectionPanel active={notificationsTab === 1}>
-                <NotificationLogPanel active={currentTab === 5 && notificationsTab === 1} />
-              </SectionPanel>
+            <SectionPanel active={notificationsTab === 1}>
+              <NotificationLogPanel active={currentTab === 5 && notificationsTab === 1} />
+            </SectionPanel>
 
-              <SectionPanel active={notificationsTab === 2}>
-              <NotificationEmailSettingsPanel
-                  settings={state.notificationSettings}
-                  loading={state.notificationSettingsLoading}
-                  onRefresh={actions.loadNotificationSettings}
-                  onSave={actions.updateNotificationSettings}
-                  onSendTest={actions.sendNotificationTestEmail}
-                  contacts={state.contacts}
-                />
-              </SectionPanel>
-            </Stack>
-          </TabPanel>
-        )}
+            <SectionPanel active={notificationsTab === 2}>
+            <NotificationEmailSettingsPanel
+                settings={state.notificationSettings}
+                loading={state.notificationSettingsLoading}
+                onRefresh={actions.loadNotificationSettings}
+                onSave={actions.updateNotificationSettings}
+                onSendTest={actions.sendNotificationTestEmail}
+                contacts={state.contacts}
+              />
+            </SectionPanel>
+          </Stack>
+        </TabPanel>
         <TabPanel value={currentTab} index={6}>
           <MethodLibraryPanel showImportAction={false} version={catalogueVersion} onChanged={() => setCatalogueVersion(value => value + 1)}
             onChangePath={setMethodToRelink}
