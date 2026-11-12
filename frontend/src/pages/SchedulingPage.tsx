@@ -72,8 +72,7 @@ const SchedulingPage: React.FC = () => {
   // The frame owns the one status read; the page shows it and asks it to refresh.
   const robot = useRobotStatusContext();
   const status = robot.status;
-  const isLocalSession = isLocalUser(user);
-  const isLocalClient = isLocalSession;
+  const isLocal = isLocalUser(user);
   const phone = usePhoneWorkspace();
   const workspaceTop = useRef<HTMLDivElement>(null);
   const detailHeading = useRef<HTMLDivElement>(null);
@@ -205,7 +204,7 @@ const SchedulingPage: React.FC = () => {
     const actionLabel = (full: string) => phone ? { 'aria-label': full, children: full.split(' ')[0] } : { children: full };
     const archiveLabel = schedule.archived ? 'Restore schedule' : 'Archive schedule';
     // Archived: restore before editing. Under review: edit or delete only (the server refuses the rest).
-    const scheduleActions = isLocalSession
+    const scheduleActions = isLocal
       ? <Stack direction="row" gap={1} flexWrap={phone ? 'nowrap' : 'wrap'} aria-label="Schedule actions" sx={phone ? { '& > *': { flex: '1 1 0', minHeight: 44 } } : undefined}>
         {!schedule.archived && <Button variant="contained" onClick={() => setForm({ schedule })} disabled={state.loading} {...actionLabel('Edit schedule')} />}
         {!schedule.review_reason && <Button variant={schedule.archived ? 'contained' : 'outlined'} disabled={state.loading || schedule.recovery_required}
@@ -275,7 +274,7 @@ const SchedulingPage: React.FC = () => {
   const recovery = status?.recovery;
   return (
     <PageContent variant={currentTab === 5 && notificationsTab === 2 ? "task" : "inspection"}>
-      <PageHeader title="Scheduling" actions={isLocalSession && <>
+      <PageHeader title="Scheduling" actions={isLocal && <>
         <Button variant="contained" onClick={() => setForm({})} disabled={state.loading}>Create schedule</Button>
         <Button variant="outlined" onClick={() => setFolderImportOpen(true)} disabled={state.loading}>Import methods</Button>
       </>} />
@@ -304,7 +303,7 @@ const SchedulingPage: React.FC = () => {
         </TabPanel>
 
         <TabPanel value={currentTab} index={1}>
-          <RecoverySafetyPanel state={recovery ?? null} isLocal={isLocalSession}
+          <RecoverySafetyPanel state={recovery ?? null} isLocal={isLocal}
             onChanged={async () => { await robot.refresh(); await actions.loadSchedules(); }} />
         </TabPanel>
 
@@ -321,7 +320,7 @@ const SchedulingPage: React.FC = () => {
 
         <TabPanel value={currentTab} index={4}>
           {scheduleWorkspace('Archived', state.archivedSchedules, () => void actions.loadArchivedSchedules(), state.archivedLoading, state.archivedError, false)}
-          {!isLocalSession && (
+          {!isLocal && (
             <Typography
               variant="caption"
               color="text.secondary"
@@ -416,7 +415,7 @@ const SchedulingPage: React.FC = () => {
         onClose={() => setFolderImportOpen(false)}
         onImportComplete={() => setCatalogueVersion(version => version + 1)}
         onCreateSchedule={() => setForm({})}
-        isLocalClient={isLocalClient}
+        isLocalClient={isLocal}
       />
     </PageContent>
   );
