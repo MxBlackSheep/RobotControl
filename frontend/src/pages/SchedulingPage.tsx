@@ -93,9 +93,6 @@ const SchedulingPage: React.FC = () => {
   const openNotificationsTab = () => setCurrentTab(5);
 
   useEffect(() => {
-    if (user?.role !== 'admin') {
-      return;
-    }
     if (currentTab !== 5 || notificationsTab !== 0) {
       return;
     }
@@ -103,12 +100,9 @@ const SchedulingPage: React.FC = () => {
       setContactsRequested(true);
       actions.loadContacts(true);
     }
-  }, [user?.role, currentTab, notificationsTab, contactsRequested, actions]);
+  }, [currentTab, notificationsTab, contactsRequested, actions]);
 
   useEffect(() => {
-    if (user?.role !== 'admin') {
-      return;
-    }
     if (currentTab !== 5 || notificationsTab !== 2) {
       return;
     }
@@ -116,7 +110,7 @@ const SchedulingPage: React.FC = () => {
       setEmailSettingsRequested(true);
       actions.loadNotificationSettings();
     }
-  }, [user?.role, currentTab, notificationsTab, emailSettingsRequested, actions]);
+  }, [currentTab, notificationsTab, emailSettingsRequested, actions]);
 
   const handleNotificationsTabChange = (_event: React.SyntheticEvent, newValue: number) => {
     setNotificationsTab(newValue);
