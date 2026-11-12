@@ -9,7 +9,8 @@ Failure cases: a locked auth database makes /api/auth/me, a protected route or
 /api/auth/refresh answer 401 (the browser then deletes the saved sign-in) instead of 503; the
 refresh token is revoked during the outage, so /me and refresh fail after the lock is released;
 a genuinely bad, expired, wrong-type or revoked token stops answering 401; a sign-in relayed by
-a tunnel on this computer (loopback peer with forwarding headers) is reported as local; remote
+a tunnel on this computer (loopback peer with forwarding headers) is reported as local by login
+or /api/auth/me, or /api/auth/me stops reporting a plain loopback session as local; remote
 password guessing is unlimited (including through the tunnel with a spoofed first
 X-Forwarded-For entry), remote guessing locks the RobotControl computer out, or an auth storage
 outage counts as wrong passwords.
@@ -288,6 +289,9 @@ def run():
                 response = client.post('/api/auth/login', json=credentials, headers=headers)
                 session = response.json().get('data', {}).get('session', {}) if response.status_code == 200 else {}
                 check(name, session.get('is_local') is local, [response.status_code, session])
+                me = client.get('/api/auth/me', headers={**headers, 'Authorization': f"Bearer {response.cookies.get('rc_access', '')}"})
+                me_session = me.json().get('data', {}).get('session', {}) if me.status_code == 200 else {}
+                check(f'/api/auth/me agrees: {name}', me_session.get('is_local') is local, [me.status_code, me_session])
 
             # Browsers keep the sign-in in two HttpOnly cookies; page scripts never see a token.
             client.cookies.clear()

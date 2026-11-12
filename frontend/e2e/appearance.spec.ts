@@ -144,7 +144,7 @@ for (const width of [320, 1920]) {
   test(`all module shells support dark appearance at ${width}px`, async ({ page }, info) => {
     await page.setViewportSize({ width, height: width === 320 ? 740 : 1080 });
     await page.addInitScript(() => localStorage.setItem('robotcontrol-appearance', 'dark'));
-    await page.route('**/api/auth/me', route => route.fulfill({ json: { success: true, data: { user_id: 'viewer-admin', username: 'operator', role: 'admin', session_is_local: true, session: { is_local: true } } } }));
+    await page.route('**/api/auth/me', route => route.fulfill({ json: { success: true, data: { user_id: 'viewer-admin', username: 'operator', role: 'admin', session: { is_local: true } } } }));
     const errors: string[] = [];
     page.on('pageerror', error => errors.push(error.message));
     for (const route of ['/', '/database', '/database?section=restore', '/database?section=operations', '/scheduling', '/scheduling?section=calendar', '/scheduling?section=history', '/scheduling?section=notifications', '/camera', '/labware', '/labware?section=cytomat', '/maintenance', '/logfile', '/system-status', '/admin', '/admin?section=storage', '/about']) {

@@ -12,7 +12,7 @@ import { signIn } from './sign-in';
 const phone = { width: 390, height: 844 };
 const tabs = (page: Page) => page.getByRole('navigation', { name: 'Pages' });
 const signInAs = (page: Page, role: string) => page.route('**/api/auth/me', route => route.fulfill({ json: {
-  success: true, data: { user_id: 'viewer-admin', username: 'operator', role, session_is_local: false, session: { is_local: false } } } }));
+  success: true, data: { user_id: 'viewer-admin', username: 'operator', role, session: { is_local: false } } } }));
 
 test.beforeEach(async ({ page }) => {
   await signIn(page);

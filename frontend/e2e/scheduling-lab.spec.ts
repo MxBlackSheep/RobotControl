@@ -30,7 +30,7 @@ async function scheduling(page: Page, options: { role?: 'admin' | 'user'; list: 
   contacts?: () => object[]; write?: (route: Route) => Promise<void> }) {
   await signIn(page);
   await page.route('**/api/auth/me', route => route.fulfill({ json: { success: true, data: {
-    user_id: 'operator', username: 'operator', role: options.role ?? 'admin', session_is_local: true, session: { is_local: true } } } }));
+    user_id: 'operator', username: 'operator', role: options.role ?? 'admin', session: { is_local: true } } } }));
   await page.route('**/api/scheduling/**', async route => {
     const path = new URL(route.request().url()).pathname;
     if (route.request().method() !== 'GET') {
