@@ -54,7 +54,7 @@ export default function PyHslRunPage() {
         return { run: state, deck: { run: runId!, body: (await api.get('/api/pyhsl/deck', { signal })).data }, deckError: null };
       } catch (err: any) {
         if (signal.aborted) throw err;
-        return { run: state, deck: null, deckError: appErrorMessage(err) || 'Run Control did not answer' };
+        return { run: state, deck: null, deckError: appErrorMessage(err) || 'PyHSL did not answer' };
       }
     },
     onSuccess: value => { setRun(value.run); setDeck(value.deck); setDeckError(value.deckError); setReadAt(new Date()); },

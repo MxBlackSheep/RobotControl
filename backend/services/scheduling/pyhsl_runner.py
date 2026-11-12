@@ -106,7 +106,7 @@ class PyHslRunner:
         try:
             reading = self.client.get('/reviews', timeout=30)
         except PyHslError:
-            raise SafetyConflict('Cannot read PyHSL Run Control; acknowledgement is unavailable') from None
+            raise SafetyConflict('Cannot read PyHSL; acknowledgement is unavailable') from None
         if isinstance(reading, dict) and reading.get('active') is True:
             raise SafetyConflict('A PyHSL run is active')
         review = review_state(reading, run_id)

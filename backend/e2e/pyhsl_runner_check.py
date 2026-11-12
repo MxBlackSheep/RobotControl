@@ -335,7 +335,7 @@ def runner_failures():
             assert len(f.prepared) == len(f.server.runs) == 1
             f.engine.pyhsl_runner.acknowledge(s.schedule_id)
             assert all(c.kwargs.get('timeout') == 30 for c in get.call_args_list if c.args[0] == '/reviews')
-        with patch.object(f.client, 'get', side_effect=PyHslTimeout('Run Control did not answer in time')):
+        with patch.object(f.client, 'get', side_effect=PyHslTimeout('PyHSL did not answer in time')):
             f.monitor.poll()
             assert f.monitor.status()['state'] == 'unknown'
     with fixture() as f:
@@ -531,7 +531,7 @@ def relay_reads():
             f.server.run_refused = True
             response = http.get(url)
             assert response.status_code == 404 and TOKEN not in response.text
-            with patch.object(f.client, '_discover', side_effect=PyHslTimeout('Run Control did not answer in time')):
+            with patch.object(f.client, '_discover', side_effect=PyHslTimeout('PyHSL did not answer in time')):
                 for path in urls:
                     assert http.get(path).status_code == 504
             f.server.unreachable = True
@@ -807,11 +807,11 @@ def catalog_and_experiments():
             app.dependency_overrides[get_current_user] = lambda: {'role': 'viewer'}
             assert http.get('/api/pyhsl/protocols').status_code == 403
             app.dependency_overrides[get_current_user] = lambda: {'role': 'admin'}
-            with patch.object(f.client, 'get', side_effect=PyHslTimeout('Run Control did not answer in time')):
+            with patch.object(f.client, 'get', side_effect=PyHslTimeout('PyHSL did not answer in time')):
                 assert http.get('/api/pyhsl/protocols').status_code == 504
             f.server.unreachable = True
             response = http.get('/api/pyhsl/protocols')
-            assert response.status_code == 503 and response.json()['detail'] == 'Run Control is unreachable'
+            assert response.status_code == 503 and response.json()['detail'] == 'PyHSL is unreachable'
             f.server.unreachable = False
         session_id = 'ab' * 16
         f.server.runs['fixture-run'] = dict(session_id=session_id, created_at=datetime.now().isoformat(), status='completed', error=None)
