@@ -24,9 +24,17 @@ export const sectionRegistry: Record<string, Section[]> = {
   '/logfile': [{id: 'python', label: 'Python logs', index: 0, source: 'python_log'}, {id: 'hamilton', label: 'Hamilton traces', index: 1, source: 'hamilton_logfiles'}, {id: 'robotcontrol', label: 'RobotControl logs', index: 2, adminOrLocal: true, source: 'robotcontrol_logs'}],
   '/admin': [{id: 'users', label: 'User accounts', index: 0}, {id: 'password-resets', label: 'Password reset requests', index: 1}, {id: 'storage', label: 'Storage health', index: 2, local: true}],
 };
+const roleAllows = (section: Section, user: NavigationUser) => !section.admin || user?.role === 'admin';
+/** Whether this user has the section only on the RobotControl computer. */
+const needsLocal = (section: Section, user: NavigationUser) => section.local || (section.adminOrLocal && user?.role !== 'admin');
 export const allowedSections = (path: string, user: NavigationUser) => {
   if (!canOpen(path, user)) return [];
-  return (sectionRegistry[path] || []).filter(section => (!section.admin || user?.role === 'admin') && (!section.local || isLocalUser(user)) && (!section.adminOrLocal || user?.role === 'admin' || isLocalUser(user)));
+  return (sectionRegistry[path] || []).filter(section => roleAllows(section, user) && (!needsLocal(section, user) || isLocalUser(user)));
+};
+/** Sections this user would have on the RobotControl computer but a remote session (the tunnel) lacks. */
+export const localOnlySections = (path: string, user: NavigationUser) => {
+  if (!user || isLocalUser(user) || !canOpen(path, user)) return [];
+  return (sectionRegistry[path] || []).filter(section => roleAllows(section, user) && needsLocal(section, user));
 };
 export const allowedSchedulingSections = (user: NavigationUser) => allowedSections('/scheduling', user);
 export const moduleSectionUrl = (path: string, index: number) => index === 0 ? path : `${path}?section=${sectionRegistry[path]?.find(section => section.index === index)?.id || ''}`;
