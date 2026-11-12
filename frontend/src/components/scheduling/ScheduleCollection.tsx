@@ -10,7 +10,7 @@ import { dayTime } from '../../utils/displayTime';
 export function scheduleState(schedule: ScheduledExperiment): { label: string; tone: StatusTone } {
   // A stored record that fails its check never runs, whatever its other flags say.
   if (schedule.review_reason) return { label: 'Needs review', tone: 'attention' };
-  if (schedule.recovery_required) return { label: 'Recovery required', tone: 'attention' };
+  if (schedule.recovery_required) return { label: 'Held', tone: 'attention' };
   if (schedule.archived) return { label: 'Archived', tone: 'neutral' };
   return schedule.is_active ? { label: 'Active', tone: 'completed' } : { label: 'Inactive', tone: 'neutral' };
 }
@@ -27,7 +27,7 @@ const filters: { value: Filter; label: string; match: (schedule: ScheduledExperi
   { value: 'all', label: 'All', match: () => true },
   { value: 'active', label: 'Active', match: schedule => scheduleState(schedule).label === 'Active' },
   { value: 'inactive', label: 'Inactive', match: schedule => scheduleState(schedule).label === 'Inactive' },
-  { value: 'recovery', label: 'Recovery', match: schedule => scheduleState(schedule).label === 'Recovery required' },
+  { value: 'recovery', label: 'Held', match: schedule => scheduleState(schedule).label === 'Held' },
 ];
 
 // Wide enough for the table columns; narrower panels stack each row.

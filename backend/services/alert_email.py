@@ -397,7 +397,7 @@ def manual_recovery_email(*, required: bool, experiment: str, schedule_id: str, 
                           at: Any, note: Optional[str], now: datetime) -> AlertEmail:
     experiment = _one_line(experiment)
     if required:
-        tone, headline, fact = "error", "Manual recovery required", "manual recovery required"
+        tone, headline, fact = "error", "Held", "held"
         summary = (f"{experiment} needs manual recovery. Automatic scheduling is paused and this schedule is "
                    "inactive. Check the robot and the deck, then acknowledge the recovery and choose Resume "
                    "queued jobs on the Scheduling page.")

@@ -52,7 +52,7 @@ export function NeedsAttention({ status, span }: { status: RobotStatus | null; s
   const [chip, heading, body] = attention.kind === 'storage'
     ? ['Storage unavailable', 'Scheduler storage', `No runs are dispatched until scheduler storage is healthy again.${recovery.storage_error ? ` ${recovery.storage_error}` : ''}`]
     : attention.kind === 'recovery'
-      ? ['Recovery required', first?.experiment_name || recovery.experiment_name || 'A scheduled run',
+      ? ['Held', first?.experiment_name || recovery.experiment_name || 'A scheduled run',
           `${first?.triggered_at ? `Stopped at ${clockTime(new Date(first.triggered_at))}. ` : ''}New runs are held until someone checks the deck and resolves this.${attention.count > 1 ? ` ${attention.count - 1} more waiting.` : ''}`]
       : ['Waiting for Resume', 'Queued jobs are paused', 'Recovery is acknowledged. Queued jobs stay paused until someone chooses Resume queued jobs.'];
   // On phones the hold comes first, right after the status strip: it blocks every other run.
