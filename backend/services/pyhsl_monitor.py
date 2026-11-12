@@ -54,13 +54,13 @@ class PyHslMonitor:
         if (self._review_rows != rows or self._review_read is None or now - self._review_read[0] > REVIEW_READ_SECONDS
                 or self._review_read[1].get('active')):
             self._review_rows = None
-            self._review_read = (now, self.client.get('/reconciliation', timeout=REVIEW_READ_TIMEOUT))
+            self._review_read = (now, self.client.get('/reviews', timeout=REVIEW_READ_TIMEOUT))
             self._review_rows = rows
         return self._review_read[1]
 
     def poll(self):
         try:
-            runs = self.client.get('/runs')['sessions']
+            runs = self.client.get('/runs')['runs']
             if isinstance(runs, list):
                 self._protocols = {row['session_id'].lower(): row['protocol'] for row in runs
                                    if row.get('session_id') and row.get('protocol')}

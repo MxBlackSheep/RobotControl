@@ -15,8 +15,10 @@ Each request rereads discovery, verifies the health response's instance ID, then
 reads the machine token. Use only that token; never access or use the bootstrap
 value. HTTP is restricted to `127.0.0.1` or `localhost`, with connections pinned
 to IPv4 loopback and no proxy or redirect handling. Reads time out after two
-seconds, and the review list after 30, because Run Control parses every journal for
-it. The monitor reads that list only when a run row changes or every two minutes. A
+seconds, and the review list (`GET /api/v1/reviews`) after 30, because Run Control
+parses every journal for it. The run list is `GET /api/v1/runs`, read as
+`{"runs": [...]}`. Neither has a fallback to PyHSL's older `/reconciliation` path or
+`sessions` key, so PyHSL and RobotControl are upgraded together. The monitor reads that list only when a run row changes or every two minutes. A
 timeout reads as `unknown`, not as closed. Start uses a 60-second POST timeout.
 Before a resend after a failed Start or a restart, RobotControl reads Run Control's
 runs and adopts a match. If there is no match, it rechecks the launch guard before
@@ -30,7 +32,7 @@ newest row without a terminal status, shown with its raw status, so an unfamilia
 status never reads as finished. Connection or discovery absence produces
 `not_running`; authentication and invalid responses produce `unknown`.
 Unreachable or older-than-60-second readings never report running or known reviews.
-While reconciliation is active, its cached run IDs and blocked flag remain visible,
+While the review list is active, its cached run IDs and blocked flag remain visible,
 but `reviews.known` is false and the reason says the summary is cached.
 
 `pyhsl_run_failed` covers failed, unknown-outcome and reconciliation-required
@@ -72,7 +74,7 @@ and 504; other upstream errors return 502.
 
 Deck and run responses relay the complete upstream JSON bodies unchanged, subject
 to the client's machine-token redaction, for PyHSL's Monitoring API view on the Run
-page; no field is filtered or derived. Run polling does not request reconciliation.
+page; no field is filtered or derived. Run polling does not request the review list.
 
 The monitor script is read from Run Control's `/monitor.js`, outside `/api/v1`,
 after the same discovery and instance verification, without sending the machine
