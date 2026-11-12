@@ -415,7 +415,7 @@ const SchedulingPage: React.FC = () => {
         onClose={() => setFolderImportOpen(false)}
         onImportComplete={() => setCatalogueVersion(version => version + 1)}
         onCreateSchedule={() => setForm({})}
-        isLocalClient={isLocal}
+        isLocal={isLocal}
       />
     </PageContent>
   );

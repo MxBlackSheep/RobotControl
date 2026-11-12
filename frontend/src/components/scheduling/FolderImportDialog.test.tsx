@@ -13,7 +13,7 @@ const rows = [
   { name: 'Second', relative_path: 'nested/Second.MED', path: 'C:\\Methods\\nested\\Second.MED', action: 'update' },
   { name: 'Missing', relative_path: 'Missing.med', path: null, action: 'invalid', reason: 'File missing' },
 ];
-const props = () => ({ open: true, onClose: vi.fn(), onImportComplete: vi.fn(), onCreateSchedule: vi.fn(), isLocalClient: true });
+const props = () => ({ open: true, onClose: vi.fn(), onImportComplete: vi.fn(), onCreateSchedule: vi.fn(), isLocal: true });
 async function chooseManualFolder() {
   fireEvent.click(screen.getByRole('radio', { name: 'Enter a folder path' }));
   fireEvent.change(screen.getByLabelText(/Folder path on RobotControl computer/), { target: { value: 'C:\\Methods' } });
@@ -78,7 +78,7 @@ describe('method import workflow', () => {
   });
 
   it('blocks preview for a remote client', () => {
-    render(<FolderImportDialog {...props()} isLocalClient={false} />);
+    render(<FolderImportDialog {...props()} isLocal={false} />);
     expect((screen.getByRole('button', { name: 'Use this folder' }) as HTMLButtonElement).disabled).toBe(true);
     expect(schedulingAPI.previewExperimentImport).not.toHaveBeenCalled();
   });
