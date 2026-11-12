@@ -59,7 +59,7 @@ export default function RecoverySafetyPanel({ state, isLocal, onChanged }: Props
         <DetailTitle component="h3">{item.experiment_name || 'Unknown schedule'}</DetailTitle>
         {item.schedule_id && (!item.experiment_name || pending.filter(other => other.experiment_name === item.experiment_name).length > 1)
           && <Typography variant="body2" color="text.secondary">Schedule {item.schedule_id.slice(0, 8)}</Typography>}
-        <Typography>{item.note || 'Manual recovery required'}</Typography>
+        <Typography>{item.note || 'Held'}</Typography>
         <Typography variant="body2" color="text.secondary">Triggered by {item.triggered_by || 'unknown'} at {item.triggered_at || 'unknown time'}</Typography>
         {item.schedule_missing && <Alert severity="warning">The original schedule is missing. You can still acknowledge recovery here; a note is required.</Alert>}
         {item.archived && <Typography>This schedule is archived.</Typography>}

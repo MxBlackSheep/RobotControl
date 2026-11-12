@@ -48,7 +48,7 @@ The workstation's own browser keeps the full page at any width, so narrowing it 
 an open draft. Checks: `phone-runs.spec.ts`. Back from details on a phone focuses the open row (`aria-current`), not the
 selected filter button, which is also `.Mui-selected`. Archived uses the same list without
 the status filter. `scheduleState` (exported from `ScheduleCollection`) is the one mapping
-from a schedule to its label and tone: Needs review and Recovery required are amber (needs
+from a schedule to its label and tone: Needs review and Held are amber (needs
 action), Active green, Inactive and Archived grey. The list and detail panel use it through
 `StatusChip`. The calendar shows the chip only for entries that are not plain Active (an
 inactive schedule still has a `next_run`, so it must not read as a run that will happen).
@@ -81,7 +81,7 @@ its own Contacts/History/Email settings tabs. Visited sections stay mounted thro
 
 The list and runtime queue use a named CSS container query: two columns only when at
 least 1100px remains after navigation and gutters (not a viewport breakpoint). The
-service strip shows scheduler state, Refresh queue, Recovery required and a Queue
+service strip shows scheduler state, Refresh queue, Held and a Queue
 details disclosure. The collection has a Schedules heading with Refresh,
 then search, status filters and sort controls at a compact 16px inset. Refresh queue
 and the collection's Refresh keep separate request scopes. History, notification

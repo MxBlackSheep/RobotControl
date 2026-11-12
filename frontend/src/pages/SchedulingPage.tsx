@@ -32,7 +32,7 @@ import { DeleteConfirmationDialog } from '../components/ScheduleActions';
 type OpenForm = { schedule?: ScheduledExperiment; method?: LibraryMethod };
 
 // Not Active: a stored next_run is not a run that will happen.
-const notRunning: Record<string, string> = { 'Needs review': 'No run until reviewed', 'Recovery required': 'No run until recovery is resolved',
+const notRunning: Record<string, string> = { 'Needs review': 'No run until reviewed', Held: 'No run until recovery is resolved',
   Archived: 'No run while archived', Inactive: 'No run while inactive' };
 
 interface TabPanelProps {
@@ -245,7 +245,7 @@ const SchedulingPage: React.FC = () => {
           <Typography variant="body2" color="text.secondary">Expected duration {formatDuration(schedule.estimated_duration)}</Typography>
         </Box>}
         {schedule.review_reason && <Alert severity="warning" sx={{ m: 2 }}>Needs review: {schedule.review_reason}</Alert>}
-        {schedule.recovery_required && <Alert severity="warning" sx={{ m: 2 }} action={<Button color="inherit" onClick={() => setCurrentTab(1)}>Review recovery</Button>}>Recovery required</Alert>}
+        {schedule.recovery_required && <Alert severity="warning" sx={{ m: 2 }} action={<Button color="inherit" onClick={() => setCurrentTab(1)}>Review recovery</Button>}>Held</Alert>}
         {waitingReason && <Alert severity="warning" sx={{ m: 2 }}>Waiting: {waitingReason}</Alert>}
         <Box component="dl" sx={{ m: 0 }}>
           {facts.map(([name, value]) => <ListRow key={name} columns="136px minmax(0, 1fr)" sx={{ height: 'auto', minHeight: layout.row, py: 1, '& > *': { whiteSpace: 'normal', overflowWrap: 'anywhere' } }}>
@@ -285,7 +285,7 @@ const SchedulingPage: React.FC = () => {
         <Button size="small" startIcon={<RefreshIcon />} onClick={() => void robot.refresh()} sx={{ ml: { sm: 'auto' } }}>Refresh queue</Button>
         {currentTab === 0 && status && <Button size="small" aria-expanded={queueDetailsOpen} onClick={() => setQueueDetailsOpen(value => !value)}>Queue details</Button>}
         {(recovery?.active || recovery?.resume_required) && <Button size="small" variant="contained" startIcon={<WarningAmber />} onClick={() => setCurrentTab(1)}
-          sx={{ bgcolor: theme => theme.palette.tone.attention.bg, color: theme => theme.palette.tone.attention.fg, '&:hover': { bgcolor: theme => theme.palette.tone.attention.bg, filter: 'brightness(0.96)' } }}>Recovery required</Button>}
+          sx={{ bgcolor: theme => theme.palette.tone.attention.bg, color: theme => theme.palette.tone.attention.fg, '&:hover': { bgcolor: theme => theme.palette.tone.attention.bg, filter: 'brightness(0.96)' } }}>Held</Button>}
       </Stack>
       {robot.error && <Alert severity="warning" sx={{ mb: 1 }}>Status not updated: {robot.error}</Alert>}
       {currentTab === 0 && status && queueDetailsOpen && <Box sx={{ mb: `${layout.gutter}px`, bgcolor: 'background.paper', border: 1, borderColor: 'divider', borderRadius: `${layout.radius}px` }}>
