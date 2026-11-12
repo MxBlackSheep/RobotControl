@@ -30,7 +30,7 @@ method library, notifications and history. Backend behavior is in
   example a 3-minute log inactivity threshold) and builds the create and update body from
   the form's `ScheduleFormValues` (`buildScheduleRequest`).
 
-`ScheduleCollection` searches, filters (All/Active/Inactive/Recovery, with counts) and
+`ScheduleCollection` searches, filters (All/Active/Inactive/Held, with counts) and
 sorts the loaded list. In `InspectionWorkspace`'s `layout="table"` it is the wide side and
 the details are a 400px panel; from 640px of its own width (a container query) it shows the
 table columns Schedule, Repeats, Next run, Last run and Status, otherwise one stacked row
@@ -246,6 +246,6 @@ successful run read it reads `/api/pyhsl/deck` (about 2 MB) once for that run ID
 PyHSL keeps the deck fixed while a run is in progress. Without `?run=` the page follows the active run from
 `usePyHslStatus`. The view fills the window below the title (`useLabwareWorkspace`; the warning lines sit in an
 always-present box so the fit is measured again) and scrolls its own panels. RobotControl adds only the title,
-"Run Control not reachable since HH:MM" (the last reading stays), "Loading" or "Run view not shown: <reason>" in the
+"PyHSL not reachable since HH:MM" (the last reading stays), "Loading" or "Run view not shown: <reason>" in the
 view's place, and Show report for an ended run; the report opens in a dialog in an iframe with an empty `sandbox`.
 Failure cases are in `frontend/e2e/pyhsl.spec.ts`.

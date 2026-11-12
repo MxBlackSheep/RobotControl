@@ -85,7 +85,7 @@ class PyHslMonitor:
             reading = self._unavailable('not_running' if isinstance(exc, PyHslUnavailable) else 'unknown', str(exc))
             dated = []
         except (KeyError, TypeError, ValueError, AttributeError):
-            reading = self._unavailable('unknown', 'Run Control returned an invalid reading')
+            reading = self._unavailable('unknown', 'PyHSL returned an invalid reading')
             dated = []
         reading['checked_at'] = datetime.now().astimezone().isoformat()
         self._reading, self._checked = reading, time.monotonic()

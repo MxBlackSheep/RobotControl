@@ -30,7 +30,7 @@ def validate_protocol(protocol_id, parameters, mode):
         raise PyHslError('PyHSL parameters must be a JSON object')
     result = PyHslClient().post('/validate', dict(protocol_id=protocol_id, parameters=parameters, mode=mode))
     if not isinstance(result, dict) or not isinstance(result.get('protocol'), dict) or not result['protocol'].get('revision'):
-        raise PyHslError('Run Control returned an invalid protocol revision')
+        raise PyHslError('PyHSL returned an invalid protocol revision')
     return result
 
 
