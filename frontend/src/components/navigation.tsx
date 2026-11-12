@@ -6,7 +6,8 @@ export type NavigationUser = { role?: string; session_is_local?: boolean } | nul
 /** Roles that may open a page; any other page is open to every signed-in role. The server still refuses what a role may not do. */
 const pageRoles: Record<string, string[]> = { '/scheduling': ['admin', 'user'], '/pyhsl': ['admin', 'user'], '/labware': ['admin', 'user'], '/admin': ['admin'] };
 export const canOpen = (path: string, user: NavigationUser) => !pageRoles[path] || pageRoles[path].includes(user?.role || '');
-export const isLocalUser = (user: NavigationUser) => typeof user?.session_is_local === 'boolean' ? user.session_is_local : ['localhost', '127.0.0.1', '::1', '[::1]', '0.0.0.0'].includes(window.location.hostname);
+/** The server's answer for this session (lab PC or tunnel); with no answer the session only watches. */
+export const isLocalUser = (user: NavigationUser) => user?.session_is_local === true;
 export const schedulingSections = [
   { id: 'schedules', label: 'Schedules', index: 0 }, { id: 'methods', label: 'Methods', index: 6, local: true },
   { id: 'calendar', label: 'Calendar', index: 2 }, { id: 'history', label: 'History', index: 3 },
