@@ -29,7 +29,7 @@ export default function PyHslPanel({ status, span, canOpen }: { status: PyHslSta
       {run.error && <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>{run.error}</Typography>}
       {canOpen && <Button variant="outlined" component={Link} to={`/pyhsl?run=${run.run_id}`} sx={{ alignSelf: 'flex-start' }}>Open run</Button>}
     </>}
-    {reviews.blocked && <Typography variant="body2">Record the Run review in Run Control on the robot PC.</Typography>}
+    {reviews.blocked && <Typography variant="body2">Record the Run review in Run Control on the workstation.</Typography>}
     {!run && !reviews.blocked && <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{status.reason}</Typography>}
   </Panel>;
 }

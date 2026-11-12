@@ -89,7 +89,7 @@ export default function FolderImportDialog({ open, onClose, onImportComplete, on
           <Stepper activeStep={stage} alternativeLabel>
             {['Choose folder', 'Review methods', 'Import results'].map(label => <Step key={label}><StepLabel>{label}</StepLabel></Step>)}
           </Stepper>
-          {!isLocalClient && <Alert severity="warning">Open RobotControl locally on the robot computer to import methods.</Alert>}
+          {!isLocalClient && <Alert severity="warning">Open RobotControl locally on the workstation to import methods.</Alert>}
           {stage === 0 && <>
             <FormControl ref={initialFocus} disabled={busy || !isLocalClient}>
               <FormLabel id="method-source-label">Choose how to select the folder</FormLabel>

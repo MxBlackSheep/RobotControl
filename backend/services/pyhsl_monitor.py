@@ -23,7 +23,7 @@ class PyHslMonitor:
     def __init__(self, client=None, *, email=None):
         self.client = client or PyHslClient()
         self.email = email
-        self._reading = self._unavailable('unknown', 'Run Control has not been checked')
+        self._reading = self._unavailable('unknown', 'PyHSL has not been checked')
         self._checked = None
         self._protocols = {}
         self._review_rows = None
@@ -40,7 +40,7 @@ class PyHslMonitor:
         reading, checked = self._reading, self._checked
         result = copy.deepcopy(reading)
         if checked is not None and time.monotonic() - checked > 60:
-            result.update(state='unknown', reason='Run Control reading is stale', run=None)
+            result.update(state='unknown', reason='PyHSL reading is stale', run=None)
             result['reviews']['known'] = False
         return result
 
@@ -54,13 +54,13 @@ class PyHslMonitor:
         if (self._review_rows != rows or self._review_read is None or now - self._review_read[0] > REVIEW_READ_SECONDS
                 or self._review_read[1].get('active')):
             self._review_rows = None
-            self._review_read = (now, self.client.get('/reconciliation', timeout=REVIEW_READ_TIMEOUT))
+            self._review_read = (now, self.client.get('/reviews', timeout=REVIEW_READ_TIMEOUT))
             self._review_rows = rows
         return self._review_read[1]
 
     def poll(self):
         try:
-            runs = self.client.get('/runs')['sessions']
+            runs = self.client.get('/runs')['runs']
             if isinstance(runs, list):
                 self._protocols = {row['session_id'].lower(): row['protocol'] for row in runs
                                    if row.get('session_id') and row.get('protocol')}
@@ -78,14 +78,14 @@ class PyHslMonitor:
             cached = reviews['active']
             if type(cached) is not bool or type(reviews['blocked']) is not bool:
                 raise ValueError
-            reason = 'Run review summary is cached while Run Control is active' if cached else ''
+            reason = 'Run review summary is cached while PyHSL is active' if cached else ''
             reading = dict(state='running', reason=reason, run=run,
                            reviews=dict(known=not cached, blocked=reviews['blocked'] or bool(review_ids), run_ids=review_ids))
         except PyHslError as exc:
             reading = self._unavailable('not_running' if isinstance(exc, PyHslUnavailable) else 'unknown', str(exc))
             dated = []
         except (KeyError, TypeError, ValueError, AttributeError):
-            reading = self._unavailable('unknown', 'Run Control returned an invalid reading')
+            reading = self._unavailable('unknown', 'PyHSL returned an invalid reading')
             dated = []
         reading['checked_at'] = datetime.now().astimezone().isoformat()
         self._reading, self._checked = reading, time.monotonic()

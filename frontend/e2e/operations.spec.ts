@@ -61,7 +61,7 @@ for (const width of [390, 1920]) {
     await page.setViewportSize({ width, height: 844 });
     const writes = await operations(page);
     await page.goto('/scheduling?section=schedules');
-  await expect(page.getByRole('button', { name: 'Recovery required', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Held', exact: true })).toBeVisible();
     const queueDetails = page.getByRole('button', { name: 'Queue details', exact: true });
     await expect(queueDetails).toHaveAttribute('aria-expanded', 'false');
     await queueDetails.click();
@@ -180,7 +180,7 @@ test('a failed status read shows its own error until that status reads again', a
   failQueue = false;
   await page.getByRole('button', { name: 'Refresh queue', exact: true }).click();
   await expect(statusError).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Recovery required', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Held', exact: true })).toBeVisible();
 });
 
 test('an archived schedule opens in the shared detail, restores, and another deletes', async ({ page }) => {

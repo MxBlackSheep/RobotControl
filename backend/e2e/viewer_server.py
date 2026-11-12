@@ -151,7 +151,7 @@ async def set_camera(request: Request):
 
 @app.get('/api/pyhsl/status')
 def pyhsl_status():
-    return dict(state='not_running', reason='Run Control discovery is unavailable', checked_at=None, run=None,
+    return dict(state='not_running', reason='PyHSL discovery is unavailable', checked_at=None, run=None,
                 reviews=dict(known=False, blocked=False, run_ids=[]))
 
 
