@@ -346,7 +346,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
           {/* Experiment Selection Section */}
           <Box component="section">
             <Box sx={{ mb: 1.5 }}>
-              <Typography variant="subtitle1">Method</Typography>
+              <Typography variant="subtitle1">Method or protocol</Typography>
             </Box>
             <Box>
               <Stack spacing={2}>

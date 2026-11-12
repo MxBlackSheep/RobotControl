@@ -68,7 +68,7 @@ export default function ScheduleCollection({ title, statusFilter, schedules, sel
       {error && <Alert severity="error" sx={{ m: 2 }}>{error}</Alert>}
       <Box aria-hidden sx={{ display: 'none', [table]: { display: 'grid' }, gridTemplateColumns: columns, columnGap: 2, alignItems: 'center', height: layout.row, flexShrink: 0, px: 2,
         borderBottom: 1, borderColor: 'surface.rowLine', ...columnHeading }}>
-        <span>Experiment</span><span>Repeats</span><span>Next run</span><span>Last run</span><span>Status</span>
+        <span>Schedule</span><span>Repeats</span><span>Next run</span><span>Last run</span><span>Status</span>
       </Box>
       <List aria-label={`${title} (${visible.length})`} disablePadding sx={{ overflow: 'auto', flex: 1, minHeight: 0 }}>
         {visible.map(schedule => {
