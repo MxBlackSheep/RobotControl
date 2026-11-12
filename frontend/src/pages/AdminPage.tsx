@@ -6,7 +6,6 @@ import { useAuth } from '../context/AuthContext';
 import StatusDialog from '../components/StatusDialog';
 import UserManagement from '../components/UserManagement';
 import SQLiteHealthPanel from '../components/SQLiteHealthPanel';
-import { isLocalUser } from '../components/navigation';
 
 const AdminPage: React.FC = () => {
   const { user } = useAuth();
@@ -20,7 +19,7 @@ const AdminPage: React.FC = () => {
       <StatusDialog status={error ? { title: 'Server Error', message: error, severity: 'error' } : null} onClose={() => setError(null)} />
 
       {section !== 2 && <UserManagement section={section} onError={setError} />}
-      {section === 2 && isLocalUser(user) && <SQLiteHealthPanel />}
+      {section === 2 && <SQLiteHealthPanel />}
     </PageContent>
   );
 };

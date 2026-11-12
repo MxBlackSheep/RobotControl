@@ -384,11 +384,11 @@ const SchedulingPage: React.FC = () => {
             </Stack>
           </TabPanel>
         )}
-        {isLocalClient && <TabPanel value={currentTab} index={6}>
+        <TabPanel value={currentTab} index={6}>
           <MethodLibraryPanel showImportAction={false} version={catalogueVersion} onChanged={() => setCatalogueVersion(value => value + 1)}
             onChangePath={setMethodToRelink}
             onImport={() => setFolderImportOpen(true)} onCreateSchedule={method => setForm({ method })} />
-        </TabPanel>}
+        </TabPanel>
       </Box>
 
       {methodToRelink && <MethodPathDialog method={methodToRelink} onClose={() => setMethodToRelink(null)} onChanged={() => {
