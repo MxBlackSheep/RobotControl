@@ -267,8 +267,8 @@ class _Trigger:
 
 
 TRIGGERS: Dict[str, _Trigger] = {
-    'pyhsl_unavailable': _Trigger('warning', 'Run waiting: PyHSL Run Control', lambda f: (
-        'waiting for Run Control', f'The run for {f.experiment} has not started. Open PyHSL Run Control; '
+    'pyhsl_unavailable': _Trigger('warning', 'Run waiting: PyHSL', lambda f: (
+        'waiting for PyHSL', f'The run for {f.experiment} has not started. Open PyHSL Run Control; '
         'the schedule will start when it is ready.', set()), 'Reason'),
     'pyhsl_review_required': _Trigger('warning', 'PyHSL Run review required', lambda f: (
         'Run review required', f'The run for {f.experiment} needs a Run review in PyHSL Run Control. '

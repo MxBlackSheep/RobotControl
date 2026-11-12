@@ -133,7 +133,7 @@ async function runControl(page: Page) {
   await page.route('**/api/pyhsl/monitor.js', route => {
     fake.scriptReads += 1;
     return fake.script ? route.fulfill({ contentType: 'text/plain', body: fake.script })
-      : route.fulfill({ status: 502, json: { detail: 'Run Control returned HTTP 404' } });
+      : route.fulfill({ status: 502, json: { detail: 'PyHSL returned HTTP 404' } });
   });
   await page.route('**/api/pyhsl/deck', route => {
     fake.deckReads += 1;
@@ -184,7 +184,7 @@ test('the Run page reads the deck once per run, redraws each reading and keeps t
   expect(fake.deckReads).toBe(1);
 
   fake.states[runId] = null;
-  await expect(page.getByText(/Run Control not reachable since \d\d:\d\d/)).toBeVisible({ timeout: 15000 });
+  await expect(page.getByText(/PyHSL not reachable since \d\d:\d\d/)).toBeVisible({ timeout: 15000 });
   await expect(view(page).getByText(/Stub view · running ·/)).toBeVisible();
 
   await page.goto(`/pyhsl?run=${otherRun}`);
@@ -197,7 +197,7 @@ test('a failed script or deck read says "Run view not shown" in the view\'s plac
   const fake = await runControl(page);
   fake.script = null;
   await page.goto(`/pyhsl?run=${runId}`);
-  await expect(page.getByRole('alert')).toHaveText('Run view not shown: Run Control returned HTTP 404');
+  await expect(page.getByRole('alert')).toHaveText('Run view not shown: PyHSL returned HTTP 404');
   // The script is asked for again with the next reading; Run Control failing is not RobotControl's connection failing.
   await expect.poll(() => fake.scriptReads, { timeout: 15000 }).toBeGreaterThanOrEqual(2);
   await expect(page.getByText('Connection to RobotControl lost')).toHaveCount(0);
@@ -238,7 +238,7 @@ test('without a run the page says why, and before the first reading the view say
   fake.states[runId] = null;
   await page.goto(`/pyhsl?run=${runId}`);
   await expect(page.getByText('Loading', { exact: true })).toBeVisible();
-  await expect(page.getByText('Run Control not reachable.', { exact: true })).toBeVisible();
+  await expect(page.getByText('PyHSL not reachable.', { exact: true })).toBeVisible();
   expect(fake.deckReads).toBe(0);
   expect(await pageScrolls(page)).toBe(false);
 });
@@ -256,7 +256,7 @@ test('the page follows the active run in place, reads its deck, and a warning ne
   expect(fake.deckReads).toBe(2);
 
   fake.states[otherRun] = null;
-  await expect(page.getByText(/Run Control not reachable since \d\d:\d\d/)).toBeVisible({ timeout: 15000 });
+  await expect(page.getByText(/PyHSL not reachable since \d\d:\d\d/)).toBeVisible({ timeout: 15000 });
   await expect.poll(() => pageScrolls(page)).toBe(false);
 });
 

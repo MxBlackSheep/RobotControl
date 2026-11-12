@@ -55,18 +55,18 @@ class PyHslClient:
             # Replace the token before decoding or exposing any server text.
             raw = response.read(max_bytes + 1) if max_bytes is not None else response.read()
             if max_bytes is not None and len(raw) > max_bytes:
-                raise PyHslError('Run Control response is too large')
+                raise PyHslError('PyHSL response is too large')
             raw = raw.decode('utf-8')
             if token:
                 raw = raw.replace(token, '[redacted]')
             if response.status == 409:
                 try:
-                    reason = json.loads(raw).get('error', 'Run Control refused the request')
+                    reason = json.loads(raw).get('error', 'PyHSL refused the request')
                 except (ValueError, AttributeError):
                     reason = raw
                 raise PyHslRefusal(str(reason))
             if response.status != 200:
-                raise PyHslError(f'Run Control returned HTTP {response.status}')
+                raise PyHslError(f'PyHSL returned HTTP {response.status}')
             return raw if max_bytes is not None else json.loads(raw)
         except TimeoutError:
             # It may be running and busy, so this is not the same as closed.
@@ -74,7 +74,7 @@ class PyHslClient:
         except (OSError, http.client.HTTPException):
             raise PyHslUnavailable('PyHSL is unreachable') from None
         except (ValueError, UnicodeError):
-            raise PyHslError('Run Control returned an invalid response') from None
+            raise PyHslError('PyHSL returned an invalid response') from None
         finally:
             connection.close()
 
@@ -89,22 +89,22 @@ class PyHslClient:
                     or url.username is not None or url.password is not None
                     or url.path not in {'', '/'} or url.query or url.fragment
                     or not isinstance(instance_id, str) or not instance_id or not (0 < (url.port or 80) <= 65535)):
-                raise PyHslError('Run Control discovery URL or identity is invalid')
+                raise PyHslError('PyHSL discovery URL or identity is invalid')
         except OSError:
-            raise PyHslUnavailable('Run Control discovery is unavailable') from None
+            raise PyHslUnavailable('PyHSL discovery is unavailable') from None
         except (ValueError, KeyError, TypeError):
-            raise PyHslError('Run Control discovery is invalid') from None
+            raise PyHslError('PyHSL discovery is invalid') from None
         health = self._request(url, '/api/v1/health')
         if not isinstance(health, dict) or health.get('instance_id') != instance_id:
-            raise PyHslUnavailable('Run Control instance does not match discovery')
+            raise PyHslUnavailable('PyHSL instance does not match discovery')
         try:
             token = (folder / 'machine-token').read_text(encoding='utf-8').strip()
         except OSError:
-            raise PyHslUnavailable('Run Control machine token is unavailable') from None
+            raise PyHslUnavailable('PyHSL machine token is unavailable') from None
         except UnicodeError:
-            raise PyHslError('Run Control machine token is invalid') from None
+            raise PyHslError('PyHSL machine token is invalid') from None
         if not token or not token.isascii() or any(c.isspace() for c in token):
-            raise PyHslError('Run Control machine token is invalid')
+            raise PyHslError('PyHSL machine token is invalid')
         return url, token
 
     def get(self, path, *, timeout=None):
