@@ -44,7 +44,7 @@ header falls back to the cookie (and so skips the request-header rule).
 
 Built-in admin password (public in the repository): a remote sign-in with it (tunnel, spoofed
 first X-Forwarded-For, LAN peer) gets tokens or records a last login instead of 403 "Change the
-default password on the robot PC before signing in remotely."; refused attempts count toward the
+default password on the workstation before signing in remotely."; refused attempts count toward the
 remote throttle; a local sign-in with it is refused or does not ask for a password change
 (must_reset); after the change, the new password is refused remotely or the old one is not
 refused like any wrong password; a wrong password's answer differs depending on whether the
@@ -230,7 +230,7 @@ def run():
             built_in = {'username': DEFAULT_ADMIN_USERNAME, 'password': BUILT_IN_ADMIN_PASSWORD}
             wrong = {'username': DEFAULT_ADMIN_USERNAME, 'password': 'not-the-password'}
             tunnel = {'x-forwarded-for': '127.0.0.1, 203.0.113.5', 'cf-connecting-ip': '203.0.113.5'}
-            refusal = 'Change the default password on the robot PC before signing in remotely.'
+            refusal = 'Change the default password on the workstation before signing in remotely.'
 
             def last_login():
                 return service.db.get_user_by_username(DEFAULT_ADMIN_USERNAME)['last_login_at']

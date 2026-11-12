@@ -95,7 +95,7 @@ for (const rejection of [401, 403]) {
 
 test('sign-in tells an unreachable server from a wrong password', async ({ page }, testInfo) => {
   let answer: 'tunnel' | 'refused' | 'wrong' | 'default-remote' | 'default-local' = 'tunnel';
-  const defaultRemote = 'Change the default password on the robot PC before signing in remotely.';
+  const defaultRemote = 'Change the default password on the workstation before signing in remotely.';
   await page.route('**/api/auth/login', route => {
     if (answer === 'refused') return route.abort('connectionrefused');
     if (answer === 'tunnel') return route.fulfill({ status: 502, contentType: 'text/html', body: '<html>Bad gateway</html>' });
