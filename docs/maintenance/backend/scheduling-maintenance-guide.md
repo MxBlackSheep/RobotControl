@@ -94,7 +94,7 @@ occurrence with a recovery hold and the existing failure alert.
 
 The runner reads the run every five seconds. Unfamiliar statuses keep running;
 silence never ends a run. Unreachable monitoring sends `monitoring_unavailable`
-once after 180 seconds. After a terminal status, reconciliation must report
+once after 180 seconds. After a terminal status, the review list must report
 `active: false` and a readable case list within five minutes. The run snapshot
 does not contain `requires_review`.
 
@@ -110,7 +110,7 @@ does not contain `requires_review`.
 These outcomes never use VENUS's abort-word matching. A result receipt is saved
 before recovery, notification and finalization; an interrupted finish cannot
 resend a known refusal. NotificationLog deduplicates the execution and trigger.
-Acknowledgement reads reconciliation live before taking scheduler locks and
+Acknowledgement reads the review list live before taking scheduler locks and
 refuses active runs, unreadable state or that run's required review. After the
 review is saved in Run Control, normal acknowledgement and explicit Resume apply.
 

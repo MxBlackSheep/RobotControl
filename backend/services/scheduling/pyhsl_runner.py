@@ -145,7 +145,7 @@ class PyHslRunner:
                         pass
                 if validated['protocol']['revision'] != schedule.protocol_revision:
                     return self._finish(schedule, execution, 'failed',
-                        'Protocol revision changed in Run Control; save the schedule again', 'execution_failed', hold=True)
+                        'Protocol revision changed in PyHSL; save the schedule again', 'execution_failed', hold=True)
                 try:
                     PreExecutionPipeline(engine.db_manager).prepare(schedule, execution.execution_id)
                 except SafetyConflict:

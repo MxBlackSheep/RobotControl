@@ -547,7 +547,7 @@ def revision_and_acknowledge():
         s = schedule(f)
         f.server.revision = 'reimported'
         e = finished(f, dispatch(f, s))
-        assert e.error_message == 'Protocol revision changed in Run Control; save the schedule again'
+        assert e.error_message == 'Protocol revision changed in PyHSL; save the schedule again'
         assert not f.prepared and not f.server.posts
     with fixture() as f:
         s = schedule(f)

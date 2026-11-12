@@ -88,7 +88,7 @@ export default function PyHslProtocolField({ protocolId, parameters, mode, disab
 
   return <Stack spacing={2}>
     {protocols && protocolId && !selected && <Alert severity="warning" sx={{ overflowWrap: 'anywhere' }}>
-      {protocolId} is not in Run Control's list of protocols it can run unattended.</Alert>}
+      {protocolId} is not in PyHSL's list of protocols it can run unattended.</Alert>}
     <Autocomplete options={options} value={selected} loading={!protocols} disabled={disabled}
       getOptionLabel={protocol => protocol.name || protocol.id}
       isOptionEqualToValue={(option, value) => option.id === value.id}

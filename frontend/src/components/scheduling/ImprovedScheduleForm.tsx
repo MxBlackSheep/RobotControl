@@ -246,7 +246,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
     const newErrors: string[] = [];
 
     if (pyhsl ? !protocolChecked : !formData.experiment_path) {
-      newErrors.push(pyhsl ? 'Choose a protocol' : 'Please select an experiment');
+      newErrors.push(pyhsl ? 'Choose a protocol' : 'Please select a method or protocol');
     }
 
     if (!formData.experiment_name) {
