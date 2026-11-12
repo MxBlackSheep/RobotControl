@@ -8,7 +8,7 @@ Failure cases (Run Control reply shapes recorded in Simulation, 9 November 2026)
 2. A real 20-second POST leaves edits and status reads responsive.
 3. Lost reply: adopt the run without another POST or database preparation.
 4. Every status/review/refusal outcome; error wording cannot classify an abort.
-5. Acknowledge refuses review, active or unreadable reconciliation, then succeeds.
+5. Acknowledge refuses review, an active or unreadable review list, then succeeds.
 6. Unavailable waits in place and alerts once at 180 seconds; VENUS behind it waits
    until PyHSL finishes. Active/review/unknown gates and a locked store keep the worker alive.
 7. Changed revision holds before preparation or POST.
@@ -30,9 +30,9 @@ Failure cases (Run Control reply shapes recorded in Simulation, 9 November 2026)
     Invalid IDs, viewers and unknown roles make no request. Monitor script is read
     without a token after instance verification, served as text/plain with nosniff,
     and bounded (502 on overflow). Reports remain sandboxed and bounded. Closed,
-    refused and timed-out reads return 503, 404 and 504; no reconciliation is read.
+    refused and timed-out reads return 503, 404 and 504; no review list is read.
 17. A timed-out Start adopts the run without another POST or preparation;
-    reconciliation reads use 30 seconds and a monitor timeout stays unknown.
+    review list reads use 30 seconds and a monitor timeout stays unknown.
 18. Fresh Start expires after five minutes, adopting a match or holding even offline.
 19. Validate losing Run Control waits without preparation or Start, then recovers or holds.
 20. Catalog reads Run Control's `protocols` list and leaves out problem and unattended=false entries; closed gives 503 with its reason.
@@ -111,10 +111,10 @@ class RunControl(BaseHTTPRequestHandler):
         if self.path == '/api/v1/catalog':
             return self.reply(200, {'protocols': s.catalog, 'modes': ['simulation', 'test', 'real'], 'venus_simulator_mode': 1})
         if self.path == '/api/v1/runs':
-            return self.reply(200, {'sessions': [dict(run_id=k, session_id=v.get('session_id'), protocol='fixture',
+            return self.reply(200, {'runs': [dict(run_id=k, session_id=v.get('session_id'), protocol='fixture',
                 created_at=v['created_at'], status=v['status'], origin='machine', mode='simulation',
                 error=v['error'], completed_count=0) for k, v in s.runs.items()]})
-        if self.path == '/api/v1/reconciliation':
+        if self.path == '/api/v1/reviews':
             return self.reply(200, s.reviews)
         if self.path.endswith('/report'):
             return self.reply(200, s.report)
@@ -288,7 +288,7 @@ def outcomes():
         with fixture() as f:
             s = schedule(f)
             f.server.reviews = reviews
-            f.engine.pyhsl_runner.reconciliation_seconds = .05
+            f.engine.pyhsl_runner.review_seconds = .05
             e = finished(f, dispatch(f, s))
             assert e.status == 'failed' and f.sent[0][0] == 'aborted'
             assert f.storage.get_schedule_by_id(s.schedule_id).recovery_required
@@ -334,7 +334,7 @@ def runner_failures():
             assert len(f.server.posts) == 1
             assert len(f.prepared) == len(f.server.runs) == 1
             f.engine.pyhsl_runner.acknowledge(s.schedule_id)
-            assert all(c.kwargs.get('timeout') == 30 for c in get.call_args_list if c.args[0] == '/reconciliation')
+            assert all(c.kwargs.get('timeout') == 30 for c in get.call_args_list if c.args[0] == '/reviews')
         with patch.object(f.client, 'get', side_effect=PyHslTimeout('Run Control did not answer in time')):
             f.monitor.poll()
             assert f.monitor.status()['state'] == 'unknown'

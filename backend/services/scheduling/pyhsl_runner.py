@@ -78,7 +78,7 @@ def review_state(reading, run_id):
 class PyHslRunner:
     poll_seconds = 5
     unavailable_seconds = 180
-    reconciliation_seconds = 300
+    review_seconds = 300
 
     def __init__(self, engine):
         from backend.services.pyhsl_client import PyHslClient
@@ -104,7 +104,7 @@ class PyHslRunner:
         history = self.engine.db_manager.sqlite_db.get_execution_history(schedule_id, limit=1)
         run_id = (history[0].get('pyhsl') or {}).get('run_id') if history else None
         try:
-            reading = self.client.get('/reconciliation', timeout=30)
+            reading = self.client.get('/reviews', timeout=30)
         except PyHslError:
             raise SafetyConflict('Cannot read PyHSL Run Control; acknowledgement is unavailable') from None
         if isinstance(reading, dict) and reading.get('active') is True:
@@ -191,7 +191,7 @@ class PyHslRunner:
                 if resumed or expired:
                     # Read first even after the resend window: an existing run must
                     # still be adopted. Do not use the current schedule's definition.
-                    rows = self.client.get('/runs')['sessions']
+                    rows = self.client.get('/runs')['runs']
                     for row in rows:
                         if row.get('origin') != 'machine' or row.get('protocol') != receipt['request']['protocol_id']:
                             continue
@@ -240,13 +240,13 @@ class PyHslRunner:
                         terminal = run
                         terminal_since = time.monotonic()
                 if terminal is not None:
-                    review = review_state(self.client.get('/reconciliation', timeout=30), run_id)
+                    review = review_state(self.client.get('/reviews', timeout=30), run_id)
                 unavailable = None
             except (PyHslError, KeyError, TypeError, AttributeError):
                 unavailable = self._unavailable(schedule, execution, unavailable)
             if terminal is not None:
                 unknown = terminal['status'] in {'outcome_unknown', 'reconciliation_required'}
-                if review is not None or time.monotonic() - terminal_since >= self.reconciliation_seconds:
+                if review is not None or time.monotonic() - terminal_since >= self.review_seconds:
                     if unknown or review is None:
                         self._finish(schedule, execution, 'failed',
                             'PyHSL run outcome or Run review is unknown; check Run Control', 'aborted', hold=True)
