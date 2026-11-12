@@ -73,7 +73,7 @@ one `pyhsl_unavailable` execution alert after 180 seconds of unavailability. Bot
 wait in place; jobs behind a blocked job wait too. A storage read failure is logged and retried without ending the worker.
 The VENUS Simulation Mode gate is bypassed because PyHSL manages that setting itself. An unfinished
 PyHSL execution blocks every new dispatch. Enabling HxRun maintenance or entering
-`database_change_guard` also refuses an active PyHSL run or unknown Run Control state.
+`database_change_guard` also refuses an active PyHSL run or unknown PyHSL state.
 
 `launch_guard` persists the running execution and releases its locks. The runner
 validates the saved revision before running **Before this run**, including in

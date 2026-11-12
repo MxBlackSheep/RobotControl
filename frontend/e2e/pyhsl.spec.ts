@@ -138,12 +138,12 @@ async function runControl(page: Page) {
   await page.route('**/api/pyhsl/deck', route => {
     fake.deckReads += 1;
     return fake.deckUp ? route.fulfill({ json: { layout: 'lab-deck', model: { labware: {} }, geometry: { labware: {} } } })
-      : route.fulfill({ status: 504, json: { detail: 'Run Control did not answer in time' } });
+      : route.fulfill({ status: 504, json: { detail: 'PyHSL did not answer in time' } });
   });
   await page.route('**/api/pyhsl/runs/*', route => {
     const id = new URL(route.request().url()).pathname.split('/').pop()!;
     const state = fake.states[id];
-    return state ? route.fulfill({ json: state }) : route.fulfill({ status: 503, json: { detail: 'Run Control is unreachable' } });
+    return state ? route.fulfill({ json: state }) : route.fulfill({ status: 503, json: { detail: 'PyHSL is unreachable' } });
   });
   await page.route('**/api/pyhsl/runs/*/report', route => fake.report
     ? route.fulfill({ contentType: 'text/html', body: fake.report })
@@ -207,7 +207,7 @@ test('a failed script or deck read says "Run view not shown" in the view\'s plac
   fake.deckUp = false;
   const reads = fake.deckReads;
   await page.reload();
-  await expect(page.getByRole('alert')).toHaveText('Run view not shown: Run Control did not answer in time');
+  await expect(page.getByRole('alert')).toHaveText('Run view not shown: PyHSL did not answer in time');
   fake.deckUp = true;
   await expect(view(page).getByText(/Stub view ·/)).toBeVisible({ timeout: 15000 });
   expect(fake.deckReads - reads).toBe(2);

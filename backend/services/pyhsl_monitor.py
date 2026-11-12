@@ -23,7 +23,7 @@ class PyHslMonitor:
     def __init__(self, client=None, *, email=None):
         self.client = client or PyHslClient()
         self.email = email
-        self._reading = self._unavailable('unknown', 'Run Control has not been checked')
+        self._reading = self._unavailable('unknown', 'PyHSL has not been checked')
         self._checked = None
         self._protocols = {}
         self._review_rows = None
@@ -40,7 +40,7 @@ class PyHslMonitor:
         reading, checked = self._reading, self._checked
         result = copy.deepcopy(reading)
         if checked is not None and time.monotonic() - checked > 60:
-            result.update(state='unknown', reason='Run Control reading is stale', run=None)
+            result.update(state='unknown', reason='PyHSL reading is stale', run=None)
             result['reviews']['known'] = False
         return result
 
@@ -78,7 +78,7 @@ class PyHslMonitor:
             cached = reviews['active']
             if type(cached) is not bool or type(reviews['blocked']) is not bool:
                 raise ValueError
-            reason = 'Run review summary is cached while Run Control is active' if cached else ''
+            reason = 'Run review summary is cached while PyHSL is active' if cached else ''
             reading = dict(state='running', reason=reason, run=run,
                            reviews=dict(known=not cached, blocked=reviews['blocked'] or bool(review_ids), run_ids=review_ids))
         except PyHslError as exc:

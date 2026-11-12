@@ -70,9 +70,9 @@ class PyHslClient:
             return raw if max_bytes is not None else json.loads(raw)
         except TimeoutError:
             # It may be running and busy, so this is not the same as closed.
-            raise PyHslTimeout('Run Control did not answer in time') from None
+            raise PyHslTimeout('PyHSL did not answer in time') from None
         except (OSError, http.client.HTTPException):
-            raise PyHslUnavailable('Run Control is unreachable') from None
+            raise PyHslUnavailable('PyHSL is unreachable') from None
         except (ValueError, UnicodeError):
             raise PyHslError('Run Control returned an invalid response') from None
         finally:

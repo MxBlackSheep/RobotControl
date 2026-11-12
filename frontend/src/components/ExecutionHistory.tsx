@@ -197,7 +197,7 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
     });
 
     return [
-      { label: 'All methods', value: 'all' },
+      { label: 'All methods and protocols', value: 'all' },
       ...Array.from(unique).sort().map((value) => ({ label: value, value })),
     ];
   }, [executions]);
@@ -338,10 +338,10 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
             </FormControl>
 
             <FormControl size="small" sx={{ minWidth: 160 }}>
-              <InputLabel>Method</InputLabel>
+              <InputLabel>Method or protocol</InputLabel>
               <Select
                 value={methodFilter}
-                label="Method"
+                label="Method or protocol"
                 onChange={(event) => setMethodFilter(event.target.value)}
               >
                 {methodOptions.map((option) => (
