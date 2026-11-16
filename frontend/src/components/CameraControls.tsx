@@ -37,7 +37,7 @@ const cameraPhrases: Record<string, string> = {
 };
 const noPictureReasons: Record<string, string> = { frozen: 'frozen', slow: 'too few frames' };
 /** States that need a person (Reconnect, or a check of the cable or camera). */
-export const cameraAttentionStates = ['disconnected', 'no_picture'];
+export const cameraAttentionStates = ['disconnected', 'no_frames', 'no_picture'];
 const recordingPhrases: Record<string, string> = { recording: 'Recording', stopped: 'Not recording', starting: 'Recording starting', error: 'Recording error' };
 const recordingStates: Record<string, string> = { recording: 'On', stopped: 'Off', starting: 'Starting', error: 'Error' };
 
