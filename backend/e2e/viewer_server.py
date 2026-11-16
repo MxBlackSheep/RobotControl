@@ -166,7 +166,7 @@ cameras = [dict(id=0, name='Fixture camera', device_identity='fixture-camera'),
 def camera_status():
     capture, recording = camera.get('capture', 'connected'), camera.get('recording', True)
     return dict(data=dict(cameras=cameras, health=dict(device_identity=camera.get('device', 'fixture-camera'),
-        generation=camera['generation'], capture_state=capture,
+        generation=camera['generation'], capture_state=capture, no_picture_reason=camera.get('no_picture_reason'),
         recording_state=('recording' if capture == 'connected' else 'error') if recording else 'stopped',
         recording_requested=recording, last_frame_age_seconds=0, error=None, operation=camera.get('operation'))))
 

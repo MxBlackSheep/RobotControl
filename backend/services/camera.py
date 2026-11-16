@@ -76,6 +76,9 @@ class CameraService:
         self.runtime.no_frame_seconds = CAMERA_CONFIG.get("no_frame_seconds", 10)
         self.runtime.startup_seconds = CAMERA_CONFIG.get("startup_seconds", 20)
         self.runtime.capture_fps = CAMERA_CONFIG["capture_fps"]
+        self.runtime.frozen_seconds = CAMERA_CONFIG["frozen_seconds"]
+        self.runtime.slow_fps = CAMERA_CONFIG["slow_fps"]
+        self.runtime.slow_seconds = CAMERA_CONFIG["slow_seconds"]
         logger.info("CameraService initialized")
     
     def _publish_frame(self, frame):

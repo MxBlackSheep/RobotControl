@@ -3,7 +3,7 @@ import { Box, Button, Link as MuiLink, Typography } from '@mui/material';
 import { Link } from 'react-router-dom';
 import StatusChip from '../StatusChip';
 import { headerLink, ListRow, Panel, ReadProblem, StatusDot } from '../PageLayout';
-import { cameraStateLabels } from '../CameraControls';
+import { cameraAttentionStates, cameraStateLabels } from '../CameraControls';
 import { api } from '../../services/api';
 import { schedulingService, schedulingAPI } from '../../services/schedulingApi';
 import { useSerialPolling } from '../../hooks/useSerialPolling';
@@ -125,7 +125,7 @@ function useInstrumentStates(status: RobotStatus | null, pyhsl: PyHslStatus | nu
     : camera.error ? ['Error', 'fault']
     : camera.recording_state === 'recording' ? ['Recording', 'running']
     : camera.capture_state === 'connected' ? ['Connected', 'completed']
-    : [cameraStateLabels[camera.capture_state ?? ''] ?? 'Unknown', camera.capture_state === 'disconnected' ? 'attention' : 'neutral'];
+    : [cameraStateLabels[camera.capture_state ?? ''] ?? 'Unknown', cameraAttentionStates.includes(camera.capture_state ?? '') ? 'attention' : 'neutral'];
   const cells: [string, [string, StatusTone]][] = [
     ['Scheduler', !status ? unknown : status.schedulerRunning ? ['Running', 'running'] : ['Stopped', 'neutral']],
     ['Storage', !status?.recovery ? unknown : status.recovery.storage_healthy ? ['Healthy', 'completed'] : ['Needs attention', 'attention']],
