@@ -15,6 +15,8 @@ Failure cases:
 - the state does not clear once the picture moves again or the rate recovers;
 - a manual Reconnect keeps the old generation's problem;
 - anything reconnects by itself: the generation changes without an operation;
+- the slow frames (one every 2 s) count as a frozen picture: a gap between frames is not a
+  frozen picture (the picture is sampled only when a new frame arrived);
 - the WARNING "Camera picture | event=lost" or INFO "Camera picture | event=back" is missing,
   repeated, or lacks the problem, duration, delivered fps, frame sequence or generation.
 """

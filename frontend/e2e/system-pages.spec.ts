@@ -38,6 +38,7 @@ import { signIn } from './sign-in';
 // - A running job without a known start or estimate shows NaN, "0 min" or a false bar.
 // - One panel's failed read (e.g. Recent runs) blanks the page instead of offering Retry.
 // - A failed robot status read shows "Nothing running" as if the robot were idle.
+// - A camera not giving a picture shows as Recording or Connected, or a good one says it is not.
 // - The phone tabs (Pages) disappear with the status bar.
 // - The strip shows SQL Server again, or Overview polls system-health for nothing.
 // - On a 390x844 phone (Now) the first screen does not show, whole, the hold's Review recovery
@@ -238,7 +239,7 @@ test('Overview shows elapsed time against the estimate and keeps other panels wh
   await expect(page.getByRole('region', { name: 'Robot status' }).getByRole('link', { name: 'Cell feeding · stack 2 held', exact: true })).toBeVisible();
 });
 
-test('Overview says when the camera is not giving a picture, and not when it is', async ({ page }) => {
+test('Overview says when the camera is not giving a picture, and not when it is', async ({ page }, info) => {
   let capture = 'no_picture';
   await page.route('**/api/camera/control-status', route => route.fulfill({ json: { data: { cameras: [], health: {
     capture_state: capture, no_picture_reason: capture === 'no_picture' ? 'slow' : null,
@@ -246,6 +247,7 @@ test('Overview says when the camera is not giving a picture, and not when it is'
   await page.goto('/');
   const health = page.getByRole('region', { name: 'Instrument health' });
   await expect(health).toContainText('CameraNot giving a picture');
+  await health.screenshot({ path: info.outputPath('overview-no-picture.png'), animations: 'disabled' });
   capture = 'connected';
   await page.reload();
   await expect(health).toContainText('CameraRecording');

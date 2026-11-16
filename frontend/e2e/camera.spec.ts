@@ -26,6 +26,8 @@ import { signIn } from './sign-in';
  * - A browser without WebCodecs H.264, or a plain-HTTP page, starts a session, shows a blank
  *   canvas or falls back to JPEG instead of its message (live view is H.264 only).
  * - Collapsing controls (or closing the phone settings sheet) stops health polling or hides recording/errors.
+ * - Capture state no_picture does not say "Camera not giving a picture" with its reason, recording
+ *   does not show as failing, Reconnect camera is not offered, or a good status still says it.
  * - Small screens overflow, touch controls shrink, or keyboard focus is lost. On an upright phone
  *   the picture is narrower than the screen, or the viewing controls sit above it (out of thumb
  *   reach) instead of below.
