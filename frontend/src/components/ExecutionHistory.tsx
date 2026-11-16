@@ -167,7 +167,7 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
     });
 
     return [
-      { label: 'All experiments', value: 'all' },
+      { label: 'All schedules', value: 'all' },
       ...Array.from(unique.entries()).map(([scheduleId, meta]) => {
         const safeName = (meta.name || 'Untitled').trim();
         const shortId = scheduleId ? scheduleId.substring(0, 8) : 'unknown';
@@ -197,7 +197,7 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
     });
 
     return [
-      { label: 'All methods', value: 'all' },
+      { label: 'All methods and protocols', value: 'all' },
       ...Array.from(unique).sort().map((value) => ({ label: value, value })),
     ];
   }, [executions]);
@@ -323,10 +323,10 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} flexWrap="wrap" alignItems={{ xs: 'stretch', md: 'center' }} sx={{ mt: 1 }}>
           <Stack direction="row" flexWrap="wrap" gap={1} flexGrow={1}>
             <FormControl size="small" sx={{ minWidth: 160 }}>
-              <InputLabel>Experiment</InputLabel>
+              <InputLabel>Schedule</InputLabel>
               <Select
                 value={experimentFilter}
-                label="Experiment"
+                label="Schedule"
                 onChange={(event) => setExperimentFilter(event.target.value)}
               >
                 {experimentOptions.map((option) => (
@@ -338,10 +338,10 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
             </FormControl>
 
             <FormControl size="small" sx={{ minWidth: 160 }}>
-              <InputLabel>Method</InputLabel>
+              <InputLabel>Method or protocol</InputLabel>
               <Select
                 value={methodFilter}
-                label="Method"
+                label="Method or protocol"
                 onChange={(event) => setMethodFilter(event.target.value)}
               >
                 {methodOptions.map((option) => (
@@ -411,7 +411,7 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
         <Table stickyHeader size="small" aria-label="Execution history">
           <TableHead>
             <TableRow>
-              <TableCell>Experiment</TableCell>
+              <TableCell>Schedule</TableCell>
               <TableCell>Status</TableCell>
               <TableCell>Started</TableCell>
               <TableCell>Duration</TableCell>

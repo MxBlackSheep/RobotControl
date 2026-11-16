@@ -54,7 +54,7 @@ export default function PyHslRunPage() {
         return { run: state, deck: { run: runId!, body: (await api.get('/api/pyhsl/deck', { signal })).data }, deckError: null };
       } catch (err: any) {
         if (signal.aborted) throw err;
-        return { run: state, deck: null, deckError: appErrorMessage(err) || 'Run Control did not answer' };
+        return { run: state, deck: null, deckError: appErrorMessage(err) || 'PyHSL did not answer' };
       }
     },
     onSuccess: value => { setRun(value.run); setDeck(value.deck); setDeckError(value.deckError); setReadAt(new Date()); },
@@ -71,7 +71,7 @@ export default function PyHslRunPage() {
 
   if (!runId) return <PageContent>
     <PageHeader title="PyHSL run" />
-    <EmptyPanel title="Run">{status?.state === 'running' ? 'No run is active.' : status?.state === 'not_running' ? 'Run Control is not running.' : 'Run Control state unknown.'}</EmptyPanel>
+    <EmptyPanel title="Run">{status?.state === 'running' ? 'No run is active.' : status?.state === 'not_running' ? 'PyHSL is not running.' : 'PyHSL state is unknown.'}</EmptyPanel>
   </PageContent>;
 
   const ended = !!run && ENDED.includes(run.status);
@@ -80,7 +80,7 @@ export default function PyHslRunPage() {
       actions={ended && <Button variant="outlined" onClick={() => void showReport()}>Show report</Button>} />
     {/* Always present, so the fit below is measured again when a line appears or goes. */}
     <Box sx={{ '& > *': { mb: `${layout.gutter}px` } }}>
-      {polling.error && <Alert severity="warning">{readAt ? `Run Control not reachable since ${clockTime(readAt)}.` : 'Run Control not reachable.'}</Alert>}
+      {polling.error && <Alert severity="warning">{readAt ? `PyHSL not reachable since ${clockTime(readAt)}.` : 'PyHSL not reachable.'}</Alert>}
       {reportError && <Alert severity="error">{reportError}</Alert>}
     </Box>
     {/* The view fits the rest of the window and scrolls its own panels; the page itself does not scroll. */}

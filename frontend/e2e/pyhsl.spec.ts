@@ -100,11 +100,11 @@ test('an unreadable list or a refused protocol shows the reason and nothing is s
   let listUp = false;
   await page.route('**/api/pyhsl/protocols', route => listUp
     ? route.fulfill({ json: protocols })
-    : route.fulfill({ status: 503, json: { detail: 'Run Control is not running' } }));
+    : route.fulfill({ status: 503, json: { detail: 'PyHSL is not running' } }));
   await page.route('**/api/pyhsl/validate', route => route.fulfill({ status: 400, json: { detail: 'Water Transfer needs its lab folder; nothing was started' } }));
   const editor = await openPyHslForm(page, writes);
 
-  await expect(editor.getByText('Run Control is not running')).toBeVisible();
+  await expect(editor.getByText('PyHSL is not running')).toBeVisible();
   listUp = true;
   await editor.getByRole('button', { name: 'Retry' }).click();
   await editor.getByRole('combobox', { name: 'Protocol' }).fill('water');
@@ -133,17 +133,17 @@ async function runControl(page: Page) {
   await page.route('**/api/pyhsl/monitor.js', route => {
     fake.scriptReads += 1;
     return fake.script ? route.fulfill({ contentType: 'text/plain', body: fake.script })
-      : route.fulfill({ status: 502, json: { detail: 'Run Control returned HTTP 404' } });
+      : route.fulfill({ status: 502, json: { detail: 'PyHSL returned HTTP 404' } });
   });
   await page.route('**/api/pyhsl/deck', route => {
     fake.deckReads += 1;
     return fake.deckUp ? route.fulfill({ json: { layout: 'lab-deck', model: { labware: {} }, geometry: { labware: {} } } })
-      : route.fulfill({ status: 504, json: { detail: 'Run Control did not answer in time' } });
+      : route.fulfill({ status: 504, json: { detail: 'PyHSL did not answer in time' } });
   });
   await page.route('**/api/pyhsl/runs/*', route => {
     const id = new URL(route.request().url()).pathname.split('/').pop()!;
     const state = fake.states[id];
-    return state ? route.fulfill({ json: state }) : route.fulfill({ status: 503, json: { detail: 'Run Control is unreachable' } });
+    return state ? route.fulfill({ json: state }) : route.fulfill({ status: 503, json: { detail: 'PyHSL is unreachable' } });
   });
   await page.route('**/api/pyhsl/runs/*/report', route => fake.report
     ? route.fulfill({ contentType: 'text/html', body: fake.report })
@@ -184,7 +184,7 @@ test('the Run page reads the deck once per run, redraws each reading and keeps t
   expect(fake.deckReads).toBe(1);
 
   fake.states[runId] = null;
-  await expect(page.getByText(/Run Control not reachable since \d\d:\d\d/)).toBeVisible({ timeout: 15000 });
+  await expect(page.getByText(/PyHSL not reachable since \d\d:\d\d/)).toBeVisible({ timeout: 15000 });
   await expect(view(page).getByText(/Stub view · running ·/)).toBeVisible();
 
   await page.goto(`/pyhsl?run=${otherRun}`);
@@ -197,7 +197,7 @@ test('a failed script or deck read says "Run view not shown" in the view\'s plac
   const fake = await runControl(page);
   fake.script = null;
   await page.goto(`/pyhsl?run=${runId}`);
-  await expect(page.getByRole('alert')).toHaveText('Run view not shown: Run Control returned HTTP 404');
+  await expect(page.getByRole('alert')).toHaveText('Run view not shown: PyHSL returned HTTP 404');
   // The script is asked for again with the next reading; Run Control failing is not RobotControl's connection failing.
   await expect.poll(() => fake.scriptReads, { timeout: 15000 }).toBeGreaterThanOrEqual(2);
   await expect(page.getByText('Connection to RobotControl lost')).toHaveCount(0);
@@ -207,7 +207,7 @@ test('a failed script or deck read says "Run view not shown" in the view\'s plac
   fake.deckUp = false;
   const reads = fake.deckReads;
   await page.reload();
-  await expect(page.getByRole('alert')).toHaveText('Run view not shown: Run Control did not answer in time');
+  await expect(page.getByRole('alert')).toHaveText('Run view not shown: PyHSL did not answer in time');
   fake.deckUp = true;
   await expect(view(page).getByText(/Stub view ·/)).toBeVisible({ timeout: 15000 });
   expect(fake.deckReads - reads).toBe(2);
@@ -229,7 +229,7 @@ test('an ended run offers Show report, and the report runs no script', async ({ 
 test('without a run the page says why, and before the first reading the view says Loading', async ({ page }) => {
   await signIn(page);
   const fake = await runControl(page);
-  for (const [state, text] of [['running', 'No run is active.'], ['not_running', 'Run Control is not running.'], ['unknown', 'Run Control state unknown.']]) {
+  for (const [state, text] of [['running', 'No run is active.'], ['not_running', 'PyHSL is not running.'], ['unknown', 'PyHSL state is unknown.']]) {
     fake.status = { ...fake.status, state, run: null };
     await page.goto('/pyhsl');
     await expect(page.getByText(text, { exact: true })).toBeVisible();
@@ -238,7 +238,7 @@ test('without a run the page says why, and before the first reading the view say
   fake.states[runId] = null;
   await page.goto(`/pyhsl?run=${runId}`);
   await expect(page.getByText('Loading', { exact: true })).toBeVisible();
-  await expect(page.getByText('Run Control not reachable.', { exact: true })).toBeVisible();
+  await expect(page.getByText('PyHSL not reachable.', { exact: true })).toBeVisible();
   expect(fake.deckReads).toBe(0);
   expect(await pageScrolls(page)).toBe(false);
 });
@@ -256,7 +256,7 @@ test('the page follows the active run in place, reads its deck, and a warning ne
   expect(fake.deckReads).toBe(2);
 
   fake.states[otherRun] = null;
-  await expect(page.getByText(/Run Control not reachable since \d\d:\d\d/)).toBeVisible({ timeout: 15000 });
+  await expect(page.getByText(/PyHSL not reachable since \d\d:\d\d/)).toBeVisible({ timeout: 15000 });
   await expect.poll(() => pageScrolls(page)).toBe(false);
 });
 

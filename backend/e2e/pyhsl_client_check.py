@@ -7,7 +7,7 @@ Failure cases:
 4. Token/bootstrap never appear in logs, exceptions, replies or emails.
 5. Hung Run Control: cached HTTP status responds immediately; reads unknown, not closed; stale at 60 seconds.
 6. Failed run: one email across polls and restart with the same SQLite database.
-7. Review required: one email, blocked; active reconciliation is cached, not clear.
+7. Review required: one email, blocked; an active review list is cached, not clear.
 8. Completed/stopped without review: no email.
 9. Unknown status: raw, non-terminal, no success or email.
 10. Runs older than 24 hours: no email.
@@ -49,7 +49,7 @@ class RunControl(BaseHTTPRequestHandler):
             s.entered.set()
             s.release.wait(4)
             code = s.code
-            body = ({'sessions': s.runs} if self.path.endswith('/runs') else s.reviews)
+            body = ({'runs': s.runs} if self.path.endswith('/runs') else s.reviews)
             if code != 200:
                 body = {'error': s.refusal if code == 409 else 'Denied'}
         data = json.dumps(body).encode()
@@ -207,7 +207,7 @@ def run():
                 server.release.set()
                 server.entered.clear()
                 with patch('backend.services.pyhsl_monitor.REVIEW_READ_SECONDS', 120):
-                    reads = lambda: sum(path.endswith('/reconciliation') for path, _ in server.requests)
+                    reads = lambda: sum(path.endswith('/reviews') for path, _ in server.requests)
                     server.runs = [row('completed', run_id='settled')]
                     server.reviews = {'cases': [], 'blocked': False, 'active': False}
                     monitor.poll()

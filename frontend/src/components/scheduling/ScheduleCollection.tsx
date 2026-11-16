@@ -10,7 +10,7 @@ import { dayTime } from '../../utils/displayTime';
 export function scheduleState(schedule: ScheduledExperiment): { label: string; tone: StatusTone } {
   // A stored record that fails its check never runs, whatever its other flags say.
   if (schedule.review_reason) return { label: 'Needs review', tone: 'attention' };
-  if (schedule.recovery_required) return { label: 'Recovery required', tone: 'attention' };
+  if (schedule.recovery_required) return { label: 'Held', tone: 'attention' };
   if (schedule.archived) return { label: 'Archived', tone: 'neutral' };
   return schedule.is_active ? { label: 'Active', tone: 'completed' } : { label: 'Inactive', tone: 'neutral' };
 }
@@ -27,7 +27,7 @@ const filters: { value: Filter; label: string; match: (schedule: ScheduledExperi
   { value: 'all', label: 'All', match: () => true },
   { value: 'active', label: 'Active', match: schedule => scheduleState(schedule).label === 'Active' },
   { value: 'inactive', label: 'Inactive', match: schedule => scheduleState(schedule).label === 'Inactive' },
-  { value: 'recovery', label: 'Recovery', match: schedule => scheduleState(schedule).label === 'Recovery required' },
+  { value: 'recovery', label: 'Held', match: schedule => scheduleState(schedule).label === 'Held' },
 ];
 
 // Wide enough for the table columns; narrower panels stack each row.
@@ -68,7 +68,7 @@ export default function ScheduleCollection({ title, statusFilter, schedules, sel
       {error && <Alert severity="error" sx={{ m: 2 }}>{error}</Alert>}
       <Box aria-hidden sx={{ display: 'none', [table]: { display: 'grid' }, gridTemplateColumns: columns, columnGap: 2, alignItems: 'center', height: layout.row, flexShrink: 0, px: 2,
         borderBottom: 1, borderColor: 'surface.rowLine', ...columnHeading }}>
-        <span>Experiment</span><span>Repeats</span><span>Next run</span><span>Last run</span><span>Status</span>
+        <span>Schedule</span><span>Repeats</span><span>Next run</span><span>Last run</span><span>Status</span>
       </Box>
       <List aria-label={`${title} (${visible.length})`} disablePadding sx={{ overflow: 'auto', flex: 1, minHeight: 0 }}>
         {visible.map(schedule => {

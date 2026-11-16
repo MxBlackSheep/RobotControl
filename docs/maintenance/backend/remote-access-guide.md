@@ -70,6 +70,6 @@ a loopback peer carrying `cf-connecting-ip`, `cf-ray`, `true-client-ip`, `x-real
 | Sign-in says "The connection to RobotControl was interrupted (530)" | Tunnel not connected (Cloudflare 1033/530). Restart the `cloudflared` service. |
 | Sign-in says "(403)" | A Cloudflare challenge or Access policy blocked the API call. Add the WAF skip rule or sign in to Access again (reload the page). |
 | "Too many failed sign-in attempts" | Wait for the stated time, or sign in on the RobotControl computer. |
-| "Change the default password on the robot PC before signing in remotely." | The account still has the built-in password. Change it on the RobotControl computer (Admin → User accounts, or sign in there and use the dialog that opens). |
+| "Change the default password on the workstation before signing in remotely." | The account still has the built-in password. Change it on the RobotControl computer (Admin → User accounts, or sign in there and use the dialog that opens). |
 | Live view stops after a few seconds | WebSockets disabled on the hostname, or the connection is too slow; see the camera guide. |
 | A page shows "This page could not load" | Its file failed to download (connection drop, or the server was upgraded while the page was open). Reload. |

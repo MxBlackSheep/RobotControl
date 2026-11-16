@@ -19,7 +19,7 @@ from backend.services.sqlite_safety import SafetyConflict, StorageUnavailable
 from backend.utils.datetime import parse_iso_datetime_to_local
 
 logger = logging.getLogger(__name__)
-UNAVAILABLE_REASON = 'PyHSL Run Control is not running'
+UNAVAILABLE_REASON = 'PyHSL is not running'
 
 
 def validate_protocol(protocol_id, parameters, mode):
@@ -30,7 +30,7 @@ def validate_protocol(protocol_id, parameters, mode):
         raise PyHslError('PyHSL parameters must be a JSON object')
     result = PyHslClient().post('/validate', dict(protocol_id=protocol_id, parameters=parameters, mode=mode))
     if not isinstance(result, dict) or not isinstance(result.get('protocol'), dict) or not result['protocol'].get('revision'):
-        raise PyHslError('Run Control returned an invalid protocol revision')
+        raise PyHslError('PyHSL returned an invalid protocol revision')
     return result
 
 
@@ -40,7 +40,7 @@ def dispatch_reason():
     if reading['state'] == 'not_running':
         return UNAVAILABLE_REASON
     if reading['state'] != 'running':
-        return reading.get('reason') or 'PyHSL Run Control state is unknown'
+        return reading.get('reason') or 'PyHSL state is unknown'
     if reading['run']:
         return 'A PyHSL run is active'
     if not reading['reviews'].get('known'):
@@ -57,7 +57,7 @@ def require_no_active_run():
         return
     if reading['state'] == 'running' and reading['reviews']['known'] and not reading['run']:
         return
-    raise SafetyConflict('A PyHSL run is active' if reading['run'] else 'PyHSL Run Control state is unknown')
+    raise SafetyConflict('A PyHSL run is active' if reading['run'] else 'PyHSL state is unknown')
 
 
 def review_state(reading, run_id):
@@ -78,7 +78,7 @@ def review_state(reading, run_id):
 class PyHslRunner:
     poll_seconds = 5
     unavailable_seconds = 180
-    reconciliation_seconds = 300
+    review_seconds = 300
 
     def __init__(self, engine):
         from backend.services.pyhsl_client import PyHslClient
@@ -104,9 +104,9 @@ class PyHslRunner:
         history = self.engine.db_manager.sqlite_db.get_execution_history(schedule_id, limit=1)
         run_id = (history[0].get('pyhsl') or {}).get('run_id') if history else None
         try:
-            reading = self.client.get('/reconciliation', timeout=30)
+            reading = self.client.get('/reviews', timeout=30)
         except PyHslError:
-            raise SafetyConflict('Cannot read PyHSL Run Control; acknowledgement is unavailable') from None
+            raise SafetyConflict('Cannot read PyHSL; acknowledgement is unavailable') from None
         if isinstance(reading, dict) and reading.get('active') is True:
             raise SafetyConflict('A PyHSL run is active')
         review = review_state(reading, run_id)
@@ -145,7 +145,7 @@ class PyHslRunner:
                         pass
                 if validated['protocol']['revision'] != schedule.protocol_revision:
                     return self._finish(schedule, execution, 'failed',
-                        'Protocol revision changed in Run Control; save the schedule again', 'execution_failed', hold=True)
+                        'Protocol revision changed in PyHSL; save the schedule again', 'execution_failed', hold=True)
                 try:
                     PreExecutionPipeline(engine.db_manager).prepare(schedule, execution.execution_id)
                 except SafetyConflict:
@@ -176,7 +176,7 @@ class PyHslRunner:
         if time.monotonic() - since >= self.unavailable_seconds:
             try:
                 self.engine._notify_execution_event(schedule, execution, 'monitoring_unavailable',
-                    {'note': 'Cannot reach PyHSL Run Control; RobotControl keeps trying'})
+                    {'note': 'Cannot reach PyHSL; RobotControl keeps trying'})
             except Exception:
                 logger.exception('PyHSL monitoring notification failed')
         return since
@@ -191,7 +191,7 @@ class PyHslRunner:
                 if resumed or expired:
                     # Read first even after the resend window: an existing run must
                     # still be adopted. Do not use the current schedule's definition.
-                    rows = self.client.get('/runs')['sessions']
+                    rows = self.client.get('/runs')['runs']
                     for row in rows:
                         if row.get('origin') != 'machine' or row.get('protocol') != receipt['request']['protocol_id']:
                             continue
@@ -240,13 +240,13 @@ class PyHslRunner:
                         terminal = run
                         terminal_since = time.monotonic()
                 if terminal is not None:
-                    review = review_state(self.client.get('/reconciliation', timeout=30), run_id)
+                    review = review_state(self.client.get('/reviews', timeout=30), run_id)
                 unavailable = None
             except (PyHslError, KeyError, TypeError, AttributeError):
                 unavailable = self._unavailable(schedule, execution, unavailable)
             if terminal is not None:
                 unknown = terminal['status'] in {'outcome_unknown', 'reconciliation_required'}
-                if review is not None or time.monotonic() - terminal_since >= self.reconciliation_seconds:
+                if review is not None or time.monotonic() - terminal_since >= self.review_seconds:
                     if unknown or review is None:
                         self._finish(schedule, execution, 'failed',
                             'PyHSL run outcome or Run review is unknown; check Run Control', 'aborted', hold=True)

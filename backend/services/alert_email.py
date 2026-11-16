@@ -267,8 +267,8 @@ class _Trigger:
 
 
 TRIGGERS: Dict[str, _Trigger] = {
-    'pyhsl_unavailable': _Trigger('warning', 'Run waiting: PyHSL Run Control', lambda f: (
-        'waiting for Run Control', f'The run for {f.experiment} has not started. Open PyHSL Run Control; '
+    'pyhsl_unavailable': _Trigger('warning', 'Run waiting: PyHSL', lambda f: (
+        'waiting for PyHSL', f'The run for {f.experiment} has not started. Open PyHSL Run Control; '
         'the schedule will start when it is ready.', set()), 'Reason'),
     'pyhsl_review_required': _Trigger('warning', 'PyHSL Run review required', lambda f: (
         'Run review required', f'The run for {f.experiment} needs a Run review in PyHSL Run Control. '
@@ -397,7 +397,7 @@ def manual_recovery_email(*, required: bool, experiment: str, schedule_id: str, 
                           at: Any, note: Optional[str], now: datetime) -> AlertEmail:
     experiment = _one_line(experiment)
     if required:
-        tone, headline, fact = "error", "Manual recovery required", "manual recovery required"
+        tone, headline, fact = "error", "Held", "held"
         summary = (f"{experiment} needs manual recovery. Automatic scheduling is paused and this schedule is "
                    "inactive. Check the robot and the deck, then acknowledge the recovery and choose Resume "
                    "queued jobs on the Scheduling page.")

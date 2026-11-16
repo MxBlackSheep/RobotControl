@@ -246,7 +246,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
     const newErrors: string[] = [];
 
     if (pyhsl ? !protocolChecked : !formData.experiment_path) {
-      newErrors.push(pyhsl ? 'Choose a protocol' : 'Please select an experiment');
+      newErrors.push(pyhsl ? 'Choose a protocol' : 'Please select a method or protocol');
     }
 
     if (!formData.experiment_name) {
@@ -346,7 +346,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
           {/* Experiment Selection Section */}
           <Box component="section">
             <Box sx={{ mb: 1.5 }}>
-              <Typography variant="subtitle1">Method</Typography>
+              <Typography variant="subtitle1">Method or protocol</Typography>
             </Box>
             <Box>
               <Stack spacing={2}>
