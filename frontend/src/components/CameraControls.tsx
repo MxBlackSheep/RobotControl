@@ -133,8 +133,9 @@ export default function CameraControls({ admin, onSourceChange, active = true, o
   const cameraChip = { label: cameraStateLabels[health?.capture_state ?? ''] ?? 'Checking',
     tone: (health?.capture_state === 'connected' ? 'completed' : health?.capture_state === 'error' ? 'fault' : cameraAttentionStates.includes(health?.capture_state ?? '') ? 'attention' : 'neutral') as StatusTone };
   // Connect and Reconnect are one backend action; the button names what it will do now.
-  // A camera not giving a picture is still open: Reconnect camera is the way out.
-  const connected = health?.capture_state === 'connected' || health?.capture_state === 'no_picture';
+  // In these states the camera is open (connecting also covers a reopened picture not yet seen to
+  // change), so the button reconnects it: the way out of no frames or no picture.
+  const connected = ['connected', 'connecting', 'no_frames', 'no_picture'].includes(health?.capture_state ?? '');
   // Both groups are panels: beside the image, under it, or in a phone's sheet. A viewer sees the chips and a disabled list.
   const bodySx = { display: 'flex', flexDirection: 'column', gap: 1.5 } as const;
   return <Stack spacing={`${layout.gutter}px`}>
