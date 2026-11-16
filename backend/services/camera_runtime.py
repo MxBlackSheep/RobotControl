@@ -196,7 +196,7 @@ class CameraRuntime:
                         self.frame_lock.release()
                     self.publish(frame)
                     unsampled = frame
-                if unsampled is not None and time.monotonic() >= next_sample:
+                if time.monotonic() >= next_sample:
                     next_sample = time.monotonic() + 1
                     self._sample_picture(picture, generation, unsampled)
                     unsampled = None
@@ -210,9 +210,10 @@ class CameraRuntime:
                     self.error = self.error or "Camera worker exited. Reconnect manually."
 
     def _sample_picture(self, picture, generation, frame):
+        """Once a second; `frame` is the newest frame since the last sample, or None if none arrived."""
         # Every 8th pixel each way is 1/64 of the frame; a live sensor's noise still changes many of them.
         now = time.monotonic()
-        event = picture.sample(now, frame[::8, ::8].tobytes(), self.counters[2])
+        event = picture.sample(now, self.counters[2], None if frame is None else frame[::8, ::8].tobytes())
         if event == "lost":
             logger.warning("Camera picture | event=lost | problem=%s | for_seconds=%.0f | delivered_fps=%.1f | "
                            "frame_sequence=%d | generation=%s", picture.problem,
@@ -305,8 +306,10 @@ class CameraRuntime:
         age = now - self.counters[1] if alive and self.counters[1] else None
         state = "connected" if alive and self.ready else "disconnected"
         picture = self.picture
-        if state == "connected" and picture and picture.problem:
-            state = "no_picture"
+        problem = picture.problem if picture else None
+        if state == "connected" and picture:
+            # Until the picture is seen to change, a (re)opened camera is still connecting.
+            state = "no_picture" if problem else "connected" if picture.confirmed else "connecting"
         if alive and not self.ready and not self.error:
             state = "connecting"
         if alive and ((age is not None and age >= self.no_frame_seconds) or
@@ -322,7 +325,7 @@ class CameraRuntime:
             if state in ("error", "no_frames", "no_picture", "disconnected"):
                 recording = "error"
         return {"device_identity": self.identity, "camera_id": self.camera_id, "generation": self.generation,
-                "capture_state": state, "no_picture_reason": picture.problem if state == "no_picture" else None,
+                "capture_state": state, "no_picture_reason": problem if state == "no_picture" else None,
                 "recording_state": recording, "recording_requested": self.recording_requested,
                 "last_frame_age_seconds": age, "frame_sequence": int(self.counters[2]),
                 "last_write_age_seconds": now - self.counters[3] if alive and self.counters[3] else None,

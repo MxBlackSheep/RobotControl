@@ -5,7 +5,8 @@ No camera, SQL Server, robot or ffmpeg; never opens a device. The worker opens `
 below through the runtime's `capture_source` option; device enumeration is faked in this process
 only. Recording writes MJPEG clips to a temporary folder. Windows are short (the defaults above);
 production uses CAMERA_CONFIG frozen_seconds 30, slow_fps 1, slow_seconds 60.
-Script: moving, frozen, moving, slow (a changing frame every 2 s), moving, frozen, manual Reconnect.
+Script: moving, frozen, moving, slow (a changing frame every 2 s), moving, stopped (no frames for
+longer than the slow window), moving, frozen, Reconnect while frozen, moving, Reconnect, Stop.
 Evidence: test-output/camera-watchdog-check/results.json.
 
 Failure cases:
@@ -13,10 +14,12 @@ Failure cases:
   or is reported before its window or not within it (one sample per second, plus one second);
 - capture_state is not no_picture with reason frozen or slow, or recording is not shown as error;
 - the state does not clear once the picture moves again or the rate recovers;
-- a manual Reconnect keeps the old generation's problem;
+- after a start or Reconnect the picture shows connected (recording on) before it has been seen
+  to change; a Reconnect while still frozen hides the frozen picture past the window;
 - anything reconnects by itself: the generation changes without an operation;
-- the slow frames (one every 2 s) count as a frozen picture: a gap between frames is not a
-  frozen picture (the picture is sampled only when a new frame arrived);
+- a gap between frames counts as a frozen picture: frozen is judged from new frames only;
+- a total stop is never logged, shows something other than no_frames, stretches the slow window
+  (a false slow after frames resume), or logs frozen;
 - the WARNING "Camera picture | event=lost" or INFO "Camera picture | event=back" is missing,
   repeated, or lacks the problem, duration, delivered fps, frame sequence or generation.
 """
@@ -42,7 +45,7 @@ DEVICE = {"id": 0, "name": "Scripted camera", "device_identity": "scripted:camer
 
 
 class ScriptedCapture:
-    """VideoCapture-like source reading its phase from the script file: moving, frozen or slow."""
+    """VideoCapture-like source reading its phase from the script file: moving, frozen, slow or stopped."""
 
     def __init__(self, options):
         self.script = Path(os.environ[SCRIPT_ENV])
@@ -61,6 +64,9 @@ class ScriptedCapture:
     def read(self):
         # An empty read caught mid-write keeps the last phase rather than inventing one.
         self.phase = self.script.read_text(encoding="utf-8").strip() or self.phase
+        while self.phase == "stopped":  # a driver call that delivers nothing until frames resume
+            time.sleep(.1)
+            self.phase = self.script.read_text(encoding="utf-8").strip() or self.phase
         time.sleep(2 if self.phase == "slow" else 1 / 30)
         if self.phase != "frozen":
             self.count += 1
@@ -122,11 +128,16 @@ def main():
 
     no_picture = lambda reason: lambda s: s["capture_state"] == "no_picture" and s["no_picture_reason"] == reason
     connected = lambda s: s["capture_state"] == "connected"
+    connecting = lambda s: s["capture_state"] == "connecting" and s["recording_state"] == "starting"
     try:
         phase("moving")
         with patch("backend.services.camera_runtime.enumerate_devices", return_value=[DEVICE]):
             runtime.run("start", camera_id=0)
             generation = runtime.generation
+            # Recording calibrates for about 2 s before start returns, so a moving picture may already
+            # be confirmed here; the frozen Reconnect below shows the connecting state.
+            took, _ = watch(3, connected)
+            check("a moving picture is confirmed within 3 s", took is not None, f"after {took} s")
             _, seen = watch(args.frozen_seconds + 2)
             check("moving picture is connected and recording", all(connected(s) and s["recording_state"] == "recording" for s in seen),
                   sorted({(s["capture_state"], s["recording_state"]) for s in seen}))
@@ -142,14 +153,29 @@ def main():
             check("frozen clears when the picture moves", took is not None and runtime.status()["no_picture_reason"] is None, f"after {took} s")
 
             phase("slow")
-            # The first slow frame arrives about 2 s after the switch and samples then come every 2 s,
-            # so the window holds only slow frames from about slow_seconds + 2 on.
+            # The first slow frame arrives about 2 s after the switch, so the window holds only slow
+            # frames from about slow_seconds + 2 on.
             took, _ = watch(args.slow_seconds + 8, no_picture("slow"))
-            check("slow detected within its window, not before", took is not None and args.slow_seconds - 1 <= took <= args.slow_seconds + 5,
+            check("slow detected within its window, not before", took is not None and args.slow_seconds - 1 <= took <= args.slow_seconds + 4,
                   f"after {took} s")
             phase("moving")
             took, _ = watch(6, connected)
             check("slow clears when the rate recovers", took is not None, f"after {took} s")
+
+            # Frames stop entirely for longer than the slow window: the screen keeps showing no_frames,
+            # the log gets one slow line (about 0 fps) and no frozen line, then one back line.
+            runtime.no_frame_seconds = 3
+            phase("stopped")
+            _, seen = watch(args.slow_seconds + 4)
+            check("a total stop shows no_frames", seen[-1]["capture_state"] == "no_frames"
+                  and not any(s["capture_state"] == "no_picture" for s in seen if (s["last_frame_age_seconds"] or 0) >= 3),
+                  sorted({s["capture_state"] for s in seen}))
+            phase("moving")
+            took, _ = watch(4, connected)
+            check("frames resuming clear it", took is not None, f"after {took} s")
+            _, seen = watch(args.slow_seconds + 2)
+            check("no false slow after frames resume", all(connected(s) for s in seen), sorted({s["capture_state"] for s in seen}))
+            runtime.no_frame_seconds = 10
             check("nothing reconnected by itself", runtime.generation == generation, f"{generation} -> {runtime.generation}")
 
             phase("frozen")
@@ -157,20 +183,33 @@ def main():
             check("frozen detected again", took is not None, f"after {took} s")
             runtime.run("reconnect")
             status = runtime.status()
-            check("manual Reconnect clears it under a new generation",
-                  status["capture_state"] == "connected" and status["generation"] != generation and status["recording_requested"],
-                  f"{status['capture_state']} {status['generation']}")
+            check("Reconnect while frozen: a new generation, connecting, recording intent kept",
+                  connecting(status) and status["generation"] != generation and status["recording_requested"],
+                  f"{status['capture_state']} {status['recording_state']} {status['generation']}")
+            took, seen = watch(args.frozen_seconds + 4, no_picture("frozen"))
+            check("Reconnect while frozen: no_picture again after the window, never connected before",
+                  took is not None and took <= args.frozen_seconds + 3 and not any(connected(s) for s in seen), f"after {took} s")
             phase("moving")
+            took, _ = watch(4, connected)
+            check("frozen clears once the picture moves after Reconnect", took is not None, f"after {took} s")
+            runtime.run("reconnect")
+            took, _ = watch(4, connected)
+            check("Reconnect with a moving picture is confirmed within 4 s", took is not None, f"after {took} s")
             runtime.run("stop")
 
         events = [(level, message.split(" | ")[1]) for level, message in lines.records]
         check("log lines: one per start and return", events == [
-            ("WARNING", "event=lost"), ("INFO", "event=back"), ("WARNING", "event=lost"), ("INFO", "event=back"),
-            ("WARNING", "event=lost")], events)
+            ("WARNING", "event=lost"), ("INFO", "event=back"),   # frozen
+            ("WARNING", "event=lost"), ("INFO", "event=back"),   # slow frames
+            ("WARNING", "event=lost"), ("INFO", "event=back"),   # total stop
+            ("WARNING", "event=lost"),                           # frozen; Reconnect ends that generation
+            ("WARNING", "event=lost"), ("INFO", "event=back")], events)   # still frozen after Reconnect
         lost = [message for level, message in lines.records if level == "WARNING"]
         check("WARNING lines carry problem, duration, fps, sequence, generation",
-              len(lost) == 3 and all(all(f in m for f in ("problem=", "for_seconds=", "delivered_fps=", "frame_sequence=", "generation="))
-                                     for m in lost) and "problem=frozen" in lost[0] and "problem=slow" in lost[1], lost)
+              len(lost) == 5 and all(all(f in m for f in ("problem=", "for_seconds=", "delivered_fps=", "frame_sequence=", "generation="))
+                                     for m in lost)
+              and [m.split(" | ")[2] for m in lost] == ["problem=frozen", "problem=slow", "problem=slow", "problem=frozen", "problem=frozen"]
+              and "delivered_fps=0." in lost[2], lost)
         back = [message for level, message in lines.records if level == "INFO"]
         check("INFO lines say how long the picture was gone", all("gone_seconds=" in m for m in back), back)
         results["log"] = [message for _, message in lines.records]
