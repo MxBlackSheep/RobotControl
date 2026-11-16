@@ -1,9 +1,10 @@
 ## 2026-11-16 Camera not giving a picture
 
-- Before, a camera that kept sending a frozen or black picture showed as connected and recording. Now a picture that has not changed at all for 30 s, or fewer than 1 frame a second over 60 s, shows "Camera not giving a picture" on the Camera page (with the reason) and on Overview, and recording shows as failing. It clears when the picture returns or after a Reconnect. Nothing reconnects by itself.
-- Each problem logs one WARNING when it starts and one INFO when the picture is back, both starting `Camera picture`, so the owner can see how often the camera stalls. Thresholds are `CAMERA_CONFIG` `frozen_seconds`, `slow_fps` and `slow_seconds`.
-- A camera that sends no frames now also shows in the attention tone (was neutral), like one that is disconnected or not giving a picture.
-- Checks: `backend/e2e/camera_watchdog_check.py` passes with the real runtime and worker on a scripted picture and short windows (frozen 4 s, slow 6 s): a frozen picture was reported about 1 s after its window, a slow one about 2 s after its window (the first slow frame arrives 2 s after the change); each cleared within 3 s of the picture returning, a manual Reconnect cleared it under a new generation, nothing reconnected by itself, and the log held exactly one start and one return line per problem. The camera backend tests, the type check and the two no-picture browser cases (Camera page, Overview) pass; the screenshots read correctly in light mode.
+- Why: in November 2026 the lab camera's picture went black after weeks of running while RobotControl still showed it connected and recording; the owner noticed and used Reconnect. Any delivered frame counted as healthy.
+- Before, a camera that kept sending a frozen picture showed as connected and recording. Now a picture that has not changed at all for 30 s, or fewer than 1 frame a second over 60 s, shows "Camera not giving a picture" on the Camera page (with the reason) and on Overview, and recording shows as failing. It clears when the picture returns or after a Reconnect. Nothing reconnects by itself. After a start or Reconnect the camera shows Connecting until its picture has been seen to change, so a still-frozen camera no longer looks connected for the first 30 s.
+- Each problem logs one WARNING when it starts and one INFO when the picture is back, both starting `Camera picture`, so the owner can see how often the camera stalls. A camera that stops sending entirely is logged as `slow` at 0 fps, while the screen shows No frames. Thresholds are `CAMERA_CONFIG` `frozen_seconds`, `slow_fps` and `slow_seconds`.
+- A camera that sends no frames now also shows in the attention tone (was neutral), like one that is disconnected or not giving a picture, and offers Reconnect camera (the camera is still open).
+- Checks: to be run.
 
 ## 2026-11-12 PyHSL review route, run list key and shared wording
 

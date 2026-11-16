@@ -33,14 +33,14 @@ Capture state, recording state, automation state and viewer connection are separ
 
 ### Camera not giving a picture
 
-A camera can keep delivering frames while its picture is frozen (in November 2026 the lab camera's picture went black after weeks, while RobotControl showed it connected and recording). `CameraRuntime._observe` therefore feeds one frame per second, every 8th pixel each way (1/64 of the frame), to the pure `PictureCheck` in `camera_picture.py`, one per generation. It samples only when a new frame arrived since the last sample, so a gap in frames stays `no_frames`. The picture is:
+A camera can keep delivering frames while its picture is frozen. Once a second `CameraRuntime._observe` gives the pure `PictureCheck` in `camera_picture.py` (one per generation) the frame count and, when a new frame arrived since the last second, that frame's every 8th pixel each way (1/64 of the frame). The picture is:
 
-- `frozen` when the sample has not changed at all for `CAMERA_CONFIG.frozen_seconds` (30). The lab is lit (LED inside the robot), so a live sensor always changes some pixels; there is no brightness rule.
-- `slow` when fewer than `slow_fps` (1) frames a second arrived on average over the last `slow_seconds` (60).
+- `frozen` when, judged over new frames only, the sample has not changed at all for `CAMERA_CONFIG.frozen_seconds` (30). The lab is lit (LED inside the robot), so a live sensor always changes some pixels; there is no brightness rule. A camera that sends nothing is not called frozen.
+- `slow` when fewer than `slow_fps` (1) frames a second arrived on average over the last `slow_seconds` (60), including none at all.
 
-Either makes `capture_state` `no_picture` with `no_picture_reason` (`frozen` or `slow`), and recording shows `error`, as for `no_frames`. `no_frames`, `error` and `reconnecting` keep precedence over it. It clears when the picture changes again or the rate recovers, and with a new generation (Reconnect, Stop, camera change). **Nothing reconnects by itself**: a person uses Reconnect camera. The log has one line when it starts and one when it ends, both with the fixed prefix `Camera picture`:
+Either makes `capture_state` `no_picture` with `no_picture_reason` (`frozen` or `slow`), and recording shows `error`, as for `no_frames`. `no_frames`, `error` and `reconnecting` keep precedence over it, so a camera that stops sending shows "No frames" while the log records it as `slow`. After a start or Reconnect the state stays `connecting` (recording `starting`) until the picture has been seen to change; a picture still frozen becomes `no_picture` after `frozen_seconds`. This is status only: `ready`, the start wait and the recording-started callback are unchanged. It clears when the picture changes again or the rate recovers, and with a new generation (Reconnect, Stop, camera change). **Nothing reconnects by itself**: a person uses Reconnect camera. The log has one line when it starts and one when it ends, both with the fixed prefix `Camera picture`:
 
-`Camera picture | event=lost | problem=frozen | for_seconds=30 | delivered_fps=29.9 | frame_sequence=812345 | generation=…` (WARNING; `for_seconds` is how long the picture had not changed, or the window for `slow`)
+`Camera picture | event=lost | problem=frozen | for_seconds=30 | delivered_fps=29.9 | frame_sequence=812345 | generation=…` (WARNING; `for_seconds` is how long the picture had not changed, or the window for `slow`; a camera that stopped sending logs `problem=slow` with `delivered_fps=0.0`)
 `Camera picture | event=back | gone_seconds=95 | delivered_fps=30.0 | generation=…` (INFO; not written when a Reconnect or Stop ends the generation instead)
 
 Frequent `event=lost` lines mean the camera should be replaced. `backend/e2e/camera_watchdog_check.py` runs the real runtime and worker on a scripted picture (the worker's `capture_source` option, `None` in production).
