@@ -41,6 +41,12 @@ class Settings:
 # Camera system configuration
 CAMERA_CONFIG = {
     "no_frame_seconds": 10,
+    # "Camera not giving a picture": the sampled picture has not changed at all for frozen_seconds
+    # (the lab is lit, so a live sensor always changes), or fewer than slow_fps frames a second
+    # arrived on average over slow_seconds. Reported and logged only; a person reconnects.
+    "frozen_seconds": 30,
+    "slow_fps": 1,
+    "slow_seconds": 60,
     "startup_seconds": 20,
     "recording_duration_minutes": 1,        # Duration of each video segment in minutes
     # Frame rate requested from the camera; a hint only (live view paces itself to at most 15, recording

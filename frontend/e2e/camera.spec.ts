@@ -46,7 +46,8 @@ import { signIn } from './sign-in';
  */
 test.beforeEach(async ({ page, request }) => {
   await request.post('/__e2e/camera', { data: { width: 640, height: 480, send_frames: true, disconnect: false, generation: 'g1',
-    interval: .2, burst: 1, device: 'fixture-camera', capture: 'connected', recording: true, operation: null, ranges: [], cut_after: null } });
+    interval: .2, burst: 1, device: 'fixture-camera', capture: 'connected', no_picture_reason: null, recording: true, operation: null,
+    ranges: [], cut_after: null } });
   await signIn(page);
 });
 
@@ -392,6 +393,22 @@ test('an administrator stops recording, chooses another camera and connects it',
   await expect(choice).toContainText('Second camera');
   expect(writes).toEqual(['POST /api/camera/recording/stop', 'POST /api/camera/devices/refresh', 'PATCH /api/camera/selection', 'POST /api/camera/connect']);
   expect((await fixture(request)).device).toBe('second-camera');
+});
+
+test('a camera not giving a picture says so with its reason, and recording shows as failing', async ({ page, request }, testInfo) => {
+  // Under 1200px the summary line sits under the picture and the Camera panel below it.
+  await page.setViewportSize({ width: 900, height: 1000 });
+  await request.post('/__e2e/camera', { data: { capture: 'no_picture', no_picture_reason: 'frozen' } });
+  await page.goto('/camera?section=live');
+  const cameraPanel = page.getByRole('region', { name: 'Camera', exact: true });
+  await expect(page.getByText('Camera not giving a picture (frozen) · Recording error', { exact: true })).toBeVisible();
+  await expect(cameraPanel.getByText('Not giving a picture', { exact: true })).toBeVisible();
+  await expect(cameraPanel.getByRole('button', { name: 'Reconnect camera', exact: true })).toBeEnabled();
+  await page.screenshot({ path: testInfo.outputPath('no-picture.png'), fullPage: true });
+  await request.post('/__e2e/camera', { data: { capture: 'connected', no_picture_reason: null } });
+  // The next status poll (every 5 s) clears it.
+  await expect(page.getByText('Camera connected · Recording', { exact: true })).toBeVisible({ timeout: 10000 });
+  await expect(page.getByText(/not giving a picture/i)).toHaveCount(0);
 });
 
 const clip = 'fixture-clip.mp4';

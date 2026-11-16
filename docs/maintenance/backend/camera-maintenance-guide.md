@@ -29,7 +29,21 @@ All paths below are beneath `/api/camera`:
 
 Operations return HTTP 202 with `data.operation.id`. Poll control-status for pending/succeeded/failed and errors. Overlapping operations return 409. The operation revision distinguishes a newer operation initiated by another administrator. Existing numeric recording APIs remain adapters and run blocking operations off the API event loop. The legacy public health endpoint retains limited fields; detailed identities require authentication.
 
-Capture state, recording state, automation state and viewer connection are separate. A live process is not proof of recording. `CAMERA_CONFIG.no_frame_seconds` defaults to 10; `startup_seconds` defaults to 20. Both use monotonic time. Repeated images count as frames and are not analyzed for scene changes. No camera failure changes Hamilton execution status or triggers completion callbacks.
+Capture state, recording state, automation state and viewer connection are separate. A live process is not proof of recording. `CAMERA_CONFIG.no_frame_seconds` defaults to 10; `startup_seconds` defaults to 20. Both use monotonic time. No camera failure changes Hamilton execution status or triggers completion callbacks.
+
+### Camera not giving a picture
+
+A camera can keep delivering frames while its picture is frozen (in November 2026 the lab camera's picture went black after weeks, while RobotControl showed it connected and recording). `CameraRuntime._observe` therefore feeds one frame per second, every 8th pixel each way (1/64 of the frame), to the pure `PictureCheck` in `camera_picture.py`, one per generation. It samples only when a new frame arrived since the last sample, so a gap in frames stays `no_frames`. The picture is:
+
+- `frozen` when the sample has not changed at all for `CAMERA_CONFIG.frozen_seconds` (30). The lab is lit (LED inside the robot), so a live sensor always changes some pixels; there is no brightness rule.
+- `slow` when fewer than `slow_fps` (1) frames a second arrived on average over the last `slow_seconds` (60).
+
+Either makes `capture_state` `no_picture` with `no_picture_reason` (`frozen` or `slow`), and recording shows `error`, as for `no_frames`. `no_frames`, `error` and `reconnecting` keep precedence over it. It clears when the picture changes again or the rate recovers, and with a new generation (Reconnect, Stop, camera change). **Nothing reconnects by itself**: a person uses Reconnect camera. The log has one line when it starts and one when it ends, both with the fixed prefix `Camera picture`:
+
+`Camera picture | event=lost | problem=frozen | for_seconds=30 | delivered_fps=29.9 | frame_sequence=812345 | generation=…` (WARNING; `for_seconds` is how long the picture had not changed, or the window for `slow`)
+`Camera picture | event=back | gone_seconds=95 | delivered_fps=30.0 | generation=…` (INFO; not written when a Reconnect or Stop ends the generation instead)
+
+Frequent `event=lost` lines mean the camera should be replaced. `backend/e2e/camera_watchdog_check.py` runs the real runtime and worker on a scripted picture (the worker's `capture_source` option, `None` in production).
 
 ## Clips and storage
 
@@ -47,7 +61,7 @@ Recording downloads support GET/HEAD and byte ranges for resumable remote downlo
 
 ## Troubleshooting and validation
 
-Check control-status capture state, frame age, last-write age, heartbeat age, read-failure count, generation and operation error. Each connection logs `Camera capture | … | format=… | requested_fps=30 | reported_fps=…` (the format the driver negotiated, MJPG or YUY2) and, 10 s later, `Camera capture | … | delivered_fps=…` counted from frames that actually arrived; a driver may ignore the request or lower the rate in the dark (on 2026-10-02 the production camera reported 15 for a 15 request and delivered 30). The request is only a hint: recording measures its own rate at connection (capped at 7.5) and live view takes what arrives up to its level's rate (the levels divide both 30 and 15). A camera that slows down later (exposure priority once the light is switched off) leaves clips with fewer frames than their rate claims; they play faster than real time, and the parent logs one warning per such clip: `Camera delivered N fps, below the recording rate (7.5 fps); this clip plays faster than real time | <path>` (frame count ÷ elapsed seconds under 0.8 × the clip's fps, from the clip event). Recording is not changed by it. A fresh heartbeat with old frames can mean a blocked capture/writer call. A repeated still image alone is inconclusive. Opt-in resource diagnostics include these counters without recording image payloads.
+Check control-status capture state, frame age, last-write age, heartbeat age, read-failure count, generation and operation error. Each connection logs `Camera capture | … | format=… | requested_fps=30 | reported_fps=…` (the format the driver negotiated, MJPG or YUY2) and, 10 s later, `Camera capture | … | delivered_fps=…` counted from frames that actually arrived; a driver may ignore the request or lower the rate in the dark (on 2026-10-02 the production camera reported 15 for a 15 request and delivered 30). The request is only a hint: recording measures its own rate at connection (capped at 7.5) and live view takes what arrives up to its level's rate (the levels divide both 30 and 15). A camera that slows down later (exposure priority once the light is switched off) leaves clips with fewer frames than their rate claims; they play faster than real time, and the parent logs one warning per such clip: `Camera delivered N fps, below the recording rate (7.5 fps); this clip plays faster than real time | <path>` (frame count ÷ elapsed seconds under 0.8 × the clip's fps, from the clip event). Recording is not changed by it. A fresh heartbeat with old frames can mean a blocked capture/writer call. A picture that stops changing or slows below 1 frame a second shows as `no_picture` and is logged (`Camera picture`, above). Opt-in resource diagnostics include these counters without recording image payloads.
 
 ### Live view delivery log
 

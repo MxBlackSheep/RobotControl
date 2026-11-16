@@ -12,6 +12,7 @@ interface Health {
   device_identity: string | null;
   generation: string | null;
   capture_state: string;
+  no_picture_reason?: string | null;
   recording_state: string;
   recording_requested: boolean;
   last_frame_age_seconds: number | null;
@@ -23,7 +24,7 @@ interface CameraStatus {
   health: Health;
 }
 export const cameraStateLabels: Record<string, string> = {
-  no_frames: 'No frames', connected: 'Connected', disconnected: 'Disconnected', connecting: 'Connecting',
+  no_frames: 'No frames', no_picture: 'Not giving a picture', connected: 'Connected', disconnected: 'Disconnected', connecting: 'Connecting',
   reconnecting: 'Reconnecting', error: 'Error', recording: 'Recording', starting: 'Starting', stopped: 'Stopped',
 };
 
@@ -32,7 +33,11 @@ export const cameraStateLabels: Record<string, string> = {
 const cameraPhrases: Record<string, string> = {
   connected: 'Camera connected', disconnected: 'Camera disconnected', connecting: 'Camera connecting',
   reconnecting: 'Camera reconnecting', no_frames: 'Camera sends no frames', error: 'Camera error',
+  no_picture: 'Camera not giving a picture',
 };
+const noPictureReasons: Record<string, string> = { frozen: 'frozen', slow: 'too few frames' };
+/** States that need a person (Reconnect, or a check of the cable or camera). */
+export const cameraAttentionStates = ['disconnected', 'no_picture'];
 const recordingPhrases: Record<string, string> = { recording: 'Recording', stopped: 'Not recording', starting: 'Recording starting', error: 'Recording error' };
 const recordingStates: Record<string, string> = { recording: 'On', stopped: 'Off', starting: 'Starting', error: 'Error' };
 
@@ -118,16 +123,18 @@ export default function CameraControls({ admin, onSourceChange, active = true, o
   const recordingRequested = Boolean(health?.recording_requested);
   const selectionLocked = recordingRequested && Boolean(saved);
   const error = actionError || health?.operation?.error || health?.error || polling.error;
-  const summary = `${cameraPhrases[health?.capture_state ?? ''] ?? 'Checking camera'} · ${recordingPhrases[health?.recording_state ?? ''] ?? 'Checking recording'}`;
+  const reason = noPictureReasons[health?.no_picture_reason ?? ''];
+  const summary = `${cameraPhrases[health?.capture_state ?? ''] ?? 'Checking camera'}${reason ? ` (${reason})` : ''} · ${recordingPhrases[health?.recording_state ?? ''] ?? 'Checking recording'}`;
   const recordingChip = { label: recordingStates[health?.recording_state ?? ''] ?? 'Checking',
     tone: (health?.recording_state === 'recording' ? 'running' : health?.recording_state === 'error' ? 'fault' : 'neutral') as StatusTone };
   useEffect(() => {
     onSummaryChange({ text: summary, error: error || null, recording: { label: recordingChip.label, tone: recordingChip.tone } });
   }, [summary, error, recordingChip.label, recordingChip.tone, onSummaryChange]);
   const cameraChip = { label: cameraStateLabels[health?.capture_state ?? ''] ?? 'Checking',
-    tone: (health?.capture_state === 'connected' ? 'completed' : health?.capture_state === 'error' ? 'fault' : health?.capture_state === 'disconnected' ? 'attention' : 'neutral') as StatusTone };
+    tone: (health?.capture_state === 'connected' ? 'completed' : health?.capture_state === 'error' ? 'fault' : cameraAttentionStates.includes(health?.capture_state ?? '') ? 'attention' : 'neutral') as StatusTone };
   // Connect and Reconnect are one backend action; the button names what it will do now.
-  const connected = health?.capture_state === 'connected';
+  // A camera not giving a picture is still open: Reconnect camera is the way out.
+  const connected = health?.capture_state === 'connected' || health?.capture_state === 'no_picture';
   // Both groups are panels: beside the image, under it, or in a phone's sheet. A viewer sees the chips and a disabled list.
   const bodySx = { display: 'flex', flexDirection: 'column', gap: 1.5 } as const;
   return <Stack spacing={`${layout.gutter}px`}>

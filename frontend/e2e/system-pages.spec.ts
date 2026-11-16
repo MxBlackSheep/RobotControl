@@ -238,6 +238,20 @@ test('Overview shows elapsed time against the estimate and keeps other panels wh
   await expect(page.getByRole('region', { name: 'Robot status' }).getByRole('link', { name: 'Cell feeding · stack 2 held', exact: true })).toBeVisible();
 });
 
+test('Overview says when the camera is not giving a picture, and not when it is', async ({ page }) => {
+  let capture = 'no_picture';
+  await page.route('**/api/camera/control-status', route => route.fulfill({ json: { data: { cameras: [], health: {
+    capture_state: capture, no_picture_reason: capture === 'no_picture' ? 'slow' : null,
+    recording_state: capture === 'no_picture' ? 'error' : 'recording', error: null } } } }));
+  await page.goto('/');
+  const health = page.getByRole('region', { name: 'Instrument health' });
+  await expect(health).toContainText('CameraNot giving a picture');
+  capture = 'connected';
+  await page.reload();
+  await expect(health).toContainText('CameraRecording');
+  await expect(health).not.toContainText('Not giving a picture');
+});
+
 test('Overview reports a PyHSL run and review, and never reads a failed status as healthy', async ({ page }) => {
   const reading = { state: 'running', reason: '', checked_at: '2026-11-09T15:37:00+00:00',
     run: { run_id: 'r1', protocol: 'pyhsl_test_automation', status: 'running', mode: 'simulation', completed_count: 4, error: null, origin: 'person', created_at: '2026-11-09T15:36:00+00:00' },

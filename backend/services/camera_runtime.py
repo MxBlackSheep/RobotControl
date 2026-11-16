@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 
 from backend.services.camera_devices import enumerate_devices, resolve_device
+from backend.services.camera_picture import PictureCheck
 from backend.services.camera_worker import FRAME_BYTES, capture_worker
 from backend.utils.filesystem import replace_file
 
@@ -62,6 +63,11 @@ class CameraRuntime:
         self.no_frame_seconds = 10
         self.startup_seconds = 20
         self.capture_fps = 30
+        self.frozen_seconds = 30
+        self.slow_fps = 1
+        self.slow_seconds = 60
+        self.picture = None  # the current generation's PictureCheck
+        self.capture_source = None  # backend/e2e/camera_watchdog_check.py only
         self.graceful_stop_seconds = 15
         self.on_recording_started = None
 
@@ -119,7 +125,9 @@ class CameraRuntime:
         self.events = parent
         options = {"identity": identity, "camera_id": self.camera_id, "generation": self.generation,
                    "folder": str(self.folder), "clip_seconds": self.clip_seconds,
-                   "recording": self.recording_requested, "capture_fps": self.capture_fps}
+                   "recording": self.recording_requested, "capture_fps": self.capture_fps,
+                   "capture_source": self.capture_source}
+        picture = self.picture = PictureCheck(self.frozen_seconds, self.slow_fps, self.slow_seconds)
         self.started = time.monotonic()
         self.process = ctx.Process(target=capture_worker,
             args=(options, self.stop_event, self.pixels, self.frame_lock, self.counters, child),
@@ -132,7 +140,7 @@ class CameraRuntime:
             raise
         finally:
             child.close()
-        self.monitor = threading.Thread(target=self._observe, args=(self.process, self.generation, parent),
+        self.monitor = threading.Thread(target=self._observe, args=(self.process, self.generation, parent, picture),
                                         name="CameraSupervisor", daemon=True)
         self.monitor.start()
         deadline = time.monotonic() + self.startup_seconds
@@ -146,8 +154,10 @@ class CameraRuntime:
         if self.recording_requested and self.on_recording_started:
             self.on_recording_started(self.camera_id)
 
-    def _observe(self, process, generation, events):
+    def _observe(self, process, generation, events, picture):
         last_sequence = 0
+        unsampled = None  # the newest frame since the last picture sample
+        next_sample = 0.
         rate_from = None  # (monotonic, frame count) once ready, until the delivered rate is logged
         try:
             while process.is_alive() or events.poll():
@@ -185,6 +195,11 @@ class CameraRuntime:
                     finally:
                         self.frame_lock.release()
                     self.publish(frame)
+                    unsampled = frame
+                if unsampled is not None and time.monotonic() >= next_sample:
+                    next_sample = time.monotonic() + 1
+                    self._sample_picture(picture, generation, unsampled)
+                    unsampled = None
         except Exception as exc:
             self.error = f"Camera supervision failed: {exc}"
             logger.exception(self.error)
@@ -193,6 +208,19 @@ class CameraRuntime:
                 self.ready = False
                 if not self.stop_event.is_set():
                     self.error = self.error or "Camera worker exited. Reconnect manually."
+
+    def _sample_picture(self, picture, generation, frame):
+        # Every 8th pixel each way is 1/64 of the frame; a live sensor's noise still changes many of them.
+        now = time.monotonic()
+        event = picture.sample(now, frame[::8, ::8].tobytes(), self.counters[2])
+        if event == "lost":
+            logger.warning("Camera picture | event=lost | problem=%s | for_seconds=%.0f | delivered_fps=%.1f | "
+                           "frame_sequence=%d | generation=%s", picture.problem,
+                           now - picture.lost_at if picture.problem == "frozen" else self.slow_seconds,
+                           picture.fps, self.counters[2], generation)
+        elif event == "back":
+            logger.info("Camera picture | event=back | gone_seconds=%.0f | delivered_fps=%.1f | generation=%s",
+                        now - picture.lost_at, picture.fps, generation)
 
     def _stop(self):
         process = self.process
@@ -276,6 +304,9 @@ class CameraRuntime:
             alive = False
         age = now - self.counters[1] if alive and self.counters[1] else None
         state = "connected" if alive and self.ready else "disconnected"
+        picture = self.picture
+        if state == "connected" and picture and picture.problem:
+            state = "no_picture"
         if alive and not self.ready and not self.error:
             state = "connecting"
         if alive and ((age is not None and age >= self.no_frame_seconds) or
@@ -288,10 +319,11 @@ class CameraRuntime:
         recording = "stopped"
         if self.recording_requested:
             recording = "recording" if self.ready and state == "connected" else "starting"
-            if state in ("error", "no_frames", "disconnected"):
+            if state in ("error", "no_frames", "no_picture", "disconnected"):
                 recording = "error"
         return {"device_identity": self.identity, "camera_id": self.camera_id, "generation": self.generation,
-                "capture_state": state, "recording_state": recording, "recording_requested": self.recording_requested,
+                "capture_state": state, "no_picture_reason": picture.problem if state == "no_picture" else None,
+                "recording_state": recording, "recording_requested": self.recording_requested,
                 "last_frame_age_seconds": age, "frame_sequence": int(self.counters[2]),
                 "last_write_age_seconds": now - self.counters[3] if alive and self.counters[3] else None,
                 "heartbeat_age_seconds": now - self.counters[0] if alive and self.counters[0] else None,

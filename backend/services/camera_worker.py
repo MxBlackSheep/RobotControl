@@ -5,6 +5,7 @@ a pipe acknowledgement; the parent consumes it even while an operation waits.
 Every connection owns fresh IPC resources, so killing a stuck native call cannot
 leave a lock used by the next connection permanently acquired.
 """
+import importlib
 import json
 import os
 import threading
@@ -73,14 +74,20 @@ def capture_worker(options, stop, pixels, frame_lock, counters, events):
 
     threading.Thread(target=heartbeat, name="CameraHeartbeat", daemon=True).start()
     try:
-        device = resolve_device(enumerate_devices(), options["identity"])
-        if device["id"] != options["camera_id"]:
-            raise RuntimeError("Camera mapping changed before connection; refresh and reconnect")
-        cap = cv2.VideoCapture(device["id"], cv2.CAP_DSHOW)
-        if not cap.isOpened():
-            raise RuntimeError("Cannot open selected camera; it may be disconnected or in use")
-        if resolve_device(enumerate_devices(), options["identity"])["id"] != device["id"]:
-            raise RuntimeError("Camera mapping changed while opening; refresh and reconnect")
+        if options.get("capture_source"):
+            # "module:callable" returning a VideoCapture-like object: a scripted picture for
+            # backend/e2e/camera_watchdog_check.py. Production leaves it None.
+            module, name = options["capture_source"].split(":")
+            cap = getattr(importlib.import_module(module), name)(options)
+        else:
+            device = resolve_device(enumerate_devices(), options["identity"])
+            if device["id"] != options["camera_id"]:
+                raise RuntimeError("Camera mapping changed before connection; refresh and reconnect")
+            cap = cv2.VideoCapture(device["id"], cv2.CAP_DSHOW)
+            if not cap.isOpened():
+                raise RuntimeError("Cannot open selected camera; it may be disconnected or in use")
+            if resolve_device(enumerate_devices(), options["identity"])["id"] != device["id"]:
+                raise RuntimeError("Camera mapping changed while opening; refresh and reconnect")
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
         # CAMERA_CONFIG capture_fps. A driver may deliver another rate: the parent logs what arrives.
