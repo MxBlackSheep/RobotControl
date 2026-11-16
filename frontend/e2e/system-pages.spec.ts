@@ -272,7 +272,7 @@ test('a remote phone gets what happened instead of a recovery dead end', async (
   await page.clock.install({ time: now });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.route('**/api/auth/me', route => route.fulfill({ json: { success: true, data: {
-    user_id: 'viewer-admin', username: 'operator', role: 'admin', session_is_local: false, session: { is_local: false } } } }));
+    user_id: 'viewer-admin', username: 'operator', role: 'admin', session: { is_local: false } } } }));
   await page.route('**/api/scheduling/status/queue', route => route.fulfill({ json: { success: true, data: { is_running: true,
     queue: { queued_jobs: 0, running_job_details: [] }, hamilton: { is_running: false },
     manual_recovery: { active: true, storage_healthy: true, safety_revision: 4, pending_recoveries: [{ schedule_id: 'feed2',
@@ -320,7 +320,7 @@ test('a remote phone gets what happened instead of a recovery dead end', async (
   // The workstation's own browser can recover, so it goes straight to Recovery.
   await page.unroute('**/api/auth/me');
   await page.route('**/api/auth/me', route => route.fulfill({ json: { success: true, data: {
-    user_id: 'viewer-admin', username: 'operator', role: 'admin', session_is_local: true, session: { is_local: true } } } }));
+    user_id: 'viewer-admin', username: 'operator', role: 'admin', session: { is_local: true } } } }));
   await page.reload();
   await expect(page.getByRole('region', { name: 'Robot status' }).getByRole('link', { name: 'Cell feeding · stack 2 held since 11:02' })).toHaveAttribute('href', '/scheduling?section=recovery');
   await page.goto('/');
@@ -420,7 +420,7 @@ test('live view slots stay unknown when the status contract is incomplete', asyn
 });
 
 test('administration gives storage health its own local section', async ({ page }) => {
-  await page.route('**/api/auth/me', route => route.fulfill({ json: { success: true, data: { user_id: 'viewer-admin', username: 'operator', role: 'admin', session_is_local: true, session: { is_local: true } } } }));
+  await page.route('**/api/auth/me', route => route.fulfill({ json: { success: true, data: { user_id: 'viewer-admin', username: 'operator', role: 'admin', session: { is_local: true } } } }));
   await page.goto('/admin?section=storage');
   await expect(page.getByRole('tab', { name: 'Storage health', exact: true })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('heading', { name: 'User accounts', exact: true })).toHaveCount(0);
@@ -482,7 +482,7 @@ test('keyboard shortcuts navigate, show their help and yield to dialogs', async 
 
 for (const accepted of [true, false]) {
   test(`a user under review: ${accepted ? 'Reset & Resolve clears the chip' : 'a refused reset keeps the chip'}`, async ({ page }) => {
-    await page.route('**/api/auth/me', route => route.fulfill({ json: { success: true, data: { user_id: 'viewer-admin', username: 'admin', role: 'admin', session_is_local: true, session: { is_local: true } } } }));
+    await page.route('**/api/auth/me', route => route.fulfill({ json: { success: true, data: { user_id: 'viewer-admin', username: 'admin', role: 'admin', session: { is_local: true } } } }));
     const reason = "The user's saved password cannot be checked";
     let current: string | null = reason;
     await page.route('**/api/admin/users', route => route.fulfill({ json: { success: true, data: [
@@ -520,7 +520,7 @@ for (const accepted of [true, false]) {
 }
 for (const accepted of [true, false]) {
   test(`role select ${accepted ? 'saves the role and reloads the list' : 'shows a refusal and keeps the stored role'}`, async ({ page }) => {
-    await page.route('**/api/auth/me', route => route.fulfill({ json: { success: true, data: { user_id: 'viewer-admin', username: 'admin', role: 'admin', session_is_local: true, session: { is_local: true } } } }));
+    await page.route('**/api/auth/me', route => route.fulfill({ json: { success: true, data: { user_id: 'viewer-admin', username: 'admin', role: 'admin', session: { is_local: true } } } }));
     let role = 'user';
     const saved: unknown[] = [];
     await page.route('**/api/admin/users', route => route.fulfill({ json: { success: true, data: [

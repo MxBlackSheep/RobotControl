@@ -5,7 +5,7 @@ import ExpandMore from '@mui/icons-material/ExpandMore';
 import InfoOutlined from '@mui/icons-material/InfoOutlined';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { allowedSections, moduleSectionUrl, moreItemFor, phoneBack, useModuleSection, useSidebarLayout } from './navigation';
+import { allowedSections, localOnlySections, moduleSectionUrl, moreItemFor, phoneBack, useModuleSection, useSidebarLayout } from './navigation';
 import { robotAttention, useRobotStatusContext } from '../hooks/useRobotStatus';
 import { layout, type StatusTone } from '../theme';
 
@@ -28,9 +28,7 @@ export function PageHeader({ title, actions, sectionMenu = true }: { title: stri
   const { user } = useAuth();
   const { pathname } = useLocation();
   const sections = allowedSections(pathname, user);
-  // Sections this user would have on the RobotControl computer (remote sessions, e.g. the tunnel).
-  const localOnly = allowedSections(pathname, user && { ...user, session_is_local: true })
-    .filter(section => !sections.some(allowed => allowed.id === section.id));
+  const localOnly = localOnlySections(pathname, user);
   const [selected] = useModuleSection(pathname, user);
   const attention = robotAttention(useRobotStatusContext().status);
   const tabbed = sections.length > 1;

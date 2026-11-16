@@ -4,7 +4,7 @@ import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import { beforeEach, expect, it, vi } from 'vitest';
 
 import { useKeyboardNavigation } from '../hooks/useKeyboardNavigation';
-import { allowedSections, allowedSchedulingSections, useSchedulingSection, useSidebarLayout, visibleNavigation } from './navigation';
+import { allowedSections, allowedSchedulingSections, isLocalUser, useModuleSection, useSchedulingSection, useSidebarLayout, visibleNavigation, type NavigationUser } from './navigation';
 import useMediaQuery from '@mui/material/useMediaQuery';
 vi.mock('@mui/material/useMediaQuery', () => ({default: vi.fn(() => false)}));
 const admin = {role: 'admin', session_is_local: true};
@@ -21,6 +21,30 @@ it('shares permission filtering for desktop, mobile and direct section links', (
 it.each(['unknown','methods','notifications'])('redirects an inaccessible or unknown section %s', async section => {
   render(<MemoryRouter initialEntries={['/scheduling?section='+section]}><RouteState user={{role: 'user', session_is_local: false}} /></MemoryRouter>);
   await waitFor(() => expect(screen.getByLabelText('Location').textContent).toBe('/scheduling'));
+});
+function ModuleState({path, user}: {path: string; user: NavigationUser}) {
+  const location = useLocation(); const [section] = useModuleSection(path, user);
+  return <><output aria-label="Location">{location.pathname}{location.search}</output><output aria-label="Section">{section}</output></>;
+}
+it.each([
+  ['/database?section=operations', {role: 'admin', session_is_local: false}], ['/database?section=packages', {role: 'admin', session_is_local: false}],
+  ['/database?section=settings', {role: 'admin', session_is_local: false}], ['/admin?section=storage', {role: 'admin', session_is_local: false}],
+  ['/database?section=restore', {role: 'user', session_is_local: false}], ['/logfile?section=robotcontrol', {role: 'user', session_is_local: false}],
+])('sends a remote direct link %s to the first section', async (entry, user) => {
+  render(<MemoryRouter initialEntries={[entry]}><ModuleState path={entry.split('?')[0]} user={user} /></MemoryRouter>);
+  await waitFor(() => expect(screen.getByLabelText('Location').textContent).toBe(entry.split('?')[0]));
+  expect(screen.getByLabelText('Section').textContent).toBe('0');
+});
+it.each([['/database?section=restore', '2'], ['/logfile?section=robotcontrol', '2']])('keeps a local user on %s', (entry, index) => {
+  render(<MemoryRouter initialEntries={[entry]}><ModuleState path={entry.split('?')[0]} user={{role: 'user', session_is_local: true}} /></MemoryRouter>);
+  expect(screen.getByLabelText('Location').textContent).toBe(entry);
+  expect(screen.getByLabelText('Section').textContent).toBe(index);
+});
+it('counts a session as local only when the server said so', () => {
+  expect(isLocalUser({role: 'admin'})).toBe(false);
+  expect(isLocalUser(null)).toBe(false);
+  expect(isLocalUser({role: 'admin', session_is_local: false})).toBe(false);
+  expect(isLocalUser({role: 'admin', session_is_local: true})).toBe(true);
 });
 it('defaults by width and remembers an explicit sidebar preference', () => {
   function Preference() { const layout = useSidebarLayout(); return <button onClick={layout.toggle}>{layout.expanded ? 'Expanded' : 'Collapsed'}</button>; }

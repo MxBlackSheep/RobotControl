@@ -1,3 +1,9 @@
+## 2026-11-12 One owner for whether a session may operate
+
+- The server alone decides whether a session is on the RobotControl computer (`session.is_local` on login, register and `/api/auth/me`). The page no longer guesses from the address bar: a session without that answer only watches. Nobody gains or loses anything: the lab PC operates, and anyone through the tunnel, admin included, watches.
+- Which Database, Admin, Logs and Scheduling sections need the RobotControl computer is decided only by the section table in `components/navigation.tsx`; the pages no longer repeat it, and the "On the RobotControl computer only" note reads the same table. Schedule delete and archive lost a local test that their route already enforced. Every refusal and note text is unchanged.
+- Checks: `navigation.test.tsx` (no answer means remote; remote direct links to local sections land on the first section), `backend/tests/test_scheduling_create_guard.py` (delete and archive refused remotely and to a local non-owner, allowed to the local owner), `backend/e2e/auth_storage_check.py` (`/api/auth/me` reports local and tunnel sessions like login). Faked `/me` replies in the browser checks now use the server's real shape.
+
 ## 2026-11-11 Old report wizard removed
 
 - The page could no longer start a wizard report; Resume on an older draft still opened it, and such a draft could be installed without the trial that Add tool requires. The wizard screen and its five routes are gone (new draft, Python inspection, starter handler, editing files, ZIP-path edit of an installed report). Add tool and Edit are the only way to make or change a tool, and every install now needs a successful trial and the review checkbox.

@@ -7,8 +7,9 @@ every API call. Backend rules are in `docs/maintenance/backend/authentication-ma
 
 - `context/AuthContext.tsx`: the signed-in `user` and `login`, `register`, `logout`,
   `changePassword`. Page code holds no token. `normalizeUser` keeps the server's session
-  metadata (`session_is_local`, `session_ip_classification`, `session_client_ip`); use
-  those for local-only UI such as Database Restore instead of guessing from login history.
+  metadata (`session_is_local`, `session_ip_classification`, `session_client_ip`).
+  Screens read `session_is_local` only through `isLocalUser` (`components/navigation.tsx`);
+  without it a session only watches. Nothing guesses from the address bar or login history.
 - `services/api.ts`: the Axios client. Every request carries `X-Requested-With: RobotControl`
   (the server refuses a cookie-signed change without it). It blocks calls during a
   maintenance window (`MaintenanceManager`) and renews the sign-in once on a 401.

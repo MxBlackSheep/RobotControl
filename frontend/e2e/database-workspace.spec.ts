@@ -26,7 +26,7 @@ import { mkdirSync } from 'node:fs';
 const evidence = process.env.ROBOTCONTROL_E2E_EVIDENCE || '../test-output/database-workspace-verification';
 async function login(page: any) {
   await signIn(page);
-  await page.route('**/api/auth/me', (route: any) => route.fulfill({ json: { success: true, data: { user_id: 'viewer-admin', username: 'Fixture', role: 'admin', session_is_local: true } } }));
+  await page.route('**/api/auth/me', (route: any) => route.fulfill({ json: { success: true, data: { user_id: 'viewer-admin', username: 'Fixture', role: 'admin', session: { is_local: true } } } }));
 }
 
 test('simplified settings show one viewer and no scheduling adapter setup', async ({page}) => {

@@ -14,7 +14,7 @@ const schedule = (id: string, name: string, next: number, extra: Record<string, 
   experiment_path: `C:\\Methods\\${name.replace(/\W/g, '')}.hsl`, schedule_type: 'interval', interval_hours: 12, estimated_duration: 45,
   is_active: true, archived: false, recovery_required: false, start_time: local(next), next_run: local(next), ...extra });
 const signIn = (page: Page, isLocal: boolean) => page.route('**/api/auth/me', route => route.fulfill({ json: {
-  success: true, data: { user_id: 'viewer-admin', username: 'operator', role: 'admin', session_is_local: isLocal, session: { is_local: isLocal } } } }));
+  success: true, data: { user_id: 'viewer-admin', username: 'operator', role: 'admin', session: { is_local: isLocal } } } }));
 
 test.beforeEach(async ({ page }) => {
   await page.clock.install({ time: now });

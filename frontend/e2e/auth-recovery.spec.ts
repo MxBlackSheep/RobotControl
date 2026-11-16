@@ -51,7 +51,7 @@ for (const failure of ['network', 'server', 'timeout', 'refresh', 'proxy'] as co
         failed = true;
         return route.fulfill({ status: 503, json: { detail: 'Restarting' } });
       }
-      return route.fulfill({ json: { success: true, data: { user_id: 'fixture', username: 'Recovered user', role: 'admin' } } });
+      return route.fulfill({ json: { success: true, data: { user_id: 'fixture', username: 'Recovered user', role: 'admin', session: { is_local: true } } } });
     });
     await page.route('**/api/auth/refresh', route => {
       refreshes.push({ body: route.request().postData(), header: route.request().headers()['x-requested-with'] });
@@ -156,7 +156,7 @@ test('sign-in tells an unreachable server from a wrong password', async ({ page 
 });
 
 test('Sign out waits for a refresh in flight, then ends the sign-in on the server', async ({ page }, testInfo) => {
-  await page.route('**/api/auth/me', route => route.fulfill({ json: { success: true, data: { user_id: 'fixture', username: 'Fixture', role: 'admin' } } }));
+  await page.route('**/api/auth/me', route => route.fulfill({ json: { success: true, data: { user_id: 'fixture', username: 'Fixture', role: 'admin', session: { is_local: true } } } }));
   let expired = true;
   await page.route('**/api/admin/backup/list', route => {
     if (!expired) return route.fulfill({ json: { success: true, data: [] } });
@@ -221,7 +221,7 @@ test('a Sign out that does not reach the server is sent again on the next load, 
   await page.route('**/api/auth/me', route => {
     events.push('me');
     return signedIn
-      ? route.fulfill({ json: { success: true, data: { user_id: 'fixture', username: 'Fixture', role: 'admin' } } })
+      ? route.fulfill({ json: { success: true, data: { user_id: 'fixture', username: 'Fixture', role: 'admin', session: { is_local: true } } } })
       : route.fulfill({ status: 401, json: { detail: 'Invalid authentication credentials' } });
   });
   await page.route('**/api/auth/logout', route => {
@@ -252,7 +252,7 @@ test('a Sign out that does not reach the server is sent again on the next load, 
 });
 
 test('a request answered 401 after Sign out does not start a refresh', async ({ page }) => {
-  await page.route('**/api/auth/me', route => route.fulfill({ json: { success: true, data: { user_id: 'fixture', username: 'Fixture', role: 'admin' } } }));
+  await page.route('**/api/auth/me', route => route.fulfill({ json: { success: true, data: { user_id: 'fixture', username: 'Fixture', role: 'admin', session: { is_local: true } } } }));
   let release!: () => void;
   const pending = new Promise<void>(resolve => { release = resolve; });
   let listing = false;

@@ -29,7 +29,7 @@ async function openRestore(page: any, answer: any) {
   mkdirSync(evidence, { recursive: true });
   const sent: any[] = [];
   await signIn(page);
-  await page.route('**/api/auth/me', (r: any) => r.fulfill({ json: { success: true, data: { user_id: 'viewer-admin', username: 'Fixture', role: 'admin', session_is_local: true } } }));
+  await page.route('**/api/auth/me', (r: any) => r.fulfill({ json: { success: true, data: { user_id: 'viewer-admin', username: 'Fixture', role: 'admin', session: { is_local: true } } } }));
   await page.route('**/api/admin/backup/list', (r: any) => r.fulfill({ json: { success: true, data: [bak] } }));
   await page.route('**/api/system/browse?*', (r: any) => r.fulfill({ json: { success: true, data: { items: [{ name: 'nightly.bck', path: bckPath, is_directory: false }] } } }));
   await page.route('**/api/admin/backup/restore', (r: any) => { sent.push(r.request().postDataJSON()); return r.fulfill({ json: answer }); });

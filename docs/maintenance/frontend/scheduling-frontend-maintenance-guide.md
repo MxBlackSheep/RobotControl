@@ -90,8 +90,10 @@ resizing any view never starts, resumes, archives or deletes a schedule.
 
 ## Local and remote sessions
 
-`isLocalUser(user)` uses the server's `session_is_local`, falling back to a localhost
-hostname only when the flag is absent. Remote sessions get no Create, Edit, Delete,
+`isLocalUser(user)` (`components/navigation.tsx`) is how screens read the server's
+`session_is_local`; a session without that answer counts as remote. The page computes it
+once and passes it down as `isLocal`. Which sections need the RobotControl computer lives
+only in `sectionRegistry`; the page renders by section. Remote sessions get no Create, Edit, Delete,
 Archive, Restore, Import or recovery controls; handlers also return early. The
 backend enforces the same rules and is authoritative.
 

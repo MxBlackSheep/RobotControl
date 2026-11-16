@@ -32,7 +32,7 @@ export async function sampleData(page: Page, mode: string, local: boolean) {
   await page.clock.install({ time: now });
   await signIn(page);
   await page.addInitScript(value => localStorage.setItem('robotcontrol-appearance', value), mode);
-  await page.route('**/api/auth/me', route => route.fulfill({ json: { success: true, data: { user_id: 'viewer-admin', username: 'operator', role: 'admin', session_is_local: local, session: { is_local: local } } } }));
+  await page.route('**/api/auth/me', route => route.fulfill({ json: { success: true, data: { user_id: 'viewer-admin', username: 'operator', role: 'admin', session: { is_local: local } } } }));
   await routeDatabaseViewer(page);
   const manual = { active: true, storage_healthy: true, safety_revision: 4, resume_required: true,
     pending_recoveries: [{ schedule_id: 'feed2', experiment_name: 'Cell feeding · stack 2', triggered_at: ago(208), note: 'No log activity for 3 min.' }] };

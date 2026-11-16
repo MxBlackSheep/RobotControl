@@ -38,7 +38,7 @@ const stub = `window.PyHSLMonitor = { mount(element, input) {
 async function signIn(page: Page) {
   await signInCookie(page);
   await page.route('**/api/auth/me', route => route.fulfill({ json: { success: true, data: {
-    user_id: 'operator', username: 'operator', role: 'admin', session_is_local: true, session: { is_local: true } } } }));
+    user_id: 'operator', username: 'operator', role: 'admin', session: { is_local: true } } } }));
 }
 
 async function openPyHslForm(page: Page, writes: unknown[]) {
