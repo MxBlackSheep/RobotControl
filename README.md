@@ -21,9 +21,12 @@ through a Cloudflare Tunnel.
 
 ## What it does
 
-- **Scheduling.** Recurring and one-off runs of Hamilton methods (started through HxRun), with
-  a calendar, run history and archived schedules. After a run fails or its log goes quiet, new
-  runs are held until someone has checked the deck and marked it recovered.
+- **Scheduling.** RobotControl schedules and monitors one-off and recurring runs of Hamilton
+  methods through HxRun and imported PyHSL protocols through the local PyHSL service. PyHSL
+  runs the protocols and records their journals. Shou_Lab owns the lab setup.
+  The calendar shows schedules, and run history and archived schedules are available.
+  A quiet HxRun log raises an alert. When the scheduler places a recovery hold, an operator
+  must clear it before dispatch resumes.
 - **Camera.** Live view in the browser (H.264), one-minute rolling recordings, and an archive
   of the footage around each experiment.
 - **Labware.** Tip tracking for every tip rack, and plate assignments for the Cytomat.
