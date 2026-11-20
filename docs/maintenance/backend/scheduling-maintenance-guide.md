@@ -61,14 +61,15 @@ and the existing `mode`. `experiment_path` is the display-only value
 `pyhsl:<protocol_id>`; it never reaches the VENUS executor or method resolver.
 Create and update accept these fields. Omitted update fields are retained, but
 a PyHSL save validates again and stores the returned revision unless the schedule
-stays off with its protocol, parameters and mode unchanged. Simulation is
-the sole member of `PYHSL_ALLOWED_MODES`; cleanup late-start actions are refused.
+stays off with its protocol, parameters and mode unchanged. RobotControl accepts Simulation, Test and Real
+and sends the selected mode to PyHSL to validate for that protocol. PyHSL schedules
+refuse cleanup late-start actions.
 The local admin/user Validate route and its definitions are described in
 [the client guide](pyhsl-client-guide.md).
 
 The single worker keeps the existing storage, recovery, maintenance and HxRun
 gates. PyHSL uses the monitor's cached reading outside scheduler locks to wait
-for Run Control, an active run, a Run review or an unknown reading. Absence sends
+for the PyHSL service, an active run, a Run review or an unknown reading. Absence sends
 one `pyhsl_unavailable` execution alert after 180 seconds of unavailability. Both runners
 wait in place; jobs behind a blocked job wait too. A storage read failure is logged and retried without ending the worker.
 The VENUS Simulation Mode gate is bypassed because PyHSL manages that setting itself. An unfinished
@@ -77,14 +78,18 @@ PyHSL execution blocks every new dispatch. Enabling HxRun maintenance or enterin
 
 `launch_guard` persists the running execution and releases its locks. The runner
 validates the saved revision before running **Before this run**, including in
-Simulation. If Validate loses Run Control, it waits up to five minutes before
+Simulation. If Validate loses contact with the service, the runner waits up to five minutes before
 holding; no preparation or Start occurs during that wait. A changed revision
 holds the schedule without preparation or Start.
+
+RobotControl records each scheduled occurrence as an execution. Its `run_id` links to
+the PyHSL run and its journal. For runs that use VENUS, PyHSL's `session_id` identifies
+the bridge session, one launch of the VENUS run window.
 The execution's JSON `pyhsl` field stores `request`, `run_id` and `attempted_at`.
 The request is saved before POST; `run_id` is saved as soon as it is known. Start
 uses the execution ID as `request_id` and a 60-second HTTP timeout. No scheduler
 lock spans an HTTP call, preparation or polling. Before a resend after a failed
-Start or a restart, RobotControl reads Run Control's runs and adopts a match.
+Start or a restart, RobotControl reads the service's run list and adopts a match.
 If there is no match, it resends the saved request without creating a new
 occurrence or repeating preparation. Immediately before every Start POST,
 including after preparation and on resends, `launch_guard` rechecks
@@ -124,8 +129,7 @@ launch guard permits resending the saved request within five minutes of
 older attempts read for a match, then fail and hold if no run can be confirmed.
 An absent request also fails and holds. Recovery never repeats preparation or
 Validate; adopting an existing run remains unguarded. Every client request
-rediscovers Run Control, including after its instance
-ID changes.
+rediscovers the PyHSL service, including after its instance ID changes.
 
 For the form, schedule responses expose the new fields plus existing preparation,
 contacts and recovery fields. Queue rows expose `runner`, `protocol_id` and
