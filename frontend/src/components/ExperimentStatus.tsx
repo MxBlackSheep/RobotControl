@@ -81,7 +81,10 @@ const ExperimentStatus = memo(({ pyhsl, canOpen }: { pyhsl: PyHslStatus | null; 
   });
   const error = polling.error;
   const experiment = latest?.experiment;
-  const state = experiment ? getRunStateDisplay(experiment.run_state) : null;
+  // A PyHSL run that the monitor cannot confirm right now is not shown as running.
+  const unconfirmed = experiment?.runner === 'pyhsl' && pyhsl?.state !== 'running';
+  const shown = experiment ? getRunStateDisplay(experiment.run_state) : null;
+  const state = shown && unconfirmed && shown.label === 'Running' ? { label: 'State unknown', tone: 'neutral' as StatusTone } : shown;
 
   const runner: ScheduleRunner = experiment?.runner === 'pyhsl' ? 'pyhsl' : 'venus';
   const methodName = !experiment ? '' : runner === 'pyhsl' ? experiment.protocol || 'PyHSL protocol'

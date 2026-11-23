@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Alert, Box, Button, FormControlLabel, Stack, Switch, TextField, Typography } from '@mui/material';
 import { Panel } from '../PageLayout';
 import { api } from '../../services/api';
@@ -11,12 +11,19 @@ const defaults: Record<string, string> = {
   V_OD_Sample:'150', FreezeGeneration:'1', UseFluorescence:'1', GFP_scale:'4669.1',
   GFP_RFPdamping:'773.1', RFP_scale:'2262.3', RFP_GFPdamping:'305.0',
 };
+type Message = {severity:'error'|'warning'|'success'; text:string} | null;
+type Kept = {userId:string; note:string; schedule:boolean; parameters:Record<string,string>; layout:ReturnType<typeof recentLayout>;
+  message:Message; attempt:{body:string; token:string} | null};
+// The draft and an unresolved attempt outlive the page, so assigning the connection or checking the database does not lose them.
+let kept: Kept | null = null;
 export default function ExperimentForm() {
-  const [userId, setUserId] = useState(''), [note, setNote] = useState('');
-  const [schedule, setSchedule] = useState(false), [parameters, setParameters] = useState({...defaults});
-  const [layout, setLayout] = useState(recentLayout), [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<{severity:'error'|'warning'|'success'; text:string} | null>(null);
-  const attempt = useRef<{body:string; token:string} | null>(null);
+  const start = kept ?? {userId:'', note:'', schedule:false, parameters:{...defaults}, layout:recentLayout(), message:null, attempt:null};
+  const [userId, setUserId] = useState(start.userId), [note, setNote] = useState(start.note);
+  const [schedule, setSchedule] = useState(start.schedule), [parameters, setParameters] = useState(start.parameters);
+  const [layout, setLayout] = useState(start.layout), [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<Message>(start.message);
+  const attempt = useRef(start.attempt);
+  useEffect(() => { kept = {userId, note, schedule, parameters, layout, message, attempt:attempt.current}; });
   const submit = async () => {
     if (busy) return;
     setMessage(null);

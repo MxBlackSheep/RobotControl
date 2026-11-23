@@ -1,6 +1,6 @@
 """Execution, confirmations and private temporary report files for database packages."""
 from __future__ import annotations
-from contextlib import closing
+from contextlib import closing, nullcontext
 
 import hashlib
 import json
@@ -189,27 +189,30 @@ class DatabaseTools:
         return result
 
     def _execute_operation(self, entry, tool, preview, target):
-        def operation(conn):
-            with self.sources.connections(preview['choices']) as connections:
-                context = SimpleNamespace(connection=conn, connections=connections)
-                self.validate_choices(tool, preview['inputs'], connections)
-                current = self.catalogue.function(entry, tool.preview)(context, preview['inputs'])
-                if digest(current) != preview['snapshot']:
-                    raise PackageError("Experiment changed. Preview the operation again.", 409)
-                return self.catalogue.function(entry, tool.entrypoint)(context, preview['inputs'])
-        return self._operation_transaction(target, operation)
+        def operation(conn, connections):
+            context = SimpleNamespace(connection=conn, connections=connections)
+            self.validate_choices(tool, preview['inputs'], connections)
+            current = self.catalogue.function(entry, tool.preview)(context, preview['inputs'])
+            if digest(current) != preview['snapshot']:
+                raise PackageError("Experiment changed. Preview the operation again.", 409)
+            return self.catalogue.function(entry, tool.entrypoint)(context, preview['inputs'])
+        return self._operation_transaction(target, operation, lookups=lambda: self.sources.connections(preview['choices']))
 
-    def _operation_transaction(self, target, operation):
-        """One transaction boundary for package operations and built-in registration."""
+    def _operation_transaction(self, target, operation, lookups=nullcontext):
+        """One transaction boundary for package operations and built-in registration.
+
+        Lookup connections open before the target, as they always did, so a failure names the connection that failed.
+        """
         committing = committed = False
         try:
-            with self.sources.open(target) as conn:
+            with lookups() as connections, self.sources.open(target) as conn:
                 conn.timeout = 30
                 try:
+                    # Serializable protects the selected target until commit.
                     cursor = conn.cursor()
                     cursor.execute("SET XACT_ABORT ON; SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
                     cursor.close()
-                    value = operation(conn)
+                    value = operation(conn, connections)
                     committing = True
                     conn.commit()
                     committed = True
@@ -240,7 +243,7 @@ class DatabaseTools:
         try:
             with self.guard(), self.sources.lock:
                 target = self.sources.operation_target('experiments')
-                def operation(conn):
+                def operation(conn, _):
                     experiment_id = register_experiment(conn, **inputs)
                     return dict(experiment_id=experiment_id, message=f'Experiment {experiment_id} registered.')
                 result, _, committed = self._operation_transaction(target, operation)

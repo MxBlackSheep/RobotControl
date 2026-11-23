@@ -75,6 +75,11 @@ test('keeps the draft on refusal and unknown outcome, and restricts access', asy
   await page.route(endpoint, route => route.abort());
   await page.getByRole('button',{name:'Register',exact:true}).click();
   await expect(page.getByText('Outcome unknown.',{exact:false})).toBeVisible();
+  await page.getByRole('link',{name:'Database',exact:true}).click();
+  await page.getByRole('link',{name:'Scheduling',exact:true}).click();
+  await page.getByRole('tab',{name:'Experiments',exact:true}).click();
+  await expect(page.getByLabel('Experiment ID',{exact:true})).toHaveValue('Retain me');
+  await expect(page.getByText('Outcome unknown.',{exact:false})).toBeVisible();
   for (const [role, local] of [['admin',false],['user',true]] as const) {
     await page.route('**/api/auth/me', r => r.fulfill({json:{success:true,data:{user_id:'fixture',username:'Fixture',role,session:{is_local:local}}}}));
     await page.goto('/scheduling?section=experiments');
