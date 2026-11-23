@@ -1,0 +1,268 @@
+{
+  "contract_version": 3,
+  "id": "champions-experiment",
+  "name": "Champions experiment",
+  "version": "1.0.0",
+  "libraries": [],
+  "tools": [
+    {
+      "id": "champions-experiment",
+      "name": "Champions",
+      "kind": "experiment",
+      "parameters": [
+        {
+          "name": "TargetWellVolume",
+          "label": "Target well volume",
+          "type": "number",
+          "default": 700,
+          "group": "main"
+        },
+        {
+          "name": "MaxIteration",
+          "label": "Maximum iteration",
+          "type": "integer",
+          "default": 20,
+          "group": "main"
+        },
+        {
+          "name": "TopFractionToPropagate",
+          "label": "Fraction to propagate",
+          "type": "number",
+          "default": 1,
+          "allowed": [
+            0.25,
+            0.5,
+            1
+          ],
+          "group": "main"
+        },
+        {
+          "name": "InoculationOD",
+          "label": "Inoculation OD",
+          "type": "number",
+          "default": 0.03,
+          "group": "more"
+        },
+        {
+          "name": "GFP_scale",
+          "label": "GFP scale",
+          "type": "number",
+          "default": 4669.1,
+          "group": "more",
+          "fixed": true
+        },
+        {
+          "name": "GFP_RFPdamping",
+          "label": "GFP RFP damping",
+          "type": "number",
+          "default": 773.1,
+          "group": "more",
+          "fixed": true
+        },
+        {
+          "name": "RFP_scale",
+          "label": "RFP scale",
+          "type": "number",
+          "default": 2262.3,
+          "group": "more",
+          "fixed": true
+        },
+        {
+          "name": "RFP_GFPdamping",
+          "label": "RFP GFP damping",
+          "type": "number",
+          "default": 305.0,
+          "group": "more",
+          "fixed": true
+        }
+      ],
+      "layout": {
+        "kind": "plate96",
+        "assignments": [
+          {
+            "value": "Cells",
+            "label": "Culture",
+            "symbol": "C"
+          },
+          {
+            "value": "MediaCtrl",
+            "label": "Media control",
+            "symbol": "M"
+          }
+        ],
+        "default": [
+          [
+            "A1",
+            "MediaCtrl"
+          ],
+          [
+            "B1",
+            "MediaCtrl"
+          ],
+          [
+            "C1",
+            "MediaCtrl"
+          ],
+          [
+            "D1",
+            "MediaCtrl"
+          ],
+          [
+            "E1",
+            "MediaCtrl"
+          ],
+          [
+            "F1",
+            "MediaCtrl"
+          ],
+          [
+            "G1",
+            "MediaCtrl"
+          ],
+          [
+            "H1",
+            "MediaCtrl"
+          ],
+          [
+            "A2",
+            "Cells"
+          ],
+          [
+            "B2",
+            "Cells"
+          ],
+          [
+            "C2",
+            "Cells"
+          ],
+          [
+            "D2",
+            "Cells"
+          ],
+          [
+            "E2",
+            "Cells"
+          ],
+          [
+            "F2",
+            "Cells"
+          ],
+          [
+            "G2",
+            "Cells"
+          ],
+          [
+            "H2",
+            "Cells"
+          ],
+          [
+            "A3",
+            "Cells"
+          ],
+          [
+            "B3",
+            "Cells"
+          ],
+          [
+            "C3",
+            "Cells"
+          ],
+          [
+            "D3",
+            "Cells"
+          ],
+          [
+            "E3",
+            "Cells"
+          ],
+          [
+            "F3",
+            "Cells"
+          ],
+          [
+            "G3",
+            "Cells"
+          ],
+          [
+            "H3",
+            "Cells"
+          ],
+          [
+            "A4",
+            "Cells"
+          ],
+          [
+            "B4",
+            "Cells"
+          ],
+          [
+            "C4",
+            "Cells"
+          ],
+          [
+            "D4",
+            "Cells"
+          ],
+          [
+            "E4",
+            "Cells"
+          ],
+          [
+            "F4",
+            "Cells"
+          ],
+          [
+            "G4",
+            "Cells"
+          ],
+          [
+            "H4",
+            "Cells"
+          ],
+          [
+            "A5",
+            "Cells"
+          ],
+          [
+            "B5",
+            "Cells"
+          ],
+          [
+            "C5",
+            "Cells"
+          ],
+          [
+            "D5",
+            "Cells"
+          ],
+          [
+            "E5",
+            "Cells"
+          ],
+          [
+            "F5",
+            "Cells"
+          ],
+          [
+            "G5",
+            "Cells"
+          ],
+          [
+            "H5",
+            "Cells"
+          ]
+        ],
+        "required": [
+          "Cells"
+        ],
+        "rules": [
+          {
+            "kind": "whole_count",
+            "parameter": "TopFractionToPropagate",
+            "assignment": "Cells"
+          }
+        ]
+      }
+    }
+  ]
+}

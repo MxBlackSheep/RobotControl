@@ -30,6 +30,7 @@ declare module '@mui/material/styles' {
 export const layout = {
   unit: 4,
   page: 24,
+  contentMaxWidth: 1600,
   pagePhone: 16,
   gutter: 12,
   inset: 16,

@@ -13,6 +13,7 @@ type Package = { id: string; name: string; version: string; sha256: string; runn
 type Review = { package: Package; sha256: string; current_version: string | null; current_sha256: string; running: number; changelog: string };
 type Change = { version:string; previous_version?:string; at:string; actor?:string; note:string; files:{added:string[];changed:string[];removed:string[]} };
 const message = (error: any) => typeof error?.response?.data?.detail === 'string' ? error.response.data.detail : 'The request could not be completed. Try again.';
+const kindLabel = (kind:string) => ({report:'Report', operation:'Operation', preparation:'Preparation step', experiment:'Experiment type'}[kind] ?? kind);
 const older = (a: string, b: string) => {
   const left = a.split('.').map(Number), right = b.split('.').map(Number);
   for (let i = 0; i < 3; i++) if (left[i] !== right[i]) return left[i] < right[i];
@@ -109,20 +110,20 @@ export default function DatabasePackages({ active }: { active: boolean }) {
         <Stack direction={{ xs: 'column', sm: 'row' }} gap={2} alignItems={{ sm: 'center' }}>
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Typography fontWeight={600}>{pkg.name} · {pkg.version}</Typography>
-            <Typography color="text.secondary">{pkg.tools.length===1 ? (pkg.tools[0].kind==='report'?'Excel report':'Database operation') : pkg.tools.map(tool => `${tool.name} — ${tool.kind==='report'?'Excel report':'Database operation'}`).join(', ')}</Typography>
+            <Typography color="text.secondary">{pkg.tools.length===1 ? kindLabel(pkg.tools[0].kind) : pkg.tools.map(tool => `${tool.name} — ${kindLabel(tool.kind)}`).join(', ')}</Typography>
             <Details>
               <Typography variant="caption" sx={{ overflowWrap: 'anywhere' }}>{pkg.id}<br />Libraries: {pkg.libraries.join(', ') || 'Standard library'}<br />SHA-256: {pkg.sha256}</Typography>
             </Details>
           </Box>
           {pkg.running > 0 && <Typography variant="body2">In use</Typography>}
           <Stack direction="row" gap={1} flexWrap="wrap">
-            {pkg.tools.map(t => <Button key={t.id} disabled={busy} onClick={async () => {
+            {pkg.tools.filter(t => ['report', 'operation'].includes(t.kind)).map(t => <Button key={t.id} disabled={busy} onClick={async () => {
               setBusy(true); setError('');
               try { const r = await api.post(`${toolsBase}/authoring/${t.kind}/${t.id}/edit`, {}); setToolEditor(r.data.id); }
               catch(e) { setError(message(e)); } finally { setBusy(false); }
             }}>{pkg.tools.length === 1 ? `Edit ${t.kind}` : `Edit ${t.name}`}</Button>)}
             <Button disabled={busy} onClick={async () => { try { const r = await api.get(`${toolsBase}/packages/${pkg.id}/export`, { responseType: 'blob' }); saveBlob(r.data, /filename="([^"]+)"/.exec(r.headers['content-disposition'] || '')?.[1] || `${pkg.id}-${pkg.version}.zip`); } catch (e) { setError(message(e)); } }}>Download package</Button>
-            {<Button disabled={busy || pkg.running > 0} onClick={async () => {
+            {pkg.tools.some(tool => tool.kind !== 'experiment') && <Button disabled={busy || pkg.running > 0} onClick={async () => {
               try {
                 const [mapping, profiles] = await Promise.all([api.get(`${toolsBase}/packages/${pkg.id}/sources`), api.get(`${toolsBase}/sources`)]);
                 setSources(profiles.data); setBinding({ id: pkg.id, name: pkg.name, ...mapping.data });
@@ -143,7 +144,7 @@ export default function DatabasePackages({ active }: { active: boolean }) {
         {error && <Alert severity="error">{error}</Alert>}
         <Typography variant="h6">{review?.package.name}</Typography>
         <Typography>{review?.current_version ? `${review.current_version} → ${review.package.version}` : `Version ${review?.package.version}`}</Typography>
-        <Typography>{review?.package.tools.map(tool => `${tool.name} (${tool.kind === 'report' ? 'Report' : 'Operation'})`).join(', ')}</Typography>
+        <Typography>{review?.package.tools.map(tool => `${tool.name} (${kindLabel(tool.kind)})`).join(', ')}</Typography>
         <Typography variant="body2" color="text.secondary">Package structure and declared libraries checked. Python code has not been run.</Typography>
         <TextField label="What changed? (optional)" multiline maxRows={4} inputProps={{maxLength:2000}} value={changeNote} onChange={e=>setChangeNote(e.target.value)} disabled={busy} />
         {unchanged && <Alert severity="info">This package is already installed.</Alert>}
@@ -179,7 +180,7 @@ export default function DatabasePackages({ active }: { active: boolean }) {
     <AssignConnections binding={binding} sources={sources} onChange={setBinding} onClose={() => setBinding(undefined)}
       onSaved={() => setBinding(undefined)} onManage={() => setConnectionsOpen(true)} />
     <Dialog open={!!remove} onClose={() => !busy && setRemove(undefined)}>
-      <DialogTitle>Remove {remove?.name}?</DialogTitle><DialogContent>Its operations and reports will no longer be available.</DialogContent>
+      <DialogTitle>Remove {remove?.name}?</DialogTitle><DialogContent>Its tools will no longer be available.</DialogContent>
       <DialogActions><Button disabled={busy} onClick={() => setRemove(undefined)}>Cancel</Button><Button color="error" disabled={busy} onClick={removePackage}>Remove package</Button></DialogActions>
     </Dialog>
   </Stack>;

@@ -11,6 +11,8 @@ fixed, required-well and exact whole-count refusals; missing/extra fields; auth;
 empty parent reuse, populated/ambiguous parent refusal, no-layout without pattern
 storage, concurrent IDs, scheduling failure rollback and uncertain commit replay.
 Eight parameter rows and pattern rows are compared with the unchanged exe source.
+The shipped Champions manifest supplies the installed definition. Its manifest-only
+release ZIP round-trips through install/export/history/removal; only fresh catalogues seed it.
 Scratch column limits and procedure behavior do not establish lab compatibility.
 """
 import argparse
@@ -36,7 +38,7 @@ from fastapi.testclient import TestClient
 from backend.api.database_tools import router
 from backend.services.auth import get_current_user
 from backend.services.database_tools import DatabaseTools, get_database_tools
-from backend.services.database_packages import PackageError
+from backend.services.database_packages import PackageCatalogue, PackageError, inspect_archive
 
 DB = 'EvoYeast_RCDev'
 SERVER = r'.\HAMILTON'
@@ -54,14 +56,11 @@ LAYOUT = [('A1', 'MediaCtrl'), ('A2', 'Cells'), ('B2', 'Cells')]
 
 
 def manifest():
-    return dict(contract_version=3, id='champions-check', name='Champions check', version='1.0.0', libraries=[], tools=[
-        dict(id='champions-check', name='Champions', kind='experiment', parameters=[
-            dict(name=name, label=name, type='integer' if name == 'MaxIteration' else 'number', default=value,
-                 group='main', **({'allowed': [0.25, 0.5, 1]} if name == 'TopFractionToPropagate' else {}),
-                 **({'fixed': True} if name.startswith(('GFP_', 'RFP_')) else {}))
-            for name, value in PARAMETERS.items()], layout=dict(kind='plate96', assignments=[
-                dict(value='Cells', label='Culture', symbol='C'), dict(value='MediaCtrl', label='Media control', symbol='M')],
-                default=LAYOUT, required=['Cells'], rules=[dict(kind='whole_count', parameter='TopFractionToPropagate', assignment='Cells')])),
+    return json.loads((ROOT / 'database_packages/champions-experiment/manifest.json').read_text(encoding='utf-8'))
+
+
+def incubation_manifest():
+    return dict(contract_version=3, id='incubation-check', name='Incubation check', version='1.0.0', libraries=[], tools=[
         dict(id='incubation-check', name='Incubation', kind='experiment', parameters=[
             dict(name='DurationHours', label='Duration', type='number', default=24, min=1, max=48, group='main'),
             dict(name='Condition', label='Condition', type='choice', default='Ambient', allowed=['Ambient', 'Warm'], group='main')])])
@@ -72,6 +71,34 @@ def archive(value):
     with zipfile.ZipFile(output, 'w') as zipped:
         zipped.writestr('manifest.json', json.dumps(value))
     return output.getvalue()
+
+
+def package_checks(temporary):
+    # Exercise the release's real ZIP builder and first-start catalogue path.
+    sys.path.insert(0, str(ROOT / 'build_scripts'))
+    from pyinstaller_build import _write_starter_packages
+    defaults = ROOT / 'database_packages'
+    release = temporary / 'starter-packages'
+    _write_starter_packages(defaults, release)
+    content = (release / 'champions-experiment.zip').read_bytes()
+    installed, payloads = inspect_archive(content)
+    assert set(payloads) == {'manifest.json'}
+    assert installed.model_dump(exclude_none=True)['tools'][0]['kind'] == 'experiment'
+    fresh = PackageCatalogue(temporary / 'fresh', defaults)
+    assert fresh.resolve('champions-experiment', 'experiment')[2].name == 'Champions'
+    empty = temporary / 'empty'
+    empty.mkdir()
+    existing = PackageCatalogue(temporary / 'existing', empty)
+    existing = PackageCatalogue(existing.root, defaults)
+    assert existing.tools('experiment') == [], 'Existing installation silently seeded Champions'
+    existing.install(content)
+    assert existing.export('champions-experiment')[0] == content
+    assert existing.history('champions-experiment')[0]['version'] == '1.0.0'
+    existing.remove('champions-experiment')
+    assert PackageCatalogue(existing.root, defaults).tools('experiment') == []
+    existing.install(content)
+    assert len(existing.tools('experiment')) == 1
+    print('ok   starter ZIP, fresh-only seeding, import/export/history/removal and explicit reimport')
 
 
 def connect(database=DB):
@@ -103,11 +130,14 @@ def assert_refused(response, text=None):
 
 def http_checks(client, service):
     types = client.get(BASE + '/types').json()
-    assert [t['id'] for t in types] == ['champions-check', 'incubation-check'], types
+    assert [t['id'] for t in types] == ['champions-experiment', 'incubation-check'], types
     definition = types[0]
+    assert {p['name']: p['default'] for p in definition['parameters']} == PARAMETERS
+    assert [p['name'] for p in definition['parameters']] == list(PARAMETERS)
     def body(**changes):
+        selected = next((t for t in types if t['id'] == changes.get('type_id')), definition)
         return dict(token=uuid.uuid4().hex, user_defined_id='check', note='note', schedule=0,
-                    type_id=definition['id'], package_version=definition['package_version'], sha256=definition['sha256'],
+                    type_id=selected['id'], package_version=selected['package_version'], sha256=selected['sha256'],
                     parameters=dict(PARAMETERS), layout=list(LAYOUT)) | changes
     # Any connection attempt in these refusal cases is a failure, even if subsequently rolled back.
     with patch.object(service.sources, 'open', side_effect=AssertionError('Validation opened SQL')) as opened:
@@ -148,7 +178,7 @@ def http_checks(client, service):
             journal.execute('INSERT INTO receipts VALUES (?, ?, ?)', ('experiments:' + token, 'admin', json.dumps(historic)))
         assert client.post(BASE, json=body(token=token)).json() == historic
         assert client.post(BASE, json=body(token=token), headers={'authorization': 'another-admin'}).status_code == 404
-        service.catalogue.remove('champions-check')
+        service.catalogue.remove('champions-experiment')
         assert client.post(BASE, json=body(token=token)).json() == historic
         assert client.post(BASE, json=body()).status_code == 404
         service.catalogue.install(archive(manifest()))
@@ -200,7 +230,8 @@ def sql_checks(client, service, body, lhr, lab, scratch):
         definition = client.get(BASE + '/types').json()[0]
         def submit(**changes):
             request = body(**changes)
-            request.update(package_version=definition['package_version'], sha256=definition['sha256'])
+            selected = next(t for t in client.get(BASE + '/types').json() if t['id'] == request['type_id'])
+            request.update(package_version=selected['package_version'], sha256=selected['sha256'])
             return client.post(BASE, json=request)
         def success(**changes):
             response = submit(**changes)
@@ -221,14 +252,18 @@ def sql_checks(client, service, body, lhr, lab, scratch):
                     'SELECT WellID, WellAssign FROM ExperimentPlatePattern WHERE ExperimentID=?', experiment_id))
                 parent = tuple(connection.execute('SELECT Note,ScheduledToRun FROM Experiments WHERE ExperimentID=?', experiment_id).fetchone())
                 return parent, values, wells
+        reference_parameters = {p['name']: p['default'] for p in definition['parameters']}
+        reference_layout = definition['layout']['default']
+        assert reference_parameters == PARAMETERS and len(reference_layout) == 40
         excel = io.BytesIO()
         pd.DataFrame([dict(Destination=well, Source='T' if assignment == 'MediaCtrl' else 'culture', Vol=1)
-                      for well, assignment in LAYOUT]).to_excel(excel, index=False, startrow=1)
+                      for well, assignment in reference_layout]).to_excel(excel, index=False, startrow=1)
         for schedule in (0, 1):
-            mine = success(user_defined_id=f'rc_{schedule}', schedule=schedule)['experiment_id']
+            mine = success(user_defined_id=f'rc_{schedule}', schedule=schedule,
+                           parameters=reference_parameters, layout=reference_layout)['experiment_id']
             excel.seek(0)
             with closing(connect()) as connection:
-                theirs = exe.insert_experiment(connection.cursor(), f'exe_{schedule}', 'note', str(schedule), PARAMETERS, excel)
+                theirs = exe.insert_experiment(connection.cursor(), f'exe_{schedule}', 'note', str(schedule), reference_parameters, excel)
                 connection.commit()
             a, b = stored(mine), stored(theirs)
             assert a[1:] == b[1:] and a[0][0] == b[0][0] and len(a[1]) == 8, (a, b)
@@ -274,7 +309,7 @@ def sql_checks(client, service, body, lhr, lab, scratch):
         # Mutation is blocked for the entire SQL operation, not just while resolving.
         @contextmanager
         def reserved_open(source):
-            for mutate in (lambda: service.catalogue.remove('champions-check'), lambda: service.catalogue.install(archive(manifest()))):
+            for mutate in (lambda: service.catalogue.remove('champions-experiment'), lambda: service.catalogue.install(archive(manifest()))):
                 try:
                     mutate()
                 except PackageError as exc:
@@ -318,7 +353,7 @@ def sql_checks(client, service, body, lhr, lab, scratch):
             assert client.post(BASE, json=request).json() == result
         assert snapshot() == before
         # A second process instance reads the same durable receipt after package removal.
-        service.catalogue.remove('champions-check')
+        service.catalogue.remove('champions-experiment')
         restarted = DatabaseTools(service.root, scratch, guard=nullcontext)
         try:
             with patch.object(restarted.sources, 'open', side_effect=AssertionError('Restart replay opened SQL')):
@@ -356,6 +391,7 @@ def main():
     parser.add_argument('--contract-only', action='store_true')
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix='rc-experiment-') as temporary:
+        package_checks(Path(temporary))
         scratch = Path(temporary) / 'defaults'
         scratch.mkdir()
         service = DatabaseTools(Path(temporary) / 'tools', scratch, guard=nullcontext)
@@ -371,6 +407,7 @@ def main():
         app.dependency_overrides[get_database_tools] = lambda: service
         try:
             service.catalogue.install(archive(manifest()))
+            service.catalogue.install(archive(incubation_manifest()))
             with patch('backend.services.database_tools.log_action'), TestClient(app, client=('127.0.0.1', 1234), headers={'authorization': 'admin'}) as client:
                 body = http_checks(client, service)
                 if not args.contract_only:
