@@ -113,7 +113,8 @@ def experiment_package_checks(client, service, folder):
                     {'default': [['A1', 'Cells'], ['A1', 'Cells']]}, {'required': ['missing']},
                     {'rules': [dict(kind='unknown', parameter='DurationHours', assignment='Cells')]},
                     {'rules': [dict(kind='whole_count', parameter='missing', assignment='Cells')]},
-                    {'rules': [dict(kind='whole_count', parameter='DurationHours', assignment='missing')]}):
+                    {'rules': [dict(kind='whole_count', parameter='DurationHours', assignment='missing')]},
+                    {'rules': [dict(kind='whole_count', parameter='DurationHours', assignment='Cells')] * 9}):
         invalid.append({**manifest, 'tools': [{**tool, 'layout': {**layout, **changes}}]})
     invalid.append({**manifest, 'tools': [{**tool, 'layout': None}]})
     for value in invalid:

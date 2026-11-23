@@ -319,7 +319,7 @@ class ExperimentLayout(BaseModel):
     assignments: list[ExperimentAssignment] = Field(min_length=1, max_length=96)
     default: list[list[str]] = Field(max_length=96)
     required: list[str] = Field(max_length=96)
-    rules: list[WholeCountRule] = Field(default_factory=list)
+    rules: list[WholeCountRule] = Field(default_factory=list, max_length=8)
 
     def validate_wells(self, layout):
         if not isinstance(layout, list) or len(layout) > 96:
