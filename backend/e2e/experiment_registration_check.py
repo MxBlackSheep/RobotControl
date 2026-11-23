@@ -4,7 +4,10 @@ Run (needs pyodbc; the comparison needs Shou_LHR's source, so use its interprete
   <Shou_LHR>\\.venv\\Scripts\\python.exe backend\\e2e\\experiment_registration_check.py <Shou_LHR checkout> <Shou_Lab checkout>
 It creates EvoYeast_RCDev on .\\HAMILTON (Windows sign-in), builds the three tables from the writes and the saved
 ScheduleExperimentForImmediateExecution text, and drops the database at the end. No other database is opened.
-The tables are inferred from the writes, not copied from EvoYeast, so column types are not verified.
+Types named by the saved lab definitions are used: UserDefinedID varchar(50) (GetUserExperimentID; ScheduleExperimentForImmediateExecution
+and SpatialEvo_NewExperiment take varchar(255)), ParameterName varchar(50) (ReadExperimentParameter), WellID varchar(10).
+Inferred, named nowhere: Note, ScheduledToRun, ParamValueTxt, WellAssign, ExperimentID and the keys; ExperimentPlatePattern is
+referenced by no saved definition.
 
 Failure cases: reused ID refused with nothing written; no culture well; bad TopFractionToPropagate; non-number
 parameter; scheduling procedure error (rolls back every row); schedule 1 clears the other scheduled experiment;
@@ -23,9 +26,9 @@ DB = 'EvoYeast_RCDev'
 SERVER = r'.\HAMILTON'
 DRIVER = '{SQL Server Native Client 10.0}'
 TABLES = """
-CREATE TABLE Experiments (ExperimentID int IDENTITY(1,1) PRIMARY KEY, UserDefinedID varchar(255) NOT NULL,
+CREATE TABLE Experiments (ExperimentID int IDENTITY(1,1) PRIMARY KEY, UserDefinedID varchar(50) NOT NULL,
     Note varchar(max) NULL, ScheduledToRun int NOT NULL DEFAULT 0);
-CREATE TABLE ExperimentParameters (ExperimentID int NOT NULL, ParameterName varchar(255) NOT NULL, ParamValueTxt varchar(255) NULL);
+CREATE TABLE ExperimentParameters (ExperimentID int NOT NULL, ParameterName varchar(50) NOT NULL, ParamValueTxt varchar(255) NULL);
 CREATE TABLE ExperimentPlatePattern (ExperimentID int NOT NULL, WellID varchar(10) NOT NULL, WellAssign varchar(50) NOT NULL);
 """
 PARAMETERS = {'BackgroundOD': 0.036, 'InoculationOD': 0.03, 'MaxIteration': 20, 'ODConversionFactor': 2.52,
@@ -102,6 +105,7 @@ def main(lhr, lab):
         check('no culture well refused', refused(lambda: register_experiment(conn, 'n1', '', '0', PARAMETERS, [('A1', 'MediaCtrl')])))
         check('bad fraction refused', refused(lambda: register_experiment(conn, 'n2', '', '0', {**PARAMETERS, 'TopFractionToPropagate': 0.3}, LAYOUT)))
         check('non-number refused', refused(lambda: register_experiment(conn, 'n3', '', '0', {**PARAMETERS, 'MaxIteration': 'x'}, LAYOUT)))
+        check('ID longer than the saved varchar(50) is refused, nothing written', refused(lambda: register_experiment(conn, 'x' * 51, '', '0', PARAMETERS, LAYOUT)))
         # A trigger that rejects the procedure's UPDATE makes scheduling report DATABASE ERROR.
         conn.execute('CREATE TRIGGER block_schedule ON Experiments AFTER UPDATE AS BEGIN RAISERROR(\'blocked\', 16, 1); END')
         conn.commit()
