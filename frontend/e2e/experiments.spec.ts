@@ -220,7 +220,7 @@ test('a new sign-in cannot see drafts or late registration replies from the prev
     user:{user_id:'next-admin',username:'Next admin',role:'admin'},session:{is_local:true},
   }}}));
   await field(page,'Username').fill('Next admin'); await field(page,'Password').fill('fixture');
-  await page.getByRole('button',{name:'Sign in',exact:true}).click();
+  await page.getByRole('button',{name:'Sign In',exact:true}).click();
   await page.getByRole('link',{name:'Scheduling',exact:true}).click();
   await page.getByRole('tab',{name:'Experiments',exact:true}).click();
   await expect(field(page,'UserDefinedID')).toHaveValue('');

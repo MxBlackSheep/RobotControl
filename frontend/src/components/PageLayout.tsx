@@ -16,8 +16,8 @@ import { layout, type StatusTone } from '../theme';
  */
 
 export function PageContent({ children, reading = false, variant = 'overview' }: { children: React.ReactNode; reading?: boolean; variant?: 'overview' | 'inspection' | 'spatial' | 'task' }) {
-  // One workspace cap; long-form reading retains its narrower measure.
-  return <Box data-page-pattern={variant} sx={{ width: '100%', minWidth: 0, maxWidth: reading ? 1120 : layout.contentMaxWidth, mx: 'auto', containerType: 'inline-size', containerName: 'workspace' }}>{children}</Box>;
+  // One workspace cap; long-form reading keeps its narrower measure and spatial pages (Labware racks) size to their own content.
+  return <Box data-page-pattern={variant} sx={{ width: '100%', minWidth: 0, maxWidth: reading ? 1120 : variant === 'spatial' ? 'none' : layout.contentMaxWidth, mx: 'auto', containerType: 'inline-size', containerName: 'workspace' }}>{children}</Box>;
 }
 
 /**
