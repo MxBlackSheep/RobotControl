@@ -1,3 +1,10 @@
+## 2026-11-23 Configurable experiment registration and Scheduling draft
+
+- Experiments now reads installed declarative types, with eight Champions parameters, fixed calibration defaults and optional plate layouts. UserDefinedID is the entered key; the database assigns ExperimentID. Empty existing parents can be completed without overwriting their note, while populated setup is refused.
+- Open Scheduling resolves Select EvoYeast experiment and matching reading/writing connections, then prefills only its ExperimentID in the ordinary schedule draft. Method/time selection and explicit Save remain with the operator. Make active displays the registration database's active identifiers, with distinct empty, failed and multiple states.
+- Existing installations import the Champions starter ZIP and keep one shared Experiments connection. Maintenance guides and the packaged smoke fixture now describe this route and the five starter packages.
+- Checked: frontend type-check and programmatic production build; backend HTTP/catalogue checks, including handoff binding refusals and active lookup states. The normal Vite config loader was blocked by filesystem access. Scratch SQL could not authenticate, before database creation. Browser cases were added but not run under this brief; visual, packaged and lab checks remain pending.
+
 ## 2026-11-23 Experiments page, PyHSL run on Overview, details tucked away
 
 - Before, a Champions experiment could be entered only with `RegisterNewExperiment.exe`, Overview's latest experiment showed only the Hamilton run record, and database connections and method paths filled the first screen. Now Scheduling > Experiments registers an experiment (ID, note, schedule now, the 14 parameters with Champions' three first, a 96-well layout) with the exe's writes in one transaction; Overview shows the active PyHSL run with a link to its Run page; server, database, access and path lines sit behind a closed Details.

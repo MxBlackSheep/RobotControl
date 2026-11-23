@@ -5,6 +5,8 @@ const manifest = JSON.parse(readFileSync(new URL('../../database_packages/champi
 
 /** Definition-driven registration: exact manifest defaults/pinned request, optional layout,
  * per-type drafts, refusal/unknown receipts, stale definition recovery and local-admin access.
+ * Registration/reuse handoff uses the returned numeric ID, refuses missing/mismatched setup,
+ * and never saves or launches; active empty/error/multiple states stay distinct.
  * Whole-count choices and fixed values must agree with the server contract. Faked HTTP
  * checks cannot establish SQL or instrument behaviour. */
 const endpoint = '**/api/database/tools/experiments';
@@ -17,6 +19,7 @@ async function open(page:Page, types:object[] = [champions]) {
   await signIn(page);
   await page.route('**/api/auth/me', r => r.fulfill({json:{success:true,data:{user_id:'viewer-admin',username:'Fixture',role:'admin',session:{is_local:true}}}}));
   await page.route(`${endpoint}/types`, r => r.fulfill({json:types}));
+  await page.route(`${endpoint}/active`, r => r.fulfill({json:[]}));
   await page.goto('/scheduling?section=experiments');
 }
 const field = (page:Page, label:string) => page.getByLabel(label,{exact:true});
@@ -128,4 +131,60 @@ test('whole_count disables fractional choices and registration; fixed fields sta
   await field(page,'Fraction to propagate').click();
   for(const name of ['0.25','0.5']) await expect(page.getByRole('option',{name,exact:true})).toBeDisabled();
   await page.getByRole('option',{name:'1',exact:true}).click(); await expect(register(page)).toBeEnabled();
+});
+
+test('registration and reuse open only a prepared schedule draft; setup refusals keep the receipt', async ({page}) => {
+  await open(page);
+  const writes:string[] = [];
+  await page.route('**/api/scheduling/**', r => {
+    if (r.request().method() !== 'GET') writes.push(r.request().url());
+    const path = new URL(r.request().url()).pathname;
+    const data = path.endsWith('/available') ? {experiments:[]} : [];
+    return r.fulfill({json:{success:true,data}});
+  });
+  const preparation = {tool_id:'evoyeast-experiment',inputs:{experiment_id:123}};
+  await page.route('**/api/database/tools/catalogue?kind=preparation', r => r.fulfill({json:[{
+    id:preparation.tool_id,name:'Select EvoYeast experiment',package_version:'1.0.1',setup_needed:false,
+    inputs:[{name:'experiment_id',label:'Experiment',type:'lookup',required:true,lookup:{parameters:[],value_type:'integer'}}],
+  }]}));
+  await page.route('**/api/database/tools/preparations/evoyeast-experiment/choices/experiment_id', r => r.fulfill({json:{options:[{value:123,label:'Registered culture (123)'}],has_more:false}}));
+  for (const reused of [false,true]) {
+    await field(page,'UserDefinedID').fill(reused ? 'Empty existing parent' : 'New culture');
+    await page.route(endpoint,r => r.fulfill({json:{status:'succeeded',result:{experiment_id:123,user_defined_id:r.request().postDataJSON().user_defined_id,reused_existing:reused}}}));
+    await register(page).click();
+    await expect(page.getByText(/Registered. ExperimentID: 123/)).toBeVisible();
+    if (reused) await expect(page.getByText(/Existing note retained/)).toBeVisible();
+    for (const detail of ['Select EvoYeast experiment is not installed', 'Assign Select EvoYeast experiment read and operation connections to the Experiments database in Database settings.']) {
+      await page.route(`${endpoint}/123/schedule-draft`,r => r.fulfill({status:409,json:{detail}}));
+      await page.getByRole('button',{name:'Open Scheduling',exact:true}).click();
+      await expect(page.getByText(`Scheduling setup needed: ${detail}`,{exact:true})).toBeVisible();
+      await expect(page.getByRole('dialog',{name:'Create schedule',exact:true})).toHaveCount(0);
+    }
+    await page.route(`${endpoint}/123/schedule-draft`,r => r.fulfill({json:preparation}));
+    await page.getByRole('button',{name:'Open Scheduling',exact:true}).click();
+    const dialog = page.getByRole('dialog',{name:'Create schedule',exact:true});
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole('button',{name:'Choose method',exact:true})).toBeEnabled();
+    await expect(dialog.getByLabel('Start Time')).toHaveValue('');
+    await expect(dialog.getByLabel('Database step')).toContainText('Select EvoYeast experiment');
+    await expect(dialog.getByRole('combobox',{name:/^Experiment/})).toHaveValue('Registered culture (123)');
+    expect(writes).toEqual([]);
+    await dialog.getByRole('button',{name:'Cancel',exact:true}).click();
+    await page.getByRole('tab',{name:'Experiments',exact:true}).click();
+  }
+});
+
+test('activation distinguishes empty, failed and multiple active snapshots', async ({page}) => {
+  await open(page);
+  const toggle = field(page,'Make active in EvoYeast');
+  await page.route(`${endpoint}/active`,r => r.fulfill({json:[]}));
+  await toggle.check(); await expect(page.getByText('Active experiment: None',{exact:true})).toBeVisible();
+  await toggle.uncheck();
+  await page.route(`${endpoint}/active`,r => r.fulfill({status:409,json:{detail:'Connection unavailable'}}));
+  await toggle.check(); await expect(page.getByText('Active experiment unavailable: Connection unavailable')).toBeVisible();
+  await expect(page.getByText('Active experiment: None',{exact:true})).toHaveCount(0);
+  await toggle.uncheck();
+  await page.route(`${endpoint}/active`,r => r.fulfill({json:[{experiment_id:12,user_defined_id:'one'},{experiment_id:13,user_defined_id:'two'}]}));
+  await toggle.check(); await expect(page.getByText('Multiple active experiments.',{exact:true})).toBeVisible();
+  await expect(page.getByText(/one \(ExperimentID: 12\).*two \(ExperimentID: 13\)/)).toBeVisible();
 });

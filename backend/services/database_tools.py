@@ -230,6 +230,35 @@ class DatabaseTools:
             return sorted(copy.deepcopy(self.catalogue.tools('experiment')),
                           key=lambda tool: (tool['name'].casefold(), tool['id']))
 
+    def active_experiments(self):
+        # Read the same database as registration, never the independent table viewer.
+        with self.sources.lock:
+            target = self.sources.operation_target('experiments')
+            with self.sources.open(target) as connection:
+                rows = connection.execute(
+                    'SELECT ExperimentID, UserDefinedID FROM dbo.Experiments '
+                    'WHERE ScheduledToRun = 1 ORDER BY ExperimentID').fetchall()
+                return [dict(experiment_id=row[0], user_defined_id=row[1]) for row in rows]
+
+    def experiment_schedule_draft(self, experiment_id):
+        with self.catalogue.reserve('evoyeast-experiment', 'preparation') as (entry, tool):
+            field = next((field for field in tool.inputs if field.name == 'experiment_id'), None)
+            if (len(tool.inputs) != 1 or field is None or field.type != 'lookup' or
+                    field.lookup.value_type != 'integer' or field.lookup.source != 'primary'):
+                raise PackageError('Select EvoYeast experiment has changed. Review its preparation inputs.', 409)
+            with self.sources.lock:
+                package_id = entry['manifest']['id']
+                reader = self.sources.snapshot(package_id, tool.sources)['primary']
+                writer = self.sources.operation_target(package_id)
+                registration = self.sources.operation_target('experiments')
+                # Fail closed for server aliases: an administrator can make the configured
+                # names agree; guessing equivalent servers could select a different ID.
+                def database(source):
+                    return (source['server'].strip().casefold(), source['database'].strip().casefold())
+                if database(reader) != database(registration) or database(writer) != database(registration):
+                    raise PackageError('Assign Select EvoYeast experiment read and operation connections to the Experiments database in Database settings.', 409)
+                return dict(tool_id=tool.id, inputs=dict(experiment_id=experiment_id))
+
     def register_experiment(self, token, inputs, owner, client_ip):
         from backend.services.experiments import register_experiment, validate_registration
         token = 'experiments:' + token

@@ -231,6 +231,18 @@ def register_experiment(payload: ExperimentRegistration, user=Depends(local_admi
     return service.register_experiment(payload.token, payload.model_dump(exclude={'token'}), owner(user), None)
 
 
+@router.get('/experiments/active')
+def active_experiments(user=Depends(local_admin), service=Depends(get_database_tools)):
+    return service.active_experiments()
+
+
+@router.get('/experiments/{experiment_id}/schedule-draft')
+def experiment_schedule_draft(experiment_id: int, user=Depends(local_admin), service=Depends(get_database_tools)):
+    if experiment_id <= 0:
+        raise HTTPException(400, 'ExperimentID must be positive.')
+    return service.experiment_schedule_draft(experiment_id)
+
+
 class DraftSave(BaseModel):
     model_config = ConfigDict(extra='forbid')
     draft: ReportDraft

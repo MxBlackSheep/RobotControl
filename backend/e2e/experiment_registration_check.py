@@ -10,6 +10,8 @@ Failure cases: unknown/changed/removed definitions; strict scalar, bounds, allow
 fixed, required-well and exact whole-count refusals; missing/extra fields; auth;
 empty parent reuse, populated/ambiguous parent refusal, no-layout without pattern
 storage, concurrent IDs, scheduling failure rollback and uncertain commit replay.
+Scheduling handoff resolves matching read/write bindings without SQL or a schedule
+write; active snapshots preserve empty, single, multiple and failed lookup states.
 Eight parameter rows and pattern rows are compared with the unchanged exe source.
 The shipped Champions manifest supplies the installed definition. Its manifest-only
 release ZIP round-trips through install/export/history/removal; only fresh catalogues seed it.
@@ -199,6 +201,60 @@ def http_checks(client, service):
     return body
 
 
+def handoff_checks(client, service):
+    # Read-only HTTP boundary: resolution, binding identity and active-state replies.
+    path = BASE + '/123/schedule-draft'
+    assert client.get(path).status_code == 404
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, 'w') as zipped:
+        for file in (ROOT / 'database_packages/evoyeast-experiment').glob('*'):
+            if file.is_file():
+                zipped.write(file, file.name)
+    service.catalogue.install(output.getvalue())
+    assert client.get(path).status_code == 409
+    original = service.sources.state
+    target = dict(server=SERVER, database=DB, access='operation')
+    service.sources.state = dict(original, sources={'writer': target, 'reader': dict(target, access='read')},
+        bindings={'evoyeast-experiment': {'primary': 'reader'}},
+        operation_bindings={'experiments': 'writer', 'evoyeast-experiment': 'writer'})
+    try:
+        with patch.object(service.sources, 'open', side_effect=AssertionError('Handoff opened SQL')):
+            assert client.get(path).json() == dict(tool_id='evoyeast-experiment', inputs=dict(experiment_id=123))
+            assert client.get(BASE + '/0/schedule-draft').status_code == 400
+            for source_id in ['reader', 'other-writer']:
+                service.sources.state['sources'][source_id] = dict(target, database='Different',
+                    access='read' if source_id == 'reader' else 'operation')
+                if source_id == 'other-writer':
+                    service.sources.state['operation_bindings']['evoyeast-experiment'] = source_id
+                assert_refused(client.get(path), 'Experiments database')
+                service.sources.state['sources'][source_id]['database'] = DB
+        class ActiveConnection:
+            rows = []
+            def execute(self, sql):
+                assert sql == ('SELECT ExperimentID, UserDefinedID FROM dbo.Experiments '
+                               'WHERE ScheduledToRun = 1 ORDER BY ExperimentID')
+                return self
+            def fetchall(self):
+                return self.rows
+        connection = ActiveConnection()
+        @contextmanager
+        def read_active(source):
+            assert source == target
+            yield connection
+        with patch.object(service.sources, 'open', read_active):
+            for rows in [[], [(12, 'one')], [(12, 'one'), (13, 'two')]]:
+                connection.rows = rows
+                assert client.get(BASE + '/active').json() == [dict(experiment_id=id, user_defined_id=name) for id, name in rows]
+        with patch.object(service.sources, 'open', side_effect=PackageError('Lookup failed', 409)):
+            assert_refused(client.get(BASE + '/active'), 'Lookup failed')
+        for route in [path, BASE + '/active']:
+            assert client.get(route, headers={'authorization': 'user'}).status_code == 403
+            assert client.get(route, headers={'x-forwarded-for': '203.0.113.1'}).status_code == 403
+    finally:
+        service.sources.state = original
+    print('ok   scheduling draft binding resolution, no writes, active empty/single/multiple/error and access')
+
+
 def sql_checks(client, service, body, lhr, lab, scratch):
     sys.path[:0] = [str(lhr / 'src'), str(lhr / 'VENUS Python Modules' / 'Champions_FL' / 'BeginNewExperiment')]
     import RegisterNewExperiment as exe
@@ -227,6 +283,11 @@ def sql_checks(client, service, body, lhr, lab, scratch):
             with closing(connect()) as connection:
                 yield connection
         service.sources.open = open_scratch
+        assert client.get(BASE + '/active').json() == []
+        execute("INSERT INTO Experiments (UserDefinedID, ScheduledToRun) VALUES ('active-check', 1)")
+        active = client.get(BASE + '/active').json()
+        assert len(active) == 1 and active[0]['user_defined_id'] == 'active-check'
+        execute("DELETE FROM Experiments WHERE UserDefinedID = 'active-check'")
         definition = client.get(BASE + '/types').json()[0]
         def submit(**changes):
             request = body(**changes)
@@ -410,6 +471,7 @@ def main():
             service.catalogue.install(archive(incubation_manifest()))
             with patch('backend.services.database_tools.log_action'), TestClient(app, client=('127.0.0.1', 1234), headers={'authorization': 'admin'}) as client:
                 body = http_checks(client, service)
+                handoff_checks(client, service)
                 if not args.contract_only:
                     sql_checks(client, service, body, args.lhr, args.lab, scratch)
         finally:

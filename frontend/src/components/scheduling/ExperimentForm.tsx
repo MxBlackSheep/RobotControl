@@ -1,4 +1,4 @@
-import { cloneElement, useEffect, useState, useSyncExternalStore } from 'react';
+import { cloneElement, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Alert, Box, Button, FormControlLabel, MenuItem, Stack, Switch, TextField, Typography, useMediaQuery } from '@mui/material';
 import { Link } from 'react-router-dom';
 import { Panel } from '../PageLayout';
@@ -8,6 +8,7 @@ import { requestMessage, toolsBase } from '../ReportInputs';
 import ExperimentPlateGrid, { PlateAssignment, PlateLayout, wells } from './ExperimentPlateGrid';
 
 import { evaluateLayoutRule, LayoutRule } from './experimentLayoutRules';
+import type { PreparationStep } from '../../types/scheduling';
 
 type Parameter = {name:string; label:string; type:'number'|'integer'|'text'|'choice'; default:string|number;
   min?:number; max?:number; allowed?:(string|number)[]; group:'main'|'more'; fixed?:boolean};
@@ -17,7 +18,7 @@ const defaults = (type:ExperimentType) => Object.fromEntries(type.parameters.map
 const defaultLayout = (type:ExperimentType):PlateLayout => Object.fromEntries(type.layout?.default ?? []);
 type Message = {severity:'error'|'warning'|'success'; text:string} | null;
 type Draft = {definition:ExperimentType; userDefinedId:string; note:string; schedule:boolean; parameters:Record<string,string>; layout:PlateLayout;
-  message:Message; attempt:{body:string; token:string; warnedBody?:string} | null; busy:boolean; stale:boolean};
+  experimentId?:number; message:Message; attempt:{body:string; token:string; warnedBody?:string} | null; busy:boolean; stale:boolean};
 const freshDraft = (definition:ExperimentType):Draft => ({definition, userDefinedId:'', note:'', schedule:false,
   parameters:defaults(definition), layout:defaultLayout(definition), message:null, attempt:null, busy:false, stale:false});
 // Session drafts include the reviewed definition and unresolved token, and survive section navigation.
@@ -25,7 +26,7 @@ const drafts = new Map<string,Draft>();
 const listeners = new Set<() => void>();
 const subscribe = (listener:() => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; };
 let selectedType = '';
-export default function ExperimentForm() {
+export default function ExperimentForm({onOpenScheduling}:{onOpenScheduling:(preparation:PreparationStep)=>void}) {
   const [types, setTypes] = useState<ExperimentType[] | null>(null);
   const [loadError, setLoadError] = useState('');
   const [typeId, setTypeId] = useState(selectedType);
@@ -64,9 +65,9 @@ export default function ExperimentForm() {
     </>}
     <Button onClick={reload}>Reload types</Button>
   </Stack></Panel>;
-  return <ExperimentDraft key={type.id} installed={type} picker={picker} reload={reload} />;
+  return <ExperimentDraft key={type.id} installed={type} picker={picker} reload={reload} onOpenScheduling={onOpenScheduling} />;
 }
-function ExperimentDraft({installed, picker, reload}:{installed:ExperimentType; picker:React.ReactNode; reload:()=>void}) {
+function ExperimentDraft({installed, picker, reload, onOpenScheduling}:{installed:ExperimentType; picker:React.ReactNode; reload:()=>void; onOpenScheduling:(preparation:PreparationStep)=>void}) {
   if (!drafts.has(installed.id)) drafts.set(installed.id, freshDraft(installed));
   const draft = useSyncExternalStore(subscribe, () => drafts.get(installed.id)!);
   const update = (patch:Partial<Draft>) => {
@@ -74,6 +75,32 @@ function ExperimentDraft({installed, picker, reload}:{installed:ExperimentType; 
     listeners.forEach(listener => listener());
   };
   const {definition:type, userDefinedId, note, schedule, parameters, layout, message, busy} = draft;
+  const [active, setActive] = useState<{experiment_id:number; user_defined_id:string}[] | null>(null);
+  const [activeError, setActiveError] = useState('');
+  const [handoffError, setHandoffError] = useState('');
+  const [opening, setOpening] = useState(false);
+  const handoff = useRef<AbortController | null>(null);
+  useEffect(() => () => handoff.current?.abort(), []);
+  useEffect(() => {
+    if (!schedule) return;
+    const controller = new AbortController();
+    setActive(null); setActiveError('');
+    api.get(`${toolsBase}/experiments/active`, {signal:controller.signal})
+      .then(({data}) => { if (!controller.signal.aborted) setActive(data); })
+      .catch(error => { if (!controller.signal.aborted) setActiveError(requestMessage(error)); });
+    return () => controller.abort();
+  }, [schedule]);
+  const openScheduling = async () => {
+    handoff.current?.abort();
+    const controller = new AbortController();
+    handoff.current = controller;
+    setOpening(true); setHandoffError('');
+    try {
+      const {data} = await api.get<PreparationStep>(`${toolsBase}/experiments/${draft.experimentId}/schedule-draft`, {signal:controller.signal});
+      if (!controller.signal.aborted) onOpenScheduling(data);
+    } catch (error) { if (!controller.signal.aborted) setHandoffError(`Scheduling setup needed: ${requestMessage(error)}`); }
+    finally { if (!controller.signal.aborted) setOpening(false); }
+  };
   const stale = draft.stale || type.sha256 !== installed.sha256 || type.package_version !== installed.package_version;
   const setUserDefinedId = (userDefinedId:string) => update({userDefinedId});
   const setNote = (note:string) => update({note});
@@ -128,11 +155,11 @@ function ExperimentDraft({installed, picker, reload}:{installed:ExperimentType; 
       return;
     }
     const attempt = previous?.body === serialized ? previous : {body:serialized, token:crypto.randomUUID().replace(/-/g,'')};
-    update({busy:true, attempt});
+    update({busy:true, attempt, experimentId:undefined});
     try {
       const {data} = await api.post(`${toolsBase}/experiments`, {...body, token:attempt.token});
       if (data.status === 'succeeded') {
-        update({...freshDraft(type), message:{severity:'success', text:`Registered. ExperimentID: ${data.result.experiment_id}. UserDefinedID: ${data.result.user_defined_id ?? body.user_defined_id}.${data.result.reused_existing ? ' Existing note retained.' : ''}${data.warning ? ` ${data.warning}` : ''}`}});
+        update({...freshDraft(type), experimentId:data.result.experiment_id, message:{severity:'success', text:`Registered. ExperimentID: ${data.result.experiment_id}. UserDefinedID: ${data.result.user_defined_id ?? body.user_defined_id}.${data.result.reused_existing ? ' Existing note retained.' : ''}${data.warning ? ` ${data.warning}` : ''}`}});
       } else {
         update({message:{severity:data.status === 'unknown' ? 'warning' : 'error', text:data.message},
           ...(data.status === 'error' ? {attempt:null} : {})});
@@ -164,6 +191,12 @@ function ExperimentDraft({installed, picker, reload}:{installed:ExperimentType; 
             <TextField sx={{gridColumn:'1 / -1'}} label="Note" size={wide && type?.layout ? 'medium' : 'small'} value={note} onChange={e => setNote(e.target.value)} disabled={busy} multiline inputProps={{maxLength:4000}} fullWidth />
             <FormControlLabel sx={{gridColumn:'1 / -1'}} control={<Switch checked={schedule} onChange={e => setSchedule(e.target.checked)} disabled={busy} />} label="Make active in EvoYeast" />
             <Typography sx={{gridColumn:'1 / -1'}} variant="body2" color="text.secondary">Replaces the active experiment. Does not start a run.</Typography>
+            {schedule && <Box sx={{gridColumn:'1 / -1'}}>
+              {activeError ? <Alert severity="error">Active experiment unavailable: {activeError}</Alert>
+                : active === null ? <Typography>Loading active experiment...</Typography>
+                : <><Typography>Active experiment: {active.length === 0 ? 'None' : active.map(row => `${row.user_defined_id} (ExperimentID: ${row.experiment_id})`).join(', ')}</Typography>
+                  {active.length > 1 && <Alert severity="warning">Multiple active experiments.</Alert>}</>}
+            </Box>}
           </Box>
 
         </Stack>
@@ -186,8 +219,10 @@ function ExperimentDraft({installed, picker, reload}:{installed:ExperimentType; 
           {(type.sha256 !== installed.sha256 || type.package_version !== installed.package_version) && <Button onClick={useLatest} disabled={busy}>Use updated definition</Button>}
         </Alert>}
         {message && <Alert severity={message.severity}>{message.text}</Alert>}
+        {handoffError && <Alert severity="error" action={<Button component={Link} to="/database?section=settings" color="inherit">Database settings</Button>}>{handoffError}</Alert>}
         <Stack direction="row" gap={1} justifyContent="flex-end">
-          <Button type="submit" variant="contained" disabled={busy || stale || !!ruleFailure}>Register</Button>
+          {draft.experimentId != null && <Button disabled={busy || opening} onClick={() => void openScheduling()}>Open Scheduling</Button>}
+          <Button type="submit" variant="contained" disabled={busy || opening || stale || !!ruleFailure}>Register</Button>
         </Stack>
       </Box>
     </Box>
