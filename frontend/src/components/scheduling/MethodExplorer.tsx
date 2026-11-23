@@ -82,7 +82,6 @@ export default function MethodExplorer<T extends MethodItem>({ items, initialPat
           <Button size="small" sx={{ '@container (min-width: 900px)': { display: 'none' } }} onClick={() => setMobileResults(false)}>Back to folders</Button>
           {(!!folder || !!query.trim()) && <>
             <Typography variant="caption">{shown.length} methods</Typography>
-            {resultFolder !== folder && resultFolder !== '*' && <Typography variant="caption" display="block" sx={{ overflowWrap: 'anywhere' }}>Paths relative to {absoluteRoots[0].path}</Typography>}
             {children(rows, path => relativeMethodPath(path, inFolder(path, resultFolder) ? resultFolder : '*'))}
             {!shown.length && <Typography sx={{ py: 2 }}>No methods match this view.</Typography>}
             <TablePagination component="div" count={shown.length} page={safePage} rowsPerPage={pageSize} rowsPerPageOptions={[25, 50, 100]}

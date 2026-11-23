@@ -1,5 +1,6 @@
+import Details from '../Details';
 import { useMemo, useState } from 'react';
-import { Button, Dialog, DialogActions, DialogContent, DialogTitle, List, ListItemButton, ListItemText, Radio, Typography } from '@mui/material';
+import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, List, ListItemButton, ListItemText, Radio, Typography } from '@mui/material';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { useTheme } from '@mui/material/styles';
 import MethodExplorer from './MethodExplorer';
@@ -17,13 +18,13 @@ export default function MethodPicker({ methods, value, label, onChange, disabled
     <Dialog open={open} onClose={() => setOpen(false)} maxWidth="lg" fullWidth fullScreen={fullScreen} aria-labelledby="method-picker-title">
       <DialogTitle id="method-picker-title">{label}</DialogTitle>
       <DialogContent dividers sx={{ minHeight: '45vh' }}>{open && <MethodExplorer items={items} initialPath={value}>
-        {(rows, relativePath) => <List aria-label="Methods in folder">{rows.map(method => <ListItemButton key={method.id} selected={choice === method.path}
+        {(rows) => <List aria-label="Methods in folder">{rows.map(method => <Box component="li" key={method.id}><ListItemButton selected={choice === method.path}
           onClick={() => setChoice(method.path)} role="radio" aria-checked={choice === method.path}>
           <Radio checked={choice === method.path} tabIndex={-1} inputProps={{ 'aria-hidden': true }} />
-          <ListItemText primary={method.name} secondary={relativePath(method.path)} sx={{ overflowWrap: 'anywhere' }} />
-        </ListItemButton>)}</List>}
+          <ListItemText primary={method.name} sx={{ overflowWrap: 'anywhere' }} />
+        </ListItemButton><Box sx={{ px: 2, pb: 1 }}><Details>{method.path}</Details></Box></Box>)}</List>}
       </MethodExplorer>}</DialogContent>
-      <DialogActions sx={{ flexWrap: 'wrap' }}><Typography variant="caption" sx={{ flex: 1, px: 1, overflowWrap: 'anywhere' }}>{choice}</Typography>
+      <DialogActions sx={{ flexWrap: 'wrap' }}><Typography variant="caption" sx={{ flex: 1, px: 1, overflowWrap: 'anywhere' }}>{choice.split(/[\\/]/).pop()}</Typography>{choice && <Details>{choice}</Details>}
         <Button onClick={() => setOpen(false)}>Cancel</Button><Button variant="contained" disabled={!items.some(item => item.path === choice)} onClick={() => { onChange(choice); setOpen(false); }}>Use this method</Button>
       </DialogActions>
     </Dialog>

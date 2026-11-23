@@ -1,3 +1,4 @@
+import Details from '../Details';
 import { useEffect, useState } from 'react';
 import { Box, Button, LinearProgress, Skeleton, Stack, Typography } from '@mui/material';
 import { Link } from 'react-router-dom';
@@ -94,7 +95,7 @@ export default function NowRunning({ status, error, span }: { status: RobotStatu
       <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 3, minWidth: 0 }}>
         <Box sx={{ minWidth: 0, flex: 1 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}><DetailTitle component="p">{job.experiment_name}</DetailTitle><StatusChip tone="neutral" label={RUNNER_LABELS[job.runner === 'pyhsl' ? 'pyhsl' : 'venus']} /></Box>
-          {job.experiment_path && job.runner !== 'pyhsl' && <Typography sx={{ display: { xs: 'none', sm: 'block' }, fontFamily: fontMono, fontSize: 12, lineHeight: '16px', color: 'text.secondary', overflowWrap: 'anywhere' }}>{job.experiment_path}</Typography>}
+          {job.experiment_path && job.runner !== 'pyhsl' && <Details><Typography sx={{ fontFamily: fontMono, fontSize: 12 }}>{job.experiment_path}</Typography></Details>}
         </Box>
         {timing.elapsed !== null && <Box sx={{ display: { xs: 'none', sm: 'flex' }, flexDirection: 'column', alignItems: 'flex-end', flexShrink: 0 }}>
           <Typography component="span" sx={{ fontFamily: fontMono, fontSize: 32, lineHeight: '32px', fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>

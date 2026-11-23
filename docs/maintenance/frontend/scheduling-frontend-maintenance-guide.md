@@ -251,3 +251,5 @@ always-present box so the fit is measured again) and scrolls its own panels. Rob
 "PyHSL not reachable since HH:MM" (the last reading stays), "Loading" or "Run view not shown: <reason>" in the
 view's place, and Show report for an ended run; the report opens in a dialog in an iframe with an empty `sandbox`.
 Failure cases are in `frontend/e2e/pyhsl.spec.ts`.
+
+Schedule rows show the method filename; the full target is in a closed Details disclosure. The schedule detail, primary and cleanup selections, method library and method pickers use the same disclosure. Path editing and confirmation dialogs retain the full paths needed to review a change. Path status remains visible; the last-check timestamp is omitted.

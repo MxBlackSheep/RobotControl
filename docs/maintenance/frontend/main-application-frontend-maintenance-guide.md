@@ -245,3 +245,7 @@ isolation; `system-pages.spec.ts` also covers the attention banner's failure cas
   `data.is_running`.
 - **Shortcuts do nothing:** `AppShell` calls `useKeyboardNavigation`; an open dialog
   (including a stuck invisible one) disables them.
+
+Latest experiment prefers the active run from Dashboard's existing `usePyHslStatus` reading, with protocol, status, started time and the permitted `/pyhsl?run=` link. Unknown readings do not select a PyHSL run. Without an active run, the existing HxRun row and its polling remain. The experiments API contract is unchanged.
+
+`components/Details.tsx` shares the native, initially closed disclosure used for connection facts and method paths. Names and warnings remain outside it. In selectable lists, the disclosure is a sibling of the selection button so keyboard toggles cannot select an item.

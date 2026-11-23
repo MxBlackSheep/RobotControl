@@ -1,3 +1,4 @@
+import Details from '../Details';
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, LinearProgress,
   Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TextField, Typography } from '@mui/material';
@@ -54,7 +55,7 @@ export default function MethodLibraryPanel({ version, onChanged, onImport, onCre
       const response = await schedulingAPI.checkMethodPaths(selected);
       const failures = response.data.data?.outcomes.filter(row => !row.success) || [];
       if (failures.length) setError(failures.map(row => row.reason).join('\n'));
-      else setMessage('Path checks finished. Review the status and last checked time.');
+      else setMessage('Path checks finished.');
       onChanged();
     } catch (err) { setError(methodError(err)); }
     finally { setBusy(false); }
@@ -93,7 +94,7 @@ export default function MethodLibraryPanel({ version, onChanged, onImport, onCre
     {busy && <LinearProgress aria-label="Updating method library" />}
     {loaded && <>
     {!!targets.length && <Typography variant="caption">{targets.length} selected</Typography>}
-    <MethodExplorer items={visible} onViewChange={clearSelection}>{(pageItems, relativePath) => <>
+    <MethodExplorer items={visible} onViewChange={clearSelection}>{(pageItems) => <>
     <TableContainer tabIndex={0} aria-label="Method records"><Table size="small" stickyHeader aria-label="Imported methods">
       <TableHead><TableRow>
         <TableCell padding="checkbox"><Checkbox inputProps={{ 'aria-label': 'Select this page' }} disabled={busy || !pageItems.length}
@@ -107,7 +108,7 @@ export default function MethodLibraryPanel({ version, onChanged, onImport, onCre
           onChange={(_, checked) => setSelected(old => checked ? [...old, row.method_id] : old.filter(id => id !== row.method_id))} /></TableCell>
         <TableCell sx={{ minWidth: 200, maxWidth: 450, overflowWrap: 'anywhere' }}>
           <Button onClick={() => setDetailId(row.method_id)}>{row.method_name}</Button>
-          <Typography variant="caption" display="block" title={row.file_path}>{relativePath(row.file_path)}</Typography>
+          <Details><Typography variant="caption">{row.file_path}</Typography></Details>
           {row.duplicate_path && <Typography color="warning.main" variant="caption" display="block">Duplicate path — review entries</Typography>}
         </TableCell>
         <TableCell><Chip size="small" label={pathStatusLabel[row.path_status]} color={row.path_status === 'available' ? 'success' : 'default'} /></TableCell>
@@ -123,7 +124,7 @@ export default function MethodLibraryPanel({ version, onChanged, onImport, onCre
         <Typography>{detail.method_name}</Typography><Typography>{detail.file_path}</Typography>
         <Typography>Imported from: {detail.source_folder || 'Not recorded'}</Typography>
         <Typography>Imported by {detail.imported_by || 'Unknown'} at {detail.imported_at} UTC</Typography>
-        <Typography>{pathStatusLabel[detail.path_status]} · Last checked: {detail.last_checked_at || 'Not checked'}</Typography>
+        <Typography>{pathStatusLabel[detail.path_status]}</Typography>
         {detail.validation_reason && <Alert severity="warning">{detail.validation_reason}</Alert>}
         <Typography variant="h6">Schedules using this path</Typography>
         {!detail.references.length && <Typography>No schedules reference this path.</Typography>}

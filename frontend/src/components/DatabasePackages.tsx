@@ -1,3 +1,4 @@
+import Details from './Details';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, LinearProgress, TextField, Paper, Stack, Typography } from '@mui/material';
 import { api } from '../services/api';
@@ -109,9 +110,9 @@ export default function DatabasePackages({ active }: { active: boolean }) {
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Typography fontWeight={600}>{pkg.name} · {pkg.version}</Typography>
             <Typography color="text.secondary">{pkg.tools.length===1 ? (pkg.tools[0].kind==='report'?'Excel report':'Database operation') : pkg.tools.map(tool => `${tool.name} — ${tool.kind==='report'?'Excel report':'Database operation'}`).join(', ')}</Typography>
-            <Box component="details"><Typography component="summary" variant="body2">Details</Typography>
+            <Details>
               <Typography variant="caption" sx={{ overflowWrap: 'anywhere' }}>{pkg.id}<br />Libraries: {pkg.libraries.join(', ') || 'Standard library'}<br />SHA-256: {pkg.sha256}</Typography>
-            </Box>
+            </Details>
           </Box>
           {pkg.running > 0 && <Typography variant="body2">In use</Typography>}
           <Stack direction="row" gap={1} flexWrap="wrap">
@@ -144,8 +145,7 @@ export default function DatabasePackages({ active }: { active: boolean }) {
         <Typography>{review?.current_version ? `${review.current_version} → ${review.package.version}` : `Version ${review?.package.version}`}</Typography>
         <Typography>{review?.package.tools.map(tool => `${tool.name} (${tool.kind === 'report' ? 'Report' : 'Operation'})`).join(', ')}</Typography>
         <Typography variant="body2" color="text.secondary">Package structure and declared libraries checked. Python code has not been run.</Typography>
-        <TextField label="What changed? (optional)" multiline maxRows={4} inputProps={{maxLength:2000}} value={changeNote} onChange={e=>setChangeNote(e.target.value)} disabled={busy}
-          helperText={review?.changelog ? `From the package's CHANGELOG for ${review.package.version}. You can edit it.` : undefined} />
+        <TextField label="What changed? (optional)" multiline maxRows={4} inputProps={{maxLength:2000}} value={changeNote} onChange={e=>setChangeNote(e.target.value)} disabled={busy} />
         {unchanged && <Alert severity="info">This package is already installed.</Alert>}
         {downgrade && <Alert severity="warning">This replaces the installed code with an older version.</Alert>}
         {!unchanged && review?.current_version === review?.package.version && <Alert severity="warning">A different package file uses the same version number. Ask the author to increase the version.</Alert>}

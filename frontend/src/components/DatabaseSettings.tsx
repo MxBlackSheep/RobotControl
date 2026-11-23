@@ -1,3 +1,4 @@
+import Details from './Details';
 import { useEffect, useState } from 'react';
 import { Alert, Box, Button, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material';
 import { api } from '../services/api';
@@ -26,7 +27,7 @@ export default function DatabaseSettings({ active }: { active: boolean }) {
     {error && <Alert severity="error">{error}</Alert>}
     <Paper variant="outlined" sx={{p:2}}><Stack spacing={1}>
       <Stack direction="row" justifyContent="space-between" flexWrap="wrap"><Typography variant="h6">Connections</Typography><Button disabled={busy} onClick={() => setConnections(true)}>Manage connections</Button></Stack>
-      {sources.map(s => <Box key={s.id} sx={{py:1, borderBottom:1, borderColor:'divider', overflowWrap:'anywhere'}}><Typography fontWeight={600}>{s.name}</Typography><Typography variant="body2">{s.server} / {s.database} · {s.access === 'operation' ? 'Database changes' : 'Read-only'}</Typography><Typography variant="body2" color="text.secondary">{[...(savedViewer === s.id ? ['Tables and Stored procedures'] : []), ...uses(s.id)].join(' · ') || 'Not assigned'}</Typography></Box>)}
+      {sources.map(s => <Box key={s.id} sx={{py:1, borderBottom:1, borderColor:'divider', overflowWrap:'anywhere'}}><Typography fontWeight={600}>{s.name}</Typography><Details><Typography variant="body2">{s.server} / {s.database} · {s.access === 'operation' ? 'Database changes' : 'Read-only'}</Typography><Typography variant="body2" color="text.secondary">{[...(savedViewer === s.id ? ['Tables and Stored procedures'] : []), ...uses(s.id)].join(' · ') || 'Not assigned'}</Typography></Details></Box>)}
       {!sources.length && <Typography>No connections configured.</Typography>}
     </Stack></Paper>
     <Paper variant="outlined" sx={{p:2}}><Stack spacing={2}><Typography variant="h6">Tables and Stored procedures</Typography>

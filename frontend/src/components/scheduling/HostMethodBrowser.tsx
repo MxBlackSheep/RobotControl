@@ -1,3 +1,4 @@
+import Details from '../Details';
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Box, Breadcrumbs, Button, LinearProgress, List, ListItemButton, ListItemText, Stack, TextField, Typography } from '@mui/material';
 import { schedulingAPI } from '../../services/schedulingApi';
@@ -32,7 +33,6 @@ export default function HostMethodBrowser({ onSelect, mode = 'folder', initialPa
   };
   useEffect(() => { void load(initialPath); return () => { sequence.current += 1; }; }, []);
   return <Stack spacing={1.5}>
-    <Typography variant="body2">Browse folders on the RobotControl computer. The selected path is supplied automatically.</Typography>
     <Stack direction="row" spacing={1}>
       <Button disabled={disabled || busy} onClick={() => load('')}>Drives</Button>
       <Button disabled={disabled || busy || !directory?.parent_path} onClick={() => load(directory!.parent_path!)}>Up</Button>
@@ -59,10 +59,10 @@ export default function HostMethodBrowser({ onSelect, mode = 'folder', initialPa
         {directory?.folders.map(folder => <ListItemButton key={folder.path} disabled={disabled || busy || folder.linked} onClick={() => load(folder.path)}>
           <ListItemText primary={folder.name} secondary={folder.linked ? 'Linked folder — use its original path' : 'Folder'} sx={{ overflowWrap: 'anywhere' }} />
         </ListItemButton>)}
-        {mode === 'method' && directory?.methods.map(method => <ListItemButton key={method.path} disabled={disabled || busy} selected={selection === method.path}
+        {mode === 'method' && directory?.methods.map(method => <Box component="li" key={method.path}><ListItemButton disabled={disabled || busy} selected={selection === method.path}
           role="radio" aria-checked={selection === method.path} onClick={() => setSelection(method.path)}>
-          <ListItemText primary={method.name} secondary={method.path} sx={{ overflowWrap: 'anywhere' }} />
-        </ListItemButton>)}
+          <ListItemText primary={method.name} sx={{ overflowWrap: 'anywhere' }} />
+        </ListItemButton><Box sx={{ px: 2, pb: 1 }}><Details>{method.path}</Details></Box></Box>)}
       </List>
       {directory?.current_path && !directory.folders.length && (mode === 'folder' || !directory.methods.length) &&
         <Typography sx={{ p: 1.5 }}>No {mode === 'folder' ? 'subfolders' : 'methods or subfolders'} here.</Typography>}

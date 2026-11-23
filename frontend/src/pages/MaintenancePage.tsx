@@ -135,7 +135,6 @@ const MaintenancePage: React.FC = () => {
                   <Box aria-hidden sx={{ width: 12, height: 12, borderRadius: 6, flexShrink: 0, bgcolor: theme => theme.palette.tone[stateTone].dot }} />
                   <Typography component="p" sx={{ fontSize: 28, lineHeight: '36px', fontWeight: 600 }}>{stateLabel}</Typography>
                 </Box>
-                <Typography variant="body2" color="text.secondary">Maintenance mode stops HxRun from being launched on this PC, so you can work on the instrument safely.</Typography>
                 {/* A phone's header band has no room for it beside the label. */}
                 {lastChange && phone && <Typography variant="caption" color="text.secondary">{lastChange}</Typography>}
               </Stack>

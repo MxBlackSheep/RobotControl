@@ -1,3 +1,4 @@
+import Details from './Details';
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle,
   FormControlLabel, LinearProgress, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material';
@@ -130,7 +131,7 @@ export default function DatabaseTools({ kind, active }: { kind: 'operation' | 'r
             {job && <Paper variant="outlined" sx={{ p: 2 }}><Stack spacing={1}>
               {['pending', 'running'].includes(job.status) && <><Typography>Preparing report…</Typography><LinearProgress /></>}
               {job.status === 'error' && <Alert severity="error">{job.error}</Alert>}
-              {job.error_details && <Box component="details"><Typography component="summary">Details</Typography><Typography sx={{ overflowWrap: 'anywhere' }}>{job.error_details}</Typography></Box>}
+              {job.error_details && <Details><Typography sx={{ overflowWrap: 'anywhere' }}>{job.error_details}</Typography></Details>}
               {job.status === 'ready' && <><Typography sx={{ overflowWrap: 'anywhere' }}>{job.filename}</Typography><Button variant="outlined" sx={{ alignSelf: 'flex-start' }} onClick={download} disabled={busy}>Download Excel</Button></>}
             </Stack></Paper>}
           </Stack>

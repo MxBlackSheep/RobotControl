@@ -1,3 +1,4 @@
+import Details from '../Details';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { isAxiosError } from 'axios';
 import { useTheme } from '@mui/material/styles';
@@ -369,7 +370,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                   </Tooltip>
                 </Box>
 
-                {formData.experiment_path && <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>{formData.experiment_name} · {formData.experiment_path}</Typography>}
+                {formData.experiment_path && <Box><Typography variant="body2">{formData.experiment_name}</Typography><Details>{formData.experiment_path}</Details></Box>}
                 {!loading && !!formData.experiment_path && !experiments.some(exp => exp.path === formData.experiment_path) &&
                   <Alert severity="warning">This saved path is not in the current available method library. It may be archived or unavailable. Your selection is preserved; review it in Methods before changing it.</Alert>}
                 </>}
@@ -528,7 +529,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                 {formData.timeout_action === 'run_cleanup_and_terminate' && (
                   <Grid item xs={12}>
                     <MethodPicker methods={experiments} value={formData.timeout_cleanup_experiment_path || ''} label="Choose cleanup method" onChange={handleTimeoutCleanupSelect} disabled={loading || scanning} />
-                    {formData.timeout_cleanup_experiment_path && <Typography variant="body2" sx={{ overflowWrap: 'anywhere', mt: 1 }}>{formData.timeout_cleanup_experiment_name} · {formData.timeout_cleanup_experiment_path}</Typography>}
+                    {formData.timeout_cleanup_experiment_path && <Box><Typography variant="body2">{formData.timeout_cleanup_experiment_name}</Typography><Details>{formData.timeout_cleanup_experiment_path}</Details></Box>}
                     {!!formData.timeout_cleanup_experiment_path && !experiments.some(exp => exp.path === formData.timeout_cleanup_experiment_path) &&
                       <Alert severity="warning">The saved cleanup path is archived, unavailable or absent from the current library. Your selection is preserved.</Alert>}
                   </Grid>
@@ -577,9 +578,6 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                         {...params}
                         label="Email alert recipients"
                         placeholder={contacts.length ? 'Select contacts' : 'No contacts available'}
-                        helperText={selectedContacts.some(receivesAlerts)
-                          ? 'Contacts receive alerts for log inactivity, unavailable monitoring, or aborted runs'
-                          : 'Select an active contact to receive email alerts. Monitoring continues without email recipients.'}
                       />
                     )}
                     disabled={!contacts.length}

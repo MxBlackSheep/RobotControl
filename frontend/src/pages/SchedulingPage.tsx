@@ -1,3 +1,4 @@
+import Details from '../components/Details';
 import { DetailTitle, EmptyPanel, ListRow, PageContent, PageHeader, Panel, PanelLabel } from '../components/PageLayout';
 import { useSchedulingSection, isLocalUser } from '../components/navigation';
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
@@ -216,7 +217,7 @@ const SchedulingPage: React.FC = () => {
             <DetailTitle>{schedule.experiment_name}</DetailTitle>
             {phone && <Box sx={{ flexShrink: 0, pt: 0.25 }}>{statusChip}</Box>}
           </Stack>
-          <Typography sx={{ fontFamily: fontMono, fontSize: 12, lineHeight: '16px', color: 'text.secondary', overflowWrap: 'anywhere', mt: 0.5 }}>{scheduleTarget(schedule)}</Typography>
+          <Details><Typography sx={{ fontFamily: fontMono, fontSize: 12 }}>{scheduleTarget(schedule)}</Typography></Details>
         </Box>
         {phone && <Box component="section" aria-label="Next run" sx={{ p: 2, borderBottom: 1, borderColor: 'surface.rowLine' }}>
           <PanelLabel component="p">Next run</PanelLabel>
