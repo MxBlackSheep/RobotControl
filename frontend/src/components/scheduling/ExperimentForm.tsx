@@ -187,55 +187,56 @@ function ExperimentDraft({installed, removed, loadError, picker, reload, onOpenS
     } finally { update({busy:false}); }
   };
 
-  const fields = (group?:string) => <Box sx={{display:'grid', gridTemplateColumns: type.layout ? (wide ? 'repeat(2, minmax(0, 1fr))' : '1fr') : {xs:'1fr', sm:'repeat(2, minmax(0, 1fr))'}, gap:2}}>
+  const fields = (group?:string) => <Box sx={{display:'grid', gridTemplateColumns: type.layout ? (wide ? 'repeat(2, minmax(0, 1fr))' : '1fr') : {xs:'1fr', sm:'repeat(2, minmax(0, 1fr))'}, columnGap:2, rowGap:1.5}}>
     {type.parameters.filter(p => !group || p.group === group).map(field => <TextField key={field.name} label={field.label}
       value={parameters[field.name] ?? ''} onChange={e => setParameters({...parameters,[field.name]:e.target.value})}
       select={!!field.allowed && !field.fixed} type={!field.allowed && ['integer','number'].includes(field.type) ? 'number' : 'text'}
-      helperText={field.fixed ? 'Default' : undefined} InputProps={{readOnly:!!field.fixed}}
+      helperText={field.fixed ? 'Default' : undefined} FormHelperTextProps={{sx:{mt:0}}} InputProps={{readOnly:!!field.fixed}}
       inputProps={{min:field.min, max:field.max, step:field.type === 'integer' ? 1 : 'any'}} disabled={busy} size={wide && type.layout ? 'medium' : 'small'} fullWidth>
       {field.allowed?.map(value => <MenuItem key={value} value={String(value)} disabled={(type.layout?.rules ?? []).some(rule => rule.parameter === field.name && !evaluateLayoutRule(rule, String(value), layout, type.layout!.assignments).valid)}>{value}</MenuItem>)}
     </TextField>)}
   </Box>;
   return <Box component="form" noValidate onSubmit={e => { e.preventDefault(); void submit(); }} >
     <Box sx={{display:'grid', gap:`${spacing.gutter}px`, gridTemplateColumns:'minmax(0, 1fr)',
-      '@media (min-width:1280px)':type.layout ? {gridTemplateColumns:'minmax(0, 7fr) minmax(0, 5fr)', gridTemplateRows:'1fr 1fr auto', minHeight:'calc(100vh - 170px)'} : {}}}>
-      <Panel fill title="Experiment" sx={{'@media (min-width:1280px)':{gridColumn:type.layout ? 2 : 1}}} bodySx={{display:'flex'}}>
-        <Stack spacing={2} sx={{width:'100%', justifyContent:'space-between'}}>
-          <Box sx={{display:'grid', gap:2, gridTemplateColumns:type.layout ? '1fr' : {xs:'1fr', sm:'repeat(2, minmax(0, 1fr))'}, flex:1, alignContent:'space-between'}}>
-            {picker ? cloneElement(picker as React.ReactElement<{disabled:boolean}>, {disabled:busy || opening}) : <Typography color="text.secondary">{type.name}</Typography>}
+      '@media (min-width:1280px)':type.layout ? {gridTemplateColumns:'minmax(0, 7fr) minmax(0, 5fr)', gridTemplateRows:'auto 1fr auto', minHeight:'min(750px, calc(100vh - 170px))'} : {}}}>
+      <Panel fill title={picker ? 'Experiment' : type.name} label="Experiment" sx={{'@media (min-width:1280px)':{gridColumn:type.layout ? 2 : 1}}} bodySx={{display:'flex'}}>
+        <Box sx={{display:'grid', gap:1.5, width:'100%', gridTemplateColumns:wide ? 'repeat(2, minmax(0, 1fr))' : '1fr', alignContent:'start'}}>
+            {picker && <Box sx={{gridColumn:'1 / -1'}}>{cloneElement(picker as React.ReactElement<{disabled:boolean}>, {disabled:busy || opening})}</Box>}
             <TextField label="UserDefinedID" size={wide && type.layout ? 'medium' : 'small'} value={userDefinedId} onChange={e => setUserDefinedId(e.target.value)} disabled={busy} inputProps={{maxLength:255}} fullWidth />
-            <TextField sx={{gridColumn:'1 / -1'}} label="Note" size={wide && type.layout ? 'medium' : 'small'} value={note} onChange={e => setNote(e.target.value)} disabled={busy} multiline inputProps={{maxLength:4000}} fullWidth />
-            <FormControlLabel sx={{gridColumn:'1 / -1'}} control={<Switch checked={schedule} onChange={e => setSchedule(e.target.checked)} disabled={busy} />} label="Make active in EvoYeast" />
-            <Typography sx={{gridColumn:'1 / -1'}} variant="body2" color="text.secondary">Replaces the active experiment. Does not start a run.</Typography>
+            <TextField label="Note" size={wide && type.layout ? 'medium' : 'small'} value={note} onChange={e => setNote(e.target.value)} disabled={busy} multiline inputProps={{maxLength:4000}} fullWidth />
+            <Box sx={{gridColumn:'1 / -1'}}>
+            <FormControlLabel control={<Switch checked={schedule} onChange={e => setSchedule(e.target.checked)} disabled={busy} />} label="Make active in EvoYeast" />
+            <Typography variant="body2" color="text.secondary" sx={{ml:6}}>Replaces the active experiment. Does not start a run.</Typography>
+            </Box>
             {schedule && <Box sx={{gridColumn:'1 / -1'}}>
               {activeError ? <Alert severity="error">Active experiment unavailable: {activeError}</Alert>
                 : active === null ? <Typography>Loading active experiment...</Typography>
                 : <><Typography>Active experiment: {active.length === 0 ? 'None' : active.map(row => `${row.user_defined_id} (ExperimentID: ${row.experiment_id})`).join(', ')}</Typography>
                   {active.length > 1 && <Alert severity="warning">Multiple active experiments.</Alert>}</>}
             </Box>}
-          </Box>
-
-        </Stack>
+        </Box>
       </Panel>
           {type.layout && <Panel fill sx={{'@media (min-width:1280px)':{gridColumn:1, gridRow:'1 / 4'}}} bodySx={{display:'flex', flexDirection:'column'}} title="Plate layout" actions={<Typography variant="caption" color="text.secondary">96 wells</Typography>}>
         <ExperimentPlateGrid key={`${type.id}:${type.sha256}`} assignments={type.layout.assignments} value={layout} onChange={setLayout} disabled={busy} />
       </Panel>}
-      <Panel fill sx={{'@media (min-width:1280px)':{gridColumn:type.layout ? 2 : 1}}} bodySx={{p:3, display:'flex', flexDirection:'column', justifyContent:'center', '& > .MuiStack-root':{flex:1}, '& .MuiStack-root > .MuiBox-root:first-of-type':{flex:1, alignContent:'space-between'}}} title="Parameters"><Stack spacing={2}>
+      <Panel fill sx={{'@media (min-width:1280px)':{gridColumn:type.layout ? 2 : 1}}} bodySx={{display:'flex', flexDirection:'column', justifyContent:'center'}} title="Parameters"><Stack spacing={2}>
         {fields(showAllParameters ? undefined : 'main')}
         {!showAllParameters && type.parameters.some(p => p.group === 'more') && <Box component="details" key={type.id}>
           <Typography component="summary" sx={{cursor:'pointer', color:'text.secondary', py:1}}>More parameters</Typography>
           <Box sx={{pt:2}}>{fields('more')}</Box>
         </Box>}
       </Stack></Panel>
-      <Box sx={{display:'flex', flexDirection:'column', gap:1.5, p:2, border:1, borderColor:'divider', borderRadius:`${spacing.radius}px`, bgcolor:'background.paper'}}>
+      <Box sx={{display:'grid', gridTemplateColumns:wide ? 'minmax(0, 1fr) auto' : 'minmax(0, 1fr)', alignItems:'center', gap:1, p:2, '& > .MuiAlert-root':{gridColumn:'1 / -1'}, border:1, borderColor:'divider', borderRadius:`${spacing.radius}px`, bgcolor:'background.paper'}}>
+        <Box>
         {summary && <Typography aria-label="Layout summary">{summary}{!ruleFailure && ruleResults.length ? `; each round keeps ${ruleResults.map(result => result.kept).join(', ')}` : ''}</Typography>}
         {ruleFailure && <Typography role="status" color="error.main">{ruleFailure}</Typography>}
+        </Box>
         {loadError ? <Alert severity="error" action={<Button color="inherit" onClick={reload} disabled={busy}>Reload types</Button>}>{loadError}</Alert> : stale && <Alert severity="warning">{removed ? 'Experiment type is no longer installed.' : 'Experiment type changed. Reload types to start from its defaults.'}
           <Button onClick={reload} disabled={busy}>Reload types</Button>
         </Alert>}
         {message && <Alert severity={message.severity}>{message.text}</Alert>}
         {handoffError && <Alert severity="error" action={<Button component={Link} to="/database?section=settings" color="inherit">Database settings</Button>}>{handoffError}</Alert>}
-        <Stack direction="row" gap={1} justifyContent="flex-end" flexWrap="wrap">
+        <Stack direction="row" gap={1} justifyContent="flex-end" flexWrap="wrap" sx={wide ? {gridColumn:2, gridRow:1} : {}}>
           {draft.attempts.map((attempt,index) => <Button key={attempt.token} disabled={busy || opening} onClick={() => void sendAttempt(attempt, false)}>Recover receipt {index + 1}</Button>)}
           {draft.experimentId != null && <Button disabled={busy || opening} onClick={() => void openScheduling()}>Open Scheduling</Button>}
           <Button type="submit" variant="contained" disabled={busy || opening || stale || !!loadError || !!ruleFailure}>Register</Button>
