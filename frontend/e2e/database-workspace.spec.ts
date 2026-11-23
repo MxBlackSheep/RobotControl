@@ -182,7 +182,8 @@ test('assigning package connections offers matching accounts and saves only decl
     { id: 'plate-report', name: 'Plate report', version: '1.0.0', sha256: 'b', running: 0, libraries: [], tools: [{ id: 'plate-report', name: 'Plate report', kind: 'report' }] }];
   // 'retired' is a stale alias from an earlier version; it must not be sent back.
   const bindings: Record<string, any> = { 'delete-experiment': { aliases: ['primary'], mappings: { retired: 'reader' }, has_operation: true, operation_source: null },
-    'plate-report': { aliases: ['plates', 'results'], mappings: {}, has_operation: false, operation_source: null } };
+    'plate-report': { aliases: ['plates', 'results'], mappings: {}, has_operation: false, operation_source: null },
+    experiments: { aliases: [], mappings: {}, has_operation: true, operation_source: null } };
   const saved: any[] = [];
   await page.route('**/api/database/tools/sources', r => r.fulfill({ json: profiles }));
   await page.route('**/api/database/tools/viewer-sources', r => r.fulfill({ json: [] }));
