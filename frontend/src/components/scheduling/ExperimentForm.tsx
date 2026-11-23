@@ -187,7 +187,7 @@ function ExperimentDraft({installed, removed, loadError, picker, reload, onOpenS
     } finally { update({busy:false}); }
   };
 
-  const fields = (group?:string) => <Box sx={{display:'grid', gridTemplateColumns: type.layout ? (wide ? 'repeat(2, minmax(0, 1fr))' : '1fr') : {xs:'1fr', sm:'repeat(2, minmax(0, 1fr))'}, columnGap:2, rowGap:1.5}}>
+  const fields = (group?:string) => <Box sx={{display:'grid', gridTemplateColumns: type.layout ? (wide ? 'repeat(2, minmax(0, 1fr))' : '1fr') : {xs:'1fr', sm:'repeat(2, minmax(0, 1fr))'}, columnGap:2, rowGap:1.5, flex:1, gridAutoRows:'max-content', alignContent:'space-between'}}>
     {type.parameters.filter(p => !group || p.group === group).map(field => <TextField key={field.name} label={field.label}
       value={parameters[field.name] ?? ''} onChange={e => setParameters({...parameters,[field.name]:e.target.value})}
       select={!!field.allowed && !field.fixed} type={!field.allowed && ['integer','number'].includes(field.type) ? 'number' : 'text'}
@@ -219,7 +219,7 @@ function ExperimentDraft({installed, removed, loadError, picker, reload, onOpenS
           {type.layout && <Panel fill sx={{'@media (min-width:1280px)':{gridColumn:1, gridRow:'1 / 4'}}} bodySx={{display:'flex', flexDirection:'column'}} title="Plate layout" actions={<Typography variant="caption" color="text.secondary">96 wells</Typography>}>
         <ExperimentPlateGrid key={`${type.id}:${type.sha256}`} assignments={type.layout.assignments} value={layout} onChange={setLayout} disabled={busy} />
       </Panel>}
-      <Panel fill sx={{'@media (min-width:1280px)':{gridColumn:type.layout ? 2 : 1}}} bodySx={{display:'flex', flexDirection:'column', justifyContent:'center'}} title="Parameters"><Stack spacing={2}>
+      <Panel fill sx={{'@media (min-width:1280px)':{gridColumn:type.layout ? 2 : 1}}} bodySx={{display:'flex', flexDirection:'column'}} title="Parameters"><Stack spacing={2} sx={{flex:1}}>
         {fields(showAllParameters ? undefined : 'main')}
         {!showAllParameters && type.parameters.some(p => p.group === 'more') && <Box component="details" key={type.id}>
           <Typography component="summary" sx={{cursor:'pointer', color:'text.secondary', py:1}}>More parameters</Typography>
