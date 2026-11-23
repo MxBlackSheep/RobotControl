@@ -1,3 +1,4 @@
+import Details from '../Details';
 import { useMemo, useState } from 'react';
 import { Alert, Box, Button, LinearProgress, List, ListItemButton, Stack, TextField, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
 import { SCHEDULE_MODE_LABELS, ScheduledExperiment } from '../../types/scheduling';
@@ -76,7 +77,8 @@ export default function ScheduleCollection({ title, statusFilter, schedules, sel
           // A record under review never runs, whatever time it holds.
           const nextRun = schedule.review_reason ? null : schedule.next_run;
           const current = selected?.schedule_id === schedule.schedule_id;
-          return <ListItemButton key={schedule.schedule_id}
+          return <Box component="li" key={schedule.schedule_id}>
+          <ListItemButton
             aria-label={`Open ${schedule.experiment_name}`} aria-current={current ? 'true' : undefined}
             selected={current} onClick={() => onSelect(schedule)}
             sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', [table]: { gridTemplateColumns: columns, height: 56 },
@@ -85,7 +87,7 @@ export default function ScheduleCollection({ title, statusFilter, schedules, sel
               <Typography sx={{ fontSize: 13, lineHeight: '20px', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{schedule.experiment_name}</Typography>
               {schedule.review_reason
                 ? <ReviewReason reason={schedule.review_reason} />
-                : <Typography sx={{ fontFamily: fontMono, fontSize: 12, lineHeight: '16px', color: 'text.secondary', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{scheduleTarget(schedule)}</Typography>}
+                : <Typography sx={{ fontFamily: fontMono, fontSize: 12, lineHeight: '16px', color: 'text.secondary', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{scheduleTarget(schedule).split(/[\\/]/).pop()}</Typography>}
               <Typography sx={{ ...muted, mt: 0.5, [table]: { display: 'none' } }}>
                 {nextRun ? `Next ${dayTime(nextRun)}` : 'No next run'} · {repeatLabel(schedule)}
               </Typography>
@@ -97,7 +99,9 @@ export default function ScheduleCollection({ title, statusFilter, schedules, sel
               <StatusChip tone={state.tone} label={state.label} />
               {schedule.mode !== 'real' && <StatusChip tone="neutral" label={SCHEDULE_MODE_LABELS[schedule.mode]} />}
             </Stack>
-          </ListItemButton>;
+          </ListItemButton>
+          <Box sx={{ px: 2, pb: 1 }}><Details>{scheduleTarget(schedule)}</Details></Box>
+          </Box>;
         })}
         {!visible.length && !loading && <Typography variant="body2" sx={{ p: 2, color: 'text.secondary' }}>No schedules found.</Typography>}
       </List>

@@ -1,3 +1,5 @@
+import ExperimentForm from '../components/scheduling/ExperimentForm';
+import Details from '../components/Details';
 import { DetailTitle, EmptyPanel, ListRow, PageContent, PageHeader, Panel, PanelLabel } from '../components/PageLayout';
 import { useSchedulingSection, isLocalUser } from '../components/navigation';
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
@@ -216,7 +218,7 @@ const SchedulingPage: React.FC = () => {
             <DetailTitle>{schedule.experiment_name}</DetailTitle>
             {phone && <Box sx={{ flexShrink: 0, pt: 0.25 }}>{statusChip}</Box>}
           </Stack>
-          <Typography sx={{ fontFamily: fontMono, fontSize: 12, lineHeight: '16px', color: 'text.secondary', overflowWrap: 'anywhere', mt: 0.5 }}>{scheduleTarget(schedule)}</Typography>
+          <Details><Typography sx={{ fontFamily: fontMono, fontSize: 12 }}>{scheduleTarget(schedule)}</Typography></Details>
         </Box>
         {phone && <Box component="section" aria-label="Next run" sx={{ p: 2, borderBottom: 1, borderColor: 'surface.rowLine' }}>
           <PanelLabel component="p">Next run</PanelLabel>
@@ -268,7 +270,7 @@ const SchedulingPage: React.FC = () => {
   const recovery = status?.recovery;
   return (
     <PageContent variant={currentTab === 5 && notificationsTab === 2 ? "task" : "inspection"}>
-      <PageHeader title="Scheduling" actions={isLocal && <>
+      <PageHeader title="Scheduling" actions={isLocal && currentTab !== 7 && <>
         <Button variant="contained" onClick={() => setForm({})} disabled={state.loading}>Create schedule</Button>
         <Button variant="outlined" onClick={() => setFolderImportOpen(true)} disabled={state.loading}>Import methods</Button>
       </>} />
@@ -292,6 +294,7 @@ const SchedulingPage: React.FC = () => {
 
       {/* Main Content */}
       <Box ref={workspaceTop} sx={{ minWidth: 0 }}>
+        <TabPanel value={currentTab} index={7}><ExperimentForm /></TabPanel>
         <TabPanel value={currentTab} index={0}>
           {scheduleWorkspace('Schedules', state.schedules, () => void actions.loadSchedules(), state.loading, state.error, true)}
         </TabPanel>

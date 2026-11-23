@@ -205,3 +205,5 @@ workflows are covered by the HTTP checks in the backend guide. Vitest: `Database
 - **Copy fails:** clipboard permission may be missing; the value stays selectable.
 - **Reader has very little space:** check shared workspace sizing and toolbar wrapping before
   adding another viewport-height constant.
+
+Database settings show each connection name first; server, database, access and uses are inside the shared, initially closed Details disclosure. Package technical facts and report error details use that same component.

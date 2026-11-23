@@ -1,7 +1,7 @@
 /**
- * Latest experiment from the Hamilton run database, refreshed every minute.
+ * Active PyHSL run, or the latest Hamilton experiment refreshed every minute.
  */
-import React, { memo, useState } from 'react';
+import { memo, useState } from 'react';
 import { Box, Button, Skeleton, Stack } from '@mui/material';
 import { experimentsAPI } from '../services/api';
 import { useSerialPolling } from '../hooks/useSerialPolling';
@@ -10,6 +10,9 @@ import { ListRow, Panel } from './PageLayout';
 import { clockTime, dayTime } from '../utils/displayTime';
 import { layout, StatusTone } from '../theme';
 import { RUNNER_LABELS, type ScheduleRunner } from '../types/scheduling';
+import { Link } from 'react-router-dom';
+import type { PyHslStatus } from '../hooks/usePyHslStatus';
+import { executionTone } from './scheduling/executionStatus';
 
 interface ExperimentData {
   run_guid: string;
@@ -63,7 +66,7 @@ const describeError = (err: any): string => {
   return 'Experiment data temporarily unavailable';
 };
 
-const ExperimentStatus: React.FC = memo(() => {
+const ExperimentStatus = memo(({ pyhsl, canOpen }: { pyhsl: PyHslStatus | null; canOpen: boolean }) => {
   const [latest, setLatest] = useState<Latest | null>(null);
   const polling = useSerialPolling<Latest>({
     interval: 60000,
@@ -78,7 +81,10 @@ const ExperimentStatus: React.FC = memo(() => {
   });
   const error = polling.error;
   const experiment = latest?.experiment;
-  const state = experiment ? getRunStateDisplay(experiment.run_state) : null;
+  // A PyHSL run that the monitor cannot confirm right now is not shown as running.
+  const unconfirmed = experiment?.runner === 'pyhsl' && pyhsl?.state !== 'running';
+  const shown = experiment ? getRunStateDisplay(experiment.run_state) : null;
+  const state = shown && unconfirmed && shown.label === 'Running' ? { label: 'State unknown', tone: 'neutral' as StatusTone } : shown;
 
   const runner: ScheduleRunner = experiment?.runner === 'pyhsl' ? 'pyhsl' : 'venus';
   const methodName = !experiment ? '' : runner === 'pyhsl' ? experiment.protocol || 'PyHSL protocol'
@@ -88,6 +94,21 @@ const ExperimentStatus: React.FC = memo(() => {
     ...(experiment.end_time ? [['Ended', formatTimestamp(experiment.end_time)] as [string, string]] : []),
     ['Duration', calculateDuration(experiment.start_time, experiment.end_time)],
   ] : [];
+
+  // The monitor clears stale runs; an unknown reading must never claim an active run.
+  const run = pyhsl?.state === 'running' ? pyhsl.run : null;
+  if (run) {
+    const [label, tone] = executionTone(run.status);
+    return <Panel title="Latest experiment"
+      actions={canOpen && <Button size="small" component={Link} to={`/pyhsl?run=${encodeURIComponent(run.run_id)}`}>Open run</Button>}>
+      <Stack direction="row" spacing={2} useFlexGap flexWrap="wrap" alignItems="center">
+        <Box component="strong" sx={{ overflowWrap: 'anywhere' }}>{run.protocol}</Box>
+        <StatusChip tone="neutral" label={RUNNER_LABELS.pyhsl} />
+        <StatusChip tone={tone} label={label} />
+        <Box component="span">Started {formatTimestamp(run.created_at)}</Box>
+      </Stack>
+    </Panel>;
+  }
 
   return <Panel title="Latest experiment" inset={false} sx={{ containerType: 'inline-size', containerName: 'latest' }}
     actions={<Button size="small" onClick={() => { void polling.refresh(); }} disabled={polling.pending}>Refresh</Button>}>

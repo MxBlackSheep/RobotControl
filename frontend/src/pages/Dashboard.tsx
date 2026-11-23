@@ -80,7 +80,7 @@ const Dashboard: React.FC = memo(() => {
       <PanelErrorBoundary name="PyHSL"><PyHslPanel status={pyhsl} canOpen={canOpenScheduling} /></PanelErrorBoundary>
       <PanelErrorBoundary name="Up next" span={6}><UpNext canOpenScheduling={canOpenScheduling} span={6} /></PanelErrorBoundary>
       <PanelErrorBoundary name="Recent runs" span={6}><RecentRuns canOpenScheduling={canOpenScheduling} span={6} /></PanelErrorBoundary>
-      <PanelErrorBoundary name="Latest experiment"><ExperimentStatus /></PanelErrorBoundary>
+      <PanelErrorBoundary name="Latest experiment"><ExperimentStatus pyhsl={pyhsl} canOpen={canOpen('/pyhsl', user)} /></PanelErrorBoundary>
     </PageGrid>
   </PageContent>;
 });

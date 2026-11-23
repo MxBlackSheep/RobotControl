@@ -251,3 +251,25 @@ always-present box so the fit is measured again) and scrolls its own panels. Rob
 "PyHSL not reachable since HH:MM" (the last reading stays), "Loading" or "Run view not shown: <reason>" in the
 view's place, and Show report for an ended run; the report opens in a dialog in an iframe with an empty `sandbox`.
 Failure cases are in `frontend/e2e/pyhsl.spec.ts`.
+
+Schedule rows show the method filename; the full target is in a closed Details disclosure. The schedule detail, primary and cleanup selections, method library and method pickers use the same disclosure. Path editing and confirmation dialogs retain the full paths needed to review a change. Path status remains visible; the last-check timestamp is omitted.
+
+## Experiments
+
+Scheduling > Experiments is registered as a local-admin section (index 7).
+`ExperimentForm` owns the draft, numeric parameter defaults and request token;
+`ExperimentPlateGrid` edits only the layout supplied by that owner. The three
+Champions parameters appear first and eleven others start under More parameters.
+Default wells are media controls in column 1 and cultures in columns 2-5.
+
+Drag between wells to mark a rectangle with Culture, Media control or Empty.
+Tab or arrow keys focus wells; Space/Enter applies the selected assignment.
+The SQL request contains marked wells only, in column order, and preserves
+case-sensitive parameter names. Excel import is not included.
+
+A refusal retains the whole draft. A lost response or uncertain commit retains both
+the draft and request token, displays the check-before-retrying message, and never
+retries automatically. A confirmed success shows the generated ExperimentID and
+resets the form to its initial defaults. Visited sections stay mounted, preserving
+the draft across section switches. `experiments.spec.ts` covers the visible request,
+rectangle/keyboard editing, success, refusal, uncertainty and navigation permissions.

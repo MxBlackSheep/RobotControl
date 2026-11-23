@@ -1,6 +1,6 @@
 """Execution, confirmations and private temporary report files for database packages."""
 from __future__ import annotations
-from contextlib import closing
+from contextlib import closing, nullcontext
 
 import hashlib
 import json
@@ -189,21 +189,30 @@ class DatabaseTools:
         return result
 
     def _execute_operation(self, entry, tool, preview, target):
+        def operation(conn, connections):
+            context = SimpleNamespace(connection=conn, connections=connections)
+            self.validate_choices(tool, preview['inputs'], connections)
+            current = self.catalogue.function(entry, tool.preview)(context, preview['inputs'])
+            if digest(current) != preview['snapshot']:
+                raise PackageError("Experiment changed. Preview the operation again.", 409)
+            return self.catalogue.function(entry, tool.entrypoint)(context, preview['inputs'])
+        return self._operation_transaction(target, operation, lookups=lambda: self.sources.connections(preview['choices']))
+
+    def _operation_transaction(self, target, operation, lookups=nullcontext):
+        """One transaction boundary for package operations and built-in registration.
+
+        Lookup connections open before the target, as they always did, so a failure names the connection that failed.
+        """
         committing = committed = False
         try:
-            with self.sources.connections(preview['choices']) as connections, self.sources.open(target) as conn:
+            with lookups() as connections, self.sources.open(target) as conn:
                 conn.timeout = 30
-                context = SimpleNamespace(connection=conn, connections=connections)
                 try:
                     # Serializable protects the selected target until commit.
                     cursor = conn.cursor()
                     cursor.execute("SET XACT_ABORT ON; SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
                     cursor.close()
-                    self.validate_choices(tool, preview['inputs'], connections)
-                    current = self.catalogue.function(entry, tool.preview)(context, preview['inputs'])
-                    if digest(current) != preview['snapshot']:
-                        raise PackageError("Experiment changed. Preview the operation again.", 409)
-                    value = self.catalogue.function(entry, tool.entrypoint)(context, preview['inputs'])
+                    value = operation(conn, connections)
                     committing = True
                     conn.commit()
                     committed = True
@@ -215,6 +224,42 @@ class DatabaseTools:
             logger.exception("Database operation failed")
             result = dict(status='unknown' if committing else 'error', message=('Commit could not be confirmed. Check the database before repeating. ' if committing else '') + str(exc))
         return result, committing, committed
+
+    def register_experiment(self, token, inputs, owner, client_ip):
+        from backend.services.experiments import register_experiment
+        token = 'experiments:' + token
+        unknown = f"Check whether experiment {inputs['user_id']} exists before trying again."
+        # The journal is durable before SQL begins, and the token is reused after a lost reply.
+        with self.lock, closing(sqlite3.connect(self.receipts)) as journal, journal:
+            saved = journal.execute('SELECT owner, result FROM receipts WHERE id=?', (token,)).fetchone()
+            if saved:
+                if saved[0] != owner:
+                    raise PackageError('Registration not found', 404)
+                return json.loads(saved[1])
+            journal.execute('INSERT INTO receipts VALUES (?, ?, ?)',
+                            (token, owner, json.dumps(dict(status='unknown', message=unknown))))
+            journal.commit()
+        committed = False
+        try:
+            with self.guard(), self.sources.lock:
+                target = self.sources.operation_target('experiments')
+                def operation(conn, _):
+                    experiment_id = register_experiment(conn, **inputs)
+                    return dict(experiment_id=experiment_id, message=f'Experiment {experiment_id} registered.')
+                result, _, committed = self._operation_transaction(target, operation)
+        except Exception as exc:
+            result = dict(status='error', message=str(exc))
+        if result['status'] == 'unknown':
+            result['message'] = 'Commit could not be confirmed. ' + unknown
+        log_action(actor=owner, action='register_experiment', scope='database', client_ip=client_ip,
+                   success=committed, details=dict(user_id=inputs['user_id'], outcome=result))
+        try:
+            with closing(sqlite3.connect(self.receipts)) as journal, journal:
+                journal.execute('UPDATE receipts SET result=? WHERE id=?', (json.dumps(result, default=str), token))
+        except Exception:
+            logger.exception('Registration receipt could not be updated')
+            result['warning'] = 'Result could not be saved to the operation journal. ' + unknown
+        return result
 
     def public_catalogue(self, kind):
         tools = copy.deepcopy(self.catalogue.tools(kind))

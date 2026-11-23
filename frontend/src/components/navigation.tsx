@@ -10,6 +10,7 @@ export const canOpen = (path: string, user: NavigationUser) => !pageRoles[path] 
 export const isLocalUser = (user: NavigationUser) => user?.session_is_local === true;
 export const schedulingSections = [
   { id: 'schedules', label: 'Schedules', index: 0 }, { id: 'methods', label: 'Methods', index: 6, local: true },
+  { id: 'experiments', label: 'Experiments', index: 7, local: true, admin: true },
   { id: 'calendar', label: 'Calendar', index: 2 }, { id: 'history', label: 'History', index: 3 },
   { id: 'archived', label: 'Archived', index: 4 }, { id: 'recovery', label: 'Recovery', index: 1 },
   { id: 'notifications', label: 'Notifications', index: 5, admin: true },

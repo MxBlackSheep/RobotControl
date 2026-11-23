@@ -1,3 +1,9 @@
+## 2026-11-23 Experiments page, PyHSL run on Overview, details tucked away
+
+- Before, a Champions experiment could be entered only with `RegisterNewExperiment.exe`, Overview's latest experiment showed only the Hamilton run record, and database connections and method paths filled the first screen. Now Scheduling > Experiments registers an experiment (ID, note, schedule now, the 14 parameters with Champions' three first, a 96-well layout) with the exe's writes in one transaction; Overview shows the active PyHSL run with a link to its Run page; server, database, access and path lines sit behind a closed Details.
+- The registration reuses the operation connection, journal and unknown-outcome handling of database operations. It needs the Experiments connection assigned in Database settings, so a lab PC without one cannot register. An unconfirmed commit says to check whether the experiment exists before trying again. Excel layout loading is not included.
+- Checked against a scratch SQL Server 2008 R2 database that was dropped afterwards: the rows equal the exe's rows, and a reused ID, no culture well, a bad fraction, a non-number and a scheduling error each write nothing. Not checked: the real EvoYeast table types, the lab PC, the packaged build.
+
 ## 2026-11-16 Camera not giving a picture
 
 - Why: in November 2026 the lab camera's picture went black after weeks of running while RobotControl still showed it connected and recording; the owner noticed and used Reconnect. Any delivered frame counted as healthy. Whether that black picture was exactly unchanging, and so would have been caught here, is not known; the live check on the lab PC shows how the camera behaves.
