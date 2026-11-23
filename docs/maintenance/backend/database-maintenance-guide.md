@@ -297,3 +297,30 @@ those separately with disposable data when changing their behavior.
   holds the draft, package index or connections file open without allowing deletion (scanners
   normally allow it). Find it with Resource Monitor → CPU → Associated Handles, searching for
   `report-drafts`, and exclude `data/database-tools` from that program.
+
+## Experiment registration
+
+`POST /api/database/tools/experiments` is local-administrator-only, like operations.
+Database settings > Package connections > Experiments > Assign selects the existing
+operation connection for EvoYeast. The reserved built-in binding ID is `experiments`;
+its `/packages/experiments/sources` routes use the existing operation binding store,
+without an installed package or a fallback to the native writer. Do not install a
+package using this ID. Connection edits remain locked through registration's commit.
+
+`services/experiments.register_experiment(connection, user_id, note, schedule,
+parameters, layout)` accepts an open pyodbc connection and never commits or rolls
+back. Layout is `(well, assignment)` pairs, with empty wells omitted. It validates
+finite parameters, the fraction (0.25, 0.5 or 1), culture presence and well addresses
+before writes. The duplicate check holds the ID range; scheduling consumes every
+result set and refuses `DATABASE ERROR`. No EvoYeast schema changes are required.
+
+`DatabaseTools.register_experiment` owns the scheduler database-change guard, source
+lock and durable receipt. Package execution and registration share
+`_operation_transaction` (XACT_ABORT, SERIALIZABLE, rollback and commit uncertainty).
+The browser supplies a request token; replay returns its owner-bound receipt, never
+runs the write again. Registration receipts use an `experiments:` prefix. Interrupted
+or uncertain commits ask the operator to check whether the ID exists before retrying.
+A changed draft creates a new token; do not use that to bypass an uncertain outcome.
+
+The scratch SQL Server check is separate: browser fakes do not establish SQL Server
+2008 R2 compatibility, procedure rollback or real write permissions.

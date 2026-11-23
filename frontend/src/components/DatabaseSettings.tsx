@@ -12,7 +12,7 @@ export default function DatabaseSettings({ active }: { active: boolean }) {
   const [viewer, setViewer] = useState(''), [savedViewer, setSavedViewer] = useState('');
   const load = async (signal?: AbortSignal) => {
     const [profiles, packages] = await Promise.all([api.get(`${toolsBase}/sources`, {signal}), api.get(`${toolsBase}/packages`, {signal})]);
-    const bindings = await Promise.all(packages.data.map(async (p: any) => ({ id:p.id, name:p.name, ...(await api.get(`${toolsBase}/packages/${p.id}/sources`, {signal})).data })));
+    const bindings = await Promise.all([{id:'experiments', name:'Experiments'}, ...packages.data].map(async (p: any) => ({ id:p.id, name:p.name, ...(await api.get(`${toolsBase}/packages/${p.id}/sources`, {signal})).data })));
     if (signal?.aborted) return;
     setSources(profiles.data); setAssignments(bindings);
     const selected = await api.get(`${toolsBase}/viewer-sources`, {signal});

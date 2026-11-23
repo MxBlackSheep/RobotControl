@@ -171,6 +171,9 @@ class Mappings(BaseModel):
 @router.get('/packages/{package_id}/sources')
 def package_sources(package_id: str, user=Depends(local_admin), service=Depends(get_database_tools)):
     with service.catalogue.lock:
+        if package_id == 'experiments':
+            return dict(aliases=[], mappings={}, has_operation=True,
+                        operation_source=service.sources.state['operation_bindings'].get(package_id))
         entry = service.catalogue.index.get(package_id)
         if not entry:
             raise HTTPException(404, 'Package not found')
@@ -182,6 +185,11 @@ def package_sources(package_id: str, user=Depends(local_admin), service=Depends(
 @router.put('/packages/{package_id}/sources')
 def bind_sources(package_id: str, payload: Mappings, user=Depends(local_admin), service=Depends(get_database_tools)):
     with service.catalogue.lock:
+        if package_id == 'experiments':
+            if payload.mappings:
+                raise HTTPException(400, 'Experiments uses only a writing connection.')
+            service.sources.bind_operation(package_id, payload.operation_source)
+            return {'message': 'Connections assigned.'}
         entry = service.catalogue.index.get(package_id)
         if not entry:
             raise HTTPException(404, 'Package not found')
@@ -198,6 +206,26 @@ def bind_sources(package_id: str, payload: Mappings, user=Depends(local_admin), 
             service.sources.bind(package_id, service.sources.aliases(entry['manifest']), payload.mappings)
             service.sources.bind_operation(package_id, payload.operation_source)
     return {'message': 'Connections assigned.'}
+
+
+class ExperimentRegistration(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    token: str = Field(pattern=r'^[0-9a-f]{32}$')
+    user_id: str = Field(max_length=255)
+    note: str = Field(max_length=4000)
+    schedule: Literal[0, 1]
+    parameters: dict[str, float] = Field(min_length=14, max_length=14)
+    layout: list[tuple[str, Literal['Cells', 'MediaCtrl']]] = Field(max_length=96)
+
+
+@router.post('/experiments')
+def register_experiment(payload: ExperimentRegistration, user=Depends(local_admin), service=Depends(get_database_tools)):
+    expected = {'BackgroundOD', 'InoculationOD', 'MaxIteration', 'ODConversionFactor', 'FreezeVolume',
+                'TargetWellVolume', 'V_OD_Sample', 'TopFractionToPropagate', 'FreezeGeneration',
+                'UseFluorescence', 'GFP_scale', 'GFP_RFPdamping', 'RFP_scale', 'RFP_GFPdamping'}
+    if set(payload.parameters) != expected:
+        raise HTTPException(400, 'Experiment parameter names do not match.')
+    return service.register_experiment(payload.token, payload.model_dump(exclude={'token'}), owner(user), None)
 
 
 class DraftSave(BaseModel):
