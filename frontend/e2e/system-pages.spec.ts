@@ -283,6 +283,26 @@ test('Overview reports a PyHSL run and review, and never reads a failed status a
   await expect(panel).toHaveCount(0);
 });
 
+test('Latest experiment never shows a PyHSL run as running unless PyHSL confirms it', async ({ page }) => {
+  const run = { run_id: 'r1', protocol: 'pyhsl_test_automation', status: 'running', mode: 'simulation', completed_count: 4, error: null, origin: 'person', created_at: '2026-11-09T15:36:00+00:00' };
+  let status: Record<string, unknown> = { fails: true };
+  await page.route('**/api/pyhsl/status', route => status.fails
+    ? route.fulfill({ status: 503, json: { detail: 'Unavailable' } })
+    : route.fulfill({ json: status }));
+  await page.route('**/api/experiments/latest', route => route.fulfill({ json: { success: true, data: {
+    run_guid: 'g1', method_name: 'C:\\sessions\\x\\host\\ManagedHost.hsl', runner: 'pyhsl', protocol: 'pyhsl_test_automation',
+    start_time: '2026-11-09T15:36:00+00:00', end_time: null, run_state: 1 } } }));
+  await page.goto('/');
+  const latest = page.getByRole('region', { name: 'Latest experiment' });
+  await expect(latest).toContainText('pyhsl_test_automation');
+  await expect(latest).toContainText('State unknown');
+  await expect(latest).not.toContainText('Running');
+  status = { state: 'running', reason: '', checked_at: '2026-11-09T15:37:00+00:00', run, reviews: { known: false, blocked: false, run_ids: [] } };
+  await page.reload();
+  await expect(latest).toContainText('Running');
+  await expect(latest.getByRole('link', { name: 'Open run' })).toBeVisible();
+});
+
 test('a remote phone gets what happened instead of a recovery dead end', async ({ page }) => {
   const now = new Date('2026-09-30T14:30:00');
   await page.clock.install({ time: now });
