@@ -267,8 +267,15 @@ uses `WellPaintGrid` for rectangle/keyboard painting; requests contain only mark
 in column order. At 1280 CSS px the plate and right column use 7:5 tracks; page width
 uses the shared 1600 px token. Wide forms show all eight fields.
 
-A refusal keeps the draft; uncertain results keep the body/token for receipt recovery.
-Success resets only that type and retains the returned ExperimentID. Make active reads
+A refusal keeps the draft; uncertain results keep each body/token for receipt recovery,
+even after editing or removal of the type. Recover receipt replays that exact attempt
+without replacing the current draft, including when the catalogue cannot be read.
+Removed types with kept drafts remain selectable. Reload types starts the draft
+selected when reload was requested from the current definition's defaults; it retains
+unresolved receipts and other types' drafts. The warning before a new attempt appears
+once per previous uncertain attempt, even if fields are edited again.
+Drafts are isolated by sign-in, and late replies from a previous sign-in are ignored.
+Success resets only the submitted draft and retains the returned ExperimentID. Make active reads
 `/experiments/active` when enabled, showing loading, None only for successful empty
 results, identifiers, errors or multiple-active warnings. It is a snapshot, not a lock.
 

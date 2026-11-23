@@ -215,6 +215,7 @@ installations import `starter-packages/champions-experiment.zip`; fresh catalogu
 it automatically. List, review, history and removal show Experiment type alongside
 Report, Operation and Preparation step. Edit is available only for reports/operations.
 Experiment definitions have no Python editor; update the reviewed ZIP to change them.
+Their Experiments connection link opens Database settings for the shared writer.
 
 Database settings keeps one shared Experiments writing connection (reserved binding
 `experiments`), not one per experiment type. Scheduling > Experiments reads the types

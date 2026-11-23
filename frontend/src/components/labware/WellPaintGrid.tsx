@@ -137,7 +137,7 @@ export default function WellPaintGrid({rack, active, joined=false, rows, columns
             sx={{ flexWrap: 'wrap', gap: 1, '& .MuiToggleButtonGroup-grouped': { m: 0, border: 1, borderColor: 'surface.control', borderRadius: `${layout.radius}px` },
               '& .MuiToggleButtonGroup-grouped.Mui-selected': { borderColor: 'primary.main', bgcolor: theme => theme.palette.tone.running.bg, fontWeight: 600 } }}>
             {choices.map(choice => <ToggleButton key={choice.value} value={choice.value} sx={{ gap: 1, px: 1.5 }}>
-              {choice.symbol != null ? <Box component="span" aria-hidden="true">{choice.symbol}</Box> : <Box component="span" aria-hidden="true" sx={{ bgcolor: choice.color || 'text.disabled', width: 10, height: 10, borderRadius: '50%' }} />}{choice.label}
+              {choice.symbol != null ? <Box component="span" aria-hidden="true" sx={{color:choice.color}}>{choice.symbol}</Box> : <Box component="span" aria-hidden="true" sx={{ bgcolor: choice.color || 'text.disabled', width: 10, height: 10, borderRadius: '50%' }} />}{choice.label}
             </ToggleButton>)}
           </ToggleButtonGroup>;
   return <>{children({control, grid, viewport, handlers, preview, corners, enabled, cancel, apply, activate, keyMove})}</>;

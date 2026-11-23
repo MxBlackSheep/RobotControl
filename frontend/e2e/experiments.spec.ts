@@ -4,7 +4,9 @@ import { readFileSync } from 'node:fs';
 const manifest = JSON.parse(readFileSync(new URL('../../database_packages/champions-experiment/manifest.json', import.meta.url), 'utf8'));
 
 /** Definition-driven registration: exact manifest defaults/pinned request, optional layout,
- * per-type drafts, refusal/unknown receipts, stale definition recovery and local-admin access.
+ * per-sign-in/type drafts, refusal/unknown receipts (including removed types and edited
+ * attempts and catalogue outages), fresh-default definition reload without overwriting
+ * a different selected draft, and local-admin access.
  * Registration/reuse handoff uses the returned numeric ID, refuses missing/mismatched setup,
  * and never saves or launches; active empty/error/multiple states stay distinct.
  * Whole-count choices and fixed values must agree with the server contract. Faked HTTP
@@ -101,12 +103,16 @@ test('keeps drafts and uncertain tokens through refusal, navigation and definiti
   await expect(field(page,'Maximum iteration')).toHaveValue('12');
   await expect(page.getByText(/Outcome unknown/)).toBeVisible();
   await page.route(endpoint,r => r.fulfill({status:409,json:{detail:'Experiment type changed. Reload the page'}}));
+  await field(page,'Maximum iteration').fill('13');
+  await register(page).click(); await expect(page.getByText(/Previous outcome unknown/)).toBeVisible();
+  await field(page,'Maximum iteration').fill('14');
   await register(page).click(); await expect(register(page)).toBeDisabled();
   const updated={...champions,sha256:'c'.repeat(64)};
   await page.route(`${endpoint}/types`,r => r.fulfill({json:[updated]}));
   await page.getByRole('button',{name:'Reload types',exact:true}).click();
-  await page.getByRole('button',{name:'Use updated definition',exact:true}).click();
-  await expect(field(page,'Maximum iteration')).toHaveValue('12'); await expect(register(page)).toBeEnabled();
+  await expect(field(page,'Maximum iteration')).toHaveValue('20'); await expect(register(page)).toBeEnabled();
+  await expect(field(page,'UserDefinedID')).toHaveValue('');
+  await field(page,'UserDefinedID').fill('Refused connection');
   await page.route(endpoint,r => r.fulfill({status:400,json:{detail:'Assign a writing connection in Database settings.'}}));
   await register(page).click(); await expect(page.getByText('Assign a writing connection in Database settings.',{exact:true})).toBeVisible();
   for (const [role,local] of [['admin',false],['user',true]] as const) {
@@ -114,6 +120,68 @@ test('keeps drafts and uncertain tokens through refusal, navigation and definiti
     await page.goto('/scheduling?section=experiments');
     await expect(field(page,'UserDefinedID')).toHaveCount(0); await expect(page).not.toHaveURL(/section=experiments/);
   }
+});
+
+test('recovers an earlier uncertain receipt after edits and type removal without clearing the current draft', async ({page}) => {
+  await open(page);
+  const bodies:any[] = [];
+  await page.route(endpoint, r => { bodies.push(r.request().postDataJSON()); return r.abort(); });
+  await field(page,'UserDefinedID').fill('First attempt');
+  await register(page).click();
+  await expect(page.getByText(/Outcome unknown/)).toBeVisible();
+  await field(page,'UserDefinedID').fill('Second attempt');
+  await register(page).click();
+  await expect(page.getByText(/Previous outcome unknown/)).toBeVisible();
+  await register(page).click();
+  await expect.poll(() => bodies.length).toBe(2);
+  expect(bodies[1].token).not.toBe(bodies[0].token);
+  await page.route(`${endpoint}/types`, r => r.fulfill({json:[incubation]}));
+  await page.getByRole('link',{name:'Database',exact:true}).click();
+  await page.getByRole('link',{name:'Scheduling',exact:true}).click();
+  await page.getByRole('tab',{name:'Experiments',exact:true}).click();
+  await expect(register(page)).toBeDisabled();
+  await choose(page,'Incubation study');
+  await field(page,'UserDefinedID').fill('Another type');
+  await choose(page,'Champions');
+  await expect(field(page,'UserDefinedID')).toHaveValue('Second attempt');
+  await page.route(`${endpoint}/types`, r => r.fulfill({status:503,json:{detail:'Catalogue unavailable'}}));
+  await page.getByRole('button',{name:'Reload types',exact:true}).click();
+  await expect(page.getByText('Catalogue unavailable',{exact:true})).toBeVisible();
+  await expect(field(page,'UserDefinedID')).toHaveValue('Second attempt');
+  await page.route(endpoint, r => {
+    expect(r.request().postDataJSON()).toEqual(bodies[0]);
+    return r.fulfill({json:{status:'succeeded',result:{experiment_id:456,user_defined_id:'First attempt'}}});
+  });
+  await page.getByRole('button',{name:'Recover receipt 1',exact:true}).click();
+  await expect(page.getByText(/Registered. ExperimentID: 456/)).toBeVisible();
+  await expect(field(page,'UserDefinedID')).toHaveValue('Second attempt');
+  await expect(page.getByRole('button',{name:'Recover receipt 1',exact:true})).toBeVisible();
+});
+
+test('a delayed definition reload cannot reset the draft selected while it was loading', async ({page}) => {
+  await open(page,[champions,incubation]);
+  await choose(page,'Champions');
+  await field(page,'UserDefinedID').fill('Old definition draft');
+  await page.route(endpoint,r => r.fulfill({status:409,json:{detail:'Experiment type changed. Reload the page'}}));
+  await register(page).click();
+  await expect(register(page)).toBeDisabled();
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  let started = false;
+  await page.route(`${endpoint}/types`, async r => {
+    started = true; await pending;
+    await r.fulfill({json:[{...champions,sha256:'c'.repeat(64)},incubation]});
+  });
+  await page.getByRole('button',{name:'Reload types',exact:true}).click();
+  await expect.poll(() => started).toBe(true);
+  await choose(page,'Incubation study');
+  await field(page,'UserDefinedID').fill('Keep this draft');
+  const answered = page.waitForResponse(r => r.url().endsWith('/experiments/types'));
+  release(); await answered;
+  await expect(field(page,'UserDefinedID')).toHaveValue('Keep this draft');
+  await choose(page,'Champions');
+  await expect(field(page,'UserDefinedID')).toHaveValue('');
+  await expect(register(page)).toBeEnabled();
 });
 
 test('whole_count disables fractional choices and registration; fixed fields stay at defaults', async ({page}) => {
@@ -131,6 +199,35 @@ test('whole_count disables fractional choices and registration; fixed fields sta
   await field(page,'Fraction to propagate').click();
   for(const name of ['0.25','0.5']) await expect(page.getByRole('option',{name,exact:true})).toBeDisabled();
   await page.getByRole('option',{name:'1',exact:true}).click(); await expect(register(page)).toBeEnabled();
+});
+
+test('a new sign-in cannot see drafts or late registration replies from the previous session', async ({page}) => {
+  await open(page);
+  await field(page,'UserDefinedID').fill('Private draft');
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  let started = false;
+  await page.route(endpoint, async r => {
+    started = true; await pending;
+    await r.fulfill({json:{status:'succeeded',result:{experiment_id:999,user_defined_id:'Private draft'}}});
+  });
+  await register(page).click();
+  await expect.poll(() => started).toBe(true);
+  await page.route('**/api/auth/logout', r => r.fulfill({json:{success:true,data:{}}}));
+  await page.getByRole('button',{name:'Account menu'}).click();
+  await page.getByRole('menuitem',{name:'Log out'}).click();
+  await page.route('**/api/auth/login', r => r.fulfill({json:{success:true,data:{
+    user:{user_id:'next-admin',username:'Next admin',role:'admin'},session:{is_local:true},
+  }}}));
+  await field(page,'Username').fill('Next admin'); await field(page,'Password').fill('fixture');
+  await page.getByRole('button',{name:'Sign in',exact:true}).click();
+  await page.getByRole('link',{name:'Scheduling',exact:true}).click();
+  await page.getByRole('tab',{name:'Experiments',exact:true}).click();
+  await expect(field(page,'UserDefinedID')).toHaveValue('');
+  const answered = page.waitForResponse(r => r.url().endsWith('/api/database/tools/experiments'));
+  release(); await answered;
+  await expect(field(page,'UserDefinedID')).toHaveValue('');
+  await expect(page.getByText(/ExperimentID: 999/)).toHaveCount(0);
 });
 
 test('registration and reuse open only a prepared schedule draft; setup refusals keep the receipt', async ({page}) => {

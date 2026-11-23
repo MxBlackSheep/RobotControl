@@ -3,20 +3,19 @@ import { Box, ButtonBase, Typography } from '@mui/material';
 
 import WellPaintGrid from '../labware/WellPaintGrid';
 
-export type WellKind = string;
 export type PlateAssignment = {value:string; label:string; symbol:string};
-export type PlateLayout = Record<string, WellKind>;
+export type PlateLayout = Record<string, string>;
 const rows = 'ABCDEFGH';
 export const wells = Array.from({length: 96}, (_, i) => `${rows[i % 8]}${Math.floor(i / 8) + 1}`);
 
 export default function ExperimentPlateGrid({assignments, value, onChange, disabled}: {assignments:PlateAssignment[]; value: PlateLayout; onChange: (value: PlateLayout) => void; disabled: boolean}) {
-  const [kind, setKind] = useState<WellKind | null>(assignments[0]?.value ?? '');
+  const [paint, setPaint] = useState<string | null>(assignments[0].value);
   const names: Record<string,string> = Object.fromEntries([...assignments.map(a => [a.value,a.label]), ['', 'Empty']]);
   const tones = ['completed', 'running', 'attention', 'neutral'] as const;
   const tone = (well:string) => tones[assignments.findIndex(a => a.value === value[well]) % tones.length] ?? 'neutral';
   const [position, setPosition] = useState(1);
   return <WellPaintGrid rack="experiment" rows={8} columns={12} active disabled={disabled} activation="single"
-    paint={kind} onPaintChange={setKind} label="Well assignment" choices={[...assignments, {value:'', label:'Empty', symbol:'-'}]}
+    paint={paint} onPaintChange={setPaint} label="Well assignment" choices={[...assignments.map((assignment,index) => ({...assignment, color:`tone.${tones[index % tones.length]}.fg`})), {value:'', label:'Empty', symbol:'-'}]}
     onSelect={setPosition} onApply={(positions, paint) => {
       const next = {...value};
       for (const position of positions) { if (paint) next[wells[position - 1]] = paint; else delete next[wells[position - 1]]; }

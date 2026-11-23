@@ -1,5 +1,6 @@
 import Details from './Details';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, LinearProgress, TextField, Paper, Stack, Typography } from '@mui/material';
 import { api } from '../services/api';
 import { saveBlob, toolsBase } from './ReportInputs';
@@ -14,6 +15,7 @@ type Review = { package: Package; sha256: string; current_version: string | null
 type Change = { version:string; previous_version?:string; at:string; actor?:string; note:string; files:{added:string[];changed:string[];removed:string[]} };
 const message = (error: any) => typeof error?.response?.data?.detail === 'string' ? error.response.data.detail : 'The request could not be completed. Try again.';
 const kindLabel = (kind:string) => ({report:'Report', operation:'Operation', preparation:'Preparation step', experiment:'Experiment type'}[kind] ?? kind);
+const toolSummary = (tools:Package['tools']) => tools.map(tool => `${tool.name} (${kindLabel(tool.kind)})`).join(', ');
 const older = (a: string, b: string) => {
   const left = a.split('.').map(Number), right = b.split('.').map(Number);
   for (let i = 0; i < 3; i++) if (left[i] !== right[i]) return left[i] < right[i];
@@ -28,7 +30,7 @@ export default function DatabasePackages({ active }: { active: boolean }) {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [changeNote, setChangeNote] = useState('');
-  const [history, setHistory] = useState<{name:string;changes:Change[]}>();
+  const [history, setHistory] = useState<{name:string;tools:Package['tools'];changes:Change[]}>();
   const [remove, setRemove] = useState<Package>();
   const [toolEditor, setToolEditor] = useState<string>();
   const [drafts, setDrafts] = useState<{ id: string; name: string; review_reason?: string | null; openable?: boolean }[]>([]);
@@ -111,6 +113,7 @@ export default function DatabasePackages({ active }: { active: boolean }) {
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Typography fontWeight={600}>{pkg.name} · {pkg.version}</Typography>
             <Typography color="text.secondary">{pkg.tools.length===1 ? kindLabel(pkg.tools[0].kind) : pkg.tools.map(tool => `${tool.name} — ${kindLabel(tool.kind)}`).join(', ')}</Typography>
+            {pkg.tools.some(tool => tool.kind === 'experiment') && <Button component={Link} to="/database?section=settings" size="small">Experiments connection</Button>}
             <Details>
               <Typography variant="caption" sx={{ overflowWrap: 'anywhere' }}>{pkg.id}<br />Libraries: {pkg.libraries.join(', ') || 'Standard library'}<br />SHA-256: {pkg.sha256}</Typography>
             </Details>
@@ -130,7 +133,7 @@ export default function DatabasePackages({ active }: { active: boolean }) {
               } catch (e) { setError(message(e)); }
             }}>Connections</Button>}
             <Button disabled={busy} aria-label={`History for ${pkg.name}`} onClick={async()=>{
-              setBusy(true);setError('');try{const r=await api.get(`${toolsBase}/packages/${pkg.id}/history`);setHistory({name:pkg.name,changes:r.data});}
+              setBusy(true);setError('');try{const r=await api.get(`${toolsBase}/packages/${pkg.id}/history`);setHistory({name:pkg.name,tools:pkg.tools,changes:r.data});}
               catch(e){setError(message(e));}finally{setBusy(false);}
             }}>History</Button>
             <Button color="error" disabled={busy || pkg.running > 0} aria-label={`Remove ${pkg.name}`} onClick={() => setRemove(pkg)}>Remove</Button>
@@ -144,7 +147,7 @@ export default function DatabasePackages({ active }: { active: boolean }) {
         {error && <Alert severity="error">{error}</Alert>}
         <Typography variant="h6">{review?.package.name}</Typography>
         <Typography>{review?.current_version ? `${review.current_version} → ${review.package.version}` : `Version ${review?.package.version}`}</Typography>
-        <Typography>{review?.package.tools.map(tool => `${tool.name} (${kindLabel(tool.kind)})`).join(', ')}</Typography>
+        <Typography>{review && toolSummary(review.package.tools)}</Typography>
         <Typography variant="body2" color="text.secondary">Package structure and declared libraries checked. Python code has not been run.</Typography>
         <TextField label="What changed? (optional)" multiline maxRows={4} inputProps={{maxLength:2000}} value={changeNote} onChange={e=>setChangeNote(e.target.value)} disabled={busy} />
         {unchanged && <Alert severity="info">This package is already installed.</Alert>}
@@ -158,6 +161,7 @@ export default function DatabasePackages({ active }: { active: boolean }) {
     </Dialog>
     <Dialog open={!!history} onClose={()=>setHistory(undefined)} fullWidth maxWidth="sm"><DialogTitle>{history?.name} · History</DialogTitle>
       <DialogContent><Stack spacing={2}>
+        {history && <Typography>Installed: {toolSummary(history.tools)}</Typography>}
         {!history?.changes.length && <Typography>No history was recorded for this installation.</Typography>}
         {!!history?.changes[history.changes.length-1]?.previous_version && <Typography variant="body2" color="text.secondary">Earlier changes were not recorded.</Typography>}
         {history?.changes.map((change,index)=><Box key={index} sx={{borderBottom:1,borderColor:'divider',pb:2}}>
@@ -180,7 +184,10 @@ export default function DatabasePackages({ active }: { active: boolean }) {
     <AssignConnections binding={binding} sources={sources} onChange={setBinding} onClose={() => setBinding(undefined)}
       onSaved={() => setBinding(undefined)} onManage={() => setConnectionsOpen(true)} />
     <Dialog open={!!remove} onClose={() => !busy && setRemove(undefined)}>
-      <DialogTitle>Remove {remove?.name}?</DialogTitle><DialogContent>Its tools will no longer be available.</DialogContent>
+      <DialogTitle>Remove {remove?.name}?</DialogTitle><DialogContent>
+        {remove && <Typography>{toolSummary(remove.tools)}</Typography>}
+        Its tools will no longer be available.
+      </DialogContent>
       <DialogActions><Button disabled={busy} onClick={() => setRemove(undefined)}>Cancel</Button><Button color="error" disabled={busy} onClick={removePackage}>Remove package</Button></DialogActions>
     </Dialog>
   </Stack>;
