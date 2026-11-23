@@ -199,7 +199,7 @@ class DatabaseTools:
         return self._operation_transaction(target, operation, lookups=lambda: self.sources.connections(preview['choices']))
 
     def _operation_transaction(self, target, operation, lookups=nullcontext):
-        """One transaction boundary for package operations and built-in registration.
+        """One transaction boundary for package operations and experiment registration.
 
         Lookup connections open before the target, as they always did, so a failure names the connection that failed.
         """
@@ -225,11 +225,20 @@ class DatabaseTools:
             result = dict(status='unknown' if committing else 'error', message=('Commit could not be confirmed. Check the database before repeating. ' if committing else '') + str(exc))
         return result, committing, committed
 
+    def experiment_types(self):
+        with self.catalogue.lock:
+            return sorted(copy.deepcopy(self.catalogue.tools('experiment')),
+                          key=lambda tool: (tool['name'].casefold(), tool['id']))
+
     def register_experiment(self, token, inputs, owner, client_ip):
-        from backend.services.experiments import register_experiment
+        from backend.services.experiments import register_experiment, validate_registration
         token = 'experiments:' + token
-        unknown = f"Check whether experiment {inputs['user_id']} exists before trying again."
-        # The journal is durable before SQL begins, and the token is reused after a lost reply.
+        user_defined_id = inputs['user_defined_id'].strip()
+        unknown = (f"Check UserDefinedID '{user_defined_id}', its experiment row, parameters and any "
+                   'plate layout in the database before trying again.')
+        identity = dict(type_id=inputs['type_id'], package_version=inputs['package_version'],
+                        sha256=inputs['sha256'], definition_verified=False)
+        # Keep the historic token namespace and replay before looking up the definition.
         with self.lock, closing(sqlite3.connect(self.receipts)) as journal, journal:
             saved = journal.execute('SELECT owner, result FROM receipts WHERE id=?', (token,)).fetchone()
             if saved:
@@ -237,28 +246,50 @@ class DatabaseTools:
                     raise PackageError('Registration not found', 404)
                 return json.loads(saved[1])
             journal.execute('INSERT INTO receipts VALUES (?, ?, ?)',
-                            (token, owner, json.dumps(dict(status='unknown', message=unknown))))
+                            (token, owner, json.dumps(dict(status='unknown', message=unknown,
+                                user_defined_id=user_defined_id, **identity))))
             journal.commit()
         committed = False
+        refusal = None
         try:
-            with self.guard(), self.sources.lock:
-                target = self.sources.operation_target('experiments')
-                def operation(conn, _):
-                    experiment_id = register_experiment(conn, **inputs)
-                    return dict(experiment_id=experiment_id, message=f'Experiment {experiment_id} registered.')
-                result, _, committed = self._operation_transaction(target, operation)
+            with self.catalogue.reserve(inputs['type_id'], 'experiment') as (entry, definition):
+                if (entry['manifest']['version'] != inputs['package_version'] or
+                        entry['sha256'] != inputs['sha256']):
+                    raise PackageError('Experiment type changed. Reload the page', 409)
+                identity.update(package_id=entry['manifest']['id'], definition_verified=True)
+                clean = validate_registration(definition, user_defined_id, inputs['note'], inputs['schedule'],
+                                              inputs['parameters'], inputs.get('layout'))
+                # Persist the resolved identity before a transaction can start.
+                with closing(sqlite3.connect(self.receipts)) as journal, journal:
+                    journal.execute('UPDATE receipts SET result=? WHERE id=?',
+                                    (json.dumps(dict(status='unknown', message=unknown,
+                                        user_defined_id=user_defined_id, **identity)), token))
+                with self.guard(), self.sources.lock:
+                    target = self.sources.operation_target('experiments')
+                    def operation(conn, _):
+                        value = register_experiment(conn, **clean, definition=definition)
+                        message = f"Experiment {value['experiment_id']} registered."
+                        if value['reused_existing']:
+                            message += ' Existing note retained.'
+                        return dict(**value, **identity, message=message)
+                    result, _, committed = self._operation_transaction(target, operation)
         except Exception as exc:
             result = dict(status='error', message=str(exc))
+            if isinstance(exc, (PackageError, ValueError, sqlite3.Error)):
+                refusal = exc
         if result['status'] == 'unknown':
             result['message'] = 'Commit could not be confirmed. ' + unknown
+        result.update(user_defined_id=user_defined_id, **identity)
         log_action(actor=owner, action='register_experiment', scope='database', client_ip=client_ip,
-                   success=committed, details=dict(user_id=inputs['user_id'], outcome=result))
+                   success=committed, details=dict(user_defined_id=user_defined_id, **identity, outcome=result))
         try:
             with closing(sqlite3.connect(self.receipts)) as journal, journal:
                 journal.execute('UPDATE receipts SET result=? WHERE id=?', (json.dumps(result, default=str), token))
         except Exception:
             logger.exception('Registration receipt could not be updated')
             result['warning'] = 'Result could not be saved to the operation journal. ' + unknown
+        if refusal is not None:
+            raise refusal
         return result
 
     def public_catalogue(self, kind):
