@@ -60,8 +60,7 @@ class ReportDraft(BaseModel):
                 setattr(self, key, getattr(tool, key))
             self.inputs = [x.model_dump() for x in tool.inputs]
             self.libraries = manifest.libraries
-            minimums = [v for v in (self.min_robotcontrol_version, manifest.min_robotcontrol_version) if v is not None]
-            self.min_robotcontrol_version = max(minimums, key=Version) if minimums else None
+            self.min_robotcontrol_version = manifest.min_robotcontrol_version
             self.handler = self.files[filename]
         return self
 
@@ -385,7 +384,6 @@ class ReportAuthoring:
                 raise PackageError('This operation has custom preview wiring. Download its package to edit it.')
             draft = ReportDraft(name=tool.name, package_id=package_id, tool_id=tool.id, entrypoint=tool.entrypoint,
                 version=f'{major}.{minor}.{patch+1}', libraries=manifest.libraries,
-                min_robotcontrol_version=manifest.min_robotcontrol_version,
                 handler=files[tool.entrypoint.split(':')[0]+'.py'].decode('utf-8-sig'),
                 sources=tool.sources,
                 mappings=self.service.sources.bindings(package_id), inputs=[x.model_dump() for x in tool.inputs], step=2,

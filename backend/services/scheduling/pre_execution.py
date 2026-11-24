@@ -22,8 +22,10 @@ class PreExecutionPipeline:
         if preparation:
             from backend.services.database_tools import get_database_tools
             tools = get_database_tools()
-            state = tools.preparation_state(preparation)
+            state, refusal = tools.preparation_review(preparation)
             if state != 'ready':
+                if refusal:
+                    raise SafetyConflict(refusal)
                 reason = {'missing': 'is no longer installed',
                           'invalid': 'saved with this schedule is unreadable'}.get(state, 'changed after this schedule was saved')
                 raise SafetyConflict(f'The database preparation step {reason}. A local administrator must review and save the schedule.')

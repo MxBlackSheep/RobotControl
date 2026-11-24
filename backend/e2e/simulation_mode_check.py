@@ -415,7 +415,7 @@ def run():
             # Database steps receive the same inputs for simulation; no mode is passed.
             sample_config(root, 1, 0)
             calls = []
-            tools = SimpleNamespace(preparation_state=lambda _: 'ready', prepare_for_run=lambda saved, run: calls.append((saved, run)))
+            tools = SimpleNamespace(preparation_review=lambda _: ('ready', None), prepare_for_run=lambda saved, run: calls.append((saved, run)))
             value = schedule('simulation', preparation=dict(tool_id='fixture', inputs=dict(experiment_id=42)))
             with patch('backend.services.database_tools.get_database_tools', return_value=tools):
                 item = JobExecution('', value.schedule_id, 'pending')

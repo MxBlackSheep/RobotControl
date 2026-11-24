@@ -564,24 +564,32 @@ class DatabaseTools:
                         attached_at=utc_now_as_local_naive().isoformat())
 
     def preparation_state(self, preparation):
-        """ready | needs_review (package or connection changed since saving) | missing |
-        invalid (the schedule's stored step could not be read)."""
+        return self.preparation_review(preparation)[0]
+
+    def preparation_review(self, preparation):
+        """Existing preparation state plus an optional precise compatibility refusal.
+
+        A changed package/connection retains the caller's existing review wording.
+        """
         if not preparation:
-            return None
+            return None, None
         if preparation.get('invalid'):
-            return 'invalid'
+            return 'invalid', None
         with self.catalogue.lock:
             try:
                 _, entry, _ = self.catalogue.resolve(preparation.get('tool_id'), 'preparation')
             except PackageError:
-                return 'missing'
+                return 'missing', None
+            compatibility = self.catalogue.compatibility(entry['manifest'])
+            if not compatibility['compatible']:
+                return 'needs_review', compatibility['compatibility_reason']
             if entry['manifest']['id'] != preparation.get('package_id') or entry['sha256'] != preparation.get('sha256'):
-                return 'needs_review'
+                return 'needs_review', None
         try:
             target = self.sources.operation_target(preparation['package_id'])
         except PackageError:
-            return 'needs_review'
-        return 'ready' if self._same_target(preparation, target) else 'needs_review'
+            return 'needs_review', None
+        return ('ready' if self._same_target(preparation, target) else 'needs_review'), None
 
     @staticmethod
     def _same_target(preparation, target):

@@ -50,6 +50,7 @@ export interface ScheduledExperiment {
   prerequisites: string[];
   preparation?: PinnedPreparation | null;
   preparation_state?: PreparationState;
+  preparation_review_reason?: string | null;
   notification_contacts: string[];
   recovery_required: boolean;
   recovery_note?: string | null;

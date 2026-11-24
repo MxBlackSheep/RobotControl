@@ -27,9 +27,10 @@ export function preparationSummary(schedule: Pick<ScheduledExperiment, 'preparat
  * the method starts. `value` is undefined until the administrator changes it, so other edits
  * never send it and the server keeps the pinned step. Only a local administrator can edit.
  */
-export default function PreparationStepField({ saved, state, value, onChange, editable }: {
+export default function PreparationStepField({ saved, state, reviewReason, value, onChange, editable }: {
   saved?: PinnedPreparation | null;
   state?: PreparationState;
+  reviewReason?: string | null;
   value: PreparationStep | null | undefined;
   onChange: (value: PreparationStep | null) => void;
   editable: boolean;
@@ -56,6 +57,7 @@ export default function PreparationStepField({ saved, state, value, onChange, ed
         {chip}
         <Typography variant="caption" color="text.secondary">Only a local administrator can change this step.</Typography>
       </Stack>
+      {reviewReason && <Alert severity="warning">{reviewReason}</Alert>}
     </Stack>;
   }
 
@@ -79,7 +81,7 @@ export default function PreparationStepField({ saved, state, value, onChange, ed
     </Stack>
     {tools?.length === 0 && <Box><ManagePackagesLink /></Box>}
     {state === 'needs_review' && value === undefined && (
-      <Alert severity="warning">The package or its connection changed after this step was saved. Save the schedule to use the current version; until then the run does not start.</Alert>
+      <Alert severity="warning">{reviewReason || 'The package or its connection changed after this step was saved. Save the schedule to use the current version; until then the run does not start.'}</Alert>
     )}
     {tool && current && (
       <>

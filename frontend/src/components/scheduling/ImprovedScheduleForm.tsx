@@ -634,6 +634,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
                 <PreparationStepField
                   saved={schedule?.preparation ?? null}
                   state={schedule?.preparation_state}
+                  reviewReason={schedule?.preparation_review_reason}
                   value={formData.preparation}
                   editable={canEditPreparation}
                   onChange={(preparation) => setFormData(prev => ({ ...prev, preparation }))}

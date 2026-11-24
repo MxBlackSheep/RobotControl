@@ -125,7 +125,7 @@ class Fixture:
             self.prepared.append(run['execution_id'])
             self.after_prepare()
         stack.enter_context(patch.object(database_tools, 'get_database_tools', return_value=SimpleNamespace(
-            preparation_state=lambda _: 'ready', prepare_for_run=prepare)))
+            preparation_review=lambda _: ('ready', None), prepare_for_run=prepare)))
 
         def popen(*args, **kwargs):
             self.launched.append(args[0])

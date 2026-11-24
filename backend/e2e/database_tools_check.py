@@ -148,20 +148,37 @@ def minimum_version_checks(folder, service):
                 worker(channel, str(catalogue.root), restarted.index['version-check'], {}, *args)
             assert messages[0]['error'] == reason
 
+    # Replace Python lowers or clears a draft's minimum; mixed package keeps the installed package's minimum.
+    authoring = ReportAuthoring(folder, SimpleNamespace(catalogue=catalogue, sources=service.sources))
+    def python_source(name, minimum):
+        definition = dict(name=name, kind='report')
+        if minimum is not None:
+            definition['min_robotcontrol_version'] = minimum
+        return f'TOOL = {definition!r}\ndef run(context, inputs):\n    return "report.xlsx"\n'
+
+    record = authoring.import_files({'handler.py': python_source('Draft minimum', '1.0.0')}, 'admin')
+    for minimum in ('1.0.0b1', None):
+        record = authoring.import_files({'handler.py': python_source('Draft minimum', minimum)}, 'admin',
+                                       record['id'], record['revision'], mode='python')
+        draft = authoring.draft(record['id'], 'admin')
+        assert draft.min_robotcontrol_version == minimum
+        assert inspect_archive(authoring.archive(draft))[0].min_robotcontrol_version == minimum
+        with patch.object(version, '__version__', '1.0.0b1'):
+            authoring.trial(record['id'], 'admin')
+
     # Editing one tool must not lower the requirement of the other tool in its package.
     mixed = {**manifest, 'min_robotcontrol_version': '1.0.0b1',
              'tools': [manifest['tools'][0], {**manifest['tools'][0], 'id': 'second-report'}]}
     with patch.object(version, '__version__', '1.0.0b2'):
         catalogue.install(package_zip(source, mixed))
-        authoring = ReportAuthoring(folder, SimpleNamespace(catalogue=catalogue, sources=service.sources))
         record = authoring.edit_installed('version-check', 'admin')
         draft = authoring.draft(record['id'], 'admin')
         assert draft.min_robotcontrol_version == '1.0.0b1'
-        for declared, expected in (('1.0.0a1', '1.0.0b1'), ('1.0.0', '1.0.0')):
-            draft.files[draft.definition_file] = (
-                f'TOOL = {{"name": "Version check", "kind": "report", "min_robotcontrol_version": "{declared}"}}\n'
-                'def run(context, inputs):\n    return "report.xlsx"\n')
-            draft.min_robotcontrol_version = declared
+        for declared, expected in (('1.0.0a1', '1.0.0b1'), (None, '1.0.0b1'), ('1.0.0', '1.0.0')):
+            record = authoring.import_files({'handler.py': python_source('Version check', declared)}, 'admin',
+                                           record['id'], record['revision'], mode='python')
+            draft = authoring.draft(record['id'], 'admin')
+            assert draft.min_robotcontrol_version == declared
             content = authoring.archive(draft, record['id'], 'admin')
             combined, _ = inspect_archive(content)
             assert combined.min_robotcontrol_version == expected and len(combined.tools) == 2
@@ -306,6 +323,7 @@ def run(evidence=ROOT/'test-output/database-verification'):
                 checks.append('Local administrator checks, forwarded-header denial (remote and tunnelled loopback) and retired SQL route: passed')
                 experiment_package_checks(client, service, Path(temp)/'experiment-package')
                 minimum_version_checks(Path(temp)/'minimum-version', service)
+                checks.append("Replace Python lowers or clears a draft's minimum; mixed package keeps the installed package's minimum: passed")
                 checks.extend(['JSON helper survives build, install and export: passed',
                                'Compatible prerelease minimum is accepted; newer minimum refuses without replacing the installed package: passed',
                                'An installed package whose minimum is newer is listed blocked and cannot be reserved; others still load: passed'])

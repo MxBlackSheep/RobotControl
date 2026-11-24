@@ -91,14 +91,14 @@ def _schedule_payload(schedule: ScheduledExperiment) -> Dict[str, Any]:
     if schedule.preparation:
         try:
             from backend.services.database_tools import get_database_tools
-            payload["preparation_state"] = get_database_tools().preparation_state(schedule.preparation)
+            payload["preparation_state"], payload["preparation_review_reason"] = get_database_tools().preparation_review(schedule.preparation)
         except Exception:
             logger.exception("Could not check the preparation step of %s", schedule.schedule_id)
             payload["preparation_state"] = "unknown"
     return payload
 
 
-def _requested_preparation(schedule_data: Dict[str, Any], current_user: dict, existing: Optional[Dict[str, Any]] = None):
+def _requested_preparation(schedule_data: Dict[str, Any], current_user: dict, existing: Optional[Dict[str, Any]] = None, *, is_active=True):
     """The schedule's database preparation step after this request.
 
     Absent from the request: unchanged. Attaching, changing or removing a step schedules
@@ -106,20 +106,30 @@ def _requested_preparation(schedule_data: Dict[str, Any], current_user: dict, ex
     require a local session). The server pins the package hash and connection; the client
     sends the tool, its inputs and any expected registration origin.
     """
-    if "preparation" not in schedule_data:
-        return existing
-    requested = schedule_data.get("preparation")
+    requested = schedule_data.get("preparation", existing)
+    unchanged = bool(existing) and ("preparation" not in schedule_data or (
+        isinstance(requested, dict) and requested.get("tool_id") == existing.get("tool_id")
+        and requested.get("inputs", {}) == existing.get("inputs", {})))
     is_admin = current_user.get("role") == "admin"
     from backend.services.database_tools import get_database_tools
     tools = get_database_tools()
+    state = None
+    if unchanged:
+        state, reason = tools.preparation_review(existing)
+        if reason:
+            if is_active:
+                raise HTTPException(status_code=409, detail=reason)
+            if 'expected_origin' not in requested:
+                return existing
+    if "preparation" not in schedule_data:
+        return existing
     if requested is None:
         if existing is not None and not is_admin:
             raise HTTPException(status_code=403, detail="Only a local administrator can remove a database preparation step")
         return None
     if not isinstance(requested, dict) or not isinstance(requested.get("tool_id"), str) or not isinstance(requested.get("inputs", {}), dict):
         raise HTTPException(status_code=400, detail="preparation must be {tool_id, inputs}")
-    unchanged = bool(existing) and requested["tool_id"] == existing.get("tool_id") and requested.get("inputs", {}) == existing.get("inputs", {})
-    if unchanged and "expected_origin" not in requested and (not is_admin or tools.preparation_state(existing) == "ready"):
+    if unchanged and "expected_origin" not in requested and (not is_admin or state == "ready"):
         return existing
     if not is_admin:
         raise HTTPException(status_code=403, detail="Only a local administrator can attach or change a database preparation step")
@@ -956,7 +966,8 @@ def update_schedule(
             fields['experiment_path'] = 'pyhsl:' + str(fields.get('protocol_id', ''))
         elif fields.get('runner') == 'venus':
             fields['parameters'] = {}
-        fields['preparation'] = _requested_preparation(update_data, current_user, base_schedule.preparation)
+        fields['preparation'] = _requested_preparation(update_data, current_user, base_schedule.preparation,
+                                                      is_active=fields['is_active'])
         if 'preparation' in update_data and current_user.get('role') == 'admin':
             fields['prerequisites'] = []
         updated_schedule = _check_schedule_request(fields, 'Failed to update schedule')

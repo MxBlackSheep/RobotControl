@@ -1,6 +1,7 @@
 ## 2026-11-24 Package compatibility and recovery
 
-- Package builds retain JSON helpers. Optional minimum RobotControl versions refuse incompatible installation and execution while keeping installed packages visible; authoring retains the package minimum.
+- Package builds retain JSON helpers. Optional minimum RobotControl versions refuse incompatible installation and execution while keeping installed packages visible. Incompatible schedule preparations use Needs review with the required/current version reason and cannot be armed; disabling or removing the step remains possible.
+- Replace Python derives the draft minimum from its current source, allowing it to be lowered or cleared. Combining an edited tool with its installed package retains the installed package's minimum.
 - Manage packages shows Needs newer RobotControl, explains the required version and disables installation. Details and update review explain the limits of reinstalling an older ZIP.
 
 ## 2026-11-24 Version 1.0.0b1
