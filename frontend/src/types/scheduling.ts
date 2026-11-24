@@ -16,8 +16,8 @@ export interface PinnedPreparation extends PreparationStep {
   attached_at?: string;
 }
 
-/** Derived on read: ready, or the package/connection changed (needs_review), or it is gone. */
-export type PreparationState = 'ready' | 'needs_review' | 'missing' | 'invalid' | 'unknown';
+/** Derived on read from package usability, the saved package/connection pin and availability. */
+export type PreparationState = 'ready' | 'needs_review' | 'needs_newer' | 'missing' | 'invalid' | 'unknown';
 export type ScheduleMode = 'real' | 'simulation' | 'test';
 /** Test exists only for PyHSL protocols that list it. */
 export const SCHEDULE_MODE_LABELS: Record<ScheduleMode, string> = { simulation: 'Simulation', test: 'Test', real: 'Real' };

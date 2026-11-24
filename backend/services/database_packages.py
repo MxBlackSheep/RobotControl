@@ -592,15 +592,21 @@ class PackageCatalogue:
     def compatibility(manifest):
         minimum = Manifest.model_validate(manifest).min_robotcontrol_version
         current = version.__version__
-        compatible = minimum is None or Version(current) >= Version(minimum)
-        return dict(compatible=compatible, current_robotcontrol_version=current,
-                    compatibility_reason='' if compatible else f'Requires RobotControl {minimum} or later. This computer has {current}.')
+        if minimum is None:
+            state = 'needs_review'
+            reason = 'Needs review: this package does not declare its RobotControl version. Import a copy that declares min_robotcontrol_version.'
+        elif Version(current) < Version(minimum):
+            state = 'needs_newer'
+            reason = f'Requires RobotControl {minimum} or later. This computer has {current}.'
+        else:
+            state, reason = 'ready', ''
+        return dict(state=state, reason=reason, current_robotcontrol_version=current)
 
     @classmethod
     def require_compatible(cls, manifest):
         state = cls.compatibility(manifest)
-        if not state['compatible']:
-            raise PackageError(state['compatibility_reason'], 409)
+        if state['state'] != 'ready':
+            raise PackageError(state['reason'], 409)
 
     def tools(self, kind):
         return [dict(tool, package_id=package["id"], package_version=package["version"],
@@ -709,7 +715,9 @@ class PackageCatalogue:
 
     def install(self, content, expected_current=None, expected_package=None, *, actor=None, note='', draft=None):
         manifest, payloads = inspect_archive(content)
-        self.require_compatible(manifest.model_dump())
+        state = self.compatibility(manifest.model_dump())
+        if state['state'] == 'needs_newer':
+            raise PackageError(state['reason'], 409)
         directory = self.root / uuid.uuid4().hex
         activated = False
         try:

@@ -12,7 +12,7 @@ import ReviewReason from './ReviewReason';
 import ReportConnections, { AssignConnections, PackageBinding, Source } from './ReportConnections';
 
 type Package = { id: string; name: string; version: string; sha256: string; running: number;
-  min_robotcontrol_version?: string; compatible?: boolean; compatibility_reason?: string; current_robotcontrol_version?: string;
+  min_robotcontrol_version?: string; state: 'ready' | 'needs_review' | 'needs_newer'; reason: string; current_robotcontrol_version?: string;
   libraries: string[]; tools: { id: string; name: string; kind: string }[] };
 type Review = { package: Package; sha256: string; current_version: string | null; current_sha256: string; running: number; changelog: string };
 type Change = { version:string; previous_version?:string; at:string; actor?:string; note:string; files:{added:string[];changed:string[];removed:string[]} };
@@ -23,6 +23,11 @@ const hasPython = (pkg: Package) => pkg.tools.some(tool => tool.kind !== 'experi
 const reviewScope = (pkg: Package) => hasPython(pkg)
   ? 'Package structure and declared libraries checked. Python code has not been run.'
   : 'Package structure checked. No Python code.';
+const packageState: Record<Package['state'], { tone: 'completed' | 'attention'; label: string }> = {
+  needs_newer: { tone: 'attention', label: 'Needs newer RobotControl' },
+  needs_review: { tone: 'attention', label: 'Needs review' },
+  ready: { tone: 'completed', label: 'Installed' },
+};
 const recoveryNote = 'Keep the previous ZIP before updating. Reinstalling it does not undo database changes.';
 const older = (a: string, b: string) => {
   const left = a.split('.').map(Number), right = b.split('.').map(Number);
@@ -121,7 +126,7 @@ export default function DatabasePackages({ active }: { active: boolean }) {
             {group.map(pkg => <ListItemButton key={pkg.id} aria-label={`Details for ${pkg.name}`} aria-current={selected === pkg.id ? 'true' : undefined}
               selected={selected === pkg.id} onClick={() => { setSelected(pkg.id); setDetailOpen(true); }} sx={{ display: 'block', p: 0, transition: 'none',
                 '&.Mui-selected, &.Mui-selected:hover': { bgcolor: 'action.selected', boxShadow: theme => `inset 3px 0 0 ${theme.palette.primary.main}` } }}>
-              <ListRow columns="minmax(0, 1fr) auto auto"><Typography title={pkg.name} noWrap>{pkg.name}</Typography><span>{pkg.version}</span><StatusChip tone={pkg.compatible === false ? 'attention' : 'completed'} label={pkg.compatible === false ? 'Needs newer RobotControl' : 'Installed'} /></ListRow>
+              <ListRow columns="minmax(0, 1fr) auto auto"><Typography title={pkg.name} noWrap>{pkg.name}</Typography><span>{pkg.version}</span><StatusChip {...packageState[pkg.state]} /></ListRow>
             </ListItemButton>)}
           </Box>;
         })}
@@ -129,9 +134,9 @@ export default function DatabasePackages({ active }: { active: boolean }) {
       {pkg ? <Panel title="Details" fill sx={{ height: '100%' }} bodySx={{ overflow: 'auto' }}>
         <Stack spacing={2} alignItems="flex-start">
           <DetailTitle>{pkg.name}</DetailTitle>
-          <StatusChip tone={pkg.compatible === false ? 'attention' : 'completed'} label={pkg.compatible === false ? 'Needs newer RobotControl' : 'Installed'} />
-          {pkg.compatibility_reason && <Alert severity="warning">{pkg.compatibility_reason}</Alert>}
-          {pkg.compatible !== false && <Typography variant="body2" color="text.secondary">{pkg.running > 0 ? 'In use. Update, Connections and Remove wait until it finishes.' : 'Available to use.'}</Typography>}
+          <StatusChip {...packageState[pkg.state]} />
+          {pkg.reason && <Alert severity="warning">{pkg.reason}</Alert>}
+          {pkg.state === 'ready' && <Typography variant="body2" color="text.secondary">{pkg.running > 0 ? 'In use. Update, Connections and Remove wait until it finishes.' : 'Available to use.'}</Typography>}
           <Button id="package-more" aria-haspopup="menu" aria-controls={menuAnchor ? 'package-actions' : undefined}
             aria-expanded={!!menuAnchor} onClick={event => setMenuAnchor(event.currentTarget)}>More</Button>
           <Menu id="package-actions" anchorEl={menuAnchor} open={!!menuAnchor} onClose={() => setMenuAnchor(null)} MenuListProps={{ 'aria-labelledby': 'package-more' }}>
@@ -184,7 +189,9 @@ export default function DatabasePackages({ active }: { active: boolean }) {
         <Typography>{review?.current_version ? `${review.current_version} → ${review.package.version}` : `Version ${review?.package.version}`}</Typography>
         <Typography>{review && toolSummary(review.package.tools)}</Typography>
         <Typography variant="body2" color="text.secondary">{review && reviewScope(review.package)}</Typography>
-        {review?.package.compatibility_reason && <Alert severity="warning">{review.package.compatibility_reason}</Alert>}
+        {review?.package.reason && <Alert severity="warning">{review.package.state === 'needs_review'
+          ? 'This package will install as Needs review. It cannot run until you import a copy that declares min_robotcontrol_version.'
+          : review.package.reason}</Alert>}
         {review?.current_version && <Typography variant="body2">{recoveryNote}</Typography>}
         <TextField label="What changed? (optional)" multiline maxRows={4} inputProps={{maxLength:2000}} value={changeNote} onChange={e=>setChangeNote(e.target.value)} disabled={busy} />
         {unchanged && <Alert severity="info">This package is already installed.</Alert>}
@@ -193,7 +200,7 @@ export default function DatabasePackages({ active }: { active: boolean }) {
         {!!review?.running && <Alert severity="warning">This package is in use. Wait until it finishes, then review the update again.</Alert>}
       </Stack></DialogContent>
       <DialogActions><Button disabled={busy} onClick={() => { setReview(undefined); setFile(undefined); }}>Cancel</Button>
-        <Button variant="contained" disabled={busy || unchanged || !!review?.running || review?.package.compatible === false} onClick={install}>{action}</Button>
+        <Button variant="contained" disabled={busy || unchanged || !!review?.running || review?.package.state === 'needs_newer'} onClick={install}>{action}</Button>
       </DialogActions>
     </Dialog>
     <Dialog open={!!history} onClose={()=>setHistory(undefined)} fullWidth maxWidth="sm"><DialogTitle>{history?.name} · History</DialogTitle>

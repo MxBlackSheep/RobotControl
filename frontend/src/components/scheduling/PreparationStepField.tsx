@@ -10,6 +10,7 @@ type PreparationTool = { id: string; name: string; package_version: string; inpu
 
 export const stateChip: Record<PreparationState, { tone: 'completed' | 'attention' | 'fault' | 'neutral'; label: string }> = {
   ready: { tone: 'completed', label: 'Ready' },
+  needs_newer: { tone: 'attention', label: 'Needs newer RobotControl' },
   needs_review: { tone: 'attention', label: 'Needs review' },
   missing: { tone: 'fault', label: 'Not installed' },
   invalid: { tone: 'fault', label: 'Unreadable' },
@@ -80,7 +81,7 @@ export default function PreparationStepField({ saved, state, reviewReason, value
       {chip && <Box sx={{ flexShrink: 0 }}>{chip}</Box>}
     </Stack>
     {tools?.length === 0 && <Box><ManagePackagesLink /></Box>}
-    {state === 'needs_review' && value === undefined && (
+    {(state === 'needs_review' || state === 'needs_newer') && value === undefined && (
       <Alert severity="warning">{reviewReason || 'The package or its connection changed after this step was saved. Save the schedule to use the current version; until then the run does not start.'}</Alert>
     )}
     {tool && current && (

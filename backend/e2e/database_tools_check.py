@@ -31,6 +31,9 @@ Failure cases:
 - JSON helpers survive build/install/export; prerelease minimums compare as versions,
   incompatible updates write nothing, and incompatible installed packages remain visible
   after restart but refuse reservations and worker entry without blocking other packages.
+- Undeclared packages install as Needs review and refuse new work across report,
+  operation, lookup, registration, scheduling and worker entries; declared copies
+  restore use while sibling packages remain blocked. Historic receipts still replay.
 - Version 3 experiment-only archives need no Python; malformed definitions, code
   fields, invalid defaults/bounds/choices/layout rules and the reserved binding ID
   fail without changing the installed package. Legacy version 1/2 tools retain
@@ -76,7 +79,7 @@ def minimum_version_checks(folder, service):
     folder.mkdir()
     source = folder / 'source'
     source.mkdir()
-    manifest = dict(contract_version=2, id='version-check', name='Version check', version='1.0.0',
+    manifest = dict(min_robotcontrol_version='1.0.0b1', contract_version=2, id='version-check', name='Version check', version='1.0.0',
                     tools=[dict(id='version-check', name='Version check', kind='report', entrypoint='handler:run')])
     (source/'manifest.json').write_text(json.dumps(manifest), encoding='utf-8')
     (source/'handler.py').write_text('def run(context, inputs):\n    return "report.xlsx"\n', encoding='utf-8')
@@ -102,8 +105,8 @@ def minimum_version_checks(folder, service):
         newer = package_zip(source, {'min_robotcontrol_version': '1.0.0'})
         inspected = catalogue.inspect(newer)
         reason = 'Requires RobotControl 1.0.0 or later. This computer has 1.0.0b2.'
-        assert inspected['package']['compatibility_reason'] == reason
-        assert inspected['package']['compatible'] is False
+        assert inspected['package']['reason'] == reason
+        assert inspected['package']['state'] == 'needs_newer'
         try:
             catalogue.install(newer)
             raise AssertionError('Incompatible update installed')
@@ -128,7 +131,7 @@ def minimum_version_checks(folder, service):
     with patch.object(version, '__version__', '1.0.0b2'):
         restarted = PackageCatalogue(catalogue.root, defaults)
         assert len(restarted.packages()) == 2
-        assert next(p for p in restarted.packages() if p['id'] == 'version-check')['compatible'] is False
+        assert next(p for p in restarted.packages() if p['id'] == 'version-check')['state'] == 'needs_newer'
         exported, _ = restarted.export('version-check')
         assert inspect_archive(exported)[0].min_robotcontrol_version == '1.0.0'
         (source/'manifest.json').write_text(json.dumps({**manifest, 'min_robotcontrol_version': '1.0.0'}), encoding='utf-8')
@@ -162,7 +165,7 @@ def minimum_version_checks(folder, service):
                                        record['id'], record['revision'], mode='python')
         draft = authoring.draft(record['id'], 'admin')
         assert draft.min_robotcontrol_version == minimum
-        assert inspect_archive(authoring.archive(draft))[0].min_robotcontrol_version == minimum
+        assert inspect_archive(authoring.archive(draft))[0].min_robotcontrol_version == (minimum or version.__version__)
         with patch.object(version, '__version__', '1.0.0b1'):
             authoring.trial(record['id'], 'admin')
 
@@ -174,7 +177,7 @@ def minimum_version_checks(folder, service):
         record = authoring.edit_installed('version-check', 'admin')
         draft = authoring.draft(record['id'], 'admin')
         assert draft.min_robotcontrol_version == '1.0.0b1'
-        for declared, expected in (('1.0.0a1', '1.0.0b1'), (None, '1.0.0b1'), ('1.0.0', '1.0.0')):
+        for declared, expected in (('1.0.0a1', '1.0.0b2'), (None, '1.0.0b2'), ('1.0.0', '1.0.0')):
             record = authoring.import_files({'handler.py': python_source('Version check', declared)}, 'admin',
                                            record['id'], record['revision'], mode='python')
             draft = authoring.draft(record['id'], 'admin')
@@ -184,13 +187,99 @@ def minimum_version_checks(folder, service):
             assert combined.min_robotcontrol_version == expected and len(combined.tools) == 2
 
 
+def undeclared_package_checks(client, service):
+    """An undeclared package installs, is listed Needs review and refuses report,
+    operation preview and execute, lookup, registration, schedule pin, arming and
+    worker entry, while a declared sibling still runs. Registration is also checked
+    through HTTP in experiment_registration_check; both roles are checked for arming.
+    """
+    from backend.services.database_packages import PackageError
+    from backend.services import report_worker
+    from backend.api.scheduling import _requested_preparation
+    packages = ('culture-history', 'delete-experiment', 'evoyeast-experiment', 'champions-experiment')
+    originals = {key: service.catalogue.export(key)[0] for key in packages}
+    preview = service.preview('delete-experiment', {'experiment_id': 43}, 'admin')
+    try:
+        for key in packages:
+            response = client.post(BASE + '/packages', files={'file': (
+                'undeclared.zip', package_zip(ROOT / 'database_packages' / key,
+                                             {'min_robotcontrol_version': None}), 'application/zip')})
+            assert response.status_code == 200, response.text
+        listed = {p['id']: p for p in client.get(BASE + '/packages').json()}
+        reason = listed['culture-history']['reason']
+        assert 'Import a copy that declares min_robotcontrol_version' in reason
+        assert all(listed[key]['state'] == 'needs_review' for key in packages)
+        calls = [
+            lambda: service.start_report('culture-history', {'experiment_id': 42}, 'admin'),
+            lambda: service.preview('delete-experiment', {'experiment_id': 43}, 'admin'),
+            lambda: service.choices('culture-history', 'experiment_id', {}, '', 1),
+            lambda: service.pin_preparation('evoyeast-experiment', {'experiment_id': 42}, 'admin'),
+            lambda: service.experiment_schedule_draft(42, '', 'admin'),
+        ]
+        for call in calls:
+            try:
+                call()
+                raise AssertionError('Undeclared package started work')
+            except PackageError as exc:
+                assert exc.status == 409 and str(exc) == reason
+        definition = listed['champions-experiment']
+        registration = dict(type_id='champions-experiment', package_version=definition['version'],
+                            sha256=definition['sha256'], user_defined_id='undeclared', note='',
+                            schedule=0, parameters={}, layout=None)
+        try:
+            service.register_experiment('undeclared', registration, 'admin', None)
+            raise AssertionError('Undeclared experiment registered')
+        except PackageError as exc:
+            assert exc.status == 409 and str(exc) == reason
+        result = service.execute(preview['token'], '43', 'admin', None)
+        assert result['status'] == 'error' and result['message'] == reason
+        pinned = dict(tool_id='evoyeast-experiment', inputs={'experiment_id': 42})
+        assert service.preparation_review(pinned) == ('needs_review', reason)
+        with patch('backend.services.database_tools.get_database_tools', return_value=service):
+            for role in ('admin', 'user'):
+                for change in ({}, {'preparation': pinned}):
+                    try:
+                        _requested_preparation(change, {'role': role}, pinned)
+                        raise AssertionError('Undeclared preparation armed')
+                    except HTTPException as exc:
+                        assert exc.status_code == 409 and exc.detail == reason
+                    assert _requested_preparation(change, {'role': role}, pinned, is_active=False) == pinned
+        for worker, key, args in (
+            (report_worker.run_report, 'culture-history', ({}, {}, str(service.temp))),
+            (report_worker.run_preparation, 'evoyeast-experiment', ({}, {}, {}, {})),
+        ):
+            messages = []
+            channel = SimpleNamespace(send=messages.append, close=lambda: None)
+            with patch.object(report_worker, '_runtime', side_effect=AssertionError('Runtime must not open')):
+                worker(channel, str(service.catalogue.root), service.catalogue.index[key], {}, *args)
+            assert messages[0]['error'] == reason
+        from backend.services.database_tools import PreparationFailed
+        try:
+            service.prepare_for_run(pinned, {})
+            raise AssertionError('Undeclared preparation executed')
+        except PreparationFailed as exc:
+            assert reason in str(exc)
+        # Reimporting a declared copy restores this report while its siblings stay blocked.
+        service.catalogue.install(originals['culture-history'])
+        job = service.start_report('culture-history', {'experiment_id': 42}, 'admin')
+        deadline = time.monotonic() + 30
+        while job['status'] in {'pending', 'running'} and time.monotonic() < deadline:
+            time.sleep(.1)
+            job = service.report(job['id'], 'admin')
+        assert job['status'] == 'ready', job
+        assert next(p for p in service.catalogue.packages() if p['id'] == 'delete-experiment')['state'] == 'needs_review'
+    finally:
+        for content in originals.values():
+            service.catalogue.install(content)
+
+
 def experiment_package_checks(client, service, folder):
     """Exercise declarative definitions through the same archive and HTTP catalogue boundary."""
     folder.mkdir()
     parameter = dict(name='DurationHours', label='Duration', type='number', default=24,
                      min=1, max=48, allowed=[1, 24, 48], group='main', fixed=True)
     tool = dict(id='incubation-study', name='Incubation study', kind='experiment', parameters=[parameter])
-    manifest = dict(contract_version=3, id='incubation-study', name='Incubation study',
+    manifest = dict(min_robotcontrol_version='1.0.0b1', contract_version=3, id='incubation-study', name='Incubation study',
                     version='1.0.0', libraries=[], tools=[tool])
 
     def archive(value, extras=None):
@@ -252,7 +341,7 @@ def experiment_package_checks(client, service, folder):
     assert client.delete(BASE+'/packages/incubation-study').status_code == 200
     # Version 1 reports normalize their primary source exactly as before. Version 2
     # report/operation execution is exercised by the rest of this check.
-    legacy = dict(contract_version=1, id='legacy-report', name='Legacy report', version='1.0.0',
+    legacy = dict(min_robotcontrol_version='1.0.0b1', contract_version=1, id='legacy-report', name='Legacy report', version='1.0.0',
                   tools=[dict(id='legacy-report', name='Legacy report', kind='report', entrypoint='handler:run')])
     assert upload(legacy, {'handler.py': 'def run(context, inputs):\n    return {}\n'}).status_code == 200
     resolved = service.catalogue.resolve('legacy-report', 'report')[2]
@@ -323,6 +412,8 @@ def run(evidence=ROOT/'test-output/database-verification'):
                 checks.append('Local administrator checks, forwarded-header denial (remote and tunnelled loopback) and retired SQL route: passed')
                 experiment_package_checks(client, service, Path(temp)/'experiment-package')
                 minimum_version_checks(Path(temp)/'minimum-version', service)
+                undeclared_package_checks(client, service)
+                checks.append('Undeclared packages install as Needs review and refuse new work; declared sibling remains usable')
                 checks.append("Replace Python lowers or clears a draft's minimum; mixed package keeps the installed package's minimum: passed")
                 checks.extend(['JSON helper survives build, install and export: passed',
                                'Compatible prerelease minimum is accepted; newer minimum refuses without replacing the installed package: passed',
@@ -455,6 +546,11 @@ def run(evidence=ROOT/'test-output/database-verification'):
                 assert launched.is_set() and results[0].json()['status']=='succeeded'
                 checks.append('Real scheduler guard blocks recovery/storage faults and serializes launch with delete: passed')
                 assert execute(token).json()['status']=='succeeded'
+                original = service.catalogue.export('delete-experiment')[0]
+                service.catalogue.install(package_zip(ROOT/'database_packages/delete-experiment', {'min_robotcontrol_version': None}))
+                assert execute(token).json() == results[0].json()
+                service.catalogue.install(original)
+                checks.append('A receipt for an operation made earlier still replays while its package is Needs review')
                 assert database.deletes==1
                 checks.append('Typed confirmation, idle block, rollback and duplicate submission: passed')
                 response=client.post(BASE+'/reports/culture-history', json={'inputs':{'experiment_id':42}})

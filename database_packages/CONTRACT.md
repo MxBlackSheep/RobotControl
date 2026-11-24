@@ -244,3 +244,39 @@ the package never changes global pandas options.
 Use the database section of `frontend/e2e/README.md`. Those checks use disposable
 fixtures; verify the actual ODBC driver, schema, `dbo.DeleteExperiment` transaction
 behavior and report output on the VM.
+
+## RobotControl version declaration
+
+Every runnable package declares `"min_robotcontrol_version": "1.0.0b1"` in
+`manifest.json` (or the later version it requires). For example:
+
+```json
+{
+  "contract_version": 2,
+  "min_robotcontrol_version": "1.0.0b1",
+  "id": "my-report",
+  "name": "My report",
+  "version": "1.0.0",
+  "libraries": [],
+  "tools": [{"id": "my-report", "name": "My report", "kind": "report", "entrypoint": "handler:run", "sources": []}]
+}
+```
+
+The minimum is a canonical PEP 440 version with three release components; beta,
+release-candidate, development and postrelease suffixes are supported. Ranges,
+epochs, local suffixes and V prefixes are not. RobotControl compares versions,
+including prereleases, against `backend.version.__version__`.
+
+A declared, satisfied minimum permits use subject to the existing permissions,
+connections and robot gates. An undeclared ZIP installs as **Needs review** and
+cannot run; import or republish a copy that declares the field to clear it. A
+newer requirement is **Needs newer RobotControl** and installation is refused
+with 409. An already installed newer package stays visible but blocked.
+There is no approval button, approval record or automatic starter exception.
+
+App publication and private authoring trials generate a minimum of the running
+RobotControl version, preserving any higher source declaration or installed-package
+minimum. Replacing Python updates the draft requirement from its current source.
+The CLI create command writes the running version; build and export preserve the
+manifest declaration and validate syntax without requiring that minimum locally.
+Receipts and monitoring of already-dispatched runs remain recoverable.

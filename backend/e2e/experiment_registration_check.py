@@ -62,7 +62,7 @@ def manifest():
 
 
 def incubation_manifest():
-    return dict(contract_version=3, id='incubation-check', name='Incubation check', version='1.0.0', libraries=[], tools=[
+    return dict(min_robotcontrol_version='1.0.0b1', contract_version=3, id='incubation-check', name='Incubation check', version='1.0.0', libraries=[], tools=[
         dict(id='incubation-check', name='Incubation', kind='experiment', parameters=[
             dict(name='DurationHours', label='Duration', type='number', default=24, min=1, max=48, group='main'),
             dict(name='Condition', label='Condition', type='choice', default='Ambient', allowed=['Ambient', 'Warm'], group='main')])])
@@ -180,6 +180,12 @@ def http_checks(client, service):
             journal.execute('INSERT INTO receipts VALUES (?, ?, ?)', ('experiments:' + token, 'admin', json.dumps(historic)))
         assert client.post(BASE, json=body(token=token)).json() == historic
         assert client.post(BASE, json=body(token=token), headers={'authorization': 'another-admin'}).status_code == 404
+        undeclared = manifest()
+        undeclared.pop('min_robotcontrol_version')
+        service.catalogue.install(archive(undeclared))
+        assert_refused(client.post(BASE, json=body()), 'Needs review')
+        assert client.post(BASE, json=body(token=token)).json() == historic
+        # A receipt for a registration made earlier still replays while its package is blocked.
         service.catalogue.remove('champions-experiment')
         assert client.post(BASE, json=body(token=token)).json() == historic
         assert client.post(BASE, json=body()).status_code == 404

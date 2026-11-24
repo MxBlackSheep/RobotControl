@@ -149,7 +149,7 @@ def run():
                     call('POST',BASE+'/sources',writer)
                     call('GET','/api/database/tables?source_id=writer',status=409)
                     call('PUT',BASE+'/packages/culture-history/sources',dict(mappings={'primary':'writer'}),400)
-                    manifest=dict(contract_version=2,id='remove-project',name='Remove project',version='1.0.0',libraries=[],tools=[dict(id='remove-project',name='Remove project',kind='operation',preview='handler:preview',entrypoint='handler:run',confirmation_field='id',sources=['primary'],inputs=[dict(name='id',label='Project',type='lookup',required=True,lookup=dict(source='primary',query='SELECT id AS value,label FROM dbo.Projects',value_type='integer'))])])
+                    manifest=dict(min_robotcontrol_version='1.0.0b1', contract_version=2,id='remove-project',name='Remove project',version='1.0.0',libraries=[],tools=[dict(id='remove-project',name='Remove project',kind='operation',preview='handler:preview',entrypoint='handler:run',confirmation_field='id',sources=['primary'],inputs=[dict(name='id',label='Project',type='lookup',required=True,lookup=dict(source='primary',query='SELECT id AS value,label FROM dbo.Projects',value_type='integer'))])])
                     handler = "def preview(context, inputs):\n    row=context.connection.execute('SELECT label FROM dbo.Projects WHERE id=?', inputs['id']).fetchone()\n    return dict(summary='Remove project', details=dict(label=row[0] if row else None))\ndef run(context, inputs):\n    context.connection.execute('DELETE dbo.Projects WHERE id=?', inputs['id'])\n    if inputs['id']==2: raise ValueError('Fixture rollback')\n    return dict(message='Removed')\n"
                     output=io.BytesIO()
                     with zipfile.ZipFile(output,'w') as z:
@@ -210,7 +210,7 @@ def run():
                     result['checks'].append('A tool without a database connection generates the correct workbook')
                     # Reopen an installed report while preserving sibling tools/assets.
                     package=io.BytesIO()
-                    manifest=dict(contract_version=2,id='editable',name='Lab exports',version='2.1.4',libraries=['openpyxl'],tools=[
+                    manifest=dict(min_robotcontrol_version='1.0.0b1', contract_version=2,id='editable',name='Lab exports',version='2.1.4',libraries=['openpyxl'],tools=[
                         dict(id='editable-report',name='Plate export',kind='report',entrypoint='exporter:run',sources=['primary'],inputs=[
                             dict(name='project',label='Experiment',type='lookup',lookup=dict(source='primary',query='SELECT id AS value,label FROM dbo.Projects',value_type='integer')),
                             dict(name='plate',label='Plate',type='lookup',lookup=dict(source='primary',query='SELECT id AS value,label FROM dbo.Plates WHERE project=?',parameters=['project'],value_type='integer'))]),

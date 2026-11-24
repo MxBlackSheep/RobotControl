@@ -259,7 +259,7 @@ def run(candidate, report_package=None, evidence=ROOT/'test-output/database-veri
     book.save(context.output_dir/'fixture.xlsx')
     return 'fixture.xlsx'
 '''
-                manifest={'contract_version':1,'id':'verification-fixture','name':'Disposable verification fixture','version':'1.0.0','libraries':['openpyxl'],
+                manifest={'min_robotcontrol_version':'1.0.0b1','contract_version':1,'id':'verification-fixture','name':'Disposable verification fixture','version':'1.0.0','libraries':['openpyxl'],
                     'tools':[{'id':'verification-fixture','name':'Fixture','kind':'report','entrypoint':'handler:run','inputs':[]}]}
                 output=io.BytesIO()
                 with zipfile.ZipFile(output,'w') as archive:

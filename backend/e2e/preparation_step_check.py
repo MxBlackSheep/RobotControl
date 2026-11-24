@@ -61,7 +61,7 @@ def prepare(context, inputs):
 '''
 
 
-def package(version, minimum=None):
+def package(version, minimum='1.0.0b1'):
     manifest = dict(contract_version=2, id=PACKAGE, name='Preparation fixture', version=version, libraries=[],
                     tools=[dict(id=PACKAGE, name='Log the run', kind='preparation', entrypoint='prepare:prepare', sources=[],
                                 inputs=[dict(name='mode', label='Mode', type='choice', choices=['ok', 'raise', 'sleep', 'crash', 'commit', 'with'])])])
@@ -191,7 +191,7 @@ def run():
                 with patch.object(version, '__version__', '1.0.0b1'):
                     reason = 'Requires RobotControl 1.0.0 or later. This computer has 1.0.0b1.'
                     current = next(row for row in client.get('/api/scheduling/list?active_only=false').json()['data'] if row['schedule_id'] == schedule_id)
-                    assert current['preparation_state'] == 'needs_review'
+                    assert current['preparation_state'] == 'needs_newer'
                     assert current['preparation_review_reason'] == reason
                     from backend.services.scheduling.pre_execution import PreExecutionPipeline
                     try:
@@ -215,7 +215,7 @@ def run():
                 saved = storage.get_schedule_by_id(schedule_id).preparation
                 assert tools.preparation_state(saved) == 'ready'
                 assert tools.preparation_review(saved)[1] is None
-                result['checks'].append('Unchanged schedule with an incompatible preparation is not ready and cannot be armed; disabling still works; removing the step and packages without a minimum remain usable')
+                result['checks'].append('Unchanged schedule with an incompatible preparation is not ready and cannot be armed; disabling still works; removing the step and declared packages remain usable')
 
                 ok, first = execute(schedule_id)
                 assert ok and launched == [first] and logged().get(first) == 'ok'

@@ -20,6 +20,7 @@ Failure cases:
 - Only the draft owner or a local administrator can configure, try or enable. Report
   mappings cannot use writers. Operation trials use the robot safety gate and roll
   back, create no execution token and never call the execution function.
+- App publishing writes min_robotcontrol_version using the running version.
 - Enabling requires a successful trial and review of the current code and connection.
   Replacement, stale draft saves, failed trials, source edits, concurrent updates and
   restarts cannot reuse old readiness.
@@ -101,7 +102,7 @@ def lookup_order(call, client, wait):
     call('DELETE', f'/drafts/{key}')
     # The manifest route refuses an unknown order before anything is installed.
     lookup = dict(source='primary', query='SELECT id AS value, label FROM dbo.Runs', parameters=[], value_type='integer', order='newest')
-    manifest = dict(contract_version=2, id='ordered-runs', name='Ordered runs', version='1.0.0', libraries=[], tools=[dict(
+    manifest = dict(min_robotcontrol_version='1.0.0b1', contract_version=2, id='ordered-runs', name='Ordered runs', version='1.0.0', libraries=[], tools=[dict(
         id='ordered-runs', name='Ordered runs', kind='report', entrypoint='handler:run', sources=['primary'],
         inputs=[dict(name='run', label='Run', type='lookup', lookup=lookup)])])
     archive = io.BytesIO()
@@ -205,6 +206,8 @@ def run():
                         payload=dict(revision=s['revision'],expected_current=review['current_sha256'],reviewed=reviewed)
                         result=call('POST',f"/drafts/{s['id']}/install",payload,status)
                         if status==200:
+                            from backend.version import __version__
+                            assert result['min_robotcontrol_version'] == __version__, result
                             published[s['id']]=payload
                             assert call('POST',f"/drafts/{s['id']}/install",payload)==result
                             assert not any(d['id']==s['id'] for d in call('GET','/drafts'))
@@ -221,6 +224,7 @@ def run():
                     enable(saved,409)
                     assert finish(trial(saved,{'experiment':1,'plate':11}))['status']=='ready'
                     enable(saved)
+                    result['checks'].append('App publishing writes the field min_robotcontrol_version')
                     installed=call('GET','/catalogue?kind=report');assert any(t['id']=='plate-export' for t in installed)
                     exported=call('GET','/packages/plate-export/export')
                     with zipfile.ZipFile(io.BytesIO(exported)) as z:

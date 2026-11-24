@@ -262,3 +262,29 @@ uv run --locked python build_scripts/database_package.py build C:/Scripts/MyPack
 
 That advanced route uses an existing `manifest.json`; see [CONTRACT.md](CONTRACT.md).
 New tools should use the Python-defined route above.
+
+## RobotControl version declaration
+
+Every runnable package declares `"min_robotcontrol_version": "1.0.0b1"` in
+`manifest.json` (or the later version it requires). For example:
+
+```json
+{
+  "contract_version": 2,
+  "min_robotcontrol_version": "1.0.0b1",
+  "id": "my-report",
+  "name": "My report",
+  "version": "1.0.0",
+  "libraries": [],
+  "tools": [{"id": "my-report", "name": "My report", "kind": "report", "entrypoint": "handler:run", "sources": []}]
+}
+```
+
+A declared minimum satisfied by this computer permits use. Without the field, the
+ZIP installs as **Needs review** but cannot run; import or republish a copy that
+declares it. A newer minimum shows **Needs newer RobotControl** and refuses install.
+There is no approval button. App publication writes the running version, preserving
+higher requirements from the source or installed package. CLI create also writes
+the running version; build preserves your declaration. See the
+[version contract](CONTRACT.md#robotcontrol-version-declaration) for exact syntax,
+comparison, trial and recovery behavior.

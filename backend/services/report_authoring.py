@@ -45,8 +45,10 @@ class ReportDraft(BaseModel):
         return Manifest.valid_minimum(value)
 
     def manifest(self):
+        from backend.version import __version__
+        minimum = max(filter(None, [self.min_robotcontrol_version, __version__]), key=Version)
         return Manifest.model_validate(dict(contract_version=2, id=self.package_id, name=self.name,
-            min_robotcontrol_version=self.min_robotcontrol_version,
+            min_robotcontrol_version=minimum,
             version=self.version, libraries=self.libraries, tools=[dict(id=self.tool_id or self.package_id, name=self.name,
                 kind=self.kind, entrypoint=self.entrypoint, sources=self.sources, inputs=self.inputs,
                 preview=self.preview, confirmation_field=self.confirmation_field)]))

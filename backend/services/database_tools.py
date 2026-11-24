@@ -581,8 +581,8 @@ class DatabaseTools:
             except PackageError:
                 return 'missing', None
             compatibility = self.catalogue.compatibility(entry['manifest'])
-            if not compatibility['compatible']:
-                return 'needs_review', compatibility['compatibility_reason']
+            if compatibility['state'] != 'ready':
+                return compatibility['state'], compatibility['reason']
             if entry['manifest']['id'] != preparation.get('package_id') or entry['sha256'] != preparation.get('sha256'):
                 return 'needs_review', None
         try:

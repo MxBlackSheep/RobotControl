@@ -156,7 +156,7 @@ ignores results after the section becomes inactive.
   "Package structure checked. No Python code." Packages with Python say
   "Package structure and declared libraries checked. Python code has not been run."
   Import review uses the same wording, derived from tool kinds.
-- Incompatible package details and import review show the server's required/current-version
+- Needs newer RobotControl package details and import review show the server's required/current-version
   sentence; review disables installation. Details and update review remind the author to keep
   the previous ZIP and that reinstalling it does not undo database changes. Compatibility is
   server-derived; existing consumer refusal displays need no separate client version comparison.
@@ -246,3 +246,11 @@ EvoYeast experiment preparation needs reading and operation connections to the s
 server/database as Experiments. Missing or mismatched setup produces a message, never
 a saved schedule. See the scheduling guide for draft and receipt ownership. No Excel
 layout import or lab schema migration is provided.
+
+Package rows use the server state: `needs_newer` is Needs newer RobotControl,
+`needs_review` is Needs review, and `ready` is Installed. Both blocked states use
+attention tone. Details show `reason`; undeclared import review explains that it
+will install blocked until a copy declaring `min_robotcontrol_version` is imported.
+Only needs_newer disables installation. There is no package approval action.
+Scheduling normalization carries both blocked states and `preparation_review_reason`
+so the server refusal survives list/detail/form views instead of becoming unknown.

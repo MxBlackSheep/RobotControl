@@ -10,6 +10,7 @@ import sys
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from backend.version import __version__
 from backend.services.database_packages import Manifest, PackageError, SUPPORTED_FILES, inspect_archive
 
 
@@ -62,7 +63,7 @@ def create(args):
             value_type='integer'))]
     if kind == 'operation':
         tool.update(preview='handler:preview', confirmation_field=args.confirmation or ask('Input to type for confirmation', 'experiment_id'))
-    manifest = Manifest.model_validate(dict(contract_version=2, id=package_id, name=name, version=version,
+    manifest = Manifest.model_validate(dict(min_robotcontrol_version=__version__, contract_version=2, id=package_id, name=name, version=version,
         libraries=[value.strip() for value in libraries.split(',') if value.strip()], tools=[tool]))
     names = ', '.join(f'inputs[{field.name!r}]' for field in manifest.tools[0].inputs) or '(no inputs)'
     handler = f'''"""Adapt reference/{source.name}; keep its calculations and selection rules."""

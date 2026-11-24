@@ -1,4 +1,5 @@
 {
+  "min_robotcontrol_version": "1.0.0b1",
   "contract_version": 3,
   "id": "champions-experiment",
   "name": "Champions experiment",

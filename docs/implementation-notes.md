@@ -1,8 +1,9 @@
-## 2026-11-24 Package compatibility and recovery
+## 2026-11-24 Package usability and recovery
 
-- Package builds retain JSON helpers. Optional minimum RobotControl versions refuse incompatible installation and execution while keeping installed packages visible. Incompatible schedule preparations use Needs review with the required/current version reason and cannot be armed; disabling or removing the step remains possible.
-- Replace Python derives the draft minimum from its current source, allowing it to be lowered or cleared. Combining an edited tool with its installed package retains the installed package's minimum.
-- Manage packages shows Needs newer RobotControl, explains the required version and disables installation. Details and update review explain the limits of reinstalling an older ZIP.
+- One manifest minimum determines package usability: declared and satisfied is ready; absent is Needs review; too new is Needs newer RobotControl. Undeclared ZIPs install visibly but cannot start work. Too-new installation is refused. No approval record or index migration is added.
+- Readiness, unchanged-schedule arming and execution use the same decision. Scheduling carries the precise state and refusal; disabling/removing remains available. Existing operation and registration receipts and dispatched-run monitoring remain recoverable.
+- App-generated manifests declare the running version and preserve higher source or installed requirements. Replacing Python can lower or clear the source requirement. Shipped manifests and CLI-created projects declare the minimum.
+- Manage packages shows both blocked states with the way out. Undeclared import review explains that installation leaves the package blocked. JSON helpers and previous-ZIP recovery wording are retained.
 
 ## 2026-11-24 Version 1.0.0b1
 

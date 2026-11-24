@@ -109,8 +109,8 @@ def definition(files, entry_file=None):
 def with_definition(source, tool, min_robotcontrol_version=None):
     """Upgrade an existing conventional handler for editing; keep its logic intact."""
     config = dict(name=tool.name, kind=tool.kind, connections=tool.sources, inputs={})
-    if min_robotcontrol_version is not None:
-        config['min_robotcontrol_version'] = min_robotcontrol_version
+    from backend.version import __version__
+    config['min_robotcontrol_version'] = min_robotcontrol_version or __version__
     if tool.kind == 'operation':
         config['confirm'] = tool.confirmation_field
     for field in tool.inputs:
