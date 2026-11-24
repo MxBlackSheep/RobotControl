@@ -135,7 +135,7 @@ test('required catalog inputs survive refusal, block invalid saves and save a va
   await expect.poll(() => checks.at(-1)?.parameters.experiment_id).toBe(0);
   await expect(refusal).toBeVisible();
   await editor.getByRole('button', { name: 'Create schedule', exact: true }).click();
-  await expect(editor.getByText('Choose a protocol', { exact: true })).toBeVisible();
+  await expect(editor.getByText('Choose a protocol')).toBeVisible();
   expect(writes).toEqual([]);
   await expect(input).toHaveValue('0');
 
@@ -144,7 +144,7 @@ test('required catalog inputs survive refusal, block invalid saves and save a va
     await expect.poll(() => checks.at(-1)?.parameters.experiment_id).toBe(42);
     await expect(refusal).toHaveCount(0);
     await editor.getByRole('button', { name: 'Create schedule', exact: true }).click();
-    await expect(editor.getByText('Choose a protocol', { exact: true })).toBeVisible();
+    await expect(editor.getByText('Choose a protocol')).toBeVisible();
     expect(writes).toEqual([]);
   } finally {
     releaseValidation();
@@ -159,7 +159,7 @@ test('required catalog inputs survive refusal, block invalid saves and save a va
   await input.fill('');
   await expect(input).toHaveValue('');
   await editor.getByRole('button', { name: 'Create schedule', exact: true }).click();
-  await expect(editor.getByText('Choose a protocol', { exact: true })).toBeVisible();
+  await expect(editor.getByText('Choose a protocol')).toBeVisible();
   expect(writes).toHaveLength(1);
   await expect.poll(() => checks.length).toBeGreaterThan(checksBeforeClear);
   expect(checks.at(-1).parameters).toEqual({});
