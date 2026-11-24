@@ -10,7 +10,7 @@ import sys
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from backend.services.database_packages import Manifest, PackageError, inspect_archive
+from backend.services.database_packages import Manifest, PackageError, SUPPORTED_FILES, inspect_archive
 
 
 def ask(label, default=''):
@@ -127,7 +127,7 @@ def build(args):
     with zipfile.ZipFile(buffer, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr('manifest.json', json.dumps(manifest, indent=2))
         for file in sorted(folder.iterdir()):
-            if file.is_file() and file.suffix in {'.py', '.txt', '.md'} and file.name != 'AGENTS.md':
+            if file.is_file() and file.suffix.lower() in SUPPORTED_FILES and file.name.lower() not in {'agents.md', 'manifest.json'}:
                 source = file.read_bytes()
                 if file.suffix == '.py' and b'ADAPT_BEFORE_BUILD' in source:
                     raise ValueError(f'Finish adapting {file.name} and remove ADAPT_BEFORE_BUILD before building.')

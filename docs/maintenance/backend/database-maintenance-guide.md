@@ -158,6 +158,22 @@ their choices and experiment searches. Catalogue responses omit query text and c
 
 ### Installation and history
 
+- The optional manifest `min_robotcontrol_version` is a canonical PEP 440 version with
+  three release parts, for example `1.0.0b2`. Prerelease, postrelease and development
+  suffixes are allowed; ranges, epochs, local suffixes and `V` prefixes are rejected.
+  Omission means no minimum. `packaging.version.Version` compares it with
+  `backend.version.__version__`, including prerelease ordering.
+- Inspection and installed listings return `compatible`, `current_robotcontrol_version`
+  and `compatibility_reason` on the package details. An incompatible installed package
+  remains visible after startup; other packages continue loading. Install/update refuse
+  with 409 before creating files: “Requires RobotControl {minimum} or later. This computer
+  has {current}.” Reservations, Python loading and worker entry recheck; workers refuse
+  before opening connections. Existing consumer error paths display the refusal.
+- CLI build and export validate the minimum's syntax without requiring the current machine
+  to satisfy it. Builder, installer, seeding and export share the supported flat-file suffixes;
+  supporting JSON is included and the builder writes `manifest.json` once.
+- Keep the previous ZIP before updating. Reinstalling it does not undo database changes.
+  Same-version replacements and downgrades remain permitted; no rollback or retention feature is added.
 - `POST /packages/inspect` reads and compiles the ZIP without importing Python or writing, and
   returns the manifest and the installed hash. `POST /packages` takes `expected_current` (that
   hash, or `absent`) and `expected_package`; a mismatch returns 409. Uploads are limited to
@@ -208,6 +224,9 @@ catalogue → connections; publication takes catalogue then connections.
 
 ### Drafts and publication
 
+- Source `TOOL` metadata accepts `min_robotcontrol_version`. Drafts carry it into generated
+  manifests; editing and publishing a package preserves at least its existing minimum,
+  including mixed packages. Trials also enforce compatibility.
 - `POST /authoring/import` creates or replaces a code-defined draft; `mode` is `python` (one
   defining file, replaced even when renamed), `supporting` (helpers; another `TOOL` is
   rejected) or `all` (complete source set, the default). `POST /authoring/{kind}/{id}/edit`

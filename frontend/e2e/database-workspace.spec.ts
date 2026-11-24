@@ -22,12 +22,43 @@ import { mkdirSync } from 'node:fs';
  *   unreadable one or one from the removed report wizard offers Resume (server side:
  *   backend/e2e/stored_data_check.py).
  * Server-side cases are in backend/e2e/database_workspace_check.py.
+ * - An incompatible package stays visible as Needs newer RobotControl; inspection
+ *   explains the required/current versions and disables installation.
  */
 const evidence = process.env.ROBOTCONTROL_E2E_EVIDENCE || '../test-output/database-workspace-verification';
 async function login(page: any) {
   await signIn(page);
   await page.route('**/api/auth/me', (route: any) => route.fulfill({ json: { success: true, data: { user_id: 'viewer-admin', username: 'Fixture', role: 'admin', session: { is_local: true } } } }));
 }
+
+test('Needs newer RobotControl remains visible and disables installation', async ({ page }) => {
+  await login(page);
+  const reason = 'Requires RobotControl 1.0.0 or later. This computer has 1.0.0b2.';
+  const pkg = { id: 'plate-report', name: 'Plate report', version: '1.0.0', sha256: 'a', running: 0,
+    libraries: [], tools: [{ id: 'plate-report', name: 'Plate report', kind: 'report' }],
+    min_robotcontrol_version: '1.0.0', compatible: false, compatibility_reason: reason };
+  let installations = 0;
+  await page.route('**/api/database/tools/packages', r => {
+    if (r.request().method() === 'POST') installations++;
+    return r.fulfill({ json: [pkg] });
+  });
+  await page.route('**/api/database/tools/drafts', r => r.fulfill({ json: [] }));
+  await page.route('**/api/database/tools/packages/inspect', r => r.fulfill({ json: {
+    package: pkg, sha256: 'b', current_version: null, current_sha256: '', running: 0, changelog: '',
+  } }));
+  await page.goto('/database?section=packages');
+  const row = page.getByRole('button', { name: 'Details for Plate report', exact: true });
+  await expect(row).toBeVisible();
+  await expect(row).toContainText('Needs newer RobotControl');
+  await expect(row).not.toContainText('Installed');
+  await row.click();
+  await expect(page.getByText(reason, { exact: true })).toBeVisible();
+  await page.locator('input[type=file]').setInputFiles({ name: 'newer.zip', mimeType: 'application/zip', buffer: Buffer.from('fixture') });
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByText(reason, { exact: true })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Install package', exact: true })).toBeDisabled();
+  expect(installations).toBe(0);
+});
 
 test('simplified settings show one viewer and no scheduling adapter setup', async ({page}) => {
   mkdirSync(evidence,{recursive:true}); await login(page);

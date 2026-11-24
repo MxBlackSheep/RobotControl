@@ -28,6 +28,9 @@ Failure cases:
   Downloads are private; workers reject excess work and expired files are removed.
 - Creating an author project leaves the original script untouched and never executes
   it; an unfinished adapter fails clearly.
+- JSON helpers survive build/install/export; prerelease minimums compare as versions,
+  incompatible updates write nothing, and incompatible installed packages remain visible
+  after restart but refuse reservations and worker entry without blocking other packages.
 - Version 3 experiment-only archives need no Python; malformed definitions, code
   fields, invalid defaults/bounds/choices/layout rules and the reserved binding ID
   fail without changing the installed package. Legacy version 1/2 tools retain
@@ -60,6 +63,108 @@ from backend.e2e.database_fixture import DatabaseFixture, package_zip, configure
 
 ROOT = Path(__file__).resolve().parents[2]
 BASE = '/api/database/tools'
+
+
+def minimum_version_checks(folder, service):
+    from build_scripts.database_package import build
+    from backend.services.database_packages import Manifest, PackageCatalogue, PackageError, inspect_archive
+    from backend.services.report_authoring import ReportAuthoring
+    from backend.services import report_worker
+    from backend import version
+    import zipfile
+
+    folder.mkdir()
+    source = folder / 'source'
+    source.mkdir()
+    manifest = dict(contract_version=2, id='version-check', name='Version check', version='1.0.0',
+                    tools=[dict(id='version-check', name='Version check', kind='report', entrypoint='handler:run')])
+    (source/'manifest.json').write_text(json.dumps(manifest), encoding='utf-8')
+    (source/'handler.py').write_text('def run(context, inputs):\n    return "report.xlsx"\n', encoding='utf-8')
+    helper = b'{"label": "retained"}\n'
+    (source/'helper.json').write_bytes(helper)
+    output = folder/'package.zip'
+    build(SimpleNamespace(folder=source, version=None, output=output, force=False))
+    defaults = folder/'defaults'
+    defaults.mkdir()
+    catalogue = PackageCatalogue(folder/'installed', defaults)
+    catalogue.install(output.read_bytes())
+    entry = catalogue.index['version-check']
+    assert (catalogue.root/entry['directory']/'helper.json').read_bytes() == helper
+    exported, _ = catalogue.export('version-check')
+    with zipfile.ZipFile(io.BytesIO(exported)) as archive:
+        assert archive.read('helper.json') == helper and archive.namelist().count('manifest.json') == 1
+
+    with patch.object(version, '__version__', '1.0.0b2'):
+        compatible = package_zip(source, {'min_robotcontrol_version': '1.0.0b1'})
+        catalogue.install(compatible)
+        before = catalogue.index_path.read_bytes()
+        before_files = {p.relative_to(catalogue.root): p.read_bytes() for p in catalogue.root.rglob('*') if p.is_file()}
+        newer = package_zip(source, {'min_robotcontrol_version': '1.0.0'})
+        inspected = catalogue.inspect(newer)
+        reason = 'Requires RobotControl 1.0.0 or later. This computer has 1.0.0b2.'
+        assert inspected['package']['compatibility_reason'] == reason
+        assert inspected['package']['compatible'] is False
+        try:
+            catalogue.install(newer)
+            raise AssertionError('Incompatible update installed')
+        except PackageError as exc:
+            assert exc.status == 409 and str(exc) == reason
+        assert catalogue.index_path.read_bytes() == before
+        assert {p.relative_to(catalogue.root): p.read_bytes() for p in catalogue.root.rglob('*') if p.is_file()} == before_files
+        for invalid in ('1.0', '1.0.0.0', '>=1.0.0', '1!1.0.0', '1.0.0+lab', 'V1.0.0', 'v1.0.0', ''):
+            try:
+                Manifest.model_validate({**manifest, 'min_robotcontrol_version': invalid})
+                raise AssertionError(f'Invalid minimum accepted: {invalid}')
+            except ValueError:
+                pass
+        for valid in ('1.0.0b1', '1.0.0rc1', '1.0.0.post1', '1.0.0.dev1'):
+            Manifest.model_validate({**manifest, 'min_robotcontrol_version': valid})
+
+    # Install on a newer release, then restart on an older one; no index fabrication.
+    with patch.object(version, '__version__', '1.0.0'):
+        catalogue.install(newer)
+    neighbour = {**manifest, 'id': 'neighbour', 'tools': [{**manifest['tools'][0], 'id': 'neighbour'}]}
+    catalogue.install(package_zip(source, neighbour))
+    with patch.object(version, '__version__', '1.0.0b2'):
+        restarted = PackageCatalogue(catalogue.root, defaults)
+        assert len(restarted.packages()) == 2
+        assert next(p for p in restarted.packages() if p['id'] == 'version-check')['compatible'] is False
+        exported, _ = restarted.export('version-check')
+        assert inspect_archive(exported)[0].min_robotcontrol_version == '1.0.0'
+        (source/'manifest.json').write_text(json.dumps({**manifest, 'min_robotcontrol_version': '1.0.0'}), encoding='utf-8')
+        build(SimpleNamespace(folder=source, version=None, output=output, force=True))
+        try:
+            with restarted.reserve('version-check', 'report'):
+                raise AssertionError('Incompatible package reserved')
+        except PackageError as exc:
+            assert exc.status == 409 and str(exc) == reason
+        with restarted.reserve('neighbour', 'report'):
+            pass
+        for worker, args in ((report_worker.run_report, ({}, {}, str(folder))),
+                             (report_worker.run_preparation, ({}, {}, {}, {}))):
+            messages = []
+            channel = SimpleNamespace(send=messages.append, close=lambda: None)
+            with patch.object(report_worker, '_runtime', side_effect=AssertionError('Connections must not open')):
+                worker(channel, str(catalogue.root), restarted.index['version-check'], {}, *args)
+            assert messages[0]['error'] == reason
+
+    # Editing one tool must not lower the requirement of the other tool in its package.
+    mixed = {**manifest, 'min_robotcontrol_version': '1.0.0b1',
+             'tools': [manifest['tools'][0], {**manifest['tools'][0], 'id': 'second-report'}]}
+    with patch.object(version, '__version__', '1.0.0b2'):
+        catalogue.install(package_zip(source, mixed))
+        authoring = ReportAuthoring(folder, SimpleNamespace(catalogue=catalogue, sources=service.sources))
+        record = authoring.edit_installed('version-check', 'admin')
+        draft = authoring.draft(record['id'], 'admin')
+        assert draft.min_robotcontrol_version == '1.0.0b1'
+        for declared, expected in (('1.0.0a1', '1.0.0b1'), ('1.0.0', '1.0.0')):
+            draft.files[draft.definition_file] = (
+                f'TOOL = {{"name": "Version check", "kind": "report", "min_robotcontrol_version": "{declared}"}}\n'
+                'def run(context, inputs):\n    return "report.xlsx"\n')
+            draft.min_robotcontrol_version = declared
+            content = authoring.archive(draft, record['id'], 'admin')
+            combined, _ = inspect_archive(content)
+            assert combined.min_robotcontrol_version == expected and len(combined.tools) == 2
 
 
 def experiment_package_checks(client, service, folder):
@@ -200,6 +305,10 @@ def run(evidence=ROOT/'test-output/database-verification'):
                 assert client.get(BASE+'/packages').status_code == 200
                 checks.append('Local administrator checks, forwarded-header denial (remote and tunnelled loopback) and retired SQL route: passed')
                 experiment_package_checks(client, service, Path(temp)/'experiment-package')
+                minimum_version_checks(Path(temp)/'minimum-version', service)
+                checks.extend(['JSON helper survives build, install and export: passed',
+                               'Compatible prerelease minimum is accepted; newer minimum refuses without replacing the installed package: passed',
+                               'An installed package whose minimum is newer is listed blocked and cannot be reserved; others still load: passed'])
                 checks.append('Version 3 manifest-only experiment catalogue, strict definitions, reserved ID and reservation protection: passed')
                 # Exercise the author's actual CLI, then upload its output through HTTP.
                 project = Path(temp)/'author-report'

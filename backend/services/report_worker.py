@@ -21,6 +21,7 @@ def _runtime(package_root):
 
 def run_report(channel, package_root, entry, definition, inputs, snapshot, folder):
     try:
+        PackageCatalogue.require_compatible(entry['manifest'])
         sources, catalogue = _runtime(package_root)
         tool = ToolDefinition.model_validate(definition)
         with sources.connections(snapshot) as connections:
@@ -98,6 +99,7 @@ def run_preparation(channel, package_root, entry, definition, inputs, snapshot, 
     """
     step_error = None
     try:
+        PackageCatalogue.require_compatible(entry['manifest'])
         sources, catalogue = _runtime(package_root)
         tool = ToolDefinition.model_validate(definition)
         with sources.connections(snapshot) as connections, sources.open(target) as conn:

@@ -6,7 +6,7 @@ import sys
 import zipfile
 from pathlib import PurePosixPath
 
-from backend.services.database_packages import LOOKUP_ORDERS, Manifest, PackageError, SUPPORTED_LIBRARIES
+from backend.services.database_packages import LOOKUP_ORDERS, Manifest, PackageError, SUPPORTED_FILES, SUPPORTED_LIBRARIES
 
 
 def definition(files, entry_file=None):
@@ -18,7 +18,7 @@ def definition(files, entry_file=None):
     for name, source in files.items():
         path = PurePosixPath(name)
         if (len(path.parts) != 1 or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_.-]*', name)
-                or path.suffix not in {'.py', '.json', '.md', '.txt'} or name.lower() in names
+                or path.suffix not in SUPPORTED_FILES or name.lower() in names
                 or name.lower() == 'manifest.json'):
             raise PackageError('Choose Python and supporting .json/.md/.txt files without folders or a manifest.')
         names.add(name.lower())
@@ -39,9 +39,9 @@ def definition(files, entry_file=None):
     if len(found) != 1:
         raise PackageError('Include one TOOL definition with your Python. Download an example, keep its definition and run(context, inputs), and adapt your calculations. Nothing has been run.')
     filename, config = found[0]
-    allowed = {'name', 'kind', 'inputs', 'connections', 'confirm'}
+    allowed = {'name', 'kind', 'inputs', 'connections', 'confirm', 'min_robotcontrol_version'}
     if not isinstance(config, dict) or set(config) - allowed:
-        raise PackageError('TOOL supports name, kind, inputs, connections and confirm.')
+        raise PackageError('TOOL supports name, kind, inputs, connections, confirm and min_robotcontrol_version.')
     if config.get('kind') not in {'report', 'operation', 'preparation'}:
         raise PackageError('Set TOOL kind to report, operation or preparation.')
     if config['kind'] == 'preparation' and 'confirm' in config:
@@ -101,13 +101,16 @@ def definition(files, entry_file=None):
                 confirmation_field=config.get('confirm'))
     # Reuse the installed-package contract for input types, dependencies and limits.
     manifest = Manifest.model_validate(dict(contract_version=2, id='new-tool', name=tool['name'], version='1.0.0',
+                                           min_robotcontrol_version=config.get('min_robotcontrol_version'),
                                            libraries=sorted(libraries), tools=[dict(id='new-tool', **tool)]))
     return filename, manifest
 
 
-def with_definition(source, tool):
+def with_definition(source, tool, min_robotcontrol_version=None):
     """Upgrade an existing conventional handler for editing; keep its logic intact."""
     config = dict(name=tool.name, kind=tool.kind, connections=tool.sources, inputs={})
+    if min_robotcontrol_version is not None:
+        config['min_robotcontrol_version'] = min_robotcontrol_version
     if tool.kind == 'operation':
         config['confirm'] = tool.confirmation_field
     for field in tool.inputs:

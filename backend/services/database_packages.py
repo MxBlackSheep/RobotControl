@@ -20,13 +20,16 @@ from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 from typing import Annotated, Any, Literal, get_args
 
-from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer, model_validator
+from packaging.version import Version
 
+from backend import version
 from backend.utils.filesystem import replace_file
 
 MAX_UPLOAD = 20 * 1024 * 1024
 MAX_EXPANDED = 50 * 1024 * 1024
 SUPPORTED_LIBRARIES = {"pandas", "openpyxl", "pyodbc", "numpy"}
+SUPPORTED_FILES = {'.py', '.json', '.md', '.txt'}
 IDENTIFIER = r"^[a-z][a-z0-9-]{0,63}$"
 ENTRY = r"^[a-zA-Z_][a-zA-Z_0-9]*:[a-zA-Z_][a-zA-Z_0-9]*$"
 MAX_NOTE = 2000
@@ -420,8 +423,25 @@ class Manifest(BaseModel):
     id: str = Field(pattern=IDENTIFIER)
     name: str = Field(min_length=1, max_length=100)
     version: str = Field(pattern=r"^\d+\.\d+\.\d+$", max_length=40)
+    min_robotcontrol_version: str | None = None
     libraries: list[str] = Field(default_factory=list, max_length=20)
     tools: list[Annotated[ToolDefinition | ExperimentDefinition, Field(discriminator='kind')]] = Field(min_length=1, max_length=20)
+
+    @field_validator('min_robotcontrol_version')
+    @classmethod
+    def valid_minimum(cls, value):
+        if value is not None:
+            parsed = Version(value)
+            if len(parsed.release) != 3 or parsed.epoch or parsed.local or str(parsed) != value:
+                raise ValueError('Use a PEP 440 version with three release parts, without a range, epoch, local suffix or V prefix')
+        return value
+
+    @model_serializer(mode='wrap')
+    def omit_absent_minimum(self, handler):
+        data = handler(self)
+        if self.min_robotcontrol_version is None:
+            data.pop('min_robotcontrol_version', None)
+        return data
 
     @model_validator(mode='before')
     @classmethod
@@ -478,7 +498,7 @@ def inspect_archive(content):
                 path = PurePosixPath(name)
                 if (file.is_dir() or len(path.parts) != 1 or path.is_absolute() or
                     not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.-]*", name) or
-                    name.endswith(('.', ' ')) or path.suffix.lower() not in {".py", ".json", ".md", ".txt"} or
+                    name.endswith(('.', ' ')) or path.suffix.lower() not in SUPPORTED_FILES or
                     name.lower() in seen or (file.external_attr >> 16) & 0o170000 == 0o120000 or
                     name.split('.')[0].upper() in {'CON', 'PRN', 'AUX', 'NUL', *[f'COM{i}' for i in range(10)], *[f'LPT{i}' for i in range(10)]}):
                     raise PackageError("Package contains an unsafe path, duplicate file or unsupported file type")
@@ -538,7 +558,7 @@ class PackageCatalogue:
                         buffer = io.BytesIO()
                         with zipfile.ZipFile(buffer, "w") as archive:
                             for file in folder.iterdir():
-                                if file.suffix in {".py", ".json", ".txt", ".md"}:
+                                if file.suffix.lower() in SUPPORTED_FILES:
                                     archive.writestr(file.name, file.read_bytes())
                         self.install(buffer.getvalue())
             except Exception:
@@ -565,8 +585,22 @@ class PackageCatalogue:
 
     def packages(self):
         with self.lock:
-            return [dict(entry["manifest"], sha256=entry["sha256"], running=self.running.get(key, 0))
+            return [dict(entry["manifest"], **self.compatibility(entry['manifest']), sha256=entry["sha256"], running=self.running.get(key, 0))
                     for key, entry in self.index.items()]
+
+    @staticmethod
+    def compatibility(manifest):
+        minimum = Manifest.model_validate(manifest).min_robotcontrol_version
+        current = version.__version__
+        compatible = minimum is None or Version(current) >= Version(minimum)
+        return dict(compatible=compatible, current_robotcontrol_version=current,
+                    compatibility_reason='' if compatible else f'Requires RobotControl {minimum} or later. This computer has {current}.')
+
+    @classmethod
+    def require_compatible(cls, manifest):
+        state = cls.compatibility(manifest)
+        if not state['compatible']:
+            raise PackageError(state['compatibility_reason'], 409)
 
     def tools(self, kind):
         return [dict(tool, package_id=package["id"], package_version=package["version"],
@@ -604,7 +638,7 @@ class PackageCatalogue:
                 output = io.BytesIO()
                 with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
                     for file in sorted(directory.iterdir()):
-                        if file.is_file() and not file.is_symlink() and file.suffix in {'.py', '.json', '.md', '.txt'}:
+                        if file.is_file() and not file.is_symlink() and file.suffix.lower() in SUPPORTED_FILES:
                             archive.writestr(file.name, file.read_bytes())
                 content = output.getvalue()
             manifest, _ = inspect_archive(content)
@@ -623,6 +657,7 @@ class PackageCatalogue:
     def reserve(self, tool_id, kind):
         with self.lock:
             package_id, entry, tool = self.resolve(tool_id, kind)
+            self.require_compatible(entry['manifest'])
             self.running[package_id] = self.running.get(package_id, 0) + 1
         try:
             yield entry, tool
@@ -631,6 +666,7 @@ class PackageCatalogue:
                 self.running[package_id] -= 1
 
     def function(self, entry, name):
+        self.require_compatible(entry['manifest'])
         module_name, function_name = name.split(":")
         key = (entry["directory"], module_name)
         with self.lock:
@@ -660,7 +696,7 @@ class PackageCatalogue:
         with self.lock:
             self._check_conflicts(manifest)
             current = self.index.get(manifest.id)
-            return dict(package=manifest.model_dump(), sha256=hashlib.sha256(content).hexdigest(),
+            return dict(package=dict(manifest.model_dump(), **self.compatibility(manifest.model_dump())), sha256=hashlib.sha256(content).hexdigest(),
                         current_version=current['manifest']['version'] if current else None,
                         current_sha256=current['sha256'] if current else '',
                         running=self.running.get(manifest.id, 0), changelog=changelog_note(payloads, manifest.version))
@@ -673,6 +709,7 @@ class PackageCatalogue:
 
     def install(self, content, expected_current=None, expected_package=None, *, actor=None, note='', draft=None):
         manifest, payloads = inspect_archive(content)
+        self.require_compatible(manifest.model_dump())
         directory = self.root / uuid.uuid4().hex
         activated = False
         try:
@@ -699,7 +736,7 @@ class PackageCatalogue:
                 previous = {name: (self.root / old['directory'] / name).read_bytes()
                             for name in payloads if old and (self.root / old['directory'] / name).is_file()}
                 old_names = {p.name for p in (self.root / old['directory']).iterdir()
-                             if p.is_file() and p.suffix in {'.py','.json','.txt','.md'}} if old else set()
+                             if p.is_file() and p.suffix.lower() in SUPPORTED_FILES} if old else set()
                 names = set(payloads)
                 event = dict(version=manifest.version, previous_version=old['manifest']['version'] if old else None,
                              at=datetime.now(timezone.utc).isoformat(), actor=actor, sha256=entry['sha256'],
