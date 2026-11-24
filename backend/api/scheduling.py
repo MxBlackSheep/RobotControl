@@ -114,7 +114,7 @@ def _requested_preparation(schedule_data: Dict[str, Any], current_user: dict, ex
     from backend.services.database_tools import get_database_tools
     tools = get_database_tools()
     state = None
-    if unchanged:
+    if unchanged and isinstance(existing, dict):
         state, reason = tools.preparation_review(existing)
         if reason:
             if is_active:
