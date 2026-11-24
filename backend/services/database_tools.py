@@ -240,12 +240,30 @@ class DatabaseTools:
                     'WHERE ScheduledToRun = 1 ORDER BY ExperimentID').fetchall()
                 return [dict(experiment_id=row[0], user_defined_id=row[1]) for row in rows]
 
-    def experiment_schedule_draft(self, experiment_id):
+    @staticmethod
+    def _same_database(source, target):
+        return all(isinstance(source.get(key), str) and source[key].strip() and
+                   isinstance(target.get(key), str) and
+                   source[key].strip().casefold() == target[key].strip().casefold()
+                   for key in ('server', 'database'))
+
+    def experiment_schedule_draft(self, experiment_id, token, owner):
         with self.catalogue.reserve('evoyeast-experiment', 'preparation') as (entry, tool):
             field = next((field for field in tool.inputs if field.name == 'experiment_id'), None)
             if (len(tool.inputs) != 1 or field is None or field.type != 'lookup' or
                     field.lookup.value_type != 'integer' or field.lookup.source != 'primary'):
                 raise PackageError('Select EvoYeast experiment has changed. Review its preparation inputs.', 409)
+            with closing(sqlite3.connect(self.receipts)) as journal:
+                saved = journal.execute('SELECT owner, result FROM receipts WHERE id=?',
+                                        ('experiments:' + token,)).fetchone()
+            if not saved or saved[0] != owner:
+                raise PackageError('Registration not found', 404)
+            receipt = json.loads(saved[1])
+            if receipt.get('status') != 'succeeded' or receipt.get('result', {}).get('experiment_id') != experiment_id:
+                raise PackageError('Registration is not confirmed.', 409)
+            origin = {key: receipt.get(key) for key in ('server', 'database')}
+            if not self._same_database(origin, origin):
+                raise PackageError('Registration origin is unavailable. Select the experiment manually.', 409)
             with self.sources.lock:
                 package_id = entry['manifest']['id']
                 reader = self.sources.snapshot(package_id, tool.sources)['primary']
@@ -253,11 +271,9 @@ class DatabaseTools:
                 registration = self.sources.operation_target('experiments')
                 # Fail closed for server aliases: an administrator can make the configured
                 # names agree; guessing equivalent servers could select a different ID.
-                def database(source):
-                    return (source['server'].strip().casefold(), source['database'].strip().casefold())
-                if database(reader) != database(registration) or database(writer) != database(registration):
-                    raise PackageError('Assign Select EvoYeast experiment read and operation connections to the Experiments database in Database settings.', 409)
-                return dict(tool_id=tool.id, inputs=dict(experiment_id=experiment_id))
+                if not all(self._same_database(source, origin) for source in (reader, writer, registration)):
+                    raise PackageError('Connections no longer match the registration database.', 409)
+                return dict(tool_id=tool.id, inputs=dict(experiment_id=experiment_id), expected_origin=origin)
 
     def register_experiment(self, token, inputs, owner, client_ip):
         from backend.services.experiments import register_experiment, validate_registration
@@ -288,13 +304,14 @@ class DatabaseTools:
                 identity.update(package_id=entry['manifest']['id'], definition_verified=True)
                 clean = validate_registration(definition, user_defined_id, inputs['note'], inputs['schedule'],
                                               inputs['parameters'], inputs.get('layout'))
-                # Persist the resolved identity before a transaction can start.
-                with closing(sqlite3.connect(self.receipts)) as journal, journal:
-                    journal.execute('UPDATE receipts SET result=? WHERE id=?',
-                                    (json.dumps(dict(status='unknown', message=unknown,
-                                        user_defined_id=user_defined_id, **identity)), token))
                 with self.guard(), self.sources.lock:
                     target = self.sources.operation_target('experiments')
+                    identity.update(server=target['server'], database=target['database'])
+                    # Persist the resolved identity and origin before a transaction can start.
+                    with closing(sqlite3.connect(self.receipts)) as journal, journal:
+                        journal.execute('UPDATE receipts SET result=? WHERE id=?',
+                                        (json.dumps(dict(status='unknown', message=unknown,
+                                            user_defined_id=user_defined_id, **identity)), token))
                     def operation(conn, _):
                         value = register_experiment(conn, **clean, definition=definition)
                         message = f"Experiment {value['experiment_id']} registered."
@@ -524,7 +541,7 @@ class DatabaseTools:
             self._health = (time.monotonic(), health)
         return health
 
-    def pin_preparation(self, tool_id, inputs, actor):
+    def pin_preparation(self, tool_id, inputs, actor, expected_origin=None):
         """Validate a preparation step for a schedule and pin what it will run: the package
         file hash and the operation connection. Runs only the declared lookup queries."""
         with self.catalogue.reserve(tool_id, 'preparation') as (entry, tool):
@@ -533,6 +550,10 @@ class DatabaseTools:
             with self.sources.lock:
                 target = self.sources.operation_target(package_id)
                 snapshot = self.sources.snapshot(package_id, tool.sources)
+                if expected_origin is not None and (not isinstance(expected_origin, dict) or
+                        not all(self._same_database(source, expected_origin)
+                                for source in (target, *snapshot.values()))):
+                    raise PackageError('Connections no longer match the registration database.', 409)
             with self.sources.connections(snapshot) as connections:
                 self.validate_choices(tool, inputs, connections)
             from backend.utils.datetime import utc_now_as_local_naive

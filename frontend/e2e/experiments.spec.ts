@@ -239,7 +239,7 @@ test('registration and reuse open only a prepared schedule draft; setup refusals
     const data = path.endsWith('/available') ? {experiments:[]} : [];
     return r.fulfill({json:{success:true,data}});
   });
-  const preparation = {tool_id:'evoyeast-experiment',inputs:{experiment_id:123}};
+  const preparation = {tool_id:'evoyeast-experiment',inputs:{experiment_id:123},expected_origin:{server:'fixture',database:'A'}};
   await page.route('**/api/database/tools/catalogue?kind=preparation', r => r.fulfill({json:[{
     id:preparation.tool_id,name:'Select EvoYeast experiment',package_version:'1.0.1',setup_needed:false,
     inputs:[{name:'experiment_id',label:'Experiment',type:'lookup',required:true,lookup:{parameters:[],value_type:'integer'}}],
@@ -252,12 +252,12 @@ test('registration and reuse open only a prepared schedule draft; setup refusals
     await expect(page.getByText(/Registered. ExperimentID: 123/)).toBeVisible();
     if (reused) await expect(page.getByText(/Existing note retained/)).toBeVisible();
     for (const detail of ['Select EvoYeast experiment is not installed', 'Assign Select EvoYeast experiment read and operation connections to the Experiments database in Database settings.']) {
-      await page.route(`${endpoint}/123/schedule-draft`,r => r.fulfill({status:409,json:{detail}}));
+      await page.route(`${endpoint}/123/schedule-draft?*`,r => r.fulfill({status:409,json:{detail}}));
       await page.getByRole('button',{name:'Open Scheduling',exact:true}).click();
       await expect(page.getByText(`Scheduling setup needed: ${detail}`,{exact:true})).toBeVisible();
       await expect(page.getByRole('dialog',{name:'Create schedule',exact:true})).toHaveCount(0);
     }
-    await page.route(`${endpoint}/123/schedule-draft`,r => r.fulfill({json:preparation}));
+    await page.route(`${endpoint}/123/schedule-draft?*`,r => r.fulfill({json:preparation}));
     await page.getByRole('button',{name:'Open Scheduling',exact:true}).click();
     const dialog = page.getByRole('dialog',{name:'Create schedule',exact:true});
     await expect(dialog).toBeVisible();

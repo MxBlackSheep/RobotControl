@@ -82,7 +82,7 @@ const ExperimentStatus = memo(({ pyhsl, canOpen }: { pyhsl: PyHslStatus | null; 
   const error = polling.error;
   const experiment = latest?.experiment;
   // A PyHSL run that the monitor cannot confirm right now is not shown as running.
-  const unconfirmed = experiment?.runner === 'pyhsl' && pyhsl?.state !== 'running';
+  const unconfirmed = experiment?.runner === 'pyhsl' && (pyhsl?.state !== 'running' || !pyhsl.run);
   const shown = experiment ? getRunStateDisplay(experiment.run_state) : null;
   const state = shown && unconfirmed && shown.label === 'Running' ? { label: 'State unknown', tone: 'neutral' as StatusTone } : shown;
 

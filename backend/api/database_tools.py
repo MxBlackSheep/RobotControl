@@ -237,10 +237,10 @@ def active_experiments(user=Depends(local_admin), service=Depends(get_database_t
 
 
 @router.get('/experiments/{experiment_id}/schedule-draft')
-def experiment_schedule_draft(experiment_id: int, user=Depends(local_admin), service=Depends(get_database_tools)):
+def experiment_schedule_draft(experiment_id: int, token: str = "", user=Depends(local_admin), service=Depends(get_database_tools)):
     if experiment_id <= 0:
         raise HTTPException(400, 'ExperimentID must be positive.')
-    return service.experiment_schedule_draft(experiment_id)
+    return service.experiment_schedule_draft(experiment_id, token, owner(user))
 
 
 class DraftSave(BaseModel):

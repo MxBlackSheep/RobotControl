@@ -1,3 +1,9 @@
+## 2026-11-24 Experiment status, numeric inputs and registration origin
+
+- A running PyHSL experiment row shows State unknown when the service has no active run.
+- Clearing a numeric protocol input that has a default keeps it blank and refused, instead of restoring the default while it is edited.
+- Registration retains its database origin; the Scheduling handoff refuses a receipt without one, and Save refuses a changed preparation target.
+
 ## 2026-11-23 Configurable experiment registration and Scheduling draft
 
 - Experiments now reads installed declarative types, with eight Champions parameters, fixed calibration defaults and optional plate layouts. UserDefinedID is the entered key; the database assigns ExperimentID. Empty existing parents can be completed without overwriting their note, while populated setup is refused.
