@@ -795,7 +795,8 @@ def catalog_and_experiments():
     from backend.services.auth import get_current_user
     with fixture() as f:
         entry = dict(id='fixture', name='Fixture', revision='revision-one',
-                     modes=['simulation', 'test', 'real'], unattended=True, category='Fixtures', description='Fixture')
+                     modes=['simulation', 'test', 'real'], unattended=True, category='Fixtures', description='Fixture',
+                     parameters={'round': dict(label='Round', type='integer', min=1)})
         f.server.catalog = [entry, {**entry, 'unattended': False},
                             {**entry, 'problem': 'Unreadable', 'revision': None}]
         app = FastAPI()
