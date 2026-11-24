@@ -1,6 +1,7 @@
 import { cloneElement, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Alert, Box, Button, FormControlLabel, MenuItem, Stack, Switch, TextField, Typography, useMediaQuery } from '@mui/material';
 import { Link } from 'react-router-dom';
+import ManagePackagesLink from '../ManagePackagesLink';
 import { Panel } from '../PageLayout';
 import { layout as spacing } from '../../theme';
 import { api, currentSignIn } from '../../services/api';
@@ -70,7 +71,7 @@ export default function ExperimentForm({onOpenScheduling}:{onOpenScheduling:(pre
     {typeId && <Alert severity="error">Experiment type is no longer installed. Its draft is kept.</Alert>}
     {choices.length ? <>{picker ?? <Button onClick={() => chooseType(choices[0].id)}>{choices[0].name}</Button>}<Typography color="text.secondary">Choose an experiment type.</Typography></> : <>
       <Typography color="text.secondary">No experiment types installed.</Typography>
-      <Button component={Link} to="/database?section=packages" variant="outlined">Manage packages</Button>
+      <ManagePackagesLink />
     </>}
     <Button onClick={reload}>Reload types</Button>
   </Stack></Panel>;

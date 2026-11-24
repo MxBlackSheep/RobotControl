@@ -1,7 +1,9 @@
 import Details from './Details';
+import InspectionWorkspace from './InspectionWorkspace';
+import { Panel, EmptyPanel, DetailTitle, ListRow } from './PageLayout';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, LinearProgress, TextField, Paper, Stack, Typography } from '@mui/material';
+import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, LinearProgress, TextField, Stack, Typography, ListItemButton, Menu, MenuItem } from '@mui/material';
 import { api } from '../services/api';
 import { saveBlob, toolsBase } from './ReportInputs';
 import ToolAuthoring from './ToolAuthoring';
@@ -16,6 +18,10 @@ type Change = { version:string; previous_version?:string; at:string; actor?:stri
 const message = (error: any) => typeof error?.response?.data?.detail === 'string' ? error.response.data.detail : 'The request could not be completed. Try again.';
 const kindLabel = (kind:string) => ({report:'Report', operation:'Operation', preparation:'Preparation step', experiment:'Experiment type'}[kind] ?? kind);
 const toolSummary = (tools:Package['tools']) => tools.map(tool => `${tool.name} (${kindLabel(tool.kind)})`).join(', ');
+const hasPython = (pkg: Package) => pkg.tools.some(tool => tool.kind !== 'experiment');
+const reviewScope = (pkg: Package) => hasPython(pkg)
+  ? 'Package structure and declared libraries checked. Python code has not been run.'
+  : 'Package structure checked. No Python code.';
 const older = (a: string, b: string) => {
   const left = a.split('.').map(Number), right = b.split('.').map(Number);
   for (let i = 0; i < 3; i++) if (left[i] !== right[i]) return left[i] < right[i];
@@ -23,6 +29,9 @@ const older = (a: string, b: string) => {
 };
 
 export default function DatabasePackages({ active }: { active: boolean }) {
+  const [selected, setSelected] = useState<string>();
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const [packages, setPackages] = useState<Package[]>([]);
   const [file, setFile] = useState<File>();
   const [review, setReview] = useState<Review>();
@@ -83,6 +92,7 @@ export default function DatabasePackages({ active }: { active: boolean }) {
     catch (error) { setError(message(error)); }
     finally { setBusy(false); }
   };
+  const pkg = packages.find(pkg => pkg.id === selected);
   const unchanged = review?.sha256 === review?.current_sha256;
   const downgrade = !!review?.current_version && older(review.package.version, review.current_version);
   const action = !review?.current_version ? 'Install package' : downgrade ? 'Install older version' : review.current_version === review.package.version ? 'Replace version' : 'Update package';
@@ -90,57 +100,78 @@ export default function DatabasePackages({ active }: { active: boolean }) {
   if (toolEditor !== undefined) return <ToolAuthoring draftId={toolEditor || undefined} onClose={finished} />;
   return <Stack spacing={2}>
     <Stack direction="row" gap={1} flexWrap="wrap">
-      <Button variant="outlined" disabled={busy} onClick={() => input.current?.click()}>Import package ZIP</Button>
-      <Button variant="contained" disabled={busy} onClick={() => setToolEditor('')}>Add tool</Button>
+      <Button variant="contained" disabled={busy} onClick={() => input.current?.click()}>Import package ZIP</Button>
+      <Button disabled={busy} onClick={() => setToolEditor('')}>Add tool</Button>
     </Stack>
     <input ref={input} hidden type="file" accept=".zip" onChange={event => {
       const selected = event.target.files?.[0]; event.target.value = ''; if (selected) void inspect(selected);
     }} />
-    {error && !review && <Alert severity="error">{error}</Alert>}
+    {error && !review && !remove && <Alert severity="error">{error}</Alert>}
     {notice && <Alert severity="success">{notice}</Alert>}
     {busy && <LinearProgress />}
-    {!!drafts.length && <Paper variant="outlined" sx={{ p: 2 }}><Typography variant="subtitle1">Saved drafts</Typography>
+    <InspectionWorkspace label="Manage packages" layout="table" selectorLabel="Packages" detailOpen={detailOpen && !!pkg} onBack={() => setDetailOpen(false)}
+      selector={<Panel title="Packages" fill inset={false} sx={{ height: '100%' }} bodySx={{ overflow: 'auto' }}>
+        {!packages.length && !busy && <Typography sx={{ p: 2 }}>No packages installed.</Typography>}
+        {([['report', 'Reports'], ['operation', 'Operations'], ['preparation', 'Preparation steps'], ['experiment', 'Experiment types']] as const).map(([kind, label]) => {
+          const group = packages.filter(pkg => pkg.tools[0]?.kind === kind);
+          return <Box component="details" open key={kind} sx={{ borderBottom: 1, borderColor: 'divider' }}>
+            <Box component="summary" sx={{ p: 2, cursor: 'pointer' }}>{label} ({group.length})</Box>
+            {group.map(pkg => <ListItemButton key={pkg.id} aria-label={`Details for ${pkg.name}`} aria-current={selected === pkg.id ? 'true' : undefined}
+              selected={selected === pkg.id} onClick={() => { setSelected(pkg.id); setDetailOpen(true); }} sx={{ display: 'block', p: 0, transition: 'none',
+                '&.Mui-selected, &.Mui-selected:hover': { bgcolor: 'action.selected', boxShadow: theme => `inset 3px 0 0 ${theme.palette.primary.main}` } }}>
+              <ListRow columns="minmax(0, 1fr) auto auto"><Typography title={pkg.name} noWrap>{pkg.name}</Typography><span>{pkg.version}</span><StatusChip tone="completed" label="Installed" /></ListRow>
+            </ListItemButton>)}
+          </Box>;
+        })}
+      </Panel>}>
+      {pkg ? <Panel title="Details" fill sx={{ height: '100%' }} bodySx={{ overflow: 'auto' }}>
+        <Stack spacing={2} alignItems="flex-start">
+          <DetailTitle>{pkg.name}</DetailTitle>
+          <StatusChip tone="completed" label="Installed" />
+          <Typography variant="body2" color="text.secondary">{pkg.running > 0 ? 'In use. Update, Connections and Remove wait until it finishes.' : 'Available to use.'}</Typography>
+          <Button id="package-more" aria-haspopup="menu" aria-controls={menuAnchor ? 'package-actions' : undefined}
+            aria-expanded={!!menuAnchor} onClick={event => setMenuAnchor(event.currentTarget)}>More</Button>
+          <Menu id="package-actions" anchorEl={menuAnchor} open={!!menuAnchor} onClose={() => setMenuAnchor(null)} MenuListProps={{ 'aria-labelledby': 'package-more' }}>
+            <MenuItem disabled={busy || pkg.running > 0} onClick={() => { setMenuAnchor(null); input.current?.click(); }}>Update package</MenuItem>
+            {pkg.tools.some(tool => tool.kind === 'experiment') && <MenuItem component={Link} to="/database?section=settings" onClick={() => setMenuAnchor(null)}>Experiments connection</MenuItem>}
+            {pkg.tools.filter(tool => ['report', 'operation'].includes(tool.kind)).map(tool => <MenuItem key={tool.id} disabled={busy} onClick={async () => { setMenuAnchor(null);
+              setBusy(true); setError('');
+              try { const r = await api.post(`${toolsBase}/authoring/${tool.kind}/${tool.id}/edit`, {}); setToolEditor(r.data.id); }
+              catch(e) { setError(message(e)); } finally { setBusy(false); }
+            }}>{pkg.tools.length === 1 ? `Edit ${tool.kind}` : `Edit ${tool.name}`}</MenuItem>)}
+            <MenuItem disabled={busy} onClick={async () => { setMenuAnchor(null); try { const r = await api.get(`${toolsBase}/packages/${pkg.id}/export`, { responseType: 'blob' }); saveBlob(r.data, /filename="([^"]+)"/.exec(r.headers['content-disposition'] || '')?.[1] || `${pkg.id}-${pkg.version}.zip`); } catch (e) { setError(message(e)); } }}>Download package</MenuItem>
+            {hasPython(pkg) && <MenuItem disabled={busy || pkg.running > 0} onClick={async () => { setMenuAnchor(null);
+              try {
+                const [mapping, profiles] = await Promise.all([api.get(`${toolsBase}/packages/${pkg.id}/sources`), api.get(`${toolsBase}/sources`)]);
+                setSources(profiles.data); setBinding({ id: pkg.id, name: pkg.name, ...mapping.data });
+              } catch (e) { setError(message(e)); }
+            }}>Connections</MenuItem>}
+            <MenuItem disabled={busy} aria-label={`History for ${pkg.name}`} onClick={async()=>{ setMenuAnchor(null);
+              setBusy(true);setError('');try{const r=await api.get(`${toolsBase}/packages/${pkg.id}/history`);setHistory({name:pkg.name,tools:pkg.tools,changes:r.data});}
+              catch(e){setError(message(e));}finally{setBusy(false);}
+            }}>History</MenuItem>
+            <MenuItem sx={{ color: 'error.main' }} disabled={busy || pkg.running > 0} aria-label={`Remove ${pkg.name}`} onClick={() => { setMenuAnchor(null); setError(''); setRemove(pkg); }}>Remove</MenuItem>
+          </Menu>
+          <Details key={pkg.id}>
+            <Stack spacing={1}>
+              <Typography>Version {pkg.version}</Typography>
+              <Typography variant="body2">{toolSummary(pkg.tools)}</Typography>
+              <Typography variant="body2">{reviewScope(pkg)}</Typography>
+              <Typography variant="caption" sx={{ overflowWrap: 'anywhere' }}>{pkg.id}<br />
+                {hasPython(pkg) && <>Libraries: {pkg.libraries.join(', ') || 'Standard library'}<br /></>}
+                SHA-256: {pkg.sha256}</Typography>
+            </Stack>
+          </Details>
+        </Stack>
+      </Panel> : <EmptyPanel>Select a package.</EmptyPanel>}
+    </InspectionWorkspace>
+    {!!drafts.length && <Box component="details"><Typography component="summary" sx={{ cursor: 'pointer' }}>Saved drafts ({drafts.length})</Typography>
       {drafts.map(d => <Stack key={d.id} direction="row" alignItems="center" gap={1}><Box sx={{ flex: 1, minWidth: 0 }}><Typography>{d.name}</Typography>
         {d.review_reason && <ReviewReason reason={d.review_reason} />}</Box>
         {d.review_reason && <StatusChip tone="attention" label="Needs review" />}
         {d.openable && <Button onClick={() => setToolEditor(d.id)}>Resume</Button>}
         <Button color="error" onClick={() => setRemoveDraft(d)}>Remove draft</Button></Stack>)}
-    </Paper>}
-    {!packages.length && !busy && <Typography>No packages installed.</Typography>}
-    <Paper variant="outlined">
-      {packages.map(pkg => <Box key={pkg.id} sx={{ p: 2, borderBottom: 1, borderColor: 'divider', '&:last-child': { borderBottom: 0 } }}>
-        <Stack direction={{ xs: 'column', sm: 'row' }} gap={2} alignItems={{ sm: 'center' }}>
-          <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography fontWeight={600}>{pkg.name} · {pkg.version}</Typography>
-            <Typography color="text.secondary">{pkg.tools.length===1 ? kindLabel(pkg.tools[0].kind) : pkg.tools.map(tool => `${tool.name} — ${kindLabel(tool.kind)}`).join(', ')}</Typography>
-            {pkg.tools.some(tool => tool.kind === 'experiment') && <Button component={Link} to="/database?section=settings" size="small">Experiments connection</Button>}
-            <Details>
-              <Typography variant="caption" sx={{ overflowWrap: 'anywhere' }}>{pkg.id}<br />Libraries: {pkg.libraries.join(', ') || 'Standard library'}<br />SHA-256: {pkg.sha256}</Typography>
-            </Details>
-          </Box>
-          {pkg.running > 0 && <Typography variant="body2">In use</Typography>}
-          <Stack direction="row" gap={1} flexWrap="wrap">
-            {pkg.tools.filter(t => ['report', 'operation'].includes(t.kind)).map(t => <Button key={t.id} disabled={busy} onClick={async () => {
-              setBusy(true); setError('');
-              try { const r = await api.post(`${toolsBase}/authoring/${t.kind}/${t.id}/edit`, {}); setToolEditor(r.data.id); }
-              catch(e) { setError(message(e)); } finally { setBusy(false); }
-            }}>{pkg.tools.length === 1 ? `Edit ${t.kind}` : `Edit ${t.name}`}</Button>)}
-            <Button disabled={busy} onClick={async () => { try { const r = await api.get(`${toolsBase}/packages/${pkg.id}/export`, { responseType: 'blob' }); saveBlob(r.data, /filename="([^"]+)"/.exec(r.headers['content-disposition'] || '')?.[1] || `${pkg.id}-${pkg.version}.zip`); } catch (e) { setError(message(e)); } }}>Download package</Button>
-            {pkg.tools.some(tool => tool.kind !== 'experiment') && <Button disabled={busy || pkg.running > 0} onClick={async () => {
-              try {
-                const [mapping, profiles] = await Promise.all([api.get(`${toolsBase}/packages/${pkg.id}/sources`), api.get(`${toolsBase}/sources`)]);
-                setSources(profiles.data); setBinding({ id: pkg.id, name: pkg.name, ...mapping.data });
-              } catch (e) { setError(message(e)); }
-            }}>Connections</Button>}
-            <Button disabled={busy} aria-label={`History for ${pkg.name}`} onClick={async()=>{
-              setBusy(true);setError('');try{const r=await api.get(`${toolsBase}/packages/${pkg.id}/history`);setHistory({name:pkg.name,tools:pkg.tools,changes:r.data});}
-              catch(e){setError(message(e));}finally{setBusy(false);}
-            }}>History</Button>
-            <Button color="error" disabled={busy || pkg.running > 0} aria-label={`Remove ${pkg.name}`} onClick={() => setRemove(pkg)}>Remove</Button>
-          </Stack>
-        </Stack>
-      </Box>)}
-    </Paper>
+    </Box>}
     <Dialog open={!!review} onClose={() => { if (!busy) { setReview(undefined); setFile(undefined); } }} fullWidth maxWidth="sm">
       <DialogTitle>{review?.current_version ? 'Review update' : 'Review package'}</DialogTitle>
       <DialogContent><Stack spacing={2} sx={{ pt: 1 }}>
@@ -148,7 +179,7 @@ export default function DatabasePackages({ active }: { active: boolean }) {
         <Typography variant="h6">{review?.package.name}</Typography>
         <Typography>{review?.current_version ? `${review.current_version} → ${review.package.version}` : `Version ${review?.package.version}`}</Typography>
         <Typography>{review && toolSummary(review.package.tools)}</Typography>
-        <Typography variant="body2" color="text.secondary">Package structure and declared libraries checked. Python code has not been run.</Typography>
+        <Typography variant="body2" color="text.secondary">{review && reviewScope(review.package)}</Typography>
         <TextField label="What changed? (optional)" multiline maxRows={4} inputProps={{maxLength:2000}} value={changeNote} onChange={e=>setChangeNote(e.target.value)} disabled={busy} />
         {unchanged && <Alert severity="info">This package is already installed.</Alert>}
         {downgrade && <Alert severity="warning">This replaces the installed code with an older version.</Alert>}
@@ -185,8 +216,10 @@ export default function DatabasePackages({ active }: { active: boolean }) {
       onSaved={() => setBinding(undefined)} onManage={() => setConnectionsOpen(true)} />
     <Dialog open={!!remove} onClose={() => !busy && setRemove(undefined)}>
       <DialogTitle>Remove {remove?.name}?</DialogTitle><DialogContent>
+        {error && <Alert severity="error">{error}</Alert>}
         {remove && <Typography>{toolSummary(remove.tools)}</Typography>}
-        Its tools will no longer be available.
+        <Typography>Its tools will no longer be available.</Typography>
+        <Typography>Removing deletes this package's history. Database changes already made are not undone; an older ZIP is needed to go back.</Typography>
       </DialogContent>
       <DialogActions><Button disabled={busy} onClick={() => setRemove(undefined)}>Cancel</Button><Button color="error" disabled={busy} onClick={removePackage}>Remove package</Button></DialogActions>
     </Dialog>

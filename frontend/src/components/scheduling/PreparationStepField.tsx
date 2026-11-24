@@ -1,3 +1,4 @@
+import ManagePackagesLink from '../ManagePackagesLink';
 import { useEffect, useState } from 'react';
 import { Alert, Box, MenuItem, Stack, TextField, Typography } from '@mui/material';
 import { api } from '../../services/api';
@@ -76,6 +77,7 @@ export default function PreparationStepField({ saved, state, value, onChange, ed
       </TextField>
       {chip && <Box sx={{ flexShrink: 0 }}>{chip}</Box>}
     </Stack>
+    {tools?.length === 0 && <Box><ManagePackagesLink /></Box>}
     {state === 'needs_review' && value === undefined && (
       <Alert severity="warning">The package or its connection changed after this step was saved. Save the schedule to use the current version; until then the run does not start.</Alert>
     )}

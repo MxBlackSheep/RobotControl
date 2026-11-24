@@ -144,10 +144,25 @@ ignores results after the section becomes inactive.
 
 ## Manage packages
 
-- Each package row shows Excel report or Database operation, and offers Edit, Download package,
-  Connections (reading and writing connections), History and Remove. A package that needs
-  setup cannot run. History lists metadata and file-change names, not source rollback; older
-  installations say they have none.
+- `InspectionWorkspace` groups packages under Reports, Operations, Preparation steps and
+  Experiment types. A mixed package appears once under its first tool kind; counts count
+  packages. Rows show only name, version and Installed. Selection has a primary-colour inset
+  bar and `aria-current`; narrow screens use Back to packages.
+- Select a row to open its detail panel. **More** holds Update package, supported report or
+  operation editing, Download package, Connections, Experiments connection where applicable,
+  History and Remove (last). **Details** is initially closed and holds ID, version, libraries,
+  SHA-256 and every included tool. Experiment-only packages omit libraries and say
+  "Package structure checked. No Python code." Packages with Python say
+  "Package structure and declared libraries checked. Python code has not been run."
+  Import review uses the same wording, derived from tool kinds.
+- Removal asks for confirmation and warns that package history is deleted, database changes
+  are not undone and returning to older code needs its ZIP. Running-package restrictions and
+  server refusals remain. History lists metadata and file-change names, not source rollback;
+  older installations say they have none.
+- `ManagePackagesLink` uses navigation permissions and the shared small header link. Reports,
+  Operations and Experiments show it when no applicable tool is installed; Reports and
+  Operations also show it when connection setup is needed. Before this run shows it when no
+  preparation step is installed. It is hidden from anyone unable to open Manage packages.
 - **Import package ZIP** inspects first. Review shows installed and incoming versions and flags
   unchanged, same-version-different-code and older packages; installing sends the reviewed
   package ID and installed hash, so another administrator's change requires a new review. A
@@ -160,7 +175,8 @@ ignores results after the section becomes inactive.
   expose no execution token. Publishing needs the review checkbox. The optional change note
   appears in History and heads the published package's CHANGELOG.md. Success returns to the list with a versioned message; after a lost
   response the exact publication request is kept so Retry works although the draft was retired.
-- Removing a draft from the list asks first.
+- Saved drafts are initially collapsed, retaining review reasons, Needs review chips and
+  Resume where supported. Remove draft still asks first.
 
 ## Database settings
 

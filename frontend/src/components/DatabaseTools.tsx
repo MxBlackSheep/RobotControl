@@ -1,3 +1,4 @@
+import ManagePackagesLink from './ManagePackagesLink';
 import Details from './Details';
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle,
@@ -6,8 +7,6 @@ import InspectionWorkspace from './InspectionWorkspace';
 export { default as DatabasePackages } from './DatabasePackages';
 import { api } from '../services/api';
 import ReportInputs, { toolsBase, changedInputs, ReportField } from './ReportInputs';
-import { useAuth } from '../context/AuthContext';
-import { isLocalUser } from './navigation';
 
 type Tool = { id: string; name: string; kind: string; package_version: string; inputs: ReportField[]; setup_needed?: boolean; target?: string };
 type Preview = { token: string; confirmation: string; summary: string; details: Record<string, unknown>; target?: string };
@@ -18,7 +17,6 @@ const message = (error: any) => {
 };
 
 export default function DatabaseTools({ kind, active }: { kind: 'operation' | 'report'; active: boolean }) {
-  const { user } = useAuth();
   const [tools, setTools] = useState<Tool[]>([]);
   const [selected, setSelected] = useState('');
   const [values, setValues] = useState<Record<string, unknown>>({});
@@ -113,9 +111,10 @@ export default function DatabaseTools({ kind, active }: { kind: 'operation' | 'r
           <Stack spacing={2}>
             {error && !preview && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
             {notice && <Alert severity="success">{notice}</Alert>}
-            {tool?.setup_needed && <Alert severity="info" action={user?.role === 'admin' && isLocalUser(user) ? <Button href="/database?section=packages">Configure</Button> : undefined}>
+            {tool?.setup_needed && <Alert severity="info">
               Connection setup needed. Ask a local administrator to assign a connection.</Alert>}
             {!tools.length && <Typography color="text.secondary">No {kind === 'operation' ? 'operations' : 'reports'} installed.</Typography>}
+            {(!tools.length || tool?.setup_needed) && <Box><ManagePackagesLink /></Box>}
             {!tool?.setup_needed && tool?.inputs.map(field => ['lookup', 'date'].includes(field.type)
               ? <ReportInputs key={`${tool.id}/${field.name}`} fields={[field]} allFields={tool.inputs} values={values} disabled={locked || !!tool.setup_needed}
                   choiceBase={`${toolsBase}/${kind === 'operation' ? 'operations' : 'reports'}/${tool.id}/choices`} onChange={changeValue} />
