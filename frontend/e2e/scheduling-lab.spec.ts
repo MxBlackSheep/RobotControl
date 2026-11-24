@@ -103,7 +103,7 @@ test('a record under review shows its reason, cannot run, and saving it with a t
     current = { ...review, schedule_type: writes[0].schedule_type, review_reason: null, updated_at: '2026-09-25T11:00:00' };
     await route.fulfill({ json: { success: true, data: current } });
   } });
-  await page.goto('/scheduling');
+  await page.goto('/scheduling?section=calendar');
   await expect(page.getByText('Daily wash', { exact: true })).toBeVisible();
   await expect(page.getByText('Old cron method', { exact: true })).toHaveCount(0);
   await page.goto('/scheduling?section=schedules');
