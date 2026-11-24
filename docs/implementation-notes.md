@@ -1,6 +1,6 @@
 ## 2026-11-24 Version 1.0.0b1
 
-- The application version is 1.0.0b1 in `backend/version.py`, `pyproject.toml`, `frontend/package.json` and both lock files, so the sidebar, the log and `--version` show the tag. npm accepts this spelling as it is.
+- The application version is 1.0.0b1 in `backend/version.py`, `pyproject.toml`, `frontend/package.json` and both lock files, so the sidebar, the log and `--version` show the tag. `frontend/package.json` and its lock file use the SemVer spelling 1.0.0-beta.1, which `frontend/src/version.ts` shows as 1.0.0b1.
 
 ## 2026-11-24 Experiment status, numeric inputs and registration origin
 
