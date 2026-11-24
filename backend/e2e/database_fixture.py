@@ -20,8 +20,11 @@ def package_zip(folder, manifest_changes=None, extras=None):
         for file in Path(folder).iterdir():
             if file.suffix in {'.json', '.py', '.txt', '.md'}:
                 value = file.read_bytes()
-                if file.name == 'manifest.json' and manifest_changes:
-                    value = json.dumps({**json.loads(value), **manifest_changes}).encode()
+                if file.name == 'manifest.json':
+                    manifest = {'min_robotcontrol_version': '1.0.0b1', **json.loads(value), **(manifest_changes or {})}
+                    if manifest.get('min_robotcontrol_version') is None:
+                        manifest.pop('min_robotcontrol_version', None)
+                    value = json.dumps(manifest).encode()
                 archive.writestr(file.name, value)
         for name, value in (extras or {}).items():
             archive.writestr(name, value)

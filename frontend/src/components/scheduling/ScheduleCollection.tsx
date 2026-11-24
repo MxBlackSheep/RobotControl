@@ -1,7 +1,7 @@
 import Details from '../Details';
 import { useMemo, useState } from 'react';
 import { Alert, Box, Button, LinearProgress, List, ListItemButton, Stack, TextField, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
-import { SCHEDULE_MODE_LABELS, ScheduledExperiment } from '../../types/scheduling';
+import { preparationState, SCHEDULE_MODE_LABELS, ScheduledExperiment } from '../../types/scheduling';
 import StatusChip from '../StatusChip';
 import ReviewReason from '../ReviewReason';
 import { Panel } from '../PageLayout';
@@ -13,6 +13,7 @@ export function scheduleState(schedule: ScheduledExperiment): { label: string; t
   if (schedule.review_reason) return { label: 'Needs review', tone: 'attention' };
   if (schedule.recovery_required) return { label: 'Held', tone: 'attention' };
   if (schedule.archived) return { label: 'Archived', tone: 'neutral' };
+  if (schedule.preparation_state && schedule.preparation_state !== 'ready') return preparationState[schedule.preparation_state];
   return schedule.is_active ? { label: 'Active', tone: 'completed' } : { label: 'Inactive', tone: 'neutral' };
 }
 
@@ -75,19 +76,23 @@ export default function ScheduleCollection({ title, statusFilter, schedules, sel
         {visible.map(schedule => {
           const state = scheduleState(schedule);
           // A record under review never runs, whatever time it holds.
-          const nextRun = schedule.review_reason ? null : schedule.next_run;
+          const preparationBlocked = schedule.preparation_state && schedule.preparation_state !== 'ready';
+          const nextRun = schedule.review_reason || preparationBlocked ? null : schedule.next_run;
           const current = selected?.schedule_id === schedule.schedule_id;
           return <Box component="li" key={schedule.schedule_id}>
           <ListItemButton
             aria-label={`Open ${schedule.experiment_name}`} aria-current={current ? 'true' : undefined}
             selected={current} onClick={() => onSelect(schedule)}
-            sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', [table]: { gridTemplateColumns: columns, height: 56 },
+            sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', [table]: { gridTemplateColumns: columns },
               columnGap: 2, rowGap: 0.25, alignItems: 'center', minHeight: 56, borderBottom: 1, borderColor: 'surface.rowLine', py: 1, px: 2 }}>
             <Box sx={{ minWidth: 0 }}>
               <Typography sx={{ fontSize: 13, lineHeight: '20px', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{schedule.experiment_name}</Typography>
               {schedule.review_reason
                 ? <ReviewReason reason={schedule.review_reason} />
                 : <Typography sx={{ fontFamily: fontMono, fontSize: 12, lineHeight: '16px', color: 'text.secondary', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{scheduleTarget(schedule).split(/[\\/]/).pop()}</Typography>}
+              {preparationBlocked && <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
+                The next run will not start. {schedule.preparation_review_reason ?? preparationState[schedule.preparation_state!].label}
+              </Typography>}
               <Typography sx={{ ...muted, mt: 0.5, [table]: { display: 'none' } }}>
                 {nextRun ? `Next ${dayTime(nextRun)}` : 'No next run'} · {repeatLabel(schedule)}
               </Typography>
@@ -97,6 +102,8 @@ export default function ScheduleCollection({ title, statusFilter, schedules, sel
             <Typography sx={{ ...muted, display: 'none', [table]: { display: 'block' }, fontFamily: fontMono, fontSize: 12 }}>{schedule.last_run ? dayTime(schedule.last_run) : '—'}</Typography>
             <Stack direction="row" flexWrap="wrap" gap={0.5} sx={{ gridRow: { xs: 1 }, gridColumn: { xs: 2 }, [table]: { gridRow: 'auto', gridColumn: 'auto' } }}>
               <StatusChip tone={state.tone} label={state.label} />
+              {preparationBlocked && state.label !== preparationState[schedule.preparation_state!].label
+                && <StatusChip {...preparationState[schedule.preparation_state!]} />}
               {schedule.mode !== 'real' && <StatusChip tone="neutral" label={SCHEDULE_MODE_LABELS[schedule.mode]} />}
             </Stack>
           </ListItemButton>

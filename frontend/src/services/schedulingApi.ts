@@ -2,6 +2,7 @@ import { api, currentSignIn } from './api';
 import { requestErrorMessage } from './requestError';
 import { coalesceRead } from '../utils/coalesceRead';
 import {
+  preparationState,
   ApiResponse,
   CreateScheduleRequest,
   UpdateScheduleRequest,
@@ -85,8 +86,9 @@ export const normalizeSchedule = (raw: any): ScheduledExperiment => {
     preparation: raw?.preparation && typeof raw.preparation === 'object' ? raw.preparation : null,
     // An unrecognised state is shown as unknown, never as ready.
     preparation_state: raw?.preparation
-      ? (['ready', 'needs_review', 'missing', 'invalid'].includes(raw?.preparation_state) ? raw.preparation_state : 'unknown')
+      ? (Object.keys(preparationState).includes(raw?.preparation_state) ? raw.preparation_state : 'unknown')
       : undefined,
+    preparation_review_reason: coerceOptionalString(raw?.preparation_review_reason),
     notification_contacts: Array.isArray(raw?.notification_contacts) ? raw.notification_contacts : [],
     recovery_required: Boolean(raw?.recovery_required),
     recovery_note: coerceOptionalString(raw?.recovery_note),

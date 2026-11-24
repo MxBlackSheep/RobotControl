@@ -1,3 +1,10 @@
+## 2026-11-24 Package usability and recovery
+
+- One manifest minimum determines package usability: declared and satisfied is ready; absent is Needs review; too new is Needs newer RobotControl. Undeclared ZIPs install visibly but cannot start work. Too-new installation is refused. No approval record or index migration is added.
+- Readiness, unchanged-schedule arming and execution use the same decision. Scheduling carries the precise state and refusal; disabling/removing remains available. Existing operation and registration receipts and dispatched-run monitoring remain recoverable.
+- App-generated manifests declare the running version and preserve higher source or installed requirements. Replacing Python can lower or clear the source requirement. Shipped manifests and CLI-created projects declare the minimum.
+- Manage packages shows both blocked states with the way out. Undeclared import review explains that installation leaves the package blocked. JSON helpers and previous-ZIP recovery wording are retained.
+
 ## 2026-11-24 Version 1.0.0b1
 
 - The application version is 1.0.0b1 in `backend/version.py`, `pyproject.toml`, `frontend/package.json` and both lock files, so the sidebar, the log and `--version` show the tag. `frontend/package.json` and its lock file use the SemVer spelling 1.0.0-beta.1, which `frontend/src/version.ts` shows as 1.0.0b1.

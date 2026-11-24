@@ -10,7 +10,8 @@ import zipfile
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from packaging.version import Version
 from backend.services.database_packages import Manifest, PackageCatalogue, PackageError, changelog_with_note, inspect_archive
 from backend.utils.filesystem import replace_file
 
@@ -20,6 +21,7 @@ class ReportDraft(BaseModel):
     name: str = Field(default='New report', min_length=1, max_length=100)
     package_id: str = Field(default='my-report', pattern=r'^[a-z][a-z0-9-]{0,63}$')
     version: str = Field(default='1.0.0', pattern=r'^\d+\.\d+\.\d+$')
+    min_robotcontrol_version: str | None = None
     libraries: list[str] = Field(default_factory=lambda: ['openpyxl'], max_length=20)
     original: str = Field(default='', max_length=1024*1024)
     handler: str = Field(default='', max_length=1024*1024)
@@ -37,8 +39,16 @@ class ReportDraft(BaseModel):
     operation_source: str | None = None
     change_note: str = Field(default='', max_length=2000)
 
+    @field_validator('min_robotcontrol_version')
+    @classmethod
+    def valid_minimum(cls, value):
+        return Manifest.valid_minimum(value)
+
     def manifest(self):
+        from backend.version import __version__
+        minimum = max(filter(None, [self.min_robotcontrol_version, __version__]), key=Version)
         return Manifest.model_validate(dict(contract_version=2, id=self.package_id, name=self.name,
+            min_robotcontrol_version=minimum,
             version=self.version, libraries=self.libraries, tools=[dict(id=self.tool_id or self.package_id, name=self.name,
                 kind=self.kind, entrypoint=self.entrypoint, sources=self.sources, inputs=self.inputs,
                 preview=self.preview, confirmation_field=self.confirmation_field)]))
@@ -52,6 +62,7 @@ class ReportDraft(BaseModel):
                 setattr(self, key, getattr(tool, key))
             self.inputs = [x.model_dump() for x in tool.inputs]
             self.libraries = manifest.libraries
+            self.min_robotcontrol_version = manifest.min_robotcontrol_version
             self.handler = self.files[filename]
         return self
 
@@ -63,6 +74,7 @@ DRAFT_SETTING_NAMES = {
     'entrypoint': 'starting function', 'kind': 'tool type', 'preview': 'preview setting',
     'confirmation_field': 'confirmation input', 'definition_file': 'defining Python file', 'files': 'file list',
     'operation_source': 'writing connection', 'change_note': 'change note',
+    'min_robotcontrol_version': 'minimum RobotControl version',
 }
 
 
@@ -386,7 +398,7 @@ class ReportAuthoring:
             has_definition = any(isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == 'TOOL' for t in n.targets)
                                  or isinstance(n, ast.AnnAssign) and isinstance(n.target, ast.Name) and n.target.id == 'TOOL' for n in tree.body)
             if not has_definition:
-                draft.files[draft.definition_file] = with_definition(draft.handler, tool)
+                draft.files[draft.definition_file] = with_definition(draft.handler, tool, manifest.min_robotcontrol_version)
             record = self.save(draft, owner)
             record['owner'] = owner
             record['base'] = dict(sha256=entry['sha256'], package_id=package_id, tool_id=tool.id, entrypoint=tool.entrypoint,
@@ -411,10 +423,8 @@ class ReportAuthoring:
     def draft(self, key, owner):
         return ReportDraft.model_validate(self.get(key, owner)['draft'])
 
-    def archive(self, draft, key=None, owner=None, trial=False, note=None):
-        """The package ZIP for a draft. `note` is given only when publishing: it becomes the
-        new version's CHANGELOG section, so the release note travels with Download package."""
-        draft = draft.model_copy(deep=True).derive()
+    def package_manifest(self, draft, key=None, owner=None):
+        """Effective draft manifest and retained files, including its containing package."""
         manifest = draft.manifest()
         files = {}
         base = self.get(key, owner).get('base') if key else None
@@ -425,9 +435,18 @@ class ReportAuthoring:
                 raise PackageError('An update cannot change a report into an operation or vice versa.')
             original, files = inspect_archive(self._path(key).with_suffix('.zip').read_bytes())
             combined = original.model_dump()
+            minimums = [v for v in (original.min_robotcontrol_version, manifest.min_robotcontrol_version) if v is not None]
+            combined['min_robotcontrol_version'] = max(minimums, key=Version)
             combined.update(contract_version=max(original.contract_version, 2), version=draft.version, libraries=sorted(set(original.libraries + draft.libraries)))
             combined['tools'] = [manifest.tools[0].model_dump() if t['id'] == draft.tool_id else t for t in combined['tools']]
             manifest = Manifest.model_validate(combined)
+        return manifest, files
+
+    def archive(self, draft, key=None, owner=None, trial=False, note=None):
+        """The package ZIP for a draft. `note` is given only when publishing: it becomes the
+        new version's CHANGELOG section, so the release note travels with Download package."""
+        draft = draft.model_copy(deep=True).derive()
+        manifest, files = self.package_manifest(draft, key, owner)
         if trial:
             manifest = manifest.model_copy(deep=True)
             manifest.id = 'draft-' + key

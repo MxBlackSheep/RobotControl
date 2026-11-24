@@ -61,10 +61,12 @@ def prepare(context, inputs):
 '''
 
 
-def package(version):
+def package(version, minimum='1.0.0b1'):
     manifest = dict(contract_version=2, id=PACKAGE, name='Preparation fixture', version=version, libraries=[],
                     tools=[dict(id=PACKAGE, name='Log the run', kind='preparation', entrypoint='prepare:prepare', sources=[],
                                 inputs=[dict(name='mode', label='Mode', type='choice', choices=['ok', 'raise', 'sleep', 'crash', 'commit', 'with'])])])
+    if minimum is not None:
+        manifest['min_robotcontrol_version'] = minimum
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, 'w') as archive:
         archive.writestr('manifest.json', json.dumps(manifest))
@@ -179,6 +181,42 @@ def run():
                 assert storage.get_schedule_by_id(schedule_id).preparation == saved
                 result['checks'].append('Only an administrator attaches, changes or removes a step; the server pins package hash and connection; a user editing timing or resubmitting it unchanged keeps it')
 
+                # Unchanged schedule with an incompatible preparation is not ready and cannot be armed; disabling still works.
+                from backend import version
+                assert update(schedule_id, {'is_active': False}).status_code == 200
+                with patch.object(version, '__version__', '1.0.0'):
+                    tools.catalogue.install(package('1.0.0', minimum='1.0.0'))
+                    assert update(schedule_id, {'is_active': True, 'preparation': dict(tool_id=PACKAGE, inputs=dict(mode='ok'))}).status_code == 200
+                pinned = storage.get_schedule_by_id(schedule_id).preparation
+                with patch.object(version, '__version__', '1.0.0b1'):
+                    reason = 'Requires RobotControl 1.0.0 or later. This computer has 1.0.0b1.'
+                    current = next(row for row in client.get('/api/scheduling/list?active_only=false').json()['data'] if row['schedule_id'] == schedule_id)
+                    assert current['preparation_state'] == 'needs_newer'
+                    assert current['preparation_review_reason'] == reason
+                    from backend.services.scheduling.pre_execution import PreExecutionPipeline
+                    try:
+                        PreExecutionPipeline(manager).prepare(storage.get_schedule_by_id(schedule_id), 'incompatible')
+                        raise AssertionError('Incompatible preparation reached execution')
+                    except SafetyConflict as exc:
+                        assert str(exc) == reason
+                    assert receipt('incompatible') is None and not launched and not logged()
+                    for role in ('admin', 'user'):
+                        for preparation in ({}, {'preparation': dict(tool_id=PACKAGE, inputs=dict(mode='ok'))}):
+                            assert update(schedule_id, {'is_active': False, **preparation}, role=role).status_code == 200
+                            refused = update(schedule_id, {'is_active': True, **preparation}, role=role)
+                            assert refused.status_code == 409 and refused.json()['detail'] == reason, refused.text
+                            assert not storage.get_schedule_by_id(schedule_id).is_active
+                            assert storage.get_schedule_by_id(schedule_id).preparation == pinned
+                    assert update(schedule_id, {'is_active': True, 'preparation': None}).status_code == 200
+                    assert storage.get_schedule_by_id(schedule_id).preparation is None
+                assert update(schedule_id, {'is_active': False}).status_code == 200
+                tools.catalogue.install(package('1.0.0'))
+                assert update(schedule_id, {'is_active': True, 'preparation': dict(tool_id=PACKAGE, inputs=dict(mode='ok'))}).status_code == 200
+                saved = storage.get_schedule_by_id(schedule_id).preparation
+                assert tools.preparation_state(saved) == 'ready'
+                assert tools.preparation_review(saved)[1] is None
+                result['checks'].append('Unchanged schedule with an incompatible preparation is not ready and cannot be armed; disabling still works; removing the step and declared packages remain usable')
+
                 ok, first = execute(schedule_id)
                 assert ok and launched == [first] and logged().get(first) == 'ok'
                 assert receipt(first)['status'] == 'prepared' and 'Logged ok for Prepared run' in receipt(first)['message']
@@ -218,6 +256,7 @@ def run():
                     schedule.is_active = False
                     assert storage.update_schedule(schedule)
                 tools.catalogue.install(package('1.0.1'))
+                assert tools.preparation_review(storage.get_schedule_by_id(schedule_id).preparation) == ('needs_review', None)
                 assert next(row for row in client.get('/api/scheduling/list?active_only=false').json()['data'] if row['schedule_id'] == schedule_id)['preparation_state'] == 'needs_review'
                 rows = len(logged())
                 ok, blocked = execute(schedule_id)

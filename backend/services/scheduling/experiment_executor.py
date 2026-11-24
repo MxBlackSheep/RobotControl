@@ -182,13 +182,15 @@ class ExperimentExecutor:
                         run_target.experiment_name,
                     )
 
-            if run_pre_execution:
-                try:
+            try:
+                if run_pre_execution:
                     self.pre_execution.prepare(experiment, execution.execution_id)
-                except Exception as exc:
-                    logger.exception('Lab preparation failed for %s', experiment.schedule_id)
-                    execution.error_message = str(exc)
-                    return False
+                else:
+                    self.pre_execution.require_ready(experiment)
+            except Exception as exc:
+                logger.exception('Lab preparation failed for %s', experiment.schedule_id)
+                execution.error_message = str(exc)
+                return False
 
             result = self._execute_real_command(run_target, execution, time.time(), experiment,
                                                 bool(effective_timeout_context.get('terminate_schedule')))

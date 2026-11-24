@@ -146,7 +146,8 @@ ignores results after the section becomes inactive.
 
 - `InspectionWorkspace` groups packages under Reports, Operations, Preparation steps and
   Experiment types. A mixed package appears once under its first tool kind; counts count
-  packages. Rows show only name, version and Installed. Selection has a primary-colour inset
+  packages. Rows show only name, version and state: **Needs newer RobotControl** takes
+  priority over **Installed**, using `StatusChip`'s attention tone. Selection has a primary-colour inset
   bar and `aria-current`; narrow screens use Back to packages.
 - Select a row to open its detail panel. **More** holds Update package, supported report or
   operation editing, Download package, Connections, Experiments connection where applicable,
@@ -155,6 +156,10 @@ ignores results after the section becomes inactive.
   "Package structure checked. No Python code." Packages with Python say
   "Package structure and declared libraries checked. Python code has not been run."
   Import review uses the same wording, derived from tool kinds.
+- Needs newer RobotControl package details and import review show the server's required/current-version
+  sentence; review disables installation. Details and update review remind the author to keep
+  the previous ZIP and that reinstalling it does not undo database changes. Compatibility is
+  server-derived; existing consumer refusal displays need no separate client version comparison.
 - Removal asks for confirmation and warns that package history is deleted, database changes
   are not undone and returning to older code needs its ZIP. Running-package restrictions and
   server refusals remain. History lists metadata and file-change names, not source rollback;
@@ -241,3 +246,14 @@ EvoYeast experiment preparation needs reading and operation connections to the s
 server/database as Experiments. Missing or mismatched setup produces a message, never
 a saved schedule. See the scheduling guide for draft and receipt ownership. No Excel
 layout import or lab schema migration is provided.
+
+Package rows use the server state: `needs_newer` is Needs newer RobotControl,
+`needs_review` is Needs review, and `ready` is Installed. Both blocked states use
+attention tone. Details show `reason`; undeclared import review explains that it
+will install blocked until a copy declaring `min_robotcontrol_version` is imported.
+Only needs_newer disables installation. There is no package approval action.
+Scheduling normalization carries both blocked states and `preparation_review_reason`.
+Schedule rows and details show the shared state chip and the reason the schedule will
+not run; a blocked preparation does not display a next run as runnable. The phone
+agenda retains blocked armed schedules, shows their chip instead of a run time, and
+opens the precise reason in row details. The edit form also shows the state and reason.

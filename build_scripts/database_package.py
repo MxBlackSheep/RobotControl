@@ -10,7 +10,8 @@ import sys
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from backend.services.database_packages import Manifest, PackageError, inspect_archive
+from backend.version import __version__
+from backend.services.database_packages import Manifest, PackageError, SUPPORTED_FILES, inspect_archive
 
 
 def ask(label, default=''):
@@ -62,7 +63,7 @@ def create(args):
             value_type='integer'))]
     if kind == 'operation':
         tool.update(preview='handler:preview', confirmation_field=args.confirmation or ask('Input to type for confirmation', 'experiment_id'))
-    manifest = Manifest.model_validate(dict(contract_version=2, id=package_id, name=name, version=version,
+    manifest = Manifest.model_validate(dict(min_robotcontrol_version=__version__, contract_version=2, id=package_id, name=name, version=version,
         libraries=[value.strip() for value in libraries.split(',') if value.strip()], tools=[tool]))
     names = ', '.join(f'inputs[{field.name!r}]' for field in manifest.tools[0].inputs) or '(no inputs)'
     handler = f'''"""Adapt reference/{source.name}; keep its calculations and selection rules."""
@@ -127,7 +128,7 @@ def build(args):
     with zipfile.ZipFile(buffer, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr('manifest.json', json.dumps(manifest, indent=2))
         for file in sorted(folder.iterdir()):
-            if file.is_file() and file.suffix in {'.py', '.txt', '.md'} and file.name != 'AGENTS.md':
+            if file.is_file() and file.suffix.lower() in SUPPORTED_FILES and file.name.lower() not in {'agents.md', 'manifest.json'}:
                 source = file.read_bytes()
                 if file.suffix == '.py' and b'ADAPT_BEFORE_BUILD' in source:
                     raise ValueError(f'Finish adapting {file.name} and remove ADAPT_BEFORE_BUILD before building.')

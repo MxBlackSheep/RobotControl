@@ -24,6 +24,7 @@ import openpyxl
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from backend.api.database_tools import router
+from backend.version import __version__
 from backend.services.auth import get_current_user
 from backend.services.database_tools import DatabaseTools, get_database_tools
 from backend.e2e.database_fixture import DatabaseFixture, configure_fixture_report_sources
@@ -54,6 +55,10 @@ def run():
                 folder=defaults/slug; folder.mkdir(parents=True)
                 for old_name in ('handler.py','manifest.json'):
                     content=subprocess.check_output(['git','show',f'{BASELINE}:database_packages/{slug}/{old_name}'],cwd=ROOT)
+                    if old_name=='manifest.json':
+                        # The old manifests predate min_robotcontrol_version; declare it so this check keeps comparing calculations.
+                        # Undeclared packages being blocked is checked in package_upgrade_check.py.
+                        content=json.dumps({**json.loads(content),'min_robotcontrol_version':__version__}).encode()
                     (folder/old_name).write_bytes(content)
                 old=ast.parse((folder/'handler.py').read_text('utf-8'))
                 new=ast.parse((ROOT/'database_packages'/slug/filename).read_text('utf-8'))

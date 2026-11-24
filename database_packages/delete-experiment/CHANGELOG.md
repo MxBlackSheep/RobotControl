@@ -5,9 +5,8 @@
 The Experiment list shows the newest experiments first (by ExperimentID, highest first)
 instead of alphabetically by name. Search still matches the name.
 
-Needs RobotControl 0.1.5 or later. A package cannot declare a minimum application version,
-so an older RobotControl refuses this ZIP on import (the message names `lookup.order`) and
-keeps 1.0.0 installed.
+Needs RobotControl 0.1.5 or later. Older versions refuse this ZIP on import (the message names `lookup.order`) and
+keep 1.0.0 installed.
 
 ## 1.0.0
 

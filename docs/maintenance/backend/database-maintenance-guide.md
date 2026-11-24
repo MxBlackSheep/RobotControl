@@ -158,6 +158,22 @@ their choices and experiment searches. Catalogue responses omit query text and c
 
 ### Installation and history
 
+- The optional manifest `min_robotcontrol_version` is a canonical PEP 440 version with
+  three release parts, for example `1.0.0b2`. Prerelease, postrelease and development
+  suffixes are allowed; ranges, epochs, local suffixes and `V` prefixes are rejected.
+  Omission means Needs review: installation is allowed, but new work is blocked until a declared copy is imported or republished. `packaging.version.Version` compares it with
+  `backend.version.__version__`, including prerelease ordering.
+- Inspection and installed listings return `state`, `current_robotcontrol_version`
+  and `reason` on the package details. A blocked installed package
+  remains visible after startup; other packages continue loading. Install/update refuse only needs_newer
+  with 409 before creating files: “Requires RobotControl {minimum} or later. This computer
+  has {current}.” Reservations, Python loading and worker entry recheck; workers refuse
+  before opening connections. Existing consumer error paths display the refusal.
+- CLI build and export validate the minimum's syntax without requiring the current machine
+  to satisfy it. Builder, installer, seeding and export share the supported flat-file suffixes;
+  supporting JSON is included and the builder writes `manifest.json` once.
+- Keep the previous ZIP before updating. Reinstalling it does not undo database changes.
+  Same-version replacements and downgrades remain permitted; no rollback or retention feature is added.
 - `POST /packages/inspect` reads and compiles the ZIP without importing Python or writing, and
   returns the manifest and the installed hash. `POST /packages` takes `expected_current` (that
   hash, or `absent`) and `expected_package`; a mismatch returns 409. Uploads are limited to
@@ -208,6 +224,9 @@ catalogue → connections; publication takes catalogue then connections.
 
 ### Drafts and publication
 
+- Source `TOOL` metadata accepts `min_robotcontrol_version`. Generated manifests use the running RobotControl version as a floor. Drafts carry higher source requirements into
+  manifests; editing and publishing a package preserves at least its existing minimum,
+  including mixed packages. Replacing Python derives the draft requirement from the current source. Trials use their private catalogue and generated minimum.
 - `POST /authoring/import` creates or replaces a code-defined draft; `mode` is `python` (one
   defining file, replaced even when renamed), `supporting` (helpers; another `TOOL` is
   rejected) or `all` (complete source set, the default). `POST /authoring/{kind}/{id}/edit`
@@ -340,3 +359,20 @@ the shipped defaults. No Excel import, schema migration, automatic launch or cus
 registration code is supported. Shou_Lab must read those parameters before delivery.
 Scratch checks do not establish real EvoYeast column limits, procedure behavior or lab
 compatibility; the first real registration remains supervised.
+
+`PackageCatalogue.compatibility` owns the three states: `ready` for a declared and
+satisfied minimum, `needs_review` for no declaration, `needs_newer` for a newer
+minimum. The installed index remains version 2; no approval records, recognition
+or approval migration exist. Reports, operations, lookup, registration, Open
+Scheduling, pinning, readiness, unchanged arming, preparation execution and workers
+use this decision. Draft lookups check the effective draft manifest, including a
+higher containing-package minimum when editing, before opening a connection.
+Both scheduler launch paths stop on preparation refusal. A recovered PyHSL request
+without a run ID searches first: a matching run is adopted, while an unmatched
+request rechecks pinned preparation readiness before any new POST. VENUS timeout
+cleanup checks that same readiness without running preparation; blocked preparation
+refuses the cleanup launch with its precise reason. Eligible cleanup keeps its
+existing target and termination behavior.
+Operation/registration receipts replay before new-work checks; monitoring an
+already-dispatched PyHSL request does not repeat preparation. Disabling/removing a
+preparation remains possible, and changed-package/connection pin review is separate.
