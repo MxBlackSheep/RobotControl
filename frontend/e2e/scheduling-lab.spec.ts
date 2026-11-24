@@ -82,7 +82,7 @@ test('blocked armed preparation explains its refusal in the list, details and ph
   await page.route('**/api/auth/me', route => route.fulfill({ json: { success: true, data: {
     user_id: 'operator', username: 'operator', role: 'user', session: { is_local: false } } } }));
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/scheduling?section=calendar');
+  await page.goto('/scheduling');
   await expect(page.getByRole('button', { name: 'Agenda', exact: true })).toBeVisible();
   for (const item of blocked) {
     const row = page.getByRole('button').filter({ hasText: item.state });
@@ -103,7 +103,7 @@ test('a record under review shows its reason, cannot run, and saving it with a t
     current = { ...review, schedule_type: writes[0].schedule_type, review_reason: null, updated_at: '2026-09-25T11:00:00' };
     await route.fulfill({ json: { success: true, data: current } });
   } });
-  await page.goto('/scheduling?section=calendar');
+  await page.goto('/scheduling');
   await expect(page.getByText('Daily wash', { exact: true })).toBeVisible();
   await expect(page.getByText('Old cron method', { exact: true })).toHaveCount(0);
   await page.goto('/scheduling?section=schedules');
