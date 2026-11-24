@@ -6,6 +6,8 @@ import { signIn as signInCookie } from './sign-in';
  * - The protocol list cannot be searched by name or ID, or offers a mode the protocol does not allow.
  * - A PyHSL schedule saves without a protocol PyHSL accepted, or in another mode than the one chosen.
  * - A refused protocol or an unreadable list hides Run Control's reason; Retry does not recover the list.
+ * - A required integer without a default disappears after refusal, saves as text, or saves below its minimum.
+ * - Pending validation or a refused edit reuses acceptance; clearing a number restores zero or a default.
  * Run page (PyHSL's Monitoring API view; every visible behaviour, owner's rule for this page)
  * - The view runs with RobotControl's origin (it could reach the sign-in tokens), or gets the bodies changed.
  * - The view does not follow light or dark, or does not redraw with a new reading.
@@ -69,8 +71,11 @@ test('a PyHSL schedule is chosen by search and saves in a mode its protocol allo
   const checks: any[] = [];
   await page.route('**/api/pyhsl/protocols', route => route.fulfill({ json: protocols }));
   await page.route('**/api/pyhsl/validate', route => {
-    checks.push(route.request().postDataJSON());
-    return route.fulfill({ json: { protocol: checked } });
+    const request = route.request().postDataJSON();
+    checks.push(request);
+    return route.fulfill({ json: { protocol: { ...checked, parameters: { round: {
+      ...checked.parameters.round, label: request.parameters.round === 'second' ? 'Validated round' : 'Round',
+    } } } } });
   });
   const editor = await openPyHslForm(page, writes);
   const field = editor.getByRole('combobox', { name: 'Protocol' });
@@ -89,9 +94,79 @@ test('a PyHSL schedule is chosen by search and saves in a mode its protocol allo
   await expect.poll(() => checks.at(-1)?.mode).toBe('test');
   await editor.getByRole('combobox', { name: 'Round' }).click();
   await page.getByRole('option', { name: 'second', exact: true }).click();
+  await expect(editor.getByRole('combobox', { name: 'Validated round' })).toBeVisible();
   await editor.getByRole('button', { name: 'Create schedule', exact: true }).click();
   await expect.poll(() => writes.length).toBe(1);
   expect(writes[0]).toMatchObject({ runner: 'pyhsl', protocol_id: 'pyhsl_test_automation', parameters: { round: 'second' }, mode: 'test', experiment_name: 'Automation Test' });
+});
+
+test('required catalog inputs survive refusal, block invalid saves and save a valid integer', async ({ page }) => {
+  await signIn(page);
+  const writes: any[] = [];
+  const checks: any[] = [];
+  const protocol = { ...listed('champions', 'Champions', ['simulation', 'test']),
+    parameters: { experiment_id: { label: 'ExperimentID', type: 'integer', min: 1 } } };
+  let releaseValidation!: () => void;
+  const validationHeld = new Promise<void>(resolve => { releaseValidation = resolve; });
+  await page.route('**/api/pyhsl/protocols', route => route.fulfill({ json: [protocol] }));
+  await page.route('**/api/pyhsl/validate', async route => {
+    const request = route.request().postDataJSON();
+    checks.push(request);
+    const value = request.parameters.experiment_id;
+    if (Number.isInteger(value) && value >= 1) {
+      await validationHeld;
+      // A changed value on screen proves the success reply has reached React.
+      return route.fulfill({ json: { protocol: { ...protocol, parameters: {
+        experiment_id: { ...protocol.parameters.experiment_id, default: 43 },
+      } }, parameters: { experiment_id: 43 } } });
+    }
+    return route.fulfill({ status: 400, json: { detail: 'ExperimentID must be an integer of at least 1' } });
+  });
+  const editor = await openPyHslForm(page, writes);
+  await editor.getByRole('combobox', { name: 'Protocol' }).fill('Champions');
+  await page.getByRole('option', { name: /Champions/ }).click();
+  const input = editor.getByRole('spinbutton', { name: 'ExperimentID' });
+  const refusal = editor.getByText('ExperimentID must be an integer of at least 1', { exact: true });
+  await expect(input).toBeVisible();
+  await expect(refusal).toBeVisible();
+  expect(checks[0].parameters).toEqual({});
+
+  await input.fill('0');
+  await expect.poll(() => checks.at(-1)?.parameters.experiment_id).toBe(0);
+  await expect(refusal).toBeVisible();
+  await editor.getByRole('button', { name: 'Create schedule', exact: true }).click();
+  await expect(editor.getByText('Choose a protocol', { exact: true })).toBeVisible();
+  expect(writes).toEqual([]);
+  await expect(input).toHaveValue('0');
+
+  await input.fill('42');
+  try {
+    await expect.poll(() => checks.at(-1)?.parameters.experiment_id).toBe(42);
+    await expect(refusal).toHaveCount(0);
+    await editor.getByRole('button', { name: 'Create schedule', exact: true }).click();
+    await expect(editor.getByText('Choose a protocol', { exact: true })).toBeVisible();
+    expect(writes).toEqual([]);
+  } finally {
+    releaseValidation();
+  }
+  await expect(input).toHaveValue('43');
+  await editor.getByRole('button', { name: 'Create schedule', exact: true }).click();
+  await expect.poll(() => writes.length).toBe(1);
+  expect(writes[0]).toMatchObject({ runner: 'pyhsl', protocol_id: 'champions', parameters: { experiment_id: 43 }, mode: 'simulation' });
+  await expect(editor.getByText('Fixture keeps this draft open.', { exact: true })).toBeVisible();
+
+  const checksBeforeClear = checks.length;
+  await input.fill('');
+  await expect(input).toHaveValue('');
+  await editor.getByRole('button', { name: 'Create schedule', exact: true }).click();
+  await expect(editor.getByText('Choose a protocol', { exact: true })).toBeVisible();
+  expect(writes).toHaveLength(1);
+  await expect.poll(() => checks.length).toBeGreaterThan(checksBeforeClear);
+  expect(checks.at(-1).parameters).toEqual({});
+  await expect(refusal).toBeVisible();
+  await expect(input).toHaveValue('');
+  await editor.getByRole('button', { name: 'Create schedule', exact: true }).click();
+  expect(writes).toHaveLength(1);
 });
 
 test('an unreadable list or a refused protocol shows the reason and nothing is saved', async ({ page }) => {

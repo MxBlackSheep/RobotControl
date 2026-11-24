@@ -5,7 +5,7 @@ import { fontMono } from '../../theme';
 import { SCHEDULE_MODE_LABELS, type ScheduleMode } from '../../types/scheduling';
 
 type Definition = { label?: string; description?: string; type?: string; default?: unknown; choices?: unknown[]; shown_when?: Record<string, unknown[]> };
-type Listed = { id: string; name: string; revision: string; modes: ScheduleMode[]; description?: string };
+type Listed = { id: string; name: string; revision: string; modes: ScheduleMode[]; description?: string; parameters?: Record<string, Definition> };
 export type CheckedProtocol = { id: string; name: string; modes: ScheduleMode[]; parameters: Record<string, Definition> };
 
 const MODE_ORDER: ScheduleMode[] = ['simulation', 'test', 'real'];
@@ -15,11 +15,12 @@ const shown = (definition: Definition, values: Record<string, unknown>) =>
 
 /** Only fields that exist for these values are sent: PyHSL refuses a value for a hidden field. */
 const visibleValues = (definitions: Record<string, Definition>, values: Record<string, unknown>) => Object.fromEntries(Object.entries(definitions)
-  .filter(([, definition]) => shown(definition, values)).map(([name, definition]) => [name, values[name] ?? definition.default]));
+  .filter(([, definition]) => shown(definition, values)).map(([name, definition]) => [name,
+    Object.prototype.hasOwnProperty.call(values, name) ? values[name] : definition.default]));
 
 /**
  * The search lists the protocols PyHSL can run unattended; choosing one validates it in the
- * chosen mode, and validate's parameter definitions draw the fields below.
+ * chosen mode. Catalog definitions draw the fields until validation succeeds.
  */
 export default function PyHslProtocolField({ protocolId, parameters, mode, disabled, onChange, onModeChange }: {
   protocolId: string;
@@ -47,6 +48,9 @@ export default function PyHslProtocolField({ protocolId, parameters, mode, disab
   }, []);
 
   const latestCheck = useRef(0);
+  const acceptedInput = useRef<string | null>(null);
+  const validationTimer = useRef<ReturnType<typeof setTimeout>>();
+  const validationContext = useRef<{ selected: Listed | null; mode: ScheduleMode }>();
   const check = useCallback(async (listed: Listed, runMode: ScheduleMode) => {
     const { parameters: values, onChange: changed } = current.current;
     const mine = ++latestCheck.current;
@@ -57,8 +61,11 @@ export default function PyHslProtocolField({ protocolId, parameters, mode, disab
       if (mine !== latestCheck.current) return;
       const definitions: Record<string, Definition> = data.protocol?.parameters ?? {};
       const result = { id: listed.id, name: data.protocol?.name || listed.name, modes: listed.modes, parameters: definitions };
+      const normalized = data.parameters ?? visibleValues(definitions, values);
+      // Applying PyHSL's normalized values must not start another validation request.
+      acceptedInput.current = JSON.stringify([listed.id, runMode, normalized]);
       setChecked(result);
-      changed(listed.id, data.parameters ?? visibleValues(definitions, values), result);
+      changed(listed.id, normalized, result);
     } catch (err: any) {
       if (mine !== latestCheck.current) return;
       setChecked(null);
@@ -69,20 +76,47 @@ export default function PyHslProtocolField({ protocolId, parameters, mode, disab
 
   useEffect(() => { void load(); }, [load]);
   const selected = protocols?.find(protocol => protocol.id === protocolId) ?? null;
+  const definitions = (checked ?? selected)?.parameters ?? {};
+  const inputKey = JSON.stringify([protocolId, mode, parameters]);
   const options = useMemo(() => [...(protocols ?? [])].sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id)), [protocols]);
   // A saved schedule draws its fields as soon as the list arrives.
-  useEffect(() => { if (selected) void check(selected, mode); }, [selected?.id, mode]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const valueEdit = validationContext.current?.selected === selected && validationContext.current?.mode === mode;
+    validationContext.current = { selected, mode };
+    if (selected && inputKey !== acceptedInput.current) {
+      acceptedInput.current = null;
+      setChecked(null);
+      current.current.onChange(selected.id, current.current.parameters, null);
+      if (valueEdit) validationTimer.current = setTimeout(() => void check(selected, mode), 400);
+      else void check(selected, mode);
+    }
+    return () => {
+      clearTimeout(validationTimer.current);
+      latestCheck.current += 1;
+    };
+  }, [selected, mode, inputKey, check]);
 
   const choose = (id: string) => {
     const listed = protocols?.find(protocol => protocol.id === id);
-    if (!listed) return;
+    if (!listed || id === protocolId) return;
+    clearTimeout(validationTimer.current);
+    latestCheck.current += 1;
+    acceptedInput.current = null;
     setChecked(null);
     onChange(id, {}, null);
     const nextMode = listed.modes.includes(mode) ? mode : listed.modes.includes('simulation') ? 'simulation' : listed.modes[0];
     if (nextMode !== mode) onModeChange(nextMode);
   };
 
-  const setValue = (name: string, value: unknown) => onChange(protocolId, visibleValues(checked?.parameters ?? {}, { ...parameters, [name]: value }), checked);
+  const setValue = (name: string, value: unknown) => {
+    const values = visibleValues(definitions, { ...parameters, [name]: value });
+    if (JSON.stringify(values) === JSON.stringify(parameters)) return;
+    clearTimeout(validationTimer.current);
+    latestCheck.current += 1;
+    acceptedInput.current = null;
+    setChecked(null);
+    onChange(protocolId, values, null);
+  };
   if (listError) return <Alert severity="error" sx={{ overflowWrap: 'anywhere' }}
     action={<Button color="inherit" size="small" onClick={() => void load()}>Retry</Button>}>{protocolId ? `${protocolId}: ${listError}` : listError}</Alert>;
 
@@ -108,8 +142,7 @@ export default function PyHslProtocolField({ protocolId, parameters, mode, disab
           <ToggleButton key={value} value={value}>{SCHEDULE_MODE_LABELS[value]}</ToggleButton>)}
       </ToggleButtonGroup>
     </Box>}
-    {error && <Alert severity="error" sx={{ overflowWrap: 'anywhere' }}>{error}</Alert>}
-    {checked && Object.entries(checked.parameters).filter(([, definition]) => shown(definition, parameters)).map(([name, definition]) => definition.type === 'boolean'
+    {Object.entries(definitions).filter(([, definition]) => shown(definition, parameters)).map(([name, definition]) => definition.type === 'boolean'
       ? <FormControlLabel key={name} label={definition.label || name} disabled={disabled}
           control={<Switch checked={parameters[name] === true} onChange={event => setValue(name, event.target.checked)} />} />
       : definition.choices?.length
@@ -122,6 +155,8 @@ export default function PyHslProtocolField({ protocolId, parameters, mode, disab
         </FormControl>
       : <TextField key={name} fullWidth label={definition.label || name} value={String(parameters[name] ?? '')} disabled={disabled}
           type={definition.type === 'number' || definition.type === 'integer' ? 'number' : 'text'}
-          onChange={event => setValue(name, definition.type === 'number' || definition.type === 'integer' ? Number(event.target.value) : event.target.value)} />)}
+          onChange={event => setValue(name, definition.type === 'number' || definition.type === 'integer'
+            ? (event.target.value === '' ? undefined : Number(event.target.value)) : event.target.value)} />)}
+    {error && <Alert severity="error" sx={{ overflowWrap: 'anywhere' }}>{error}</Alert>}
   </Stack>;
 }
