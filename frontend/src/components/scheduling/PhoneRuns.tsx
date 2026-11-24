@@ -9,7 +9,7 @@ import { useSerialPolling } from '../../hooks/useSerialPolling';
 import { useRobotStatusContext } from '../../hooks/useRobotStatus';
 import { pyhslRunId } from '../../hooks/usePyHslStatus';
 import { Link } from 'react-router-dom';
-import { SCHEDULE_MODE_LABELS, type ScheduledExperiment } from '../../types/scheduling';
+import { preparationState, SCHEDULE_MODE_LABELS, type ScheduledExperiment } from '../../types/scheduling';
 import { fontMono, layout } from '../../theme';
 import { clockTime, dayTime } from '../../utils/displayTime';
 import { repeatLabel, scheduleTarget } from './ScheduleCollection';
@@ -99,10 +99,11 @@ function Agenda() {
   const dayOf = (schedule: ScheduledExperiment) => { const time = validTime(schedule.next_run); return time === null ? null : dayStart(new Date(time)); };
   const todayRuns = candidates.filter(schedule => {
     const day = dayOf(schedule);
+    if (schedule.preparation_state && schedule.preparation_state !== 'ready') return true;
     return schedule.recovery_required ? day === null || day <= today : day === today;
   }).sort(byTime);
   const tomorrowRuns = candidates.filter(schedule => !todayRuns.includes(schedule) && dayOf(schedule) === today + DAY_MS).sort(byTime);
-  const later = candidates.filter(schedule => (dayOf(schedule) ?? -Infinity) > today + DAY_MS).sort(byTime)[0];
+  const later = candidates.filter(schedule => !todayRuns.includes(schedule) && (dayOf(schedule) ?? -Infinity) > today + DAY_MS).sort(byTime)[0];
   const toggle = (id: string) => setOpen(current => (current === id ? null : id));
 
   const details = (schedule: ScheduledExperiment) => {
@@ -111,15 +112,21 @@ function Agenda() {
     if (schedule.mode !== 'real') items.push(['Mode', SCHEDULE_MODE_LABELS[schedule.mode]]);
     if (schedule.last_run) items.push(['Last run', dayTime(schedule.last_run)]);
     if (schedule.recovery_required && schedule.recovery_note) items.push(['Held', schedule.recovery_note]);
+    if (schedule.preparation_state && schedule.preparation_state !== 'ready') {
+      items.push(['Before this run', <StatusChip {...preparationState[schedule.preparation_state]} />]);
+      items.push(['Will not run', schedule.preparation_review_reason ?? preparationState[schedule.preparation_state].label]);
+    }
     return <Facts items={items} note="Edit on the workstation." />;
   };
   const row = (schedule: ScheduledExperiment) => {
-    const time = validTime(schedule.next_run);
+    const preparationBlocked = schedule.preparation_state && schedule.preparation_state !== 'ready';
+    const time = preparationBlocked ? null : validTime(schedule.next_run);
     return <RunRow key={schedule.schedule_id} id={schedule.schedule_id} columns="52px minmax(0, 1fr) auto" open={open === schedule.schedule_id}
       onToggle={() => toggle(schedule.schedule_id)} details={details(schedule)}>
       <Box component="span" sx={mono}>{time === null ? '—' : clockTime(new Date(time))}</Box>
       {name(schedule.experiment_name)}
-      <span>{schedule.recovery_required && <StatusChip tone="attention" label="Held" />}</span>
+      <span>{preparationBlocked ? <StatusChip {...preparationState[schedule.preparation_state!]} />
+        : schedule.recovery_required && <StatusChip tone="attention" label="Held" />}</span>
     </RunRow>;
   };
 

@@ -367,6 +367,16 @@ class DatabaseTools:
         with catalogue.reserve(tool_id, kind) as (entry, tool):
             return self._tool_choices(entry['manifest']['id'], tool, field_name, inputs, search, page, mapping)
 
+    def draft_choices(self, key, owner, field_name, inputs, search, page):
+        with self.authoring.lock:
+            draft = self.authoring.draft(key, owner).derive()
+            manifest, _ = self.authoring.package_manifest(draft, key, owner)
+            self.catalogue.require_compatible(manifest.model_dump())
+            tool = next(t for t in manifest.tools if t.id == (draft.tool_id or draft.package_id))
+            if not any(x.name == field_name and x.lookup for x in tool.inputs):
+                raise PackageError('Choice not found', 404)
+            return self._tool_choices(draft.package_id, tool, field_name, inputs, search, page, draft.mappings)
+
     def _tool_choices(self, package_id, tool, field_name, inputs, search, page, mapping=None):
         values = tool.validate_values(inputs, partial=True)
         field = next((x for x in tool.inputs if x.name == field_name and x.lookup), None)

@@ -204,6 +204,7 @@ class PyHslRunner:
                     break
                 with self.engine.launch_guard(schedule, execution):
                     pass
+                PreExecutionPipeline.require_ready(schedule)
                 run = self.client.post('/runs', receipt['request'], timeout=60)
                 if not isinstance(run, dict) or not isinstance(run.get('run_id'), str) or not run['run_id']:
                     self._finish(schedule, execution, 'failed', 'PyHSL start returned no run ID', 'aborted', hold=True)

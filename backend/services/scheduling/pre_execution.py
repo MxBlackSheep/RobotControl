@@ -16,7 +16,9 @@ class PreExecutionPipeline:
     def __init__(self, db_manager):
         self._db_manager = db_manager
 
-    def prepare(self, experiment, execution_id):
+    @staticmethod
+    def require_ready(experiment):
+        """Check the pinned step without executing it or creating an attempt receipt."""
         preparation = getattr(experiment, 'preparation', None)
         tools = None
         if preparation:
@@ -29,6 +31,11 @@ class PreExecutionPipeline:
                 reason = {'missing': 'is no longer installed',
                           'invalid': 'saved with this schedule is unreadable'}.get(state, 'changed after this schedule was saved')
                 raise SafetyConflict(f'The database preparation step {reason}. A local administrator must review and save the schedule.')
+        return tools
+
+    def prepare(self, experiment, execution_id):
+        tools = self.require_ready(experiment)
+        preparation = getattr(experiment, 'preparation', None)
         storage = self._db_manager.sqlite_db
         with storage._get_connection() as conn:
             conn.execute('BEGIN IMMEDIATE')

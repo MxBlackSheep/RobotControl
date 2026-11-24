@@ -365,7 +365,14 @@ satisfied minimum, `needs_review` for no declaration, `needs_newer` for a newer
 minimum. The installed index remains version 2; no approval records, recognition
 or approval migration exist. Reports, operations, lookup, registration, Open
 Scheduling, pinning, readiness, unchanged arming, preparation execution and workers
-use this decision. Both scheduler launch paths stop on preparation refusal.
+use this decision. Draft lookups check the effective draft manifest, including a
+higher containing-package minimum when editing, before opening a connection.
+Both scheduler launch paths stop on preparation refusal. A recovered PyHSL request
+without a run ID searches first: a matching run is adopted, while an unmatched
+request rechecks pinned preparation readiness before any new POST. VENUS timeout
+cleanup checks that same readiness without running preparation; blocked preparation
+refuses the cleanup launch with its precise reason. Eligible cleanup keeps its
+existing target and termination behavior.
 Operation/registration receipts replay before new-work checks; monitoring an
 already-dispatched PyHSL request does not repeat preparation. Disabling/removing a
 preparation remains possible, and changed-package/connection pin review is separate.

@@ -54,6 +54,44 @@ const review = stored({ schedule_id: 'old-cron', experiment_name: 'Old cron meth
 const coming = stored({ schedule_id: 'wash', experiment_name: 'Daily wash', experiment_path: 'C:\\Methods\\wash.med',
   schedule_type: 'daily', next_run: '2026-12-01T09:00:00' });
 
+test('blocked armed preparation explains its refusal in the list, details and phone agenda', async ({ page }) => {
+  const blocked = [
+    { state: 'needs_review', label: 'Needs review', reason: 'Import a copy that declares min_robotcontrol_version.' },
+    { state: 'needs_newer', label: 'Needs newer RobotControl', reason: 'Requires RobotControl 1.0.0 or later. This computer has 1.0.0b1.' },
+  ];
+  const rows = blocked.map(item => stored({ schedule_id: item.state, experiment_name: item.state,
+    experiment_path: 'blocked.med', next_run: new Date().toISOString(),
+    preparation: { tool_id: 'log-run', package_id: 'log-run', package_version: '1.0.0', inputs: {} },
+    preparation_state: item.state, preparation_review_reason: item.reason }));
+  await scheduling(page, { list: () => rows });
+  for (const width of [1920, 3840]) {
+    await page.setViewportSize({ width, height: width === 1920 ? 1080 : 2160 });
+    await page.goto('/scheduling?section=schedules');
+    for (const item of blocked) {
+      const row = page.getByRole('button', { name: `Open ${item.state}`, exact: true });
+      await expect(row).toContainText(item.label);
+      await expect(row).toContainText(item.reason);
+      await expect(row).not.toContainText('Active');
+      await row.click();
+      const details = page.getByTestId('schedule-detail');
+      await expect(details).toContainText(item.reason);
+      await expect(details).toContainText(item.label);
+      await expect(details).not.toContainText('Active');
+    }
+  }
+  await page.route('**/api/auth/me', route => route.fulfill({ json: { success: true, data: {
+    user_id: 'operator', username: 'operator', role: 'user', session: { is_local: false } } } }));
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/scheduling?section=calendar');
+  await expect(page.getByRole('button', { name: 'Agenda', exact: true })).toBeVisible();
+  for (const item of blocked) {
+    const row = page.getByRole('button').filter({ hasText: item.state });
+    await expect(row).toContainText(item.label);
+    await row.click();
+    await expect(page.getByText(item.reason, { exact: true })).toBeVisible();
+  }
+});
+
 test('a record under review shows its reason, cannot run, and saving it with a type clears the chip', async ({ page }) => {
   mkdirSync(evidence, { recursive: true });
   await page.setViewportSize({ width: 1280, height: 844 });

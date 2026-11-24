@@ -168,7 +168,9 @@ const SchedulingPage: React.FC = () => {
                     <Stack spacing={0.5} alignItems="flex-end">
                       {/* Inactive schedules still have a next_run, so they must not read as runs that will happen. */}
                       {scheduleState(schedule).label !== 'Active' && <StatusChip {...scheduleState(schedule)} />}
-                      {schedule.preparation_state && schedule.preparation_state !== 'ready' && <StatusChip {...stateChip[schedule.preparation_state]} />}
+                      {schedule.preparation_state && schedule.preparation_state !== 'ready'
+                        && scheduleState(schedule).label !== stateChip[schedule.preparation_state].label
+                        && <StatusChip {...stateChip[schedule.preparation_state]} />}
                       {schedule.mode !== 'real' && <StatusChip tone="neutral" label={SCHEDULE_MODE_LABELS[schedule.mode]} />}
                     </Stack>
                   </Box>
@@ -183,10 +185,11 @@ const SchedulingPage: React.FC = () => {
 
   const renderScheduleDetail = (schedule: ScheduledExperiment) => {
     const scheduleStatus = scheduleState(schedule);
+    const preparationBlocked = schedule.preparation_state && schedule.preparation_state !== 'ready';
     const statusChip = <StatusChip {...scheduleStatus} />;
     const facts = ([
       ['Timing', repeatLabel(schedule)],
-      ...(phone ? [] : [['Next run', schedule.next_run && !schedule.review_reason ? dayTime(schedule.next_run) : notRunning[scheduleStatus.label] ?? 'Not scheduled']]),
+      ...(phone ? [] : [['Next run', preparationBlocked ? 'Will not run' : schedule.next_run && !schedule.review_reason ? dayTime(schedule.next_run) : notRunning[scheduleStatus.label] ?? 'Not scheduled']]),
       ['Last run', schedule.last_run ? dayTime(schedule.last_run) : 'Never'],
       ['Duration', formatDuration(schedule.estimated_duration)],
       ...(schedule.runner === 'pyhsl' ? [['Protocol', schedule.protocol_id ?? '']] : []),
@@ -240,6 +243,10 @@ const SchedulingPage: React.FC = () => {
           <Typography variant="body2" color="text.secondary">Expected duration {formatDuration(schedule.estimated_duration)}</Typography>
         </Box>}
         {schedule.review_reason && <Alert severity="warning" sx={{ m: 2 }}>Needs review: {schedule.review_reason}</Alert>}
+        {preparationBlocked && <Alert severity="warning" sx={{ m: 2 }}>
+          <StatusChip {...stateChip[schedule.preparation_state!]} />
+          <Typography variant="body2">Will not run. {schedule.preparation_review_reason ?? stateChip[schedule.preparation_state!].label}</Typography>
+        </Alert>}
         {schedule.recovery_required && <Alert severity="warning" sx={{ m: 2 }} action={<Button color="inherit" onClick={() => setCurrentTab(1)}>Review recovery</Button>}>Held</Alert>}
         {waitingReason && <Alert severity="warning" sx={{ m: 2 }}>Waiting: {waitingReason}</Alert>}
         <Box component="dl" sx={{ m: 0 }}>

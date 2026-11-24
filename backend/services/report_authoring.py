@@ -423,10 +423,8 @@ class ReportAuthoring:
     def draft(self, key, owner):
         return ReportDraft.model_validate(self.get(key, owner)['draft'])
 
-    def archive(self, draft, key=None, owner=None, trial=False, note=None):
-        """The package ZIP for a draft. `note` is given only when publishing: it becomes the
-        new version's CHANGELOG section, so the release note travels with Download package."""
-        draft = draft.model_copy(deep=True).derive()
+    def package_manifest(self, draft, key=None, owner=None):
+        """Effective draft manifest and retained files, including its containing package."""
         manifest = draft.manifest()
         files = {}
         base = self.get(key, owner).get('base') if key else None
@@ -442,6 +440,13 @@ class ReportAuthoring:
             combined.update(contract_version=max(original.contract_version, 2), version=draft.version, libraries=sorted(set(original.libraries + draft.libraries)))
             combined['tools'] = [manifest.tools[0].model_dump() if t['id'] == draft.tool_id else t for t in combined['tools']]
             manifest = Manifest.model_validate(combined)
+        return manifest, files
+
+    def archive(self, draft, key=None, owner=None, trial=False, note=None):
+        """The package ZIP for a draft. `note` is given only when publishing: it becomes the
+        new version's CHANGELOG section, so the release note travels with Download package."""
+        draft = draft.model_copy(deep=True).derive()
+        manifest, files = self.package_manifest(draft, key, owner)
         if trial:
             manifest = manifest.model_copy(deep=True)
             manifest.id = 'draft-' + key

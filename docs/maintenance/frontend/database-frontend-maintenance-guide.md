@@ -252,5 +252,8 @@ Package rows use the server state: `needs_newer` is Needs newer RobotControl,
 attention tone. Details show `reason`; undeclared import review explains that it
 will install blocked until a copy declaring `min_robotcontrol_version` is imported.
 Only needs_newer disables installation. There is no package approval action.
-Scheduling normalization carries both blocked states and `preparation_review_reason`
-so the server refusal survives list/detail/form views instead of becoming unknown.
+Scheduling normalization carries both blocked states and `preparation_review_reason`.
+Schedule rows and details show the shared state chip and the reason the schedule will
+not run; a blocked preparation does not display a next run as runnable. The phone
+agenda retains blocked armed schedules, shows their chip instead of a run time, and
+opens the precise reason in row details. The edit form also shows the state and reason.

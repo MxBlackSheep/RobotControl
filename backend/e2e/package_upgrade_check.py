@@ -333,6 +333,25 @@ def scheduler_paths(service, reason):
         else:
             command.assert_called_once()
 
+        # Timeout cleanup skips preparation but is still a new method launch.
+        cleanup = JobExecution(uuid.uuid4().hex, schedule.schedule_id, 'running')
+        command.reset_mock()
+        with patch.object(executor, '_refresh_timeout_context', return_value=dict(
+                timed_out=True, action='run_cleanup_and_terminate', terminate_schedule=True,
+                cleanup_experiment_path='cleanup.med', cleanup_experiment_name='Cleanup')), patch.object(
+                executor.pre_execution, 'prepare', side_effect=AssertionError('Cleanup repeated preparation')), patch.object(
+                executor, '_execute_real_command', command), patch(
+                'backend.services.scheduling.experiment_executor.get_experiment_discovery_service',
+                return_value=SimpleNamespace(db=SimpleNamespace(update_method_usage=lambda _: None))):
+            assert executor.execute_experiment(schedule, cleanup) == (reason is None)
+        if reason:
+            assert cleanup.error_message == reason
+            command.assert_not_called()
+        else:
+            command.assert_called_once()
+            assert command.call_args.args[0].experiment_path == 'cleanup.med'
+            assert command.call_args.args[3] is schedule and command.call_args.args[4] is True
+
         schedule = storage.get_schedule_by_id('pyhsl')
         engine = SimpleNamespace(db_manager=manager, _running=True, launch_guard=lambda *args: nullcontext())
         # Stub the transport at construction: even an incorrectly admitted run stays local.
@@ -369,6 +388,34 @@ def scheduler_paths(service, reason):
             assert finish.call_args.args[2] == 'completed', finish.call_args
             client.post.assert_not_called()
             client.get.assert_any_call('/runs/existing-run')
+            # A saved request with no run ID must search before deciding to resend.
+            for matched in (False, True):
+                client.reset_mock()
+                finish.reset_mock()
+                execution = JobExecution(uuid.uuid4().hex, schedule.schedule_id, 'running')
+                execution.pyhsl = dict(run_id=None, attempted_at=datetime.now().isoformat(),
+                    request=dict(protocol_id=schedule.protocol_id, request_id=execution.execution_id))
+                def get(path, **kwargs):
+                    if path == '/runs':
+                        return {'runs': [dict(origin='machine', protocol=schedule.protocol_id,
+                                             run_id='existing-run')] if matched else []}
+                    if path.startswith('/runs/'):
+                        return dict(status='completed', configuration={'request_id': execution.execution_id})
+                    return dict(active=False, blocked=False, cases=[])
+                client.get.side_effect = get
+                with patch.object(PreExecutionPipeline, 'prepare', side_effect=AssertionError('Recovery repeated preparation')):
+                    runner.execute(schedule, execution)
+                client.get.assert_any_call('/runs')
+                blocked = bool(reason) and not matched
+                assert finish.call_args.args[2] == ('failed' if blocked else 'completed'), finish.call_args
+                if blocked:
+                    assert finish.call_args.args[3] == reason
+                if matched or blocked:
+                    client.post.assert_not_called()
+                else:
+                    client.post.assert_called_once_with('/runs', execution.pyhsl['request'], timeout=60)
+                if matched:
+                    assert execution.pyhsl['run_id'] == 'existing-run'
         with storage._get_connection() as conn:
             for execution_id, pin in executions:
                 row = conn.execute('SELECT status, package FROM LabPreparation WHERE execution_id=?',

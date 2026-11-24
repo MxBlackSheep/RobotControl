@@ -324,13 +324,7 @@ def review_draft(key: str, user=Depends(local_admin), service=Depends(get_databa
 
 @router.post('/drafts/{key}/choices/{field_name}')
 def draft_choices(key: str, field_name: str, payload: ChoiceRequest, user=Depends(local_admin), service=Depends(get_database_tools)):
-    draft = service.authoring.draft(key, owner(user))
-    tool = draft.manifest().tools[0]
-    # Preserve the draft's existing missing-choice refusal.
-    if not any(x.name == field_name and x.lookup for x in tool.inputs):
-        raise HTTPException(404, 'Choice not found')
-    return service._tool_choices(draft.package_id, tool, field_name, payload.inputs,
-                                 payload.search, payload.page, draft.mappings)
+    return service.draft_choices(key, owner(user), field_name, payload.inputs, payload.search, payload.page)
 
 
 class DraftTrial(Inputs):

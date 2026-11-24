@@ -164,8 +164,9 @@ semicolon, and must return `value` and `label`. The optional lookup `order` list
 choices by `label` (default), `label_desc`, `value` or `value_desc`; other values are
 rejected. The host pages the query as a derived table, so an `ORDER BY` inside it is
 not used. Manifests omit `order` when it is `label`; one that sets it needs
-RobotControl 0.1.5 or later (older versions reject the key). Manifests cannot declare a
-minimum application version. Use unique stable values. The host
+RobotControl 0.1.5 or later (older versions reject the key). Declare the package's
+minimum application version with `min_robotcontrol_version` (see below). Use unique
+stable values. The host
 checks submitted membership with the same query before running Python. Values stay
 typed (`text`, `integer`, `number`); labels are only for display. Lookups time out
 after 30 seconds. SQL statement restrictions aid composition, not security.
