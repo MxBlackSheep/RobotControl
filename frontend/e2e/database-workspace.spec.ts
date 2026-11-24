@@ -219,7 +219,9 @@ test('assigning package connections offers matching accounts and saves only decl
   await dialog.getByRole('button', { name: 'Save connections', exact: true }).click();
   await expect(dialog).toHaveCount(0);
   await page.goto('/database?section=packages');
-  await page.getByRole('button', { name: 'Connections', exact: true }).nth(1).click();
+  await page.getByRole('button', { name: 'Details for Plate report', exact: true }).click();
+  await page.getByRole('button', { name: 'More', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Connections', exact: true }).click();
   const plates = page.getByRole('dialog', { name: 'Assign connections — Plate report' });
   await expect(plates.getByRole('combobox')).toHaveCount(2);
   await expect(plates.getByRole('combobox', { name: /^Writing connection/ })).toHaveCount(0);
@@ -257,6 +259,7 @@ test('a saved draft under review: a readable one opens in Edit, an unreadable or
     return r.fulfill({ json: { message: 'Draft removed.' } });
   });
   await page.goto('/database?section=packages');
+  await page.locator('summary').filter({ hasText: 'Saved drafts' }).click();
   const row = (text: string) => page.getByText(text, { exact: true }).locator('xpath=ancestor::div[contains(@class, "MuiStack")][1]');
   await expect(row('Plate summary').getByRole('button', { name: 'Resume', exact: true })).toBeVisible();
   await expect(row(unreadable)).toContainText('Needs review');
@@ -271,4 +274,66 @@ test('a saved draft under review: a readable one opens in Edit, an unreadable or
   await expect(row(invalid)).toContainText('Needs review');
   await row(invalid).getByRole('button', { name: 'Resume', exact: true }).click();
   await expect.poll(() => requests).toContain('GET ' + readable);
+});
+
+
+test('package More holds secondary actions and removal confirms and refuses an in-use package', async ({ page }) => {
+  await login(page);
+  let running = 0;
+  let removals = 0;
+  const pkg = { id: 'plate-report', name: 'Plate report', version: '1.0.0', sha256: 'a', libraries: [],
+    tools: [{ id: 'plate-report', name: 'Plate report', kind: 'report' }] };
+  await page.route('**/api/database/tools/packages', r => r.fulfill({ json: [{ ...pkg, running }] }));
+  await page.route('**/api/database/tools/drafts', r => r.fulfill({ json: [] }));
+  await page.route('**/api/database/tools/packages/plate-report', r => {
+    expect(r.request().method()).toBe('DELETE');
+    removals++;
+    return r.fulfill({ status: 409, json: { detail: 'Package is running. Wait until it finishes.' } });
+  });
+  await page.goto('/database?section=packages');
+  const row = page.getByRole('button', { name: 'Details for Plate report', exact: true });
+  await row.click();
+  await expect(row).toHaveAttribute('aria-current', 'true');
+  await expect(page.getByRole('menuitem')).toHaveCount(0);
+  const more = page.getByRole('button', { name: 'More', exact: true });
+  await more.click();
+  await expect(page.getByRole('menuitem')).toHaveText(['Update package', 'Edit report', 'Download package', 'Connections', 'History', 'Remove']);
+  await page.keyboard.press('Escape');
+  await expect(more).toBeFocused();
+  await more.click();
+  await page.getByRole('menuitem', { name: 'Remove Plate report', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Remove Plate report?', exact: true });
+  await expect(dialog).toContainText("Removing deletes this package's history. Database changes already made are not undone; an older ZIP is needed to go back.");
+  expect(removals).toBe(0);
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(removals).toBe(0);
+  await more.click();
+  await page.getByRole('menuitem', { name: 'Remove Plate report', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Remove package', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toHaveText('Package is running. Wait until it finishes.');
+  await expect(dialog).toBeVisible();
+  expect(removals).toBe(1);
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(row).toBeVisible();
+  running = 1;
+  await page.reload();
+  await row.click();
+  await more.click();
+  for (const name of ['Update package', 'Connections', 'Remove Plate report'])
+    await expect(page.getByRole('menuitem', { name, exact: true })).toBeDisabled();
+  expect(removals).toBe(1);
+
+  await test.step('narrow-screen Back keeps the package row selected and restores keyboard focus', async () => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/database?section=packages');
+    await row.focus();
+    await row.press('Enter');
+    const back = page.getByRole('button', { name: 'Back to packages', exact: true });
+    await back.focus();
+    await back.press('Enter');
+    await expect(row).toBeFocused();
+    await expect(row).toHaveAttribute('aria-current', 'true');
+    await page.keyboard.press('Tab');
+  });
 });
