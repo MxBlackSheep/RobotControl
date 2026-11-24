@@ -438,8 +438,7 @@ class ReportAuthoring:
             original, files = inspect_archive(self._path(key).with_suffix('.zip').read_bytes())
             combined = original.model_dump()
             minimums = [v for v in (original.min_robotcontrol_version, manifest.min_robotcontrol_version) if v is not None]
-            if minimums:
-                combined['min_robotcontrol_version'] = max(minimums, key=Version)
+            combined['min_robotcontrol_version'] = max(minimums, key=Version)
             combined.update(contract_version=max(original.contract_version, 2), version=draft.version, libraries=sorted(set(original.libraries + draft.libraries)))
             combined['tools'] = [manifest.tools[0].model_dump() if t['id'] == draft.tool_id else t for t in combined['tools']]
             manifest = Manifest.model_validate(combined)

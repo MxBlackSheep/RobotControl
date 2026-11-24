@@ -5,17 +5,11 @@ import { api } from '../../services/api';
 import ReportInputs, { changedInputs, requestMessage, toolsBase, type ReportField } from '../ReportInputs';
 import StatusChip from '../StatusChip';
 import type { PinnedPreparation, PreparationState, PreparationStep, ScheduledExperiment } from '../../types/scheduling';
+import { preparationState as stateChip } from '../../types/scheduling';
+
+export { stateChip };
 
 type PreparationTool = { id: string; name: string; package_version: string; inputs: ReportField[]; setup_needed?: boolean; target?: string };
-
-export const stateChip: Record<PreparationState, { tone: 'completed' | 'attention' | 'fault' | 'neutral'; label: string }> = {
-  ready: { tone: 'completed', label: 'Ready' },
-  needs_newer: { tone: 'attention', label: 'Needs newer RobotControl' },
-  needs_review: { tone: 'attention', label: 'Needs review' },
-  missing: { tone: 'fault', label: 'Not installed' },
-  invalid: { tone: 'fault', label: 'Unreadable' },
-  unknown: { tone: 'neutral', label: 'State unknown' },
-};
 
 /** One line for lists and details: the step's name, or why the run is held. */
 export function preparationSummary(schedule: Pick<ScheduledExperiment, 'preparation'>) {

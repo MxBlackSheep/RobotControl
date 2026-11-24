@@ -1,4 +1,5 @@
 /** Scheduling types: the server's replies and the requests the page sends. */
+import { packageState } from './packageState';
 
 /** A database package's preparation step as requested by the form: tool, inputs and optional registration origin. */
 export interface PreparationStep {
@@ -17,7 +18,14 @@ export interface PinnedPreparation extends PreparationStep {
 }
 
 /** Derived on read from package usability, the saved package/connection pin and availability. */
-export type PreparationState = 'ready' | 'needs_review' | 'needs_newer' | 'missing' | 'invalid' | 'unknown';
+export const preparationState = {
+  ...packageState,
+  ready: { tone: 'completed', label: 'Ready' },
+  missing: { tone: 'fault', label: 'Not installed' },
+  invalid: { tone: 'fault', label: 'Unreadable' },
+  unknown: { tone: 'neutral', label: 'State unknown' },
+} as const;
+export type PreparationState = keyof typeof preparationState;
 export type ScheduleMode = 'real' | 'simulation' | 'test';
 /** Test exists only for PyHSL protocols that list it. */
 export const SCHEDULE_MODE_LABELS: Record<ScheduleMode, string> = { simulation: 'Simulation', test: 'Test', real: 'Real' };

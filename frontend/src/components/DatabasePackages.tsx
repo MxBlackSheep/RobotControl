@@ -8,11 +8,12 @@ import { api } from '../services/api';
 import { saveBlob, toolsBase } from './ReportInputs';
 import ToolAuthoring from './ToolAuthoring';
 import StatusChip from './StatusChip';
+import { packageState, type PackageState } from '../types/packageState';
 import ReviewReason from './ReviewReason';
 import ReportConnections, { AssignConnections, PackageBinding, Source } from './ReportConnections';
 
 type Package = { id: string; name: string; version: string; sha256: string; running: number;
-  min_robotcontrol_version?: string; state: 'ready' | 'needs_review' | 'needs_newer'; reason: string; current_robotcontrol_version?: string;
+  state: PackageState; reason: string;
   libraries: string[]; tools: { id: string; name: string; kind: string }[] };
 type Review = { package: Package; sha256: string; current_version: string | null; current_sha256: string; running: number; changelog: string };
 type Change = { version:string; previous_version?:string; at:string; actor?:string; note:string; files:{added:string[];changed:string[];removed:string[]} };
@@ -23,11 +24,6 @@ const hasPython = (pkg: Package) => pkg.tools.some(tool => tool.kind !== 'experi
 const reviewScope = (pkg: Package) => hasPython(pkg)
   ? 'Package structure and declared libraries checked. Python code has not been run.'
   : 'Package structure checked. No Python code.';
-const packageState: Record<Package['state'], { tone: 'completed' | 'attention'; label: string }> = {
-  needs_newer: { tone: 'attention', label: 'Needs newer RobotControl' },
-  needs_review: { tone: 'attention', label: 'Needs review' },
-  ready: { tone: 'completed', label: 'Installed' },
-};
 const recoveryNote = 'Keep the previous ZIP before updating. Reinstalling it does not undo database changes.';
 const older = (a: string, b: string) => {
   const left = a.split('.').map(Number), right = b.split('.').map(Number);
