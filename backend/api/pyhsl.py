@@ -89,7 +89,7 @@ def get_protocols(current_user: dict = Depends(get_current_user), connection=Dep
         raise HTTPException(status_code=403, detail='Insufficient permissions')
     with relay_errors():
         # An entry with "problem" cannot be read or must be imported again; its revision is null.
-        return [{key: entry.get(key) for key in ('id', 'name', 'revision', 'modes', 'description')}
+        return [{key: entry.get(key) for key in ('id', 'name', 'revision', 'modes', 'description', 'parameters')}
                 for entry in PyHslClient().get('/catalog')['protocols']
                 if entry.get('unattended') is True and 'problem' not in entry]
 

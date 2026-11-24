@@ -64,7 +64,8 @@ a PyHSL save validates again and stores the returned revision unless the schedul
 stays off with its protocol, parameters and mode unchanged. RobotControl accepts Simulation, Test and Real
 and sends the selected mode to PyHSL to validate for that protocol. PyHSL schedules
 refuse cleanup late-start actions.
-The local admin/user Validate route and its definitions are described in
+The local admin/user protocol list passes through catalog parameter definitions unchanged for input before validation;
+its unattended filter is unchanged. The local admin/user Validate route and its definitions are described in
 [the client guide](pyhsl-client-guide.md).
 
 The single worker keeps the existing storage, recovery, maintenance and HxRun

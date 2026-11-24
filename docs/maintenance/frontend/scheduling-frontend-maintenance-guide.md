@@ -236,8 +236,10 @@ the backend guide.
 
 `ImprovedScheduleForm` chooses the runner. For a PyHSL protocol, `PyHslProtocolField` searches
 `GET /api/pyhsl/protocols` by name or ID, sorted by name, and offers only the modes the chosen protocol allows
-(Simulation first when allowed). Choosing a protocol or a mode runs `POST /api/pyhsl/validate`, whose reply draws the
-parameter fields; a schedule saves only after a protocol PyHSL accepted. A VENUS schedule keeps its Simulation Mode switch.
+(Simulation first when allowed). Catalog definitions draw parameter fields immediately; successful
+`POST /api/pyhsl/validate` replies replace those definitions. Choosing a protocol, mode or parameter value
+validates again; normalized replies do not trigger another request. Refusals keep the catalog fields editable
+with the reason below them; a schedule saves only after PyHSL accepts the values. A VENUS schedule keeps its Simulation Mode switch.
 
 `/pyhsl?run=<id>` (`PyHslRunPage`) shows PyHSL's Monitoring API view (PyHSL's `docs/api/notes.md`, "Monitoring API"):
 Run Control's Run page without controls. `PyHslMonitor` loads an iframe with `sandbox="allow-scripts"` and no same
