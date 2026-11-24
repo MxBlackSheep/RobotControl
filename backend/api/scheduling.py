@@ -104,7 +104,7 @@ def _requested_preparation(schedule_data: Dict[str, Any], current_user: dict, ex
     Absent from the request: unchanged. Attaching, changing or removing a step schedules
     uploaded Python to write unattended, so it needs an administrator (the routes already
     require a local session). The server pins the package hash and connection; the client
-    sends only the tool and its inputs.
+    sends the tool, its inputs and any expected registration origin.
     """
     if "preparation" not in schedule_data:
         return existing
@@ -119,12 +119,13 @@ def _requested_preparation(schedule_data: Dict[str, Any], current_user: dict, ex
     if not isinstance(requested, dict) or not isinstance(requested.get("tool_id"), str) or not isinstance(requested.get("inputs", {}), dict):
         raise HTTPException(status_code=400, detail="preparation must be {tool_id, inputs}")
     unchanged = bool(existing) and requested["tool_id"] == existing.get("tool_id") and requested.get("inputs", {}) == existing.get("inputs", {})
-    if unchanged and (not is_admin or tools.preparation_state(existing) == "ready"):
+    if unchanged and "expected_origin" not in requested and (not is_admin or tools.preparation_state(existing) == "ready"):
         return existing
     if not is_admin:
         raise HTTPException(status_code=403, detail="Only a local administrator can attach or change a database preparation step")
     try:
-        return tools.pin_preparation(requested["tool_id"], requested.get("inputs", {}), current_user.get("username", "unknown"))
+        return tools.pin_preparation(requested["tool_id"], requested.get("inputs", {}), current_user.get("username", "unknown"),
+                                     expected_origin=requested.get("expected_origin"))
     except PackageError as exc:
         raise HTTPException(status_code=getattr(exc, "status", 400), detail=str(exc)) from exc
 

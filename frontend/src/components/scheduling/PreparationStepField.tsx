@@ -84,7 +84,7 @@ export default function PreparationStepField({ saved, state, value, onChange, ed
         {tool.inputs.length > 0 && (
           <ReportInputs fields={tool.inputs} values={current.inputs as Record<string, any>} disabled={false}
             choiceBase={`${toolsBase}/preparations/${tool.id}/choices`}
-            onChange={(name, next) => onChange({ tool_id: tool.id, inputs: changedInputs(tool.inputs, current.inputs as Record<string, any>, name, next) })} />
+            onChange={(name, next) => onChange({ ...current, tool_id: tool.id, inputs: changedInputs(tool.inputs, current.inputs as Record<string, any>, name, next) })} />
         )}
         <Typography variant="caption" color="text.secondary">
           Runs before the method starts{tool.target ? `, writing to ${tool.target}` : ''}. If it fails or takes over two minutes, the run does not start and the schedule waits for recovery.

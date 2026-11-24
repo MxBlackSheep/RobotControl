@@ -301,6 +301,12 @@ test('Latest experiment never shows a PyHSL run as running unless PyHSL confirms
   await page.reload();
   await expect(latest).toContainText('Running');
   await expect(latest.getByRole('link', { name: 'Open run' })).toBeVisible();
+  status = { ...status, run: null, reviews: { known: true, blocked: false, run_ids: [] } };
+  await page.reload();
+  // Wait for the idle reply itself: before it arrives the status is null and any guard shows State unknown.
+  await expect(page.getByRole('region', { name: 'Instrument health' })).toContainText('PyHSLIdle');
+  await expect(latest).toContainText('State unknown');
+  await expect(latest).not.toContainText('Running');
 });
 
 test('a remote phone gets what happened instead of a recovery dead end', async ({ page }) => {

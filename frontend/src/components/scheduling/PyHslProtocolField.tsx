@@ -156,7 +156,7 @@ export default function PyHslProtocolField({ protocolId, parameters, mode, disab
       : <TextField key={name} fullWidth label={definition.label || name} value={String(parameters[name] ?? '')} disabled={disabled}
           type={definition.type === 'number' || definition.type === 'integer' ? 'number' : 'text'}
           onChange={event => setValue(name, definition.type === 'number' || definition.type === 'integer'
-            ? (event.target.value === '' ? undefined : Number(event.target.value)) : event.target.value)} />)}
+            ? (event.target.value === '' ? ('default' in definition ? null : undefined) : Number(event.target.value)) : event.target.value)} />)}
     {error && <Alert severity="error" sx={{ overflowWrap: 'anywhere' }}>{error}</Alert>}
   </Stack>;
 }

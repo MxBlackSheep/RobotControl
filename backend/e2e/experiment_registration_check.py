@@ -203,7 +203,12 @@ def http_checks(client, service):
 
 def handoff_checks(client, service):
     # Read-only HTTP boundary: resolution, binding identity and active-state replies.
-    path = BASE + '/123/schedule-draft'
+    token = uuid.uuid4().hex
+    path = BASE + '/123/schedule-draft?token=' + token
+    receipt = dict(status='succeeded', result=dict(experiment_id=123), server=SERVER, database=DB)
+    with closing(sqlite3.connect(service.receipts)) as journal, journal:
+        journal.execute('INSERT INTO receipts VALUES (?, ?, ?)',
+                        ('experiments:' + token, 'admin', json.dumps(receipt)))
     assert client.get(path).status_code == 404
     output = io.BytesIO()
     with zipfile.ZipFile(output, 'w') as zipped:
@@ -219,15 +224,21 @@ def handoff_checks(client, service):
         operation_bindings={'experiments': 'writer', 'evoyeast-experiment': 'writer'})
     try:
         with patch.object(service.sources, 'open', side_effect=AssertionError('Handoff opened SQL')):
-            assert client.get(path).json() == dict(tool_id='evoyeast-experiment', inputs=dict(experiment_id=123))
+            assert client.get(path).json() == dict(tool_id='evoyeast-experiment', inputs=dict(experiment_id=123),
+                expected_origin=dict(server=SERVER, database=DB))
             assert client.get(BASE + '/0/schedule-draft').status_code == 400
             for source_id in ['reader', 'other-writer']:
                 service.sources.state['sources'][source_id] = dict(target, database='Different',
                     access='read' if source_id == 'reader' else 'operation')
                 if source_id == 'other-writer':
                     service.sources.state['operation_bindings']['evoyeast-experiment'] = source_id
-                assert_refused(client.get(path), 'Experiments database')
+                assert_refused(client.get(path), 'registration database')
                 service.sources.state['sources'][source_id]['database'] = DB
+        assert client.get(path, headers={'authorization': 'another-admin'}).status_code == 404
+        with closing(sqlite3.connect(service.receipts)) as journal, journal:
+            journal.execute('UPDATE receipts SET result=? WHERE id=?',
+                            (json.dumps(dict(status='succeeded', result=dict(experiment_id=123))), 'experiments:' + token))
+        assert_refused(client.get(path), 'origin')
         class ActiveConnection:
             rows = []
             def execute(self, sql):
@@ -279,7 +290,7 @@ def sql_checks(client, service, body, lhr, lab, scratch):
         service.sources.state['operation_bindings'] = {'experiments': 'scratch'}
         @contextmanager
         def open_scratch(source):
-            assert source == target, 'Unexpected connection target'
+            assert source == target or source == dict(target, access='read'), 'Unexpected connection target'
             with closing(connect()) as connection:
                 yield connection
         service.sources.open = open_scratch
@@ -288,6 +299,42 @@ def sql_checks(client, service, body, lhr, lab, scratch):
         active = client.get(BASE + '/active').json()
         assert len(active) == 1 and active[0]['user_defined_id'] == 'active-check'
         execute("DELETE FROM Experiments WHERE UserDefinedID = 'active-check'")
+        # Reuse the scratch opener for a different configured target holding the same ID.
+        request = body(user_defined_id='origin-check')
+        response = client.post(BASE, json=request)
+        assert response.status_code == 200 and response.json()['status'] == 'succeeded', response.text
+        experiment_id = response.json()['result']['experiment_id']
+        path = BASE + f'/{experiment_id}/schedule-draft?token=' + request['token']
+        reader = dict(target, access='read')
+        service.sources.state['sources']['reader'] = reader
+        service.sources.state['bindings'] = {'evoyeast-experiment': {'primary': 'reader'}}
+        service.sources.state['operation_bindings']['evoyeast-experiment'] = 'scratch'
+        draft = client.get(path)
+        assert draft.status_code == 200, draft.text
+        step = draft.json()
+        from backend.api.scheduling import _requested_preparation
+        def pin():
+            with patch('backend.services.database_tools.get_database_tools', return_value=service):
+                return _requested_preparation({'preparation': step}, {'username': 'admin', 'role': 'admin'})
+        assert pin()['inputs']['experiment_id'] == experiment_id
+        for changes in [dict(database='Different'), dict(server='Different')]:
+            before = dict(target)
+            target.update(changes)
+            reader.update(changes)
+            assert_refused(client.get(path), 'registration database')
+            try:
+                pin()
+                raise AssertionError('Changed registration target was accepted')
+            except HTTPException as exc:
+                assert exc.status_code == 409 and 'registration database' in exc.detail
+            target.update(before)
+            reader.update(before, access='read')
+        target.update(server=' ' + SERVER.lower() + ' ', database=' ' + DB.lower() + ' ')
+        reader.update(server=target['server'], database=target['database'])
+        assert client.get(path).status_code == 200
+        assert pin()['inputs']['experiment_id'] == experiment_id
+        target.update(server=SERVER, database=DB)
+        reader.update(server=SERVER, database=DB)
         definition = client.get(BASE + '/types').json()[0]
         def submit(**changes):
             request = body(**changes)

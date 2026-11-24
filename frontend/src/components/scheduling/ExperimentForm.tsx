@@ -19,7 +19,7 @@ const defaultLayout = (type:ExperimentType):PlateLayout => Object.fromEntries(ty
 type Message = {severity:'error'|'warning'|'success'; text:string} | null;
 type Attempt = {body:string; token:string; warned?:boolean};
 type Draft = {definition:ExperimentType; userDefinedId:string; note:string; schedule:boolean; parameters:Record<string,string>; layout:PlateLayout;
-  experimentId?:number; message:Message; attempts:Attempt[]; busy:boolean; stale:boolean};
+  token?:string; experimentId?:number; message:Message; attempts:Attempt[]; busy:boolean; stale:boolean};
 const freshDraft = (definition:ExperimentType):Draft => ({definition, userDefinedId:'', note:'', schedule:false,
   parameters:defaults(definition), layout:defaultLayout(definition), message:null, attempts:[], busy:false, stale:false});
 // Session drafts include the reviewed definition and unresolved token, and survive section navigation.
@@ -107,7 +107,7 @@ function ExperimentDraft({installed, removed, loadError, picker, reload, onOpenS
     handoff.current = controller;
     setOpening(true); setHandoffError('');
     try {
-      const {data} = await api.get<PreparationStep>(`${toolsBase}/experiments/${draft.experimentId}/schedule-draft`, {signal:controller.signal});
+      const {data} = await api.get<PreparationStep>(`${toolsBase}/experiments/${draft.experimentId}/schedule-draft`, {signal:controller.signal, params:{token:draft.token}});
       if (!controller.signal.aborted) onOpenScheduling(data);
     } catch (error) { if (!controller.signal.aborted) setHandoffError(`Scheduling setup needed: ${requestMessage(error)}`); }
     finally { if (!controller.signal.aborted) setOpening(false); }
@@ -175,7 +175,7 @@ function ExperimentDraft({installed, removed, loadError, picker, reload, onOpenS
     try {
       const {data} = await api.post(`${toolsBase}/experiments`, {...body, token:attempt.token});
       if (data.status === 'succeeded') {
-        update({...(clearDraft ? freshDraft(type) : {}), attempts:remaining, experimentId:data.result.experiment_id, message:{severity:'success', text:`Registered. ExperimentID: ${data.result.experiment_id}. UserDefinedID: ${data.result.user_defined_id ?? body.user_defined_id}.${data.result.reused_existing ? ' Existing note retained.' : ''}${data.warning ? ` ${data.warning}` : ''}`}});
+        update({...(clearDraft ? freshDraft(type) : {}), attempts:remaining, token:attempt.token, experimentId:data.result.experiment_id, message:{severity:'success', text:`Registered. ExperimentID: ${data.result.experiment_id}. UserDefinedID: ${data.result.user_defined_id ?? body.user_defined_id}.${data.result.reused_existing ? ' Existing note retained.' : ''}${data.warning ? ` ${data.warning}` : ''}`}});
       } else {
         update({message:{severity:data.status === 'unknown' ? 'warning' : 'error', text:data.message},
           ...(data.status === 'error' ? {attempts:remaining} : {})});

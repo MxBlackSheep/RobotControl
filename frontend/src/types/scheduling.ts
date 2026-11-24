@@ -1,9 +1,10 @@
 /** Scheduling types: the server's replies and the requests the page sends. */
 
-/** A database package's preparation step as requested by the form: tool and inputs only. */
+/** A database package's preparation step as requested by the form: tool, inputs and optional registration origin. */
 export interface PreparationStep {
   tool_id: string;
   inputs: Record<string, unknown>;
+  expected_origin?: { server: string; database: string };
 }
 
 /** The step as saved: the server pins the package version, file hash and connection. */

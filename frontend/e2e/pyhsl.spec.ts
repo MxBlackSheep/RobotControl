@@ -106,19 +106,22 @@ test('required catalog inputs survive refusal, block invalid saves and save a va
   const checks: any[] = [];
   const protocol = { ...listed('champions', 'Champions', ['simulation', 'test']),
     parameters: { experiment_id: { label: 'ExperimentID', type: 'integer', min: 1 } } };
+  let defaultAvailable = false;
   let releaseValidation!: () => void;
   const validationHeld = new Promise<void>(resolve => { releaseValidation = resolve; });
   await page.route('**/api/pyhsl/protocols', route => route.fulfill({ json: [protocol] }));
   await page.route('**/api/pyhsl/validate', async route => {
     const request = route.request().postDataJSON();
     checks.push(request);
-    const value = request.parameters.experiment_id;
+    const value = Object.prototype.hasOwnProperty.call(request.parameters, 'experiment_id')
+      ? request.parameters.experiment_id : defaultAvailable ? 43 : undefined;
     if (Number.isInteger(value) && value >= 1) {
       await validationHeld;
+      defaultAvailable = true;
       // A changed value on screen proves the success reply has reached React.
       return route.fulfill({ json: { protocol: { ...protocol, parameters: {
         experiment_id: { ...protocol.parameters.experiment_id, default: 43 },
-      } }, parameters: { experiment_id: 43 } } });
+      } }, parameters: { experiment_id: value === 42 ? 43 : value } } });
     }
     return route.fulfill({ status: 400, json: { detail: 'ExperimentID must be an integer of at least 1' } });
   });
@@ -162,11 +165,19 @@ test('required catalog inputs survive refusal, block invalid saves and save a va
   await expect(editor.getByText('Choose a protocol')).toBeVisible();
   expect(writes).toHaveLength(1);
   await expect.poll(() => checks.length).toBeGreaterThan(checksBeforeClear);
-  expect(checks.at(-1).parameters).toEqual({});
+  expect(checks.at(-1).parameters).toEqual({ experiment_id: null });
   await expect(refusal).toBeVisible();
   await expect(input).toHaveValue('');
   await editor.getByRole('button', { name: 'Create schedule', exact: true }).click();
   expect(writes).toHaveLength(1);
+  const accepted = page.waitForResponse(response => response.url().endsWith('/api/pyhsl/validate') && response.status() === 200);
+  await input.fill('44');
+  await accepted;
+  await expect.poll(() => checks.at(-1)?.parameters.experiment_id).toBe(44);
+  await expect(refusal).toHaveCount(0);
+  await editor.getByRole('button', { name: 'Create schedule', exact: true }).click();
+  await expect.poll(() => writes.length).toBe(2);
+  expect(writes[1].parameters).toEqual({ experiment_id: 44 });
 });
 
 test('an unreadable list or a refused protocol shows the reason and nothing is saved', async ({ page }) => {
