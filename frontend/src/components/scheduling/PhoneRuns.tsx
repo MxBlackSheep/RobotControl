@@ -114,7 +114,7 @@ function Agenda() {
     if (schedule.recovery_required && schedule.recovery_note) items.push(['Held', schedule.recovery_note]);
     if (schedule.preparation_state && schedule.preparation_state !== 'ready') {
       items.push(['Before this run', <StatusChip {...preparationState[schedule.preparation_state]} />]);
-      items.push(['Will not run', schedule.preparation_review_reason ?? preparationState[schedule.preparation_state].label]);
+      items.push(['Next run', schedule.preparation_review_reason ?? preparationState[schedule.preparation_state].label]);
     }
     return <Facts items={items} note="Edit on the workstation." />;
   };

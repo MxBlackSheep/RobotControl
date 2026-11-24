@@ -91,7 +91,7 @@ export default function ScheduleCollection({ title, statusFilter, schedules, sel
                 ? <ReviewReason reason={schedule.review_reason} />
                 : <Typography sx={{ fontFamily: fontMono, fontSize: 12, lineHeight: '16px', color: 'text.secondary', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{scheduleTarget(schedule).split(/[\\/]/).pop()}</Typography>}
               {preparationBlocked && <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
-                Will not run. {schedule.preparation_review_reason ?? preparationState[schedule.preparation_state!].label}
+                The next run will not start. {schedule.preparation_review_reason ?? preparationState[schedule.preparation_state!].label}
               </Typography>}
               <Typography sx={{ ...muted, mt: 0.5, [table]: { display: 'none' } }}>
                 {nextRun ? `Next ${dayTime(nextRun)}` : 'No next run'} · {repeatLabel(schedule)}
