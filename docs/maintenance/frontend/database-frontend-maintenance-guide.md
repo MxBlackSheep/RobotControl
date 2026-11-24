@@ -207,3 +207,21 @@ workflows are covered by the HTTP checks in the backend guide. Vitest: `Database
   adding another viewport-height constant.
 
 Database settings show each connection name first; server, database, access and uses are inside the shared, initially closed Details disclosure. Package technical facts and report error details use that same component.
+
+## Experiment packages
+
+Manage packages accepts manifest-only contract version 3 experiment ZIPs. Existing
+installations import `starter-packages/champions-experiment.zip`; fresh catalogues seed
+it automatically. List, review, history and removal show Experiment type alongside
+Report, Operation and Preparation step. Edit is available only for reports/operations.
+Experiment definitions have no Python editor; update the reviewed ZIP to change them.
+Their Experiments connection link opens Database settings for the shared writer.
+
+Database settings keeps one shared Experiments writing connection (reserved binding
+`experiments`), not one per experiment type. Scheduling > Experiments reads the types
+route and submits `user_defined_id` with version/hash. Champions supplies eight fields;
+its four calibration fields stay fixed. For Open Scheduling, the separate Select
+EvoYeast experiment preparation needs reading and operation connections to the same
+server/database as Experiments. Missing or mismatched setup produces a message, never
+a saved schedule. See the scheduling guide for draft and receipt ownership. No Excel
+layout import or lab schema migration is provided.

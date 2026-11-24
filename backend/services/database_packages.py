@@ -15,9 +15,10 @@ import uuid
 import zipfile
 from types import ModuleType
 from datetime import date, datetime, timezone
+from fractions import Fraction
 from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
-from typing import Literal, get_args
+from typing import Annotated, Any, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 
@@ -227,14 +228,200 @@ class ToolDefinition(BaseModel):
         return clean
 
 
+class ExperimentParameter(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    name: str = Field(pattern=r'^[A-Za-z][A-Za-z0-9_]{0,49}$')
+    label: str = Field(min_length=1, max_length=100)
+    type: Literal['number', 'integer', 'text', 'choice']
+    default: Any
+    min: Any = None
+    max: Any = None
+    allowed: list[Any] | None = Field(default=None, min_length=1, max_length=100)
+    group: Literal['main', 'more']
+    fixed: bool = False
+
+    def validate_scalar(self, value):
+        if self.type == 'integer':
+            valid = type(value) is int
+        elif self.type == 'number':
+            valid = type(value) is int or (type(value) is float and math.isfinite(value))
+        else:
+            valid = isinstance(value, str) and bool(value.strip()) and len(value) <= 255
+        if not valid:
+            raise PackageError(f'{self.name}: invalid {self.type} value.')
+        if self.min is not None and value < self.min:
+            raise PackageError(f'{self.name} must be at least {self.min}.')
+        if self.max is not None and value > self.max:
+            raise PackageError(f'{self.name} must be at most {self.max}.')
+        return value
+
+    def validate_value(self, value):
+        self.validate_scalar(value)
+        if self.allowed is not None and value not in self.allowed:
+            raise PackageError(f'{self.name}: value is not allowed.')
+        if self.fixed and value != self.default:
+            raise PackageError(f'{self.name} must remain at its default ({self.default}).')
+        return value
+
+    @model_validator(mode='after')
+    def valid_parameter(self):
+        if not self.label.strip():
+            raise ValueError('Parameter label must not be blank')
+        for name in ('min', 'max'):
+            if name in self.model_fields_set:
+                value = getattr(self, name)
+                if (self.type not in ('number', 'integer') or type(value) not in (int, float)
+                        or (type(value) is float and not math.isfinite(value))
+                        or (self.type == 'integer' and type(value) is not int)):
+                    raise ValueError(f'{self.name}: invalid {name} bound')
+        if self.min is not None and self.max is not None and self.min > self.max:
+            raise ValueError(f'{self.name}: minimum exceeds maximum')
+        if 'allowed' in self.model_fields_set and self.allowed is None:
+            raise ValueError(f'{self.name}: allowed must be a nonempty list')
+        if self.type == 'choice' and self.allowed is None:
+            raise ValueError(f'{self.name}: choice requires allowed values')
+        if self.allowed is not None:
+            for index, value in enumerate(self.allowed):
+                self.validate_scalar(value)
+                if value in self.allowed[:index]:
+                    raise ValueError(f'{self.name}: allowed values must be distinct')
+        self.validate_value(self.default)
+        return self
+
+    @model_serializer(mode='wrap')
+    def omit_absent_constraints(self, handler):
+        return {key: value for key, value in handler(self).items() if value is not None}
+
+
+class ExperimentAssignment(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    value: str = Field(min_length=1, max_length=50)
+    label: str = Field(min_length=1, max_length=50)
+    symbol: str = Field(min_length=1, max_length=1)
+
+    @model_validator(mode='after')
+    def nonblank(self):
+        if not all(value.strip() for value in (self.value, self.label, self.symbol)):
+            raise ValueError('Assignment values, labels and symbols must not be blank')
+        return self
+
+
+class WholeCountRule(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    kind: Literal['whole_count']
+    parameter: str
+    assignment: str
+
+
+class ExperimentLayout(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    kind: Literal['plate96']
+    assignments: list[ExperimentAssignment] = Field(min_length=1, max_length=96)
+    default: list[list[str]] = Field(max_length=96)
+    required: list[str] = Field(max_length=96)
+    rules: list[WholeCountRule] = Field(default_factory=list, max_length=8)
+
+    def validate_wells(self, layout):
+        if not isinstance(layout, list) or len(layout) > 96:
+            raise PackageError('Provide a plate layout with at most 96 wells.')
+        assignments = {item.value for item in self.assignments}
+        seen, clean = set(), []
+        for pair in layout:
+            if not isinstance(pair, (list, tuple)) or len(pair) != 2:
+                raise PackageError('Invalid well assignment.')
+            well, assignment = pair
+            if not isinstance(well, str) or not re.fullmatch(r'[A-H](?:[1-9]|1[0-2])', well) or well in seen:
+                raise PackageError('Invalid or duplicate well.')
+            if not isinstance(assignment, str) or assignment not in assignments:
+                raise PackageError('Invalid well assignment. Omit empty wells.')
+            seen.add(well)
+            clean.append((well, assignment))
+        present = {assignment for _, assignment in clean}
+        for assignment in self.required:
+            if assignment not in present:
+                label = next(item.label for item in self.assignments if item.value == assignment)
+                raise PackageError(f'Mark at least one {label.lower()} well.')
+        return sorted(clean, key=lambda pair: (int(pair[0][1:]), pair[0][0]))
+
+    @model_validator(mode='after')
+    def valid_layout(self):
+        values = [item.value for item in self.assignments]
+        symbols = [item.symbol for item in self.assignments]
+        if len(set(values)) != len(values) or len(set(symbols)) != len(symbols):
+            raise ValueError('Assignment values and symbols must be unique')
+        if len(set(self.required)) != len(self.required) or set(self.required) - set(values):
+            raise ValueError('Required assignments must be a distinct subset of assignments')
+        self.validate_wells(self.default)
+        return self
+
+
+class ExperimentDefinition(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    id: str = Field(pattern=IDENTIFIER)
+    name: str = Field(min_length=1, max_length=100)
+    kind: Literal['experiment']
+    parameters: list[ExperimentParameter] = Field(min_length=1, max_length=20)
+    layout: ExperimentLayout | None = None
+
+    @model_validator(mode='before')
+    @classmethod
+    def no_null_layout(cls, data):
+        if isinstance(data, dict) and 'layout' in data and data['layout'] is None:
+            raise ValueError('Omit layout for an experiment without a plate')
+        return data
+
+    @model_serializer(mode='wrap')
+    def omit_absent_layout(self, handler):
+        data = handler(self)
+        if self.layout is None:
+            data.pop('layout', None)
+        return data
+
+    @model_validator(mode='after')
+    def valid_definition(self):
+        if not self.name.strip():
+            raise ValueError('Experiment name must not be blank')
+        if len({parameter.name.casefold() for parameter in self.parameters}) != len(self.parameters):
+            raise ValueError('Parameter names must be unique ignoring case')
+        if self.layout:
+            numeric = {p.name for p in self.parameters if p.type in ('number', 'integer')}
+            assignments = {item.value for item in self.layout.assignments}
+            for rule in self.layout.rules:
+                if rule.parameter not in numeric or rule.assignment not in assignments:
+                    raise ValueError('Whole-count rule requires a declared numeric parameter and assignment')
+            self.validate_layout(self.layout.default, {p.name: p.default for p in self.parameters})
+        return self
+
+    def validate_values(self, parameters):
+        if not isinstance(parameters, dict) or set(parameters) != {p.name for p in self.parameters}:
+            raise PackageError('Experiment parameter names do not match.')
+        return {p.name: p.validate_value(parameters[p.name]) for p in self.parameters}
+
+    def validate_layout(self, layout, parameters):
+        if self.layout is None:
+            if layout not in (None, []):
+                raise PackageError('This experiment type has no plate layout.')
+            return []
+        clean = self.layout.validate_wells(layout)
+        for rule in self.layout.rules:
+            count = sum(assignment == rule.assignment for _, assignment in clean)
+            value = parameters[rule.parameter]
+            # Decimal text -> integer numerator/denominator; no floating multiplication or tolerance.
+            fraction = Fraction(str(value))
+            if (count * fraction.numerator) % fraction.denominator:
+                label = next(item.label.lower() for item in self.layout.assignments if item.value == rule.assignment)
+                raise PackageError(f'{count} {label} wells × {value} must give a whole number of wells.')
+        return clean
+
+
 class Manifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    contract_version: Literal[1, 2]
+    contract_version: Literal[1, 2, 3]
     id: str = Field(pattern=IDENTIFIER)
     name: str = Field(min_length=1, max_length=100)
     version: str = Field(pattern=r"^\d+\.\d+\.\d+$", max_length=40)
     libraries: list[str] = Field(default_factory=list, max_length=20)
-    tools: list[ToolDefinition] = Field(min_length=1, max_length=20)
+    tools: list[Annotated[ToolDefinition | ExperimentDefinition, Field(discriminator='kind')]] = Field(min_length=1, max_length=20)
 
     @model_validator(mode='before')
     @classmethod
@@ -252,6 +439,12 @@ class Manifest(BaseModel):
 
     @model_validator(mode='after')
     def contract(self):
+        if self.id == 'experiments':
+            raise ValueError('Package ID experiments is reserved for the shared writing connection')
+        if any(t.kind == 'experiment' for t in self.tools) and self.contract_version != 3:
+            raise ValueError('Experiment types require contract version 3')
+        if all(t.kind == 'experiment' for t in self.tools) and self.libraries:
+            raise ValueError('Experiment-only packages cannot declare libraries')
         if self.contract_version == 1 and any(t.sources or t.kind == 'preparation' or any(f.type in {'lookup', 'date'} for f in t.inputs) for t in self.tools):
             raise ValueError('Sources, dates, database choices and preparation steps require contract version 2')
         if self.contract_version == 1:
@@ -297,12 +490,16 @@ def inspect_archive(content):
                 if library not in SUPPORTED_LIBRARIES or importlib.util.find_spec(library) is None:
                     raise PackageError(f"Library {library} is not bundled. An application upgrade is required.")
             payloads = {}
+            if all(tool.kind == 'experiment' for tool in manifest.tools) and any(file.filename.lower().endswith('.py') for file in files):
+                raise PackageError('Experiment-only packages cannot contain Python')
             for file in files:
                 payload = archive.read(file)
                 if file.filename.endswith(".py"):
                     compile(payload, file.filename, "exec")
                 payloads[file.filename] = payload
         for tool in manifest.tools:
+            if tool.kind == 'experiment':
+                continue
             for entrypoint in (tool.entrypoint, tool.preview):
                 if not entrypoint:
                     continue
@@ -372,7 +569,8 @@ class PackageCatalogue:
                     for key, entry in self.index.items()]
 
     def tools(self, kind):
-        return [dict(tool, package_id=package["id"], package_version=package["version"])
+        return [dict(tool, package_id=package["id"], package_version=package["version"],
+                     **({'sha256': package['sha256']} if kind == 'experiment' else {}))
                 for package in self.packages() for tool in package["tools"] if tool["kind"] == kind]
 
     def history(self, package_id):
@@ -416,8 +614,10 @@ class PackageCatalogue:
         for package_id, entry in self.index.items():
             for value in entry["manifest"]["tools"]:
                 if value["id"] == tool_id and value["kind"] == kind:
-                    return package_id, entry, ToolDefinition.model_validate(value)
-        raise PackageError("This action or report is not installed", 404)
+                    model = ExperimentDefinition if kind == 'experiment' else ToolDefinition
+                    return package_id, entry, model.model_validate(value)
+        raise PackageError("Experiment type is no longer installed." if kind == 'experiment'
+                           else "This action or report is not installed", 404)
 
     @contextmanager
     def reserve(self, tool_id, kind):

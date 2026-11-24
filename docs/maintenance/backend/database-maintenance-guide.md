@@ -39,7 +39,7 @@ versions, bundled tool details and authoring steps are owned by
 - `api/database_tools.py`: every `/api/database/tools` route.
 - `build_scripts/database_package.py`: `create` and `build` for authors; neither runs package code.
 - `database_packages/`: bundled starter packages Culture history, Delete Experiment and Select
-  EvoYeast experiment (1.0.1), and Plate data export (1.1.0; upstream code vendored as helper
+  EvoYeast experiment (1.0.1), Champions experiment (1.0.0), and Plate data export (1.1.0; upstream code vendored as helper
   modules, compared with the desktop tool by `backend/e2e/plate_export_check.py`). Each `CHANGELOG.md` section is the default history message
   for its version and the import review's suggested note (`changelog_note` in
   `database_packages.py`). Publishing a draft adds its change note as the new version's
@@ -300,27 +300,43 @@ those separately with disposable data when changing their behavior.
 
 ## Experiment registration
 
-`POST /api/database/tools/experiments` is local-administrator-only, like operations.
-Database settings > Package connections > Experiments > Assign selects the existing
-operation connection for EvoYeast. The reserved built-in binding ID is `experiments`;
-its `/packages/experiments/sources` routes use the existing operation binding store,
-without an installed package or a fallback to the native writer. Do not install a
-package using this ID. Connection edits remain locked through registration's commit.
+`GET /api/database/tools/experiments/types` and `POST /api/database/tools/experiments`
+require a local administrator. Installed version 3 experiment definitions supply the
+parameters, optional plate layout, fixed defaults and exact whole-count rules. They
+contain no registration Python or SQL. Versions 1/2 retain their original tool contracts.
 
-`services/experiments.register_experiment(connection, user_id, note, schedule,
-parameters, layout)` accepts an open pyodbc connection and never commits or rolls
-back. Layout is `(well, assignment)` pairs, with empty wells omitted. It validates
-finite parameters, the fraction (0.25, 0.5 or 1), culture presence and well addresses
-before writes. The duplicate check holds the ID range; scheduling consumes every
-result set and refuses `DATABASE ERROR`. No EvoYeast schema changes are required.
+POST takes `user_defined_id`, note, schedule (0/1), token, `type_id`, `package_version`,
+`sha256`, parameters and optional layout. ExperimentID is database-assigned. The host
+reserves the installed definition, checks its version/hash and validates before SQL.
+An existing UserDefinedID is reusable only when its parameters and, for a layout type,
+pattern are empty. Reuse preserves the note; activation delegates to the scheduling
+procedure. Ambiguous IDs and populated children refuse without replacing anything.
 
-`DatabaseTools.register_experiment` owns the scheduler database-change guard, source
-lock and durable receipt. Package execution and registration share
-`_operation_transaction` (XACT_ABORT, SERIALIZABLE, rollback and commit uncertainty).
-The browser supplies a request token; replay returns its owner-bound receipt, never
-runs the write again. Registration receipts use an `experiments:` prefix. Interrupted
-or uncertain commits ask the operator to check whether the ID exists before retrying.
-A changed draft creates a new token; do not use that to bypass an uncertain outcome.
+Database settings > Package connections > Experiments > Assign selects the shared
+operation connection. The reserved binding ID `experiments` uses the existing
+`/packages/experiments/sources` routes; no installed package may use that ID. All
+experiment types use this writer, regardless of package. Import the release's
+`starter-packages/champions-experiment.zip` through Manage packages on existing installs;
+only a fresh catalogue seeds starter packages automatically.
 
-The scratch SQL Server check is separate: browser fakes do not establish SQL Server
-2008 R2 compatibility, procedure rollback or real write permissions.
+`DatabaseTools.register_experiment` owns the scheduler guard, source lock and durable
+owner-bound receipt. `_operation_transaction` owns XACT_ABORT, SERIALIZABLE, rollback
+and commit uncertainty; `services/experiments.py` owns validation and bound inserts.
+Token replay returns the saved receipt before package resolution and never repeats SQL.
+Unknown outcomes require checking the UserDefinedID parent, parameters and any layout,
+not just whether a parent exists. An edited attempt gets a new token after the warning.
+
+`GET /experiments/active` reads active identifiers from the shared registration binding,
+not the viewer connection. Empty, failed and multiple results remain distinct.
+`GET /experiments/{experiment_id}/schedule-draft` resolves the installed
+`evoyeast-experiment` preparation and requires its reader and writer to match the
+registration server/database. Configured names are compared trimmed and case-insensitively;
+server aliases are not inferred. It returns only preparation inputs, saves nothing and
+opens no SQL connection. Normal preparation validation and pinning still occur at save.
+These endpoints have the same local-admin restriction as registration.
+
+Champions writes eight parameters, with four fluorescence calibration values fixed to
+the shipped defaults. No Excel import, schema migration, automatic launch or custom
+registration code is supported. Shou_Lab must read those parameters before delivery.
+Scratch checks do not establish real EvoYeast column limits, procedure behavior or lab
+compatibility; the first real registration remains supervised.

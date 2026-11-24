@@ -8,7 +8,7 @@ import { useAuth } from '../../context/AuthContext';
 import { isLocalUser } from '../navigation';
 import PreparationStepField from './PreparationStepField';
 import PyHslProtocolField, { type CheckedProtocol } from './PyHslProtocolField';
-import type { LibraryMethod, NotificationContact, ScheduledExperiment, ScheduleFormValues, ScheduleRunner, ScheduleType, TimeoutAction } from '../../types/scheduling';
+import type { LibraryMethod, NotificationContact, PreparationStep, ScheduledExperiment, ScheduleFormValues, ScheduleRunner, ScheduleType, TimeoutAction } from '../../types/scheduling';
 import { StatusMessage } from '../StatusDialog';
 import {
   Dialog,
@@ -117,6 +117,7 @@ interface ImprovedScheduleFormProps {
   schedule?: ScheduledExperiment;
   /** A library method a new schedule starts from. */
   method?: LibraryMethod;
+  preparation?: PreparationStep;
   onClose: () => void;
   onSubmit: (values: ScheduleFormValues) => Promise<void>;
   contacts: NotificationContact[];
@@ -130,6 +131,7 @@ interface ImprovedScheduleFormProps {
 const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
   schedule,
   method,
+  preparation,
   onClose,
   onSubmit,
   contacts,
@@ -139,7 +141,7 @@ const ImprovedScheduleForm: React.FC<ImprovedScheduleFormProps> = ({
   const mode = schedule ? 'edit' : 'create';
   const [protocolChecked, setProtocolChecked] = useState(false);
   const canEditPreparation = user?.role === 'admin' && isLocalUser(user);
-  const [initialDraft] = useState(() => startingDraft(schedule, method));
+  const [initialDraft] = useState(() => ({...startingDraft(schedule, method), ...(!schedule && preparation ? {preparation} : {})}));
   const [formData, setFormData] = useState<Draft>(initialDraft);
   // The interval is stored once (interval_hours); only whether Custom is chosen is kept apart.
   const [customInterval, setCustomInterval] = useState(() => !intervalPresets.some(preset => preset.hours === initialDraft.interval_hours));

@@ -228,9 +228,13 @@ def run(candidate, report_package=None, evidence=ROOT/'test-output/database-veri
             token=packaged_app.sign_in(PORT,'package-smoke',password)
             request('/api/auth/change-password',dict(current_password=password,new_password=secrets.token_urlsafe(24)),token)
             packages=request('/api/database/tools/packages',token=token)
-            assert {p['id'] for p in packages}=={'culture-history','delete-experiment','evoyeast-experiment','plate-data-export'}
-            assert {f.name for f in (candidate/'starter-packages').iterdir()}=={'culture-history.zip','delete-experiment.zip','evoyeast-experiment.zip','plate-data-export.zip'}
-            result['checks'].append('Relocated executable loads the three starter packages with Python/UV absent from PATH; their ZIPs ship beside it')
+            assert {p['id'] for p in packages}=={'champions-experiment','culture-history','delete-experiment','evoyeast-experiment','plate-data-export'}
+            assert {f.name for f in (candidate/'starter-packages').iterdir()}=={'champions-experiment.zip','culture-history.zip','delete-experiment.zip','evoyeast-experiment.zip','plate-data-export.zip'}
+            types=request('/api/database/tools/experiments/types',token=token)
+            assert [t['id'] for t in types]==['champions-experiment']
+            assert len(types[0]['parameters'])==8
+            assert 'BackgroundOD' not in {p['name'] for p in types[0]['parameters']}
+            result['checks'].append('Relocated executable loads five starter packages with Python/UV absent from PATH; their ZIPs ship beside it and Champions exposes eight parameters')
             if authoring:
                 authoring_check(request, token, result, evidence)
                 return

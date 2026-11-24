@@ -28,6 +28,10 @@ Failure cases:
   Downloads are private; workers reject excess work and expired files are removed.
 - Creating an author project leaves the original script untouched and never executes
   it; an unfinished adapter fails clearly.
+- Version 3 experiment-only archives need no Python; malformed definitions, code
+  fields, invalid defaults/bounds/choices/layout rules and the reserved binding ID
+  fail without changing the installed package. Legacy version 1/2 tools retain
+  their executable contracts, and active experiment reservations block replacement.
 """
 from contextlib import closing
 import argparse
@@ -56,6 +60,84 @@ from backend.e2e.database_fixture import DatabaseFixture, package_zip, configure
 
 ROOT = Path(__file__).resolve().parents[2]
 BASE = '/api/database/tools'
+
+
+def experiment_package_checks(client, service, folder):
+    """Exercise declarative definitions through the same archive and HTTP catalogue boundary."""
+    folder.mkdir()
+    parameter = dict(name='DurationHours', label='Duration', type='number', default=24,
+                     min=1, max=48, allowed=[1, 24, 48], group='main', fixed=True)
+    tool = dict(id='incubation-study', name='Incubation study', kind='experiment', parameters=[parameter])
+    manifest = dict(contract_version=3, id='incubation-study', name='Incubation study',
+                    version='1.0.0', libraries=[], tools=[tool])
+
+    def archive(value, extras=None):
+        (folder/'manifest.json').write_text(json.dumps(value), encoding='utf-8')
+        return package_zip(folder, extras=extras)
+
+    def upload(value, extras=None):
+        return client.post(BASE+'/packages', files={'file': ('experiment.zip', archive(value, extras))})
+
+    installed = upload(manifest)
+    assert installed.status_code == 200, installed.text
+    listed = client.get(BASE+'/experiments/types')
+    assert listed.status_code == 200, listed.text
+    definition = next(t for t in listed.json() if t['id'] == tool['id'])
+    assert definition['package_version'] == '1.0.0' and len(definition['sha256']) == 64
+    assert definition['parameters'] == [parameter] and 'entrypoint' not in definition
+    exported = client.get(BASE+'/packages/incubation-study/export')
+    assert exported.status_code == 200, exported.text
+    assert service.catalogue.resolve(tool['id'], 'experiment')[2].validate_values({'DurationHours': 24}) == {'DurationHours': 24}
+
+    invalid = []
+    for version in (1, 2, 4):
+        invalid.append({**manifest, 'contract_version': version})
+    invalid.append({**manifest, 'id': 'experiments'})
+    invalid.append({**manifest, 'tools': [tool, tool]})
+    for key, value in [('entrypoint', 'handler:run'), ('preview', None), ('inputs', []),
+                       ('sources', []), ('confirmation_field', None), ('sql', ''), ('validate', '')]:
+        invalid.append({**manifest, 'tools': [{**tool, key: value}]})
+    for changes in ({'name': ''}, {'name': '1Invalid'}, {'label': ' '}, {'type': 'boolean'},
+                    {'default': None}, {'default': True}, {'default': '24'}, {'default': float('inf')},
+                    {'default': 0}, {'min': 49}, {'max': 0}, {'allowed': []},
+                    {'allowed': [24, 24.0]}, {'allowed': [True, 24]}, {'allowed': [0, 24]},
+                    {'fixed': 'yes'}, {'group': 'other'}, {'unexpected': 1},
+                    {'type': 'integer', 'default': 24.5}, {'type': 'integer', 'min': 1.5},
+                    {'type': 'text', 'default': 'text'}, {'type': 'choice', 'default': 'A', 'allowed': ['A']}):
+        invalid.append({**manifest, 'tools': [{**tool, 'parameters': [{**parameter, **changes}]}]})
+    invalid.append({**manifest, 'tools': [{**tool, 'parameters': [parameter, {**parameter, 'name': 'durationhours'}]}]})
+    layout = dict(kind='plate96', assignments=[dict(value='Cells', label='Culture', symbol='C')],
+                  default=[['A1', 'Cells']], required=['Cells'],
+                  rules=[dict(kind='whole_count', parameter='DurationHours', assignment='Cells')])
+    for changes in ({'kind': 'plate384'}, {'default': [['A13', 'Cells']]}, {'default': []},
+                    {'default': [['A1', 'Cells'], ['A1', 'Cells']]}, {'required': ['missing']},
+                    {'rules': [dict(kind='unknown', parameter='DurationHours', assignment='Cells')]},
+                    {'rules': [dict(kind='whole_count', parameter='missing', assignment='Cells')]},
+                    {'rules': [dict(kind='whole_count', parameter='DurationHours', assignment='missing')]},
+                    {'rules': [dict(kind='whole_count', parameter='DurationHours', assignment='Cells')] * 9}):
+        invalid.append({**manifest, 'tools': [{**tool, 'layout': {**layout, **changes}}]})
+    invalid.append({**manifest, 'tools': [{**tool, 'layout': None}]})
+    for value in invalid:
+        response = upload(value)
+        assert response.status_code == 400, (value, response.status_code, response.text)
+        assert service.catalogue.index['incubation-study']['sha256'] == definition['sha256']
+    assert upload(manifest, {'handler.py': 'raise RuntimeError("must not execute")'}).status_code == 400
+    assert upload({**manifest, 'libraries': ['pyodbc']}).status_code == 400
+    with service.catalogue.reserve(tool['id'], 'experiment'):
+        assert client.delete(BASE+'/packages/incubation-study').status_code == 409
+        assert upload({**manifest, 'version': '1.0.1'}).status_code == 409
+    assert upload({**manifest, 'version': '1.0.1', 'tools': [{**tool, 'layout': layout}]}).status_code == 200
+    assert client.delete(BASE+'/packages/incubation-study').status_code == 200
+    # Version 1 reports normalize their primary source exactly as before. Version 2
+    # report/operation execution is exercised by the rest of this check.
+    legacy = dict(contract_version=1, id='legacy-report', name='Legacy report', version='1.0.0',
+                  tools=[dict(id='legacy-report', name='Legacy report', kind='report', entrypoint='handler:run')])
+    assert upload(legacy, {'handler.py': 'def run(context, inputs):\n    return {}\n'}).status_code == 200
+    resolved = service.catalogue.resolve('legacy-report', 'report')[2]
+    assert resolved.entrypoint == 'handler:run' and resolved.sources == ['primary']
+    assert client.delete(BASE+'/packages/legacy-report').status_code == 200
+    assert upload(legacy).status_code == 400
+    assert upload({**legacy, 'contract_version': 2}).status_code == 400
 
 
 def run(evidence=ROOT/'test-output/database-verification'):
@@ -99,7 +181,7 @@ def run(evidence=ROOT/'test-output/database-verification'):
         try:
             with TestClient(app, client=('127.0.0.1', 1234)) as client:
                 client.headers['authorization'] = 'admin'
-                assert {p['id'] for p in client.get(BASE+'/packages').json()} == {'culture-history', 'delete-experiment', 'evoyeast-experiment', 'plate-data-export'}
+                assert {p['id'] for p in client.get(BASE+'/packages').json()} == {'culture-history', 'delete-experiment', 'evoyeast-experiment', 'plate-data-export', 'champions-experiment'}
                 assert client.post('/api/database/query', params={'query': 'DELETE FROM Experiments'}).status_code in (404, 405)
                 client.headers['authorization'] = 'user'
                 assert client.get(BASE+'/packages').status_code == 403
@@ -117,6 +199,8 @@ def run(evidence=ROOT/'test-output/database-verification'):
                 assert client.get(BASE+'/packages', headers={'x-forwarded-for': '127.0.0.1, ::1'}).status_code == 200
                 assert client.get(BASE+'/packages').status_code == 200
                 checks.append('Local administrator checks, forwarded-header denial (remote and tunnelled loopback) and retired SQL route: passed')
+                experiment_package_checks(client, service, Path(temp)/'experiment-package')
+                checks.append('Version 3 manifest-only experiment catalogue, strict definitions, reserved ID and reservation protection: passed')
                 # Exercise the author's actual CLI, then upload its output through HTTP.
                 project = Path(temp)/'author-report'
                 original = ROOT/'database_packages/culture-history/culture_history.py'

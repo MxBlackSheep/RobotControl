@@ -42,7 +42,7 @@ cursors. Never keep a connection or per-request state in module globals.
   directly inside `output_dir`. Never write fixed paths. Reports may run concurrently;
   do not change globals. A Python package can technically bypass these conventions:
   code review is the trust boundary.
-- **Preparation** (contract version 2 only): `entrypoint` names `prepare(context, inputs)`;
+- **Preparation** (contract version 2 or later): `entrypoint` names `prepare(context, inputs)`;
   no `preview` or `confirmation_field`. A local administrator attaches it to a schedule
   under **Before this run**; saving pins the package file hash and the package's operation
   connection (its id, server and database). Before each run, RobotControl runs it unattended
@@ -57,6 +57,75 @@ cursors. Never keep a connection or per-request state in module globals.
   or rebinding its connection, is refused while an active schedule uses it; a changed
   package blocks the run until an administrator saves the schedule again. Example:
   [examples/preparation](examples/preparation).
+
+## Contract version 3: experiment types
+
+Version 3 adds declarative `experiment` tools. Existing report, operation and
+preparation contracts keep their meaning, including required Python entrypoints.
+Versions 1 and 2 remain supported but cannot declare experiment tools. Package ID
+`experiments` is reserved for the host's shared writing connection.
+
+An experiment tool has exactly `id`, `name`, `kind: "experiment"`, `parameters`,
+and optionally `layout`. Its version is the containing package's version. It has
+no entrypoint, preview, inputs, sources, confirmation field, SQL or callback. Even
+empty code-related fields are refused. Other tool kinds refuse experiment fields.
+An experiment-only ZIP contains `manifest.json` and optional documentation, no
+Python, and declares no libraries. Mixed packages may contain Python for their
+other tools; experiment registration never imports it. Archive size, path and
+duplicate-ID checks apply to all kinds.
+
+`parameters` is an ordered list of 1–20 definitions:
+
+| Field | Contract |
+| --- | --- |
+| `name` | `[A-Za-z][A-Za-z0-9_]{0,49}`, unique ignoring case; case is preserved. |
+| `label` | Nonblank string, at most 100 characters. |
+| `type` | `number`, `integer`, `text` or `choice`. |
+| `default` | Required value of that type satisfying every constraint. Numbers must be finite; booleans are never numbers; integers must be JSON integers. Text/choice values are nonblank strings of at most 255 characters. |
+| `min`, `max` | Optional inclusive numeric bounds; integers require integer bounds. Reversed bounds and bounds on text/choice are refused. |
+| `allowed` | Optional nonempty list of at most 100 distinct, correctly typed values within bounds. Required for choice. Numeric equality defines numeric membership. |
+| `group` | Required `main` or `more`; affects presentation only. |
+| `fixed` | Optional boolean, default false. When true, submission must equal the declared default. |
+
+Registration requires exactly the declared names, without filling missing values.
+Parameter writes follow definition order. Text is preserved after nonblank checks;
+numbers are bound as numbers. Names and values are SQL parameters, never SQL syntax.
+Unknown definition keys and explicit null constraints are refused.
+
+An optional layout has `kind: "plate96"`, `assignments`, `default`, `required`, and
+optional `rules`. Omitting layout means no plate; explicit null is refused.
+Assignments are 1–96 objects with distinct nonblank `value` strings (at most 50
+characters), nonblank `label` strings (at most 50), and distinct one-character
+nonblank `symbol` strings. Empty wells are omitted. `default` is an ordered list
+of up to 96 `[well, assignment]` pairs: distinct wells A1 through H12, with declared
+assignments. `required` is a distinct subset of assignment values, each present in
+the default and submitted layout. Empty layouts are allowed when none are required.
+
+Rules have exactly this shape:
+
+```json
+{"kind":"whole_count","parameter":"TopFractionToPropagate","assignment":"Cells"}
+```
+
+The referenced parameter must be numeric and the assignment declared. The count of
+matching wells times the submitted decimal value must be an integer. The host
+uses exact integer numerator/denominator arithmetic, without rounding or tolerance:
+27 culture wells at 0.5 are refused; 32 at 0.5 are accepted. Defaults must also pass.
+Unknown rule kinds and references are refused.
+
+A layout type requires an explicit layout list at submission. A type without layout
+accepts omission or an empty list and never accesses the plate pattern table. Wells
+are written in column order (A1, B1 through H12). All experiment types use the host's
+`experiments` writing binding and transaction/safety gates, not package Python.
+
+`GET /api/database/tools/experiments/types` returns installed definitions with
+`package_id`, `package_version` and package `sha256`. Both listing and registration
+require a local administrator. POST registration supplies `type_id`, the reviewed
+`package_version` and `sha256`, `user_defined_id`, `note`, integer `schedule` (0/1),
+`parameters`, optional `layout`, and a 32-character lowercase hexadecimal `token`.
+The host reserves the installed package and checks its identity before writing;
+a changed or missing definition requires reloading. A completed receipt can still
+be replayed by its owner after removal, without re-executing SQL.
 
 ## Contract version 2: database choices
 

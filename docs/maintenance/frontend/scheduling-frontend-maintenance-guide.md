@@ -256,20 +256,39 @@ Schedule rows show the method filename; the full target is in a closed Details d
 
 ## Experiments
 
-Scheduling > Experiments is registered as a local-admin section (index 7).
-`ExperimentForm` owns the draft, numeric parameter defaults and request token;
-`ExperimentPlateGrid` edits only the layout supplied by that owner. The three
-Champions parameters appear first and eleven others start under More parameters.
-Default wells are media controls in column 1 and cultures in columns 2-5.
+Scheduling > Experiments is local-admin section 7. `ExperimentForm` reads installed
+definitions from `/api/database/tools/experiments/types`, keeping per-type session
+drafts, pinned version/hash and unresolved receipt tokens. One type selects itself;
+several require a choice; empty and failed catalogues have different messages.
+`user_defined_id` is the entered key; the receipt's numeric ExperimentID is read-only.
+Champions has eight fields (three main, five more), four fixed calibration defaults,
+and a whole-culture-count rule. No-layout types show no grid. `ExperimentPlateGrid`
+uses `WellPaintGrid` for rectangle/keyboard painting; requests contain only marked wells
+in column order. At 1280 CSS px the plate and right column use 7:5 tracks; page width
+uses the shared 1600 px token. Wide forms show all eight fields.
 
-Drag between wells to mark a rectangle with Culture, Media control or Empty.
-Tab or arrow keys focus wells; Space/Enter applies the selected assignment.
-The SQL request contains marked wells only, in column order, and preserves
-case-sensitive parameter names. Excel import is not included.
+A refusal keeps the draft; uncertain results keep each body/token for receipt recovery,
+even after editing or removal of the type. Recover receipt replays that exact attempt
+without replacing the current draft, including when the catalogue cannot be read.
+Removed types with kept drafts remain selectable. Reload types starts the draft
+selected when reload was requested from the current definition's defaults; it retains
+unresolved receipts and other types' drafts. The warning before a new attempt appears
+once per previous uncertain attempt, even if fields are edited again.
+Drafts are isolated by sign-in, and late replies from a previous sign-in are ignored.
+Success resets only the submitted draft and retains the returned ExperimentID. Make active reads
+`/experiments/active` when enabled, showing loading, None only for successful empty
+results, identifiers, errors or multiple-active warnings. It is a snapshot, not a lock.
 
-A refusal retains the whole draft. A lost response or uncertain commit retains both
-the draft and request token, displays the check-before-retrying message, and never
-retries automatically. A confirmed success shows the generated ExperimentID and
-resets the form to its initial defaults. Visited sections stay mounted, preserving
-the draft across section switches. `experiments.spec.ts` covers the visible request,
-rectangle/keyboard editing, success, refusal, uncertainty and navigation permissions.
+Open Scheduling resolves `/experiments/{id}/schedule-draft` before opening the ordinary
+`ImprovedScheduleForm`. `SchedulingPage` passes preparation as initial draft data;
+method and start time remain unchosen. Only explicit Save uses the existing scheduling
+API. Missing preparation or unmatched connections show setup errors without opening,
+saving or launching. The preparation package needs both reader and writer bound to the
+registration database. Package/connection changes are checked again by normal save.
+
+Existing installations import `starter-packages/champions-experiment.zip` under Manage
+packages and assign the shared Experiments writing connection in Database settings.
+The preparation package is separate (`evoyeast-experiment.zip`). Neither experiment
+definitions nor preparation steps have a Python editor in this page. Excel layout import
+and automatic scheduling are not included. `experiments.spec.ts` covers registration,
+drafts, receipts, activation states and draft-only handoff; browser fakes cannot prove SQL.

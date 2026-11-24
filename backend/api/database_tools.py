@@ -211,21 +211,36 @@ def bind_sources(package_id: str, payload: Mappings, user=Depends(local_admin), 
 class ExperimentRegistration(BaseModel):
     model_config = ConfigDict(extra='forbid')
     token: str = Field(pattern=r'^[0-9a-f]{32}$')
-    user_id: str = Field(max_length=255)
+    user_defined_id: str = Field(min_length=1, max_length=255, pattern=r'\S')
     note: str = Field(max_length=4000)
-    schedule: Literal[0, 1]
-    parameters: dict[str, float] = Field(min_length=14, max_length=14)
-    layout: list[tuple[str, Literal['Cells', 'MediaCtrl']]] = Field(max_length=96)
+    schedule: int = Field(strict=True, ge=0, le=1)
+    type_id: str = Field(pattern=r'^[a-z][a-z0-9-]{0,63}$')
+    package_version: str = Field(pattern=r'^\d+\.\d+\.\d+$', max_length=40)
+    sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    parameters: dict[str, Any] = Field(min_length=1, max_length=20)
+    layout: list[tuple[str, str]] | None = Field(default=None, max_length=96)
+
+
+@router.get('/experiments/types')
+def experiment_types(user=Depends(local_admin), service=Depends(get_database_tools)):
+    return service.experiment_types()
 
 
 @router.post('/experiments')
 def register_experiment(payload: ExperimentRegistration, user=Depends(local_admin), service=Depends(get_database_tools)):
-    expected = {'BackgroundOD', 'InoculationOD', 'MaxIteration', 'ODConversionFactor', 'FreezeVolume',
-                'TargetWellVolume', 'V_OD_Sample', 'TopFractionToPropagate', 'FreezeGeneration',
-                'UseFluorescence', 'GFP_scale', 'GFP_RFPdamping', 'RFP_scale', 'RFP_GFPdamping'}
-    if set(payload.parameters) != expected:
-        raise HTTPException(400, 'Experiment parameter names do not match.')
     return service.register_experiment(payload.token, payload.model_dump(exclude={'token'}), owner(user), None)
+
+
+@router.get('/experiments/active')
+def active_experiments(user=Depends(local_admin), service=Depends(get_database_tools)):
+    return service.active_experiments()
+
+
+@router.get('/experiments/{experiment_id}/schedule-draft')
+def experiment_schedule_draft(experiment_id: int, user=Depends(local_admin), service=Depends(get_database_tools)):
+    if experiment_id <= 0:
+        raise HTTPException(400, 'ExperimentID must be positive.')
+    return service.experiment_schedule_draft(experiment_id)
 
 
 class DraftSave(BaseModel):

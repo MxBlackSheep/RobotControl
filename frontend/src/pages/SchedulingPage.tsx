@@ -26,12 +26,12 @@ import MethodLibraryPanel from '../components/scheduling/MethodLibraryPanel';
 import MethodPathDialog from '../components/scheduling/MethodPathDialog';
 import ExecutionHistory from '../components/ExecutionHistory';
 import useScheduling from '../hooks/useScheduling';
-import { formatDuration, LibraryMethod, SCHEDULE_MODE_LABELS, ScheduledExperiment } from '../types/scheduling';
+import { formatDuration, LibraryMethod, PreparationStep, SCHEDULE_MODE_LABELS, ScheduledExperiment } from '../types/scheduling';
 import StatusDialog from '../components/StatusDialog';
 import { DeleteConfirmationDialog } from '../components/ScheduleActions';
 
 /** The open schedule form: the stored schedule to edit, or a new one (from a library method). */
-type OpenForm = { schedule?: ScheduledExperiment; method?: LibraryMethod };
+type OpenForm = { schedule?: ScheduledExperiment; method?: LibraryMethod; preparation?: PreparationStep };
 
 // Not Active: a stored next_run is not a run that will happen.
 const notRunning: Record<string, string> = { 'Needs review': 'No run until reviewed', Held: 'No run until recovery is resolved',
@@ -294,7 +294,7 @@ const SchedulingPage: React.FC = () => {
 
       {/* Main Content */}
       <Box ref={workspaceTop} sx={{ minWidth: 0 }}>
-        <TabPanel value={currentTab} index={7}><ExperimentForm /></TabPanel>
+        <TabPanel value={currentTab} index={7}><ExperimentForm onOpenScheduling={preparation => { setForm({preparation}); setCurrentTab(0); }} /></TabPanel>
         <TabPanel value={currentTab} index={0}>
           {scheduleWorkspace('Schedules', state.schedules, () => void actions.loadSchedules(), state.loading, state.error, true)}
         </TabPanel>
@@ -389,7 +389,7 @@ const SchedulingPage: React.FC = () => {
         setCatalogueVersion(value => value + 1); void actions.loadSchedules();
       }} />}
       {/* Mounted per opening: the draft is a snapshot of the schedule as it was opened. */}
-      {form && <ImprovedScheduleForm schedule={form.schedule} method={form.method} contacts={state.contacts} catalogueVersion={catalogueVersion}
+      {form && <ImprovedScheduleForm schedule={form.schedule} method={form.method} preparation={form.preparation} contacts={state.contacts} catalogueVersion={catalogueVersion}
         onClose={() => setForm(null)}
         onSubmit={values => form.schedule
           ? actions.updateSchedule(form.schedule.schedule_id, values, form.schedule.updated_at)

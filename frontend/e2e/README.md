@@ -200,3 +200,13 @@ requests. Within about 20 seconds the page must show "Request timed out" with
 Refresh enabled and the status chip showing "Stale data"; Refresh then reconnects. Release stalled response last.
 It writes `test-output/status-stall-evidence.json`. For remote-path timing, run
 `backend/scripts/network_probe.py` on both computers (see its header).
+
+## Experiment registration fixtures
+
+`experiments.spec.ts` reads the shipped Champions manifest (eight fields) and mocks
+`/api/database/tools/experiments/types`. Registration uses `user_defined_id`, `type_id`,
+version/hash and a returned numeric ExperimentID; auth fixtures still use `user_id`.
+It also covers active lookup states and a draft-only Scheduling handoff with setup
+failure recovery. The backend registration check owns binding/SQL validation.
+`packaged_database_smoke.py` expects five starter packages and checks the types route;
+packaged/browser checks must run only after coordination with the PM.
