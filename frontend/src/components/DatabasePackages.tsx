@@ -134,13 +134,13 @@ export default function DatabasePackages({ active }: { active: boolean }) {
           <Menu id="package-actions" anchorEl={menuAnchor} open={!!menuAnchor} onClose={() => setMenuAnchor(null)} MenuListProps={{ 'aria-labelledby': 'package-more' }}>
             <MenuItem disabled={busy || pkg.running > 0} onClick={() => { setMenuAnchor(null); input.current?.click(); }}>Update package</MenuItem>
             {pkg.tools.some(tool => tool.kind === 'experiment') && <MenuItem component={Link} to="/database?section=settings" onClick={() => setMenuAnchor(null)}>Experiments connection</MenuItem>}
-            {pkg.tools.filter(t => ['report', 'operation'].includes(t.kind)).map(t => <MenuItem key={t.id} disabled={busy} onClick={async () => { setMenuAnchor(null);
+            {pkg.tools.filter(tool => ['report', 'operation'].includes(tool.kind)).map(tool => <MenuItem key={tool.id} disabled={busy} onClick={async () => { setMenuAnchor(null);
               setBusy(true); setError('');
-              try { const r = await api.post(`${toolsBase}/authoring/${t.kind}/${t.id}/edit`, {}); setToolEditor(r.data.id); }
+              try { const r = await api.post(`${toolsBase}/authoring/${tool.kind}/${tool.id}/edit`, {}); setToolEditor(r.data.id); }
               catch(e) { setError(message(e)); } finally { setBusy(false); }
-            }}>{pkg.tools.length === 1 ? `Edit ${t.kind}` : `Edit ${t.name}`}</MenuItem>)}
+            }}>{pkg.tools.length === 1 ? `Edit ${tool.kind}` : `Edit ${tool.name}`}</MenuItem>)}
             <MenuItem disabled={busy} onClick={async () => { setMenuAnchor(null); try { const r = await api.get(`${toolsBase}/packages/${pkg.id}/export`, { responseType: 'blob' }); saveBlob(r.data, /filename="([^"]+)"/.exec(r.headers['content-disposition'] || '')?.[1] || `${pkg.id}-${pkg.version}.zip`); } catch (e) { setError(message(e)); } }}>Download package</MenuItem>
-            {pkg.tools.some(tool => tool.kind !== 'experiment') && <MenuItem disabled={busy || pkg.running > 0} onClick={async () => { setMenuAnchor(null);
+            {hasPython(pkg) && <MenuItem disabled={busy || pkg.running > 0} onClick={async () => { setMenuAnchor(null);
               try {
                 const [mapping, profiles] = await Promise.all([api.get(`${toolsBase}/packages/${pkg.id}/sources`), api.get(`${toolsBase}/sources`)]);
                 setSources(profiles.data); setBinding({ id: pkg.id, name: pkg.name, ...mapping.data });
