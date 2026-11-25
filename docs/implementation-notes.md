@@ -1,3 +1,7 @@
+## 2026-11-25 Champions volume limit at registration
+
+- Before, registration accepted a Champions target well volume above the 1000 uL deep-well plate, and only the protocol refused it. Now the Champions experiment package (1.0.1) bounds the field at 1000 in its manifest, so the registration form and the server refuse a larger value. An existing installation takes the bound after the new ZIP is imported.
+
 ## 2026-11-24 Package usability and recovery
 
 - One manifest minimum determines package usability: declared and satisfied is ready; absent is Needs review; too new is Needs newer RobotControl. Undeclared ZIPs install visibly but cannot start work. Too-new installation is refused. No approval record or index migration is added.
