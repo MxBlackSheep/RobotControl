@@ -39,7 +39,7 @@ versions, bundled tool details and authoring steps are owned by
 - `api/database_tools.py`: every `/api/database/tools` route.
 - `build_scripts/database_package.py`: `create` and `build` for authors; neither runs package code.
 - `database_packages/`: bundled starter packages Culture history, Delete Experiment and Select
-  EvoYeast experiment (1.0.1), Champions experiment (1.0.0), and Plate data export (1.1.0; upstream code vendored as helper
+  EvoYeast experiment (1.0.1), Champions experiment (1.0.1), and Plate data export (1.1.0; upstream code vendored as helper
   modules, compared with the desktop tool by `backend/e2e/plate_export_check.py`). Each `CHANGELOG.md` section is the default history message
   for its version and the import review's suggested note (`changelog_note` in
   `database_packages.py`). Publishing a draft adds its change note as the new version's
@@ -355,7 +355,8 @@ opens no SQL connection. Normal preparation validation and pinning still occur a
 These endpoints have the same local-admin restriction as registration.
 
 Champions writes eight parameters, with four fluorescence calibration values fixed to
-the shipped defaults. No Excel import, schema migration, automatic launch or custom
+the shipped defaults. Target well volume is bounded at 1000 uL (the deep-well plate) by the
+manifest's `max`, which the server and the form both enforce. No Excel import, schema migration, automatic launch or custom
 registration code is supported. Shou_Lab must read those parameters before delivery.
 Scratch checks do not establish real EvoYeast column limits, procedure behavior or lab
 compatibility; the first real registration remains supervised.

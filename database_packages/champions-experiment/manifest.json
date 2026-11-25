@@ -3,7 +3,7 @@
   "contract_version": 3,
   "id": "champions-experiment",
   "name": "Champions experiment",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "libraries": [],
   "tools": [
     {
@@ -16,6 +16,7 @@
           "label": "Target well volume",
           "type": "number",
           "default": 700,
+          "max": 1000,
           "group": "main"
         },
         {

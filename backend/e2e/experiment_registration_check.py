@@ -6,7 +6,7 @@ runs the HTTP/catalogue/refusal/replay checks without SQL. Full mode creates onl
 .\\HAMILTON/EvoYeast_RCDev, refuses a pre-existing database, and drops it in finally.
 master is opened only to check/create/drop that scratch database; no lab database opens.
 
-Failure cases: unknown/changed/removed definitions; strict scalar, bounds, allowed,
+Failure cases: unknown/changed/removed definitions; strict scalar, bounds (Champions target well volume above 1000 uL), allowed,
 fixed, required-well and exact whole-count refusals; missing/extra fields; auth;
 empty parent reuse, populated/ambiguous parent refusal, no-layout without pattern
 storage, concurrent IDs, scheduling failure rollback and uncertain commit replay.
@@ -95,7 +95,7 @@ def package_checks(temporary):
     assert existing.tools('experiment') == [], 'Existing installation silently seeded Champions'
     existing.install(content)
     assert existing.export('champions-experiment')[0] == content
-    assert existing.history('champions-experiment')[0]['version'] == '1.0.0'
+    assert existing.history('champions-experiment')[0]['version'] == '1.0.1'
     existing.remove('champions-experiment')
     assert PackageCatalogue(existing.root, defaults).tools('experiment') == []
     existing.install(content)
@@ -157,6 +157,8 @@ def http_checks(client, service):
                         dict(layout=[('A1', 'MediaCtrl')]), dict(layout=[('A1', 'Cells'), ('A1', 'Cells')]),
                         dict(layout=[('I1', 'Cells')]), dict(layout=[('A1', 'other')])]:
             assert_refused(client.post(BASE, json=body(**changes)))
+        # Champions plates are 1000 uL deep wells: the bound lives in the manifest, not the protocol.
+        assert_refused(client.post(BASE, json=body(parameters={**PARAMETERS, 'TargetWellVolume': 1001})), 'at most 1000')
         cultures = [(f'{r}{c}', 'Cells') for c in range(1, 5) for r in 'ABCDEFGH']
         response = client.post(BASE, json=body(layout=cultures[:27], parameters={**PARAMETERS, 'TopFractionToPropagate': 0.5}))
         assert_refused(response, '27')
@@ -197,7 +199,7 @@ def http_checks(client, service):
         service.catalogue.install(archive(changed))
         assert client.post(BASE, json=body()).status_code == 409
         definition.update(client.get(BASE + '/types').json()[0])
-        changed['version'] = '1.0.1'
+        changed['version'] = '1.0.2'
         service.catalogue.install(archive(changed))
         assert client.post(BASE, json=body()).status_code == 409
         service.catalogue.install(archive(manifest()))
@@ -388,6 +390,8 @@ def sql_checks(client, service, body, lhr, lab, scratch):
         refused(layout=cultures[:27], parameters={**PARAMETERS, 'TopFractionToPropagate': 0.5})
         success(user_defined_id='whole32', layout=cultures, parameters={**PARAMETERS, 'TopFractionToPropagate': 0.5})
         refused(user_defined_id='x' * 51)
+        refused(user_defined_id='over', parameters={**PARAMETERS, 'TargetWellVolume': 1001})
+        assert success(user_defined_id='deep', parameters={**PARAMETERS, 'TargetWellVolume': 1000})['experiment_id']
         for populated in ('parameters', 'plate layout', 'parameters and plate layout'):
             parent = execute('INSERT INTO Experiments (UserDefinedID,Note) OUTPUT INSERTED.ExperimentID VALUES (?,?)', populated, 'kept')[0][0]
             if 'parameters' in populated:
