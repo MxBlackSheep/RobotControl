@@ -199,7 +199,7 @@ def http_checks(client, service):
         service.catalogue.install(archive(changed))
         assert client.post(BASE, json=body()).status_code == 409
         definition.update(client.get(BASE + '/types').json()[0])
-        changed['version'] = '1.0.1'
+        changed['version'] = '1.0.2'
         service.catalogue.install(archive(changed))
         assert client.post(BASE, json=body()).status_code == 409
         service.catalogue.install(archive(manifest()))
