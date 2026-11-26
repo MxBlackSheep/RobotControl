@@ -3,6 +3,10 @@
 - Three browser cases that repeated assertions were folded into the retained cases. The rack case now requires every tip of the far column to be reachable with the wheel alone, and the packaged database smoke requires the shipped Python examples.
 - `build_scripts/part_test.py` prints the checks to run for the changed files, from one hand-written table; a file it does not know selects the full source check. No product code changed.
 
+The log preview and database tools checks now pass in a clean checkout: the log check gives its same-length
+rewrite a later modification time, the original culture-history script is committed beside the check, and the
+check prints plain ASCII.
+
 ## 2026-11-25 Champions volume limit at registration
 
 - Before, registration accepted a Champions target well volume above the 1000 uL deep-well plate. Now the Champions experiment package (1.0.1) bounds the field at 1000 in its manifest, so the registration form and the server refuse a larger value. An existing installation takes the bound after the new ZIP is imported.
