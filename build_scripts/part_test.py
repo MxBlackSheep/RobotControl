@@ -57,7 +57,7 @@ AREAS = {
     "Experiment registration": area(
         "database_packages/champions-experiment/* backend/api/experiments.py backend/services/experiments.py",
         e2e="experiment_registration service_unavailable package_upgrade", browser="experiments system-pages"),
-    "Bundled tools": area("database_packages/culture-history/* database_packages/delete-experiment/*",
+    "Bundled tools": area("database_packages/culture-history/* database_packages/delete-experiment/* backend/e2e/culture_history_upstream.py",
                          e2e="bundled_tools database_tools", browser="database-tools"),
     "Plate data export": area("database_packages/plate-data-export/*", e2e="plate_export"),
     "Experiment preparation": area("database_packages/evoyeast-experiment/*", e2e="scheduling_lab preparation_step experiment_registration package_upgrade",

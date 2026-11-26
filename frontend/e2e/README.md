@@ -175,12 +175,13 @@ Set-Location ..
 .venv/Scripts/python.exe -m backend.e2e.packaged_database_smoke dist/<candidate>/RobotControl --authoring --evidence test-output/database-verification
 ```
 
-Run only the rows that match the change. Before a workbook comparison, download the
-revision named in `database_packages/culture-history/UPSTREAM.txt` to `upstream.py`
-in the evidence folder; it checks selection and output against the original script with
-legacy pandas string inference, including culture 98500000 on plate 985. `--evidence`
-keeps an earlier release's results; `packaged_database_smoke --report-package ZIP`
-checks a package-only correction against an existing executable without recompiling.
+Run only the rows that match the change. The workbook comparison runs
+`backend/e2e/culture_history_upstream.py`, the unmodified revision named in
+`database_packages/culture-history/UPSTREAM.txt`; it checks selection and output against
+that script with legacy pandas string inference, including culture 98500000 on plate
+985. `--evidence` keeps an earlier release's results; `packaged_database_smoke
+--report-package ZIP` checks a package-only correction against an existing executable
+without recompiling.
 
 The SQL Server checks use local `.\HAMILTON` with Windows administrator authentication
 only to create and drop UUID-named databases and logins. No check reads laboratory rows,

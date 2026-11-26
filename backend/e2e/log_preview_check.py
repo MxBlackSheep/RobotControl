@@ -5,6 +5,7 @@ poll, with or without an open reader. Truncation/replacement must redetect text;
 binary and compressed previews remain refused, and cut first lines are dropped.
 """
 import builtins
+import os
 import tempfile
 import time
 from pathlib import Path
@@ -80,7 +81,10 @@ def run():
                     response = client.get('/api/logfiles/preview', params={
                         'source_id': 'check', 'relative_path': followed.name, 'max_bytes': 100})
                     assert response.json()['data']['content'] == 'fresh caf\u00e9\n', response.text
+                    # The same length as the file just read, so give the rewrite a later modification time for certain.
+                    before = followed.stat()
                     followed.write_bytes(b'price \x80\n' + b' ' * 4)
+                    os.utime(followed, ns=(before.st_atime_ns, before.st_mtime_ns + 1_000_000_000))
                     response = client.get('/api/logfiles/preview', params={
                         'source_id': 'check', 'relative_path': followed.name, 'max_bytes': 100})
                     assert response.json()['data']['content'] == 'price \u20ac\n' + ' ' * 4, response.text
