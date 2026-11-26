@@ -6,7 +6,6 @@ import { signIn } from './sign-in';
 // - The tab of the current place is not marked; a page opened from More marks no tab or the wrong one.
 // - A held run is invisible from the tabs.
 // - A page opened from More has no way back, or is titled differently from the entry that was tapped.
-// - Runs shows a section menu over its own Agenda/History switch (phone-runs.spec.ts covers the switch).
 // - The tabs cover the end of a page.
 
 const phone = { width: 390, height: 844 };
@@ -56,14 +55,6 @@ test('a held run marks the Now tab', async ({ page }) => {
       pending_recoveries: [{ schedule_id: 'feed2', experiment_name: 'Cell feeding · stack 2', note: 'No log activity for 3 min.' }] } } } }));
   await page.goto('/logfile');
   await expect(tabs(page).getByRole('link', { name: 'Now, 1 run needs recovery' })).toBeVisible();
-});
-
-test('Runs is a plain title over its own Agenda and History switch', async ({ page }) => {
-  await page.goto('/scheduling');
-  await expect(page.locator('main h1')).toHaveText('Runs');
-  await expect(page.locator('main h1').getByRole('button')).toHaveCount(0);
-  await expect(tabs(page).getByRole('link', { name: 'Runs', exact: true })).toHaveAttribute('aria-current', 'page');
-  await expect(page.getByRole('group', { name: 'Runs view' })).toBeVisible();
 });
 
 test('the end of a page stays above the tabs', async ({ page }) => {

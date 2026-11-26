@@ -140,67 +140,74 @@ const phoneCardLayout = (page: Page) => page.evaluate(() => {
   return { cards: cards.filter(card => card.top >= header - 1 && card.bottom <= bar.top + 1).length, barBottom: bar.bottom };
 });
 
-for (const size of [{ width: 390, height: 844 }, { width: 375, height: 667 }]) {
-  test(`phone table shows row cards with the page, sorting and paging at ${size.width}x${size.height}`, async ({ page }, testInfo) => {
-    await page.setViewportSize(size);
-    const requests: string[] = [];
-    page.on('request', request => { if (request.url().includes('/api/database/tables/dbo.ActivePlateView')) requests.push(request.url()); });
-    await page.goto('/database?section=tables');
-    await page.getByRole('button', { name: /dbo\.ActivePlateView/ }).click();
-    await expect(page.getByText('1–25 of 32', { exact: true })).toBeVisible();
-    const workspace = page.getByLabel('Database table workspace');
-    // One scroll: nothing inside the workspace scrolls vertically.
-    expect(await workspace.evaluate(root => [...root.querySelectorAll('*')].filter(element =>
-      /auto|scroll/.test(getComputedStyle(element).overflowY) && element.scrollHeight > element.clientHeight + 1).length)).toBe(0);
-    const cards = page.getByRole('list', { name: 'dbo.ActivePlateView rows' }).getByRole('listitem');
-    await expect(cards).toHaveCount(25);
-    // Each card shows its own row: label and value of the first visible columns.
-    await expect(cards.first()).toContainText('Row 1');
-    await expect(cards.first()).toContainText('PlateID9850');
-    await expect(cards.nth(1)).toContainText('PlateID9851');
-    await testInfo.attach(`phone-cards-${size.width}-open`, { body: await page.screenshot(), contentType: 'image/png' });
-
-    await page.mouse.wheel(0, 600);
-    await expect.poll(async () => (await phoneCardLayout(page)).cards).toBeGreaterThanOrEqual(size.height >= 844 ? 3 : 2);
-    // The paging bar rests on the page bar: never under it, no gap above it.
+test('phone table shows row cards with the page, sorting and paging', async ({ page }, testInfo) => {
+  // The taller phone first, for the number of whole cards; the workflow then runs on the short one.
+  await page.setViewportSize({ width: 390, height: 844 });
+  const requests: string[] = [];
+  page.on('request', request => { if (request.url().includes('/api/database/tables/dbo.ActivePlateView')) requests.push(request.url()); });
+  await page.goto('/database?section=tables');
+  await page.getByRole('button', { name: /dbo\.ActivePlateView/ }).click();
+  await expect(page.getByText('1–25 of 32', { exact: true })).toBeVisible();
+  const workspace = page.getByLabel('Database table workspace');
+  // One scroll: nothing inside the workspace scrolls vertically.
+  const expectOneScroll = async () => expect(await workspace.evaluate(root => [...root.querySelectorAll('*')].filter(element =>
+    /auto|scroll/.test(getComputedStyle(element).overflowY) && element.scrollHeight > element.clientHeight + 1).length)).toBe(0);
+  // The paging bar rests on the page bar: never under it, no gap above it.
+  const expectBarOnPages = async () => {
     const pagesTop = await page.getByRole('navigation', { name: 'Pages' }).evaluate(nav => nav.getBoundingClientRect().top);
     const { barBottom } = await phoneCardLayout(page);
     expect(barBottom).toBeLessThanOrEqual(pagesTop + 1);
     expect(barBottom).toBeGreaterThan(pagesTop - 2);
+  };
+  await expectOneScroll();
+  const cards = page.getByRole('list', { name: 'dbo.ActivePlateView rows' }).getByRole('listitem');
+  await expect(cards).toHaveCount(25);
+  // Each card shows its own row: label and value of the first visible columns.
+  await expect(cards.first()).toContainText('Row 1');
+  await expect(cards.first()).toContainText('PlateID9850');
+  await expect(cards.nth(1)).toContainText('PlateID9851');
+  await testInfo.attach('phone-cards-open', { body: await page.screenshot(), contentType: 'image/png' });
 
-    // Tapping a card opens that row's inspector with every column.
-    await page.getByRole('button', { name: 'Inspect row 3', exact: true }).click();
-    const record = page.getByRole('dialog', { name: /Row 3/ });
-    await expect(record).toContainText('9852');
-    await expect(record).toContainText('OD');
-    await page.keyboard.press('Escape');
-    await expect(record).toBeHidden();
+  await page.mouse.wheel(0, 600);
+  await expect.poll(async () => (await phoneCardLayout(page)).cards).toBeGreaterThanOrEqual(3);
+  await expectBarOnPages();
+  await page.setViewportSize({ width: 375, height: 667 });
+  await expect.poll(async () => (await phoneCardLayout(page)).cards).toBeGreaterThanOrEqual(2);
+  await expectOneScroll();
+  await expectBarOnPages();
 
-    // Sort by replaces the column headings on phones and writes the same query.
-    await page.getByRole('button', { name: 'More table options' }).click();
-    await page.getByRole('menuitem', { name: /^Sort by/ }).click();
-    const sort = page.getByRole('dialog', { name: 'Sort by' });
-    await sort.getByRole('combobox', { name: 'Column' }).click();
-    await page.getByRole('option', { name: 'PlateID', exact: true }).click();
-    await sort.getByRole('combobox', { name: 'Direction' }).click();
-    await page.getByRole('option', { name: 'Descending', exact: true }).click();
-    // The cards behind the open dialog are hidden from assistive technology, so close it first.
-    await page.keyboard.press('Escape');
-    await expect(sort).toBeHidden();
-    await expect(cards.first()).toContainText('PlateID9881');
-    expect(requests.some(url => /order_by=PlateID/.test(url) && /sort_direction=desc/.test(url))).toBe(true);
+  // Tapping a card opens that row's inspector with every column.
+  await page.getByRole('button', { name: 'Inspect row 3', exact: true }).click();
+  const record = page.getByRole('dialog', { name: /Row 3/ });
+  await expect(record).toContainText('9852');
+  await expect(record).toContainText('OD');
+  await page.keyboard.press('Escape');
+  await expect(record).toBeHidden();
 
-    // Paging from the bottom bar shows the next page from its first card.
-    await page.getByRole('button', { name: 'Go to next page' }).click();
-    await expect(page.getByText('26–32 of 32', { exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Inspect row 26', exact: true })).toBeInViewport();
-    await page.getByRole('textbox', { name: 'Search all supported columns' }).fill('Waiting for read');
-    await page.getByRole('textbox', { name: 'Search all supported columns' }).press('Enter');
-    await expect(page.getByText('1–7 of 7', { exact: true })).toBeVisible();
-    await page.setViewportSize({ width: 320, height: 568 });
-    await assertNoPageOverflow(page);
-  });
-}
+  // Sort by replaces the column headings on phones and writes the same query.
+  await page.getByRole('button', { name: 'More table options' }).click();
+  await page.getByRole('menuitem', { name: /^Sort by/ }).click();
+  const sort = page.getByRole('dialog', { name: 'Sort by' });
+  await sort.getByRole('combobox', { name: 'Column' }).click();
+  await page.getByRole('option', { name: 'PlateID', exact: true }).click();
+  await sort.getByRole('combobox', { name: 'Direction' }).click();
+  await page.getByRole('option', { name: 'Descending', exact: true }).click();
+  // The cards behind the open dialog are hidden from assistive technology, so close it first.
+  await page.keyboard.press('Escape');
+  await expect(sort).toBeHidden();
+  await expect(cards.first()).toContainText('PlateID9881');
+  expect(requests.some(url => /order_by=PlateID/.test(url) && /sort_direction=desc/.test(url))).toBe(true);
+
+  // Paging from the bottom bar shows the next page from its first card.
+  await page.getByRole('button', { name: 'Go to next page' }).click();
+  await expect(page.getByText('26–32 of 32', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Inspect row 26', exact: true })).toBeInViewport();
+  await page.getByRole('textbox', { name: 'Search all supported columns' }).fill('Waiting for read');
+  await page.getByRole('textbox', { name: 'Search all supported columns' }).press('Enter');
+  await expect(page.getByText('1–7 of 7', { exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 320, height: 568 });
+  await assertNoPageOverflow(page);
+});
 
 test('restore messages stay inline instead of stacking dialogs', async ({ page }, testInfo) => {
   await signIn(page);

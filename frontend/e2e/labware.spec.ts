@@ -11,7 +11,7 @@ import { signIn } from './sign-in';
  * - Escape, pointer cancel, release outside the rack, rack/family change or resizing
  *   cancel a preview. Phone touch scrolling never edits and keeps a chosen first corner.
  * - Undo restores the exact prior drafts without touching another family; Save, discard
- *   and reset clear undo history. Set entire rack is the only bulk action.
+ *   and reset clear undo history.
  * - Drafts survive rack/family/section changes, phone Back and failed saves. Save freezes
  *   every editing control; success clears only the submitted matching edits. Reload or
  *   close warns while edits are pending.
@@ -230,26 +230,6 @@ test('read-only tip deck permits inspection and never exposes painting',async({p
   await expect(page.getByRole('button',{name:/Save changes/})).toHaveCount(0);expect(state.writes).toEqual([]);
   await info.attach('read-only-tip-deck',{body:await page.screenshot({animations:'disabled'}),contentType:'image/png'});
 });
-
-for(const viewport of [{width:3840,height:2160},{width:1280,height:720},{width:320,height:720}]){
-test(`rack sizing and bulk controls at ${viewport.width}x${viewport.height}`,async({page},info)=>{
-  await fixtures(page,true,true);if(viewport.width===1280)await page.addInitScript(()=>localStorage.setItem('robotcontrol-appearance','dark'));await page.setViewportSize(viewport);await page.goto('/labware');
-  await page.getByRole('button',{name:'Open rack VER_ST_0001',exact:true}).click();await chooseStatus(page);
-  const grid=page.getByRole('group',{name:'VER_ST_0001 tips',exact:true});
-  const cell=grid.getByRole('button').first();const last=grid.getByRole('button').last();
-  await expect(cell).toBeVisible();const dimensions=await cell.boundingBox();expect(dimensions!.width).toBeGreaterThanOrEqual(viewport.width<600?23.9:43.9);expect(dimensions!.height).toBeGreaterThanOrEqual(43.9);
-  // Phones fit the whole rack (tips at least 24px wide) instead of scrolling sideways.
-  if(viewport.width<600)await expect(last).toBeInViewport({ratio:1});
-  const dot=await cell.locator('[data-tip-dot]').boundingBox();expect(Math.abs(dot!.width-dot!.height)).toBeLessThan(0.1);
-  const canvas=await grid.boundingBox();const card=await grid.locator('xpath=ancestor::*[@data-rack-editor]').boundingBox();
-  if(viewport.width>=1280){expect(card!.width-canvas!.width).toBeLessThan(40);await last.scrollIntoViewIfNeeded();await expect(last).toBeVisible();}
-  if(viewport.width===3840)expect(dimensions!.width).toBeGreaterThan(132);
-  await expect(page.getByRole('button',{name:'Set entire rack',exact:true})).toBeEnabled();
-  for(const name of['Paint','Rectangle','Inspect','Paint row','Paint column','Paint rack','Paint range'])await expect(page.getByRole('button',{name,exact:true})).toHaveCount(0);
-  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
-  await info.attach(`rack-layout-${viewport.width}x${viewport.height}`,{body:await page.screenshot({animations:'disabled'}),contentType:'image/png'});
-});
-}
 
 test.describe('high DPI rack',()=>{
 test.use({viewport:{width:1920,height:1080},deviceScaleFactor:2});

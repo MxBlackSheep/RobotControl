@@ -482,7 +482,7 @@ def run(evidence=ROOT/'test-output/database-verification'):
                     data=dict(expected_current=good_review['current_sha256'], expected_package='culture-history')).status_code == 200
                 restored = report_result()
                 assert restored['status']=='ready' and restored['package_version']=='9.0.2', restored
-                checks.append('Author CLI → non-executing inspection → reviewed update; stale/wrong updates rejected; failed activation keeps 9.0.0; '
+                checks.append('Author CLI, non-executing inspection, reviewed update; stale/wrong updates rejected; failed activation keeps 9.0.0; '
                               'import failure stays in the report process and a good update restores reports: passed')
                 folder = ROOT/'database_packages/delete-experiment'
                 def upload(content): return client.post(BASE+'/packages', files={'file': ('package.zip', content, 'application/zip')})
@@ -663,7 +663,8 @@ def run(evidence=ROOT/'test-output/database-verification'):
 
 def compare_upstream(database, evidence, legacy_strings=False):
     # Execute the unmodified upstream main/calculation functions with only I/O replaced.
-    source=(evidence/'upstream.py').read_text(encoding='utf-8-sig')
+    # The committed copy of the Data.py revision named in culture-history/UPSTREAM.txt; do not edit it.
+    source=(ROOT/'backend/e2e/culture_history_upstream.py').read_text(encoding='utf-8-sig')
     namespace={}
     exec('import os\nimport re\nimport sys\nfrom datetime import datetime\nfrom typing import *\nimport pandas as pd\nimport pyodbc\n'+source[source.index('def fetch_df('):source.index('if __name__')], namespace)
     namespace.update(log=lambda *args:None, safe_print=lambda *args:None, connect=lambda:database.get_connection(),

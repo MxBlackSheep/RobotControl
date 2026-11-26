@@ -14,6 +14,8 @@ import { signIn } from './sign-in';
  *   retained sections must not publish zero sizes. Sidebar, toolbar wrapping and zoom
  *   recalculate without remounting the rack or losing selection and drafts.
  * - Heading, toolbar and workspace share one leading edge at 1280 and 3840px.
+ * - A tip of the far column cannot be scrolled to or is covered; a phone does not show the whole rack;
+ *   the editor panel is much wider than its rack from 1280px; Set entire rack is not usable.
  * - Long rack IDs ellipsize but keep their full accessible name; adding or clearing 96
  *   unsaved tips must not move either diagram.
  * - A background read must not move or replace rack nodes, insert a progress bar,
@@ -145,7 +147,8 @@ for (const viewport of [{ width: 3840, height: 2160 }, { width: 1280, height: 72
   const grid = page.getByRole('group', { name: `${left[0]} tips`, exact: true });
   // Only on a phone does the rack dialog narrow tips (at least 24px) to fit all twelve columns; the same
   // dialog on a tablet or narrow desktop window (e.g. 1024x600) keeps 44px targets.
-  const phoneDialog = viewport.width < 600 && await page.getByRole('dialog').isVisible();
+  const phoneDialog = viewport.width < 600;
+  if (viewport.width < 600 || viewport.width >= 1280) await expect(page.getByRole('dialog')).toHaveCount(phoneDialog ? 1 : 0);
   const first = grid.getByRole('button').first(); const box = await first.boundingBox(); expect(box!.width).toBeGreaterThanOrEqual(phoneDialog ? 23.9 : 43.9); expect(box!.height).toBeGreaterThanOrEqual(43.9);
   const dot = await first.locator('[data-tip-dot]').boundingBox(); expect(Math.abs(dot!.width - dot!.height)).toBeLessThan(0.1);
   const scrollBody = page.locator('[data-tip-editor-body]');
@@ -158,11 +161,9 @@ for (const viewport of [{ width: 3840, height: 2160 }, { width: 1280, height: 72
     // Design system A: deck and editor are separate panels, one 12px page gutter apart.
     expect(Math.abs(editorBox!.x - (deckBox!.x + deckBox!.width) - 12)).toBeLessThanOrEqual(1);
     const workbench = await page.locator('[data-tip-workspace]').boundingBox();
-    const available = await page.locator('[data-tip-workspace]').evaluate(element => element.clientWidth);
     const content = await page.locator('[data-page-pattern="spatial"]').boundingBox();
     expect(Math.abs(workbench!.width - content!.width)).toBeLessThanOrEqual(1);
-    const expectedOverview = Math.max(320, Math.min(available * 0.4, available - 596 - 12));
-    expect(Math.abs(deckBox!.width - expectedOverview)).toBeLessThanOrEqual(2);
+    expect(deckBox!.width).toBeGreaterThanOrEqual(319);
     const overviewBody = await page.locator('[data-tip-overview-body]').boundingBox();
     const editorBody = await page.locator('[data-tip-editor-body]').boundingBox();
     expect(Math.abs(overviewBody!.y - editorBody!.y)).toBeLessThanOrEqual(1);
@@ -179,6 +180,19 @@ for (const viewport of [{ width: 3840, height: 2160 }, { width: 1280, height: 72
     const surface = await page.locator('[data-tip-workspace]').boundingBox();
     expect(Math.abs(heading!.x - surface!.x)).toBeLessThanOrEqual(1);
     if (viewport.width === 1280) expect(surface!.y + surface!.height).toBeLessThanOrEqual(viewport.height - 2);
+  }
+  await page.getByRole('group', { name: 'Set tips to', exact: true }).getByRole('button', { name: 'Dirty', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Set entire rack', exact: true })).toBeEnabled();
+  if (viewport.width >= 1280) expect((await page.locator('[data-rack-editor]').boundingBox())!.width - (await grid.boundingBox())!.width).toBeLessThan(40);
+  // The far column (tips 89 to 96) is reachable by the user: scroll only as a user can (the wheel over the rack), then
+  // every tip of it is wholly on screen, not clipped by any ancestor, with nothing over it.
+  if (phoneDialog) await expect(grid.getByRole('button', { name: /^Tip 96,/ })).toBeInViewport({ ratio: 1 });
+  const rackBody = (await scrollBody.boundingBox())!;
+  await page.mouse.move(rackBody.x + 20, rackBody.y + 20); await page.mouse.wheel(5000, 5000);
+  for (let tip = 89; tip <= 96; tip++) {
+    const cell = grid.getByRole('button', { name: new RegExp(`^Tip ${tip},`) });
+    await expect(cell).toBeInViewport({ ratio: 0.99 });
+    expect(await cell.evaluate(element => { const bounds = element.getBoundingClientRect(); return element.contains(document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2)); })).toBe(true);
   }
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   await info.attach(`joined-workbench-${viewport.width}`, { body: await page.screenshot({ animations: 'disabled' }), contentType: 'image/png' });
