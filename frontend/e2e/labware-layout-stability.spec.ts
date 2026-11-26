@@ -184,21 +184,14 @@ for (const viewport of [{ width: 3840, height: 2160 }, { width: 1280, height: 72
   await page.getByRole('group', { name: 'Set tips to', exact: true }).getByRole('button', { name: 'Dirty', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Set entire rack', exact: true })).toBeEnabled();
   if (viewport.width >= 1280) expect((await page.locator('[data-rack-editor]').boundingBox())!.width - (await grid.boundingBox())!.width).toBeLessThan(40);
-  // The far column (tips 89 to 96) is reachable by the user: scroll sideways only as a user can (the wheel), then no
-  // clipping ancestor may cut a tip off; each end of the column comes on screen with nothing over it.
+  // The far column (tips 89 to 96) is reachable by the user: scroll only as a user can (the wheel over the rack), then
+  // every tip of it is wholly on screen, not clipped by any ancestor, with nothing over it.
   if (phoneDialog) await expect(grid.getByRole('button', { name: /^Tip 96,/ })).toBeInViewport({ ratio: 1 });
-  if (clipping.horizontal) { await scrollBody.hover(); await page.mouse.wheel(5000, 0); await page.waitForTimeout(300); }
-  for (const tip of [89, 96]) {
+  const rackBody = (await scrollBody.boundingBox())!;
+  await page.mouse.move(rackBody.x + 20, rackBody.y + 20); await page.mouse.wheel(5000, 5000);
+  for (let tip = 89; tip <= 96; tip++) {
     const cell = grid.getByRole('button', { name: new RegExp(`^Tip ${tip},`) });
-    expect(await cell.evaluate(element => {
-      const bounds = element.getBoundingClientRect();
-      for (let parent = element.parentElement; parent; parent = parent.parentElement) {
-        const box = parent.getBoundingClientRect();
-        if (getComputedStyle(parent).overflowX !== 'visible' && (bounds.left < box.left - 1 || bounds.right > box.right + 1)) return true;
-      }
-      return bounds.right > innerWidth + 1;
-    })).toBe(false);
-    await cell.scrollIntoViewIfNeeded(); await expect(cell).toBeInViewport({ ratio: 1 });
+    await expect(cell).toBeInViewport({ ratio: 0.99 });
     expect(await cell.evaluate(element => { const bounds = element.getBoundingClientRect(); return element.contains(document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2)); })).toBe(true);
   }
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);

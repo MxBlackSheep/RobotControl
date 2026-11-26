@@ -115,6 +115,8 @@ AREAS = {
     "SQLite health": area("frontend/src/components/SQLiteHealthPanel.tsx backend/api/sqlite_health.py backend/services/sqlite_health.py",
                           units="sqlite_safety", browser="system-pages", vitest="components/SQLiteHealthPanel.test.tsx"),
     "Visual review": area("frontend/e2e/visual/*", browser="visual/review"),
+    "Shared pytest configuration": area("backend/e2e/simulation_mode_check.py",
+                                        units="scheduler_single_worker sqlite_safety"),
     "Stored method paths": area("backend/services/scheduling/method_library.py", e2e="stored_data"),
     "Scheduling route responsiveness": area("backend/api/scheduling.py", units="notification_responsiveness"),
     "Table viewer sources": area("frontend/src/components/ReportInputs.tsx", browser="database"),
@@ -153,13 +155,13 @@ def reasons_for(path):
         return ["Documentation"]
     if path.startswith(("backend/e2e/packaged_", "frontend/e2e/packaged-")):
         return ["Packaging"]
+    matches = [name for name, (patterns, _) in AREAS.items()
+               if any(fnmatchcase(path, pattern) for pattern in patterns)]
     if (ROOT / path).is_file() and any(fnmatchcase(path, pattern) for pattern in (
         "backend/tests/test_*.py", "backend/e2e/*_check.py", "frontend/e2e/*.spec.ts",
         "frontend/src/*.test.ts", "frontend/src/*.test.tsx",
     )):
-        return ["Changed check"]
-    matches = [name for name, (patterns, _) in AREAS.items()
-               if any(fnmatchcase(path, pattern) for pattern in patterns)]
+        return ["Changed check", *matches]
     if not matches or matches == ["Packaging"]:
         matches.append(FULL)
     return matches
@@ -177,8 +179,7 @@ def plan(paths):
                 picked.add(check.relative_to(ROOT).as_posix())
     for path in sorted(paths):
         for reason in reasons_for(path):
-            if reason != FULL or path not in reasons.get("Direct importer", ()):
-                reasons[reason].add(path)
+            reasons[reason].add(path)
 
     picked.update(reasons.get("Changed check", ()))
     for name, (_, checks) in AREAS.items():
