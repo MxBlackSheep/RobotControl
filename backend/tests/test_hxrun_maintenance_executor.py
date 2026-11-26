@@ -9,12 +9,16 @@ import backend.services.scheduling.experiment_executor as executor_module
 
 class StubPreExecutionPipeline:
     run_calls = 0
+    ready_checked = []
 
     def __init__(self, _db_manager):
         return
 
     def prepare(self, _experiment, _execution_id):
         StubPreExecutionPipeline.run_calls += 1
+
+    def require_ready(self, experiment):
+        StubPreExecutionPipeline.ready_checked.append(experiment.experiment_name)
 
 
 class StubDBManager:
@@ -43,6 +47,7 @@ def test_schedule_check_requires_cleanup_path():
 def test_executor_uses_timeout_cleanup_target_and_skips_pre_run(monkeypatch):
     captured = {"name": None, "path": None}
     StubPreExecutionPipeline.run_calls = 0
+    StubPreExecutionPipeline.ready_checked = []
 
     monkeypatch.setattr(executor_module, "get_scheduling_database_manager", lambda: StubDBManager())
     monkeypatch.setattr(executor_module, "PreExecutionPipeline", StubPreExecutionPipeline)
@@ -80,5 +85,6 @@ def test_executor_uses_timeout_cleanup_target_and_skips_pre_run(monkeypatch):
     assert captured["name"] == "CleanupMethod"
     assert captured["path"] == r"C:\\Hamilton\\Methods\\cleanup.med"
     assert StubPreExecutionPipeline.run_calls == 0
+    assert StubPreExecutionPipeline.ready_checked == ["Primary"]
     assert timeout_context["timed_out"] is True
     assert timeout_context["terminate_schedule"] is True
