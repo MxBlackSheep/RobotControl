@@ -2,6 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { signIn as signInCookie } from './sign-in';
 
 // Phone Runs (a remote session below 600px): a read-only agenda and history.
+// - Runs shows a section menu in its title over its own Agenda/History switch, or its tab is not marked.
 // - A held schedule drops out of the agenda (holding sets is_active false), so a hold looks like nothing to run.
 // - An inactive or archived schedule is listed as if it will run; the running one is missing.
 // - Agenda/History is lost on reload (the section must stay in the address).
@@ -39,6 +40,9 @@ test('the agenda lists what will run today and tomorrow, including a held run', 
   await signIn(page, false);
   await page.goto('/scheduling');
   await expect(page.locator('main h1')).toHaveText('Runs');
+  await expect(page.locator('main h1').getByRole('button')).toHaveCount(0);
+  await expect(page.getByRole('navigation', { name: 'Pages' }).getByRole('link', { name: 'Runs', exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('group', { name: 'Runs view' })).toBeVisible();
   const today = page.getByRole('region', { name: 'Today' });
   // The running schedule leads Today in place of its next time (tomorrow 13:45).
   await expect(today).toContainText(/^Today\s*RunningDaily tip wash/);

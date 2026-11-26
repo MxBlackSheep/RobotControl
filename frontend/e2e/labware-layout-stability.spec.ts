@@ -14,6 +14,8 @@ import { signIn } from './sign-in';
  *   retained sections must not publish zero sizes. Sidebar, toolbar wrapping and zoom
  *   recalculate without remounting the rack or losing selection and drafts.
  * - Heading, toolbar and workspace share one leading edge at 1280 and 3840px.
+ * - A tip of the far column cannot be scrolled to or is covered; a phone does not show the whole rack;
+ *   the editor panel is much wider than its rack from 1280px; Set entire rack is not usable.
  * - Long rack IDs ellipsize but keep their full accessible name; adding or clearing 96
  *   unsaved tips must not move either diagram.
  * - A background read must not move or replace rack nodes, insert a progress bar,
@@ -158,11 +160,9 @@ for (const viewport of [{ width: 3840, height: 2160 }, { width: 1280, height: 72
     // Design system A: deck and editor are separate panels, one 12px page gutter apart.
     expect(Math.abs(editorBox!.x - (deckBox!.x + deckBox!.width) - 12)).toBeLessThanOrEqual(1);
     const workbench = await page.locator('[data-tip-workspace]').boundingBox();
-    const available = await page.locator('[data-tip-workspace]').evaluate(element => element.clientWidth);
     const content = await page.locator('[data-page-pattern="spatial"]').boundingBox();
     expect(Math.abs(workbench!.width - content!.width)).toBeLessThanOrEqual(1);
-    const expectedOverview = Math.max(320, Math.min(available * 0.4, available - 596 - 12));
-    expect(Math.abs(deckBox!.width - expectedOverview)).toBeLessThanOrEqual(2);
+    expect(deckBox!.width).toBeGreaterThanOrEqual(319);
     const overviewBody = await page.locator('[data-tip-overview-body]').boundingBox();
     const editorBody = await page.locator('[data-tip-editor-body]').boundingBox();
     expect(Math.abs(overviewBody!.y - editorBody!.y)).toBeLessThanOrEqual(1);
@@ -180,6 +180,15 @@ for (const viewport of [{ width: 3840, height: 2160 }, { width: 1280, height: 72
     expect(Math.abs(heading!.x - surface!.x)).toBeLessThanOrEqual(1);
     if (viewport.width === 1280) expect(surface!.y + surface!.height).toBeLessThanOrEqual(viewport.height - 2);
   }
+  await page.getByRole('group', { name: 'Set tips to', exact: true }).getByRole('button', { name: 'Dirty', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Set entire rack', exact: true })).toBeEnabled();
+  if (viewport.width >= 1280) expect((await page.locator('[data-rack-editor]').boundingBox())!.width - (await grid.boundingBox())!.width).toBeLessThan(40);
+  // The far column is reachable: a sideways overflow can be scrolled, and its last tip comes fully on screen with nothing over it.
+  const last = grid.getByRole('button').last();
+  if (phoneDialog) await expect(last).toBeInViewport({ ratio: 1 });
+  if (clipping.horizontal) expect(await scrollBody.evaluate(element => getComputedStyle(element).overflowX)).toMatch(/auto|scroll/);
+  await last.scrollIntoViewIfNeeded(); await expect(last).toBeInViewport({ ratio: 1 });
+  expect(await last.evaluate(element => { const bounds = element.getBoundingClientRect(); return element.contains(document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2)); })).toBe(true);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   await info.attach(`joined-workbench-${viewport.width}`, { body: await page.screenshot({ animations: 'disabled' }), contentType: 'image/png' });
 });

@@ -44,19 +44,24 @@ npx playwright test labware-layout-stability.spec.ts --grep "joined workbench"
 Set-Location ..
 ```
 
-This example checks Labware sizing. Narrow or broaden it to the actual change:
+This example checks Labware sizing. To pick the checks for a change, run this
+from the repository root. It prints the commands and runs nothing; pass file
+paths to preview a particular change:
 
-| Area | Existing spec files to select from |
-| --- | --- |
-| Tip layout and refresh | `labware-layout-stability.spec.ts` |
-| Tip editing and saving | `labware.spec.ts` |
-| Cytomat | `cytomat-spatial.spec.ts` |
-| Tables and SQL | `database.spec.ts`, `inspection-pagination.spec.ts` |
-| Database restore | `database-restore.spec.ts`, `database.spec.ts` |
-| Log readers | `logs.spec.ts` |
-| Camera | `camera.spec.ts` |
-| Scheduling and archives | `operations.spec.ts` |
-| Theme, navigation, Overview, robot status banner and system pages | `appearance.spec.ts`, `system-pages.spec.ts` |
+```powershell
+uv run --locked python build_scripts/part_test.py
+```
+
+The map of areas to specs, pytest files and backend checks is the table in
+`build_scripts/part_test.py`; update it with the feature. A code path it does not
+know selects the full source check.
+
+Some passes only repeat a layout at another size or theme, so the night run is
+enough for them unless the change is about styling or layout: the two all-route
+theme sweeps in `appearance.spec.ts`, the other widths of "joined workbench fits"
+in `labware-layout-stability.spec.ts`, the 3840px pass of "blocked armed
+preparation" in `scheduling-lab.spec.ts` and the screenshot loop of "assigning
+package connections" in `database-workspace.spec.ts`.
 
 Use `--grep` for a specific case; use `npx playwright test --list --reporter=list`
 to list cases without running them.

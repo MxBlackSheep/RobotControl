@@ -25,7 +25,7 @@ Failure cases:
   conflicts, private drafts, trial/installed generation and prepared Python with pandas
   or relative helpers fail in the packaged process; a second connection's input that
   depends on the first offers the wrong choices, accepts a forged pair or writes wrong
-  workbook values.
+  workbook values. A downloaded example differs from its shipped source or cannot compile.
 """
 import argparse
 import hashlib
@@ -139,7 +139,10 @@ def run(context, inputs):
         # Prepared Python uses the same bundled runtime, including relative helpers.
         from backend.e2e.tool_authoring_check import REPORT
         for kind in ('report', 'operation'):
-            assert b'TOOL' in request('/api/database/tools/authoring/examples/'+kind,token=token)
+            example = ROOT / 'database_packages' / 'examples' / f'{kind}.py'
+            source = request('/api/database/tools/authoring/examples/'+kind,token=token).decode('utf-8')
+            assert source.replace('\r\n', '\n').replace('\r', '\n') == example.read_text('utf-8'), example.name
+            compile(source, example.name, 'exec')
         saved=request('/api/database/tools/authoring/import',{'files':{
             'report.py':REPORT, 'helper.py':"heading='Packaged'\n"}},token)
         prefix='/api/database/tools/drafts/'+saved['id']
