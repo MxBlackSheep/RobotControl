@@ -7,16 +7,9 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 UV = "uv run --locked python"
-PACKAGED = (
-    "packaged_viewer_smoke", "packaged_walkthrough", "packaged_database_smoke", "packaged_shutdown_check",
-)
-PACKAGE_INPUTS = (
-    "database_packages/*", "build_scripts/pyinstaller_build.py", "build_scripts/database_package.py",
-    "build_scripts/embed_resources.py", "build_scripts/fetch_ffmpeg.py", "build_scripts/icon/*",
-    "build_scripts/notices/*", "backend/services/embedded_resources.py", "backend/version.py",
-    "pyproject.toml", "uv.lock", ".python-version", "frontend/package*.json",
-    "backend/e2e/packaged_*", "frontend/e2e/packaged-*",
-)
+SHUTDOWN = "backend/e2e/packaged_shutdown_check.py"
+DATABASE_SMOKE = "backend/e2e/packaged_database_smoke.py"
+FULL = "Full source check (shared or unmapped)"
 
 
 def area(paths, *, e2e="", units="", browser="", vitest=""):
@@ -28,6 +21,13 @@ def area(paths, *, e2e="", units="", browser="", vitest=""):
 
 
 AREAS = {
+    "Packaging": (
+        "database_packages/* build_scripts/pyinstaller_build.py build_scripts/database_package.py "
+        "build_scripts/embed_resources.py build_scripts/fetch_ffmpeg.py build_scripts/icon/* "
+        "build_scripts/notices/* backend/services/embedded_resources.py backend/version.py "
+        "pyproject.toml uv.lock .python-version frontend/package*.json".split(),
+        ("backend/e2e/packaged_viewer_smoke.py", "backend/e2e/packaged_walkthrough.py", DATABASE_SMOKE, SHUTDOWN),
+    ),
     "Overview and robot status": area(
         "frontend/src/pages/Dashboard.tsx frontend/src/components/overview/* frontend/src/components/RobotAttentionBanner.tsx "
         "frontend/src/hooks/useRobotStatus.ts frontend/src/components/ExperimentStatus.tsx backend/services/experiment_monitor.py",
@@ -113,6 +113,7 @@ AREAS = {
                           units="health_sampler health_responsiveness resource_diagnostics", browser="system-pages"),
     "SQLite health": area("frontend/src/components/SQLiteHealthPanel.tsx backend/api/sqlite_health.py backend/services/sqlite_health.py",
                           units="sqlite_safety", browser="system-pages", vitest="components/SQLiteHealthPanel.test.tsx"),
+    "Visual review": area("frontend/e2e/visual/*", browser="visual/review"),
 }
 
 
@@ -128,58 +129,56 @@ def changed_paths(base):
             | git_paths(*diff) | git_paths("ls-files", "--others", "--exclude-standard", "-z"))
 
 
+def reasons_for(path):
+    if Path(path).suffix.lower() in {".md", ".rst"}:
+        return ["Documentation"]
+    if path.startswith(("backend/e2e/packaged_", "frontend/e2e/packaged-")):
+        return ["Packaging"]
+    if (ROOT / path).is_file() and any(fnmatchcase(path, pattern) for pattern in (
+        "backend/tests/test_*.py", "backend/e2e/*_check.py", "frontend/e2e/*.spec.ts",
+        "frontend/src/*.test.ts", "frontend/src/*.test.tsx",
+    )):
+        return ["Changed check"]
+    matches = [name for name, (patterns, _) in AREAS.items()
+               if any(fnmatchcase(path, pattern) for pattern in patterns)]
+    if not matches or matches == ["Packaging"]:
+        matches.append(FULL)
+    return matches
+
+
 def plan(paths):
     reasons = defaultdict(list)
-    picked = set()
-    full = packaged = False
-    package_checks = [f"backend/e2e/{name}.py" for name in PACKAGED]
-    for name, (_, checks) in (AREAS | {"Packaging": ((), package_checks)}).items():
+    for path in sorted(paths):
+        for reason in reasons_for(path):
+            reasons[reason].append(path)
+
+    picked = set(reasons.get("Changed check", ()))
+    for name, (_, checks) in AREAS.items():
         for check in checks:
             if not (ROOT / check).is_file():
                 raise SystemExit(f"{name}: mapped check is missing: {check}")
-
-    for path in sorted(paths):
-        if Path(path).suffix.lower() in {".md", ".rst"}:
-            reasons["Documentation"].append(path)
-            continue
-        if any(fnmatchcase(path, pattern) for pattern in PACKAGE_INPUTS):
-            packaged = True
-            reasons["Packaging"].append(path)
-            if path in package_checks or path.startswith(("backend/e2e/packaged_", "frontend/e2e/packaged-")):
-                continue
-        if (ROOT / path).is_file() and any(fnmatchcase(path, pattern) for pattern in (
-            "backend/tests/test_*.py", "backend/e2e/*_check.py", "frontend/e2e/*.spec.ts",
-            "frontend/src/*.test.ts", "frontend/src/*.test.tsx",
-        )) and not path.startswith("backend/e2e/packaged_"):
-            picked.add(path)
-            reasons["Changed check"].append(path)
-            continue
-        matches = [name for name, (patterns, _) in AREAS.items()
-                   if any(fnmatchcase(path, pattern) for pattern in patterns)]
-        for name in matches:
-            reasons[name].append(path)
-            picked.update(AREAS[name][1])
-        if not matches:
-            full = True
-            reasons["Full source check (shared or unmapped)"].append(path)
-    for reason, files in reasons.items():
-        print(f"{reason}: {', '.join(files)}")
+        if name in reasons and name != "Packaging":
+            picked.update(checks)
+    full = FULL in reasons
+    packaged = "Packaging" in reasons
+    for reason, changed in reasons.items():
+        print(f"{reason}: {', '.join(changed)}")
     if not (picked or full or packaged):
         print("Documentation only; no checks selected." if paths else "No changed paths.")
         return
 
-    def files(prefix, suffix):
-        return sorted(path for path in picked if path.startswith(prefix) and path.endswith(suffix))
+    def files(prefix):
+        return sorted(path for path in picked if path.startswith(prefix))
 
-    checks = files("backend/e2e/", ".py")
+    checks = files("backend/e2e/")
     if full:
         checks = sorted(p.relative_to(ROOT).as_posix() for p in (ROOT / "backend/e2e").glob("*_check.py")
-                        if p.name != "packaged_shutdown_check.py")
-    units = files("backend/tests/", ".py")
-    specs = files("frontend/e2e/", ".spec.ts")
+                        if p != ROOT / SHUTDOWN)
+    units = files("backend/tests/")
+    specs = files("frontend/e2e/")
     visual = "frontend/e2e/visual/review.spec.ts"
     behavior = [path.removeprefix("frontend/") for path in specs if path != visual]
-    vitest = [path.removeprefix("frontend/") for path in sorted(picked) if path.startswith("frontend/src/")]
+    vitest = [path.removeprefix("frontend/") for path in files("frontend/src/")]
     print("\nPowerShell 7 (repository root)")
     if checks or units or full or packaged:
         print("$env:PYTHONPATH = (Get-Location).Path")
@@ -205,14 +204,14 @@ def plan(paths):
         print("$candidate = 'dist/part-test-' + [guid]::NewGuid()")
         print(f"{UV} build_scripts/embed_resources.py")
         print('uv run --locked --group build python build_scripts/pyinstaller_build.py --output-dir $candidate')
-        for check in package_checks:
-            if not check.endswith("/packaged_shutdown_check.py"):
+        for check in AREAS["Packaging"][1]:
+            if check != SHUTDOWN:
                 print(f'{UV} {check} "$candidate/RobotControl"')
-        print(f'{UV} backend/e2e/packaged_database_smoke.py "$candidate/RobotControl" --authoring '
+        print(f'{UV} {DATABASE_SMOKE} "$candidate/RobotControl" --authoring '
               '--evidence test-output/part-test-authoring')
-        if "backend/e2e/packaged_shutdown_check.py" in paths:
+        if SHUTDOWN in paths:
             print("# Owner-run in a Windows console with a camera")
-            print(f'{UV} backend/e2e/packaged_shutdown_check.py "$candidate/RobotControl"')
+            print(f'{UV} {SHUTDOWN} "$candidate/RobotControl"')
 
 
 if __name__ == "__main__":
