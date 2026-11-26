@@ -385,11 +385,16 @@ def pyhsl_alert_email(*, run: Dict[str, Any], trigger: str) -> AlertEmail:
     rows = [('Status', _one_line(run['status']))]
     if run.get('mode'):
         rows.append(('Mode', _one_line(run['mode'])))
-    if run.get('error'):
-        rows.append(('Error', _one_line(run['error'])))
+    error = run.get('error')
+    displayed_error = run.get('error_summary') or error
+    troubleshooting = [('Run ID', run['run_id'])]
+    if displayed_error:
+        rows.append(('Error', _one_line(displayed_error)))
+    if error and displayed_error != error:
+        troubleshooting.append(('Full error', error))
     return AlertEmail('warning' if review else 'error', fact.capitalize(),
                       _one_line(run['protocol']), fact, summary, rows=rows,
-                      troubleshooting=[('Run ID', run['run_id'])],
+                      troubleshooting=troubleshooting,
                       footer='You are receiving this message because you are listed for RobotControl recovery alerts.')
 
 

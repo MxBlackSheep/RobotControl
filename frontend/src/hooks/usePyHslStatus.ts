@@ -5,7 +5,7 @@ import type { StatusTone } from '../theme';
 
 export type PyHslRun = {
   run_id: string; protocol: string; status: string; mode: string | null;
-  completed_count: number | null; error: string | null; origin: string | null; created_at: string;
+  completed_count: number | null; error: string | null; error_summary?: string | null; origin: string | null; created_at: string;
 };
 
 export type PyHslStatus = {

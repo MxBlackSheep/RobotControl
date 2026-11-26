@@ -254,7 +254,7 @@ class PyHslRunner:
                     else:
                         status = 'completed' if terminal['status'] == 'completed' else 'failed'
                         note = (f'PyHSL run {run_id} needs a Run review in Run Control' if review else
-                                terminal.get('error') if status == 'failed' else None)
+                                (terminal.get('error_summary') or terminal.get('error')) if status == 'failed' else None)
                         trigger = 'pyhsl_review_required' if review else 'execution_failed' if status == 'failed' else None
                         self._finish(schedule, execution, status, note, trigger, hold=review)
                     return

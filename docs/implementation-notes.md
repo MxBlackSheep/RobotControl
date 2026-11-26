@@ -7,6 +7,10 @@ The log preview and database tools checks now pass in a clean checkout: the log 
 rewrite a later modification time, the original culture-history script is committed beside the check, and the
 check prints plain ASCII.
 
+## 2026-11-26 PyHSL's one-line failure
+
+- Before, a failed PyHSL run put its whole error, traceback included, on the Overview card, in history and in alert mail. Now they show PyHSL's `error_summary` when it sends one, and the error as before when it does not. An independently monitored run's alert keeps the full text under troubleshooting. RobotControl does no shortening of its own.
+
 ## 2026-11-25 Champions volume limit at registration
 
 - Before, registration accepted a Champions target well volume above the 1000 uL deep-well plate. Now the Champions experiment package (1.0.1) bounds the field at 1000 in its manifest, so the registration form and the server refuse a larger value. An existing installation takes the bound after the new ZIP is imported.

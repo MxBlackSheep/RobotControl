@@ -26,7 +26,7 @@ export default function PyHslPanel({ status, span, canOpen }: { status: PyHslSta
         {typeof run.completed_count === 'number' && <span>{run.completed_count} done</span>}
         {run.origin === 'machine' && <span>Scheduled</span>}
       </Stack>
-      {run.error && <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>{run.error}</Typography>}
+      {(run.error_summary || run.error) && <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>{run.error_summary || run.error}</Typography>}
       {canOpen && <Button variant="outlined" component={Link} to={`/pyhsl?run=${run.run_id}`} sx={{ alignSelf: 'flex-start' }}>Open run</Button>}
     </>}
     {reviews.blocked && <Typography variant="body2">Record the Run review in Run Control on the workstation.</Typography>}

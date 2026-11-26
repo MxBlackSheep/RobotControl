@@ -8,6 +8,7 @@ Failure cases (Run Control reply shapes recorded in Simulation, 9 November 2026)
 2. A real 20-second POST leaves edits and status reads responsive.
 3. Lost reply: adopt the run without another POST or database preparation.
 4. Every status/review/refusal outcome; error wording cannot classify an abort.
+   Failed execution history and mail prefer the supplied summary and fall back to the legacy error.
 5. Acknowledge refuses review, an active or unreadable review list, then succeeds.
 6. Unavailable waits in place and alerts once at 180 seconds; VENUS behind it waits
    until PyHSL finishes. Active/review/unknown gates and a locked store keep the worker alive.
@@ -145,6 +146,8 @@ class RunControl(BaseHTTPRequestHandler):
             s.runs[run_id] = dict(run_id=run_id, status=s.outcome, host_status='closed',
                 created_at=datetime.now().isoformat(), error=s.error, mode=data['mode'],
                 configuration={'request_id': data['request_id']})
+            if s.error_summary is not None:
+                s.runs[run_id]['error_summary'] = s.error_summary
         if s.lose_reply:
             s.lose_reply = False
             self.connection.shutdown(socket.SHUT_RDWR)
@@ -173,6 +176,7 @@ def fixture(*, allow_venus=False):
         server.instance_id, server.revision = 'instance-one', 'revision-one'
         server.validate_code = server.start_code = 200
         server.error, server.outcome = 'abort; stopped by user ' + TOKEN, 'completed'
+        server.error_summary = None
         server.runs, server.posts = {}, []
         server.catalog = []
         server.reviews = dict(cases=[], blocked=False, active=False)
@@ -256,6 +260,8 @@ def outcomes():
         with fixture() as f:
             s = schedule(f)
             f.server.outcome = outcome
+            if outcome == 'failed':
+                f.server.error_summary = 'The transfer failed.'
             if review:
                 f.server.reviews = dict(active=False, blocked=True,
                     cases=[dict(run_id='fixture-run', requires_review=True)])
@@ -265,6 +271,11 @@ def outcomes():
             saved = f.storage.get_schedule_by_id(s.schedule_id)
             assert e.status == status and saved.recovery_required == hold and not saved.is_active
             assert [x[0] for x in f.sent] == ([trigger] if trigger else [])
+            if trigger == 'execution_failed':
+                expected = f.server.error_summary or f.server.error.replace(TOKEN, '[redacted]')
+                assert e.error_message == expected and expected in f.sent[0][2].text()
+            if review:
+                assert e.error_message == 'PyHSL run fixture-run needs a Run review in Run Control'
             assert f.server.posts[0]['request_id'] == eid
             assert f.server.posts[0]['mode'] == 'simulation'
             assert f.prepared == [eid] and not f.launched

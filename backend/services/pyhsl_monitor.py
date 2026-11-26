@@ -16,7 +16,7 @@ TERMINAL_STATUSES = {'completed', 'failed', 'stopped', 'outcome_unknown', 'recon
 FAILED_STATUSES = {'failed', 'outcome_unknown', 'reconciliation_required'}
 REVIEW_READ_SECONDS = 120
 REVIEW_READ_TIMEOUT = 30
-RUN_FIELDS = ('run_id', 'protocol', 'status', 'mode', 'completed_count', 'error', 'origin', 'created_at')
+RUN_FIELDS = ('run_id', 'protocol', 'status', 'mode', 'completed_count', 'error', 'error_summary', 'origin', 'created_at')
 
 
 class PyHslMonitor:
