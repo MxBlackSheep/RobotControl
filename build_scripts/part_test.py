@@ -1,5 +1,6 @@
 """Print the RobotControl part-test plan. Run from the repository root."""
 import argparse
+import ast
 from collections import defaultdict
 from fnmatch import fnmatchcase
 from pathlib import Path
@@ -114,6 +115,12 @@ AREAS = {
     "SQLite health": area("frontend/src/components/SQLiteHealthPanel.tsx backend/api/sqlite_health.py backend/services/sqlite_health.py",
                           units="sqlite_safety", browser="system-pages", vitest="components/SQLiteHealthPanel.test.tsx"),
     "Visual review": area("frontend/e2e/visual/*", browser="visual/review"),
+    "Stored method paths": area("backend/services/scheduling/method_library.py", e2e="stored_data"),
+    "Scheduling route responsiveness": area("backend/api/scheduling.py", units="notification_responsiveness"),
+    "Table viewer sources": area("frontend/src/components/ReportInputs.tsx", browser="database"),
+    "Run deck sizing": area("frontend/src/components/labware/useLabwareWorkspace.ts", browser="pyhsl"),
+    "Scheduling queue status": area("frontend/src/hooks/useRobotStatus.ts", browser="operations"),
+    "Held run trace": area("frontend/src/services/logFileApi.ts", browser="system-pages"),
 }
 
 
@@ -127,6 +134,18 @@ def changed_paths(base):
     diff = ["diff", "--name-only", "--no-renames", "-z"]
     return (git_paths(*diff, ancestor, "HEAD") | git_paths(*diff, "--cached")
             | git_paths(*diff) | git_paths("ls-files", "--others", "--exclude-standard", "-z"))
+
+
+def imported_modules(check):
+    for node in ast.walk(ast.parse(check.read_bytes(), filename=str(check))):
+        if isinstance(node, ast.Import):
+            yield from (alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            parent = node.module or ""
+            if node.level == 1:
+                parent = ("backend.e2e." + parent).rstrip(".")
+            yield parent
+            yield from (f"{parent}.{alias.name}" for alias in node.names)
 
 
 def reasons_for(path):
@@ -147,12 +166,21 @@ def reasons_for(path):
 
 
 def plan(paths):
-    reasons = defaultdict(list)
+    reasons = defaultdict(set)
+    picked = set()
+    changed_modules = {path[:-3].replace("/", "."): path for path in paths if fnmatchcase(path, "backend/e2e/*.py")}
+    if changed_modules:
+        checks = set((ROOT / "backend/e2e").glob("*_check.py")) | {ROOT / p for p in AREAS["Packaging"][1]}
+        for check in checks:
+            for module in changed_modules.keys() & set(imported_modules(check)):
+                reasons["Direct importer"].add(changed_modules[module])
+                picked.add(check.relative_to(ROOT).as_posix())
     for path in sorted(paths):
         for reason in reasons_for(path):
-            reasons[reason].append(path)
+            if reason != FULL or path not in reasons.get("Direct importer", ()):
+                reasons[reason].add(path)
 
-    picked = set(reasons.get("Changed check", ()))
+    picked.update(reasons.get("Changed check", ()))
     for name, (_, checks) in AREAS.items():
         for check in checks:
             if not (ROOT / check).is_file():
@@ -160,10 +188,14 @@ def plan(paths):
         if name in reasons and name != "Packaging":
             picked.update(checks)
     full = FULL in reasons
-    packaged = "Packaging" in reasons
+    package_checks = picked.intersection(AREAS["Packaging"][1])
+    picked -= package_checks
+    if "Packaging" in reasons:
+        package_checks.update(set(AREAS["Packaging"][1]) - {SHUTDOWN})
+        package_checks.update({SHUTDOWN}.intersection(paths))
     for reason, changed in reasons.items():
-        print(f"{reason}: {', '.join(changed)}")
-    if not (picked or full or packaged):
+        print(f"{reason}: {', '.join(sorted(changed))}")
+    if not (picked or full or package_checks):
         print("Documentation only; no checks selected." if paths else "No changed paths.")
         return
 
@@ -180,7 +212,7 @@ def plan(paths):
     behavior = [path.removeprefix("frontend/") for path in specs if path != visual]
     vitest = [path.removeprefix("frontend/") for path in files("frontend/src/")]
     print("\nPowerShell 7 (repository root)")
-    if checks or units or full or packaged:
+    if checks or units or full or package_checks:
         print("$env:PYTHONPATH = (Get-Location).Path")
     if full or "backend/tests/test_h264_encoder.py" in units or "backend/e2e/clip_transcode_check.py" in checks:
         print(f"{UV} build_scripts/fetch_ffmpeg.py")
@@ -191,25 +223,28 @@ def plan(paths):
         print(f"{UV} {check}{args}")
     if full or vitest:
         print("npm --prefix frontend test" + (" -- " + " ".join(vitest) if not full else ""))
-    if full or specs or packaged:
+    if full or specs or package_checks:
         print("npm --prefix frontend run build")
     if full or specs:
         print("Push-Location frontend")
         if full or behavior:
             print("npx playwright test" + (" " + " ".join(behavior) if not full else ""))
-        if visual in specs:
+        if full or visual in specs:
             print("npx playwright test --config playwright.visual.config.ts")
         print("Pop-Location")
-    if packaged:
+    if full:
+        for script in ("status-stall-probe.py", "native-zoom.cjs", "labware-native-zoom.cjs"):
+            print(f"# Manual check omitted: frontend/e2e/{script}")
+    if package_checks:
         print("$candidate = 'dist/part-test-' + [guid]::NewGuid()")
         print(f"{UV} build_scripts/embed_resources.py")
         print('uv run --locked --group build python build_scripts/pyinstaller_build.py --output-dir $candidate')
-        for check in AREAS["Packaging"][1]:
-            if check != SHUTDOWN:
-                print(f'{UV} {check} "$candidate/RobotControl"')
-        print(f'{UV} {DATABASE_SMOKE} "$candidate/RobotControl" --authoring '
-              '--evidence test-output/part-test-authoring')
-        if SHUTDOWN in paths:
+        for check in sorted(package_checks - {SHUTDOWN}):
+            print(f'{UV} {check} "$candidate/RobotControl"')
+        if DATABASE_SMOKE in package_checks:
+            print(f'{UV} {DATABASE_SMOKE} "$candidate/RobotControl" --authoring '
+                  '--evidence test-output/part-test-authoring')
+        if SHUTDOWN in package_checks:
             print("# Owner-run in a Windows console with a camera")
             print(f'{UV} {SHUTDOWN} "$candidate/RobotControl"')
 

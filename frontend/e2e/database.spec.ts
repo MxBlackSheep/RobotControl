@@ -150,8 +150,16 @@ test('phone table shows row cards with the page, sorting and paging', async ({ p
   await expect(page.getByText('1–25 of 32', { exact: true })).toBeVisible();
   const workspace = page.getByLabel('Database table workspace');
   // One scroll: nothing inside the workspace scrolls vertically.
-  expect(await workspace.evaluate(root => [...root.querySelectorAll('*')].filter(element =>
+  const expectOneScroll = async () => expect(await workspace.evaluate(root => [...root.querySelectorAll('*')].filter(element =>
     /auto|scroll/.test(getComputedStyle(element).overflowY) && element.scrollHeight > element.clientHeight + 1).length)).toBe(0);
+  // The paging bar rests on the page bar: never under it, no gap above it.
+  const expectBarOnPages = async () => {
+    const pagesTop = await page.getByRole('navigation', { name: 'Pages' }).evaluate(nav => nav.getBoundingClientRect().top);
+    const { barBottom } = await phoneCardLayout(page);
+    expect(barBottom).toBeLessThanOrEqual(pagesTop + 1);
+    expect(barBottom).toBeGreaterThan(pagesTop - 2);
+  };
+  await expectOneScroll();
   const cards = page.getByRole('list', { name: 'dbo.ActivePlateView rows' }).getByRole('listitem');
   await expect(cards).toHaveCount(25);
   // Each card shows its own row: label and value of the first visible columns.
@@ -162,13 +170,11 @@ test('phone table shows row cards with the page, sorting and paging', async ({ p
 
   await page.mouse.wheel(0, 600);
   await expect.poll(async () => (await phoneCardLayout(page)).cards).toBeGreaterThanOrEqual(3);
+  await expectBarOnPages();
   await page.setViewportSize({ width: 375, height: 667 });
   await expect.poll(async () => (await phoneCardLayout(page)).cards).toBeGreaterThanOrEqual(2);
-  // The paging bar rests on the page bar: never under it, no gap above it.
-  const pagesTop = await page.getByRole('navigation', { name: 'Pages' }).evaluate(nav => nav.getBoundingClientRect().top);
-  const { barBottom } = await phoneCardLayout(page);
-  expect(barBottom).toBeLessThanOrEqual(pagesTop + 1);
-  expect(barBottom).toBeGreaterThan(pagesTop - 2);
+  await expectOneScroll();
+  await expectBarOnPages();
 
   // Tapping a card opens that row's inspector with every column.
   await page.getByRole('button', { name: 'Inspect row 3', exact: true }).click();

@@ -147,7 +147,8 @@ for (const viewport of [{ width: 3840, height: 2160 }, { width: 1280, height: 72
   const grid = page.getByRole('group', { name: `${left[0]} tips`, exact: true });
   // Only on a phone does the rack dialog narrow tips (at least 24px) to fit all twelve columns; the same
   // dialog on a tablet or narrow desktop window (e.g. 1024x600) keeps 44px targets.
-  const phoneDialog = viewport.width < 600 && await page.getByRole('dialog').isVisible();
+  const phoneDialog = viewport.width < 600;
+  if (viewport.width < 600 || viewport.width >= 1280) await expect(page.getByRole('dialog')).toHaveCount(phoneDialog ? 1 : 0);
   const first = grid.getByRole('button').first(); const box = await first.boundingBox(); expect(box!.width).toBeGreaterThanOrEqual(phoneDialog ? 23.9 : 43.9); expect(box!.height).toBeGreaterThanOrEqual(43.9);
   const dot = await first.locator('[data-tip-dot]').boundingBox(); expect(Math.abs(dot!.width - dot!.height)).toBeLessThan(0.1);
   const scrollBody = page.locator('[data-tip-editor-body]');
@@ -183,12 +184,23 @@ for (const viewport of [{ width: 3840, height: 2160 }, { width: 1280, height: 72
   await page.getByRole('group', { name: 'Set tips to', exact: true }).getByRole('button', { name: 'Dirty', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Set entire rack', exact: true })).toBeEnabled();
   if (viewport.width >= 1280) expect((await page.locator('[data-rack-editor]').boundingBox())!.width - (await grid.boundingBox())!.width).toBeLessThan(40);
-  // The far column is reachable: a sideways overflow can be scrolled, and its last tip comes fully on screen with nothing over it.
-  const last = grid.getByRole('button').last();
-  if (phoneDialog) await expect(last).toBeInViewport({ ratio: 1 });
-  if (clipping.horizontal) expect(await scrollBody.evaluate(element => getComputedStyle(element).overflowX)).toMatch(/auto|scroll/);
-  await last.scrollIntoViewIfNeeded(); await expect(last).toBeInViewport({ ratio: 1 });
-  expect(await last.evaluate(element => { const bounds = element.getBoundingClientRect(); return element.contains(document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2)); })).toBe(true);
+  // The far column (tips 89 to 96) is reachable by the user: scroll sideways only as a user can (the wheel), then no
+  // clipping ancestor may cut a tip off; each end of the column comes on screen with nothing over it.
+  if (phoneDialog) await expect(grid.getByRole('button', { name: /^Tip 96,/ })).toBeInViewport({ ratio: 1 });
+  if (clipping.horizontal) { await scrollBody.hover(); await page.mouse.wheel(5000, 0); await page.waitForTimeout(300); }
+  for (const tip of [89, 96]) {
+    const cell = grid.getByRole('button', { name: new RegExp(`^Tip ${tip},`) });
+    expect(await cell.evaluate(element => {
+      const bounds = element.getBoundingClientRect();
+      for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+        const box = parent.getBoundingClientRect();
+        if (getComputedStyle(parent).overflowX !== 'visible' && (bounds.left < box.left - 1 || bounds.right > box.right + 1)) return true;
+      }
+      return bounds.right > innerWidth + 1;
+    })).toBe(false);
+    await cell.scrollIntoViewIfNeeded(); await expect(cell).toBeInViewport({ ratio: 1 });
+    expect(await cell.evaluate(element => { const bounds = element.getBoundingClientRect(); return element.contains(document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2)); })).toBe(true);
+  }
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   await info.attach(`joined-workbench-${viewport.width}`, { body: await page.screenshot({ animations: 'disabled' }), contentType: 'image/png' });
 });
