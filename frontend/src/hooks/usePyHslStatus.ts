@@ -29,12 +29,21 @@ export function usePyHslStatus() {
 
 /** The PyHSL run of an execution history row, when it has one. */
 export function pyhslRunId(record: { pyhsl?: unknown }): string | null {
+  return receiptText(record, 'run_id');
+}
+
+/** The whole error of a failed scheduled run, kept when its history message is PyHSL's one-line summary. */
+export function pyhslFullError(record: { pyhsl?: unknown }): string | null {
+  return receiptText(record, 'error');
+}
+
+function receiptText(record: { pyhsl?: unknown }, key: 'run_id' | 'error'): string | null {
   let receipt = record.pyhsl;
   if (typeof receipt === 'string') {
     try { receipt = JSON.parse(receipt); } catch { return null; }
   }
-  const id = (receipt as { run_id?: unknown } | null | undefined)?.run_id;
-  return typeof id === 'string' ? id : null;
+  const value = (receipt as Record<string, unknown> | null | undefined)?.[key];
+  return typeof value === 'string' ? value : null;
 }
 
 /** Run Control's state for the instrument strip. Unknown is never healthy. */

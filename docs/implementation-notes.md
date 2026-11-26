@@ -9,7 +9,7 @@ check prints plain ASCII.
 
 ## 2026-11-26 PyHSL's one-line failure
 
-- Before, a failed PyHSL run put its whole error, traceback included, on the Overview card, in history and in alert mail. Now they show PyHSL's `error_summary` when it sends one, and the error as before when it does not. An independently monitored run's alert keeps the full text under troubleshooting. RobotControl does no shortening of its own.
+- Where RobotControl showed a PyHSL run's whole error, traceback included (Overview card, history, alert mail), it now shows PyHSL's `error_summary` when one is sent, and the error as before when not. History keeps the full text of a failed scheduled run under the summary, and an independently monitored run's alert keeps it under troubleshooting. RobotControl does no shortening of its own.
 
 ## 2026-11-25 Champions volume limit at registration
 

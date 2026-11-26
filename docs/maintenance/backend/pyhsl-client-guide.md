@@ -39,8 +39,10 @@ terminal statuses. `pyhsl_review_required` asks a person to record the Run revie
 in Run Control. Both use recovery recipients and the shared alert email format.
 Only non-machine runs created within the last 24 hours qualify. Machine runs are
 owned by the scheduler runner, which sends execution alerts to schedule contacts.
-For a failed scheduled execution, history and email show PyHSL's `error_summary`
-when supplied, or its `error` otherwise. A required Run review keeps its own note.
+Where scheduled execution history and email show PyHSL's error, they use
+`error_summary` when supplied and fall back to `error`. Required Run reviews
+and unknown outcomes keep their own notes. When the summary is shown, the
+execution receipt keeps any distinct full error in `pyhsl.error`.
 Independent run alerts use the same fallback in the Error row and include a
 different full error under “Full error” for troubleshooting.
 For independently monitored runs, NotificationLog stores the

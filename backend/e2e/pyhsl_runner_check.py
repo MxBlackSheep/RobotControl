@@ -8,7 +8,7 @@ Failure cases (Run Control reply shapes recorded in Simulation, 9 November 2026)
 2. A real 20-second POST leaves edits and status reads responsive.
 3. Lost reply: adopt the run without another POST or database preparation.
 4. Every status/review/refusal outcome; error wording cannot classify an abort.
-   Failed execution history and mail prefer the supplied summary and fall back to the legacy error.
+   When history and mail show the summary, the saved receipt keeps any distinct full error.
 5. Acknowledge refuses review, an active or unreadable review list, then succeeds.
 6. Unavailable waits in place and alerts once at 180 seconds; VENUS behind it waits
    until PyHSL finishes. Active/review/unknown gates and a locked store keep the worker alive.
@@ -272,8 +272,13 @@ def outcomes():
             assert e.status == status and saved.recovery_required == hold and not saved.is_active
             assert [x[0] for x in f.sent] == ([trigger] if trigger else [])
             if trigger == 'execution_failed':
-                expected = f.server.error_summary or f.server.error.replace(TOKEN, '[redacted]')
+                full_error = f.server.error.replace(TOKEN, '[redacted]')
+                expected = f.server.error_summary or full_error
                 assert e.error_message == expected and expected in f.sent[0][2].text()
+            if trigger == 'execution_failed' and expected != full_error:
+                assert e.pyhsl['error'] == full_error
+            else:
+                assert 'error' not in e.pyhsl
             if review:
                 assert e.error_message == 'PyHSL run fixture-run needs a Run review in Run Control'
             assert f.server.posts[0]['request_id'] == eid
