@@ -13,6 +13,8 @@ Failure cases:
 10. Runs older than 24 hours: no email.
 11. HTTP 401: unknown with a reason.
 12. The review list, which makes Run Control parse every journal, is read only when a run row changes.
+13. Monitor status exposes the optional error summary. Failure mail uses it when present,
+    keeps a different full error for troubleshooting, and falls back to the older error field.
 
 Run with PYTHONPATH set to the checkout. No installed PyHSL or Hamilton is used.
 """
@@ -129,16 +131,22 @@ def run():
                     assert monitor.status()['state'] == 'unknown'
                 assert len(server.requests) == before
                 discover()
-                server.runs = [row('failed')]
+                summary = 'The transfer failed.'
+                error = 'Transfer failed\nTraceback detail'
+                server.runs = [dict(row('failed'), error_summary=summary, error=error)]
                 for _ in range(2):
                     monitor.poll()
                 monitor = PyHslMonitor(client, email=email)
                 monitor.poll()
                 assert len(email.messages) == 1
+                body = email.messages[0][1]
+                assert any(line.split() == ['Error:', *summary.split()] for line in body.splitlines())
+                assert body.count('Full error: ' + error) == 1
                 assert db.get_notification_logs()[0].execution_id == 'run'
                 for status in ['outcome_unknown', 'reconciliation_required']:
-                    server.runs = [row(status, status)]
+                    server.runs = [dict(row(status, status), error='Legacy failure')]
                     monitor.poll(); monitor.poll()
+                    assert 'Legacy failure' in email.messages[-1][1] and 'Full error:' not in email.messages[-1][1]
                 assert len(email.messages) == 3
                 server.runs = [row('failed')]
                 server.reviews = {'cases': [{'run_id': 'run', 'requires_review': True}], 'blocked': True, 'active': False}
@@ -155,10 +163,12 @@ def run():
                 server.runs = [row('future_status', 'future')]
                 monitor.poll()
                 assert monitor.status()['run']['status'] == 'future_status'
+                assert monitor.status()['run']['error_summary'] is None
                 assert monitor.status()['state'] == 'running' and len(email.messages) == 4
-                server.runs = [dict(row('running'), error='MACHINE-SECRET')]
+                server.runs = [dict(row('running'), error='MACHINE-SECRET', error_summary=summary)]
                 monitor.poll()
                 assert monitor.status()['run']['error'] == '[redacted]'
+                assert monitor.status()['run']['error_summary'] == summary
                 server.code = 401
                 monitor.poll()
                 assert monitor.status()['state'] == 'unknown' and '401' in monitor.status()['reason']
@@ -224,7 +234,7 @@ def run():
                 exposed = logs.getvalue() + repr(email.messages) + repr(monitor.status()) + response.text
                 assert 'MACHINE-SECRET' not in exposed and 'BOOTSTRAP-SECRET' not in exposed
             server.shutdown()
-        print('PyHSL HTTP/SQLite check: all eleven failure cases passed.')
+        print('PyHSL HTTP/SQLite check: all failure cases passed.')
     finally:
         logging.getLogger().removeHandler(handler)
 

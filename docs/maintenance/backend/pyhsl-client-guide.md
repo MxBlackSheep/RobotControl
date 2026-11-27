@@ -39,6 +39,12 @@ terminal statuses. `pyhsl_review_required` asks a person to record the Run revie
 in Run Control. Both use recovery recipients and the shared alert email format.
 Only non-machine runs created within the last 24 hours qualify. Machine runs are
 owned by the scheduler runner, which sends execution alerts to schedule contacts.
+Where scheduled execution history and email show PyHSL's error, they use
+`error_summary` when supplied and fall back to `error`. Required Run reviews
+and unknown outcomes keep their own notes. When the summary is shown, the
+execution receipt keeps any distinct full error in `pyhsl.error`.
+Independent run alerts use the same fallback in the Error row and include a
+different full error under “Full error” for troubleshooting.
 For independently monitored runs, NotificationLog stores the
 PyHSL run ID as `execution_id`; any existing record for that run and trigger,
 including pending or unsuccessful delivery, suppresses automatic resending.
@@ -66,6 +72,13 @@ and 504; other upstream errors return 502.
 Deck and run responses relay the complete upstream JSON bodies unchanged, subject
 to the client's machine-token redaction, for PyHSL's Monitoring API view on the Run
 page; no field is filtered or derived. Run polling does not request the review list.
+RobotControl passes `current.requested_at`, `wait.remaining_seconds` and `server_time`
+through to PyHSL's monitor bundle without using them itself.
+
+RobotControl never opens PyHSL's `/api/v1/runs/{id}/events`. Opening it registers
+a watcher. With a watcher, a Simulation run holds each completed step until a page
+reports that it has drawn the step or the pacing time expires. RobotControl never
+sends that acknowledgement.
 
 RobotControl fetches the monitor script from the PyHSL service
 after the same discovery and instance verification, without sending the machine

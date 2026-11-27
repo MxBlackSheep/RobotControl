@@ -1,6 +1,7 @@
 import { Link as MuiLink } from '@mui/material';
 import { Link as RouterLink } from 'react-router-dom';
-import { pyhslRunId } from '../hooks/usePyHslStatus';
+import { pyhslFullError, pyhslRunId } from '../hooks/usePyHslStatus';
+import PyHslFullError from './PyHslFullError';
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Box,
@@ -47,6 +48,7 @@ interface ExecutionHistoryProps {
 interface ExecutionRecord {
   execution_id: string;
   pyhslRun?: string | null;
+  pyhslError?: string | null;
   schedule_id: string;
   experiment_name: string;
   experiment_name_snapshot?: string | null;
@@ -94,6 +96,7 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
         const execution: ExecutionRecord = {
           execution_id: record.execution_id,
           pyhslRun: pyhslRunId(record),
+          pyhslError: pyhslFullError(record),
           schedule_id: record.schedule_id,
           experiment_name: snapshotName || responseName || 'Archived Schedule',
           experiment_name_snapshot: snapshotName,
@@ -498,6 +501,7 @@ export const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
                             <Typography variant="body2" color="text.secondary">
                               {execution.error_message}
                             </Typography>
+                            <PyHslFullError error={execution.pyhslError ?? null} />
                           </Box>
                         </Collapse>
                       </TableCell>
